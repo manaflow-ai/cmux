@@ -462,7 +462,9 @@ export function playTurnEnd(
       store.set(node, next);
     };
     /// The rows that start clipped this pass: where each starts, the bottom it draws, its bottom at rest.
-    const covers: { top: number; shown: number; bottom: number }[] = [];
+    const covers: { top: number; bottom: number }[] = [];
+    /// Where each copy starts drawn (a top in the view, as `tops`).
+    const copyStarts = copies.map((copy) => startTop(copy, gone.find((entry) => entry.copy === copy)!.top));
     nodes.forEach((node, index) => {
       const before = was.get(node.dataset.rowId!);
       if (!before) {
@@ -480,10 +482,16 @@ export function playTurnEnd(
       // lagging, there's a breif moment where ther'es overlapping text between the sent out text (from
       // you) and the subequent tool calls/thinking"). It starts clipped where it drew then and opens on
       // the fold's clock, and each copy it covers goes down out from under it on the same clock (below).
+      // It never starts drawn past the top of a copy under it either: the swap's own render can grow
+      // it (the reply's last lines revealed as the turn ends, 91 px), and the clip read at the swap
+      // came from the pass before that growth, so a clip from it alone left the row's newest line over
+      // the copy in the fold's first frame (agent-pane-stream-row-overlap, chromium lagging: 14 px).
+      const from = startTop(node, before.top);
       const shown = starts.get(node)?.shown ?? before.shown;
       const height = node.offsetHeight;
-      const clip = shown === undefined ? 0 : Math.max(0, startTop(node, before.top) + height - shown);
-      if (clip >= 0.5) covers.push({ top: startTop(node, before.top), shown: shown!, bottom: tops[index]! + height });
+      let clip = shown === undefined ? 0 : Math.max(0, from + height - shown);
+      for (const copyTop of copyStarts) if (copyTop > from) clip = Math.max(clip, from + height - copyTop);
+      if (clip >= 0.5) covers.push({ top: from, bottom: tops[index]! + height });
       if (Math.abs(delta) < 0.5 && clip < 0.5 && !moving.has(node)) return;
       restart(node, moving, { delta, fades: false, animations: [], clip }, () => [
         [{ translate: `0 ${delta}px` }, { translate: "0 0" }],
@@ -491,16 +499,14 @@ export function playTurnEnd(
       ]);
     });
     copies.forEach((copy, order) => {
-      const row = gone.find((entry) => entry.copy === copy)!;
-      const from = startTop(copy, row.top);
+      const from = copyStarts[order]!;
       const at = from - copyTops[order]!;
       let end = look === "tuck" && line !== undefined ? line - copyTops[order]! : at;
       // Under a clipped row (above): it ends no higher than that row's bottom at rest, so with the clip
       // opening on the same clock, the row's drawn bottom never passes the copy's drawn top. The move
       // is linear in the fold's progress on both, so where it holds at the first and last frame it
       // holds on every frame between.
-      for (const cover of covers)
-        if (cover.top < from && cover.shown <= from + 1) end = Math.max(end, cover.bottom - copyTops[order]!);
+      for (const cover of covers) if (cover.top < from) end = Math.max(end, cover.bottom - copyTops[order]!);
       const ink = starts.get(copy)?.opacity ?? 1;
       const last = copyMoves.get(copy);
       if (!grew && last && Math.abs(last.delta - at) < 0.5 && Math.abs((last.end ?? at) - end) < 0.5) return;
