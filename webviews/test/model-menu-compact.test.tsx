@@ -757,7 +757,8 @@ test("a filtered row the arrows moved to stays highlighted as the composer re-re
   await settle();
   const rows = modelRows(cols()!);
   expect(rows.length).toBeGreaterThan(1);
-  expect(rows[1]!.title).toContain("Claude Code");
+  // The first group heading names the chat's harness (a row's tooltip is its name alone, 2026-11-11).
+  expect(cols()!.querySelector(".acpmux-cols-group")?.textContent).toContain("Claude Code");
   const name = nameOf(rows[1]!);
   await key("ArrowDown");
   await settle();
@@ -1096,3 +1097,17 @@ test.each(["claude", "codex"])(
     }
   },
 );
+
+// Lawrence 2026-11-10 ("opus 5.5 medium fast": "we should communicate this better (that medium is selected)") and Leo
+// ("codex sol high": "it should highlight the path"): a search that names a level lights that level, checked, in the
+// highlighted row's Effort column, as what Enter lands.
+test("a search that names a level checks and lights that level in the Effort column", async () => {
+  await mount({ routes: [] });
+  await open();
+  await typeIn("opus high");
+  await settle();
+  const checked = levels().find((level) => level.getAttribute("aria-checked") === "true");
+  expect(checked && nameOf(checked)).toBe("High");
+  expect(checked?.hasAttribute("data-named")).toBe(true);
+  expect(levels().filter((level) => level.hasAttribute("data-named"))).toHaveLength(1);
+});

@@ -609,7 +609,11 @@ fn display_sender_name(sender: &Value, fallback: &str) -> String {
     let label = sender.get("label").and_then(Value::as_str).filter(|v| !v.is_empty());
     let declared = sender.get("labelDeclared").and_then(Value::as_bool) == Some(true);
     let authenticated = sender.get("authenticated").and_then(Value::as_bool) == Some(true);
+    // A name this host's sender token proved (`sender_token.rs`) is no self-declared label.
+    let token = sender.get(crate::sender_token::VERIFIED_BY_KEY).and_then(Value::as_str)
+        == Some(crate::sender_token::VERIFIED_BY);
     match (label, declared, authenticated) {
+        (Some(label), true, false) if token => label.to_owned(),
         (Some(label), true, false) => format!("{label} (self-declared, unauthenticated)"),
         (Some(label), true, true) if fallback.is_empty() => label.to_owned(),
         (Some(label), true, true) => format!("{fallback} (label: {label})"),
