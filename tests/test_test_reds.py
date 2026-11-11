@@ -774,6 +774,77 @@ class BunCountsTheIdentitiesItKeeps(unittest.TestCase):
                 self.assertEqual(self.unnamed(lines), [])
 
 
+
+class RetryDropsEveryKindOfItsAttempt(unittest.TestCase):
+    """#41329's review F1: "recap_failures() records bare titles, but retry cleanup removes only file-prefixed
+    identities. Two attempts that each recap `a > one` count it twice ... Class: a retry merge that drops only one of
+    an attempt's record kinds." And its follow-up F1 (test_reds.py:737): "retry cleanup removes only `file > title`
+    failures, while recap failures are stored as bare titles, so a superseded first run stays charged after a passing
+    retry. Store every failure, recap or named, under one identity that carries its file and attempt, and drop by
+    attempt." Each kind read_bun keeps goes with its attempt (BunAttempt): named failures, counts, diagnostics,
+    passes, ` N fail` markers, recap-only titles, an unhandled error named before its file's header, and whether the
+    attempt named anything at all."""
+
+    RETRY = "--- retry, alone ---"
+
+    def read(self, *lines):
+        found = reds.Result()
+        reds.read_bun(list(lines), found)
+        return found
+
+    def test_recap_only_titles_of_the_superseded_attempt_go(self):
+        attempt = bun_invocation(recap=["a > one"], fail=1)
+        found = self.read(*attempt, self.RETRY, *attempt)
+        self.assertEqual((found.counts, found.unnamed), (Counter({"a > one": 1}), []))
+
+    def test_a_superseded_recap_failure_is_not_charged_after_a_passing_retry(self):
+        found = self.read(*bun_invocation(recap=["a > one"], fail=1), self.RETRY, *bun_invocation())
+        self.assertEqual((found.failed, found.counts, found.unnamed), (set(), Counter(), []))
+        self.assertEqual(found.records, [])
+
+    def test_an_unhandled_error_before_the_files_header_goes_with_its_attempt(self):
+        first = ["bun test v1.3.0", "# Unhandled error between tests", "-------------------------------",
+                 "error: listen EADDRINUSE", "-------------------------------", "test/a.test.ts:",
+                 "error: expect(received).toBe(expected)", "(fail) a > one [1.00ms]", " 0 pass", " 2 fail"]
+        retry = bun_invocation(results=["a > one"])
+        self.assertIn("unhandled error: listen EADDRINUSE", self.read(*first).failed)
+        found = self.read(*first, self.RETRY, *retry)
+        self.assertEqual((found.failed, found.unnamed), ({"test/a.test.ts > a > one"}, []))
+
+    def test_a_superseded_attempts_named_failure_never_names_the_retry(self):
+        # The retry failed with nothing named (no `(fail)`, ` 0 fail`): the wrapper's `FAIL file` line is unnamed,
+        # whatever the superseded attempt named.
+        lines = [*bun_invocation(results=["a > one"]), self.RETRY, "bun test v1.3.0", "test/a.test.ts:",
+                 "error: Cannot find module './gone'", " 0 pass", " 0 fail", "FAIL test/a.test.ts (limit 120s)"]
+        self.assertEqual(reds.unnamed_failures(lines), ["FAIL test/a.test.ts (limit 120s)"])
+
+    def test_every_record_carries_its_step_and_attempt(self):
+        found = reds.read(log(*step("bun test a"), *bun_invocation(results=["a > one"]),
+                              "##[error]Process completed with exit code 1.",
+                              *step("bun test b"), *bun_invocation(recap=["b > two"], fail=2),
+                              "##[error]Process completed with exit code 1."))
+        self.assertEqual(found.records, [(1, 1, "failed", "test/a.test.ts > a > one"), (2, 1, "failed", "b > two"),
+                                         (2, 1, "unnamed", " 2 fail")])
+
+
+class BunStateStaysInItsStep(unittest.TestCase):
+    """#41329's review follow-up F2 (test_reds.py:751): "a `(fail)` from a passing step sets the global any_named,
+    which hides a later failed step's fallback `FAIL file` markers, so an unnamed failed file goes missing from
+    `unnamed`. Keep that state per step or invocation, not global." A step that passed is read by no reader
+    (red_lines); here a failed step's named failure must not name another failed step's file either."""
+
+    def test_a_named_failure_in_one_failed_step_never_names_anothers_fail_file(self):
+        named = [*step("bun test a"), *bun_invocation(results=["a > one"]),
+                 "##[error]Process completed with exit code 1."]
+        unnamed = [*step("bash scripts/run-webviews-tests.sh"), "FAIL test/b.test.ts (exit 1)",
+                   "##[error]Process completed with exit code 1."]
+        found = reds.read(log(*named, *unnamed))
+        self.assertEqual(found.unnamed, ["FAIL test/b.test.ts (exit 1)"])
+        unnamed_list: list = []
+        reds.failed_in(log(*named, *unnamed), unnamed_list)
+        self.assertEqual(unnamed_list, ["FAIL test/b.test.ts (exit 1)"])
+
+
 class PassingStepsPrintNoUnnamedFailure(unittest.TestCase):
     """#41244's review F1: "read_bun keeps unnamed markers from passing steps, so a passing negative-case step printing
     "(fail)" and "2 fail" makes judge() refuse an unrelated inherited red." A step that passed (passed_steps) prints no
@@ -791,6 +862,43 @@ class PassingStepsPrintNoUnnamedFailure(unittest.TestCase):
         # Printed by the failed step, the same count is the red's own.
         found = reds.read(log(*failing[:3], *bun_invocation(results=["a > one"], fail=2), *failing[3:]))
         self.assertEqual(found.unnamed, [" 2 fail"])
+
+
+
+class NoReaderSeesAPassingStepsLines(unittest.TestCase):
+    """#41244's review F1: "parse_log() hands every line to read_bun() before the passing-step filter, so a Bun
+    Result.unnamed marker from a passing step (one `(fail)` plus `2 fail`) marks the whole job truncated, and
+    read_head() can then refuse an unrelated red. Apply the step filter before every reader, not inside each one.
+    Fixture: a passing Bun step with those markers next to a failing step." parse_log filters the lines once
+    (red_lines); failed_tests' callers read the same source."""
+
+    PASSING = ["##[group]Run bun test test/negative.test.ts", "shell: /usr/bin/bash -e {0}", "##[endgroup]",
+               *bun_invocation(results=["a > one"], fail=2)]
+    FAILING = ["##[group]Run cargo test", "shell: /usr/bin/bash -e {0}", "##[endgroup]",
+               "test tests::reconnects ... FAILED",
+               "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out",
+               "##[error]Process completed with exit code 101."]
+
+    def test_a_passing_bun_steps_fail_and_count_are_no_readers(self):
+        job = log(*self.PASSING, *self.FAILING)
+        found = reds.read(job)
+        self.assertEqual((found.failed, found.unnamed, found.truncated), ({"tests::reconnects"}, [], []))
+        unnamed: list = []
+        self.assertEqual(reds.failed_tests(reds.red_lines(job), unnamed), Counter({"tests::reconnects": 1}))
+        self.assertEqual(unnamed, [])
+        # A base that fails only the cargo test fails the same way: the passing step's `(fail)` is no new failure.
+        base = log(*self.FAILING)
+        verdict = reds.classify(job, base, "web / tests")
+        self.assertFalse(verdict.own, verdict.reasons)
+
+    def test_a_passing_steps_named_bun_failure_does_not_hide_a_failing_steps_unnamed_one(self):
+        # The wrapper's `FAIL file` with no bun line naming a failure is unnamed; a `(fail)` a passing step printed
+        # named nothing of this red, so it is still unnamed.
+        failing = ["##[group]Run bash scripts/run-webviews-tests.sh", "shell: /usr/bin/bash -e {0}", "##[endgroup]",
+                   "FAIL test/b.test.ts (exit 1)", "##[error]Process completed with exit code 1."]
+        found = reds.read(log(*self.PASSING, *failing))
+        self.assertEqual(found.unnamed, ["FAIL test/b.test.ts (exit 1)"])
+        self.assertEqual(found.failed, set())
 
 
 class BunRetrySupersedesItsCount(unittest.TestCase):
