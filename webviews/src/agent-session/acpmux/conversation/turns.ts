@@ -1898,7 +1898,10 @@ function editsCard(edits: AcpmuxRow[]): AcpmuxRow[] {
 const staysOut = (row: AcpmuxRow) =>
   isSubagentGroup(row) ||
   (row.kind === "plan" && row.plan !== undefined) ||
-  row.kind === "backgroundTask" ||
+  // A background command that finished or was stopped is the turn's work, and folds with it as its
+  // call does (Leo, 2026-11-11: "Background command completed. Do those not count as the fucking
+  // works for?"). One that failed stays in sight, as it does in a run of them (backgroundRuns.ts).
+  (row.kind === "backgroundTask" && row.backgroundTask?.state === "failed") ||
   // An error or a refusal the pane noted, and an ask still waiting on the person.
   row.kind === "notice" ||
   row.kind === "permission" ||
