@@ -4701,6 +4701,16 @@ def ws_check_squash_tree(repo: str, head: str, tip: str) -> str:
         return subprocess.run(["git", "--git-dir", str(where), *args], capture_output=True, text=True, env=env,
                               timeout=GIT_SECONDS, input=text, stdin=None if text is not None else subprocess.DEVNULL)
 
+    def shallow() -> bool:
+        said = run("rev-parse", "--is-shallow-repository")
+        return said.returncode != 0 or said.stdout.strip() != "false"  # an unanswered check counts as shallow
+
+    def unshallow() -> None:
+        if shallow() and (run("fetch", "-q", "--no-tags", "--filter=blob:none", "--unshallow", "origin", head,
+                              tip).returncode or shallow()):
+            raise Refused(f"git's {repo} cache is shallow (git_commit's one-commit fetches) and its whole history "
+                          f"could not be fetched, so {head[:12]} cannot be merged with {tip[:12]} by their history")
+
     try:
         for commit in (head, tip):
             if run("cat-file", "-e", f"{commit}^{{commit}}").returncode:
@@ -4709,6 +4719,10 @@ def ws_check_squash_tree(repo: str, head: str, tip: str) -> str:
                         run("cat-file", "-e", f"{commit}^{{commit}}").returncode:
                     raise Refused(f"git cannot read {repo} commit {commit[:12]} (not in this host's mirror or cache, "
                                   "and its fetch failed)")
+        # Present is not complete: git_commit fills this cache one commit deep (`--depth=1`), so both commits can be
+        # here with their parents cut off, and merge-base or merge-tree then reads two unrelated histories (cmux#41386
+        # F1). Any shallow boundary may cut this merge's history, so the cache is made whole first, or nothing is said.
+        unshallow()
         if run("merge-base", "--is-ancestor", head, tip).returncode == 0:
             done = run("rev-parse", f"{head}^{{tree}}")
             merged = done.stdout.strip() if not done.returncode else ""
@@ -4720,6 +4734,8 @@ def ws_check_squash_tree(repo: str, head: str, tip: str) -> str:
                 raise Refused(f"{head[:12]} does not merge cleanly with the base tip {tip[:12]} (conflicts in: "
                               f"{', '.join(files[:5]) or 'unknown'}): no run tested the tree a squash would make")
             merged = lines[0] if not done.returncode and lines else ""
+        if shallow():  # another reader's one-commit fetch cut the history while this merge read it
+            raise Refused(f"git's {repo} cache went shallow while {head[:12]} was merged with {tip[:12]}; judge again")
         if not HEX40.fullmatch(merged):
             raise Refused(f"git cannot merge {head[:12]} with {tip[:12]}: {done.stderr.strip()[-200:] or 'no tree'}")
         shown = run("show", f"{merged}:{WS_CHECK_HOSTS_FILE}")
