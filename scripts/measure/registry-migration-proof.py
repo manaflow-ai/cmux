@@ -8,7 +8,8 @@ Arms, each on its own APFS clone of the generated state, with real owner process
          state is compared with it (an older build that shows less on BOTH is not a loss of the
          migration).
   main   start 1 (the owner folds, names the floor, builds the new registry beside the file;
-         its memory, CPU time and the time of one identify request are sampled), stop, start 2
+         its memory, CPU time, the time of an identify request and the time of a
+         rename-workspace request, which commits to the registry, are sampled), stop, start 2
          (the swap at open), stop, starts 3 and 4 (the replaced file gets its kept name and
          stays: the rule is 7 days AND 3 full starts), stop.
   second-swap  on a clone of the migrated state: this script removes the kept file (as the rule
@@ -204,52 +205,84 @@ def cpu_seconds(text):
     return total + (int(days) * 86400 if days else 0)
 
 
+def first_workspace(owner):
+    """The id of the first workspace in the owner's tree (None: the tree was not read)."""
+    reply, _ = request_line(owner, {"id": 3, "cmd": "list-workspaces"}, 120)
+    for workspace in ((reply or {}).get("data") or {}).get("workspaces") or []:
+        if isinstance(workspace, dict) and "id" in workspace:
+            return workspace["id"]
+    return None
+
+
+def spread(times):
+    """p50, p95, p99 and max of a list of milliseconds."""
+    times = sorted(times)
+
+    def pick(share):
+        return times[min(len(times) - 1, int(len(times) * share))] if times else None
+
+    return {"n": len(times), "p50": pick(0.5), "p95": pick(0.95), "p99": pick(0.99),
+            "max": times[-1] if times else None}
+
+
 class Sampler(threading.Thread):
     """While an owner runs, each `period` seconds: its resident memory and CPU time (ps, the
-    whole process) and the time of one identify request on its socket."""
+    whole process) and the time of one identify request on its socket. Each `write_every`
+    samples also one rename-workspace request: a request that commits to the registry (the
+    name of the first workspace goes between two values; no count of the proof changes)."""
 
-    def __init__(self, owner, period=0.5):
+    def __init__(self, owner, period=0.5, write_every=10):
         super().__init__(daemon=True)
         self.owner, self.period, self.rows, self.done = owner, period, [], threading.Event()
+        self.write_every = write_every
+        self.workspace = first_workspace(owner) if write_every else None
 
     def run(self):
         pid = str(self.owner.child.pid)
+        count = 0
         while not self.done.wait(self.period):
             at = self.owner.elapsed()
             try:
                 out = subprocess.run(["ps", "-o", "rss=", "-o", "cputime=", "-p", pid],
                                      capture_output=True, text=True, timeout=10).stdout.split()
-                row = (at, int(out[0]), cpu_seconds(out[1]))
+                row = {"at": at, "rss": int(out[0]), "cpu": cpu_seconds(out[1])}
             except (OSError, subprocess.SubprocessError, ValueError, IndexError):
                 continue
-            _, ms = request_line(self.owner, {"id": 1, "cmd": "identify"}, 30)
-            self.rows.append((*row, ms))
+            _, row["identify_ms"] = request_line(self.owner, {"id": 1, "cmd": "identify"}, 30)
+            count += 1
+            if self.workspace is not None and count % self.write_every == 0:
+                request = {"id": 4, "cmd": "rename-workspace", "workspace": self.workspace,
+                           "name": f"rmp-{count // self.write_every % 2}"}
+                reply, ms = request_line(self.owner, request, 60)
+                row["write"] = ms if reply is not None and reply.get("ok") is True else "refused"
+                if reply is None:
+                    row["write"] = "no answer"
+            self.rows.append(row)
 
     def stop(self):
         self.done.set()
-        self.join(timeout=60)
+        self.join(timeout=90)
 
     def phase(self, start, end):
         """The samples from `start` to `end` (seconds from spawn; None: no such phase)."""
         if start is None or end is None:
             return None
-        rows = [row for row in self.rows if start <= row[0] < end]
+        rows = [row for row in self.rows if start <= row["at"] < end]
         if len(rows) < 2:
             return {"samples": len(rows)}
-        times = sorted(row[3] for row in rows if row[3] is not None)
-
-        def pick(share):
-            return times[min(len(times) - 1, int(len(times) * share))] if times else None
-
-        wall = rows[-1][0] - rows[0][0]
-        cpu = rows[-1][2] - rows[0][2]
+        wall = rows[-1]["at"] - rows[0]["at"]
+        cpu = rows[-1]["cpu"] - rows[0]["cpu"]
+        writes = [row["write"] for row in rows if "write" in row]
+        identify = spread([row["identify_ms"] for row in rows if row["identify_ms"] is not None])
+        identify["no_answer"] = sum(1 for row in rows if row["identify_ms"] is None)
+        rename = spread([value for value in writes if not isinstance(value, str)])
+        rename["refused"] = writes.count("refused")
+        rename["no_answer"] = writes.count("no answer")
         return {"samples": len(rows), "seconds": round(wall, 1),
-                "peak_rss_mb": round(max(row[1] for row in rows) / 1024, 1),
+                "peak_rss_mb": round(max(row["rss"] for row in rows) / 1024, 1),
                 "cpu_s": round(cpu, 2),
                 "cpu_share_of_one_core": round(cpu / wall, 3) if wall > 0 else None,
-                "identify_ms": {"p50": pick(0.5), "p95": pick(0.95), "p99": pick(0.99),
-                                "max": times[-1] if times else None,
-                                "no_answer": sum(1 for row in rows if row[3] is None)}}
+                "identify_ms": identify, "rename_workspace_ms": rename}
 
 
 # history_ops.rs MAX_LIST: the most rows one history.entries.list request returns.
