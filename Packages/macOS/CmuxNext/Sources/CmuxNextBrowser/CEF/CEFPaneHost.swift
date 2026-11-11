@@ -28,6 +28,8 @@ final class CEFPaneHost {
     private var windowTab: CEFTab?
     /// The tab currently shown in `hostView`.
     private(set) weak var visibleTab: CEFTab? { didSet { if let visibleTab { runtime.extensionActionReads.tabShown(visibleTab) } } }
+    /// The tab `present` showed while this host's page window was out of the window (`holdFirstFrameIfAppeared`).
+    private(set) weak var shownWithWindowOut: CEFTab?
     /// The browser this host last made Chromium's active tab (its own
     /// `cmux_tab_activate`, or the window's first tab). Chromium echoes an
     /// activation for it, often after the user has moved on.
@@ -135,6 +137,8 @@ final class CEFPaneHost {
     /// Called when a tab's content view enters a window: show that tab.
     func present(_ tab: CEFTab, in container: NSView) {
         lifecycleTrace.record(tab.id, "host-present hidden=\(hostView.isHidden) created=\(tab.browserID != nil)")
+        // The fork orders the page window of a hidden host, or of one in no window, out by the end of that turn.
+        let windowOut = hostView.isHidden || hostView.window == nil || hostView.window !== container.window
         if hostView.superview !== container {
             // A direct addSubview moves the view without taking it out of
             // the window: the page's child window is not re-added (about
@@ -148,6 +152,7 @@ final class CEFPaneHost {
         // not override a hide it applied (a pane parked off screen).
         hostView.isHidden = Self.hidesHost(tab)
         visibleTab = tab
+        shownWithWindowOut = windowOut ? tab : nil
         tab.applyHostBackdrop()
         // Tabs from windows cmux does not host go to a pane, never a panel.
         if !holdsOwnTab { runtime.lastShownHost = self }
@@ -163,11 +168,7 @@ final class CEFPaneHost {
             // it in the opener's pane. It moves into this host's window.
             ensureOwnWindow(for: tab)
         } else {
-            // Shown in this turn with its input window out of the window: that window comes in after this turn's frame.
-            if tab.appearedThisTurn, !hostView.isHidden {
-                // The hold's end grants the kept ask of the tab this host shows then (a tab switch in the hold).
-                hostView.layerHosting.pageAppeared(windowInWindow: tab.pageWindow != nil) { [weak self] in self?.visibleTab?.grantPendingFocusIfShown() }
-            }
+            holdFirstFrameIfAppeared(tab)
             showBrowser(of: tab)
             tab.grantPendingFocusIfShown()
         }

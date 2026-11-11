@@ -9,6 +9,7 @@ export type FailureKind =
   | "trust-untrusted"
   | "no-team-account"
   | "needs-credits"
+  | "team-cap"
   | "no-credit"
   | "cloud-auth-expired"
   | "rate-limited"
@@ -52,6 +53,11 @@ const ADD_COMMAND = /\bcr add (?:codex|claude|opencode)\b/;
 /// signal; any other text that merely mentions cmux credits is not.
 const NEEDS_CREDITS =
   /AI models need cmux credits, your own API key, or a paid plan|Not enough cmux credits for this call|\binference\.plan_required\b|\bcredits\.insufficient\b/i;
+/// The cmux model router refused the call because the team reached its spending cap for the billing
+/// period (backend inference/route.ts: 402 `team.cap_reached`, typed `insufficient_quota`; cmux#39915).
+/// Neither waiting nor the person's own credit helps: an admin raises the cap, or a model on the
+/// person's own account goes on. Before every quota and credit rule, which its type would match.
+const TEAM_CAP = /\bteam\.cap_reached\b|team reached its (?:spending|monthly usage) cap/i;
 /// The account behind the chat's own API key has no credit left: Anthropic's "credit balance is too
 /// low", OpenAI's `insufficient_quota` ("You exceeded your current quota") and
 /// `billing_hard_limit_reached`, a gateway's "insufficient credits". Not a rate limit: waiting does not
@@ -209,6 +215,7 @@ export function failureVia(message: string | undefined, route?: FailureRoute): s
 
 /// `code`: acpmux's typed reason for the failure (the turn's `errorCode`), when it gives one.
 export function failureKind(message: string | undefined, route?: FailureRoute, code?: string): FailureKind {
+  if (TEAM_CAP.test(message ?? "") || TEAM_CAP.test(code ?? "")) return "team-cap";
   const typed = code ? TYPED.find(([words]) => words.test(code))?.[1] : undefined;
   // The router types its own limits `insufficient_quota` too: its code in the text makes it a limit.
   if (typed === "no-credit" && message && ROUTER_CODE.test(message)) return "rate-limited";
@@ -310,6 +317,9 @@ export function failureRecovery(kind: FailureKind): "retry" | "switch-model" | "
     case "invalid-key":
     case "proxy-auth":
     case "no-credit":
+    // At the team's cap every cmux-routed call is refused until an admin raises it: a model on the
+    // person's own account is the way on.
+    case "team-cap":
       return "switch-model";
     case "trust-pending":
     case "trust-untrusted":
@@ -344,6 +354,8 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
       return t("turn.failure.noTeamAccount", { harness, command: (message && ADD_COMMAND.exec(message)?.[0]) ?? "" });
     case "needs-credits":
       return t("turn.failure.needsCredits", { harness });
+    case "team-cap":
+      return t("turn.failure.teamCap", { harness });
     case "no-credit":
       return t("turn.failure.noCredit", { harness });
     case "cloud-auth-expired": {

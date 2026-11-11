@@ -120,8 +120,9 @@ class WebOverlayExitWatchTests(unittest.TestCase):
     def test_server_off_stops_the_watch_and_leaves_no_note(self):
         self.start()
         self.run_script("server", "off")
+        # The watch runs in the server's process group, so once the group is gone nothing is left
+        # that could write a note or web-dev.json.
         self.assertTrue(self.wait_for(lambda: not self.group_alive()))
-        time.sleep(2.5)  # one watch interval: nothing writes after the stop
         self.assertFalse((self.state / "dev-server.exit").exists())
         self.assertNotIn("server", json.loads(self.web_dev.read_text()))
 
@@ -148,13 +149,15 @@ class WebOverlayExitWatchTests(unittest.TestCase):
         with open(self.web_dev.parent / ".web-dev.lock", "a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             os.kill(int((self.tmp / "child.pid").read_text()), signal.SIGKILL)
-            time.sleep(3)  # longer than one watch interval
+            # The watch saw the exit: it drops the pid file just before its locked write, which
+            # now waits on this lock.
+            self.assertTrue(self.wait_for(lambda: not (self.state / "dev-server.pid").exists()))
             data = json.loads(self.web_dev.read_text())
             self.assertIn("server", data, "the watch wrote web-dev.json while another writer held it")
             data.update(server="http://127.0.0.1:1/", token="b" * 48)
             self.web_dev.write_text(json.dumps(data))
+        # The watch and its locked write run in the server's group: a gone group has finished writing.
         self.assertTrue(self.wait_for(lambda: not self.group_alive()))
-        time.sleep(0.5)
         self.assertEqual(json.loads(self.web_dev.read_text())["server"], "http://127.0.0.1:1/")
         self.assertFalse((self.state / "dev-server.exit").exists())
 

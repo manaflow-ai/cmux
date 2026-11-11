@@ -3487,7 +3487,7 @@ export default agentPaneEntry({
       snapshot: chat(longChatRows),
       play: async (ctx) => {
         await ctx.scroll({ selector: ".acpmux-scroll" }, "top");
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest[data-shown]"));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]"));
       },
     },
     "jump-latest-working": {
@@ -3496,7 +3496,7 @@ export default agentPaneEntry({
       snapshot: chat(longChatRows, { isWorking: true }),
       play: async (ctx) => {
         await ctx.scroll({ selector: ".acpmux-scroll" }, "top");
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest[data-shown]"));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]"));
       },
     },
     selection: {

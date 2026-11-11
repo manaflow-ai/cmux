@@ -55,12 +55,19 @@ extension SidebarViewComponents {
         var noColorBlocks: Bool
         /// Where leading glyphs sit in the icon column (`sidebar.leadingColumn`): every row lays out again.
         var leadingColumn: SidebarLeadingColumnLook
+        /// One list's "Workspaces" heading (`sidebar.listHeading`): the list lays out again with or without it.
+        var listHeading: Bool
+        /// What a pinned row with its own icon leads with (`sidebar.pinnedRowLeading`): every row lays out again.
+        var pinnedRowLeading: SidebarPinnedRowLeading
         /// Every token the titlebar row's width reads past the view's own inputs (the reserve, the accessory, the
         /// Priority bell, which refresh it themselves): the button, the +'s trailing inset (the trailing column at
         /// the app and sidebar density), the toolbar band's button (the reserve's source), the traffic lights'
         /// inset and the gaps. A change refreshes
         /// `SidebarModel.titlebarControlsWidth`, so the minimum width never keeps an old density's.
         var titlebarRow: [CGFloat]
+        /// The space switcher's own tokens (the slot, the dot and the small icon; Debug Settings changes them). No other
+        /// state has them, and the switcher no longer follows every layout, so a change marks the bands (`bandsDirty`).
+        var switcherTokens: [CGFloat]
         /// What places the window top's line with no view moving or resizing: its variant (Debug Settings
         /// `chrome.topRowLine`), the titlebar style, the tab bars' edge and what the card's reach reads (#38054). Every window has a sidebar, so it lays
         /// its window out again on a change, with or without a top-row tab strip; moves reach the strips through
@@ -97,8 +104,11 @@ extension SidebarViewComponents {
             groupLineJoinsBar = SidebarGroupLine.joinsBar
             noColorBlocks = SidebarNoColorGroupLook.tunable.value != .plain
             leadingColumn = SidebarLeadingColumnLook.tunable.value
+            listHeading = SidebarTunables.listHeading.value
+            pinnedRowLeading = SidebarPinnedRowLeading.tunable.value
             titlebarRow = [SidebarStyle.toolbarButtonSize, SidebarStyle.titlebarPlusTrailingInset, TitlebarBandButton.side,
                            Metrics.trafficLightInset, Metrics.space1, Metrics.space2, Metrics.space3]
+            switcherTokens = [Metrics.roomDotSlot, Metrics.roomDotDiameter, Metrics.smallIconSize]
             // The line also follows the card's reach (#38054): the gutter, the pane padding, floating panes and the strip's tokens.
             topRow = [TopRowLineLook.tunable.value.rawValue, "\(DesignSettings.shared.titlebar)", "\(DesignSettings.shared.tabBarPosition)",
                       "\(Metrics.mainPaneGutter)", "\(Metrics.panePadding)", "\(Metrics.floatingPanes)", "\(Metrics.tabStripHeight)",
@@ -138,6 +148,7 @@ extension SidebarViewComponents {
         guard state != lastState else { return }
         let chromeChanged = lastState?.metrics != state.metrics || lastState?.fontSize != state.fontSize
             || lastState?.titlebarHeight != state.titlebarHeight || lastState?.leadingColumn != state.leadingColumn
+            || lastState?.pinnedRowLeading != state.pinnedRowLeading
         if lastState?.titlebarRow != state.titlebarRow {
             // The window root sets the reserve from the toolbar band, whose width follows the same tokens.
             window?.contentView?.needsLayout = true
@@ -178,9 +189,13 @@ extension SidebarViewComponents {
         // the next layout pass, so the list reloads once with both (ptr8: a settle on the rows alone showed the
         // stale blocks for a frame: the dragged tile back in Pinned, the rows bumped, the card aimed 24 pt off).
         if listChanged, profilesChanged, !profileChanged, model.docDrag != nil, list.settling != nil || list.landing != nil { updateBands(reloadsList: false) }
+        // A space switch too: the new space's blocks (its Home, its pinned workspaces) come with its rows. At the
+        // next layout pass they were a second change of the list: a second full layout that moved every row on a
+        // spring after a click, or one that waited for the pointer to leave the rows after a key.
+        if lastState != nil, profileChanged, model.docDrag != nil { updateBands(reloadsList: false) }
         if listChanged {
             if profileChanged {
-                switchSpace(from: lastState?.activeProfile, to: state.activeProfile, profiles: state.profiles, oldSections: previous ?? [])
+                showSpace()
             } else if selectionChanged, rowsChanged, !model.followsUserIntent, list.showsSelectionRow,
                       list.patchSelection(from: lastState?.selected, oldSelection: lastState?.selection ?? []) {
                 // A click moves no row (Leo 2026-10-20): it draws its selection, and rows that changed with it
@@ -208,7 +223,7 @@ extension SidebarViewComponents {
         if lastState?.onScreen != state.onScreen { list.syncRowStates() }
         if listChanged || lastState?.tree != state.tree { refreshNeedsYou() }
         if lastState?.cards != state.cards { cardSlot.show(state.cards); needsLayout = true }
-        if chromeChanged || profilesChanged { bandsDirty = true; needsLayout = true }
+        if chromeChanged || profilesChanged || lastState?.switcherTokens != state.switcherTokens { bandsDirty = true; needsLayout = true }
         lastState = state
     }
     /// Whether a sections change animates its rows. Provisional rows swap in place.
