@@ -11,9 +11,12 @@ detector, so the gate is proven without running a release.
 What counts as publishing is read from the step, not its name:
 - `uses:` a release action (attest-build-provenance, a PyPI publish action, a GitHub release action,
   upload-release-asset, create-release);
-- a command it may run (tests/shell_invocations.may_run, so a command in a substitution or behind eval counts):
-  `gh release create|upload|edit|delete`, a write through `gh api .../releases`, `npm|pnpm|yarn|bun|cargo publish`,
-  `twine upload`, `codesign` (other than verify and display), `productsign`, `xcrun notarytool`;
+- a command it may run, direct or wrapped (tests/shell_invocations.may_run_nested: a substitution, eval, `bash -c`,
+  xargs, sudo, env ... all count): `gh release create|upload|edit|delete`, a write through `gh api .../releases`
+  (the method as gh reads it, tests/shell_invocations.gh_api_request: a field flag or --input is a POST),
+  `npm|pnpm|yarn|bun|cargo publish`, `twine upload`, `codesign` (other than verify and display), `productsign`,
+  `xcrun notarytool`; and executable content it cannot read (a heredoc into a shell, eval of a variable, a sourced
+  file), which may publish;
 - a step that reads a secret other than GITHUB_TOKEN (a signing certificate, an App key, a registry token), or a job
   that reads one in its own env/with/secrets, or a workflow-level env that does (it reaches every job).
 A call to a local reusable workflow whose steps publish counts as publishing at the call.
@@ -38,7 +41,7 @@ from typing import Any, Callable, Mapping, NamedTuple
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 import workflow_jobs  # noqa: E402
-from shell_invocations import _PREFIX_COMMANDS, _RUNS_ARGUMENTS, _SHELLS, may_run  # noqa: E402
+from shell_invocations import gh_api_request, may_run_nested  # noqa: E402
 
 WORKFLOWS = ROOT / ".github/workflows"
 
@@ -104,33 +107,6 @@ def gated(expression: Any, policy: Policy) -> bool:
 
 
 RELEASE_PATH = re.compile(r"releases|/git/(tags|refs)|(^|/)tags(/|$)")
-GH_API_VALUE_FLAGS = {"-X", "--method", "-f", "--raw-field", "-F", "--field", "-H", "--header", "--input", "-q",
-                      "--jq", "-t", "--template", "--hostname", "--cache", "-p", "--preview"}
-GH_API_FIELD_FLAGS = ("-f", "-F", "--field", "--raw-field", "--input")
-
-
-def gh_api_writes_release(args: list[str]) -> bool:
-    """`gh api` on a release, tag or asset path with a write method, read the way gh reads its flags: a field flag or
-    --input makes it a POST unless -X/--method says otherwise; flags come spaced or attached (-XPOST, --method=POST)."""
-    method, fields, paths, index = None, False, [], 0
-    while index < len(args):
-        word = args[index]
-        index += 1
-        name, attached = (word.split("=", 1) + [None])[:2] if word.startswith("--") else (word, None)
-        if word.startswith("-X") and len(word) > 2:
-            method = word[2:]
-        elif name in ("-X", "--method"):
-            method = attached if attached is not None else (args[index] if index < len(args) else "")
-            index += 0 if attached is not None else 1
-        elif name in GH_API_FIELD_FLAGS or (len(word) > 2 and word[:2] in ("-f", "-F") and not word.startswith("--")):
-            fields = True
-            index += 1 if (name in GH_API_VALUE_FLAGS and attached is None) else 0
-        elif name in GH_API_VALUE_FLAGS:
-            index += 1 if attached is None else 0
-        elif not word.startswith("-"):
-            paths.append(word)
-    effective = (method or ("POST" if fields else "GET")).upper()
-    return effective != "GET" and effective != "HEAD" and (not paths or any(RELEASE_PATH.search(path) for path in paths))  # no path: xargs feeds it
 
 
 def publishing_command(words: list[str]) -> bool:
@@ -140,7 +116,11 @@ def publishing_command(words: list[str]) -> bool:
     if program == "gh":
         if rest[:1] == ["release"] and rest[1:2] and rest[1] in {"create", "upload", "edit", "delete", "delete-asset"}:
             return True
-        return rest[:1] == ["api"] and gh_api_writes_release(rest[1:])
+        if rest[:1] != ["api"]:
+            return False
+        request = gh_api_request(rest[1:])
+        # No endpoint it can read (xargs feeds it, a variable holds it): it may be a release path.
+        return request.writes and (request.endpoint is None or bool(RELEASE_PATH.search(request.endpoint)))
     if program in {"npm", "pnpm", "yarn", "bun", "cargo"}:
         return "publish" in rest[:2]
     if program == "twine" or (program.startswith("python") and rest[:2] == ["-m", "twine"]):
@@ -152,37 +132,6 @@ def publishing_command(words: list[str]) -> bool:
     return program == "xcrun" and "notarytool" in rest
 
 
-WRAPPERS = frozenset(_PREFIX_COMMANDS | _RUNS_ARGUMENTS | _SHELLS)
-
-
-def invocation_publishes(invocation: Any, depth: int = 0) -> bool:
-    """One classifier for a direct command and a wrapped one. A command that runs other commands (eval, `bash -c`,
-    sh -c, xargs, sudo, env, timeout ...) is classified by the commands inside it: each word that holds text is
-    lexed again, and each tail of its words is read as a command of its own. What cannot be read (an unlexable
-    string, nesting past four levels) may be a publish, so its step must be gated."""
-    words = list(invocation.words)
-    if publishing_command(words):
-        return True
-    if not invocation.any_program:
-        return False
-    if not words or depth >= 4:
-        return True
-    for word in words:
-        if re.search(r"\s", word) and any(invocation_publishes(inner, depth + 1) for inner in may_run(word)):
-            return True
-    for index in range(1, len(words)):
-        tail = _Tail(words[index:], any_program=words[index] in WRAPPERS)
-        if invocation_publishes(tail, depth + 1):
-            return True
-    return False
-
-
-class _Tail(NamedTuple):
-    words: list
-    certain: bool = False
-    any_program: bool = False
-
-
 def publishes(step: Mapping[str, Any]) -> list[str]:
     """Why a step counts as publishing, as short reasons (empty: it does not)."""
     why = []
@@ -191,9 +140,11 @@ def publishes(step: Mapping[str, Any]) -> list[str]:
         why.append(f"uses {uses.split('@', 1)[0]}")
     run = str(step.get("run", ""))
     if run:
-        for invocation in may_run(run):
-            if invocation_publishes(invocation):
-                why.append("runs " + (" ".join(invocation.words[:3]) or "a command it cannot read"))
+        for words in may_run_nested(run):
+            reason = ("may run content it cannot read (a heredoc into a shell, eval of a variable, a sourced file)"
+                      if not words else "runs " + " ".join(words[:3]) if publishing_command(words) else None)
+            if reason and reason not in why:
+                why.append(reason)
     secrets = workflow_jobs.secret_names(step) - {"GITHUB_TOKEN"}
     if secrets:
         why.append("reads secret " + ", ".join(sorted(secrets)))

@@ -8,6 +8,11 @@ A caller asks one of two questions and the two fail closed in opposite direction
   guarded / run"): a command it cannot be sure of is assumed to run. An Invocation with `any_program` may run
   programs the words do not name (eval, xargs, `bash -c`, a function, an unlexable tail), so a may_run caller asking
   "might PROGRAM run" uses may_run_program(), which counts those.
+- may_run_nested(run): may_run's commands plus the ones inside each that runs others (eval text, `bash -c` text,
+  the argv tails of xargs, find -exec, sudo ...), with [] for executable content it cannot read (a heredoc into a
+  shell, eval of a variable, a sourced file). Use it where a script is blamed for what a command may do
+  (tests/test_ci_release_publish_tag_gate.py: "may this publish"), and count [] as yes.
+- gh_api_request(args): the method and endpoint `gh api` sends, read the way gh reads its flags.
 
 An Invocation is `certain` only when nothing in or before the simple command is beyond this lexer: a command or
 process substitution (`$(..)`, backticks, `<(..)`), an arithmetic or parameter expansion in its program word, a
@@ -630,3 +635,186 @@ def may_run_program(run: str, program: str) -> bool:
     run any program. Use this where a script is blamed for running something."""
     return any(invocation.any_program or (invocation.words and invocation.words[0] == program)
                for invocation in may_run(run))
+
+
+class GhApiRequest(NamedTuple):
+    """How `gh api` reads its arguments (the words after `api`): the method it sends and the endpoint it calls."""
+    method: str | None  # upper case; None when the words do not say for certain (a variable, an option gh may add)
+    endpoint: str | None  # None when absent (xargs feeds it) or not readable (a variable or substitution)
+
+    @property
+    def writes(self) -> bool:
+        """Whether it may send anything but a read. A method it cannot read may be a write."""
+        return self.method not in ("GET", "HEAD")
+
+
+# gh api's options (`gh api --help`): those that take a value, the boolean ones, and the field flags that turn the
+# default method from GET into POST (as does --input).
+_GH_API_VALUES = {"-X": "--method", "-f": "--raw-field", "-F": "--field", "-H": "--header", "-q": "--jq",
+                  "-t": "--template", "-p": "--preview"}
+_GH_API_LONG_VALUES = frozenset(_GH_API_VALUES.values()) | {"--input", "--hostname", "--cache"}
+_GH_API_BOOLEANS = {"-i": "--include"}
+_GH_API_LONG_BOOLEANS = frozenset(_GH_API_BOOLEANS.values()) | {"--paginate", "--silent", "--verbose", "--slurp"}
+_GH_API_POST = frozenset({"--raw-field", "--field", "--input"})
+
+
+def _unreadable(text: str) -> bool:
+    """A word whose text bash only knows at run time (a variable or a substitution)."""
+    return "$" in text or "\x00" in text or "`" in text
+
+
+def gh_api_request(args: list[str]) -> GhApiRequest:
+    """The method and endpoint of `gh api ARGS`, read the way gh reads them: a field flag (-f, -F, --field,
+    --raw-field) or --input makes it a POST unless -X/--method names another; flags come spaced, attached
+    (-XPOST, -ftag=v1, --method=POST) or clustered (-iXPOST). An option gh does not document, or a method held
+    in a variable, leaves the method unknown, which `writes` counts as a write."""
+    method: str | None = None
+    explicit = False
+    posts = False
+    unknown = False
+    endpoint: str | None = None
+    seen_endpoint = False
+
+    def take(name: str, value: str | None) -> None:
+        nonlocal method, explicit, posts, unknown
+        if name == "--method":
+            explicit = True
+            method = None if value is None or _unreadable(value) else value.upper()
+        elif name in _GH_API_POST:
+            posts = True
+
+    index = 0
+    while index < len(args):
+        word = args[index]
+        index += 1
+        if word == "--":
+            if index < len(args) and not seen_endpoint:
+                endpoint, seen_endpoint = (None if _unreadable(args[index]) else args[index]), True
+            break
+        if word.startswith("--"):
+            name, joined, value = word.partition("=")
+            if name in _GH_API_LONG_VALUES:
+                if not joined:
+                    value = args[index] if index < len(args) else None
+                    index += 1
+                take(name, value)
+            elif name not in _GH_API_LONG_BOOLEANS:
+                unknown = True
+            continue
+        if word.startswith("-") and len(word) > 1:
+            for at in range(1, len(word)):
+                option = "-" + word[at]
+                if option in _GH_API_BOOLEANS:
+                    continue
+                if option in _GH_API_VALUES:
+                    value = word[at + 1:] or None
+                    if value is None:
+                        value = args[index] if index < len(args) else None
+                        index += 1
+                    take(_GH_API_VALUES[option], value)
+                    break
+                unknown = True
+                break
+            continue
+        if not seen_endpoint:
+            endpoint, seen_endpoint = (None if _unreadable(word) else word), True
+    if not explicit:
+        method = "POST" if posts else "GET"
+    if unknown:
+        method = None
+    return GhApiRequest(method, endpoint)
+
+
+# Past this many levels of one command running another, what it runs counts as unreadable.
+_NEST_LIMIT = 4
+_SOURCES = {"source", "."}
+
+
+def may_run_nested(run: str) -> list[list[str]]:
+    """Every command that might run, wrapped ones included, as word lists (program first). For a command that may
+    run programs its words do not name, the commands inside it follow its own words: the text an eval or a shell's
+    -c runs, a text argument (`su -c '..'`, `ssh host '..'`, `env -S '..'`), and each tail of its words a runner
+    (xargs, find -exec, flock, a wrapper with options this does not model) may run as a command. An empty list
+    stands for executable content this cannot read: a heredoc or stdin into a shell, eval or -c of text held in a
+    variable or substitution, a sourced file, an unlexable tail, nesting past _NEST_LIMIT. A variable program
+    (`"$python" -m x`) is read by its argument tails like any runner, so its arguments still count. A caller
+    asking "may this publish" counts an empty list as yes; a function's body is listed where it is defined."""
+    found: list[list[str]] = []
+    _nested(run, set(), 0, found)
+    return found
+
+
+def _nested(run: str, defined: set[str], depth: int, found: list[list[str]]) -> None:
+    commands, complete = _commands(run, depth > 0, defined)
+    for command in commands:
+        invocation = _classify(command, defined)
+        if invocation is not None:
+            _expand(invocation, defined, depth, found)
+    if not complete:
+        found.append([])
+
+
+def _shell_text(args: list[str]) -> str | None:
+    """The command text `bash -c TEXT` runs; None when the shell reads stdin or a script instead."""
+    index = 0
+    while index < len(args):
+        word = args[index]
+        index += 1
+        if word.startswith("--") and word != "--":
+            index += 1 if word in ("--rcfile", "--init-file") else 0
+            continue
+        if word[:1] not in ("-", "+") or len(word) < 2:
+            return None
+        letters = word[1:]
+        if word[0] == "-" and "c" in letters:
+            # bash reads its options first: the text is the first operand after them.
+            return next((later for later in args[index:] if later[:1] not in ("-", "+")), None)
+        if letters[-1:] in ("o", "O"):
+            index += 1
+    return None
+
+
+def _word_token(text: str) -> Token:
+    return Token("word", text, True, dynamic=_unreadable(text))
+
+
+def _expand(invocation: Invocation, defined: set[str], depth: int, found: list[list[str]]) -> None:
+    words = invocation.words
+    found.append(words)
+    if not words or not invocation.any_program:
+        return
+    program, args = words[0], words[1:]
+    if program in defined:
+        return
+    if depth >= _NEST_LIMIT or program in _SOURCES:
+        found.append([])
+        return
+    if program == "eval":
+        text = " ".join(args)
+        if _unreadable(text):
+            found.append([])
+        else:
+            _nested(text, defined, depth + 1, found)
+        return
+    if program in _SHELLS:
+        text = _shell_text(args)
+        if text is None or _unreadable(text):
+            found.append([])
+        else:
+            _nested(text, defined, depth + 1, found)
+        return
+    if not _unreadable(program) and program not in _RUNS_ARGUMENTS and program not in _WRAPPERS:
+        found.append([])  # a script a shell runs in a mode this does not model
+        return
+    for word in args:
+        if re.search(r"\s", word):
+            _nested(word, defined, depth + 1, found)
+    operand_seen = False
+    for index in range(1, len(words)):
+        word = words[index]
+        # A variable may be the program only where the runner's first operand is; later it is an argument.
+        if not (_unreadable(word) and operand_seen):
+            tail = _classify(_Command([_word_token(text) for text in words[index:]], False, True), defined)
+            if tail is not None:
+                _expand(tail, defined, depth + 1, found)
+        operand_seen = operand_seen or not word.startswith("-")
