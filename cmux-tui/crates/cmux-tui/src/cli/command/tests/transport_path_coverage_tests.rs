@@ -209,6 +209,42 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
             "machine.get",
         ),
         (vec!["pane", PANE, "run", "shell", "printf ok"], "pane.run"),
+        // The exit hook armed with the job (terminal-exit-hooks-v1): the CLI
+        // adds its locale's notice title and message text.
+        (
+            vec![
+                "pane",
+                PANE,
+                "run",
+                "--notify-on-exit",
+                "--on-exit-send",
+                "acp:b",
+                "--on-exit-label",
+                "build",
+                "--",
+                "make",
+            ],
+            "pane.run",
+        ),
+        (
+            vec![
+                "workspace",
+                WORKSPACE,
+                "run",
+                "--notify-on-exit",
+                "--on-exit-send",
+                "acp:b",
+                "--on-exit-label",
+                "build",
+                "--",
+                "make",
+            ],
+            "workspace.run",
+        ),
+        (
+            vec!["terminal", TERMINAL, "exit-hook", "add", "--notify", "--label", "build"],
+            "terminal.exit_hook.add",
+        ),
         (vec!["pane", PANE, "split", "--down", "--shell", "make watch"], "pane.split"),
         (vec!["tab", TAB, "update", "--icon", "star.fill"], "tab.update"),
         (

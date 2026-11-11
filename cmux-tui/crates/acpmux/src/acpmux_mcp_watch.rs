@@ -67,7 +67,10 @@ pub(super) fn request(name: &str, args: &Value) -> Result<(&'static str, Value),
         "watch_add" => {
             let sessions = strings("sessions")?;
             if sessions.is_empty() {
-                return Err("sessions or terminal is required: what to watch".to_owned());
+                return Err(
+                    "sessions is required: the sessions to watch (or terminal, for a job's exit)"
+                        .to_owned(),
+                );
             }
             let params = crate::cli::watch::add_params(
                 sessions,

@@ -380,9 +380,16 @@ impl ExitReport {
     }
 
     /// `template` with `{status}`, `{code}`, `{signal}`, `{name}` and
-    /// `{terminal}` filled in (an absent code or signal is empty).
+    /// `{terminal}` filled in (an absent code or signal is empty). A job with
+    /// no name of its own is named by its terminal, once: `{name}
+    /// ({terminal})` becomes `{terminal}`.
     pub(crate) fn render(&self, template: &str, name: &str, terminal: &str) -> String {
         let number = |value: Option<i64>| value.map(|value| value.to_string()).unwrap_or_default();
+        let template = if name == terminal {
+            template.replace("{name} ({terminal})", "{terminal}")
+        } else {
+            template.to_owned()
+        };
         template
             .replace("{status}", &self.status)
             .replace("{code}", &number(self.code))
@@ -431,6 +438,18 @@ mod tests {
         assert_eq!(
             term.render("{name} {status} {code}/{signal} {terminal}", "build", "term_1"),
             "build signal 15 (SIGTERM) /15 term_1"
+        );
+        assert_eq!(
+            term.render(DEFAULT_TEXT, "term_1", "term_1"),
+            "cmux: the job term_1 ended: signal 15 (SIGTERM)."
+        );
+        assert_eq!(
+            exit.render(
+                "ジョブ {name} ({terminal}) が終了しました: {status}。",
+                "term_1",
+                "term_1"
+            ),
+            "ジョブ term_1 が終了しました: exit 3。"
         );
     }
 
