@@ -29,8 +29,10 @@
 #               not launch (Leo, 2026-10-23: a smoke must never block the whole nightly); the
 #               post-publish smoke (nightly-next-launch-smoke.yml) still smokes it from the feed and
 #               rolls it back if it crashes. A seeded home that could not be made, or whose cookie
-#               store the app never read, changes nothing: the empty home's verdict stands (the
-#               harness exits as it would without that arm, and its report's `arms` says "not-run").
+#               store the app never read, changes no exit code: the empty home's verdict stands (the
+#               harness exits as it would without that arm, and its report's `arms` says "not-run" or
+#               "cannot-run"). A pass then carries a warning and a summary line that the seeded home
+#               was not checked, so a pass of the empty home alone is never read as a pass of both.
 #
 # Evidence goes to $RUNNER_TEMP/launch-smoke (attempt-N/, status-N, evidence.md) and the job summary.
 set -uo pipefail
@@ -102,7 +104,19 @@ python3 -I "$ci/nightly_next_launch_smoke.py" evidence --report "$last/report.js
 } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 
 case "$verdict" in
-  pass) echo "launch smoke passed" ;;
+  pass)
+    echo "launch smoke passed"
+    # Said, never held: the seeded home's arm when it is not a pass (report.json's `arms`).
+    unchecked="$(python3 -I -c 'import json, sys
+arm = (json.load(open(sys.argv[1])).get("arms") or {}).get("seeded") or {}
+verdict = str(arm.get("verdict") or "not-run")
+if verdict != "pass":
+    reason = " ".join(str(arm.get("reason") or "the harness gave no reason").split())[:300]
+    print(f"the seeded home (imported-cookie sync on) was not checked ({verdict}: {reason})")' "$last/report.json" 2>/dev/null)"
+    if [ -n "$unchecked" ]; then
+      echo "::warning title=nightly-next launch smoke::$unchecked; the empty home passed and the build is not held"
+      printf '\nSeeded home: %s. The empty home passed; the build is not held.\n' "$unchecked" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+    fi ;;
   crash)
     # Which home the last crash was in: report.json's `arm` (empty, or seeded when the empty home passed).
     home="$(python3 -I -c 'import json, sys
