@@ -1364,6 +1364,74 @@ def step_errors(view: FailedView) -> set[tuple[str, str]]:
     return found
 
 
+# A log step_owners cannot place (a composite action's inner `Run` lines, a silent step, a header that is not its
+# step's own: UNPLACED) has no section per step, so no line can be charged to the step that failed. Seen on
+# 2026-11-11 on 'cmux-next checks (god files, concurrency, crash safety, l10n)' (cmux#40954) and 'CmuxMobileKit tests
+# (macOS swift test, iOS simulator)' (cmux#40598, #40664): every red in those jobs was refused, the base's own too.
+# Such a red is compared whole instead, on both sides alike, and excused only on identity: the newest base verdict for
+# the job is a failure, and it has exactly the head's failed steps (by the jobs API), exactly the head's failing tests,
+# and exactly the head's error lines (numbers masked), read from the whole log less the runner's echo of each script,
+# with at least one test or error line. Whole-log reading may take in a passing step's expected `✘ Test` or error line
+# (#40542's Codex BLOCKs); on both sides alike that cancels out, and any line the head prints that the base does not,
+# a new failure's included, breaks identity and refuses. A subset is never enough: a new red that adds one line is the
+# PR's own.
+class UnplacedSignature(NamedTuple):
+    steps: frozenset
+    tests: frozenset
+    errors: frozenset
+
+
+def unplaced_signature(job: dict, log: str) -> UnplacedSignature:
+    """UnplacedSignature of JOB's whole LOG (see above): the failed steps by the jobs API, and the failing tests and
+    error lines of every line but the runner's echo of a script."""
+    steps = frozenset(str(step.get("name") or "") for step in job.get("steps") or []  # step-name: classify
+                      if step.get("conclusion") not in (None, "success", "skipped"))
+    skip = test_reds.echoed(test_reds.log_lines(log))
+    tests = frozenset(test_reds.failed_names(test_reds.lines_of(log)))
+    errors = set()
+    for n, line in enumerate(lines_of(log)):
+        if n in skip or line.startswith(test_reds.TAP_MARKER) or SUMMARY_RED.match(line):
+            continue
+        if ((ERROR.search(line)
+             or ((marker := JOB_ERROR.get(job.get("name", ""))) is not None and marker.search(line))
+             or (not tests and ("default" in job.get("name", "").lower()
+                                or "snapshot" in job.get("name", "").lower())
+                 and SUMMARY_FAILURE.search(line)))
+                and not GENERIC.search(line) and not WARNING.search(line) and not CRASH_LINE.search(line)
+                and not SUCCESS_DIAGNOSTIC.search(line)):
+            errors.add(normalise_error(line))
+    return UnplacedSignature(steps, tests, frozenset(errors))
+
+
+def unplaced_base_evidence(repo: str, base_job: dict, github) -> UnplacedSignature:
+    """unplaced_signature of red base job BASE_JOB's whole log: the one base read of an unplaced comparison."""
+    return unplaced_signature(base_job, github.log(repo, base_job))
+
+
+def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, found: UnplacedSignature,
+                     base_run: dict) -> str:
+    """The audit line for an unplaced red job NAME whose whole-log signature HEAD is FOUND's, the newest red base
+    verdict's (the rule above); raises Refused naming what differs."""
+    url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
+    where = f"{base} run {base_run['id']} ({url})"
+    if not head.steps:
+        raise Refused(f"'{name}': {UNPLACED_WHY}, and it names no failed step; nothing is compared with the base")
+    if not head.tests and not head.errors:
+        raise Refused(f"'{name}': {UNPLACED_WHY}, and its log names no failing test or error line; nothing to "
+                      "compare with the base")
+    for what, mine, theirs in (("failed steps", head.steps, found.steps), ("failing tests", head.tests, found.tests),
+                               ("error lines", head.errors, found.errors)):
+        if mine != theirs:
+            only_head, only_base = sorted(mine - theirs), sorted(theirs - mine)
+            raise Refused(f"'{name}': {UNPLACED_WHY}; compared whole, its {what} are not {where}'s"
+                          + (f": only on this head: {'; '.join(only_head)[:500]}" if only_head else "")
+                          + (f"; only on the base: {'; '.join(only_base)[:300]}" if only_base else ""))
+    said = sorted(head.tests) or sorted(head.errors)
+    return (f"excused '{name}': its log does not map onto its steps, so it was compared whole: the same failed steps "
+            f"({'; '.join(sorted(head.steps))[:200]}), failing tests and error lines as {where}: "
+            f"{'; '.join(said)[:400]}")
+
+
 def no_verdict(log: str) -> str | None:
     """The line where a compile check says it gave no verdict, if it does."""
     return next((text for text in lines_of(log) if NO_VERDICT.match(text)), None)
@@ -4271,6 +4339,8 @@ class Head(NamedTuple):
     view: "FailedView | Unplaced | None" = None
     chromium_without_diagnostics: bool = False
     per_test: Callable[[dict], str | None] = lambda workflow_info: None
+    # The whole-log signature of an unplaced head (VIEW UNPLACED), else None: unplaced_verdict compares it.
+    unplaced: "UnplacedSignature | None" = None
 
 
 def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_reads: dict,
@@ -4325,7 +4395,8 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
     def per_test(workflow_info: dict) -> str | None:
         return (gallery_crash_verdict(repo, base, name, job, head_log, workflow_info, github, base_runs)
                 or web_test_verdict(repo, base, name, job, head_log, workflow_info, github, base_runs))
-    return Head(None, view, chromium_without_diagnostics, per_test)
+    return Head(None, view, chromium_without_diagnostics, per_test,
+                unplaced_signature(job, head_log) if view is UNPLACED else None)
 
 
 def base_evidence(repo: str, base: str, name: str, run: dict, found: dict, github, run_reads: dict) -> tuple:
@@ -4449,9 +4520,12 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                               f"and not fixed on base: {why}; fix it on this head") from None
             continue
         if view is UNPLACED:
-            raise Refused(f"'{name}': its log does not map one to one onto its steps (step_owners: a composite action, "
-                          "a silent step or a header that is not its step's own), so no line can be told to the step "
-                          "that printed it; nothing is compared with the base")
+            # Why: UnplacedSignature (compared whole, excused only on identity with the newest red base verdict)
+            if got.unplaced is None:
+                raise Refused(f"'{name}': {UNPLACED_WHY}; nothing is compared with the base")
+            audit.append(unplaced_verdict(repo, name, base, got.unplaced,
+                                          unplaced_base_evidence(repo, base_job, github), base_run))
+            continue
         head = signature(view)
         if head is UNPLACED:  # refused above: never, and never compared if it were
             raise Refused(f"'{name}': {UNPLACED_WHY}; nothing is compared with the base")

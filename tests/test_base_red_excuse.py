@@ -8327,6 +8327,7 @@ RAW_LOG_READERS = {
     "failed_steps_log": "what a comment shows; never compared",
     "step_owners": "the one placer of a line in a step, read by the two above alone",
     "lines_of": "a parser of log lines",
+    "unplaced_signature": "an unplaced log's whole-log signature, compared only on identity (UnplacedSignature)",
     "refused_at_setup": "a gate: only refuses",
     "no_verdict": "a gate: a no-verdict compile is ignored only on another pass's proof (compile_pass_at)",
     "summary_red": "a gate: only refuses",
@@ -8339,7 +8340,7 @@ RAW_LOG_READERS = {
 }
 # The functions that read a log from GitHub: they hand it to failed_view, a gate or a per-test verdict above, and
 # return no raw log to a comparator.
-LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "guard_routes_view", "guard_group_report",
+LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unplaced_base_evidence", "guard_routes_view", "guard_group_report",
                           "web_test_verdict", "cut_short_web_verdict", "windows", "ws_check_verdict", "log"})
 RAW_NAME = re.compile(r"^(?:\w+_)?logs?$")
 # next_batch's expand_job may read its raw log only into these (keying a red as its own) and failed_view.
@@ -8500,6 +8501,103 @@ def role_reads(sources):
     for module, name in sorted((ROLES.keys() | ROLE_PASSERS.keys()) - seen):
         found.append(f"{module}.{name}: listed in ROLES, but it makes no such call")
     return found
+
+
+UNPLACED_CHECKS = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+UNPLACED_CHECKS_STEP = "Fail on any red check"
+UNPLACED_KIT = "CmuxMobileKit tests (macOS swift test, iOS simulator)"
+UNPLACED_KIT_STEP = "swift test (macOS)"
+
+
+def unplaced_log(job, step, *lines):
+    """A failed step's log as a composite action prints it: its own `Run` header and an inner one, so step_owners
+    cannot place it (two STEP_START lines in one step) and failed_view is UNPLACED."""
+    return log(job, step, "##[group]Run ./.github/actions/run-checks", "##[endgroup]",
+               "##[group]Run python3 scripts/ci/run.py", "##[endgroup]", *lines,
+               "##[error]Process completed with exit code 1.")
+
+
+class UnplacedGitHub(FakeGitHub):
+    """Head job 1 (run 10) and the newest base job 2 (run 20) of one job whose logs step_owners cannot place."""
+
+    def __init__(self, name, step, head_lines, base_lines, base_conclusion="failure"):
+        super().__init__()
+        self.jobs = {1: failed_job(1, 10, HEAD, name=name, step=step),
+                     2: dict(failed_job(2, 20, BASE_SHA, name=name, step=step), conclusion=base_conclusion)}
+        self.logs = {1: unplaced_log(name, step, *head_lines), 2: unplaced_log(name, step, *base_lines)}
+
+
+class UnplacedLogsAreComparedWhole(unittest.TestCase):
+    """2026-11-11: every red in 'cmux-next checks' (cmux#40954) and the CmuxMobileKit tests (cmux#40598 at ea17b848,
+    #40664 at bec7c32b) was refused because a composite action's log does not map onto its steps. Compared whole,
+    such a red is excused only when the newest base verdict fails with exactly its failed steps, failing tests and
+    error lines; anything only the head prints is the PR's own."""
+
+    def judge(self, github):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+
+    def test_the_log_is_unplaced(self):
+        github = UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP, ["##[error]red check: x"], [])
+        job = copy.deepcopy(github.jobs[1])
+        self.assertIs(excuse.failed_view(job, github.log(REPO, job), base=False, **UNKNOWN), excuse.UNPLACED)
+
+    def test_the_checks_jobs_red_the_base_shares_is_excused(self):
+        red = ["##[error]red check: Check the app FFI pin",
+               "error: the app FFI sources changed since the pinned source 6e1be83c512fc8d963a241da9d389cd95f48ac30:"]
+        said = self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP, red, red))
+        self.assertIn(f"excused '{UNPLACED_CHECKS}': its log does not map onto its steps, so it was compared whole", said)
+        self.assertIn("red check: Check the app FFI pin", said)
+
+    def test_a_new_check_red_beside_the_bases_is_the_prs_own(self):
+        base = ["##[error]red check: Check the app FFI pin"]
+        head = base + ["##[error]raw colour outside the tokens", "##[error]red check: Motion and colour tokens"]
+        with self.assertRaisesRegex(excuse.Refused, r"compared whole, its error lines are not feat-cmux-next run 20.*"
+                                    r"only on this head: .*Motion and colour tokens"):
+            self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP, head, base))
+
+    def test_a_different_check_red_is_the_prs_own(self):
+        with self.assertRaisesRegex(excuse.Refused, "only on this head: .*Motion and colour tokens; only on the base"):
+            self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP,
+                                      ["##[error]red check: Motion and colour tokens"],
+                                      ["##[error]red check: Check the app FFI pin"]))
+
+    def test_the_kit_tests_the_base_fails_too_are_excused(self):
+        red = ["✘ Test silentDropDetectionBenchmark() failed after 16.970 seconds with 1 issue."]
+        said = self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, red, red))
+        self.assertIn(f"excused '{UNPLACED_KIT}'", said)
+        self.assertIn("silentDropDetectionBenchmark", said)
+
+    def test_a_kit_test_only_the_head_fails_is_the_prs_own(self):
+        base = ["✘ Test silentDropDetectionBenchmark() failed after 16.970 seconds with 1 issue."]
+        head = base + ["✘ Test reconnectsAfterSleep() failed after 2.100 seconds with 1 issue."]
+        with self.assertRaisesRegex(excuse.Refused, "its failing tests are not .*only on this head: reconnectsAfterSleep"):
+            self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, head, base))
+
+    def test_a_base_that_fails_more_is_not_enough_either(self):
+        # Identity, never a subset: the comparison is the whole log, so what the base fails besides is not proof the
+        # head's failures are only those (a red the base hides could be the PR's).
+        head = ["✘ Test silentDropDetectionBenchmark() failed after 16.970 seconds with 1 issue."]
+        base = head + ["✘ Test reconnectsAfterSleep() failed after 2.100 seconds with 1 issue."]
+        with self.assertRaisesRegex(excuse.Refused, "only on the base: reconnectsAfterSleep"):
+            self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, head, base))
+
+    def test_another_failed_step_is_the_prs_own(self):
+        github = UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, ["##[error]x"], ["##[error]x"])
+        github.jobs[2]["steps"][2]["name"] = "xcodebuild test (iOS simulator)"
+        with self.assertRaisesRegex(excuse.Refused, "its failed steps are not"):
+            self.judge(github)
+
+    def test_a_red_that_names_nothing_is_refused(self):
+        with self.assertRaisesRegex(excuse.Refused, "names no failing test or error line"):
+            self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, ["just output"], ["just output"]))
+
+    def test_the_scripts_echo_is_never_a_red(self):
+        # The runner echoes each step's script: a `::error::` the script could print is not one it did.
+        echo = ["##[group]Run echo \"::error::red check: Motion and colour tokens\"",
+                "\x1b[36;1mecho \"::error::red check: Motion and colour tokens\"\x1b[0m", "##[endgroup]"]
+        red = ["##[error]red check: Check the app FFI pin"]
+        said = self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP, echo + red, red))
+        self.assertIn("compared whole", said)
 
 
 class FailedViewIsTheOnlyReader(unittest.TestCase):
