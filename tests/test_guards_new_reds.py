@@ -377,13 +377,24 @@ class ARatchetFindingCannotMaskAnother(unittest.TestCase):
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
         self.assertIn("::error title=Guard red on this change::" + self.STEP + " :: " + names[1], done.stdout)
 
+    def test_one_more_copy_of_a_base_violation_in_the_same_file_is_the_changes(self):
+        # The same violation twice in one file reads the same once line numbers are out: counted, not merged.
+        done = self.compare(self.results([self.MOVED, self.OLD]), self.results([self.OLD]))
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("::error title=Guard red on this change::" + self.STEP
+                      + " :: Tests/A.swift: some-rule: try await wait(for: 200) (copy 2)", done.stdout)
+        # Both copies only moved: still the base's.
+        moved_both = self.OLD.replace(":25:", ":40:")
+        done = self.compare(self.results([self.MOVED, moved_both]), self.results([self.OLD, self.MOVED]))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+
     def test_outside_the_guard_runner_nothing_is_written(self):
         import guard_findings  # scripts/ci is on sys.path above
         self.assertEqual(guard_findings.report([self.OLD], env={}), 0)
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "checks.tsv"
             env = {guard_findings.CHECK_RESULTS_ENV: str(out)}
-            self.assertEqual(guard_findings.report([self.OLD, self.MOVED], env=env), 1, "a moved copy is one finding")
+            self.assertEqual(guard_findings.report([self.OLD], env=env), 1)
             self.assertEqual(out.read_text(encoding="utf-8"),
                              "0\tTests/A.swift: some-rule: try await wait(for: 200)\n")
             # A guard that scanned another tree (a self-test's fixture repository) reports nothing.

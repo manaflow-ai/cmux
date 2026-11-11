@@ -4033,9 +4033,14 @@ def _js_template_code(template: str) -> str:
         if body.startswith("${", i):
             depth, j = 1, i + 2
             while j < len(body) and depth:
+                # A brace inside a string, template or regex literal in the interpolation is text, not nesting.
+                literal = _JS_LITERAL.match(body, j) if body[j] in "\"'`/" else None
+                if literal and literal.end() > j:
+                    j = literal.end()
+                    continue
                 depth += {"{": 1, "}": -1}.get(body[j], 0)
                 j += 1
-            code.append(_strip_js_literals(body[i + 2:j - 1]))
+            code.append(_strip_js_literals(body[i + 2:j - 1] if not depth else body[i + 2:j]))
             i = j
             continue
         i += 1
@@ -4695,6 +4700,15 @@ def _self_test() -> int:
             (
                 "    await new Promise((r) => setTimeout(r, 200));\n"
                 "    expect(log).toContain(\"sleep (\");\n"
+            ),
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        # A brace in a string inside the interpolation does not end it early: the sleep after it still counts.
+        (
+            "web/tests/p35.test.ts",
+            (
+                "    const note = `got ${pick(\"}\") + await new Promise((r) => setTimeout(r, 200))} ms`;\n"
+                "    expect(seen).toBe(1);\n"
             ),
             {RULE_SLEEP_THEN_ASSERT},
         ),
