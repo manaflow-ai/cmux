@@ -154,9 +154,11 @@ public final class ChiefSources {
             // This authenticated account still owns the Mac Chief even when
             // the build has no Cloud Chief service configured.
             self.userID = userID
+            useHistory(of: userID)
             return
         }
         self.userID = userID
+        useHistory(of: userID)
         http = ChiefCloudHTTP(base: config.baseURL, accessToken: accessToken)
         #if canImport(UIKit)
         if foregroundObserver == nil {
@@ -185,6 +187,9 @@ public final class ChiefSources {
     func wake() {
         // The service's owner list may have changed while the app was away: offer Turn On again.
         if turnOnRefusal?.kind == .unavailable { turnOnRefusal = nil }
+        // A reconnect: each Chief reads what came while the phone was away.
+        mac.syncHistory()
+        cloud.syncHistory()
         if case .ready = cloudState, let backend = cloud.backend as? ChiefCloudBackend {
             backend.reconnectNow()
             // The chief may have been archived or its brain turned off elsewhere.
@@ -221,6 +226,41 @@ public final class ChiefSources {
         mac.macName = nil
         if !(cloud.backend is ChiefOfflineBackend) {
             cloud.use(ChiefOfflineBackend(reason: Self.signedOutReason))
+        }
+        useHistory(of: nil)
+    }
+
+    // MARK: History
+
+    /// Syncs every Chief history of the signed-in account into the phone (CMUX-24).
+    public let historySync = ChiefHistorySync()
+
+    /// The account whose Chief history the phone keeps, reads and syncs (nil: signed out, when
+    /// no sync runs). Rows of another account never show: each account has its own store.
+    private func useHistory(of account: String?) {
+        if account == nil || mac.transcriptCache?.account != account { historySync.cancelAll() }
+        // Both sessions rebind: they share one cache, so the first activation must not hide the
+        // switch from the second.
+        mac.useTranscriptAccount(account)
+        cloud.useTranscriptAccount(account)
+        mac.historySync = account == nil ? nil : historySync
+        cloud.historySync = account == nil ? nil : historySync
+        mac.syncHistory()
+        cloud.syncHistory()
+    }
+
+    /// Every Cloud Chief on the account, not only the open one: each one's history comes over
+    /// a backend that only reads it (it never opens the socket) and closes when done.
+    private func syncCloudChiefs(userID: String, http: ChiefCloudHTTP) {
+        guard let cache = cloud.transcriptCache, cloud.historySync != nil else { return }
+        let open = (cloud.backend as? ChiefCloudBackend)?.conversationID
+        for chief in cloudChiefs {
+            guard let conversation = chief.mainConversation, conversation != open else { continue }
+            let reader = ChiefCloudBackend(http: http, conversationID: conversation, identity: chief.identity(userID: userID),
+                                           preferences: cloud.preferences)
+            historySync.sync("cloud:\(conversation)", cache: cache, pageSize: 200, fetch: { before, limit in
+                try await reader.history(beforeSeq: before, limit: limit)
+            }, finished: { reader.close() })
         }
     }
 
@@ -268,6 +308,7 @@ public final class ChiefSources {
         }
         if let chiefs = found.chiefs { cloudChiefs = chiefs }
         if let available = found.brainsAvailable { brainsAvailable = available }
+        defer { syncCloudChiefs(userID: userID, http: http) }
         switch found {
         case let .ready(chief, _, _):
             adopt(chief, userID: userID, http: http)

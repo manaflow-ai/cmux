@@ -152,6 +152,8 @@ elif ! git diff --quiet "$sha" HEAD -- "${paths[@]}"; then
   echo "Commits since the pin:" >&2
   git log --format='  %h %an: %s' "$sha..HEAD" -- "${paths[@]}" >&2 || true
   echo "Fix: the push to feat-cmux-next runs app-ffi-release.yml; publish its artifact (by hand when the run says so), then pin the new URL and checksum in Package.swift in one commit, in the same push as the source change when possible." >&2
+  # A release is published only from a feat-cmux-next push, so a pull request cannot pin its own FFI sources.
+  echo "If this PR changes FFI inputs: split it into a Rust-only step A and a Swift step B after the re-pin (docs/ci/app-ffi-release.md, \"A pull request that changes FFI inputs\")." >&2
   exit 1
 else
   echo "app FFI pin: sources match $sha"
