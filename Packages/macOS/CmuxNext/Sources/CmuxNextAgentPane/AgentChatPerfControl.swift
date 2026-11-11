@@ -8,8 +8,8 @@ import Foundation
 /// default 5) and returns its JSON: frames, long tasks, layout shift, and each arriving record's
 /// time to paint. Read-only: it never focuses, selects, shows or un-occludes the tab, so a covered
 /// or hidden chat reports that it drew nothing rather than numbers nobody saw. The page's
-/// observers exist only for the capture. The App only finds the tab's existing page (`ChatPage`).
-public enum AgentChatPerfControl {
+/// observers exist only for the capture. The App only finds the tab's existing page (`find`).
+public struct AgentChatPerfControl: Sendable {
     public nonisolated static let method = "agent.chat.perf"
     public nonisolated static let maxSeconds = 60
     public nonisolated static let defaultSeconds = 5
@@ -22,11 +22,19 @@ public enum AgentChatPerfControl {
         case page(AgentPaneView)
     }
 
-    /// The method; `find` looks the (normalized) tab id up in the App's tabs.
-    public static func controlMethod(find: @escaping @MainActor @Sendable (String) -> ChatPage) -> ControlMethod {
-        .async(method) { call in try await run(call.params, find: find) }
-            .withDeadline(.fixed(.seconds(maxSeconds + 15)))
-            .withLimit { request, _ in .seconds(((try? seconds(request.params)) ?? maxSeconds) + 15) }
+    /// Looks the (normalized) tab id up in the App's tabs.
+    let find: @MainActor @Sendable (String) -> ChatPage
+
+    public init(find: @escaping @MainActor @Sendable (String) -> ChatPage) {
+        self.find = find
+    }
+
+    /// The App's control service registers this (`AppControl`).
+    public func controlMethod() -> ControlMethod {
+        let find = find
+        return .async(Self.method) { call in try await Self.run(call.params, find: find) }
+            .withDeadline(.fixed(.seconds(Self.maxSeconds + 15)))
+            .withLimit { request, _ in .seconds(((try? Self.seconds(request.params)) ?? Self.maxSeconds) + 15) }
     }
 
     /// `seconds`, checked: a whole number from 1 to 60, or absent for the default.

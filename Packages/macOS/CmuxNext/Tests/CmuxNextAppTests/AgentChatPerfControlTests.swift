@@ -16,7 +16,7 @@ import Testing
         var registrations = 0
         for line in text.split(separator: "\n", omittingEmptySubsequences: false).map({ $0.trimmingCharacters(in: .whitespaces) }) {
             if line.hasPrefix("#if ") { depth += 1 } else if line == "#endif" { depth -= 1 }
-            guard line.contains("AgentChatPerfControl.controlMethod") else { continue }
+            guard line.contains("AgentChatPerfControl {") else { continue }
             registrations += 1
             #expect(depth == 0, "AppControl.swift registers agent.chat.perf inside an #if: \(line)")
         }

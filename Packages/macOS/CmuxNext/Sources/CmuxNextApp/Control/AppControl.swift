@@ -127,11 +127,11 @@ final class AppControl {
             // Ghostty config keys and keybind actions cmux does not apply (R92).
             GhosttyDiagnosticsControl().method,
             // `cmux app chat perf`: a chat page's frames and record-to-paint times, read-only; finds the page, never shows it.
-            AgentChatPerfControl.controlMethod { [weak services] id in
+            AgentChatPerfControl { [weak services] id in
                 guard let services, let (tab, _) = services.locateTab(id) else { return .missing }
                 guard tab.agentSession != nil else { return .notAgentChat }
                 return services.madeAgentTabs.flatMap { $0.views[$0.tabKey(of: tab)] }.map { .page($0) } ?? .notLoaded
-            },
+            }.controlMethod(),
         ])
         // Diagnostics for tagged DEV builds; a release build registers none (ControlRouter drops them: Configuration.allowsDebugMethods).
         #if DEBUG || CMUX_BENCH_HOOKS

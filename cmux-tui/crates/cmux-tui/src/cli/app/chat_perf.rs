@@ -28,7 +28,7 @@ pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
     if rest.get(1).map(String::as_str) != Some("perf") {
         return Err(UsageError::new(messages.usage));
     }
-    let options = Options::parse(&rest[2..], &["tab", "seconds"], &[])?;
+    let options = Options::parse(rest.get(2..).unwrap_or_default(), &["tab", "seconds"], &[])?;
     let Some(tab) = options.value("tab").filter(|tab| !tab.is_empty()) else {
         return Err(UsageError::new(messages.usage));
     };
