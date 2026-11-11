@@ -101,10 +101,66 @@ test("the edits card of the stretch is held by every edit row it merged", () => 
   expect(runs(live(withoutHeldRows(over, new Set(held))))).toEqual([]);
 });
 
+test("an id in view that is no row of the turns says nothing about where the reader is", () => {
+  // A card the view makes after the turns (received messages, a shell) is in view under every run.
+  const hold = (reused: number | undefined, inView: string[]) =>
+    rowsToHold(split, live(split), live(stretch), reused, inView);
+  expect(hold(undefined, ["received:m", "thinking-live"])).toEqual([]);
+  expect(hold(1, ["shell-1", "thinking-live"])).toEqual([]);
+  // With a row of the chat under a run too, nothing in view is over one.
+  expect(hold(undefined, ["received:m", "a2"])).toEqual([]);
+});
+
+test("an older page that loads over the view holds none of its runs", () => {
+  // The page comes in at the chat's start, so no row of the view before is reused. Its runs are
+  // over every row the reader has in view: nothing in view moves between two rows.
+  const older = [
+    row("u0", "user", { text: "Read the log" }),
+    row("run0", "activity", { items: [call("tail log")] }),
+    row("a0", "assistant", { text: "Two retries failed." }),
+  ];
+  const paged = [...older, ...split];
+  const before = live(withoutHeldRows(split, new Set(["run1", "run2", "run3"])));
+  expect(runs(live(paged))).toContain("run0");
+  expect(rowsToHold(paged, live(paged), before, 0, ["received:m", "a1", "a2"])).toEqual([]);
+});
+
+test("a new run with the todo list under it is not a run that comes back", () => {
+  // The view puts the list under the work, whatever its place in the chat (the `runs` look).
+  const plan = row("plan", "plan");
+  const next = row("run9", "activity", { items: [call("git status")] });
+  const before = [stretch[0]!, stretch[2]!, plan, row("thinking-live", "thinking")];
+  const drawn = [stretch[0]!, stretch[2]!, next, plan, row("thinking-live", "thinking")];
+  const inView = ["u", "a1", "plan", "thinking-live"];
+  expect(rowsToHold([stretch[0]!, plan, stretch[2]!, next], drawn, before, undefined, inView)).toEqual([]);
+  expect(rowsToHold([stretch[0]!, stretch[2]!, next, plan], drawn, before, undefined, inView)).toEqual([]);
+});
+
+test("a run with a short note joined in is held by each of its runs, and the note stays", () => {
+  const note = row("n", "assistant", { text: "Now the queue." });
+  const chat = [stretch[0]!, stretch[1]!, note, stretch[3]!, stretch[4]!, message];
+  const before = [stretch[0]!, note, stretch[4]!, row("thinking-live", "thinking")];
+  const joined = { ...stretch[1]!, joined: ["run1", "n", "run2"] };
+  const drawn = [stretch[0]!, joined, stretch[4]!, message, row("thinking-live", "thinking")];
+  const held = rowsToHold(chat, drawn, before, undefined, ["u", "n", "a2"]);
+  expect([...held].sort()).toEqual(["run1", "run2"]);
+  expect(ids(withoutHeldRows(chat, new Set(held)))).toEqual(["u", "n", "a2", "m"]);
+});
+
 test("the rows that are not held are the same objects, and no held row gives the same list", () => {
   expect(withoutHeldRows(split, new Set())).toBe(split);
-  const kept = withoutHeldRows(split, new Set(["run2"]));
+  const held = new Set(["run2"]);
+  const kept = withoutHeldRows(split, held);
   expect(ids(kept)).toEqual(["u", "run1", "a1", "a2", "run3", "m"]);
   expect(kept[0]).toBe(split[0]);
   expect(kept[3]).toBe(split[4]);
+  // The same rows and the same held set give the same list, so turns.ts sees no change.
+  expect(withoutHeldRows(split, held)).toBe(kept);
+});
+
+test("a held run whose call runs again, or waits for the reader, is drawn", () => {
+  const again = split.map((each) =>
+    each.id === "run2" ? { ...each, items: [...(each.items ?? []), call("gh pr merge", "pending")] } : each,
+  );
+  expect(ids(withoutHeldRows(again, new Set(["run1", "run2", "run3"])))).toEqual(["u", "a1", "run2", "a2", "m"]);
 });

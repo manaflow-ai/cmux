@@ -2033,9 +2033,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const heldCalls = useRef<{ session?: string; keys: ReadonlySet<string>; lined?: string }>({ keys: new Set() });
   /// The finished runs that came back between rows a reader scrolled up had in view, kept out of the
   /// rows until the view follows again (conversation/turnEndHold.ts `rowsToHold`).
-  const heldRuns = useRef<{ session?: string; keys: ReadonlySet<string> }>({ keys: new Set() });
+  const heldRuns = useRef<{ session?: string; keys: ReadonlySet<string>; asked?: true }>({ keys: new Set() });
   /// Moves when the view follows again with commands or runs held out, so they go back in.
   const [callRelease, releaseCalls] = useReducer((count: number) => count + 1, 0);
+  /// A held run the reader asks for (Find's match, a link to a call or to a message) goes back in,
+  /// with every run held with it: a row that is not drawn cannot be shown.
+  const showHeldRuns = useCallback((rowId: string) => {
+    if (!heldRuns.current.keys.has(rowId)) return;
+    heldRuns.current = { ...heldRuns.current, asked: true };
+    releaseCalls();
+  }, []);
   /// The "Worked for" folds the reader toggled in Thinking or Verbose, per view: those views open
   /// every finished turn's fold (conversation/viewFolds.ts), so a toggle there closes one.
   const [viewToggles, setViewToggles] = useState<ReadonlyMap<TranscriptView, ReadonlySet<string>>>(() => new Map());
@@ -2920,7 +2927,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       void callRelease;
       const viewNow = transcriptInView.current?.();
       if (!viewNow && heldCalls.current.keys.size > 0) heldCalls.current = { ...heldCalls.current, keys: new Set() };
-      if (heldRuns.current.session !== shownSessionId || (!viewNow && heldRuns.current.keys.size > 0))
+      // The reader asked for a held run (`showHeldRuns`): they all go back in, and this pass holds none.
+      const asked = heldRuns.current.asked === true;
+      if (heldRuns.current.session !== shownSessionId || asked || (!viewNow && heldRuns.current.keys.size > 0))
         heldRuns.current = { session: shownSessionId, keys: new Set() };
       const shapeFrom = (source: readonly AcpmuxRow[], open: Folds) =>
         turnViewFrom(
@@ -2967,7 +2976,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // The finished runs a running turn kept out of sight, which this update draws again between
         // rows in view (another agent's prompt ends the stretch they are in), stay out while the
         // reader is scrolled up, as they saw the stretch (turnEndHold.ts `rowsToHold`).
-        const back = rowsToHold(rows, turns.rows, last?.turns.rows, turns.reusedRows, inView);
+        const back = asked ? [] : rowsToHold(rows, turns.rows, last?.turns.rows, turns.reusedRows, inView);
         if (back.length > 0) {
           heldRuns.current = { session: shownSessionId, keys: new Set([...heldRuns.current.keys, ...back]) };
           turns = shape(withHeldFolds(folds, heldFolds.current.keys));
@@ -5612,7 +5621,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // this row whenever its id is drawn again.
   const showRows = (pick: (rows: readonly AcpmuxRow[]) => readonly string[]) => {
     const { sourceRows: rows, transcriptRows: shown } = counted.current;
-    const target = messageRevealTarget(rows, shown, pick(rows));
+    const picked = pick(rows);
+    for (const id of picked) showHeldRuns(id);
+    const target = messageRevealTarget(rows, shown, picked);
     if (target === undefined) return undefined;
     if (target.fold !== undefined) openFold(target.fold);
     if (target.run !== undefined) openFold(target.run);
@@ -5650,6 +5661,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       const index = timed >= 0 ? timed : toolId ? rows.findIndex((row) => holds(row, false)) : -1;
       const row = rows[index];
       if (!row || !toolId) return false;
+      showHeldRuns(row.id);
       if (!shown.some((drawn) => isFindRow(drawn, row.id))) {
         for (const fold of hiddenRowFolds(rows, shown, index)) openFold(fold);
       }
@@ -5658,7 +5670,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
       return true;
     },
-    [openFold],
+    [openFold, showHeldRuns],
   );
   showCallRef.current = showToolRow;
   // Workflow transcript links use the adapter's stable row id. Reveal the row with the same
@@ -5669,6 +5681,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       const index = rows.findIndex((row) => row.id === rowId);
       const row = rows[index];
       if (!row) return;
+      showHeldRuns(row.id);
       if (!shown.some((drawn) => isFindRow(drawn, row.id))) {
         for (const fold of hiddenRowFolds(rows, shown, index)) openFold(fold);
       }
@@ -5676,7 +5689,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       setRevealRow({ rowId: row.id, key, toolId: "" });
       setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
     },
-    [openFold],
+    [openFold, showHeldRuns],
   );
   // Load the clicked turn before asking the virtual transcript to draw it. The existing
   // history loader stops on a changed chat or a page that makes no progress.
@@ -10801,6 +10814,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                               }
                                                               shown={childRows ? undefined : transcriptRows}
                                                               openFold={openFold}
+                                                              showHeld={showHeldRuns}
                                                               findRef={findRef}
                                                             >
                                                               {(find) => (
