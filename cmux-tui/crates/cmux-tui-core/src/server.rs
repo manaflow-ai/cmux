@@ -160,6 +160,8 @@ mod input_qos;
 pub(crate) use input_qos::current_thread_qos as current_input_thread_qos;
 pub(crate) use input_qos::raise_this_thread as raise_input_thread_qos;
 mod line_connection;
+mod line_value;
+pub(crate) mod tree_reply_flight;
 use command_args::{
     parse_direction, parse_split_dir, parse_zoom_mode, present_nullable, workspace_mutation,
 };
@@ -602,6 +604,12 @@ pub const PROFILES_CAPABILITY: &str = "profiles-v1";
 /// `placement-shift-v1`: an echoing connection gets no `workspace_placement`
 /// restatement on `session.events` (state/placement_shift.rs).
 pub use crate::state::placement_shift::CAPABILITY as PLACEMENT_SHIFT_CAPABILITY;
+/// `session-live-cursor-v1`: a connection that sends it in `set-client-info`
+/// gets `live` in each `session.events` cursor, the position of the live
+/// terminal facts it has. A resume from such a cursor sends only the
+/// terminals whose live facts changed after it
+/// (server/session_event_stream.rs).
+pub const SESSION_LIVE_CURSOR_CAPABILITY: &str = "session-live-cursor-v1";
 /// Per-terminal themes in the home session's personal state:
 /// `set-personal-terminal` and `list-personal.terminals`.
 pub const PERSONAL_TERMINALS_CAPABILITY: &str = "personal-terminals-v1";
@@ -2652,11 +2660,49 @@ struct Response {
     error_delivery: Option<ResponseErrorDelivery>,
 }
 
+impl Response {
+    /// The reply as a JSON value, the value `serde_json::to_value` makes,
+    /// with `data` moved in: `to_value` copies it, and `data` can be the
+    /// whole tree (`list-workspaces`).
+    fn into_value(self) -> Value {
+        let Self { id, ok, data, error, error_code, error_delivery } = self;
+        let mut object = serde_json::Map::new();
+        if let Some(id) = id {
+            object.insert("id".into(), id);
+        }
+        object.insert("ok".into(), Value::Bool(ok));
+        if let Some(data) = data {
+            object.insert("data".into(), data);
+        }
+        if let Some(error) = error {
+            object.insert("error".into(), Value::String(error));
+        }
+        if let Some(error_code) = error_code {
+            object.insert("error_code".into(), Value::String(error_code));
+        }
+        if let Some(error_delivery) = error_delivery {
+            object
+                .insert("error_delivery".into(), Value::String(error_delivery.wire_name().into()));
+        }
+        Value::Object(object)
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "kebab-case")]
 enum ResponseErrorDelivery {
     KnownNotDelivered,
     Ambiguous,
+}
+
+impl ResponseErrorDelivery {
+    /// Its wire spelling (the serde name).
+    fn wire_name(self) -> &'static str {
+        match self {
+            Self::KnownNotDelivered => "known-not-delivered",
+            Self::Ambiguous => "ambiguous",
+        }
+    }
 }
 
 impl From<ClearHistoryDelivery> for ResponseErrorDelivery {
@@ -2763,6 +2809,10 @@ const RESOURCE_STREAMS_PER_CLIENT_CAPACITY: usize = 64;
 const RESOURCE_STREAMS_SERVER_CAPACITY: usize = 256;
 const RESOURCE_WAITS_PER_CLIENT_CAPACITY: usize = 8;
 const RESOURCE_WAITS_SERVER_CAPACITY: usize = 64;
+/// v1 `subscribe` event streams: each is a `mux-events-out` thread and an
+/// event mailbox that live until the connection closes (server/cmd_subscribe.rs).
+const EVENT_SUBSCRIPTIONS_PER_CLIENT_CAPACITY: usize = 32;
+const EVENT_SUBSCRIPTIONS_SERVER_CAPACITY: usize = 1024;
 
 mod worker_admission;
 pub(crate) use worker_admission::ServerSurfaceOperationAdmission;
@@ -3034,6 +3084,11 @@ use command_dispatch::handle_command_with_cancellation;
 /// The `list-workspaces` reply: the tree plus the registry identity it
 /// belongs to. The launch snapshot stores the same value.
 fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
+    // Concurrent readers share one build that starts after each arrived.
+    mux.tree_reply_flight.read(|| list_workspaces_tree(mux))
+}
+
+fn list_workspaces_tree(mux: &Mux) -> anyhow::Result<Value> {
     let notifications = mux.tree_decorations();
     let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
     let (registry_id, generation) = mux.registry_identity();

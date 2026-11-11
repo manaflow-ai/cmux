@@ -12,6 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::Weak;
 
+mod committed_snapshot;
 mod machines;
 mod terminal_extra;
 
@@ -25,7 +26,6 @@ use crate::resource::{
     ResourceOperation, ScreenPublicId, Selector, SessionPublicId, TabPublicId, TerminalPublicId,
     WorkspacePublicId,
 };
-use crate::resource_screen::{public_screen_value, tabs_by_pane};
 use crate::sidebar_resource::{sidebar_snapshot, sidebar_view_id};
 use crate::workspace_registry::{
     FrontendProjection, RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserSource,
@@ -33,6 +33,13 @@ use crate::workspace_registry::{
     ResourceEffectPreparation, TerminalLifecycle,
 };
 use crate::{Mux, ResourceSelectors};
+
+pub(crate) use committed_snapshot::CommittedSnapshots;
+#[cfg(test)]
+pub(crate) use committed_snapshot::{
+    route_wait_times_on_this_thread, route_waits_on_this_thread,
+    set_route_wait_start_hook_on_this_thread,
+};
 
 #[cfg(test)]
 thread_local! {
@@ -73,6 +80,28 @@ pub(crate) fn set_snapshot_before_projection_hook(hook: impl FnOnce() + 'static)
     SNAPSHOT_BEFORE_PROJECTION_HOOK.with(|slot| {
         *slot.borrow_mut() = Some(Box::new(hook));
     });
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Runs once on this thread, in the next snapshot read, after the read loaded its route tables and before
+    /// it walks them: a test changes the session under a read that already holds its routes.
+    static SNAPSHOT_AFTER_ROUTES_HOOK: RefCell<Option<Box<dyn FnOnce()>>> = RefCell::new(None);
+}
+
+#[cfg(test)]
+pub(crate) fn set_snapshot_after_routes_hook(hook: impl FnOnce() + 'static) {
+    SNAPSHOT_AFTER_ROUTES_HOOK.with(|slot| {
+        *slot.borrow_mut() = Some(Box::new(hook));
+    });
+}
+
+#[cfg(test)]
+fn run_snapshot_after_routes_hook() {
+    let hook = SNAPSHOT_AFTER_ROUTES_HOOK.with(|slot| slot.borrow_mut().take());
+    if let Some(hook) = hook {
+        hook();
+    }
 }
 
 #[cfg(test)]
@@ -519,11 +548,16 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
 }
 
 /// Returns the public session snapshot together with the session journal head
-/// read under the same registry + state projection lock. The pair is one
-/// consistent cut: every journal record at or below the returned head is
-/// reflected in the snapshot, and every later record is not. Checkpoint
-/// capture keys its consistency fence to this cut so a journal write that
-/// merely precedes the cut cannot spuriously abort the capture.
+/// of the same committed revision (one read transaction, `committed_snapshot.rs`;
+/// no registry lock, and no state lock but one try by the first read after a
+/// commit). The pair is one consistent cut: every
+/// journal record at or below the returned head is reflected in the durable
+/// rows of the snapshot, and every later record is not. Checkpoint capture
+/// keys its consistency fence to this cut so a journal write that merely
+/// precedes the cut cannot spuriously abort the capture. The live values
+/// (terminal and browser runtime) are those of the published route tables at
+/// the time of the read: they are not part of the cut, but they are never
+/// older than a commit the rows show.
 ///
 /// A checkpoint is written to disk, so this snapshot leaves out what the daemon
 /// keeps in memory only (`mux/agent_prompts.rs`): an agent's last reply
@@ -544,14 +578,13 @@ fn session_snapshot_with_journal_head(
     // No pending terminal directory is published here: a read runs no
     // write. Terminal output, resize, reconnect and every committed graph
     // change publish a pending one (`publish_resource_event`).
-    // Collect the auxiliary runtime before taking the registry + state
-    // projection lock. Sidebar status locks its own lifecycle and then looks
-    // up a surface in State, so doing this inside the projection would invert
-    // that lock order.
+    // Collect the auxiliary runtime first, as the read did when it held the
+    // registry + state projection lock (sidebar status locks its own
+    // lifecycle and then looks up a surface).
     let (sidebar_status, sidebar_last_size, sidebar_configured) =
         mux.sidebar_plugin_resource_status();
     let sidebar_surface = sidebar_status.surface.and_then(|surface| mux.surface(surface));
-    // Taken before the projection lock, like the sidebar status (memory only).
+    // Taken before the walk, like the sidebar status (memory only).
     let (last_replies, last_sessions) = if memory_only {
         (mux.agent_last_replies(), mux.agent_last_sessions())
     } else {
@@ -559,21 +592,29 @@ fn session_snapshot_with_journal_head(
     };
     #[cfg(test)]
     run_snapshot_before_projection_hook();
-    mux.with_resource_projection(|registry, state| {
-        let journal_head = registry.session_journal_head()?;
-        let registry_snapshot = registry.snapshot()?;
-        let topology = registry.resource_topology_snapshot()?;
-        let terminal_registry = registry.terminal_snapshot()?;
-        let terminal_resource_ids = registry.live_terminal_resource_ids()?;
-        let public_projections = registry.public_projections()?;
-        anyhow::ensure!(
-            registry_snapshot.generation == topology.generation
-                && registry_snapshot.resource_revision == topology.revision,
-            "resource projection changed while snapshotting"
-        );
+    // No registry lock and no state lock across this walk: the durable rows are one committed revision
+    // (`committed_snapshot.rs`), the live surfaces are the published route tables, loaded after the rows and
+    // never older than a commit of the rows that changed a route in its state hold.
+    (|| -> anyhow::Result<(Value, u64)> {
+        // The answer of an earlier indeterminate registry commit owes a state update (cx-g1fa.3). The read
+        // settled it while it pinned the state; it still does, but only when one is owed: the rows of that
+        // commit are in this snapshot, so its state update must not wait for some later mutation.
+        if mux.registry_connection.owes_settlement() {
+            mux.with_resource_projection(|_, _| Ok(()))?;
+        }
+        let committed = committed_snapshot::committed_snapshot(mux)?;
+        let routes = mux.published_routes()?;
+        #[cfg(test)]
+        run_snapshot_after_routes_hook();
+        let browser_surfaces = routes.browser_surfaces_by_content();
+        let journal_head = committed.rows.journal_head;
+        let topology = &committed.rows.topology;
+        let terminal_registry = &committed.rows.terminals;
+        let terminal_resource_ids = &committed.rows.terminal_resource_ids;
+        let public_projections = committed.rows.projections.clone();
         let context = LocalResourceContext {
-            machine_id: registry.machine_id().clone(),
-            session_id: registry.session_id().clone(),
+            machine_id: mux.machine_public_id.clone(),
+            session_id: mux.session_public_id.clone(),
             session_name: mux.session.clone(),
             generation: topology.generation.clone(),
             revision: topology.revision,
@@ -590,32 +631,38 @@ fn session_snapshot_with_journal_head(
             Vec::new()
         };
 
-        let tabs_by_pane = tabs_by_pane(&topology.tabs);
-        let panes_by_id =
-            topology.panes.iter().map(|pane| (&pane.public_id, pane)).collect::<HashMap<_, _>>();
-        let screens_by_id = topology
-            .screens
-            .iter()
-            .map(|screen| (&screen.public_id, screen))
-            .collect::<HashMap<_, _>>();
-        let workspaces = public_workspace_values(&registry_snapshot, &topology)?;
-
-        let screens = topology
-            .screens
-            .iter()
-            .map(|screen| public_screen_value(&topology, screen, &tabs_by_pane, &panes_by_id))
-            .collect::<anyhow::Result<Vec<_>>>()?;
-
-        let (panes, tabs) = public_pane_and_tab_values(&topology, &screens_by_id, &panes_by_id)?;
-
-        let terminals = public_terminal_values(
-            mux,
-            &terminal_registry.terminals,
-            terminal_resource_ids,
-            &topology.tabs,
-            |terminal_id| state.terminal_catalog.get(terminal_id).cloned(),
-            &last_sessions,
-        )?;
+        // One builder for the snapshot and `terminal.list` (`public_terminal_values`). The live surface of a
+        // terminal is its routed runtime, from the published table, read with no lock. The identity of an
+        // in-process runtime is in a table of the mux, which a close purges after it releases the state
+        // guard (`purge_terminal_runtime_side_tables`) and which the first view of an app terminal fills
+        // after its row commits (`finish_app_terminal_first_view`). A routed runtime with no identity is
+        // thus one that closes or gets its first view under this read: it gives no live values (the durable
+        // row still shows) and it never fails the whole snapshot, which every client shows as "machine
+        // unreachable".
+        let live_surface = |terminal_id: &TerminalPublicId| {
+            let routed = routes.catalog_terminal(terminal_id)?;
+            if mux.resource_terminal_host_identity(routed).is_none() {
+                eprintln!(
+                    "cmux-tui: snapshot shows terminal {terminal_id} with no live values: its runtime has no durable identity"
+                );
+                return None;
+            }
+            Some(routed.clone())
+        };
+        let terminals_of = || {
+            public_terminal_values(
+                mux,
+                &terminal_registry.terminals,
+                terminal_resource_ids.clone(),
+                &topology.tabs,
+                live_surface,
+                &last_sessions,
+            )
+        };
+        // The builder reads the identity of a live surface again. A close that purges it between the two
+        // reads fails the first pass; the second pass finds no identity and shows the durable row. A real
+        // mismatch fails both passes and is the error of the snapshot.
+        let terminals = terminals_of().or_else(|_| terminals_of())?;
 
         let browsers_by_id = topology
             .browsers
@@ -630,7 +677,10 @@ fn session_snapshot_with_journal_head(
                     return None;
                 };
                 let durable = *browsers_by_id.get(browser_id)?;
-                let surface = state.surface_by_content_public_id(&tab.content_id);
+                let surface = match browser_surfaces.get(&tab.content_id).map(Vec::as_slice) {
+                    Some([surface]) => Some(*surface),
+                    _ => None,
+                };
                 Some(public_browser_snapshot(tab, durable, surface))
             })
             .collect::<Vec<_>>();
@@ -703,10 +753,10 @@ fn session_snapshot_with_journal_head(
         let mut snapshot = json!({
             "machine": machine_snapshot(&context, false),
             "session": session_snapshot(&context),
-            "workspaces": workspaces,
-            "screens": screens,
-            "panes": panes,
-            "tabs": tabs,
+            "workspaces": committed.workspaces,
+            "screens": committed.screens,
+            "panes": committed.panes,
+            "tabs": committed.tabs,
             "terminals": terminals,
             "browsers": browsers,
             "clients": [],
@@ -719,18 +769,9 @@ fn session_snapshot_with_journal_head(
                 "revision": topology.revision.to_string(),
             },
         });
-        registry.read_state(|connection| {
-            crate::state::values::decorate_snapshot(connection, &mut snapshot)?;
-            snapshot.set(
-                "extra",
-                json!({
-                    "state": crate::state::store::state_snapshot(connection)?,
-                }),
-            );
-            Ok(())
-        })?;
+        snapshot.set("extra", json!({"state": committed.state}));
         Ok((snapshot, journal_head))
-    })
+    })()
     .map_err(operation_failed)
 }
 

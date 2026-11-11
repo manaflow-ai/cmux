@@ -90,7 +90,13 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     }
 
     /// The Mac's list as its sidebar lays it out, under the search and the Unread toggle.
-    private var list: MacHomeList { listMemo.list(hiddenRows.visible(feed.rows ?? []), query: query, unreadOnly: unreadOnly) }
+    /// Keyed on the rows' revisions, so a pass compares no rows and one row's change patches one
+    /// row (the change's indices are the feed's rows: only while no row is hidden).
+    private var list: MacHomeList {
+        listMemo.list(hiddenRows.visible(feed.rows ?? []), query: query, unreadOnly: unreadOnly,
+                      version: .init(rows: feed.rowsRevision, hidden: hiddenRows.revision),
+                      change: hiddenRows.hidden.isEmpty ? feed.lastChange : nil)
+    }
 
     /// The rows Delete Conversation from List hid that no newer message brought back.
     private var hiddenCount: Int { hiddenRows.hiddenCount(in: feed.rows ?? []) }
@@ -192,8 +198,31 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .listRowSeparator(.hidden)
                 .listRowBackground(theme.colors.bg.color)
             }
-            // The Cloud Chief could not take the pin: say why.
-            if !unreadOnly, !searching, let status = sources.cloudStatus {
+            // The Cloud Chief's brain is off: say so and offer Turn On (a Chief that
+            // never answers would otherwise sit silent on a phone with no Mac).
+            if !unreadOnly, !searching, let card = sources.offCard {
+                VStack(spacing: 8) {
+                    ChiefOffCardView(card, name: primaryName) {
+                        guard case let .turnOn(chief)? = sources.cloudAction else { return }
+                        Task { await sources.turnOn(chief) }
+                    }
+                    if sources.cloudChiefs.count > 1 {
+                        ChiefPickerMenu(sources: sources, newChief: newChiefAction) {
+                            Text("Other Chiefs")
+                        }
+                        .font(.footnote.weight(.semibold))
+                        .buttonStyle(.borderless)
+                        .disabled(sources.isChanging)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+                .listRowBackground(theme.colors.bg.color)
+                .animation(theme.motion.smooth.animation.unlessReduceMotion, value: card)
+            } else if !unreadOnly, !searching, let status = sources.cloudStatus {
+                // The Cloud Chief could not take the pin: say why.
                 VStack(spacing: 6) {
                     Text(status)
                         .font(.footnote)
@@ -297,7 +326,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .listRowBackground(theme.colors.bg.color)
                 .accessibilityIdentifier("home.showHidden")
             }
-            if tiles.isEmpty, entries.isEmpty, feed.rows != nil || searching || unreadOnly {
+            // A search or Unread over the top of the list waits for the rest before it says "none".
+            if tiles.isEmpty, entries.isEmpty, feed.rows != nil || searching || unreadOnly,
+               feed.isComplete || feed.rows == nil || !(searching || unreadOnly) {
                 Text(unreadOnly ? "No Unread Conversations" : searching ? "No Results" : "No Conversations")
                     .font(.callout)
                     .foregroundStyle(theme.colors.label2.color)
@@ -575,10 +606,8 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
             case .create:
                 Button("Create Cloud Chief", action: startNewChief)
                     .accessibilityIdentifier("home.chief.create")
-            case let .turnOn(chief):
-                Button("Turn On Cloud Chief") { Task { await sources.turnOn(chief) } }
-                    .accessibilityIdentifier("home.chief.turnOn")
-            case nil:
+            case .turnOn, nil:
+                // Turn On is the off card's (``ChiefOffCardView``), above.
                 EmptyView()
             }
             if sources.cloudChiefs.count > 1 {

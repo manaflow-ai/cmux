@@ -142,6 +142,58 @@ struct SpaceSwitchListWorkTests {
         #expect(hidden.isEmpty, "the open group shows no row for \(hidden.map(\.rawValue)): the list shows the folded layout it kept")
     }
 
+    /// A row moved and then patched in one turn (one batch of a script or of the daemon), then a switch away in that
+    /// turn, before the reload that shows the move: the switch back shows the model's order. The patch writes the
+    /// model's section into the list's row caches, so a page kept from those caches and the layout of the old order
+    /// compared equal to the model, and the list took the old order for the new one.
+    @Test func aRowPatchedBeforeItsMoveShowsLeavesNoPageOfTheOldOrder() throws {
+        typealias Fixture = SidebarIncrementalMatchesRebuildTests
+        let (sidebar, window) = Fixture.fixture(Fixture.Doc())
+        defer { window.close() }
+        let list = sidebar.list, model = list.model
+        let (first, second) = (ProfileKey("space-a"), ProfileKey("space-b"))
+        model.profiles = [SidebarProfile(id: first, name: "A"), SidebarProfile(id: second, name: "B")]
+        model.activeProfileID = first
+        list.reload(animated: false, fromModel: true)
+        sidebar.renderNow()
+        let (scratch, loose) = (WorkspaceID("scratch"), WorkspaceID("loose2"))
+        func order() -> [String] {
+            list.displayed.rows.compactMap { row -> String? in
+                if case let .workspace(id) = row.key, id == scratch || id == loose { id.rawValue } else { nil }
+            }
+        }
+        func show(_ sections: [CmuxNextSidebar.SidebarSection], in space: ProfileKey) -> Int {
+            model.sections = sections
+            model.activeProfileID = space
+            _ = SidebarPerfCounters.report(reset: true)
+            sidebar.renderNow()
+            return SidebarPerfCounters.report(reset: true)["layout_rows"] ?? 0
+        }
+        func node(_ id: WorkspaceID, in nodes: [CmuxNextSidebar.SidebarNode]) -> Int? {
+            nodes.firstIndex { if case let .workspace(row) = $0 { row.id == id } else { false } }
+        }
+        let before = model.sections
+        try #require(order() == ["scratch", "loose2"], "the fixture's two loose rows are \(order())")
+        _ = show([], in: second)
+        let plain = show(before, in: first)
+        #expect(plain == 0, "a switch back with no change laid out \(plain) rows: this fixture does not take the kept page")
+        // The model moves "loose2" over "scratch" and takes a new title for it; no reload shows the move.
+        var moved = before
+        let at = try #require(moved.firstIndex { node(loose, in: $0.nodes) != nil }, "no section lists the loose row")
+        let from = try #require(node(loose, in: moved[at].nodes)), to = try #require(node(scratch, in: moved[at].nodes))
+        moved[at].nodes.swapAt(from, to)
+        model.sections = moved
+        var renamed = try #require(list.workspaces[loose], "the list holds no content for the loose row")
+        renamed.title = "Renamed"
+        try #require(model.patchWorkspaces([renamed]), "the model refused the row patch")
+        let live = model.sections
+        try #require(order() == ["scratch", "loose2"], "the list showed the move before the switch: \(order())")
+        _ = show([], in: second)
+        let laidOut = show(live, in: first)
+        print("SPACE-SWITCH-LIST-WORK moved plain_layout_rows=\(plain) layout_rows=\(laidOut) order=\(order())")
+        #expect(order() == ["loose2", "scratch"], "the list shows \(order()): the order of the page it kept, not the model's")
+    }
+
     /// The window's pending layout, display and Core Animation work, done now.
     private func settle(_ bench: SpaceSwitchBench) {
         bench.controller.window?.contentView?.layoutSubtreeIfNeeded()

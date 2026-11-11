@@ -1,13 +1,14 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
+import CmuxNextLayout
 import CmuxNextTestSupport
 import Testing
 
 /// A page's fullscreen (a video's full screen button) in the window's only pane takes the whole
 /// window, as in Chrome: the sidebar, title row, tab strip and the main pane's gutter step aside, and
 /// the window enters macOS full screen. It stayed inside the pane, with the sidebar and tab strip
-/// beside it (2026-10-25). With another pane on screen it stays in its pane, as before.
+/// beside it (2026-10-25), and with another pane on screen it still did (2026-11-09).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .closesItsWindows)
 struct PageFullscreenWholeScreenTests {
     typealias Fixture = SidebarMultiViewWindowTests.Fixture
@@ -75,7 +76,10 @@ struct PageFullscreenWholeScreenTests {
         #expect(!pane.view.hidesStrip, "the tab strip is back")
     }
 
-    @Test func aPageBesideAnotherPaneStaysInItsPane() async throws {
+    /// A video beside a chat (two panes) took only its own pane: fullscreen looked broken
+    /// (user, 2026-11-09). Chrome gives a page's fullscreen the whole screen whatever the window
+    /// shows; so does cmux now, hiding the pane beside it for the while and putting the split back.
+    @Test func aPageBesideAnotherPaneTakesTheWholeWindow() async throws {
         // Setup can throw after opening its window; register the owned-window cleanup first.
         defer { AppHarnessWindows.closeThoseThisTestOpened() }
         let fixture = try await Fixture(keys: ["k0", "k1"])
@@ -85,14 +89,33 @@ struct PageFullscreenWholeScreenTests {
         fixture.frame()
         let root = fixture.controller.root
         let inset = root.contentHost.frame
+        let content = try #require(fixture.controller.content)
         let (tab, pane) = try page(in: fixture)
+        let beside = try #require(content.panes.values.first { $0.isVisible && $0 !== pane }, "a second pane is on screen")
+        // The layout model, not frames: a split springs to its sizes over several frames.
+        let layoutBefore = content.layoutModel.screens
+        let zoomBefore = content.workspace.screens.map(\.zoomedPane)
 
         try await enter(tab, fixture)
-        #expect(tab.state.isContentFullscreen)
-        #expect(fixture.controller.pagePresentation == nil, "the window keeps its chrome")
-        #expect(root.contentHost.frame == inset)
-        #expect(!root.sidebar.isHidden)
-        #expect(!pane.view.hidesStrip)
+        try await until(fixture, "the page takes the window") { fixture.controller.pagePresentation != nil }
+        #expect(fixture.controller.pagePresentation?.entersWindowFullScreen == true, "the window enters full screen for the page")
+        #expect(root.contentHost.frame == root.bounds, "the page fills the window, edge to edge")
+        #expect(root.sidebar.isHiddenOrHasHiddenAncestor, "the sidebar steps aside")
+        #expect(pane.view.hidesStrip, "the tab strip steps aside")
+        #expect(content.panes[beside.layoutPaneID]?.isVisible != true, "the pane beside the page steps aside")
+        let presented = try #require(content.layoutModel.screens.first { $0.layout.panes.contains(pane.layoutPaneID) })
+        #expect(presented.layout.panes == [pane.layoutPaneID] && presented.zoomed, "the page's pane alone fills its screen")
+        #expect(content.workspace.screens.map(\.zoomedPane) == zoomBefore, "nothing of it reaches the daemon's tree")
+
+        tab.simulate(.contentFullscreenChanged(false))
+        try await until(fixture, "the window takes its chrome back") { fixture.controller.pagePresentation == nil }
+        try await settle(fixture)
+        #expect(root.contentHost.frame == inset, "the main pane is back where it was")
+        #expect(!root.sidebar.isHidden, "the sidebar is back")
+        #expect(!pane.view.hidesStrip, "the tab strip is back")
+        let besideAfter = try #require(content.panes[beside.layoutPaneID], "the pane beside is still there")
+        #expect(besideAfter.isVisible, "the pane beside is back")
+        #expect(content.layoutModel.screens == layoutBefore, "the split is exactly as it was")
     }
 
     @Test func switchingAwayEndsThePagesFullscreen() async throws {
