@@ -284,8 +284,12 @@ fn resolves_copies(hub: &Hub) -> (u64, u64) {
         run();
         hub.remote_rows_copied.load(Ordering::Relaxed)
     };
-    let full = copied(&|| drop(full_list_cost(hub)));
-    let resolves = copied(&|| drop(resolves_cost(hub)));
+    let full = copied(&|| {
+        full_list_cost(hub);
+    });
+    let resolves = copied(&|| {
+        resolves_cost(hub);
+    });
     (full, resolves)
 }
 
