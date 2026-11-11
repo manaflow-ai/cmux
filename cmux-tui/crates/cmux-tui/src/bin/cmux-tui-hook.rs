@@ -37,6 +37,15 @@ const HANDOFF_WAIT: Duration = Duration::from_secs(5);
 /// process must report an unconfirmed handoff before that instead of being
 /// killed; the detached child keeps trying to deliver the event regardless.
 const CODEX_SESSION_END_HANDOFF_WAIT: Duration = Duration::from_secs(2);
+/// Claude Code kills a command hook at its `timeout` (5 s,
+/// agent_hook_install.rs `COMMAND_HOOK_TIMEOUT_SECONDS`). A `SessionStart`
+/// hook sends the event and then writes the terminal claim, whose roster read
+/// (terminal_agent.rs) must end inside this budget from the hook's start.
+const CLAUDE_HOOK_BUDGET: Duration = Duration::from_millis(4500);
+/// The wait for a Claude `SessionStart` handoff: past the child's own
+/// `SOCKET_TIMEOUT`, so its deadline stays authoritative, and inside
+/// `CLAUDE_HOOK_BUDGET`, so the claim is still written.
+const CLAUDE_SESSION_START_HANDOFF_WAIT: Duration = Duration::from_millis(4250);
 /// Hidden mode: the detached child on platforms without `fork`. The request id
 /// arrives as the first stdin line and the encoded request follows.
 const DETACHED_MODE_ARG: &str = "__detached-append";
@@ -80,6 +89,7 @@ pub(crate) fn run_cli(arguments: Vec<String>, exe_prefix: &[&str]) -> ExitCode {
 }
 
 fn run(args: Args, exe_prefix: &[&str]) -> anyhow::Result<()> {
+    let started = Instant::now();
     // Read once, before any decision: a Claude hook stands down by the
     // payload's `session_id` (plugin_copy.rs).
     let payload = read_payload_bytes(io::stdin().lock())?;
@@ -90,7 +100,7 @@ fn run(args: Args, exe_prefix: &[&str]) -> anyhow::Result<()> {
         return Ok(());
     }
     let context = session_context::applies(&args.source, &args.native_event, getenv);
-    let route = deliver(&args, exe_prefix, &payload, session)?;
+    let route = deliver(&args, exe_prefix, &payload, session, started)?;
     if context {
         // After the handoff: the read connects from a helper thread, which
         // must not exist when the detached child forks.
@@ -113,6 +123,7 @@ fn deliver(
     exe_prefix: &[&str],
     payload: &[u8],
     session: Option<&str>,
+    started: Instant,
 ) -> anyhow::Result<Option<(PathBuf, Option<String>)>> {
     if shadowed_by_grok(&args.source, env::var_os("GROK_HOOK_EVENT").as_deref()) {
         return Ok(None);
@@ -139,11 +150,14 @@ fn deliver(
     let event = serde_json::to_value(ingress)?;
     let (request_id, encoded) = encode_request(event)?;
     let handoff = handoff_wait(&args.source, &args.native_event);
-    match detach::append_detached(&socket, &request_id, &encoded, handoff, exe_prefix)? {
-        Handoff::Sent => {
-            claim_unless_nested(args, &socket, terminal.as_deref(), session, start_source);
-            Ok(Some((socket, terminal)))
-        }
+    let sent = detach::append_detached(&socket, &request_id, &encoded, handoff, exe_prefix);
+    // Whatever the send did: a Claude that starts while the daemon is down
+    // still claims its terminal (its roster read then fails, so it counts as
+    // the terminal's agent).
+    let budget_end = started + CLAUDE_HOOK_BUDGET;
+    claim_unless_nested(args, &socket, terminal.as_deref(), session, start_source, budget_end);
+    match sent? {
+        Handoff::Sent => Ok(Some((socket, terminal))),
         Handoff::ChildExited => bail!("hook child gave up before writing the journal request"),
         Handoff::TimedOut => {
             bail!("journal request handoff was not confirmed within {} ms", handoff.as_millis())
@@ -151,22 +165,24 @@ fn deliver(
     }
 }
 
-/// After a reported Claude `SessionStart`: claims the route's terminal for
-/// this session (plugin_copy.rs), unless the terminal already has another
-/// agent (terminal_agent.rs). Runs after the handoff, so it never delays the
-/// event, and its read starts no thread before the detached child forks.
+/// After a Claude `SessionStart` handoff, sent or not: claims the route's
+/// terminal for this session (plugin_copy.rs), unless the terminal already
+/// has another agent (terminal_agent.rs). Runs after the handoff, so it never
+/// delays the event, and its read starts no thread before the detached child
+/// forks. The read ends by `budget_end`.
 fn claim_unless_nested(
     args: &Args,
     socket: &Path,
     terminal: Option<&str>,
     session: Option<&str>,
     start_source: Option<String>,
+    budget_end: Instant,
 ) {
     if args.source != "claude" || args.native_event != "SessionStart" {
         return;
     }
     let start_source = start_source.as_deref();
-    if (terminal_agent::Run { socket, terminal, session, start_source }).is_nested() {
+    if (terminal_agent::Run { socket, terminal, session, start_source, budget_end }).is_nested() {
         return;
     }
     plugin_copy::claim_terminal(&args.source, &args.native_event, terminal, session, |name| {
@@ -190,7 +206,14 @@ pub(crate) fn claude_is_nested(
     start_source: Option<&str>,
 ) -> bool {
     plugin_copy::claimed_elsewhere("claude", terminal, session, |name| env::var_os(name))
-        || terminal_agent::Run { socket, terminal, session, start_source }.is_nested()
+        || terminal_agent::Run {
+            socket,
+            terminal,
+            session,
+            start_source,
+            budget_end: Instant::now() + terminal_agent::DEADLINE,
+        }
+        .is_nested()
 }
 
 /// Set to `launch` by a hook command that carries its own route (the Codex
@@ -461,9 +484,12 @@ mod terminal_agent;
 
 fn handoff_wait(source: &str, native_event: &str) -> Duration {
     // Codex SessionStart also reads the session context after the handoff
-    // (session_context.rs, 1.5 s), all inside the 5 s hook timeout.
+    // (session_context.rs, 1.5 s), all inside the 5 s hook timeout. Claude
+    // SessionStart then writes the claim (`CLAUDE_HOOK_BUDGET`).
     if source == "codex" && matches!(native_event, "SessionEnd" | "SessionStart") {
         CODEX_SESSION_END_HANDOFF_WAIT
+    } else if source == "claude" && native_event == "SessionStart" {
+        CLAUDE_SESSION_START_HANDOFF_WAIT
     } else {
         HANDOFF_WAIT
     }
@@ -1172,6 +1198,9 @@ mod tests {
         assert!(handoff_wait("codex", "SessionStart") < Duration::from_secs(3));
         assert!(handoff_wait("codex", "Stop") > SOCKET_TIMEOUT);
         assert!(handoff_wait("claude", "SessionEnd") > SOCKET_TIMEOUT);
+        // The Claude claim (terminal_agent.rs) is still written inside 5 s.
+        assert!(handoff_wait("claude", "SessionStart") > SOCKET_TIMEOUT);
+        assert!(handoff_wait("claude", "SessionStart") < CLAUDE_HOOK_BUDGET);
     }
 
     #[test]

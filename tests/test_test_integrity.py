@@ -206,6 +206,43 @@ class TestIntegrity(unittest.TestCase):
                 os.chdir(cwd)
         self.assertEqual([f.kind for f in findings], ["weakened-assertions"])
 
+    def test_findings_print_on_a_stdout_that_cannot_encode_them(self):
+        """After #40143 a path or line that is not UTF-8 reaches a finding as U+FFFD, and a test path can hold
+        any character. A runner whose stdout encoding is ASCII (PYTHONIOENCODING, a C locale) must not turn
+        that finding into a UnicodeEncodeError crash (ci-rev-1 on #40143): the guard prints it escaped and
+        keeps its own exit status."""
+        import os
+        import subprocess
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as repo:
+            env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+
+            def git(*args):
+                subprocess.run(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                               check=True, capture_output=True, env=env)
+
+            git("init", "-q")
+            Path(repo, "tests").mkdir()
+            Path(repo, "tests/test_r\u00e9sum\u00e9.py").write_text("    self.assertEqual(result, 1)\n")
+            git("add", "-A")
+            git("commit", "-q", "-m", "base")
+            base = subprocess.check_output(["git", "-C", repo, "rev-parse", "HEAD"], text=True, env=env).strip()
+            Path(repo, "tests/test_r\u00e9sum\u00e9.py").write_text("    pass\n")
+            git("add", "-A")
+            git("commit", "-q", "-m", "head")
+            script = str(ROOT / "scripts/ci/test_integrity.py")
+            for extra in ([], ["--strict"]):
+                # No -I: it would ignore PYTHONIOENCODING. CI runs the guard as `python3 scripts/ci/...`.
+                result = subprocess.run([sys.executable, script, "--base", base, *extra], cwd=repo,
+                                        capture_output=True, env={**env, "PYTHONIOENCODING": "ascii"})
+                stdout = result.stdout.decode("ascii", errors="replace")
+                stderr = result.stderr.decode("ascii", errors="replace")
+                self.assertNotIn("Traceback", stderr, stderr)
+                self.assertEqual(result.returncode, 1 if extra else 0, stdout + stderr)
+                self.assertIn("weakened-assertions: tests/test_r\\xe9sum\\xe9.py", stderr)
+                self.assertIn("::warning file=tests/test_r\\xe9sum\\xe9.py", stdout)
+
     def test_skip_reason_update_is_not_new_skip(self):
         diff = """diff --git a/tests/test_x.py b/tests/test_x.py
 --- a/tests/test_x.py

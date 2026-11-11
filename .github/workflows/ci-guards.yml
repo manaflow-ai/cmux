@@ -796,6 +796,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_nightly_next_stuck_run.py
 
+      - name: Validate the hosted test deadline watchdog
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_test_deadline.py
+
       - name: Validate CI queue janitor policy
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_queue_janitor.py
@@ -1321,6 +1325,10 @@ jobs:
       - name: Validate iOS upload batching
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_upload_batching.py
+
+      - name: Validate failed gh api reads never become workflow values
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_gh_api_error_capture.py
 
       - name: Validate tagged iOS device entitlement fallback
         if: ${{ matrix.group == 'release-ios' }}
