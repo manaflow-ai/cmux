@@ -8826,7 +8826,7 @@ class StallMove(unittest.TestCase):
                          ["cancel:3", "rerun-failed:4"])
         self.assertTrue(results[0].startswith("re-ran the failed jobs"), results)
         self.assertIn("::notice title=Owned-pool stall move::", text)
-        self.assertIn(f"attempt 4 takes {rescue.STALL_DESTINATION}", text)
+        self.assertIn("attempt 4 takes Blacksmith", text)
         self.assertIn("has waited 40 min for a runner", text)
 
     def test_an_attempt_2_with_no_step_progress_is_passed_through_to_blacksmith(self):
@@ -8900,6 +8900,10 @@ class StallMove(unittest.TestCase):
         self.assertEqual(rescue.stall_destinations("", json.dumps({"macos_26": twelve})), (twelve,))
         self.assertIsNone(rescue.stall_destinations("glaeda-std-xcode-26.6", ""))
         self.assertIsNone(rescue.stall_destinations("", "not json"))
+        # RUNNER_POOLS set but naming no macos_26 leaves swift-test with an empty runs-on: nothing moves.
+        for pools in ("null", "[]", "5", "{}", json.dumps({"macos_26": ""}), json.dumps({"macos_26": 5})):
+            self.assertIsNone(rescue.stall_destinations("", pools), pools)
+            self.assertIsNone(rescue.stall_destinations(twelve, pools), pools)
         # Every label a moved job may take needs room: 12 vCPU has room, 6 vCPU is full, so nothing moves.
         clock = Clock()
         api = StallAPI(clock, lambda attempt, seconds: [stall_job("cmux-next generated files", job_id=31)],
@@ -8925,6 +8929,17 @@ class StallMove(unittest.TestCase):
         stalls = rescue.owned_stalls(jobs(2, clock.seconds), clock.now())
         result = rescue.stall_move(api, target, stalls, now=clock.now, sleep=clock.sleep, log=lambda text: None,
                                    deadline=clock.now() + dt.timedelta(hours=2), stopped=lambda: True)
+        self.assertEqual([call for call in api.calls if call.startswith(("cancel", "rerun"))],
+                         ["cancel:2", "rerun-failed:3"])
+        self.assertIn("handing over", result)
+        # A handover that lands during the look ends the move after it, before the next cancel.
+        api = StallAPI(clock, jobs, attempt=2, actor=CMUX_BOT)
+        target = stall_target(api)
+        clock.advance(rescue.STALL_QUEUE_SECONDS)
+        checks = iter([False, True])
+        result = rescue.stall_move(api, target, rescue.owned_stalls(jobs(2, clock.seconds), clock.now()),
+                                   now=clock.now, sleep=clock.sleep, log=lambda text: None,
+                                   deadline=clock.now() + dt.timedelta(hours=2), stopped=lambda: next(checks, True))
         self.assertEqual([call for call in api.calls if call.startswith(("cancel", "rerun"))],
                          ["cancel:2", "rerun-failed:3"])
         self.assertIn("handing over", result)

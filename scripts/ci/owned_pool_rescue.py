@@ -5331,9 +5331,10 @@ STALL_DESTINATION = "blacksmith-6vcpu-macos-26"
 
 def stall_destinations(runner: str | None, pools: str | None) -> tuple[str, ...] | None:
     """The Blacksmith labels the stall move's re-runs may take, from vars.MACOS_RUNNER_26 (`runner`) and
-    vars.RUNNER_POOLS (`pools`, JSON; its macos_26, else STALL_DESTINATION). Every one must be a picker Blacksmith
-    label, else None and nothing moves: cloud_overflow_switch.py points MACOS_RUNNER_26 at an owned pool during a
-    failover, where a re-run would only rejoin an owned queue, and an unknown label's room cannot be judged."""
+    vars.RUNNER_POOLS (`pools`, JSON; its macos_26, or STALL_DESTINATION while it is unset). Every one must be a
+    picker Blacksmith label, else None and nothing moves: cloud_overflow_switch.py points MACOS_RUNNER_26 at an owned
+    pool during a failover, where a re-run would only rejoin an owned queue, and an unknown label's room cannot be
+    judged."""
     base = STALL_DESTINATION
     if (pools or "").strip():
         try:
@@ -5341,8 +5342,11 @@ def stall_destinations(runner: str | None, pools: str | None) -> tuple[str, ...]
         except ValueError:
             return None
         found = parsed.get("macos_26") if isinstance(parsed, Mapping) else None
-        if found:
-            base = str(found).strip()
+        if not isinstance(found, str) or not found.strip():
+            # RUNNER_POOLS is set but names no macos_26: cmux-next.yml's swift-test and daemon-test would get an
+            # empty runs-on, so a re-run has nowhere to go.
+            return None
+        base = found.strip()
     labels = tuple(sorted({base, (runner or "").strip() or base}))
     return labels if all(label in simple_pool_picker.CAPACITY for label in labels) else None
 # The janitor writes its snapshot every 10 minutes; a move made within two of them may not be counted in it yet.
