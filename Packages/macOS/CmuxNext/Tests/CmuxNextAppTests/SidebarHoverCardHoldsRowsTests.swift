@@ -12,7 +12,8 @@ import CmuxNextWakeupsTestSupport
 /// status, a workspace another client made) waited only while the pointer was over the rows, so
 /// it showed the moment the pointer went onto the card: the rows above moved, the card followed
 /// its row out from under the pointer, and it hid. The pointer on the card now holds the rows
-/// still too; the change shows once the pointer has left both the rows and the card.
+/// still too; the change shows once the pointer has left both the rows and the card and the card
+/// has hid (it lingers for its leave grace first, #39684).
 @MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarHoverCardHoldsRowsTests {
     private static func sections(_ ids: [Int]) -> [CmuxNextSidebar.SidebarSection] {
@@ -98,9 +99,12 @@ struct SidebarHoverCardHoldsRowsTests {
         try await Self.settle(until: { !coordinator.isShowing(shown.id) }, tries: 5)
         #expect(coordinator.isShowing(shown.id), "the card hid with the pointer on it (\(coordinator.machine.phase))")
 
-        // Off the card, away from the sidebar: the card goes, and the held change shows.
+        // Off the card, away from the sidebar: the card lingers for its leave grace (#39684), then
+        // it goes, and the held change shows.
         pointerOverRows = false
         coordinator.pointerMoved(to: CGPoint(x: card.maxX + 60, y: card.midY))
+        #expect(coordinator.isShowing(shown.id), "the card went (\(coordinator.machine.phase)) on the move off it, with no leave grace")
+        try await WorkspaceHoverCardScrollTests.waitOutLeaveGrace(coordinator, clock)
         #expect(coordinator.machine.shownTarget == nil, "the card stayed after the pointer left it")
         #expect(Self.drawnOrder(list) == model.sections[0].workspaces.map(\.id), "the held change did not show once the card hid")
     }

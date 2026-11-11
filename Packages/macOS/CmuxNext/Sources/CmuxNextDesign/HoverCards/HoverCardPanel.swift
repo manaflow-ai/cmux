@@ -334,10 +334,14 @@ final class HoverCardPanel: NSPanel {
     }
 
     /// The body's size changed (a resources row appeared).
-    func refit() {
+    func refit(animated: Bool = false) {
         guard isShowingCard else { return }
+        // What is drawn now, read before a morph in flight lays its card out at rest (as `present` does).
+        let previous = animated ? presentedCardFrame : nil
         finishMorph()
         place()
+        // The same morph a retarget to another size runs: the mask grows or folds about the fixed corner.
+        if let previous { _ = morph(from: previous) }
     }
 
     func place() {

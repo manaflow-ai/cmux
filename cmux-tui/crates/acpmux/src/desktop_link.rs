@@ -51,6 +51,7 @@ pub const GUEST_ENV: &str = "ACPMUX_MCP_GUEST";
 /// The server subcommand the entry runs.
 const SERVER_ARG: &str = "acpmux-mcp";
 /// The longest a `claude mcp` call may take.
+// timeout: a local `claude mcp` add/remove call that sets up the desktop link; it carries no message and a hang is reported, not retried silently
 const CLAUDE_CLI_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
 
 /// An app this command links.

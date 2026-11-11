@@ -24,6 +24,13 @@ import subprocess
 import sys
 import tempfile
 import unittest
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 WRAPPER = ROOT / "scripts/ci/webviews-tests-new-reds.sh"
@@ -515,7 +522,7 @@ class Workflow(unittest.TestCase):
         self.assertIn("id: head", count)
         self.assertIn("webviews_test_results.py --failed-files", count)
         self.assertIn("reds=unknown", count)
-        gate = "if: ${{ steps.head.outputs.reds != '0' }}"
+        gate = "if: ${{ steps.head.outputs.reds != '0'"
         for step in ("Setup Bun", "Use the base's bun", "Cache Bun package cache", "Cache Playwright browsers",
                      "Setup Node", "Install webview dependencies", "Build base web bundles",
                      "Install headless engines"):
@@ -523,6 +530,8 @@ class Workflow(unittest.TestCase):
                 body = base[base.index(f"      - name: {step}\n"):]
                 body = body[: body.index("\n      - name:", 10)]
                 self.assertIn(gate, body)
+        # The install, the build and the browsers also wait on reds the base's push history cannot answer
+        # (tests/test_webviews_test_history.py, Known).
         compare = base[base.index("      - name: Run base reds and compare\n"):]
         compare = compare[: compare.index("\n      - name:", 10)]
         self.assertNotIn("steps.head.outputs.reds", compare)

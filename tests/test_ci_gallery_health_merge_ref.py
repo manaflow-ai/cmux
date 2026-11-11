@@ -17,6 +17,13 @@ import unittest
 from pathlib import Path
 
 import yaml
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -52,6 +59,23 @@ class GalleryHealthMergeRef(unittest.TestCase):
         run = step("Choose the entries to render")["run"]
         self.assertIn('git diff --name-only HEAD^1 HEAD', run)
         self.assertNotIn("git merge-base", run)
+
+    def test_the_upload_carries_only_the_screenshots_a_reader_needs(self) -> None:
+        # cmuxterm-hq#9131: the upload carried a screenshot of every passing state, ~190 MB a shard on a
+        # full render, and nothing read them. upload-set.ts drops them first (upload-set.test.ts holds what
+        # it keeps); it runs after the base replay has read health.json, on the folder the upload takes.
+        names = [entry.get("name") for entry in steps()]
+        trim = step("Keep only the screenshots a reader needs")
+        upload = step("Upload the health run")
+        self.assertLess(names.index("Judge the red states against the base"), names.index(trim["name"]))
+        self.assertEqual(names.index(trim["name"]) + 1, names.index(upload["name"]))
+        self.assertIn("always()", trim["if"])
+        self.assertIn('upload-set.ts --dir "$RUNNER_TEMP/health"', trim["run"])
+        self.assertEqual(upload["with"]["path"], "${{ runner.temp }}/health")
+        # More screenshots only on an explicit dispatch input, empty by default.
+        inputs = triggers()["workflow_dispatch"]["inputs"]
+        self.assertEqual(inputs["screenshots"]["default"], "")
+        self.assertEqual(trim["env"]["KEEP"], "${{ inputs.screenshots }}")
 
     def test_reports_keep_the_pull_request_head(self) -> None:
         # The artifact names the head the pull request shows, beside the merge commit rendered.
@@ -140,10 +164,57 @@ class GalleryHealthBaseReds(unittest.TestCase):
         self.assertIn("--annotate", run)
         # The classifier is copied before the base replaces it in the checkout.
         self.assertLess(run.index("cp scripts/ci/test_reds.py"), run.index("git restore"))
-        # A push has no base to compare with; a failed render with no red state is a tool failure.
-        self.assertIn('[ "$EVENT" != pull_request ] || [ -z "$BASE_SHA" ]', run)
+        # Only a run with no base (the nightly dispatch, a new tip) fails on every red; a failed render
+        # with no red state is a tool failure.
+        self.assertIn('if [ -z "$BASE_SHA" ]; then', run)
+        self.assertNotIn("!= pull_request", run)
         self.assertIn('[ "$rc" = 2 ]', run)
         self.assertTrue(run.rstrip().endswith('exit "$rc"'))
+
+
+class GalleryHealthPushBase(unittest.TestCase):
+    """A push to feat-cmux-next is judged against the tip it replaced, so a red names the push that
+    caused it. With no base, every red failed every push (8 of 8 shards on 6 of 8 pushes, 2026-11-10)
+    and a red one push introduced could not be told from one already there."""
+
+    def resolve(self, event: str, before: str) -> dict[str, str]:
+        run = step("Resolve the head and the merge")["run"]
+        with tempfile.TemporaryDirectory() as tmp:
+            git = ["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t"]
+            subprocess.run(["git", "init", "-q", tmp], check=True)
+            shas = []
+            for n in range(2):
+                subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", str(n)], check=True)
+                shas.append(subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True,
+                                           text=True).stdout.strip())
+            out = Path(tmp) / "out"
+            env = {**os.environ, "EVENT": event, "PR_HEAD": "", "GITHUB_OUTPUT": str(out),
+                   "BEFORE": shas[0] if before == "previous" else before}
+            subprocess.run(["bash", "-c", run], cwd=tmp, env=env, check=True, capture_output=True)
+            values = dict(line.split("=", 1) for line in out.read_text().splitlines())
+            return {**values, "previous": shas[0], "tip": shas[1]}
+
+    def test_a_push_compares_with_the_tip_it_replaced(self) -> None:
+        self.assertIn("github.event.before", str(step("Resolve the head and the merge").get("env")))
+        values = self.resolve("push", "previous")
+        self.assertEqual(values["base_sha"], values["previous"])
+        self.assertEqual(values["head_sha"], values["tip"])
+
+    def test_a_push_fetches_the_history_its_before_is_in(self) -> None:
+        """A push compares with `before`, which may be any depth back, so it fetches full history. GitHub's
+        `cond && a || b` gives b whenever a is falsy, and 0 is falsy: `push && 0 || 2` fetched depth 2 on
+        every push, and a multi-commit push lost its base (review of cmux#40994)."""
+        depth = str(step("Checkout")["with"]["fetch-depth"])
+        match = re.fullmatch(r"\$\{\{ github\.event_name == 'push' && (\S+) \|\| (\S+) \}\}", depth)
+        self.assertIsNotNone(match, depth)
+        when_push, otherwise = match.group(1), match.group(2)
+        self.assertNotIn(when_push, {"0", "false", "''", "null"}, "a falsy value here makes `||` take the right side")
+        self.assertEqual(int(when_push.strip("'")), 0)
+        self.assertEqual(int(otherwise.strip("'")), 2)
+
+    def test_a_new_tip_or_the_nightly_has_no_base(self) -> None:
+        self.assertEqual(self.resolve("push", "0" * 40)["base_sha"], "")
+        self.assertEqual(self.resolve("workflow_dispatch", "")["base_sha"], "")
 
 
 class GalleryHealthBrowserConsistency(unittest.TestCase):
@@ -168,12 +239,12 @@ class GalleryHealthBrowserConsistency(unittest.TestCase):
                 script = work / name
                 script.write_text(contents)
                 script.chmod(0o755)
-            env = {
+            env = git_fixture_env.fixture_env({
                 "PATH": str(work / "bin") + os.pathsep + os.defpath,
                 "GITHUB_WORKSPACE": str(work), "GITHUB_ENV": str(env_file),
                 "RUNNER_TEMP": str(work), "TEST_BROWSER": browser, "TEST_LAUNCHES": str(launches),
                 "ALL": "true", "IDS": "", "SHARD": "0", "pass": "1",
-            }
+            })
             render = next(entry for entry in steps if entry.get("id") == "render")
             for entry in steps:
                 script = entry.get("run", "")
@@ -222,6 +293,7 @@ RENDER_SCRIPTS = (
     "webviews/scripts/gallery/touched.ts",
     "scripts/gallery-matrix/health.ts",
     "scripts/gallery-matrix/unplaced.py",
+    "scripts/gallery-matrix/upload-set.ts",
 )
 _RELATIVE = re.compile(r"""(?:\bfrom\s*|\bimport\s*\(?\s*|\bnew\s+URL\(\s*)["'](\.{1,2}/[^"'?$]+)""")
 _SIBLING = re.compile(r"""["']([\w.-]+\.(?:json|py|ts|mjs))["']""")

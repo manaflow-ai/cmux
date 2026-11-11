@@ -100,6 +100,9 @@ pub enum Node {
         ratio: f32,
         a: Box<Node>,
         b: Box<Node>,
+        /// The divider between `a` and `b` is drawn as hidden. Only the look
+        /// changes: the split, its ratio and its panes stay as they are.
+        divider_hidden: bool,
     },
     /// Zellij-style stacked panes. `expanded` preserves the selected member
     /// while focus is elsewhere in the split tree.
@@ -281,6 +284,7 @@ impl Node {
                     ratio: 0.5,
                     a: Box::new(old),
                     b: Box::new(Node::Leaf(new_pane)),
+                    divider_hidden: false,
                 };
                 true
             }
@@ -298,6 +302,7 @@ impl Node {
                     ratio: 0.5,
                     a: Box::new(old),
                     b: Box::new(Node::Leaf(new_pane)),
+                    divider_hidden: false,
                 };
                 true
             }
@@ -328,11 +333,16 @@ impl Node {
         match self {
             Node::Leaf(id) if id == target => None,
             leaf @ Node::Leaf(_) => Some(leaf),
-            Node::Split { id, dir, ratio, a, b } => {
+            Node::Split { id, dir, ratio, a, b, divider_hidden } => {
                 match (a.remove_leaf(target), b.remove_leaf(target)) {
-                    (Some(a), Some(b)) => {
-                        Some(Node::Split { id, dir, ratio, a: Box::new(a), b: Box::new(b) })
-                    }
+                    (Some(a), Some(b)) => Some(Node::Split {
+                        id,
+                        dir,
+                        ratio,
+                        a: Box::new(a),
+                        b: Box::new(b),
+                        divider_hidden,
+                    }),
                     (Some(a), None) => Some(a),
                     (None, Some(b)) => Some(b),
                     (None, None) => None,
@@ -394,6 +404,51 @@ impl Node {
                 }
             }
             Node::Stack { .. } => false,
+        }
+    }
+
+    /// Set whether split `target`'s divider is hidden. `Some(true)` when the
+    /// value changed, `Some(false)` when it already had that value, `None`
+    /// when `target` is not in this tree.
+    pub(crate) fn set_divider_hidden(&mut self, target: SplitId, hidden: bool) -> Option<bool> {
+        match self {
+            Node::Leaf(_) | Node::Stack { .. } => None,
+            Node::Split { id, divider_hidden, a, b, .. } => {
+                if *id == target {
+                    let changed = *divider_hidden != hidden;
+                    *divider_hidden = hidden;
+                    Some(changed)
+                } else {
+                    a.set_divider_hidden(target, hidden)
+                        .or_else(|| b.set_divider_hidden(target, hidden))
+                }
+            }
+        }
+    }
+
+    /// Whether split `target`'s divider is hidden, or `None` when `target`
+    /// is not in this tree.
+    pub(crate) fn divider_hidden(&self, target: SplitId) -> Option<bool> {
+        match self {
+            Node::Leaf(_) | Node::Stack { .. } => None,
+            Node::Split { id, divider_hidden, a, b, .. } => {
+                if *id == target {
+                    Some(*divider_hidden)
+                } else {
+                    a.divider_hidden(target).or_else(|| b.divider_hidden(target))
+                }
+            }
+        }
+    }
+
+    /// Append the id of every split in this tree whose divider is hidden.
+    pub fn hidden_dividers(&self, out: &mut Vec<SplitId>) {
+        if let Node::Split { id, a, b, divider_hidden, .. } = self {
+            if *divider_hidden {
+                out.push(*id);
+            }
+            a.hidden_dividers(out);
+            b.hidden_dividers(out);
         }
     }
 
@@ -777,6 +832,8 @@ impl State {
     }
 
     pub(crate) fn rebuild_resource_indexes(&mut self) {
+        #[cfg(test)]
+        crate::walk_counters::index_rebuild_visited(self.workspaces.len());
         let mut indexes = PublicSlotIndexes::default();
         let mut live_split_slots = self.split_screens.keys().copied().collect::<HashSet<_>>();
         for workspace in &self.workspaces {

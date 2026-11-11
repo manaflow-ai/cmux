@@ -305,17 +305,24 @@ mod launcher_modes {
                         "default",
                         "{harness} starts in Claude's asking default"
                     );
+                    // Each move is read back: a set that answers `{}` and changes nothing fails.
                     for mode in ["plan", "default"] {
                         let set = web
                             .call("session/set_mode", json!({"sessionId": id, "modeId": mode}))
                             .await;
                         assert!(set.get("error").is_none(), "{harness} {mode} from the Web: {set}");
+                        assert_eq!(cli.mode(id).await, mode, "{harness} moved to {mode}: {set}");
                     }
                     for mode in ["acceptEdits", "auto", "bypassPermissions"] {
                         let set = web
                             .call("session/set_mode", json!({"sessionId": id, "modeId": mode}))
                             .await;
                         assert!(set.get("error").is_some(), "{harness} {mode} from the Web: {set}");
+                        assert_eq!(
+                            cli.mode(id).await,
+                            "default",
+                            "{harness} {mode} refused: {set}"
+                        );
                     }
                     "started".to_owned()
                 }

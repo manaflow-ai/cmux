@@ -42,6 +42,42 @@ pub(super) struct LiveTreeInput<'a> {
     /// scope's tabs show. A tab whose row, focus and terminal row are all
     /// stored as the walk would write them is not restated.
     pub(super) active_terminal_hosts: Option<&'a HashMap<TerminalPublicId, String>>,
+    /// Which workspaces outside the scope a scoped walk states again.
+    pub(super) rows: WorkspaceRows,
+}
+
+/// The workspace rows (the row and the public value of a workspace, with its position) that a
+/// scoped walk states again for the workspaces outside its scope. A workspace in the scope is
+/// always stated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WorkspaceRows {
+    /// Every live workspace (a change that can move any of them).
+    All,
+    /// Only the workspaces at this live position and after it: the caller knows that the row and
+    /// the public value of every workspace before it are stored and stated as they are (a close
+    /// of the workspace that was at this position moves only the ones after it).
+    From(usize),
+    /// A change that added the workspaces at this live position and after it (none when the
+    /// position is the count of live workspaces) and that removed and moved no workspace: a
+    /// created view. Only the added workspaces are stated outside the scope, and the stored side
+    /// is read for the scope only: it holds no row of another workspace.
+    Added(usize),
+}
+
+impl WorkspaceRows {
+    pub(super) fn states(self, position: usize) -> bool {
+        match self {
+            Self::All => true,
+            Self::From(first) | Self::Added(first) => position >= first,
+        }
+    }
+
+    /// Whether the stored side of the walk holds the workspaces of the scope only (no active
+    /// screen of another workspace): the walk then has nothing to compare for a workspace that
+    /// it does not state.
+    pub(super) fn scope_frame(self) -> bool {
+        matches!(self, Self::Added(_))
+    }
 }
 
 /// A scoped projection met a resource that crossed its scope.
@@ -65,9 +101,19 @@ thread_local! {
     static CROSSCHECK_OFF: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Full live-tree projections run on this thread.
+    pub(super) static FULL_PROJECTIONS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Workspaces that a live-tree projection (full or scoped) restated on
+    /// this thread.
+    pub(super) static WORKSPACES_PROJECTED: std::cell::Cell<u64> =
+        const { std::cell::Cell::new(0) };
+}
+
 /// Run `body` with the cross-check off on this thread, as release builds run.
 #[cfg(test)]
-pub(super) fn without_crosscheck<R>(body: impl FnOnce() -> R) -> R {
+pub(crate) fn without_crosscheck<R>(body: impl FnOnce() -> R) -> R {
     CROSSCHECK_OFF.with(|off| off.set(true));
     let result = body();
     CROSSCHECK_OFF.with(|off| off.set(false));
@@ -89,6 +135,19 @@ fn crosscheck_enabled() -> bool {
 }
 
 impl Mux {
+    /// Full live-tree projections run on this thread (test hook).
+    #[cfg(test)]
+    pub(crate) fn full_projections_for_test() -> u64 {
+        FULL_PROJECTIONS.with(std::cell::Cell::get)
+    }
+
+    /// Workspaces that live-tree projections restated on this thread (test
+    /// hook).
+    #[cfg(test)]
+    pub(crate) fn workspaces_projected_for_test() -> u64 {
+        WORKSPACES_PROJECTED.with(std::cell::Cell::get)
+    }
+
     /// The projection for a commit whose result is `result`: a created view
     /// changed one workspace, so once the public fold is seeded (a full
     /// projection seeds it) only that workspace is projected.
@@ -100,7 +159,14 @@ impl Mux {
     ) -> anyhow::Result<ResourceEffectProjection> {
         match created_view_workspace(&result) {
             Some(workspace) if registry.public_fold_seeded() => {
-                self.resource_effect_projection_scoped_locked(registry, state, &[workspace], result)
+                let rows = created_view_rows(registry, state)?;
+                self.resource_effect_projection_scoped_rows_locked(
+                    registry,
+                    state,
+                    &[workspace],
+                    rows,
+                    result,
+                )
             }
             _ => self.resource_effect_projection_locked(registry, state, result),
         }
@@ -127,7 +193,14 @@ impl Mux {
                 _ => return self.resource_effect_projection_locked(registry, state, result),
             }
         }
-        self.resource_effect_projection_scoped_locked(registry, state, &workspaces, result)
+        let rows = created_view_rows(registry, state)?;
+        self.resource_effect_projection_scoped_rows_locked(
+            registry,
+            state,
+            &workspaces,
+            rows,
+            result,
+        )
     }
 
     /// [`Self::resource_effect_projection_locked`] for a change confined to
@@ -140,9 +213,37 @@ impl Mux {
         workspaces: &[WorkspacePublicId],
         result: Value,
     ) -> anyhow::Result<ResourceEffectProjection> {
+        self.resource_effect_projection_scoped_rows_locked(
+            registry,
+            state,
+            workspaces,
+            WorkspaceRows::All,
+            result,
+        )
+    }
+
+    /// [`Self::resource_effect_projection_scoped_locked`] that states again, of the workspaces
+    /// outside the scope, only the ones `rows` names. The same scoped read, walk, fallback and
+    /// cross-check; the one difference is the workspace rows it leaves out.
+    pub(crate) fn resource_effect_projection_scoped_rows_locked(
+        &self,
+        registry: &WorkspaceRegistry,
+        state: &mut State,
+        workspaces: &[WorkspacePublicId],
+        rows: WorkspaceRows,
+        result: Value,
+    ) -> anyhow::Result<ResourceEffectProjection> {
         let started = Instant::now();
         let mut scope = workspaces.iter().cloned().collect::<HashSet<_>>();
-        let mut before = registry.resource_topology_scoped(&scope_list(&scope))?;
+        let read_before = |scope: &HashSet<WorkspacePublicId>| {
+            let scope = scope_list(scope);
+            if rows.scope_frame() {
+                registry.resource_topology_of_scope(&scope)
+            } else {
+                registry.resource_topology_scoped(&scope)
+            }
+        };
+        let mut before = read_before(&scope)?;
         let live_active = state
             .workspaces
             .get(state.active_workspace)
@@ -153,9 +254,11 @@ impl Mux {
                 added |= scope.insert(workspace);
             }
             if added {
-                before = registry.resource_topology_scoped(&scope_list(&scope))?;
+                before = read_before(&scope)?;
             }
         }
+        #[cfg(test)]
+        crate::walk_counters::frame_rows_read(before.active_screens.len());
         let panes = before.panes.iter().map(|pane| pane.public_id.clone()).collect::<Vec<_>>();
         let active_terminal_hosts = registry.active_terminal_hosts_of_panes(&panes)?;
         let read = started.elapsed();
@@ -171,6 +274,7 @@ impl Mux {
             tab_order: &tab_order,
             stored_live: &stored_live,
             active_terminal_hosts: Some(&active_terminal_hosts),
+            rows,
         };
         let projection = match self.project_live_tree(&input, state, result.clone()) {
             Ok(projection) => projection,
@@ -316,6 +420,30 @@ pub(super) fn check_scope_containment(
     )
 }
 
+/// The workspace rows that the projection of a created view states outside its scope: the
+/// workspaces that the store does not hold yet. A new workspace goes after the last one, so they
+/// are the last workspaces of the live list: one stored-row check for each of them and one more,
+/// not one for each workspace of the session. Before this, each created view stated the row and
+/// the public value of every workspace, and the journal writer checked each of those rows.
+///
+/// The store must hold exactly the workspaces before them (one count statement). If it does not
+/// (a workspace whose first view never committed, or a stored row that the live tree lost), the
+/// walk states every workspace against the whole frame, as it did before: that writes the row
+/// that is absent and tombstones the one that is lost.
+fn created_view_rows(registry: &WorkspaceRegistry, state: &State) -> anyhow::Result<WorkspaceRows> {
+    let mut first = state.workspaces.len();
+    for workspace in state.workspaces.iter().rev() {
+        if registry.workspace_row_is_live(&workspace.public_id)? {
+            break;
+        }
+        first -= 1;
+    }
+    if registry.live_workspace_row_count()? != first {
+        return Ok(WorkspaceRows::All);
+    }
+    Ok(WorkspaceRows::Added(first))
+}
+
 /// The workspace of a created terminal or browser view (an effect's created
 /// path), the one workspace its projection changes.
 pub(crate) fn created_view_workspace(result: &Value) -> Option<WorkspacePublicId> {
@@ -356,7 +484,7 @@ fn reindex_scope(state: &mut State, scope: &HashSet<WorkspacePublicId>) -> anyho
         indexes.workspaces.insert(workspace.public_id.clone(), workspace.id);
         indexes.workspace_ids.insert(workspace.id, workspace.public_id.clone());
         for screen in &workspace.screens {
-            split_ids::collect_screen_split_ids(screen, &mut splits);
+            collect_screen_split_ids(screen, &mut splits);
             indexes.screens.insert(screen.public_id.clone(), screen.id);
             indexes.screen_ids.insert(screen.id, screen.public_id.clone());
             indexes.screen_workspace.insert(screen.id, workspace.id);

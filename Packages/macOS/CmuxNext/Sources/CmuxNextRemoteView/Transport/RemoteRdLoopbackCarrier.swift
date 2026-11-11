@@ -14,7 +14,7 @@ public nonisolated final class RemoteRdLoopbackCarrier: RemoteRdByteCarrier {
     }
 
     public func start(queue: DispatchQueue, events: @escaping @Sendable (RemoteRdCarrierEvent) -> Void) {
-        handler.withLock { $0 = events }
+        handler.store(events)
         connection.stateUpdateHandler = { [weak self] state in
             guard let self else { return }
             switch state {
@@ -45,12 +45,12 @@ public nonisolated final class RemoteRdLoopbackCarrier: RemoteRdByteCarrier {
     }
 
     public func cancel() {
-        handler.withLock { $0 = nil }
+        handler.store(nil)
         connection.cancel()
     }
 
     private func emit(_ event: RemoteRdCarrierEvent) {
-        handler.withLock { $0 }?(event)
+        handler.load()?(event)
     }
 
     private func receiveNext() {

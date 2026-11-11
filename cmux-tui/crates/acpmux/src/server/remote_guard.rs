@@ -1117,7 +1117,8 @@ async fn peer_scratch(params: &Value, cloud_peer: bool) -> Result<String, RpcErr
             builder.recursive(true);
             #[cfg(unix)]
             std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-            builder.create(&dir)
+            builder.create(&dir)?;
+            mark_made_by_acpmux(&dir)
         })
         .await;
         made.map_err(|e| failed(e.to_string()))?.map_err(|e| failed(e.to_string()))?;
@@ -1175,18 +1176,8 @@ fn cloud_chat_folder_under(home: &std::path::Path, name: &str) -> Result<PathBuf
 fn peer_scratch_root() -> Result<PathBuf, RpcError> {
     static ROOT: OnceLock<Result<PathBuf, String>> = OnceLock::new();
     ROOT.get_or_init(|| {
-        let uid = {
-            #[cfg(unix)]
-            {
-                unsafe { libc::getuid() }.to_string()
-            }
-            #[cfg(not(unix))]
-            {
-                "user".to_owned()
-            }
-        };
-        let root = std::env::temp_dir()
-            .join(format!("acpmux-peer-scratch-{uid}-{}", uuid::Uuid::now_v7().simple()));
+        // The trust rule reads the same path (`trust::Paths::peer_scratch`).
+        let root = crate::trust::peer_scratch_root();
         let mut builder = std::fs::DirBuilder::new();
         #[cfg(unix)]
         std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
@@ -1198,6 +1189,22 @@ fn peer_scratch_root() -> Result<PathBuf, RpcError> {
     .map_err(|e| {
         RpcError::invalid_params(format!("the peer's scratch root could not be made: {e}"))
     })
+}
+
+/// Marks `dir`, a scratch folder this daemon just made, as made by acpmux (`trust.rs`
+/// `made_by_cmux`): the folder of a chat the person gave no folder is trusted as the app's
+/// agent-home is. A marker already there is kept; anything else in its place (a link, a folder)
+/// is no marker, so the folder is asked about as any other.
+fn mark_made_by_acpmux(dir: &std::path::Path) -> std::io::Result<()> {
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(dir.join(crate::trust::AGENT_HOME_MARKER))
+    {
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+        Err(e) => Err(e),
+    }
 }
 
 /// A session name as one folder name: letters, digits, `.`, `-` and `_`; anything

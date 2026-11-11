@@ -71,8 +71,12 @@ export class AskTracker {
   /// When each ask was first seen, in `tick`s: a read that started before it cannot drop it.
   private readonly seen = new Map<string, number>();
   private tick = 0;
-  /// Each chat's newest read: an older read that lands after it is dropped.
+  /// Each chat's newest read: an older read that lands after it is dropped. One counter for every
+  /// chat (`generation`), so a chat with no read out holds no entry: a stale read finds none, or a
+  /// newer number, and is dropped. Counted per chat and kept, every chat ever closed or idle kept an
+  /// entry for the pane's life (test/state-growth.test.ts, session-churn).
   private readonly reads = new Map<string, number>();
+  private generation = 0;
   /// The pending count acpmux last reported for each chat: a chat is read again only when it
   /// changes (or on an answer), never on every summary change.
   private readonly reported = new Map<string, number>();
@@ -159,7 +163,7 @@ export class AskTracker {
     this.reported.set(session.sessionId, reported);
     if (reported === 0) {
       // Nothing open: no read needed, and a read still in flight is stale.
-      this.reads.set(session.sessionId, (this.reads.get(session.sessionId) ?? 0) + 1);
+      this.reads.delete(session.sessionId);
       if (this.heldFor(session.sessionId) > 0) this.forget(session.sessionId);
       return;
     }
@@ -189,7 +193,7 @@ export class AskTracker {
   /// A chat acpmux purged (or no longer listed): its asks go, and a read still out for it is stale.
   forget(sessionId: string): void {
     this.remote.delete(sessionId);
-    this.reads.set(sessionId, (this.reads.get(sessionId) ?? 0) + 1);
+    this.reads.delete(sessionId);
     this.updatedAt.delete(sessionId);
     let removed = false;
     for (const [id, ask] of this.asks)
@@ -210,7 +214,7 @@ export class AskTracker {
   }
 
   private async reread(sessionId: string): Promise<void> {
-    const generation = (this.reads.get(sessionId) ?? 0) + 1;
+    const generation = ++this.generation;
     this.reads.set(sessionId, generation);
     const started = this.tick;
     let entries: readonly PendingEntry[] | undefined;
@@ -219,7 +223,10 @@ export class AskTracker {
     } catch {
       entries = undefined;
     }
-    if (entries === undefined || this.reads.get(sessionId) !== generation) return;
+    if (this.reads.get(sessionId) !== generation) return;
+    // The newest read landed: nothing is out for this chat any more.
+    this.reads.delete(sessionId);
+    if (entries === undefined) return;
     this.reconcile(sessionId, entries, started);
   }
 

@@ -572,6 +572,17 @@ final class ShellModel {
         }
     }
 
+    /// The banner's one button: "Sign in" when the account's session was
+    /// revoked (sign-out here, which keeps this phone's keys and the Macs that
+    /// allowed it, and opens sign-in), else "Retry".
+    func bannerAction() {
+        if banner == .signedOut {
+            Task { await auth.signOut() }
+            return
+        }
+        live?.retryConnection()
+    }
+
     /// Saves a team's color and emoji (and `PUT /prefs` when live).
     func saveAppearance(_ appearance: TeamAppearance, for team: Team) {
         guard let live else {
@@ -768,6 +779,9 @@ extension ShellModel {
             tokens: DeviceHubAccountToken { try await auth.accessToken() }
         )
         let service = ScreenSharingService(configuration: configuration)
+        #if DEBUG
+        if let demo = ScreenSharingService.demoMode() { service.useDemo(demo) }
+        #endif
         screenSharing = service
         ScreenSharingService.current = service
     }

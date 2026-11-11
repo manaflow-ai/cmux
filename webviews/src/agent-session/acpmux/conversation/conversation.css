@@ -960,6 +960,38 @@
 .cv-user__actions--versions {
   opacity: 1;
 }
+/* A rewind on its way or done (MessageActions.tsx RewindButton) keeps its prompt's row shown with the
+   pointer elsewhere, as Read aloud keeps a reply's: the spinner and then its time stay in view, in
+   the same 24 square, so nothing moves. */
+.cv-user__actions:has(.cv-turn-rewind:is([data-rewind-state="pending"], [data-rewind-state="done"])) {
+  opacity: 1;
+}
+/* The rewind's words show only in the gallery's labelled placement (UserBubble.gallery.ts, B). */
+.cv-turn-rewind__label {
+  display: none;
+}
+:root[data-turn-rewind-look="label"] .cv-user__actions .cv-iconbtn--compact.cv-turn-rewind {
+  width: auto;
+  gap: var(--grid-half-step);
+  padding-inline: var(--grid-base);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  white-space: nowrap;
+}
+:root[data-turn-rewind-look="label"] .cv-turn-rewind[data-rewind-state="idle"] > svg {
+  display: none;
+}
+:root[data-turn-rewind-look="label"] .cv-turn-rewind__label {
+  display: inline;
+}
+/* The gallery's corner placement (C, the arrow in the bubble's corner): the same button out of
+   the row, inside the bubble's bottom-right corner. The row is laid under the bubble, so its own
+   offset below the bubble is taken back. */
+:root[data-turn-rewind-look="corner"] .cv-user__actions .cv-turn-rewind {
+  position: absolute;
+  right: calc(var(--cv-action-inset) + var(--grid-base));
+  bottom: calc(100% + (var(--grid-gap-turn) - var(--cv-meta-row)) / 2 + var(--grid-base));
+}
 /* The rows' icon buttons are Claude's 24px squares (--cv-action-button), not the 20px compact ones. */
 :is(.cv-user__actions, .cv-received-actions) .cv-iconbtn--compact:not(.cv-turn-retry-menu) {
   width: var(--cv-action-button);
@@ -2659,17 +2691,24 @@ pre.cv-math-source {
 
 /* The live line rolls its words when they change (Thinking.tsx `useRoll`; Leo, 2026-11-05: "this is
    quite good too how it animates the changing text!!! we need to have that!!! for changing tool
-   calls at the bottom"): the old words (`cv-roll-out`, in the line's one tone as it drew them)
-   rise, soften and fade out above while the new rise in from below. Transform, opacity and a small
-   blur only, on the agent motion token, so nothing reflows and ui.animationSpeed scales it. Reduce
-   Motion, cmux motion off or reduced, the pane's agent motion off (ui.animationSpeed) and the
-   static status look change the words at once; the old words never show. Two keyframes of one roll,
-   swapped each change, restart it on the same element, so the line's live region is never
-   remounted. The new words fill backwards only, so no filter stays on the shimmer once they land. */
+   calls at the bottom"): the old words (`cv-roll-out`, in the line's one tone as it drew them) roll
+   up and out of the line as the new roll up into it from below, both opaque, on the arrival step. The
+   line's row clips them to its own height while a roll is on it, so the old words never draw over
+   the reply above the line, and at every frame the two tile the line: never a frame with no words
+   and never two texts over each other (Leo, 2026-11-11: "there's a breif moment where ther'es
+   overlapping text between the sent out text (from you) and the subequent tool calls/thinking";
+   the old copy rose 0.6em out of the line, faded and blurred, over the reply's last line). Transform
+   only, so nothing reflows and the compositor plays it on a busy main thread too. Reduce Motion, cmux
+   motion off or reduced, the pane's agent motion off (ui.animationSpeed) and the static status look
+   change the words at once; the old words never show. Two keyframes of one roll, swapped each change,
+   restart it on the same element, so the line's live region is never remounted. */
 .cv-roll-out {
   display: none;
 }
 @media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-shimmer__row:has(> .cv-roll-out) {
+    overflow-y: clip;
+  }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out {
     display: block;
     position: absolute;
@@ -2698,38 +2737,26 @@ pre.cv-math-source {
 }
 @keyframes cv-roll-out {
   from {
-    opacity: 1;
     translate: 0 0;
-    filter: blur(0);
   }
   to {
-    opacity: 0;
-    translate: 0 -0.6em;
-    filter: blur(2px);
+    translate: 0 -100%;
   }
 }
 @keyframes cv-roll-in-odd {
   from {
-    opacity: 0;
-    translate: 0 0.6em;
-    filter: blur(2px);
+    translate: 0 100%;
   }
   to {
-    opacity: 1;
     translate: 0 0;
-    filter: blur(0);
   }
 }
 @keyframes cv-roll-in-even {
   from {
-    opacity: 0;
-    translate: 0 0.6em;
-    filter: blur(2px);
+    translate: 0 100%;
   }
   to {
-    opacity: 1;
     translate: 0 0;
-    filter: blur(0);
   }
 }
 
@@ -3482,9 +3509,10 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
 }
 
 /* A look at a video's frames (VideoFramesCard.tsx): the video's name and length, then its frames
- * in one row that scrolls sideways, each in a box of the video's shape with its time in a corner.
- * It hangs from the row's words, as any line under a row does. `grid` and `poster` are the
- * gallery's alternatives. */
+ * in rows that wrap down the pane, never a row that scrolls sideways (Leo, 2026-11-11: "shouldn't
+ * this be... not horizontally scrolled? as in, it goes down instead of to the right?"), each in a
+ * box of the video's shape with its time in a corner. It hangs from the row's words, as any line
+ * under a row does. `grid` and `poster` are the gallery's alternatives. */
 .cv-video-frames {
   --cv-video-frame-width: 112px;
   display: flex;
@@ -3545,9 +3573,9 @@ button.cv-video-frames__name:focus-visible {
 }
 .cv-video-frames__strip {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   max-width: 100%;
-  overflow-x: auto;
 }
 .cv-video-frames__grid {
   display: grid;
@@ -5521,9 +5549,14 @@ a.cv-sha:focus-visible {
   }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .cv-enter,
-  .acpmux-row--enter {
+  .cv-enter {
     animation: cv-enter var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  }
+  /* A row's entry holds nothing once it ends (backwards, not both): its end is the row's own rest
+     (opacity 1, no translate), and a translate held past it would win over the one a fold ride
+     moves the row by (conversation/foldRide.ts), leaving a live notice still while rows move. */
+  .acpmux-row--enter {
+    animation: cv-enter var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) backwards;
   }
   /* Live activity is absolutely placed by VirtualTranscript. Its first paint must not slide the
      visible transcript when a subagent or command arrives; the row's measured box is already in
@@ -7483,110 +7516,7 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   white-space: nowrap;
 }
 
-/* "New since you looked" (SinceDivider.tsx): an accent hairline with its label and turn count, the
-   unread blue every status dot uses. 28px tall (model.ts), its recap's card under it. Placed when the
-   chat opens and kept until another one is, so nothing animates in or out. */
-.cv-since {
-  display: grid;
-  gap: var(--ds-space-2);
-  --cv-since-tint: var(--cmux-status-unread, #3982f5);
-}
-.cv-since__line {
-  display: flex;
-  margin: 0;
-  align-items: center;
-  gap: var(--ds-space-2);
-  height: 28px;
-  font-size: var(--text-detail);
-  letter-spacing: var(--text-detail--letter-spacing);
-  white-space: nowrap;
-}
-.cv-since__line::before,
-.cv-since__line::after {
-  content: "";
-  flex: 1;
-  border-top: 1px solid color-mix(in srgb, var(--cv-since-tint) 55%, transparent);
-}
-.cv-since__label {
-  color: var(--cv-since-tint);
-  font-weight: var(--weight-emphasis);
-}
-.cv-since__count {
-  color: var(--cv-text-dim);
-}
-.cv-since__count::before {
-  content: "· ";
-}
-/* Lead (shipped): the words start where the transcript's text does, the hairline runs on. */
-.cv-since[data-look="lead"] .cv-since__line::before {
-  display: none;
-}
-/* Center: the words sit on the middle of the hairline. */
-/* End: the hairline runs from the text column and the words close it. */
-.cv-since[data-look="end"] .cv-since__line::after {
-  display: none;
-}
-
-/* Jump to new (SinceDivider.tsx SinceJump): a small glass button centered over the transcript's top,
-   the same glass and fade as Jump to latest. Mounted with the mark and only faded, so it never pops
-   in; Reduce Motion shows and hides it at once. Its arrow points to where the line is. */
-.acpmux-over-top {
-  position: absolute;
-  left: 0;
-  right: 0;
-  z-index: var(--layer-sticky, 10);
-  display: flex;
-  justify-content: center;
-  padding-top: 8px;
-  pointer-events: none;
-}
-.acpmux-since-jump {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--ds-space-1);
-  height: var(--ds-control-compact);
-  padding: 0 var(--ds-space-3);
-  border: 0;
-  /* A small-radius rect, as every agent pane control (test/agent-pane-no-capsules.test.ts). */
-  border-radius: var(--ds-radius-control);
-  --glass-edge: color-mix(in srgb, var(--agent-text) 18%, transparent);
-  --glass-elevation: var(--elevation-2);
-  color: var(--cmux-status-unread, #3982f5);
-  font-size: var(--text-detail);
-  letter-spacing: var(--text-detail--letter-spacing);
-  font-weight: var(--weight-emphasis);
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-}
-:root:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-since-jump {
-  --glass-tint: color-mix(in srgb, var(--agent-page-bg) 72%, transparent);
-}
-.acpmux-since-jump[data-shown] {
-  opacity: 1;
-  pointer-events: auto;
-}
-.acpmux-since-jump:hover {
-  background-image: linear-gradient(
-    color-mix(in srgb, var(--agent-text) 6%, transparent),
-    color-mix(in srgb, var(--agent-text) 6%, transparent)
-  );
-}
-.acpmux-since-jump__arrow {
-  display: inline-grid;
-  place-items: center;
-}
-.acpmux-since-jump[data-side="above"] .acpmux-since-jump__arrow {
-  transform: rotate(180deg);
-}
-@media (prefers-reduced-motion: no-preference) {
-  .acpmux-since-jump {
-    transition: opacity var(--agent-motion-out) var(--agent-ease-out);
-  }
-  .acpmux-since-jump[data-shown] {
-    transition-duration: var(--agent-motion-in);
-  }
-}
+/* The unread marker ("New" line, the unread banner and its top-start zone): unread.css. */
 
 /* The `rule` look of a turn the agent ran on its own (gallery agent-pane.turn-after-subagent,
    `data-turn-boundary`): a hairline centred in the turn gap over its first row
@@ -7600,4 +7530,170 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   top: calc(var(--grid-gap-turn) / -2);
   border-top: var(--cmux-hairline, 0.5px) solid var(--cv-rule);
   pointer-events: none;
+}
+/* "Run on a bigger machine" (RunElsewhere.tsx): the chip at a running shell row's edge, in the
+   preview chip's place and ink; the "what goes" panel and the streamed run under the row, as plain
+   rows with a small machine icon and caption headers (design references
+   claude/live/panel-environment and a run-on-machine picker reference), no card chrome but a ring. */
+.cv-run-elsewhere-chip {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--ds-space-1);
+  border-radius: 4px;
+  color: var(--cv-text-dim);
+  cursor: default;
+  white-space: nowrap;
+}
+.cv-run-elsewhere-chip:hover {
+  color: var(--agent-accent);
+}
+.cv-run-elsewhere-chip:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: 1px;
+}
+.cv-run-elsewhere {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  margin: var(--ds-space-1) 0 var(--ds-space-2) var(--cv-tool-text-inset, 0);
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border-radius: var(--ds-radius-control);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  background: var(--cv-card-fill);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  color: var(--cv-text);
+}
+.cv-run-elsewhere--loading {
+  min-height: var(--cv-tool-row-height, 28px);
+}
+.cv-run-elsewhere__head {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+.cv-run-elsewhere__title {
+  font-weight: 600;
+}
+.cv-run-elsewhere--run .cv-run-elsewhere__title {
+  font-weight: normal;
+}
+.cv-run-elsewhere--run[data-state="failed"] .cv-run-elsewhere__title {
+  color: var(--agent-status-failure);
+}
+.cv-run-elsewhere__base,
+.cv-run-elsewhere__label,
+.cv-run-elsewhere__aside,
+.cv-run-elsewhere__note {
+  color: var(--cv-text-dim);
+}
+.cv-run-elsewhere__note,
+.cv-run-elsewhere__error {
+  margin: 0;
+}
+.cv-run-elsewhere__error {
+  color: var(--agent-status-failure);
+}
+.cv-run-elsewhere__label {
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.cv-run-elsewhere__machines {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-1);
+}
+.cv-run-elsewhere__machine {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-height: 24px;
+  padding: 0 var(--ds-space-2);
+  border-radius: var(--ds-radius-control);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  color: var(--cv-text-muted);
+}
+.cv-run-elsewhere__machine input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.cv-run-elsewhere__machine[data-checked] {
+  color: var(--cv-text);
+  box-shadow: inset 0 0 0 1.5px var(--agent-accent);
+}
+.cv-run-elsewhere__machine:has(input:disabled) {
+  opacity: 0.5;
+}
+.cv-run-elsewhere__machine:has(input:focus-visible) {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: 1px;
+}
+.cv-run-elsewhere__tree {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  max-height: 180px;
+  overflow: auto;
+}
+.cv-run-elsewhere__group {
+  display: flex;
+  flex-direction: column;
+}
+.cv-run-elsewhere__file {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--ds-space-1);
+  font-family: var(--cv-mono);
+  overflow-wrap: anywhere;
+}
+.cv-run-elsewhere__file.is-quiet,
+.cv-run-elsewhere__group.is-quiet .cv-run-elsewhere__file {
+  color: var(--cv-text-dim);
+  font-family: inherit;
+}
+.cv-run-elsewhere__status {
+  width: 1.5ch;
+  color: var(--cv-text-dim);
+}
+.cv-run-elsewhere__file[data-status="D"] {
+  text-decoration: line-through;
+  color: var(--cv-text-muted);
+}
+.cv-run-elsewhere__group.is-warn .cv-run-elsewhere__label {
+  color: var(--agent-status-failure);
+}
+.cv-run-elsewhere__aside {
+  margin-left: auto;
+  font-family: var(--cv-font);
+}
+.cv-run-elsewhere__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--ds-space-2);
+}
+.cv-run-elsewhere__link {
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--cv-text-dim);
+  font: inherit;
+  cursor: default;
+}
+.cv-run-elsewhere__link:hover {
+  color: var(--agent-accent);
+}
+.cv-run-elsewhere__output {
+  max-height: 240px;
+  margin: 0;
+  overflow: auto;
+  font-family: var(--cv-mono);
+  font-size: var(--text-caption);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--cv-text-muted);
 }

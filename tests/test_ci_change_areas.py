@@ -19,7 +19,13 @@ from unittest.mock import patch
 
 import yaml
 
-import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "detect_ci_change_areas.py"
@@ -4920,6 +4926,30 @@ def test_web_status_rejects_selected_skip_failure_or_cancellation() -> None:
         for outcome in ("skipped", "failure", "cancelled"):
             result = run_web_status(results={web_job: outcome})
             assert result.returncode != 0, (web_job, outcome)
+
+
+def test_web_status_rejects_a_scope_that_succeeded_with_no_subareas() -> None:
+    # cmux#40171 review: web=true, the scope green with outputs={} and every child skipped must stay a red, as on base.
+    result = run_web_status(
+        inputs={"web": "true", "macos": "false", "agent_session_web": "false"},
+        results={job: "skipped" for job in WEB_JOBS if job != "web-subarea-scope"},
+        subareas={},
+    )
+    assert result.returncode == 1, (result.returncode, result.stdout, result.stderr)
+    assert "summary red: Web status:" in result.stdout, result.stdout
+
+
+def test_web_status_with_partial_subarea_outputs_still_names_its_failed_child() -> None:
+    # cmux#40171 review (fe389ab5): partial scope outputs ({"db": "true"}), the scope abandoned and web-tests failed
+    # raised KeyError on subareas["typecheck"], so no summary red: line and no failed child came out.
+    result = run_web_status(
+        inputs={"web": "true", "macos": "false", "agent_session_web": "false"},
+        results={**{job: "skipped" for job in WEB_JOBS}, "web-subarea-scope": "abandoned", "web-tests": "failure"},
+        subareas={"db": "true"},
+    )
+    assert result.returncode == 1, (result.returncode, result.stdout, result.stderr)
+    assert "summary red: Web status:" in result.stdout and "web-tests: failure" in result.stdout, result.stdout
+    assert "Traceback" not in result.stderr, result.stderr
 
 
 def test_web_status_allows_unrouted_skips() -> None:

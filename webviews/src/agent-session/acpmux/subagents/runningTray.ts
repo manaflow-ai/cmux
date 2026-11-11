@@ -22,6 +22,7 @@ import { isRunGroup, isSubagentGroup, SUBAGENT_DONE, WORKFLOW_CARD } from "./sub
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import { retrying, retryKey, sessionRetry, type RetryState } from "./retryState";
 import { BACKGROUND_TURN } from "../conversation/backgroundTurns";
+import { PrefixFlatCache } from "../conversation/prefixFlatMap";
 
 let trayOn = true;
 const listeners = new Set<() => void>();
@@ -361,21 +362,26 @@ export function withSubagentLines(
   cache: DoneLineCache = new Map(),
   workflowCards = false,
 ): readonly AcpmuxRow[] {
-  if (!rows.some(isSubagentGroup)) return rows;
+  // The groups and the reports come from passes that read only the rows a snapshot changed
+  // (conversation/prefixFlatMap.ts); every other row is copied as it is. A chat of 35,000 rows
+  // read each row three times per event here.
+  const groups = groupReads.read(rows).from;
+  if (groups.length === 0) return rows;
+  const reportPass = reportReads.read(rows);
   // Each ended subagent goes before the first row after its group that came after its end, or
   // right above its first report when one came after its group.
   const before = new Map<number, AcpmuxRow[]>();
   const reports = new Map<string, number>();
-  rows.forEach((row, index) => {
-    const origin = reportOrigin(row);
-    if (origin !== undefined && !reports.has(origin)) reports.set(origin, index);
+  reportPass.items.forEach((origin, at) => {
+    if (!reports.has(origin)) reports.set(origin, reportPass.from[at]!);
   });
   const reported = new Map<string, Subagent>();
   const cards = new Map<number, AcpmuxRow[]>();
   const made = new Set<string>();
-  rows.forEach((row, index) => {
+  for (const index of groups) {
+    const row = rows[index]!;
     // An agent a shell call started keeps its card where it started (AgentRunCard.tsx).
-    if (!isSubagentGroup(row) || isRunGroup(row)) return;
+    if (isRunGroup(row)) continue;
     const workflows = workflowCards ? (row.subagents ?? []).filter(isWorkflow) : [];
     if (workflows.length > 0)
       cards.set(
@@ -397,22 +403,47 @@ export function withSubagentLines(
       const line = doneLine(agent, endedAt, cache, made, row.inBackground);
       before.set(at, [...(before.get(at) ?? []), line]);
     }
+  }
+  // The rows drawn other than as they are: the groups (their cards, or nothing) and the reports
+  // of a reported subagent (its line); and where the done lines go.
+  const changed = new Map<number, (row: AcpmuxRow) => readonly AcpmuxRow[]>();
+  for (const index of groups) if (!isRunGroup(rows[index]!)) changed.set(index, () => cards.get(index) ?? NO_ROWS);
+  reportPass.items.forEach((origin, at) => {
+    const agent = reported.get(origin);
+    if (agent) {
+      const index = reportPass.from[at]!;
+      changed.set(index, (row) => [reportLine(row, agent, reports.get(origin) === index, cache, made)]);
+    }
   });
+  const marks = [...new Set([...changed.keys(), ...before.keys()])].sort((a, b) => a - b);
   const out: AcpmuxRow[] = [];
   const flush = (at: number) => {
     const lines = before.get(at);
     if (lines) out.push(...lines.sort((a, b) => a.at - b.at || a.id.localeCompare(b.id)));
   };
-  rows.forEach((row, index) => {
-    flush(index);
-    const origin = reportOrigin(row);
-    const agent = reported.get(origin ?? "");
-    if (agent) out.push(reportLine(row, agent, reports.get(origin!) === index, cache, made));
-    else if (!isSubagentGroup(row) || isRunGroup(row)) out.push(row);
-    else out.push(...(cards.get(index) ?? []));
-  });
-  flush(rows.length);
+  let next = 0;
+  for (const mark of marks) {
+    for (; next < mark && next < rows.length; next += 1) out.push(rows[next]!);
+    flush(mark);
+    if (mark >= rows.length) continue;
+    const draw = changed.get(mark);
+    if (draw) out.push(...draw(rows[mark]!));
+    else out.push(rows[mark]!);
+    next = mark + 1;
+  }
+  for (; next < rows.length; next += 1) out.push(rows[next]!);
   // Only this pass's lines stay cached, so another chat's do not pile up.
   for (const id of cache.keys()) if (!made.has(id)) cache.delete(id);
   return out;
 }
+
+const NO_ROWS: readonly AcpmuxRow[] = [];
+/// The subagent groups of a transcript, by index (withSubagentLines).
+const groupReads = new PrefixFlatCache<AcpmuxRow, true>((row) => (isSubagentGroup(row) ? YES : NOTHING));
+const YES: readonly true[] = [true];
+const NOTHING: readonly never[] = [];
+/// The subagent each report answers (`reportOrigin`), by index.
+const reportReads = new PrefixFlatCache<AcpmuxRow, string>((row) => {
+  const origin = reportOrigin(row);
+  return origin === undefined ? NOTHING : [origin];
+});

@@ -132,7 +132,7 @@ pub fn machine_workspace(args: &Args, machine: &str) -> Checked<Option<String>> 
     required(args, "workspace", Said::with("machineWorkspaceRequired", [machine])).map(Some)
 }
 
-/// The network, rule or publication id these actions take in `--path`; `missing` names which.
+/// The publication id an action takes in `--path`; `missing` names it.
 pub fn id_argument(args: &Args, missing: &'static str) -> Checked<String> {
     required(args, "path", Said::key(missing))
 }
@@ -199,30 +199,6 @@ pub fn apply_machine_config(args: &Args, home: &str) -> Checked<Option<String>> 
         Some(path) if !path.is_empty() => Ok(Some(expanding_home(path, home))),
         _ => Err(Said::with("machineConfigUnreadable", ["--machine-config"])),
     }
-}
-
-/// `cloud firewall-create --path JSON`: the rule's `source` and `destination` (objects, `{}`
-/// when absent) and its `description`.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct FirewallRule {
-    pub source: Value,
-    pub destination: Value,
-    pub description: Option<String>,
-}
-
-pub fn firewall_rule(args: &Args) -> Checked<FirewallRule> {
-    let refused = || Said::key("ruleJSONRequired");
-    let rule: Value =
-        text(args, "path").and_then(|json| serde_json::from_str(json).ok()).ok_or_else(refused)?;
-    let rule = rule.as_object().ok_or_else(refused)?;
-    // An endpoint is an object (its fields are the API model's, which the app decodes); `{}` when absent.
-    let side = |name: &str| match rule.get(name) {
-        None => Ok(Value::Object(Map::new())),
-        Some(endpoint @ Value::Object(_)) => Ok(endpoint.clone()),
-        Some(_) => Err(refused()),
-    };
-    let description = rule.get("description").and_then(Value::as_str).map(str::to_owned);
-    Ok(FirewallRule { source: side("source")?, destination: side("destination")?, description })
 }
 
 /// `cloud new-machine --size` -> (vCPUs, MiB) as the server's size ladder makes them from the

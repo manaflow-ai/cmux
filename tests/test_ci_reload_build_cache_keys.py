@@ -27,13 +27,23 @@ import tempfile
 from pathlib import Path
 
 import yaml
-import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "reload-build.yml"
 METADATA_STEP = "Prepare macOS cache metadata"
 EXPRESSION = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
+# `'text'`: a literal operand.
+QUOTED = re.compile(r"'([^']*)'")
+# `inputs.flag == true && 'text'`: the literal when a boolean input is set.
+FLAG_GUARD = re.compile(r"([\w.]+)\s*==\s*true\s*&&\s*'([^']*)'")
 OUTPUT_REF = re.compile(r"^\$\{\{ steps\.cache_meta\.outputs\.([A-Za-z0-9_]+) \}\}$")
 
 FAKE_XCODEBUILD = """#!/bin/sh
@@ -100,6 +110,23 @@ def step_env(source_ref: str, dispatch_ref: str) -> dict[str, str]:
         "github.head_ref": dispatch_ref,
         "github.event.repository.default_branch": "main",
     }
+    # Boolean inputs the step may branch on. These dispatches are debug
+    # reloads, so `inputs.release` is false (#40083 keys release builds apart
+    # with a `release-` prefix; the ref-spelling property is the same there).
+    flags = {"inputs.release": False}
+
+    def operand_text(operand: str, raw: object) -> str:
+        literal = QUOTED.fullmatch(operand)
+        if literal:
+            return literal.group(1)
+        guarded = FLAG_GUARD.fullmatch(operand)
+        if guarded:
+            flag, literal_text = guarded.group(1), guarded.group(2)
+            assert flag in flags, f"{METADATA_STEP}: unmodelled env flag {flag!r} in {raw!r}"
+            return literal_text if flags[flag] else ""
+        assert operand in values, f"{METADATA_STEP}: unmodelled env expression {raw!r}"
+        return values[operand]
+
     env = {}
     for name, raw in (step_named(METADATA_STEP).get("env") or {}).items():
         match = EXPRESSION.fullmatch(str(raw).strip())
@@ -108,9 +135,7 @@ def step_env(source_ref: str, dispatch_ref: str) -> dict[str, str]:
             continue
         text = ""
         for operand in match.group(1).split("||"):
-            operand = operand.strip()
-            assert operand in values, f"{METADATA_STEP}: unmodelled env expression {raw!r}"
-            text = values[operand]
+            text = operand_text(operand.strip(), raw)
             if text:
                 break
         env[name] = text

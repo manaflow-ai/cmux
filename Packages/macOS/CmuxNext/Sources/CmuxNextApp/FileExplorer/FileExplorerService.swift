@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextFilesUI
 
-/// Makes each window's file explorer (the right sidebar's Files section) and
+/// Makes each window's file explorer (the Files section; no surface shows it now) and
 /// finds the one an action runs on: the right-clicked one for a row's menu (its
 /// `explorer` argument), else the active window's. The tree roots at
 /// the focused terminal's folder when it is on this Mac, else the home folder.
@@ -23,7 +23,7 @@ final class FileExplorerService {
         effects = AppFileExplorerEffects(services: services)
     }
 
-    /// The Files section of `controller` (made once per window by ``RightSidebarSections``).
+    /// The Files section of `controller` (made once per window).
     func makeSection(for controller: WindowController) -> FileExplorerSectionView {
         let id = UUID().uuidString
         let view = FileExplorerSectionView(
