@@ -111,6 +111,8 @@ nonisolated enum SpareSpy {
     nonisolated(unsafe) static var closed: [Int32] = []
     nonisolated(unsafe) static var loads: [(browser: Int32, url: String)] = []
     nonisolated(unsafe) static var createWindowCalls = 0
+    /// The URL each `cmux_shim_create_window` was given, in order.
+    nonisolated(unsafe) static var createdURLs: [String] = []
     nonisolated(unsafe) static var windows: [Int32: Int32] = [:]
     nonisolated(unsafe) static var nextBrowser: Int32 = 30
     /// Every page-state call in order: `freeze <b>`, `thaw <b>` (either freeze path), `move <b>`, `activate <b>`, `load <b>`.
@@ -144,11 +146,13 @@ nonisolated enum SpareSpy {
         loads = []
         log = []
         createWindowCalls = 0
+        createdURLs = []
     }
 
     static func library() throws -> CEFShimLibrary {
-        let createWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { _, _, _, _, _, _ in
+        let createWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { _, _, _, _, url, _ in
             SpareSpy.createWindowCalls += 1
+            SpareSpy.createdURLs.append(url.map { String(cString: $0) } ?? "")
             return 1
         }
         let tabAdd: @convention(c) (Int32, UnsafePointer<CChar>?, Int32, Int32) -> Int32 = { anchor, url, _, activate in
