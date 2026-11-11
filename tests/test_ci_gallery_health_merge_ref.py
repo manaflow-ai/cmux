@@ -17,6 +17,13 @@ import unittest
 from pathlib import Path
 
 import yaml
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -52,6 +59,23 @@ class GalleryHealthMergeRef(unittest.TestCase):
         run = step("Choose the entries to render")["run"]
         self.assertIn('git diff --name-only HEAD^1 HEAD', run)
         self.assertNotIn("git merge-base", run)
+
+    def test_the_upload_carries_only_the_screenshots_a_reader_needs(self) -> None:
+        # cmuxterm-hq#9131: the upload carried a screenshot of every passing state, ~190 MB a shard on a
+        # full render, and nothing read them. upload-set.ts drops them first (upload-set.test.ts holds what
+        # it keeps); it runs after the base replay has read health.json, on the folder the upload takes.
+        names = [entry.get("name") for entry in steps()]
+        trim = step("Keep only the screenshots a reader needs")
+        upload = step("Upload the health run")
+        self.assertLess(names.index("Judge the red states against the base"), names.index(trim["name"]))
+        self.assertEqual(names.index(trim["name"]) + 1, names.index(upload["name"]))
+        self.assertIn("always()", trim["if"])
+        self.assertIn('upload-set.ts --dir "$RUNNER_TEMP/health"', trim["run"])
+        self.assertEqual(upload["with"]["path"], "${{ runner.temp }}/health")
+        # More screenshots only on an explicit dispatch input, empty by default.
+        inputs = triggers()["workflow_dispatch"]["inputs"]
+        self.assertEqual(inputs["screenshots"]["default"], "")
+        self.assertEqual(trim["env"]["KEEP"], "${{ inputs.screenshots }}")
 
     def test_reports_keep_the_pull_request_head(self) -> None:
         # The artifact names the head the pull request shows, beside the merge commit rendered.
@@ -203,12 +227,12 @@ class GalleryHealthBrowserConsistency(unittest.TestCase):
                 script = work / name
                 script.write_text(contents)
                 script.chmod(0o755)
-            env = {
+            env = git_fixture_env.fixture_env({
                 "PATH": str(work / "bin") + os.pathsep + os.defpath,
                 "GITHUB_WORKSPACE": str(work), "GITHUB_ENV": str(env_file),
                 "RUNNER_TEMP": str(work), "TEST_BROWSER": browser, "TEST_LAUNCHES": str(launches),
                 "ALL": "true", "IDS": "", "SHARD": "0", "pass": "1",
-            }
+            })
             render = next(entry for entry in steps if entry.get("id") == "render")
             for entry in steps:
                 script = entry.get("run", "")
@@ -257,6 +281,7 @@ RENDER_SCRIPTS = (
     "webviews/scripts/gallery/touched.ts",
     "scripts/gallery-matrix/health.ts",
     "scripts/gallery-matrix/unplaced.py",
+    "scripts/gallery-matrix/upload-set.ts",
 )
 _RELATIVE = re.compile(r"""(?:\bfrom\s*|\bimport\s*\(?\s*|\bnew\s+URL\(\s*)["'](\.{1,2}/[^"'?$]+)""")
 _SIBLING = re.compile(r"""["']([\w.-]+\.(?:json|py|ts|mjs))["']""")
