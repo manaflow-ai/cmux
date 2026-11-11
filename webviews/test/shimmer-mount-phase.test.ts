@@ -129,6 +129,7 @@ await requireBrowserLane("shimmer-mount-phase.test.ts", async () => {
           );
         await off(true);
         await frames(p);
+        // fixed-wait: the loops must stay off for real time, so a restart at its mount-time delay would show.
         await p.waitForTimeout(523);
         await off(false);
         await frames(p);
