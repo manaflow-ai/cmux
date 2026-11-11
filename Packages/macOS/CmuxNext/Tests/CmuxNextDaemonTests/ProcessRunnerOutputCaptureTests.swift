@@ -57,25 +57,35 @@ struct ProcessRunnerOutputCaptureTests {
         #expect(result.status == 3)
     }
 
-    /// A main-actor caller (Cloud's spare warm, the NIGHTLY hang of 2026-11-09) passes 1 MiB of stdin
-    /// to a child that does not read for a second: the run returns every byte counted, and the main
-    /// actor keeps ticking the whole time. Before the feed, the write waited on the main thread
-    /// until the child read (here about a second; in the NIGHTLY, 391 s).
-    @MainActor @Test(.timeLimit(.minutes(1))) func aMainActorCallerKeepsTickingWhileASlowChildReadsAMiBOfStdin() async throws {
+    /// A main-actor caller (Cloud's spare warm, the NIGHTLY hang of 2026-11-09) passes 1 MiB of stdin to a child that
+    /// reads it only after the main actor opened a gate: the child makes a "started" file and waits for a "gate" file,
+    /// and a main-actor task makes the gate when it sees that the child started. A run that holds the main thread
+    /// (the write before the launch waited there: 391 s in the NIGHTLY) leaves the gate shut: the child never reads,
+    /// and the run ends by its deadline. No time is measured, so the other main-actor tests of the same process only
+    /// make the gate later. The 10 ms main-actor tick that this replaces counted their turns as a stall of the main
+    /// thread (the daemon tier of 2026-11-11: gaps of 1.0 and 1.8 s, 2 ticks in the run, on bases with no change here).
+    @MainActor @Test(.timeLimit(.minutes(1))) func aMainActorCallerRunsWhileAChildWaitsToReadAMiBOfStdin() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "process-runner-gate-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let started = directory.appending(path: "started").path, gate = directory.appending(path: "gate").path
         let input = Data(repeating: 0x61, count: 1_024 * 1_024)
-        let heartbeat = MainActorHeartbeat()
-        let ticking = Task { @MainActor in await heartbeat.run() }
-        let result = try await ProcessRunner.run(executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", "sleep 1; wc -c"],
+        let opensTheGate = Task { @MainActor in
+            while !FileManager.default.fileExists(atPath: started) {
+                guard (try? await Task.sleep(for: .milliseconds(10))) != nil else { return false }
+            }
+            return FileManager.default.createFile(atPath: gate, contents: nil)
+        }
+        defer { opensTheGate.cancel() }
+        let script = #": > "$1"; while [ ! -e "$2" ]; do sleep 0.05; done; wc -c"#
+        let result = try await ProcessRunner.run(executable: URL(fileURLWithPath: "/bin/sh"),
+                                                 arguments: ["-c", script, "sh", started, gate],
                                                  environment: nil, stdin: input, timeout: .seconds(30),
                                                  clock: ContinuousClock())
-        ticking.cancel()
-        await ticking.value
+        let opened = await opensTheGate.value
+        #expect(opened, "the main actor did not open the gate while the child waited for it")
         #expect(result.status == 0)
         #expect(String(decoding: result.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) == "1048576")
-        #expect(heartbeat.ticks > 10)
-        // The stall this guards against is the child's whole read delay (a second here). 250 ms leaves
-        // room for a busy CI host and other main-actor tests in the same process.
-        #expect(heartbeat.longestGap < .milliseconds(250), "main actor stalled \(heartbeat.longestGap)")
     }
 
     /// A child that never reads and never exits: the deadline still ends the run (kills and reaps the
@@ -118,25 +128,6 @@ struct ProcessRunnerOutputCaptureTests {
                 #expect(String(decoding: result.stdout, as: UTF8.self).hasPrefix("{\"progress\":\"upload\"}\n"))
                 #expect(String(decoding: result.stderr, as: UTF8.self).hasPrefix("upload diagnostic\n"))
             }
-        }
-    }
-}
-
-/// Ticks on the main actor every 10 ms and keeps the longest gap between ticks: a main thread held
-/// by a blocking call shows up as one long gap.
-@MainActor private final class MainActorHeartbeat {
-    private(set) var ticks = 0
-    private(set) var longestGap: Duration = .zero
-
-    func run() async {
-        let clock = ContinuousClock()
-        var last = clock.now
-        while !Task.isCancelled {
-            try? await Task.sleep(for: .milliseconds(10))
-            let now = clock.now
-            longestGap = max(longestGap, now - last)
-            last = now
-            ticks += 1
         }
     }
 }
