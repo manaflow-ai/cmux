@@ -1,6 +1,8 @@
 import AppKit
+@testable import CmuxNextDesign
 @testable import CmuxNextTerminal
 import CmuxNextTestSupport
+import CmuxTheme
 import Foundation
 import Testing
 
@@ -20,6 +22,20 @@ import Testing
             }
         }
         return nil
+    }
+
+    /// How far a line of `ink` drawn over `ground` lands from the ground: the largest channel step, in 0...255.
+    private static func drawnDelta(ink: NSColor, over ground: NSColor) -> CGFloat {
+        let alpha: CGFloat = ink.alphaComponent
+        let pairs: [(CGFloat, CGFloat)] = [(ink.redComponent, ground.redComponent),
+                                           (ink.greenComponent, ground.greenComponent),
+                                           (ink.blueComponent, ground.blueComponent)]
+        var largest: CGFloat = 0
+        for (line, under) in pairs {
+            let drawn: CGFloat = line * alpha + under * (1 - alpha)
+            largest = max(largest, abs(drawn - under) * 255)
+        }
+        return largest
     }
 
     private static func segments(_ path: CGPath) -> [(CGPoint, CGPoint)] {
@@ -70,6 +86,46 @@ import Testing
         try #require(segments.count > 2)
         for (a, b) in segments.prefix(4) { #expect(abs((b.y - a.y) - (b.x - a.x)) < 0.001 && b.y > a.y) }
         #expect(segments[1].0.x - segments[0].0.x == 8)
+    }
+
+    /// The hatch reads over the terminal's own background whatever the app's appearance: a light app over a dark
+    /// terminal theme drew a light-appearance divider over the dark ground, 1/255 from it (Nov 10 capture). Classic
+    /// takes the divider from the terminal background (Ghostty's `split-divider-color`), so it always shows.
+    @Test(arguments: [(UInt32(0xFAFAFA), UInt32(0x222222)), (0x1E1E1E, 0xD4D4D4)])
+    func theHatchReadsOverTheTerminalBackground(_ app: (background: UInt32, foreground: UInt32)) async throws {
+        _ = NSApplication.shared
+        _ = GhosttyRuntime.shared
+        let io = HatchScriptedIO()
+        let session = TerminalSession(io: io)
+        try #require(session.surfaceView.surface != nil, "libghostty created no surface")
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 360), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { io.finish(); window.close() }
+        // The app's theme around the pane; the terminal keeps the config's own background.
+        let scope = ThemeScope(level: .room)
+        scope.setOverride(try #require(ThemeSpec("Hatch Ground")),
+                          input: ThemeInput(background: ThemeRGB(hex: app.background), foreground: ThemeRGB(hex: app.foreground)),
+                          animated: false)
+        let root = NSView(frame: window.contentLayoutRect)
+        window.contentView = root
+        scope.root(root)
+        session.view.frame = root.bounds
+        root.addSubview(session.view)
+        session.view.layoutSubtreeIfNeeded()
+        io.send(.status(.connected))
+        io.send(.sizedFor(TerminalSizedFor(deviceName: "Maya's iPhone", deviceKind: "iphone", sameDevice: false,
+                                           grid: TerminalGridSize(columns: 20, rows: 5))))
+        var turns = 0
+        while session.view.sizedForText == nil, turns < 20_000 { await Task.yield(); turns += 1 }
+        try #require(session.view.sizedForText != nil, "the chip never showed")
+        session.view.layoutSubtreeIfNeeded()
+
+        let found = try #require(Self.hatch(in: session.view), "no hatch outside the 20×5 grid")
+        let ground = try #require(NSColor(cgColor: TerminalHostView.opaqueGround(nil))?.usingColorSpace(.sRGB))
+        let ink = try #require(found.lines.strokeColor.flatMap { NSColor(cgColor: $0)?.usingColorSpace(.sRGB) })
+        let delta = Self.drawnDelta(ink: ink, over: ground)
+        #expect(delta >= 6, "a hatch line is \(delta)/255 from the terminal background under app theme \(String(app.background, radix: 16))")
     }
 }
 
