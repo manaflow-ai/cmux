@@ -1,6 +1,7 @@
 #!/bin/bash
 # Before/after for the Cloud late-attach harness: the same request against
-# the connect code at BASE (default HEAD~1) and at HEAD, each attach time
+# the connect code at BASE (default HEAD~1; a commit, or a path to that
+# commit's cloud_http_transport.rs) and at HEAD, each attach time
 # several times. Needs a network namespace: unprivileged, or through sudo -n.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -23,10 +24,9 @@ measure() {
     done
   done
 }
-# A shallow checkout (CI) may lack BASE: fetch that one commit.
-git cat-file -e "$base^{commit}" 2>/dev/null || git fetch -q --depth=1 origin "$base"
 after=$(build); cp "$after" /tmp/attach-after
-git show "$base:cmux-tui/$file" > "$file.base" && cp "$file" "$file.head" && mv "$file.base" "$file"
+if [ -f "$base" ]; then cp "$base" "$file.base"; else git show "$base:cmux-tui/$file" > "$file.base"; fi
+cp "$file" "$file.head" && mv "$file.base" "$file"
 before=$(build); cp "$before" /tmp/attach-before; mv "$file.head" "$file"
 measure before /tmp/attach-before
 measure after /tmp/attach-after
