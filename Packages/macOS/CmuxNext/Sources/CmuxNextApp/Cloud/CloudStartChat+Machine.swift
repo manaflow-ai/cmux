@@ -105,7 +105,12 @@ extension CloudStartChat {
             _ = try Self.checked(await cli.startChatPin(key: start.key, account: CloudStartCore().accountText(account), machine: created.machineID, workspace: workspace))
             invocation.arguments["machine"] = .string(created.machineID)
         }
-        return (try await CloudMove(services: services).machine(invocation, pick: pick), plan)
+        let session = try await CloudMove(services: services).machine(invocation, pick: pick), id = session.machineID
+        // Before its first chat the machine runs this app's machine software (the update is a no-op when it does) and its agents reach models through its edge.
+        cloud.logger.info("cloud start chat: bringing \(id, privacy: .public) to this app's machine software")
+        do { try await CloudMachineRoute { [api = cloud.machineAPI] in try await api.exec(id, command: $0, timeoutMs: $1) }.afterUpdate { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(id, services: services) }
+        } catch let refused as CloudMachineRoute.Refused { throw CloudMove.Failure(message: refused.message, retry: .move(machineID: id)) }
+        return (session, plan)
     }
 
     /// `answer`, or its error as the person reads it.

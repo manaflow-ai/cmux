@@ -1,6 +1,50 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cloud.machineRoute.outdated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Cloud machine's software could not be updated to match this app, so its agents can't reach models yet. Try again, or start the chat on a new machine."
+          }
+        }
+      }
+    },
+    "cloud.machineRoute.noDaemon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent service on this Cloud machine didn't start. Try again in a moment."
+          }
+        }
+      }
+    },
+    "cloud.machineRoute.holdsCredential": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Cloud machine holds its own provider sign-in, so its agents would not use the Cloud service's model route. Start the chat on a new machine."
+          }
+        }
+      }
+    },
+    "cloud.machineRoute.notEdge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Cloud machine's agents aren't routed through the Cloud service yet. Try again, or start the chat on a new machine."
+          }
+        }
+      }
+    },
     "cloud.seedRefused.connectGitHub": {
       "extractionState": "manual",
       "localizations": {
