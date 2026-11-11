@@ -33,6 +33,10 @@ export function noteKeptPrefix(rows: readonly unknown[], previous: readonly unkn
   told.set(rows, { from, count: Math.max(0, Math.min(count, rows.length, previous.length)) });
 }
 
+/// The rows `keptPrefix` has walked since the page loaded: a test reads it to see that an update's
+/// passes start at the change, not at the chat's first row (test/tool-call-kept-prefix.test.ts).
+export const prefixWalks = { rows: 0 };
+
 /// How many leading rows of `rows` are the same objects at the same places in `previous`. The pane
 /// asks this of the same two snapshots once per pass (composer, tray, plan, Find, ...), so answers
 /// are kept: each pair is walked once. They are kept by the arrays themselves (weakly), so a chat
@@ -50,6 +54,7 @@ export function keptPrefix(previous: readonly unknown[], rows: readonly unknown[
   const limit = Math.min(rows.length, previous.length);
   let count = 0;
   while (count < limit && rows[count] === previous[count]) count += 1;
+  prefixWalks.rows += count;
   if (!after) kept.set(rows, (after = new WeakMap()));
   after.set(previous, { lengths, count });
   return count;
@@ -103,11 +108,21 @@ export class PrefixFlatCache<R, T> {
     let best: { ref: WeakRef<readonly R[]>; pass: PrefixFlat<R, T> } | undefined;
     let bestKept = 0;
     const live: WeakRef<readonly R[]>[] = [];
+    // The rows its maker made them from (`noteKeptPrefix`), when a pass here read them: this view's
+    // last snapshot. It starts from that pass with no walk against the other views' passes, each of
+    // which was a walk over the chat.
+    const said = told.get(rows);
+    for (const ref of this.refs) {
+      const read = ref.deref();
+      const pass = read && this.passes.get(read);
+      if (pass && said && serials.get(read) === said.from) best = { ref, pass };
+    }
     for (const ref of this.refs) {
       const read = ref.deref();
       const pass = read && this.passes.get(read);
       if (!pass) continue;
       live.push(ref);
+      if (best && said) continue;
       const count = keptPrefix(pass.rows, rows);
       if (count > bestKept) {
         best = { ref, pass };
