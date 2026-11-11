@@ -723,14 +723,15 @@ class NameProof:
     working directory for `python -m`, `-c` and stdin), PYTHONPATH's and the inserted ones. Names come from the tree's full file list, built once
     per find_misses run (module_name_index), never from the sparse list or an earlier run."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, outside: set[str] | None = None) -> None:
         self.root = root
         self._index: dict[str, set[str]] | None = None
-        self._outside: set[str] | None = None
+        self._outside = outside  # stdlib and installed names; the oracle passes them in once
 
     def disjoint(self, folders: list[str]) -> bool:
         if self._index is None:
             self._index = module_name_index(self.root)
+        if self._outside is None:
             self._outside = set(sys.stdlib_module_names) | _installed_names()
         seen: set[str] = set()
         for folder in dict.fromkeys(folders):
@@ -744,14 +745,14 @@ class NameProof:
 def _tree_files(root: Path) -> list[str]:
     """Every file of the tree: `git ls-files` (the checkout's revision) when `root` is a git work tree,
     else every file on disk (a test fixture). Never the sparse list."""
-    try:
-        listed = subprocess.run(
-            ["git", "-C", str(root), "ls-files", "-z"], capture_output=True, text=True, check=True
-        ).stdout
-        if (root / ".git").exists():
+    if (root / ".git").exists():
+        try:
+            listed = subprocess.run(
+                ["git", "-C", str(root), "ls-files", "-z"], capture_output=True, text=True, check=True
+            ).stdout
             return [rel for rel in listed.split("\0") if rel]
-    except (OSError, subprocess.CalledProcessError):
-        pass
+        except (OSError, subprocess.CalledProcessError):
+            pass
     out = []
     for folder, dirs, names in os.walk(root):
         dirs[:] = [d for d in dirs if d != ".git"]
@@ -1119,21 +1120,26 @@ def _run_lines_uncached(run: str, root: Path, start: str | None):
         cwd = _follow_cd(line, cwd, root)
 
 
-def pythonpath_dirs(value: object, root: Path) -> tuple[tuple[str, ...], list[str]]:
+def pythonpath_dirs(value: object, root: Path, cwd: str | None = "") -> tuple[tuple[str, ...], list[str]]:
     """(repo folders, entries it cannot resolve) of one PYTHONPATH value. ${{ github.workspace }} and
-    $GITHUB_WORKSPACE are the repo root; other expressions, variables, absolute paths and paths
-    leaving the repo cannot be resolved."""
-    if value is None:
+    $GITHUB_WORKSPACE are the repo root; a relative entry is relative to `cwd`, the working directory
+    Python starts in (an empty entry is that folder itself), as Python reads it; other expressions,
+    variables, absolute paths, paths leaving the repo, and relative entries when `cwd` is unknown
+    (None) cannot be resolved."""
+    if value is None or not str(value).strip().strip("'\""):
         return (), []
     folders: list[str] = []
     bad: list[str] = []
     for raw in str(value).strip().strip("'\"").split(":"):
         part = raw.strip()
-        if not part:
-            continue
         anchored = _WORKSPACE.match(part)
         if anchored:
             part = part[anchored.end():].lstrip("/") or "."
+        elif cwd is None:
+            bad.append(raw.strip() or "(empty: the working directory)")
+            continue
+        else:
+            part = os.path.join(cwd, part or ".") if cwd else part or "."
         if part.startswith("/") or "$" in part:
             bad.append(raw.strip())
             continue
@@ -1246,7 +1252,7 @@ def run_configs(
         values.append((effective_env(doc, job).get("PYTHONPATH"), default, ""))
     configs: list[tuple[tuple[str, ...], str, str | None]] = []
     for value, base, here in values:
-        folders, unresolved = pythonpath_dirs(value, root)
+        folders, unresolved = pythonpath_dirs(value, root, here)
         bad += [
             f"runs with PYTHONPATH entry {entry!r}, which this check cannot resolve to a repo folder"
             for entry in unresolved
@@ -1976,6 +1982,7 @@ class SparseCheckoutImportTests(unittest.TestCase):
         "scripts/ci/mx3.py": "import tests.mxhelp\n",
         "scripts/ci/mxlit.py": "import sys\nsys.path.insert(0, 'mxlitdir')\nimport mxlitmod\n",
         "scripts/ci/mxlitdir/mxlitmod.py": "",
+        "scripts/ci/mx4.py": "import mxlitmod\n",
         "mxlitdir/mxlitmod.py": "",
         "tests/__init__.py": "",
         "tests/mxhelp.py": "",
@@ -2027,6 +2034,18 @@ class SparseCheckoutImportTests(unittest.TestCase):
         for label, run in runs.items():
             with self.subTest(run=label):
                 self.assertEqual(self._misses(listed, run=run, more=self.CWD), expected)
+
+    def test_fixture_oracle_a_relative_pythonpath_is_relative_to_the_working_directory(self) -> None:
+        # Found by the differential oracle: `cd scripts/ci && PYTHONPATH=mxlitdir python3 mx4.py` puts
+        # scripts/ci/mxlitdir on the path, not the repo root's mxlitdir.
+        listed = self.block("scripts/ci/mx4.py", "mxlitdir/mxlitmod.py")
+        self.assertEqual(
+            self._misses(listed, run="cd scripts/ci && PYTHONPATH=mxlitdir python3 mx4.py", more=self.CWD),
+            [
+                "w.yml run Check out: scripts/ci/mx4.py imports scripts/ci/mxlitdir/mxlitmod.py, "
+                "not in its sparse checkout"
+            ],
+        )
 
     def test_fixture_review_m_a_relative_literal_names_a_path_from_the_working_directory(self) -> None:
         # `python3 mxlit.py` in scripts/ci: 'mxlitdir' is scripts/ci/mxlitdir, not the root's mxlitdir.
@@ -2108,6 +2127,225 @@ class SparseCheckoutImportTests(unittest.TestCase):
             ],
         )
         self.assertEqual(self._misses(self.block("scripts/ci/mpkg/"), run=run), [])
+
+
+# --- differential oracle ------------------------------------------------------------------------
+#
+# Random programs run under real Python; for each, the checker must name the repo files the run
+# loaded (its entry script, every module file in sys.modules at exit, every file loaded by path), or
+# say it cannot verify the run. Naming exactly them is "verified"; naming more is "superset" (see
+# _oracle_case); missing one is a divergence. A run that raises is not a case; the generator keeps
+# going until it has enough cases. Seeds are fixed, so a divergence reproduces from its seed.
+
+ORACLE_CASES = int(os.environ.get("SPARSE_ORACLE_CASES", "1000"))
+ORACLE_SEED = int(os.environ.get("SPARSE_ORACLE_SEED", "40923"))
+_ORACLE_FOLDERS = ("scripts/ci", "scripts/a", "scripts/b", "lib", "")
+_ORACLE_NAMES = ("m0", "m1", "m2", "m3", "m4", "tests", "shared")
+_ORACLE_TRACE = (
+    "import atexit as _oracle_atexit, sys as _oracle_sys\n"
+    "_oracle_atexit.register(lambda: print('ORACLE', repr(sorted({os.path.abspath(getattr(m, '__file__', None) or '/') "
+    "for m in list(_oracle_sys.modules.values())}))))\n"
+)
+
+
+def _oracle_program(seed: int) -> tuple[dict[str, str], str, dict, str]:
+    """(files, entry script, run step, how real Python is started) for one random case."""
+    import random
+
+    rng = random.Random(seed)
+    files: dict[str, str] = {}
+    shape = rng.choice(("script", "script-cd", "module", "module-cd", "code", "stdin"))
+    first = {"script": "scripts/ci", "script-cd": "scripts/ci", "module-cd": "scripts"}.get(shape, "")
+    # One shape per name, so every import form fits wherever the name is found; most names sit in
+    # the folder Python searches first, the rest in folders only a path change or PYTHONPATH adds.
+    kinds = {name: rng.choice(("module", "module", "package", "namespace")) for name in _ORACLE_NAMES}
+    offered: list[tuple[str, str]] = []
+    for name in _ORACLE_NAMES:
+        hosts = [first] if rng.random() < 0.7 else []
+        hosts += rng.sample(_ORACLE_FOLDERS, rng.randint(0 if hosts else 1, 2))
+        for folder in dict.fromkeys(hosts):
+            at = f"{folder}/{name}" if folder else name
+            if kinds[name] == "module":
+                files[f"{at}.py"] = ""
+            elif kinds[name] == "package":
+                files[f"{at}/__init__.py"] = rng.choice(("", "from . import sub\n"))
+                files[f"{at}/sub.py"] = ""
+            else:
+                files[f"{at}/sub.py"] = ""
+        offered.append((name, kinds[name]))
+
+    def import_line() -> str:
+        # Mostly a form that fits a shape the name has somewhere, so most programs run.
+        name, shape = rng.choice(offered)
+        if shape == "module":
+            return f"import {name}\n"
+        return rng.choice((f"import {name}\n", f"import {name}.sub\n", f"from {name} import sub\n"))
+
+    # Plain modules import each other a little, sometimes inside a function they call.
+    for rel in [r for r in files if r.endswith(".py")]:
+        if rng.random() < 0.4:
+            line = import_line()
+            files[rel] += line if rng.random() < 0.6 else f"def _f():\n    {line}_f()\n"
+        if rng.random() < 0.12:
+            target = rng.choice(_ORACLE_FOLDERS[:4])
+            files[rel] = f"import sys\nsys.path.insert(0, {target!r})\n" + files[rel]
+
+    entry = "scripts/ci/entry.py"
+    here = "os.path.dirname(os.path.abspath(__file__))"
+
+    def folder_expr(folder: str) -> str:
+        form = rng.random()
+        if form < 0.5 or not folder.startswith("scripts/"):
+            return repr(folder or ".")
+        tail = folder.split("/", 1)[1]
+        return f"os.path.join({here}, '..', {tail!r})"
+
+    body: list[str] = ["import os\n", "import sys\n", "import importlib.util\n"]
+    calls: list[str] = []
+    functions: list[str] = []
+    for k in range(rng.randint(0, 4)):
+        what = rng.random()
+        folder = rng.choice(_ORACLE_FOLDERS[:4])
+        if what < 0.35:
+            stmt = f"sys.path.insert(0, {folder_expr(folder)})\n"
+        elif what < 0.55:
+            stmt = f"sys.path.append({folder_expr(folder)})\n"
+        elif what < 0.7:
+            stmt = import_line()
+        elif what < 0.82:
+            stmt = f"P{k} = {folder_expr(folder)}\nsys.path.insert(0, P{k})\n"
+        else:
+            loaded = f"scripts/b/loaded{k}.py"
+            files[loaded] = import_line() if rng.random() < 0.5 else ""
+            where = f"os.path.join({here}, '..', 'b', 'loaded{k}.py')" if rng.random() < 0.7 else repr(loaded)
+            stmt = (
+                f"_spec{k} = importlib.util.spec_from_file_location('loaded{k}', {where})\n"
+                f"_mod{k} = importlib.util.module_from_spec(_spec{k})\n"
+                f"sys.modules['loaded{k}'] = _mod{k}\n"
+                f"_spec{k}.loader.exec_module(_mod{k})\n"
+            )
+        if rng.random() < 0.4:
+            functions.append(f"def step{k}():\n" + textwrap.indent(stmt, "    "))
+            calls.append(f"step{k}()\n")
+        else:
+            calls.append(stmt)
+    rng.shuffle(calls)  # functions run in any order, not their definition order
+    for _ in range(rng.randint(1, 3)):
+        calls.insert(rng.randint(0, len(calls)), import_line())
+    files[entry] = "".join(body + functions + calls) + _ORACLE_TRACE
+
+    python = "python3" if rng.random() < 0.15 else "python3 -S"
+    lib = rng.random() < 0.35
+    value = rng.choice(("lib", "lib", "../../lib", ":lib", "${{ github.workspace }}/lib"))
+    if "workspace" in value:
+        prefix = ""
+    else:
+        prefix = f"PYTHONPATH={value} " if lib and rng.random() < 0.5 else ""
+    step: dict = {}
+    if lib and not prefix:
+        step["env"] = {"PYTHONPATH": value}
+    run_code = f"import runpy; runpy.run_path({entry!r}, run_name='__main__')"
+    run = {
+        "script": f"{prefix}{python} {entry}",
+        "script-cd": f"cd scripts/ci && {prefix}{python} entry.py",
+        "module": f"{prefix}{python} -m scripts.ci.entry",
+        "module-cd": f"cd scripts && {prefix}{python} -m ci.entry",
+        "code": f'{prefix}{python} -c "{run_code}"',
+        "stdin": f"{prefix}{python} - <<'EOF'\n{run_code}\nEOF",
+    }[shape]
+    step["run"] = run
+    return files, entry, step, shape
+
+
+def _oracle_case(seed: int, outside: set[str]) -> tuple[str, str] | None:
+    """("verified" | "superset" | "unverifiable" | "invalid" | "divergence", detail) for one case."""
+    import json
+
+    files, entry, step, shape = _oracle_program(seed)
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp).resolve() / "repo"
+        for rel, body in files.items():
+            (root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (root / rel).write_text(body, encoding="utf-8")
+        shim = Path(tmp) / "bin"
+        shim.mkdir()
+        (shim / "python3").symlink_to(sys.executable)
+        env = {k: v for k, v in os.environ.items() if not k.startswith("PYTHON")}
+        env.update(PATH=f"{shim}:{env.get('PATH', '')}", PYTHONDONTWRITEBYTECODE="1", PYTHONNOUSERSITE="1")
+        # GitHub expands ${{ github.workspace }} before the shell runs.
+        env.update({k: str(v).replace("${{ github.workspace }}", str(root)) for k, v in (step.get("env") or {}).items()})
+        done = subprocess.run(
+            ["bash", "-e", "-c", step["run"]], cwd=root, env=env, capture_output=True, text=True, timeout=30
+        )
+        if done.returncode != 0:
+            return "invalid", done.stderr[-300:]
+        traced = [line for line in done.stdout.splitlines() if line.startswith("ORACLE ")]
+        if len(traced) != 1:
+            return "invalid", done.stdout[-300:]
+        real = {entry}
+        for path in ast.literal_eval(traced[0][len("ORACLE "):]):
+            if path and Path(path).resolve().is_relative_to(root):
+                real.add(Path(path).resolve().relative_to(root).as_posix())
+
+        job = {"steps": [step]}
+        doc = {"jobs": {"run": job}}
+        how = how_it_runs(entry, _job_run_modules(job))
+        configs, bad = run_configs(doc, job, entry, how, root)
+        if bad:
+            return "unverifiable", "; ".join(bad)
+        if len(configs) != 1:
+            return "divergence", f"{len(configs)} run configs for one run"
+        extra, base, cwd = configs[0]
+        names = NameProof(root, outside)
+        places, _, _, loaded, unresolved = full_run(root, entry, extra, how, frozenset(), names, base, cwd)
+        if unresolved:
+            return "unverifiable", repr(unresolved[:2])
+        checked = {entry} | {p for p in places.values() if not p.endswith("/")} | {f for f, _ in loaded}
+        if checked != real:
+            # More than Python loaded is ModuleFinder's known over-approximation (`from m import sub`
+            # after m's __init__ bound a `sub` attribute still counts m/sub.py): it can only ask the
+            # list for an extra file. Missing a file Python loaded is a divergence.
+            outcome = "superset" if real < checked else "divergence"
+            return outcome, json.dumps(
+                {"seed": seed, "shape": shape, "run": step, "files": files,
+                 "only_checker": sorted(checked - real), "only_python": sorted(real - checked)},
+                indent=1,
+            )
+        return "verified", ""
+
+
+def run_oracle(cases: int = ORACLE_CASES, seed: int = ORACLE_SEED) -> tuple[Counter, list[str]]:
+    """Counts by outcome over `cases` valid cases, and the divergences' details."""
+    import multiprocessing
+    from concurrent.futures import ProcessPoolExecutor
+
+    outside = set(sys.stdlib_module_names) | _installed_names()
+    counts: Counter = Counter()
+    divergences: list[str] = []
+    workers = max(1, os.cpu_count() or 1)
+    with ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context("fork")) as pool:
+        next_seed = seed * 1_000_000
+        while (done := sum(n for outcome, n in counts.items() if outcome != "invalid")) < cases:
+            want = cases - done
+            batch = range(next_seed, next_seed + max(want + want // 2, workers))
+            next_seed = batch.stop
+            for outcome, detail in pool.map(_oracle_case, batch, [outside] * len(batch), chunksize=8):
+                counts[outcome] += 1
+                if outcome == "divergence":
+                    divergences.append(detail)
+    return counts, divergences
+
+
+class SparseCheckoutOracleTests(unittest.TestCase):
+    def test_random_programs_match_real_python_or_are_unverifiable(self) -> None:
+        import time
+
+        started = time.monotonic()
+        counts, divergences = run_oracle()
+        took = time.monotonic() - started
+        print(f"sparse-checkout oracle: {dict(counts)} in {took:.1f}s on {os.cpu_count()} cpus", file=sys.stderr)
+        self.assertEqual(divergences[:3], [], f"{len(divergences)} divergences")
+        self.assertGreaterEqual(counts["verified"], ORACLE_CASES // 4, dict(counts))
 
 
 if __name__ == "__main__":
