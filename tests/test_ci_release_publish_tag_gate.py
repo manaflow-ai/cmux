@@ -14,12 +14,15 @@ What counts as publishing is read from the step, not its name:
 - a command it may run, direct or wrapped (tests/shell_invocations.may_run_nested: a substitution, eval, `bash -c`,
   xargs, sudo, env ... all count): `gh release create|upload|edit|delete`, a write through `gh api .../releases`
   (the method as gh reads it, tests/shell_invocations.gh_api_request: a field flag or --input is a POST),
-  `npm|pnpm|yarn|bun|cargo publish`, `twine upload`, `codesign` (other than verify and display), `productsign`,
-  `xcrun notarytool`; and executable content it cannot read (a heredoc into a shell, eval of a variable, a sourced
+  `npm|pnpm|yarn|bun|cargo publish`, `twine upload`, `codesign` (classified by action first: any --sign or -s signs,
+  whatever else it has; only a verify or display with no sign is read-only), `productsign`, `xcrun notarytool`; and executable content it cannot read (a heredoc into a shell, eval of a variable, a sourced
   file), which may publish;
 - a step that reads a secret other than GITHUB_TOKEN (a signing certificate, an App key, a registry token), or a job
   that reads one in its own env/with/secrets, or a workflow-level env that does (it reaches every job).
-A call to a local reusable workflow whose steps publish counts as publishing at the call.
+A call to a local reusable workflow counts as publishing at the call when anything it reaches publishes, followed
+through nested local `uses: ./.github/workflows/...` calls at any depth (a cycle is read once): a step that
+publishes, or a `${{ secrets.* }}` read (signing material) in the called workflow's env, a job's env, `with:` or
+`secrets:` (what it passes to the next reusable workflow), or a step.
 
 A gate counts only if it REQUIRES the release ref. The condition is split at top-level `||` (every alternative must
 require it) and `&&` (one conjunct is enough), so `tag-gate || github.event_name == 'workflow_dispatch'` is no gate.
@@ -64,7 +67,8 @@ STATUS_FUNCTION = re.compile(r"\b(always|failure|cancelled|success)\s*\(", re.IG
 RELEASE_ACTION = re.compile(
     r"attest|gh-action-pypi-publish|action-gh-release|release-action|upload-release-asset|create-release|"
     r"npm-publish|cargo-publish", re.IGNORECASE)
-CODESIGN_READ_ONLY = re.compile(r"-(v+|d+v*|dv+)|--verify|--display")
+# codesign's short options that take a value (`codesign --help`): in a cluster, the letters after one are its value.
+CODESIGN_VALUES = frozenset("aDiIoPrRs")
 
 
 def _strip(expression: Any) -> str:
@@ -126,10 +130,34 @@ def publishing_command(words: list[str]) -> bool:
     if program == "twine" or (program.startswith("python") and rest[:2] == ["-m", "twine"]):
         return "upload" in rest
     if program == "codesign":
-        return not any(CODESIGN_READ_ONLY.fullmatch(word) for word in rest)
+        return codesign_signs_or_writes(rest)
     if program == "productsign":
         return True
     return program == "xcrun" and "notarytool" in rest
+
+
+def codesign_signs_or_writes(args: list[str]) -> bool:
+    """codesign classified by its action first. Any --sign or -s (`-s ID`, `-fs ID`, `--sign=ID`) signs, and then -v
+    only means verbose; with no sign, a verify (-v, --verify) or display (-d, --display) is read-only. Anything else
+    (--remove-signature, an action this does not know) counts as a write."""
+    reads = False
+    for word in args:
+        if word == "--":
+            break
+        if word.startswith("--"):
+            name = word.split("=", 1)[0]
+            if name == "--sign":
+                return True
+            reads = reads or name in ("--verify", "--display")
+            continue
+        if word.startswith("-") and len(word) > 1:
+            for letter in word[1:]:
+                if letter == "s":
+                    return True
+                if letter in CODESIGN_VALUES:
+                    break  # the rest of the word is this option's value
+                reads = reads or letter in "vd"
+    return not reads
 
 
 def publishes(step: Mapping[str, Any]) -> list[str]:
@@ -151,13 +179,25 @@ def publishes(step: Mapping[str, Any]) -> list[str]:
     return why
 
 
-def callee_publishes(job: Mapping[str, Any], documents: Mapping[str, Mapping[str, Any]]) -> bool:
+def callee_publishes(job: Mapping[str, Any], documents: Mapping[str, Mapping[str, Any]],
+                     seen: frozenset = frozenset()) -> bool:
+    """Whether a call to a local reusable workflow reaches anything that publishes, at any depth: a step that
+    publishes, or a secret other than GITHUB_TOKEN read in the called workflow's env, a job's env, `with:`,
+    `secrets:` or a step (workflow_jobs.secret_names of a called Job covers each). A workflow already on the call
+    path is not read again, so a cycle ends."""
     callee = workflow_jobs._local_callee(job.get("uses"))
     document = documents.get(callee or "")
-    if document is None:
+    if document is None or callee in seen:
         return False
-    return any(publishes(step) for called in workflow_jobs.jobs(document).values()
-               for step in called.get("steps") or [] if isinstance(step, Mapping))
+    seen = seen | {callee}
+    for called in workflow_jobs.jobs(document).values():
+        if workflow_jobs.secret_names(called) - {"GITHUB_TOKEN"}:
+            return True
+        if callee_publishes(called, documents, seen):
+            return True
+        if any(publishes(step) for step in called.get("steps") or [] if isinstance(step, Mapping)):
+            return True
+    return False
 
 
 def job_gates(jobs: Mapping[str, Mapping[str, Any]], policy: Policy) -> dict[str, bool]:
