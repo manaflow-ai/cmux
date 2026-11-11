@@ -752,7 +752,7 @@ type Key = (bool, u64, u64, Vec<(String, &'static str)>);
 /// What a snapshot is reused under (only once every chat log is read).
 fn key(hub: &Hub) -> Key {
     let ready = *hub.logs_ready.borrow();
-    let writes = hub.remote_sessions.lock().unwrap_or_else(|e| e.into_inner()).writes;
+    let writes = hub.remote_sessions.read().writes;
     let peers = hub.peers.lock().unwrap_or_else(|e| e.into_inner());
     let mut states: Vec<_> = peers.values().map(|p| (p.name.clone(), p.state().as_str())).collect();
     drop(peers);
@@ -1460,7 +1460,7 @@ mod tests {
         hub.events.changed();
         assert!(Arc::ptr_eq(&guard.snapshot(&hub).await, &begun), "begun since: shared");
         let held = hold(&hub, minute).await;
-        hub.remote_sessions.lock().unwrap().writes += 1;
+        hub.remote_sessions.write().writes += 1;
         assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "a peer's row rebuilds");
         // A peer's link state is every one of its rows' `peerState`.
         let held = hold(&hub, minute).await;

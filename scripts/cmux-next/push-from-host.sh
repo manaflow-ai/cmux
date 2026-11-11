@@ -125,21 +125,36 @@ BUNDLED=0
 # An empty bundle is refused by git: then HOST already has every commit of SHA.
 git bundle create -q "$WORK/bundle" "refs/push-from-host/$NAME" ${EXCLUDE[@]+"${EXCLUDE[@]}"} 2>/dev/null && BUNDLED=1
 git update-ref -d "refs/push-from-host/$NAME"
+# HOST's files for this push (the bundle, the script it runs with the token on stdin, the checkout) sit in one folder
+# mktemp makes there, never at a name another account on HOST could guess and plant first.
+RDIR="$("${SSH[@]}" "mktemp -d /tmp/$NAME-XXXXXX")" || RDIR=""
+if [[ ! "$RDIR" =~ ^/tmp/push-from-host-[0-9a-f]+-[0-9]+-[A-Za-z0-9]+$ ]]; then
+    echo "push-from-host: could not make a private folder on $HOST; nothing was pushed." >&2
+    exit 2
+fi
 if (( BUNDLED )); then
-    "${SSH[@]}" "cat > /tmp/$NAME.bundle" < "$WORK/bundle"
+    "${SSH[@]}" "cat > '$RDIR/bundle'" < "$WORK/bundle"
 fi
 
 # The step that runs on HOST. Sent as a file, so SSH stdin is free to carry the token (its only line).
 cat > "$WORK/remote.sh" <<'REMOTE'
 set -euo pipefail
-REPO="$HOME/$1" BRANCH="$2" SHA="$3" NAME="$4" REBASE="$7" WHO="$8" MAIL="$9"
+REPO="$HOME/$1" BRANCH="$2" SHA="$3" NAME="$4" REBASE="$7" WHO="$8" MAIL="$9" RDIR="${10}"
 # A non-login SSH shell has the system PATH only; the web lint needs bun. Appended, so nothing here comes first.
 export PATH="$PATH:/opt/homebrew/bin:$HOME/.bun/bin"
 [[ -z "$5" ]] || export CMUX_WEB_LINT_SKIP_REASON="$5"
 [[ -z "$6" ]] || export CMUX_NEXT_CHECKS_SKIP_REASON="$6"
 IFS= read -r CMUX_PUSH_TOKEN
-TREE="/tmp/$NAME.tree"
+TREE="$RDIR/tree"
 cd "$REPO"
+# Set before any step that can exit (the disk check below did, and left this push's bundle and script in /tmp).
+cleanup() {
+    cd "$REPO"
+    git worktree remove --force "$TREE" >/dev/null 2>&1 || true
+    git worktree remove --force "$TREE.hooks" >/dev/null 2>&1 || true
+    rm -rf "$RDIR"
+}
+trap cleanup EXIT
 # Leftovers of runs that were killed, whose EXIT trap never ran: a tree is a full checkout (about 2 GB). Only this
 # script's own names, and only those older than 2 hours, so a push that runs now keeps its files. On 2026-11-10
 # this host went offline at 99% full.
@@ -147,10 +162,18 @@ STALE=0
 while IFS= read -r old; do
     case "$old" in
         *.tree|*.tree.hooks) git worktree remove --force "$old" >/dev/null 2>&1 || rm -rf "$old" ;;
-        *) rm -f "$old" ;;
+        *)
+            if [[ -d "$old" && ! -L "$old" ]]; then
+                git worktree remove --force "$old/tree" >/dev/null 2>&1 || true
+                git worktree remove --force "$old/tree.hooks" >/dev/null 2>&1 || true
+                rm -rf "$old"
+            else
+                rm -f "$old"
+            fi
+            ;;
     esac
     STALE=$((STALE + 1))
-done < <(find /tmp/ -maxdepth 1 -name 'push-from-host-*' -mmin +120 2>/dev/null)
+done < <(find /tmp/ -maxdepth 1 -name 'push-from-host-*' -user "$(id -u)" -mmin +120 2>/dev/null)
 git worktree prune >/dev/null 2>&1 || true
 (( STALE == 0 )) || echo "push-from-host: removed $STALE leftover file(s) of earlier pushes from /tmp on $HOSTNAME." >&2
 # The checkout below needs about 2 GB. Under 3 GB free it would stop half-written: refuse first. Under 20 GB: say
@@ -168,15 +191,8 @@ if [[ "$FREE_KB" =~ ^[0-9]+$ ]]; then
             "free disk there before the pushes stop." >&2
     fi
 fi
-cleanup() {
-    cd "$REPO"
-    git worktree remove --force "$TREE" >/dev/null 2>&1 || true
-    git worktree remove --force "$TREE.hooks" >/dev/null 2>&1 || true
-    rm -f "/tmp/$NAME.bundle" "/tmp/$NAME.sh"
-}
-trap cleanup EXIT
-if [[ -f "/tmp/$NAME.bundle" ]]; then
-    git fetch -q --no-tags "/tmp/$NAME.bundle" "refs/push-from-host/$NAME"
+if [[ -f "$RDIR/bundle" ]]; then
+    git fetch -q --no-tags "$RDIR/bundle" "refs/push-from-host/$NAME"
 fi
 if ! git cat-file -e "$SHA^{commit}" 2>/dev/null; then
     echo "push-from-host: $HOSTNAME does not have $SHA after the bundle; nothing was pushed." >&2
@@ -245,7 +261,7 @@ unset CMUX_PUSH_TOKEN
 echo "push-from-host: not pushed (git push exit $STATUS): $BRANCH is ${NOW:-absent} on the remote." >&2
 exit 1
 REMOTE
-"${SSH[@]}" "cat > /tmp/$NAME.sh" < "$WORK/remote.sh"
+"${SSH[@]}" "cat > '$RDIR/run.sh'" < "$WORK/remote.sh"
 
 # The committer of a commit HOST rebases: this clone's identity, as a rebase here would use.
 WHO="$(git config user.name || true)"
@@ -256,9 +272,9 @@ if (( REBASE )) && [[ -z "$WHO" || -z "$MAIL" ]]; then
 fi
 # HOST's stdout carries only the result line (the pushed commit); everything a person reads is on stderr.
 STATUS=0
-printf '%s\n' "$TOKEN" | "${SSH[@]}" bash "/tmp/$NAME.sh" "'$HOST_REPO'" "'$BRANCH'" "$SHA" "$NAME" \
+printf '%s\n' "$TOKEN" | "${SSH[@]}" bash "$RDIR/run.sh" "'$HOST_REPO'" "'$BRANCH'" "$SHA" "$NAME" \
     "$(printf '%q' "${CMUX_WEB_LINT_SKIP_REASON:-}")" "$(printf '%q' "${CMUX_NEXT_CHECKS_SKIP_REASON:-}")" \
-    "$REBASE" "$(printf '%q' "$WHO")" "$(printf '%q' "$MAIL")" > "$WORK/out" || STATUS=$?
+    "$REBASE" "$(printf '%q' "$WHO")" "$(printf '%q' "$MAIL")" "$RDIR" > "$WORK/out" || STATUS=$?
 unset TOKEN
 grep -v '^push-from-host-result ' "$WORK/out" >&2 || true
 PUSHED="$(sed -n 's/^push-from-host-result \([0-9a-f]\{40\}\)$/\1/p' "$WORK/out" | tail -1)"

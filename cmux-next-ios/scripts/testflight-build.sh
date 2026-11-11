@@ -1,18 +1,29 @@
 #!/usr/bin/env bash
-# TestFlight build of cmux-next-ios for App Store Connect app "cmux INTERNAL"
-# (bundle dev.cmux.app.internal, ASC app id 6791408425): archive -> export an
-# App Store IPA -> verify -> validate with Apple. Nothing is uploaded unless
-# --upload is passed. Never targets cmux (com.cmux.app), BETA or DEMO.
+# App Store build of cmux-next-ios: archive -> export an App Store IPA -> verify
+# -> validate with Apple. Nothing is uploaded unless --upload is passed.
+#
+# By default it builds for App Store Connect app "cmux INTERNAL" (bundle
+# dev.cmux.app.internal, ASC app id 6791408425), the TestFlight lane
+# (.github/workflows/ios-internal-nightly.yml). `--config AppStore` with the
+# production identity (--app-id, --bundle-id com.cmux.app, --app-name and the
+# App Store profile names, or the CMUX_MOBILE_* variables below) builds the
+# public App Store app, the record the classic ios/ app used
+# (.github/workflows/ios-app-store.yml on main). The bundle id must be the one
+# project.yml gives the configuration, and the App Store Connect record must
+# have exactly that name and bundle id, or nothing is built.
 #
 # usage: cmux-next-ios/scripts/testflight-build.sh [--ref <git ref>] [--marketing-version X.Y.Z]
 #          [--build-number N] [--internal-only] [--allow-backend-down]
 #          [--allow-package-drift] [--unsigned] [--skip-validate] [--upload]
-#          [--no-asc] [--from-archive <CmuxMobileApp.xcarchive>] [--config TestFlight|TestFlightStaging]
+#          [--no-asc] [--from-archive <CmuxMobileApp.xcarchive>]
+#          [--config TestFlight|TestFlightStaging|AppStore]
+#          [--app-id <ASC app id>] [--bundle-id <id>] [--app-name <ASC record name>]
 #          [--what-to-test <text>]
 #
 #   --ref                 commit to build (default HEAD); the source is `git archive` of it
-#   --marketing-version   CFBundleShortVersionString (default: project.yml MARKETING_VERSION);
-#                         must be >= every version already uploaded to cmux INTERNAL
+#   --marketing-version   CFBundleShortVersionString (default: project.yml MARKETING_VERSION, the
+#                         configuration's own when it sets one); must be >= every version
+#                         already uploaded to the app record
 #   --build-number        CFBundleVersion (default: 14-digit UTC timestamp, like the
 #                         ios/ INTERNAL lane); must be above the latest INTERNAL build
 #   --internal-only       testFlightInternalTestingOnly: the build can never go to
@@ -28,7 +39,16 @@
 #                         call; needs --unsigned, --marketing-version and --build-number
 #   --config              TestFlight (default: production) or TestFlightStaging (the same app
 #                         record and signing, with the development Stack project, the dev
-#                         cmux-mobile-api Worker and cloud-api-staging; project.yml)
+#                         cmux-mobile-api Worker and cloud-api-staging; project.yml), or
+#                         AppStore (production, bundle com.cmux.app: pass the production
+#                         identity below)
+#   --app-id              App Store Connect app id (default 6791408425, cmux INTERNAL;
+#                         env CMUX_MOBILE_ASC_APP_ID)
+#   --bundle-id           the app's bundle id (default dev.cmux.app.internal; env
+#                         CMUX_MOBILE_BUNDLE_ID); the extensions are <it>.notification-content
+#                         and <it>.notification-service
+#   --app-name            the App Store Connect record's name (default "cmux INTERNAL"; env
+#                         CMUX_MOBILE_APP_NAME)
 #   --what-to-test        with --upload: the build's en-US "What to Test" note
 #   --from-archive        sign, check, validate (and with --upload, upload) an unsigned
 #                         CmuxMobileApp.xcarchive made on a build host with --unsigned --no-asc;
@@ -38,15 +58,15 @@
 # Environment:
 #   CMUX_MOBILE_PROD_API_BASE   production Worker URL (default: project.yml)
 #   CMUX_MOBILE_PROFILE_PATH    use this .mobileprovision instead of downloading CMUX_MOBILE_PROFILE_NAME (CI)
-#   CMUX_MOBILE_PROFILE_NAME    App Store profile for dev.cmux.app.internal (default
+#   CMUX_MOBILE_PROFILE_NAME    App Store profile for the bundle id (default
 #                       "cmux Internal Distribution")
 #   CMUX_MOBILE_CONTENT_EXTENSION_PROFILE_PATH, CMUX_MOBILE_CONTENT_EXTENSION_PROFILE_NAME
 #                       the same for the notification content extension
-#                       (dev.cmux.app.internal.notification-content; default
+#                       (<bundle id>.notification-content; default
 #                       "cmux Internal Distribution Notification Content")
 #   CMUX_MOBILE_SERVICE_EXTENSION_PROFILE_PATH, CMUX_MOBILE_SERVICE_EXTENSION_PROFILE_NAME
 #                       the same for the notification service extension
-#                       (dev.cmux.app.internal.notification-service; default
+#                       (<bundle id>.notification-service; default
 #                       "cmux Internal Distribution Notification Service")
 #   CMUX_MOBILE_SIGN_IDENTITY   SHA-1 of the distribution identity (default: the first one in
 #                       the keychain that the profile authorizes)
@@ -68,19 +88,19 @@
 set -euo pipefail
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 
-# --- Fixed identity (never derived from the environment) ------------------
-app_id=6791408425
-app_name="cmux INTERNAL"
-bundle_id=dev.cmux.app.internal
+# --- Identity: cmux INTERNAL unless the caller names another record ---------
+# Flags win over the environment; both are checked below against project.yml
+# and the App Store Connect record before anything is built.
+app_id=${CMUX_MOBILE_ASC_APP_ID:-6791408425}
+app_name=${CMUX_MOBILE_APP_NAME:-cmux INTERNAL}
+bundle_id=${CMUX_MOBILE_BUNDLE_ID:-dev.cmux.app.internal}
 team=7WLXT3NR37
 asc_profile="cmux-shared Team Key"
 asc_key_id=RUML2V4CW7
 asc_issuer=94d76068-119d-45cd-8700-86eb7a1a6235
 profile_name=${CMUX_MOBILE_PROFILE_NAME:-cmux Internal Distribution}
-# The notification content extension (verify/rich-push.md "Extensions and signing").
-ext_bundle_id=$bundle_id.notification-content
+# The notification extensions' profiles (verify/rich-push.md "Extensions and signing").
 ext_profile_name=${CMUX_MOBILE_CONTENT_EXTENSION_PROFILE_NAME:-cmux Internal Distribution Notification Content}
-svc_bundle_id=$bundle_id.notification-service
 svc_profile_name=${CMUX_MOBILE_SERVICE_EXTENSION_PROFILE_NAME:-cmux Internal Distribution Notification Service}
 prod_stack_project=9790718f-14cd-4f7e-824d-eaf527a82b82
 dev_stack_project=454ecd03-1db2-4050-845e-4ce5b0cd9895
@@ -103,7 +123,10 @@ while [[ $# -gt 0 ]]; do
     --config) config=$2; shift 2 ;;
     --what-to-test) what_to_test=$2; shift 2 ;;
     --from-archive) from_archive=$2; shift 2 ;;
-    -h|--help) sed -n '2,40p' "$0"; exit 0 ;;
+    --app-id) app_id=$2; shift 2 ;;
+    --bundle-id) bundle_id=$2; shift 2 ;;
+    --app-name) app_name=$2; shift 2 ;;
+    -h|--help) sed -n '2,72p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -111,13 +134,25 @@ if [[ $upload == 1 && ( $allow_backend_down == 1 || $unsigned == 1 || $skip_vali
   echo "error: --upload cannot be combined with --allow-backend-down, --unsigned, --skip-validate or --allow-package-drift" >&2
   exit 2
 fi
+# production: the production Worker (its address may be overridden with
+# CMUX_MOBILE_PROD_API_BASE and is stamped into the build).
 case "$config" in
-  TestFlight)        stack_project=$prod_stack_project cloud_api_base=https://cloud-api.cmux.dev
-                     api_key=CMUX_MOBILE_PROD_API_BASE stack_env="" binary_mode=--shipping ;;
+  TestFlight|AppStore)
+                     stack_project=$prod_stack_project cloud_api_base=https://cloud-api.cmux.dev
+                     api_key=CMUX_MOBILE_PROD_API_BASE stack_env="" binary_mode=--shipping production=1 ;;
   TestFlightStaging) stack_project=$dev_stack_project cloud_api_base=https://cloud-api-staging.cmux.dev
-                     api_key=CMUX_MOBILE_STAGING_API_BASE stack_env=development binary_mode=--staging-shipping ;;
-  *) echo "error: --config must be TestFlight or TestFlightStaging" >&2; exit 2 ;;
+                     api_key=CMUX_MOBILE_STAGING_API_BASE stack_env=development binary_mode=--staging-shipping production=0 ;;
+  *) echo "error: --config must be TestFlight, TestFlightStaging or AppStore" >&2; exit 2 ;;
 esac
+[[ "$app_id" =~ ^[0-9]+$ ]] || { echo "error: app id '$app_id' is not an App Store Connect app id" >&2; exit 2; }
+[[ "$bundle_id" =~ ^[A-Za-z0-9.-]+$ ]] || { echo "error: bundle id '$bundle_id' is not a bundle id" >&2; exit 2; }
+[[ -n "$app_name" ]] || { echo "error: --app-name is empty" >&2; exit 2; }
+if [[ $config == AppStore && $internal_only == true ]]; then
+  echo "error: --internal-only would keep an App Store build out of App Review" >&2
+  exit 2
+fi
+ext_bundle_id=$bundle_id.notification-content
+svc_bundle_id=$bundle_id.notification-service
 if [[ $no_asc == 1 && ( $unsigned == 0 || -z "$marketing" || -z "$build_number" || -n "$from_archive" ) ]]; then
   echo "error: --no-asc needs --unsigned, --marketing-version and --build-number, and no --from-archive" >&2
   exit 2
@@ -159,6 +194,22 @@ cache="$root/.cache"
 private=$(mktemp -d); chmod 700 "$private"
 trap 'rm -rf "$private"' EXIT
 
+# --- The configuration's identity in project.yml ------------------------------
+project_yml=$(git -C "$repo" show "$sha:cmux-next-ios/project.yml") || die "$sha has no cmux-next-ios/project.yml"
+# A value of the `settings: configs: <config>:` block of project.yml at $sha.
+config_setting() {  # <key>
+  awk -v c="    $config:" -v k="      $1:" '
+    $0 == c { inside = 1; next }
+    inside { match($0, /^ */); if (RLENGTH <= 4 && length($0) > RLENGTH) exit }
+    inside && index($0, k) == 1 { sub(/^[^:]*:[ ]*/, ""); print; exit }' <<<"$project_yml"
+}
+grep -qx "  $config: release" <<<"$project_yml" || die "$sha has no $config configuration in cmux-next-ios/project.yml"
+config_bundle_id=$(config_setting CMUX_MOBILE_APP_BUNDLE_ID)
+[[ "$config_bundle_id" == "$bundle_id" ]] \
+  || die "$config builds bundle '${config_bundle_id:-none}' (project.yml at $sha), not $bundle_id (--bundle-id)"
+display_name=$(config_setting CMUX_MOBILE_DISPLAY_NAME)
+[[ -n "$display_name" ]] || die "$config sets no CMUX_MOBILE_DISPLAY_NAME in project.yml at $sha"
+
 # --- App Store Connect: credentials and the exact app record ----------------
 max_marketing="not checked (--no-asc)" max_build="not checked (--no-asc)"
 if [[ $no_asc == 0 ]]; then
@@ -189,7 +240,8 @@ import json,sys
 d=json.JSONDecoder().raw_decode(sys.stdin.read())[0]["data"]
 v=[int(x["attributes"]["version"]) for x in d if x["attributes"]["version"].isdigit()]
 print(max(v) if v else 0)')
-[[ -n "$marketing" ]] || marketing=$(git -C "$repo" show "$sha:cmux-next-ios/project.yml" | awk '/^    MARKETING_VERSION:/{print $2; exit}')
+[[ -n "$marketing" ]] || marketing=$(config_setting MARKETING_VERSION)
+[[ -n "$marketing" ]] || marketing=$(awk '/^    MARKETING_VERSION:/{print $2; exit}' <<<"$project_yml")
 [[ "$marketing" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || die "marketing version '$marketing' is not X.Y.Z"
 python3 -I -c 'import sys; a,b=(tuple(map(int,x.split("."))) for x in sys.argv[1:]); sys.exit(0 if a>=b else 1)' "$marketing" "$max_marketing" \
   || die "marketing version $marketing is below $max_marketing, the highest in $app_name; TestFlight would never offer it"
@@ -207,7 +259,7 @@ fi
 
 # --- Backend (production, or staging for TestFlightStaging) ----------------
 api_base=$(git -C "$repo" show "$sha:cmux-next-ios/project.yml" | awk -v k="    $api_key:" 'index($0,k)==1{print $2; exit}' | sed 's#\$()##')
-[[ $config != TestFlight || -z "${CMUX_MOBILE_PROD_API_BASE:-}" ]] || api_base=$CMUX_MOBILE_PROD_API_BASE
+[[ $production == 0 || -z "${CMUX_MOBILE_PROD_API_BASE:-}" ]] || api_base=$CMUX_MOBILE_PROD_API_BASE
 [[ -n "$api_base" ]] || die "$sha has no $api_key in project.yml"
 log "$config Worker $api_base"
 health=$(curl -fsS -m 15 "$api_base/v1/health" 2>/dev/null || true)
@@ -215,8 +267,8 @@ if echo "$health" | python3 -I -c '
 import json,sys
 d=json.load(sys.stdin)
 p=d.get("stackProjects") or []
-ok=p==[sys.argv[1]] if sys.argv[2]=="TestFlight" else sys.argv[1] in p
-sys.exit(0 if d.get("ok") and ok else 1)' "$stack_project" "$config" 2>/dev/null; then
+ok=p==[sys.argv[1]] if sys.argv[2]=="1" else sys.argv[1] in p
+sys.exit(0 if d.get("ok") and ok else 1)' "$stack_project" "$production" 2>/dev/null; then
   echo "live: $health"
 elif [[ $allow_backend_down == 1 ]]; then
   echo "WARNING: $api_base/v1/health is not a live production Worker (${health:-no response}); continuing (--allow-backend-down)" >&2
@@ -366,7 +418,7 @@ args=(-project CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration "$co
       -derivedDataPath "$work/dd" -clonedSourcePackagesDirPath "$cache/spm"
       MARKETING_VERSION="$marketing" CURRENT_PROJECT_VERSION="$build_number"
       CMUX_MOBILE_SOURCE_COMMIT="$sha")
-[[ $config != TestFlight ]] || args+=(CMUX_MOBILE_PROD_API_BASE="$api_base")
+[[ $production == 0 ]] || args+=(CMUX_MOBILE_PROD_API_BASE="$api_base")
 if [[ $unsigned == 1 ]]; then
   args+=(CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= DEVELOPMENT_TEAM=$team)
 else
@@ -393,7 +445,7 @@ if [[ -z "$from_archive" && -n "${CMUX_MOBILE_SIMULATOR_APP:-}" ]]; then
             -clonedSourcePackagesDirPath "$cache/spm"
             MARKETING_VERSION="$marketing" CURRENT_PROJECT_VERSION="$build_number" CMUX_MOBILE_SOURCE_COMMIT="$sha"
             CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER=)
-  [[ $config != TestFlight ]] || sim_args+=(CMUX_MOBILE_PROD_API_BASE="$api_base")
+  [[ $production == 0 ]] || sim_args+=(CMUX_MOBILE_PROD_API_BASE="$api_base")
   xcodebuild build "${sim_args[@]}" > "$out/logs/simulator.log" 2>&1 \
     || { grep -E "error:" "$out/logs/simulator.log" | sort -u | head -20; die "simulator build failed (logs/simulator.log)"; }
   mkdir -p "$(dirname "$CMUX_MOBILE_SIMULATOR_APP")"
@@ -410,7 +462,7 @@ check_app() {  # <CmuxMobileApp.app>
   [[ "$(plutil -extract CmuxMobileStackEnvironment raw "$info" 2>/dev/null)" == "$stack_env" ]] || bad+=("CmuxMobileStackEnvironment (want '$stack_env')")
   [[ "$(plutil -extract CFBundleShortVersionString raw "$info")" == "$marketing" ]] || bad+=("CFBundleShortVersionString")
   [[ "$(plutil -extract CFBundleVersion raw "$info")" == "$build_number" ]] || bad+=("CFBundleVersion")
-  [[ "$(plutil -extract CFBundleDisplayName raw "$info")" == "$app_name" ]] || bad+=("CFBundleDisplayName")
+  [[ "$(plutil -extract CFBundleDisplayName raw "$info")" == "$display_name" ]] || bad+=("CFBundleDisplayName (want '$display_name')")
   [[ "$(plutil -extract CmuxMobileAPIBase raw "$info")" == "$api_base" ]] || bad+=("CmuxMobileAPIBase")
   [[ "$(plutil -extract CmuxMobileCloudAPIBase raw "$info" 2>/dev/null)" == "$cloud_api_base" ]] || bad+=("CmuxMobileCloudAPIBase (want $cloud_api_base)")
   [[ "$(plutil -extract CmuxMobileSourceCommit raw "$info" 2>/dev/null)" == "$sha" ]] || bad+=("CmuxMobileSourceCommit (want $sha)")
@@ -666,7 +718,7 @@ fi
 | Built | $(date -u +%Y-%m-%dT%H:%M:%SZ) on $(scutil --get LocalHostName 2>/dev/null || hostname), $(xcodebuild -version | head -1) |
 | App Store Connect | "$app_name", app id $app_id, bundle \`$bundle_id\` |
 | Version | $marketing ($build_number); $app_name had up to $max_marketing ($max_build) |
-| Configuration | $config: -O, \`CMUX_MOBILE_PRODUCTION CMUX_MOBILE_TESTFLIGHT\`, no DEBUG; Stack project \`$stack_project\`; Cloud \`$cloud_api_base\` |
+| Configuration | $config: -O, \`$(config_setting SWIFT_ACTIVE_COMPILATION_CONDITIONS)\`, no DEBUG; Stack project \`$stack_project\`; Cloud \`$cloud_api_base\` |
 | Service | \`$api_base\` |
 | Signing | $signing |
 | Internal-only | $internal_only |

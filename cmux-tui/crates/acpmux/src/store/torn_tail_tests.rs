@@ -63,7 +63,7 @@ fn a_record_after_a_write_that_failed_part_way_is_its_own_line() {
     for seq in 1..=3 {
         store.append(CHAT, &record(seq)).unwrap_or_else(|e| panic!("{e:#}"));
     }
-    CUT_NEXT_LOG_WRITE.store(12, std::sync::atomic::Ordering::SeqCst);
+    test_write_fault::partial(12);
     assert!(store.append(CHAT, &record(4)).is_err(), "the cut write did not fail");
     // The entry was never acked: it is logged again, and so is the next one.
     store.append(CHAT, &record(4)).unwrap_or_else(|e| panic!("{e:#}"));

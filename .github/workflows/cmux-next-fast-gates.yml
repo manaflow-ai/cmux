@@ -129,6 +129,13 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 2
+          # Only the commits matter here (git rev-parse HEAD^1 and HEAD^2): no blobs and one small file in the
+          # work tree. The full tree took 44 s of this job's 48 s p50 (2026-11-07..11 timing records), on the
+          # fast gate's critical path ahead of the gates themselves.
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/runners.json
 
       # Runs no checked-out code: git rev-parse on the merge ref, or the GitHub API
       # on dispatch, which refuses a fork head, a closed pull request

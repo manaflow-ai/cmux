@@ -14,7 +14,7 @@ pub(crate) use patch_apply::{
 pub(crate) use terminal_live::{LiveTerminalRows, query_live_terminal};
 pub(crate) use topology_load::{
     load_resource_topology, load_resource_topology_scoped, load_session_panes, load_session_tabs,
-    load_terminal_tabs, load_topology_frame,
+    load_tab_with_focus, load_terminal_tabs, load_topology_frame,
 };
 
 /// Completed pure mutations keep a finite exactly-once replay window. Pruning
@@ -496,6 +496,7 @@ pub(crate) fn migrate_resource_agent_projections(
          FROM ranked
          JOIN resource_terminals AS terminal
            ON terminal.public_id = ranked.terminal_id
+          AND terminal.deleted_revision IS NULL
          WHERE ranked.terminal_rank = 1
          ON CONFLICT(terminal_id) DO UPDATE SET
            result_json = excluded.result_json,
@@ -3998,7 +3999,51 @@ fn tombstone_resource_terminal(
          WHERE terminal_id = ?2 AND lifecycle != 'tombstoned'",
         params![revision, terminal_id],
     )?;
+    end_agent_record_of_terminal(transaction, public_id)?;
     tombstone_resource_identity(transaction, public_id, revision)
+}
+
+/// A closed terminal has no agent record (`spec/resource-api-v2.md`, "Agent": one projection
+/// row per live terminal, deleted in the transaction that tombstones the terminal). The hook
+/// fence of the terminal goes with it: `commit_agent_projection_with_hook_state` refuses a
+/// report for a terminal that is not live, so no late hook needs the fence. The session id that
+/// resumes the chat is in the journal's history fold, not in these rows.
+fn end_agent_record_of_terminal(
+    transaction: &Transaction<'_>,
+    public_id: &str,
+) -> anyhow::Result<()> {
+    transaction
+        .execute("DELETE FROM resource_agent_projections WHERE terminal_id = ?1", [public_id])?;
+    transaction
+        .execute("DELETE FROM resource_agent_hook_state WHERE terminal_id = ?1", [public_id])?;
+    Ok(())
+}
+
+/// Delete the agent records and hook fences that no live terminal owns, one time at the open of
+/// the registry, in the open's schema transaction. Builds before the tombstone ended the record
+/// left one row for each closed terminal that had an agent, and nothing deleted them; the
+/// open-time repair (`repair_dangling_terminal_resources`) also tombstones terminals with its
+/// own statement. After this, a reader needs no live-terminal filter.
+///
+/// Cost: one scan of each table with one primary-key probe of `resource_terminals` for each
+/// row, so O(agent records), not O(terminals).
+pub(crate) fn prune_agent_records_of_closed_terminals_at_open(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    for table in ["resource_agent_projections", "resource_agent_hook_state"] {
+        transaction.execute(
+            &format!(
+                "DELETE FROM {table}
+                 WHERE NOT EXISTS (
+                   SELECT 1 FROM resource_terminals AS terminal
+                   WHERE terminal.public_id = {table}.terminal_id
+                     AND terminal.deleted_revision IS NULL
+                 )"
+            ),
+            [],
+        )?;
+    }
+    Ok(())
 }
 
 fn tombstone_resource_browser(

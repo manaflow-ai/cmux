@@ -1252,10 +1252,6 @@
   cursor: default;
 }
 
-.feed-needs-more:hover {
-  background: var(--ds-color-hover);
-}
-
 .feed-needs-row {
   display: flex;
   align-items: center;

@@ -90,16 +90,6 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// Opens the collapsed band while the top-left corner is hovered.
     let collapsedBand: CollapsedBandReveal
     let sidebarFloat: SidebarFloat // the hidden sidebar floats from the window's edge (`sidebar.floatOnHover`)
-    /// The right sidebar (`WindowController+RightSidebar`), on the edge
-    /// opposite the sidebar; nil until it first shows.
-    var rightPanel: RightSidebarView? {
-        didSet {
-            guard rightPanel !== oldValue else { return }
-            oldValue?.removeFromSuperview()
-            if let rightPanel { addSubview(rightPanel, positioned: .below, relativeTo: titlebarBandBlocker) }
-            needsLayout = true
-        }
-    }
     /// A fullscreen page has the whole window (`WindowRootView+MainPane`): the content host
     /// fills it, and the chrome around it hides.
     var presentsPage = false {
@@ -112,15 +102,6 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     ]
     /// The chrome views `presentsPage` hid.
     var pagePresentationHidden: [NSView] = []
-    /// The right sidebar's on-screen width (0 while hidden): the main pane
-    /// is inset by it (`applyMainPane`).
-    var rightPanelWidth: CGFloat = 0 {
-        didSet {
-            guard rightPanelWidth != oldValue else { return }
-            applyMainPane()
-            layoutSubtreeIfNeeded()
-        }
-    }
 
     /// - Parameter sidebar: The window's sidebar.
     /// - Parameter reduceTransparency: The user's Reduce Transparency
@@ -328,7 +309,6 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         if presenceChanged { onToolbarBandPresenceChange?() }
         layoutTitlebarReveal(rowHeight: rowHeight, fullBandMaxX: fullBandMaxX)
         sidebarFloat.layout(in: self, rowHeight: rowHeight, sidebarHidden: sidebarHidden, side: sidebarSide, cornerRadius: mainPaneCornerRadius)
-        layoutRightPanel(rowHeight: rowHeight)
         layoutTitlebarAccessories(midY: midY)
     }
 

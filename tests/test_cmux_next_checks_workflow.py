@@ -31,6 +31,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 sys.path.insert(0, str(ROOT / "tests"))
 from runs_on_labels import unwrap_fork_pool_reads  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 ARTIFACTS_WORKFLOW = WORKFLOW.parent / "cmux-tui-artifacts.yml"
 TREE_JOBS = ("daemon-test", "cmux-scheme-compile")
@@ -344,7 +351,7 @@ class AppFfiPinStepJudgesWithTheBaseCopy(unittest.TestCase):
 
     def run_step(self, path_prefix: Path | None = None, home: Path | None = None) -> subprocess.CompletedProcess:
         step = next(step for step in steps() if step.get("id") == "app-ffi-pin")
-        env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        env = git_fixture_env.fixture_env({key: value for key, value in os.environ.items() if not key.startswith("GIT_")})
         env.update(EVENT_NAME="pull_request", GITHUB_SHA=self.merge, RUNNER_TEMP=str(self.runner_temp))
         if home is not None:
             env["HOME"] = str(home)
@@ -551,7 +558,7 @@ class GodfileScopes(unittest.TestCase):
         cls.tmp.cleanup()
 
     def run_check(self, *args: str) -> subprocess.CompletedProcess:
-        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env = git_fixture_env.fixture_env({k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
         return subprocess.run(["bash", str(GODFILES), *args, str(self.package)],
                               capture_output=True, text=True, env=env, timeout=120)
 
@@ -648,7 +655,7 @@ class GodfilePullRequestScope(unittest.TestCase):
         self.git("commit", "-qm", message, "--allow-empty")
 
     def run_check(self, *args: str) -> subprocess.CompletedProcess:
-        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env = git_fixture_env.fixture_env({k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
         return subprocess.run(["bash", str(GODFILES), *args, str(self.package)],
                               capture_output=True, text=True, env=env, timeout=120)
 
@@ -2433,7 +2440,7 @@ class FastTierStartsWarm(unittest.TestCase):
             (repo / "Packages/macOS/A").mkdir(parents=True)
             (repo / "Packages/macOS/A/Package.swift").write_text("// swift-tools-version: 6.2\n")
             subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
-            env = {"PATH": os.environ["PATH"], "HOME": tmp, "GITHUB_OUTPUT": str(repo / "out"), "GITHUB_SHA": "abc"}
+            env = git_fixture_env.fixture_env({"PATH": os.environ["PATH"], "HOME": tmp, "GITHUB_OUTPUT": str(repo / "out"), "GITHUB_SHA": "abc"})
             script = re.search(r"(?s)inputs=\"\$\((.*?)\)\"", run).group(1)
             got = subprocess.run(["/bin/bash", "-c", script.replace("scripts/cmux-next/", str(ROOT / "scripts/cmux-next") + "/")],
                                  cwd=repo, env=env, check=True, capture_output=True, text=True).stdout.strip()
@@ -3253,7 +3260,7 @@ class AppSizeCapOnPush(unittest.TestCase):
 
     def run_step(self, before: str) -> subprocess.CompletedProcess:
         step = next(s for s in steps() if s.get("id") == "app-size")
-        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env = git_fixture_env.fixture_env({k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
         env.update(EVENT_NAME="push", FULL_CI="true", BEFORE=before, GITHUB_WORKSPACE=str(self.repo),
                    GITHUB_SHA=self.head())
         return subprocess.run(["bash", "-e", "-c", step["run"]], cwd=self.repo, env=env,
@@ -3606,9 +3613,9 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
             output = Path(tmp) / "output"
             output.touch()
             summary = Path(tmp) / "summary"
-            env = {"PATH": os.environ["PATH"], "HOME": tmp, "CMUX_CI_CLIENT": str(client), "REF": "d" * 40,
+            env = git_fixture_env.fixture_env({"PATH": os.environ["PATH"], "HOME": tmp, "CMUX_CI_CLIENT": str(client), "REF": "d" * 40,
                    "GITHUB_OUTPUT": str(output), "RUNNER_TEMP": tmp, "RUNNER_NAME": "gw",
-                   "GITHUB_STEP_SUMMARY": str(summary), "MAC_RELEASE": mac_release}
+                   "GITHUB_STEP_SUMMARY": str(summary), "MAC_RELEASE": mac_release})
             # The step's own shell: bash -e {0}.
             result = subprocess.run(["bash", "-e", "-c", step["run"]], env=env,
                                     capture_output=True, text=True, timeout=60)
@@ -3857,12 +3864,12 @@ esac
             out, summary, calls = tmp_path / "out", tmp_path / "summary", tmp_path / "calls"
             script = tmp_path / "step.sh"
             script.write_text(step["run"])
-            env = {"PATH": str(tmp_path / "nothing-here"), "HOME": str(tmp_path / "home"),
+            env = git_fixture_env.fixture_env({"PATH": str(tmp_path / "nothing-here"), "HOME": str(tmp_path / "home"),
                    "CMUX_CI_CLIENT": str(fake) if client else str(tmp_path / "missing"),
                    "RUNNER_TEMP": tmp, "RUNNER_NAME": "gateway-1", "GITHUB_OUTPUT": str(out),
                    "GITHUB_STEP_SUMMARY": str(summary), "REF": self.REF if ref is None else ref,
                    "FAKE_REF": self.REF, "FAKE_OTHER": self.OTHER, "FAKE_CALLS": str(calls),
-                   **{key: str(value) for key, value in step["env"].items() if key != "REF"}, **scenario}
+                   **{key: str(value) for key, value in step["env"].items() if key != "REF"}, **scenario})
             done = subprocess.run(["/bin/bash", "-e", str(script)], env=env, capture_output=True, text=True,
                                   stdin=subprocess.DEVNULL, timeout=60)
             output = out.read_text() if out.exists() else ""
@@ -4166,8 +4173,8 @@ esac
             with self.subTest(verdict=verdict, result=result), tempfile.TemporaryDirectory() as tmp:
                 done = subprocess.run(["/bin/bash", "-e", "-c", report["run"]], capture_output=True, text=True,
                                       stdin=subprocess.DEVNULL, timeout=30,
-                                      env={"VERDICT": verdict, "RESULT": result, "PATH": os.environ["PATH"],
-                                           "GITHUB_STEP_SUMMARY": str(Path(tmp) / "summary")})
+                                      env=git_fixture_env.fixture_env({"VERDICT": verdict, "RESULT": result, "PATH": os.environ["PATH"],
+                                           "GITHUB_STEP_SUMMARY": str(Path(tmp) / "summary")}))
                 self.assertEqual(done.returncode, code, done.stdout + done.stderr)
                 self.assertEqual("::error::no verdict: " in done.stdout, code == 3, done.stdout)
 
