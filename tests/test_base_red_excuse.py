@@ -4019,6 +4019,8 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
         for line in ("cmux-next/compile is not a pass for {} (pending)", "cmux-next/compile is not a pass for {} (pass)",
                      "cmux-next/compile is not a pass for {} (last: queued)",
                      "cmux-next/compile is not a pass for {} (unavailable)", "could not post the pending status",
+                     "could not post the handoff status", "could not post the overflow handoff status",
+                     "could not post the fallback's verdict",
                      "bad head sha '{}'"):
             with self.subTest(line=line):
                 self.gh.logs[1] = log(self.FLEET, self.STEP, "##[error]" + line.format(HEAD))

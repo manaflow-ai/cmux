@@ -630,9 +630,11 @@ SHA = re.compile(rf"(?P<artifact>\b{ARTIFACT}{NAMED}[0-9a-f]{{40}}\b)"
 # echoes the step's script, which spells these words out on every run, a real compile red included.
 # Fail closed: of compile-status's own lines, only "(fail)" is a real compile red; every other state (no result,
 # unavailable, mismatch, unreadable, pending, "last: ...", a pass it could not post) and a status it could not
-# post at all are no verdict.
+# post at all (GitHub refused it: 2026-11-11 02:38Z, a 403 rate limit on cmux-bot reddened #40351, #40942, #41007
+# and the base) are no verdict.
 NO_VERDICT = re.compile(r"^##\[error\]\s*(?:cmux-next/compile is not a pass for \S+ \((?!fail\))|"
-                        r"could not post the pending status|bad head sha |No build-fleet verdict for `)")
+                        r"could not post the (?:pending|handoff|overflow handoff) status|could not post the fallback's verdict|"
+                        r"bad head sha |No build-fleet verdict for `)")
 # The jobs that can end without a verdict: an unreadable log of one is never comparable either.
 NO_VERDICT_JOBS = frozenset({"cmux-next fleet Release compile", "cmux-next app compile (build fleet)"})
 # The shared generated-files check only reads the verdict produced by the Swift or daemon job that built
