@@ -65,6 +65,7 @@ import argparse
 import bisect
 import contextvars
 import copy
+import functools
 import importlib.util
 import io
 import json
@@ -139,9 +140,16 @@ SHAPE_CHARS = 200
 # One read per source per judgement (review of cmux#41151 at bfa0db5f, F1): an excuse path may ask a source twice (the
 # app FFI pin rule's whole-log and rollup readings each prove a published base pin: its release files and compile
 # evidence), and a second network read that fails (a 503) must never overturn a proof the first one made. judge()
-# opens one memo per judgement; every network read below (rate_limit_aware's json, blob and GraphQL reads, the
-# release files and the compile receipts) is answered from it after its first read, a failed one too: one source gives
-# one answer per judgement (a file one read found absent is never found on a second), and a 503 is not asked twice.
+# opens one memo per judgement, and every network entry point is answered from it after its first read, a failed one
+# too: one source gives one answer per judgement (a file one read found absent is never found on a second), and a 503
+# is not asked twice. The entry points (review of cmux#41266 at 8fafe451, F1: source_text's git read was outside it):
+#   gh       GitHub.run's reads (`gh api` REST and GraphQL, `gh run view`), and rate_limit_aware's json, blob and
+#            GraphQL reads, so a client that is not GitHub (the tests' fakes) is read once too;
+#   git      git_text (a fetch and a `git show`), and source_text as a whole (git, then GraphQL);
+#   release  ffi_release_file (the release download, then the release-assets API);
+#   receipt  compile_receipt (the receipts host);
+#   artifact GitHub.artifact_file (by range, or the zip whole).
+# tests/test_base_red_excuse.py's OneReadPerJudgement wraps each of them and fails on a key read twice in a judgement.
 # Outside a judgement (a direct call, a test of one reader) every read goes out, as before.
 JUDGEMENT_READS: contextvars.ContextVar = contextvars.ContextVar("judgement_reads", default=None)
 
@@ -161,6 +169,27 @@ def read_once(key: tuple, read: Callable[[], object]):
     if not ok:
         raise found
     return copy.deepcopy(found)
+
+
+def once_per_judgement(kind: str, key: Callable[..., tuple] | None = None):
+    """A network entry point read once per judgement (read_once) under (KIND, KEY(*args) or args, kwargs): KEY drops an
+    argument that names no source (a client, a method's self)."""
+    def wrap(function):
+        @functools.wraps(function)
+        def read(*args, **kwargs):
+            named = key(*args, **kwargs) if key is not None else args
+            return read_once((kind, *named, *sorted(kwargs.items())), lambda: function(*args, **kwargs))
+        return read
+    return wrap
+
+
+def gh_read(args: list[str]) -> bool:
+    """Whether gh ARGS only reads: `gh api` with no other method than GET (a GraphQL query included), or `gh run view`."""
+    if args[:2] == ["run", "view"]:
+        return True
+    if args[:1] != ["api"] or any(arg in ("-X", "--method") or arg.startswith("--method=") for arg in args):
+        return False
+    return not (args[1:2] == ["graphql"] and any(arg.startswith("query=mutation") for arg in args))
 
 
 def once_key(name: str, args: tuple, kwargs: dict) -> tuple | None:
@@ -256,6 +285,12 @@ def escape_flag_unknown(stderr: str) -> bool:
 class GitHub(_evidence.GitHub):
     """GitHub client for red attribution, including logs of finished jobs in live runs."""
 
+    def run(self, args: list[str]) -> str:
+        """gh ARGS' output; a read is read once per judgement (JUDGEMENT_READS), whatever asked it."""
+        if not gh_read(args):
+            return _evidence.GitHub.run(self, args)
+        return read_once(("gh", *args), lambda: _evidence.GitHub.run(self, args))
+
     def log(self, repo: str, job: dict) -> str:
         # `gh run view --log` waits for every job in the run. The Actions job
         # endpoint serves a finished job while sibling jobs remain queued.
@@ -309,6 +344,7 @@ class GitHub(_evidence.GitHub):
             return None
         return run if isinstance(run, int) else None
 
+    @once_per_judgement("artifact", lambda self, repo, artifact, member: (repo, int(artifact), member))
     def artifact_file(self, repo: str, artifact: int, member: str) -> str | None:
         """MEMBER's text in Actions ARTIFACT's zip, or None when the zip has no such file.
 
@@ -437,13 +473,10 @@ def git_remote(repo: str) -> str:
     return f"https://github.com/{repo}.git"
 
 
-def git_text(repo: str, ref: str, path: str) -> str | None:
-    """PATH's text in REPO at REF from git, or None when git cannot answer (no network, no credentials, no ref).
-
-    A bare repo per REPO under source_cache(), fetched one commit deep with no blobs (`--depth=1 --filter=blob:none`),
-    so a read costs one ref fetch and the one blob `git show` asks for, and no GitHub API quota at all. The fetch goes
-    to a ref of this process's own, so two runs reading different bases at once never read each other's."""
-    if not re.fullmatch(r"[\w.-]+/[\w.-]+", repo) or ref.startswith("-") or not ref:
+def git_cache(repo: str) -> Callable[..., subprocess.CompletedProcess] | None:
+    """`git` in REPO's bare repo under source_cache(), made and pointed at REPO's remote (blob-less) on first use; None
+    when it cannot be."""
+    if not re.fullmatch(r"[\w.-]+/[\w.-]+", repo):
         return None
     where = source_cache() / (repo.replace("/", "__") + ".git")
     env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "", "SSH_ASKPASS": ""}
@@ -452,33 +485,64 @@ def git_text(repo: str, ref: str, path: str) -> str | None:
         return subprocess.run(["git", "--git-dir", str(where), *args], capture_output=True, env=env,
                               timeout=GIT_SECONDS, stdin=subprocess.DEVNULL)
 
+    if not (where / "HEAD").is_file():
+        where.mkdir(parents=True, exist_ok=True)
+        if subprocess.run(["git", "init", "-q", "--bare", str(where)], capture_output=True,
+                          timeout=GIT_SECONDS).returncode:
+            return None
+    for key, value in (("remote.origin.url", git_remote(repo)), ("remote.origin.promisor", "true"),
+                       ("remote.origin.partialclonefilter", "blob:none")):
+        if git("config", key, value).returncode:
+            return None
+    return git
+
+
+@once_per_judgement("git fetch")
+def git_commit(repo: str, ref: str) -> str | None:
+    """The commit REF names in REPO, fetched one commit deep with no blobs (`--depth=1 --filter=blob:none`) into
+    git_cache(REPO), or None when git cannot answer. Once per ref per judgement: every file read at REF (git_text)
+    is shown from the one fetch. The fetch goes to a ref of this process's own, so two runs reading different bases at
+    once never read each other's; it is removed after, and the commit stays in the repo for `git show`."""
+    if ref.startswith("-") or not ref:
+        return None
     mine = f"refs/base-red-excuse/{os.getpid()}"
+    git = None
     try:
-        if not (where / "HEAD").is_file():
-            where.mkdir(parents=True, exist_ok=True)
-            if subprocess.run(["git", "init", "-q", "--bare", str(where)], capture_output=True,
-                              timeout=GIT_SECONDS).returncode:
-                return None
-        for key, value in (("remote.origin.url", git_remote(repo)), ("remote.origin.promisor", "true"),
-                           ("remote.origin.partialclonefilter", "blob:none")):
-            if git("config", key, value).returncode:
-                return None
-        if git("fetch", "-q", "--no-tags", "--depth=1", "--filter=blob:none", "origin",
-               f"+{ref}:{mine}").returncode:
+        git = git_cache(repo)
+        if git is None or git("fetch", "-q", "--no-tags", "--depth=1", "--filter=blob:none", "origin",
+                              f"+{ref}:{mine}").returncode:
             return None
-        shown = git("show", f"{mine}:{path}")
-        if shown.returncode:
-            return None
-        return shown.stdout.decode()
+        named = git("rev-parse", "--verify", f"{mine}^{{commit}}")
+        commit = named.stdout.decode().strip() if not named.returncode else ""
+        return commit if re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", commit) else None
     except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
         return None
     finally:
-        try:
-            git("update-ref", "-d", mine)
-        except (OSError, subprocess.SubprocessError):
-            pass
+        if git is not None:
+            try:
+                git("update-ref", "-d", mine)
+            except (OSError, subprocess.SubprocessError):
+                pass
 
 
+@once_per_judgement("git")
+def git_text(repo: str, ref: str, path: str) -> str | None:
+    """PATH's text in REPO at REF from git, or None when git cannot answer (no network, no credentials, no ref).
+
+    A bare repo per REPO (git_cache), fetched once per ref per judgement (git_commit), so a read costs one ref fetch
+    and the one blob `git show` asks for, and no GitHub API quota at all."""
+    commit = git_commit(repo, ref)
+    if commit is None:
+        return None
+    try:
+        git = git_cache(repo)
+        shown = git("show", f"{commit}:{path}") if git is not None else None
+        return shown.stdout.decode() if shown is not None and not shown.returncode else None
+    except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
+        return None
+
+
+@once_per_judgement("source", lambda repo, ref, path, github: (repo, ref, path))
 def source_text(repo: str, ref: str, path: str, github) -> str:
     """PATH's text in REPO at REF: git first (git_text, no API quota), then GitHub's GraphQL blob (GitHub.blob).
     Never the REST contents API, which an agent host's gh shim refuses as a source read (glaeda-gh's API-source
@@ -708,9 +772,11 @@ SHA = re.compile(rf"(?P<artifact>\b{ARTIFACT}{NAMED}[0-9a-f]{{40}}\b)"
 # echoes the step's script, which spells these words out on every run, a real compile red included.
 # Fail closed: of compile-status's own lines, only "(fail)" is a real compile red; every other state (no result,
 # unavailable, mismatch, unreadable, pending, "last: ...", a pass it could not post) and a status it could not
-# post at all are no verdict.
+# post at all (GitHub refused it: 2026-11-11 02:38Z, a 403 rate limit on cmux-bot reddened #40351, #40942, #41007
+# and the base) are no verdict.
 NO_VERDICT = re.compile(r"^##\[error\]\s*(?:cmux-next/compile is not a pass for \S+ \((?!fail\))|"
-                        r"could not post the pending status|bad head sha |No build-fleet verdict for `)")
+                        r"could not post the (?:pending|handoff|overflow handoff) status|"
+                        r"bad head sha |No build-fleet verdict for `)")
 # The jobs that can end without a verdict: an unreadable log of one is never comparable either.
 NO_VERDICT_JOBS = frozenset({"cmux-next fleet Release compile", "cmux-next app compile (build fleet)"})
 # The shared generated-files check only reads the verdict produced by the Swift or daemon job that built
@@ -1411,6 +1477,14 @@ def signature(view: "FailedView | Unplaced") -> tuple[set[str], set[str], set[st
     return steps, tests, {error for _, error in step_errors(view)}
 
 
+def unnamed_tests(view: FailedView) -> list[str]:
+    """The runner lines of VIEW (failed_view) that report more failing tests than its lines name
+    (test_reds.unnamed_failures): with any, no comparison can tell its failures from a base's (#41166's review F2)."""
+    unnamed: list = []
+    test_reds.failed_tests(test_reds.lines_of(view_text(view)), unnamed)
+    return unnamed
+
+
 def step_errors(view: FailedView) -> set[tuple[str, str]]:
     """(the name of the step that printed it, the error line with numbers masked) for each error line of VIEW
     (failed_view) signature() reads. judge() excuses a head error only when a base printed it from a failed step of
@@ -1550,8 +1624,8 @@ def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, f
                       "compare with the base")
     for side, said in (("its", head.unnamed), (f"{where}'s", found.unnamed)):
         if said:
-            raise Refused(f"'{name}': {UNPLACED_WHY}; compared whole, {side} log says tests failed and names none of "
-                          f"them ({said[0][:200]}), so no failure can be told from another")
+            raise Refused(f"'{name}': {UNPLACED_WHY}; compared whole, {side} log reports more failed tests than it names "
+                          f"({said[0][:200]}), so no failure can be told from another")
     if head.steps != found.steps:
         raise Refused(f"'{name}': {UNPLACED_WHY}; compared whole, its failed steps ({step_keys_text(head.steps)}) are "
                       f"not {where}'s ({step_keys_text(found.steps)})")
@@ -1753,7 +1827,7 @@ def compile_pass_at(repo: str, sha: str, github) -> str | None:
     if passed is not None:
         return f"the {COMPILE_PASS_STATUS} status"
     try:
-        receipt = read_once(("receipt", repo, sha), lambda: compile_receipt(repo, sha))
+        receipt = compile_receipt(repo, sha)
     except ReceiptUnreachable as down:
         # The receipts host is down or slow (cmux#40722, 2026-11-10: "TimeoutError: The read operation timed out"):
         # the poster's status above was the other way to know, and it holds no pass. Refused, naming both.
@@ -1817,6 +1891,7 @@ class ReceiptUnreachable(Refused):
     receipt either, so a caller may ask GitHub instead (github_compile_red)."""
 
 
+@once_per_judgement("receipt")
 def compile_receipt(repo: str, sha: str) -> dict | None:
     """The fleet's compile receipt for SHA (one anonymous read, no wait), or None when it has none (404). Any other
     answer refuses: an unread receipt is no verdict."""
@@ -1850,7 +1925,7 @@ def inherited_compile_red(repo: str, base: str, sha: str, name: str, github) -> 
     """The audit line excusing NAME's compile red at SHA when the head's fleet receipt and its merge-base's both read
     "fail", else Refused. When the receipts host is unreachable, GitHub decides (github_compile_red)."""
     try:
-        head = read_once(("receipt", repo, sha), lambda: compile_receipt(repo, sha))
+        head = compile_receipt(repo, sha)
     except ReceiptUnreachable as down:
         return github_compile_red(repo, base, sha, name, github, down)
     if (head or {}).get("state") != "fail":
@@ -1861,7 +1936,7 @@ def inherited_compile_red(repo: str, base: str, sha: str, name: str, github) -> 
     if not re.fullmatch(r"[0-9a-f]{40}", merge_base):
         raise Refused(f"'{name}': no merge-base of {sha[:12]} with {base} to compare its compile receipt with")
     try:
-        at_base = read_once(("receipt", repo, merge_base), lambda: compile_receipt(repo, merge_base))
+        at_base = compile_receipt(repo, merge_base)
     except ReceiptUnreachable as down:
         return github_compile_red(repo, base, sha, name, github, down)
     if (at_base or {}).get("state") != "fail":
@@ -1871,7 +1946,7 @@ def inherited_compile_red(repo: str, base: str, sha: str, name: str, github) -> 
     now = ""
     if re.fullmatch(r"[0-9a-f]{40}", tip) and tip != merge_base:
         try:
-            at_tip = read_once(("receipt", repo, tip), lambda: compile_receipt(repo, tip)) or {}
+            at_tip = compile_receipt(repo, tip) or {}
             now = f"; {base} {tip[:12]} reads {at_tip.get('state') or 'no receipt'}"
         except Refused:
             now = ""
@@ -2368,6 +2443,7 @@ def ffi_pin_file_at(repo: str, sha: str, github) -> str | None:
         return None
 
 
+@once_per_judgement("release")
 def ffi_release_file(repo: str, tag: str, name: str) -> str | None:
     """File NAME of the published release TAG of REPO, read anonymously from its release download (no API quota), or
     None when it is not published (404, or a release without it). A download that fails otherwise is read through
@@ -2401,9 +2477,8 @@ def ffi_published_base_pin(repo: str, base: str, sha: str, github) -> tuple[str 
     if pin is None:
         return None, why
     tag = f"cmux-app-ffi-{pin}"
-    source = read_once(("release", repo, tag, "SOURCE_SHA"), lambda: ffi_release_file(repo, tag, "SOURCE_SHA"))
-    sums = (read_once(("release", repo, tag, "SHA256SUMS"), lambda: ffi_release_file(repo, tag, "SHA256SUMS"))
-            if source is not None else None)
+    source = ffi_release_file(repo, tag, "SOURCE_SHA")
+    sums = ffi_release_file(repo, tag, "SHA256SUMS") if source is not None else None
     if source is None or sums is None:
         return None, f"the pinned release {tag} is not published (its {'SOURCE_SHA' if source is None else 'SHA256SUMS'} is 404)"
     if source.strip() != pin:
@@ -3247,9 +3322,185 @@ GUARD_READS = {
     # focused_tests.plan reads the tree: Swift imports, the CmuxNext target graph, the webviews import graph, Cargo.
     "tests/test_car_guards.py": ("Packages/", "webviews/", "cmux-tui/", "Native/"),
 }
-# The jobs that run the declared guard tests: cmux-next.yml's checks job, and ci-guards.yml's release-notary group
-# (its check is '<caller> / workflow-guard-tests / release-notary').
-GUARD_JOBS = frozenset({"cmux-next checks (god files, concurrency, crash safety, l10n)"})
+# The check scripts whose red is fixed on the base by its output's identity (2026-11-11). A check step names no test:
+# check-spawn-owner.py prints `check-spawn-owner: PATH has N spawn line(s) with no owner (...)` per file over its
+# baseline (test_reds.CHECK_RULE), and its rules test runs it over the whole tree. The red is about PATH alone: which
+# lines of PATH spawn with no owner, the baseline's row for it, and whether its crate declares PATH test code
+# (`#[cfg(test)] mod name;` in its parent module). So a check rule's red reads the check's own files and the crate of
+# each file it names, never the tree, and is excused only when the PR's diff touches none of them: a spawn the PR
+# adds in another file is its own line naming that file. Every line of the failed step must be the check's (its
+# rule lines, their site lines, its closing `next:` line, its notes, the exit), with the closing line after the last
+# rule line; anything else (`... raises PATH` from a baseline raised above the base's, a crash) is refused. A test
+# that only runs the check over the tree (WRAPPERS) reads the same, and its file, when its failure quotes the rule
+# lines and every line naming the check is one of them. Evidence from passing steps never counts: only failed
+# steps' lines are read (failed_view).
+CHECK_RULE_JOBS = {
+    "check-spawn-owner": {
+        "script": "scripts/cmux-next/check-spawn-owner.py",
+        "reads": ("scripts/cmux-next/check-spawn-owner.py", "scripts/cmux-next/spawn-owner-baseline.tsv"),
+        "site": re.compile(r"^  (cmux-tui/crates/\S+\.rs):\d+: \S"),
+        "done": re.compile(r"^next: spawn the task with its owner's "),
+        "note": re.compile(r"^check-spawn-owner: (cmux-tui/crates/\S+\.rs) now has \d+ spawn line\(s\) with no owner, "
+                           r"baseline \d+\. "),
+        "wrappers": {"tests/test_spawn_owner_ratchet.py": ("test_the_committed_baseline_holds_on_this_tree",)},
+        "wrapper_reads": ("tests/git_fixture_env.py",),
+    },
+}
+RULE_CRATE = re.compile(r"(cmux-tui/crates/[\w.+-]+/)\S+$")
+
+
+def check_rule_step(output: list[str]) -> dict[str, tuple[str, str]]:
+    """{failure key: (rule, the file it names)} of a failed step (OUTPUT: its printed lines, no echo) whose every line is
+    one check rule's own (CHECK_RULE_JOBS); raises Refused naming the first line that is not."""
+    found: dict[str, tuple[str, str]] = {}
+    rules, last_rule, done = set(), -1, -1
+    for n, text in enumerate(output):
+        if not text.strip() or test_reds.PROCESS_EXIT.match(text):
+            continue
+        if match := test_reds.CHECK_RULE.match(text):
+            found[test_reds.check_rule_key(match)] = (match.group(1), match.group(2))
+            rules.add(match.group(1))
+            last_rule = n
+            continue
+        if len(rules) == 1:
+            spec = CHECK_RULE_JOBS[next(iter(rules))]
+            if (site := spec["site"].match(text)) and any(path == site.group(1) for _, path in found.values()):
+                continue
+            if spec["done"].match(text):
+                done = n
+                continue
+            if spec["note"].match(text):
+                continue
+        raise Refused(f"its failed step prints a line that is not its check rule's: {text[:200]}")
+    if len(rules) != 1:
+        raise Refused("its failed step names no one check rule")
+    if done < last_rule:
+        raise Refused(f"its {next(iter(rules))} step did not print its closing line after its last finding (cut short)")
+    for _, path in found.values():
+        if not RULE_CRATE.match(path):
+            raise Refused(f"{path} is not under one crate of cmux-tui/crates/")
+    return found
+
+
+def check_rule_reads(rule: str, paths) -> tuple[str, ...]:
+    """What a check rule's red reads: the check's own files and the crate of each file it names."""
+    crates = sorted({RULE_CRATE.match(path).group(1) for path in paths})
+    return tuple(CHECK_RULE_JOBS[rule]["reads"]) + tuple(crates)
+
+
+def wrapped_rule_reads(path: str, name: str, output: list[str]) -> tuple[str, ...] | None:
+    """The reads of failing test NAME of tests/*.py file PATH when it is a declared wrapper of a check rule
+    (CHECK_RULE_JOBS' wrappers) and its step's OUTPUT quotes that rule's lines, and no other line naming the check;
+    None when it is no wrapper (it is judged as any guard test); Refused when it is one whose output does not hold."""
+    method = name.split(" ", 1)[0]
+    for rule, spec in CHECK_RULE_JOBS.items():
+        if method not in spec["wrappers"].get(path, ()):
+            continue
+        named = set()
+        for text in output:
+            if match := test_reds.CHECK_RULE_QUOTED.search(text):
+                if match.group(1) == rule:
+                    named.add(match.group(2))
+                    continue
+            if f"{rule}:" in text and not spec["note"].match(text):
+                raise Refused(f"{name}: a line naming {rule} is not one of its findings: {text[:200]}")
+        if not named:
+            raise Refused(f"{name}: wraps {rule}, and its failure quotes none of its findings")
+        if not all(RULE_CRATE.match(found) for found in named):
+            raise Refused(f"{name}: a {rule} finding is not under one crate of cmux-tui/crates/")
+        return (path,) + tuple(spec["wrapper_reads"]) + check_rule_reads(rule, named)
+    return None
+
+
+# The jobs that run the declared guard tests and checks, by (workflow file, job id), never by a name typed here
+# (2026-11-11): GUARD_JOBS named only cmux-next.yml's checks job, so cmux#41205 at ba8ff399 and cmux#41220 at c7b757f0,
+# red in cmux-next-guards.yml's 'cmux-next size cap, crash ratchet, ...' and 'tooling-tests' for a spawn-owner red
+# #41227 had fixed on base, were refused as "not a declared guard job (GUARD_JOBS)". Each job's check name (its
+# `name:`, else its id, cut as GitHub cuts a name past 100 characters) is derived into GUARD_JOBS_FILE by
+# `base_red_excuse.py --write-rollups`, read with no YAML parser like ROLLUPS_FILE. tests/test_base_red_excuse.py
+# fails when the file differs from the workflows, and when a job of a GUARD_WORKFLOWS file, or a workflow that runs
+# on pull requests, is neither declared here nor excluded with its reason. A declared job only qualifies the red for
+# the rules below: every failed step must still be a declared guard test's or check's (guard_tests).
+GUARD_JOB_IDS = (("cmux-next.yml", "checks"), ("cmux-next-guards.yml", "own-change-checks"),
+                 ("cmux-next-guards.yml", "static-checks"), ("cmux-next-guards.yml", "tooling-tests"))
+_PRODUCT = "builds, tests or generates from product code (Swift, Rust, web), so its red is never a guard's"
+_PLACE = "places, routes or waits for runners and runs: no verdict of its own on the tree"
+_PUBLISH = "requests, publishes, attributes or comments: no test verdict of its own"
+# Every job of these workflows is declared (GUARD_JOB_IDS) or excluded here with its reason.
+GUARD_WORKFLOWS = {
+    "cmux-next-guards.yml": {
+        "pinned-asset-store": "reads the pinned asset store over the network, not the tree",
+        "nightly-guards": "calls ci-guards.yml, whose jobs are classified there (GUARD_JOB_SUFFIXES)",
+        "signing-runner-variables": "reads the repository's runner variables, not the tree",
+        "portable-placement": _PLACE,
+        "ci-guard-group": "judged step by step against the base by its own rule (GUARD_GROUP_JOB)",
+        "rust-notices-tree": _PRODUCT,
+        "pr-red-checks": _PUBLISH,
+    },
+    "ci-guards.yml": {
+        "workflow-guard-submodule-forward-only": "reads the submodules' remote history, not only the tree",
+        "workflow-guard-tests": "its release-notary group is GUARD_JOB_SUFFIXES; the other groups' tests are "
+                                "undeclared and may read any path",
+        "workflow-guard-history": "reads the pull request's commit history, not only the tree",
+        "workflow-guard-cli-scripts": "runs the CLI scripts over product code",
+        "workflow-guard-source-lints": "lints product source",
+        "portable-placement": _PLACE,
+        "guard-status": "a routed rollup (ROUTED_ROLLUPS), judged by the jobs under it",
+    },
+    "cmux-next.yml": {
+        **dict.fromkeys(("pr-quiet-period", "push-head-preflight", "path_route", "dev-daily-tree-wait",
+                         "macos-placement", "portable-placement", "app-compile-placement",
+                         "fast-tier-rerun-placement", "fast-tier-handback-placement", "dev-daily-place",
+                         "dev-landing-place", "release-compile-fast-admission", "compile-status-handoff"), _PLACE),
+        **dict.fromkeys(("web-bundles", "same-tree-cmux-tui", "swift-canary-fleet", "app-compile-fleet",
+                         "swift-canary", "fast-tier-fleet", "fast-tier", "fast-tier-cargo", "swift-test",
+                         "daemon-test", "generated-files", "generated-verdict", "release-compile-fast",
+                         "release-compile", "swift-exports-cache", "cmux-scheme-compile", "crash-ends-app",
+                         "dev-landing-compile", "release-compile-revert", "compile-status"), _PRODUCT),
+        **dict.fromkeys(("request-nightly-next", "request-cmux-next-dev-publish", "pr-red-checks",
+                         "push-attribution"), _PUBLISH),
+    },
+}
+GUARD_JOBS_FILE = Path(__file__).with_name("base_red_guard_jobs.json")
+GITHUB_NAME_MAX = 100  # GitHub cuts a longer job or check name to its first 97 characters and "..."
+
+
+def github_job_name(name: str) -> str:
+    """NAME as the jobs and check-runs APIs report it: past GITHUB_NAME_MAX characters, cut to 97 and '...'
+    ('cmux-next static checks (..., page strings)' is '... page stri...' there)."""
+    return name if len(name) <= GITHUB_NAME_MAX else name[:GITHUB_NAME_MAX - 3] + "..."
+
+
+def derive_guard_jobs(workflows: Path = WORKFLOWS) -> dict:
+    """GUARD_JOBS_FILE's contract from the workflow files: {"jobs": {check name: {"workflow", "job"}}}; refused when a
+    declared job is missing or has no one fixed name."""
+    yaml = yaml_module()
+    out: dict = {}
+    for file, job_id in GUARD_JOB_IDS:
+        where = f".github/workflows/{file}"
+        jobs = _workflow(yaml, lambda f: (workflows / f).read_text(), file)[1]
+        if not isinstance(jobs.get(job_id), dict):
+            raise Refused(f"{where}: no job {job_id}")
+        check = _check_matcher(job_id, jobs[job_id], where)
+        if check["prefixes"] or len(check["exact"]) != 1:
+            raise Refused(f"{where}: guard job {job_id} has no one fixed name")
+        out[github_job_name(check["exact"][0])] = {"workflow": file, "job": job_id}
+    return {"jobs": dict(sorted(out.items()))}
+
+
+def load_guard_jobs() -> frozenset[str]:
+    """The declared guard jobs' check names from GUARD_JOBS_FILE; none (so no red qualifies as a guard job's) when it
+    is missing or malformed."""
+    try:
+        jobs = json.loads(GUARD_JOBS_FILE.read_text()).get("jobs")
+    except (OSError, ValueError, AttributeError):
+        return frozenset()
+    if not isinstance(jobs, dict) or not all(isinstance(name, str) and name for name in jobs):
+        return frozenset()
+    return frozenset(jobs)
+
+
+GUARD_JOBS = load_guard_jobs()
 GUARD_JOB_SUFFIXES = ("workflow-guard-tests / release-notary",)
 GUARD_TEST_FILE = re.compile(r"tests/[\w.-]+\.py")
 # A finished test run: unittest's `Ran N tests in`, or pytest's closing `==== ... in Ns ====` line.
@@ -3508,9 +3759,12 @@ def guard_test_file(name: str, output: list[str]) -> str | None:
     return frames.pop() if len(frames) == 1 else None
 
 
-def guard_tests(view: "FailedView | Unplaced") -> dict[str, str]:
+def guard_tests(view: "FailedView | Unplaced", reads: dict | None = None) -> dict[str, str]:
     """{failing test: its tests/*.py file} for a job (VIEW: its failed_view) whose every failed step is a guard
-    test's; raises Refused naming the first step or test that is not."""
+    test's or a check rule's (CHECK_RULE_JOBS: keyed by its finding, its file the check's script); raises Refused
+    naming the first step or test that is not. READS gets {failure: the paths it reads} for each check rule finding
+    and each test that wraps a check rule, which read those paths and not GUARD_READS."""
+    reads = {} if reads is None else reads
     if view is UNPLACED:
         raise Refused(UNPLACED_WHY)
     lines = test_reds.log_lines(view_text(view))
@@ -3531,6 +3785,17 @@ def guard_tests(view: "FailedView | Unplaced") -> dict[str, str]:
         names = test_reds.failed_names(output)
         if not names:
             raise Refused(f"a failed step names no failing test ({errors[0][:200]})")
+        if rules := {name for name in names if name.split(" ", 1)[0] in CHECK_RULE_JOBS}:
+            if rules != names:
+                raise Refused(f"a failed step names a check rule's finding and tests together: {sorted(names)[0]}")
+            for key, (rule, path) in check_rule_step(output).items():
+                spec = CHECK_RULE_JOBS[rule]
+                if not any(spec["script"] in text for text in script):
+                    raise Refused(f"{key}: its failed step's script does not run {spec['script']}")
+                found[key] = spec["script"]
+                reads[key] = check_rule_reads(rule, [path])
+            tested_steps += 1
+            continue
         if not any(TEST_RUN_SUMMARY.match(text) for text in output):
             raise Refused(f"the failed step naming {sorted(names)[0]} printed no test-run summary")
         for name in sorted(names):
@@ -3540,6 +3805,8 @@ def guard_tests(view: "FailedView | Unplaced") -> dict[str, str]:
             if not any(path in text for text in script):
                 raise Refused(f"{name}: its failed step's script does not run {path}")
             found[name] = path
+            if (wrapped := wrapped_rule_reads(path, name, output)) is not None:
+                reads[name] = wrapped
         tested_steps += 1
     if not found:
         raise Refused("no failing guard test")
@@ -3612,7 +3879,8 @@ def fixed_on_base(repo: str, base: str, sha: str, name: str, head: "FailedView |
     if not guard_job(name) and package is None:
         raise Refused(f"'{name}' is not a declared guard job (GUARD_JOBS) or package job (PACKAGE_JOBS); its tests "
                       "may read product code")
-    tests = guard_tests(head) if package is None else dict.fromkeys(package_tests(package, head))
+    rule_reads: dict[str, tuple[str, ...]] = {}
+    tests = guard_tests(head, rule_reads) if package is None else dict.fromkeys(package_tests(package, head))
     tested = tested_sha(base_run)
     if not re.fullmatch(r"[0-9a-f]{40}", tested):
         raise Refused(f"{base} run {base_run['id']} names no commit it tested")
@@ -3632,12 +3900,13 @@ def fixed_on_base(repo: str, base: str, sha: str, name: str, head: "FailedView |
                       if isinstance(path, str) and path})
     if package is not None:
         tests = dict.fromkeys(tests, package_reads(repo, sha, package, github))
-    elif undeclared := sorted({path for path in tests.values() if path not in GUARD_READS}):
+    elif undeclared := sorted({path for test, path in tests.items()
+                               if path not in GUARD_READS and test not in rule_reads}):
         raise Refused(f"{', '.join(undeclared)} declares no read paths (GUARD_READS), so a pass on the base proves "
                       "nothing about this PR")
     reads: list[str] = []
     for test, path in sorted(tests.items()):
-        test_reads = (path + GUARD_READS_DEFAULT if package is not None
+        test_reads = (path + GUARD_READS_DEFAULT if package is not None else rule_reads[test] if test in rule_reads
                       else (path,) + GUARD_READS_DEFAULT + GUARD_READS.get(path, ()))
         if hit := [changed_path for changed_path in changed if any(touches(changed_path, r) for r in test_reads)]:
             raise Refused(f"{test} reads paths the PR changes: {'; '.join(hit[:5])}")
@@ -3773,7 +4042,24 @@ def step_evidence(view: "FailedView | Unplaced", step_name: str) -> tuple[set[st
     texts = test_reds.lines_of("\n".join(lines))
     errors = {f"{repo_path(match[1])}:{match[2]}: {normalise_error(match[3])}"
               for text in texts if (match := COMPILE_ERROR.search(text))}
-    return set(test_reds.failed_tests(texts)), errors
+    tests = set(test_reds.failed_tests(texts))
+    if rules := {test for test in tests if test.split(" ", 1)[0] in CHECK_RULE_JOBS}:
+        # A check rule's finding is the step's identity only when every line of the step is that check's
+        # (check_rule_step): one more line, unnamed, would go unmatched.
+        try:
+            check_rule_step(texts)
+        except Refused:
+            tests -= rules
+    return tests, errors
+
+
+def step_unnamed(view: FailedView, step_name: str) -> list[str]:
+    """test_reds.unnamed_failures of the section of VIEW's step STEP_NAME (step_evidence's lines): a failure no parser
+    names is never matched by the ones it does (#41166's review F2)."""
+    lines = [line for k, _, section in view.sections
+             if str(view.steps[k].get("name") or "") == step_name  # step-name: classify
+             for line in section]
+    return test_reds.unnamed_failures(test_reds.lines_of("\n".join(lines)))
 
 
 # The rollup's own list in its log (cmux-next.yml's "Fail on any red check"): one `::error title=cmux-next check::red
@@ -4023,6 +4309,9 @@ def fixed_on_base_by_step(repo: str, base: str, sha: str, name: str, job: dict, 
         if mine is None or not (mine[0] or mine[1]):
             new.append(f"'{step_name}': no failing test id or file:line error of its own to match")
             continue
+        if said := step_unnamed(view, step_name):
+            new.append(f"'{step_name}': it reports more failing tests than it names ({said[0][:200]})")
+            continue
         if not prior_view:
             prior_view.append(base_evidence(repo, base, name, prior_run, prior_job, github, run_reads)[1])
         theirs = step_evidence(prior_view[0], step_name) or (set(), set())
@@ -4041,6 +4330,43 @@ def fixed_on_base_by_step(repo: str, base: str, sha: str, name: str, job: dict, 
             f"{steps}: passes in {base} run {base_run['id']} at {tested[:12]}, at or after the merge-base "
             f"{merge_base[:12]}" + (f"; red in {at}" if not gone else f"; {red} red in {at}" if red else "")
             + (f"; {gone} absent from {at} (added to {base} since)" if gone else "") + f") ({url})")
+
+# Green on base since the red, for a base merge alone (2026-11-11, dep-fleet-6): the update_branch guard refused the
+# one action that would clear cmux#41205's and #41220's reds, because judge() could not tie them to a declared guard
+# job ("not a declared guard job (GUARD_JOBS)"), while the base had fixed them (#41227) and the base merge is what
+# shows it. The reviewer's rule: "when the same check name is green at the base tip, and the PR's failing run is older
+# than that green run, count it as fixed on base for the base merge." It reads no job list, so a job no declaration
+# has caught up with still gets its base merge. Only judge(purpose=PER_STEP_PURPOSE) reads it: a base merge reruns
+# CI, so a red of the PR's own comes back on the merged head. A land (merge_hold, no purpose or "land") never gets it:
+# a green base says nothing about whether this head's red is its own. The base verdict is the newest one for the job
+# in the head run's workflow (base_verdicts), a success (not skipped or neutral), at or after the merge-base, from a
+# run created after the head's red run.
+def green_since(repo: str, base: str, sha: str, name: str, job: dict, workflow_info: dict, base_run: dict,
+                base_job: dict, github, merge_bases: dict) -> str:
+    """The audit line for red head JOB when the base's newest verdict for it passed in a run made after the head's
+    (the rule above); raises Refused with why not."""
+    if base_job.get("conclusion") != "success":
+        raise Refused(f"{base}'s newest verdict for it, run {base_run['id']}, is {base_job.get('conclusion')}, "
+                      "not a success")
+    if (stale := before_merge_base(repo, base, sha, base_run, github, merge_bases)) is not None:
+        raise Refused(f"{base} run {base_run['id']} {stale}, not at or after the merge-base")
+    if not (re.fullmatch(r"[0-9a-f]{40}", merge_bases.get(sha) or "")
+            and re.fullmatch(r"[0-9a-f]{40}", tested_sha(base_run))):
+        raise Refused(f"no merge-base of {sha[:12]} or no commit {base} run {base_run['id']} tested")
+    head_made, base_made = created(workflow_info), created(base_run)
+    if head_made is None or base_made is None:
+        raise Refused(f"run {job.get('run_id')} or {base} run {base_run['id']} came back without its creation time")
+    if base_made <= head_made:
+        raise Refused(f"{base} run {base_run['id']} ({base_run.get('created_at')}) is not newer than the red run "
+                      f"{job.get('run_id')} ({workflow_info.get('created_at')})")
+    tested = tested_sha(base_run)
+    url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
+    where = f"workflow {workflow_info.get('path') or workflow_info.get('workflow_id')}"
+    # The fixed_on_base prefix the update_branch guard reads, keyed by the head run ("run ID / JOB").
+    return (f"excused '{name}': fixed on base (run {job.get('run_id')} / {name}, job {job.get('id')}, {where}; green "
+            f"in {base} run {base_run['id']} at {tested[:12]}, created {base_run.get('created_at')}, after this red "
+            f"run's {workflow_info.get('created_at')}; for a base merge alone, which reruns it) ({url})")
+
 
 # cmux-next-guards.yml's "cmux-next CI guard group" runs every routed guard step of ci-guards.yml (the workflow guard
 # profile) on the change and again on its base, and fails only on a step red on the change and not on that base
@@ -4136,6 +4462,10 @@ def compare_window(repo: str, base: str, name: str, head: tuple, head_view: Fail
     runs = f"run {base_run['id']}" if len(window) == 1 else "any of runs " + ", ".join(str(w[0]["id"]) for w in window)
     head_steps, head_tests, head_errors = head
     head_crash = crash_signals(head_view)
+    # A failure no parser names cannot be told from any base failure (#41166's review F2): refused whatever the base.
+    if said := unnamed_tests(head_view):
+        raise Refused(f"'{name}': its log reports more failing tests than it names ({said[0][:200]}), so no failure "
+                      "can be told from another")
     base_steps, base_tests, base_errors, on = set(), set(), set(), {}
     for run, _, (steps, tests, errors), *_ in window:
         base_steps, base_tests, base_errors = base_steps | steps, base_tests | tests, base_errors | errors
@@ -4167,21 +4497,25 @@ def compare_window(repo: str, base: str, name: str, head: tuple, head_view: Fail
                         f"{'; '.join(unmatched)[:600]}")
         head_errors = head_errors - ratchet
     compared = [("failed steps", head_steps, base_steps), ("failing tests", head_tests, base_tests)]
-    # A crash-class rule line is a named failure, but its job also has steps that print only error lines
+    # A crash-class or check rule line is a named failure, but its job also has steps that print only error lines
     # (the concurrency rule): those stay compared unless a real test failed.
-    if not any(not test_reds.is_crash_rule_failure(test) for test in head_tests):
+    if not any(not test_reds.is_rule_failure(test) for test in head_tests):
         compared.append(("errors", head_errors, base_errors))
     for kind, head, seen in compared:
         if missing := sorted(head - seen):
             raise Refused(f"'{name}': {kind} not on {base} {runs}: {'; '.join(missing)[:600]}")
     # The failed steps by name compared above; here by identity: each head failed step's (name, conclusion), as often
-    # as the head has it, on one base verdict of the window (#41158's review F1: a cancelled step is not a failed one,
-    # and a step that failed twice is not the base's one failure).
-    best: Counter = Counter()
-    for _, view, *_ in window:
-        best |= failed_step_keys(view.job)
-    if missing := (mine := failed_step_keys(head_view.job)) - best:
-        raise Refused(f"'{name}': failed steps not on {base} {runs} with the same conclusion, as often: "
+    # as the head has it (#41158's review F1: a cancelled step is not a failed one, and a step that failed twice is not
+    # the base's one failure), all on ONE base verdict of the window, each verdict compared alone. #41166's review F1:
+    # the window's keys were merged (Counter |, the most of each key over the verdicts), so a head whose step failed
+    # and another of that name was cancelled matched a base verdict with the failure and an older one with the cancel,
+    # an identity no base run had.
+    mine = failed_step_keys(head_view.job)
+    gaps = [mine - failed_step_keys(view.job) for _, view, *_ in window]
+    if all(gaps):
+        missing = min(gaps, key=lambda gap: sum(gap.values()))
+        alone = ", each verdict alone" if len(window) > 1 else ""
+        raise Refused(f"'{name}': failed steps not on {base} {runs} with the same conclusion, as often{alone}: "
                       f"{step_keys_text(missing)[:400]} (the head's: {step_keys_text(mine)[:200]})")
     if head_pairs is not None and compared[-1][0] == "errors":
         printed = set().union(*(entry[3] for entry in window if len(entry) > 3))
@@ -4263,7 +4597,8 @@ def quarantined_only(view: "FailedView | Unplaced", known: dict) -> bool:
     found = test_reds.read(text)
     steps, _, errors = sig
     if (not found.failed or found.crashes or found.truncated or found.failed - known.keys()
-            or not steps or any(not re.search(r"\btests?\b", step, re.I) for step in steps)):
+            or not steps or any(not re.search(r"\btests?\b", step, re.I) for step in steps)
+            or unnamed_tests(view)):  # a failure no parser names is no quarantine's (#41166's review F2)
         return False
     # A generic failed test-named step must not borrow a quarantined test from another step: each failed section's own
     # lines name its quarantined tests.
@@ -5286,8 +5621,6 @@ def base_evidence(repo: str, base: str, name: str, run: dict, found: dict, githu
 def one_judgement(function):
     """FUNCTION (judge) run in one judgement's read memo (JUDGEMENT_READS): every source is read once, however many
     excuse paths ask it. A judgement inside another (a derived status's parts) shares the outer one's."""
-    import functools
-
     @functools.wraps(function)
     def run(*args, **kwargs):
         if JUDGEMENT_READS.get() is not None:
@@ -5466,6 +5799,13 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                     audit.append(only)
                     pr_only.add((job.get("run_id"), name))
                     continue
+                if purpose == PER_STEP_PURPOSE:
+                    try:
+                        audit.append(green_since(repo, base, sha, name, job, workflow_info, base_run, base_job,
+                                                 github, merge_bases))
+                        continue
+                    except Refused as green_why:
+                        why = Refused(f"{why}; green since: {green_why}")
                 if (stale := before_merge_base(repo, base, sha, base_run, github, merge_bases)) is not None:
                     dispatch = base_dispatch(repo, base, workflow_info, base_runs[workflow], github)
                     raise Refused(f"'{name}' has no {base} verdict at or after this PR's merge-base yet: the newest, "
@@ -5584,6 +5924,7 @@ def main(argv: list[str] | None = None) -> int:
         argv = sys.argv[1:]
     if argv == ["--write-rollups"]:
         ROLLUPS_FILE.write_text(json.dumps(derive_rollups(), indent=2, sort_keys=True) + "\n")
+        GUARD_JOBS_FILE.write_text(json.dumps(derive_guard_jobs(), indent=2, sort_keys=True) + "\n")
         return 0
     parser.add_argument("--repo", required=True)
     parser.add_argument("--base", required=True)
