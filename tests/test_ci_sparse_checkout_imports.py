@@ -2323,24 +2323,32 @@ def _generated_shell(seed: int) -> tuple[str, bool]:
     def sep(newline_ok: bool = True) -> str:
         return "\n" if newline_ok and rng.random() < 0.3 else "; "
 
+    def body(depth: int, most: int) -> str:
+        # Sometimes a body that always leaves (every path ends in exit), the case a redirect on the
+        # compound around it matters most for.
+        if rng.random() < 0.15:
+            return rng.choice(("exit", "exit 1", "false || exit 1", "exit 1 && true"))
+        return and_or_list(depth, most)
+
     def command(depth: int) -> str:
         r = rng.random()
         if depth < 3 and r < 0.15:
-            return "{ " + and_or_list(depth + 1, 3) + sep() + "}" + rng.choice(_GEN_REDIRECTS)
+            return "{ " + body(depth + 1, 3) + sep() + "}" + rng.choice(_GEN_REDIRECTS)
         if depth < 3 and r < 0.27:
-            return "( " + and_or_list(depth + 1, 3) + " )" + rng.choice(_GEN_REDIRECTS)
+            return "( " + body(depth + 1, 3) + " )" + rng.choice(_GEN_REDIRECTS)
         if depth < 3 and r < 0.35:
             text = "if " + and_or_list(depth + 1, 2) + sep() + "then " + and_or_list(depth + 1, 3)
             if rng.random() < 0.4:
                 text += sep() + "else " + and_or_list(depth + 1, 3)
             return text + sep() + "fi" + rng.choice(_GEN_REDIRECTS)
+        # if / while bodies use and_or_list: a body() there would end the program on most paths.
         if depth < 3 and r < 0.38:
             return "while false; do " + and_or_list(depth + 1, 2) + sep() + "done" + rng.choice(_GEN_REDIRECTS)
         return "\0"
 
     def pipeline(depth: int) -> str:
         text = command(depth)
-        return ("! " + text) if rng.random() < 0.15 else text
+        return ("! " + text) if rng.random() < 0.2 else text
 
     def and_or_list(depth: int, most: int) -> str:
         parts = [pipeline(depth)]
@@ -2352,7 +2360,7 @@ def _generated_shell(seed: int) -> tuple[str, bool]:
     text = "\n".join(lines)
     slots = text.count("\0")
     # Half the time python runs on a line of its own at the end, where everything before it counts.
-    python = rng.randrange(slots) if rng.random() < 0.5 else -1
+    python = rng.randrange(slots) if slots and rng.random() < 0.5 else -1
     out, index = [], 0
     for chunk in text.split("\0")[:-1]:
         out.append(chunk)
