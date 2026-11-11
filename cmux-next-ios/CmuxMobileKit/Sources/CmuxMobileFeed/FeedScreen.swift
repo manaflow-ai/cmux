@@ -235,7 +235,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     private var connectingState: some View {
         VStack(spacing: 10) {
             CmuxSpinner()
-            Text("Connecting to your Mac…")
+            Text(FeedStrings.connecting)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -250,8 +250,8 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                 .font(.title)
                 .padding(.bottom, 10)
                 .accessibilityHidden(true)
-            Text("Your Macs are offline").font(.headline)
-            Text("Open cmux on your Mac and make sure it's online.")
+            Text(FeedStrings.offlineTitle).font(.headline)
+            Text(FeedStrings.offlineBody)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
