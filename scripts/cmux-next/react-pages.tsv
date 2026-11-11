@@ -1,0 +1,45 @@
+# Every directory under webviews/src/pages/ (check-react-pages.py, plans/cmux-next/language-layers.md).
+# name<TAB>kind<TAB>why. Kinds: page (a full tab page), debt (native chrome or Home drawn in React: it goes
+# back to Swift, then delete the row), review (hosted inside native chrome, not judged yet).
+apps	page	a full tab page
+artifacts	page	a full tab page
+bookmarks	page	a full tab page
+certificate	page	a full tab page
+changelog	page	a full tab page
+chief-inspector	page	a full tab page
+chief-usage	page	a full tab page
+chief-views	page	a full tab page
+cloud	page	a full tab page
+cloud-progress	review	a progress view hosted in native chrome
+coderouter	page	a full tab page
+cookie-import	page	a full tab page
+debug-settings	page	a full tab page
+diff	page	a full tab page
+editor	page	a full tab page
+feed	debt	draws Home's Needs you section inside the native Home (#37378)
+files	page	a full tab page
+github	page	a full tab page
+group-editor	review	an editor opened from a sidebar row
+history	page	a full tab page
+home-channels	page	a full tab page
+home-messages	debt	Home drawn in React; the native Home is back (#40756) and nothing opens this page
+icon-picker	review	a picker opened from native chrome
+import-history	page	a full tab page
+keybindings	page	a full tab page
+machines	debt	a right sidebar section (#37279); the right sidebar is gone
+markdown	page	a full tab page
+mobile-pairing	page	a full tab page
+onboarding	page	a full tab page
+overlay	debt	dialogs on a web overlay above native views (#37296)
+page-info	debt	a popover on the browser toolbar (#37369)
+passwords	page	a full tab page
+server-cards	review	cards hosted in native chrome
+settings	page	a full tab page
+setup-card	review	a card inside Home's first run
+sidebar-chats	debt	a strip of rows inside the native sidebar (#40314)
+site-data	page	a full tab page
+site-settings	page	a full tab page
+stash	page	a full tab page
+stats	page	a full tab page
+task-manager	page	a full tab page
+tasks	page	a full tab page
