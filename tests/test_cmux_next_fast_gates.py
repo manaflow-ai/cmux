@@ -1370,21 +1370,28 @@ class CiScriptsCallPortableTimeout(unittest.TestCase):
                          "`bash scripts/ci/timeout.sh [--kill-after=D] SECONDS CMD...` instead")
 
     def test_a_workflow_that_copies_a_script_out_copies_the_wrapper_with_it(self):
-        # ci-web.yml and cmux-next-web.yml run the head's run-webviews-tests.sh from a copy in $RUNNER_TEMP; a copy
-        # without its sibling timeout.sh would fail every file with "No such file or directory".
+        # A script that runs scripts/ci/timeout.sh finds it beside itself. ci-web.yml runs run-webviews-tests.sh from
+        # a copy in $RUNNER_TEMP, and ten workflows sparse-check-out bun-install.sh and move it there (#39869): a step
+        # that copies, moves or sparse-checks-out one of them without timeout.sh fails every run with exit 127.
         users = [path.name for path in shell_scripts(ROOT / "scripts/ci")
                  if path != TIMEOUT_SCRIPT and "timeout.sh" in path.read_text(encoding="utf-8", errors="replace")]
         self.assertIn("run-webviews-tests.sh", users)
+        self.assertIn("bun-install.sh", users)
         missing = []
         for workflow_path in sorted((ROOT / ".github/workflows").glob("*.y*ml")):
-            text = workflow_path.read_text(encoding="utf-8").replace("\\\n", " ")
-            for line in text.splitlines():
-                if not re.search(r"(?:^|[;&|]\s*|\s)cp\s", line):
-                    continue
-                for name in users:
-                    if re.search(rf"scripts/ci/{re.escape(name)}\b", line) and "scripts/ci/timeout.sh" not in line:
-                        missing.append(f"{workflow_path.name}: {line.strip()[:160]}")
-        self.assertEqual(missing, [], "copy scripts/ci/timeout.sh beside every script that runs it")
+            doc = yaml.safe_load(workflow_path.read_text(encoding="utf-8")) or {}
+            for job_name, job_doc in (doc.get("jobs") or {}).items():
+                for step in (job_doc or {}).get("steps") or []:
+                    sparse = str((step.get("with") or {}).get("sparse-checkout", ""))
+                    run = str(step.get("run", "")).replace("\\\n", " ")
+                    texts = [sparse] + [line for line in run.splitlines() if re.search(r"(?:^|[;&|]\s*|\s)(?:cp|mv)\s", line)]
+                    for text in texts:
+                        if "timeout.sh" in text:
+                            continue
+                        for name in users:
+                            if re.search(rf"scripts/ci/{re.escape(name)}\b", text):
+                                missing.append(f"{workflow_path.name} {job_name}: {text.strip()[:160]}")
+        self.assertEqual(missing, [], "copy, move or sparse-check-out scripts/ci/timeout.sh beside every script that runs it")
 
     def test_the_detector_catches_the_shapes_that_broke(self):
         self.assertEqual(len(bare_timeout_calls('  timeout --kill-after=15 "$s" bun install "$@"\n')), 1)

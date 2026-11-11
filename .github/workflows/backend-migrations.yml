@@ -60,11 +60,13 @@ jobs:
           ref: ${{ github.sha }}
           path: .bun-install-tools
           persist-credentials: false
-          sparse-checkout: scripts/ci/bun-install.sh
+          sparse-checkout: |
+            scripts/ci/bun-install.sh
+            scripts/ci/timeout.sh
           sparse-checkout-cone-mode: false
       - name: Keep the bounded bun install outside the checkout
         working-directory: .
-        run: mv .bun-install-tools/scripts/ci/bun-install.sh "$RUNNER_TEMP/bun-install.sh" && rm -rf .bun-install-tools
+        run: mv .bun-install-tools/scripts/ci/bun-install.sh .bun-install-tools/scripts/ci/timeout.sh "$RUNNER_TEMP/" && rm -rf .bun-install-tools
       - name: Changed files and head migrations
         id: files
         env:
@@ -202,11 +204,13 @@ jobs:
           ref: ${{ github.sha }}
           path: .bun-install-tools
           persist-credentials: false
-          sparse-checkout: scripts/ci/bun-install.sh
+          sparse-checkout: |
+            scripts/ci/bun-install.sh
+            scripts/ci/timeout.sh
           sparse-checkout-cone-mode: false
       - name: Keep the bounded bun install outside the checkout
         working-directory: .
-        run: mv .bun-install-tools/scripts/ci/bun-install.sh "$RUNNER_TEMP/bun-install.sh" && rm -rf .bun-install-tools
+        run: mv .bun-install-tools/scripts/ci/bun-install.sh .bun-install-tools/scripts/ci/timeout.sh "$RUNNER_TEMP/" && rm -rf .bun-install-tools
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: head-migrations
@@ -250,11 +254,13 @@ jobs:
           ref: ${{ github.sha }}
           path: .bun-install-tools
           persist-credentials: false
-          sparse-checkout: scripts/ci/bun-install.sh
+          sparse-checkout: |
+            scripts/ci/bun-install.sh
+            scripts/ci/timeout.sh
           sparse-checkout-cone-mode: false
       - name: Keep the bounded bun install outside the checkout
         working-directory: .
-        run: mv .bun-install-tools/scripts/ci/bun-install.sh "$RUNNER_TEMP/bun-install.sh" && rm -rf .bun-install-tools
+        run: mv .bun-install-tools/scripts/ci/bun-install.sh .bun-install-tools/scripts/ci/timeout.sh "$RUNNER_TEMP/" && rm -rf .bun-install-tools
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: head-migrations
@@ -334,11 +340,13 @@ jobs:
           ref: ${{ github.sha }}
           path: .bun-install-tools
           persist-credentials: false
-          sparse-checkout: scripts/ci/bun-install.sh
+          sparse-checkout: |
+            scripts/ci/bun-install.sh
+            scripts/ci/timeout.sh
           sparse-checkout-cone-mode: false
       - name: Keep the bounded bun install outside the checkout
         working-directory: .
-        run: mv .bun-install-tools/scripts/ci/bun-install.sh "$RUNNER_TEMP/bun-install.sh" && rm -rf .bun-install-tools
+        run: mv .bun-install-tools/scripts/ci/bun-install.sh .bun-install-tools/scripts/ci/timeout.sh "$RUNNER_TEMP/" && rm -rf .bun-install-tools
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         if: needs.plan.outputs.migrations == 'true' && github.event_name == 'pull_request_target'
         with:

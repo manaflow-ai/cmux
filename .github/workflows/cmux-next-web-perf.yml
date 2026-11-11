@@ -51,11 +51,13 @@ jobs:
           ref: ${{ github.sha }}
           path: .bun-install-tools
           persist-credentials: false
-          sparse-checkout: scripts/ci/bun-install.sh
+          sparse-checkout: |
+            scripts/ci/bun-install.sh
+            scripts/ci/timeout.sh
           sparse-checkout-cone-mode: false
       - name: Keep the bounded bun install outside the checkout
         working-directory: .
-        run: mv .bun-install-tools/scripts/ci/bun-install.sh "$RUNNER_TEMP/bun-install.sh" && rm -rf .bun-install-tools
+        run: mv .bun-install-tools/scripts/ci/bun-install.sh .bun-install-tools/scripts/ci/timeout.sh "$RUNNER_TEMP/" && rm -rf .bun-install-tools
 
       - name: Verify exact head and fetch base identity
         run: |
