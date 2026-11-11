@@ -8344,6 +8344,7 @@ RAW_LOG_READERS = {
     "gallery_replay_crash": "the gallery health gate; the verdict compares gallery artifacts (gallery_classify)",
     "gallery_crash_verdict": "compares gallery health artifacts, per state, never log lines",
     "web_test_verdict": "per-test webview verdicts from run-webviews-tests.sh's own per-file blocks",
+    "rollup_log_reds": "the rollup's `##[error]red check:` lines its annotations are made from, with its own count",
 }
 # The functions that read a log from GitHub: they hand it to failed_view, a gate or a per-test verdict above, and
 # return no raw log to a comparator.
@@ -9161,6 +9162,186 @@ class FixedOnBaseByStep(StepFixture, unittest.TestCase):
                       excuse.UNPLACED)
         said = "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
         self.assertTrue(said.startswith(f"excused '{self.JOB}': fixed on base ("), said)
+
+# What judge() refuses a red of the unplaced fixture with when the pin rule does not take it: the base passed the job,
+# and the per-step reading finds the head's red step green at the merge-base too (the PR's own red).
+NOT_JUDGED = "is not red on feat-cmux-next run 20 .*does not map one to one onto its steps|per step:"
+
+
+class RollupJobReadsItsNamedReds(unittest.TestCase):
+    """2026-11-11, cmux#40552 at fe40e511: its checks job (run 42895363602, job 130212680188) is red only for its
+    step-A Rust change's stale app FFI pin, which the step-A rule excuses. Since #40542 (a23139960ea5) step_owners
+    does not place its log (more steps start in one second than whole-second times tell apart), so the rule, which
+    read the placed log's signature, was never reached; the per-step reading read the rollup's reds from the check
+    run's annotations, and run attempt 2 had carried the job over without re-running it, so its check run had none
+    (they stayed on attempt 1's check run 130107053043). The rollup's own list still names its reds: the jobs API's
+    steps and that list are the job's every red. The fixture is the job's log and steps, trimmed to steps 56 to 62
+    with the runner's own around them; its log is still not placed."""
+
+    JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+    PIN = "Check the app FFI pin"
+    FIXTURES = ROOT / "tests/fixtures/test_reds"
+    LOG = (FIXTURES / "cmux-40552-checks-job-130212680188.log").read_text(encoding="utf-8").replace("﻿", "")
+    EXCUSED = (f"excused '{JOB}': only '{PIN}' is red (\"error: the app FFI sources changed since the pinned "
+               "source\"), and #40552 changes app FFI inputs, not Packages/macOS/CmuxNext/Package.swift and no Swift: "
+               "a step-A Rust change, pinned by the release its merge publishes")
+    RUST = ("cmux-tui/crates/cmux-cloud-machine/src/refusals.rs", "cmux-tui/crates/cmux-cloud-start-core/src/moves/cli.rs")
+
+    def setUp(self):
+        test = self
+        self.notes: list[dict] = []  # the head check run's annotations: none, as run attempt 2's carried-over job had
+
+        class GitHub(FakeGitHub):
+            def json(self, route, *, paginate=False):
+                if route.endswith("/check-runs/1/annotations?per_page=100"):
+                    self.routes.append(route)
+                    return copy.deepcopy(test.notes)
+                return super().json(route, paginate=paginate)
+
+            def log(self, repo, job):
+                return self.logs[job["id"]]  # the job-log endpoint's own text, steps with their times
+
+        job = json.loads((self.FIXTURES / "cmux-40552-checks-job-130212680188.json").read_text())
+        self.gh = GitHub()
+        green = [dict(step, conclusion="success") for step in job["steps"]]
+        # The base's newest run passed the job: the pin is the head's own red, never the base's.
+        self.gh.jobs = {1: dict(job, id=1, run_id=10, head_sha=HEAD),
+                        2: dict(job, id=2, run_id=20, head_sha=BASE_SHA, conclusion="success", steps=green)}
+        self.gh.logs = {1: self.LOG, 2: ""}
+        self.graphql: list[list[str]] = []
+        self.files(*self.RUST)
+
+    def files(self, *paths):
+        self.gh.run = pr_graphql(self, self.graphql, paths, number=40552)
+
+    def judge(self):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+
+    def refused(self, pattern):
+        with self.assertRaisesRegex(excuse.Refused, pattern) as raised:
+            self.judge()
+        self.assertNotIn("excused", str(raised.exception))
+        return str(raised.exception)
+
+    def rollup(self, *reds, count=None, extra=()):
+        """The fixture's log with its rollup's red lines and list naming REDS (COUNT in its summary line)."""
+        stamp = "2026-11-10T20:32:21.8714505Z "
+        said = [f"{stamp}##[error]red check: {red}" for red in reds]
+        said += [f"{stamp}### {len(reds) if count is None else count} cmux-next check(s) failed", stamp.rstrip()]
+        said += [f"{stamp}- {red} (failure)" for red in reds] + [stamp.rstrip(), *extra]
+        old = ("2026-11-10T20:32:21.8714505Z ##[error]red check: Check the app FFI pin\n"
+               "2026-11-10T20:32:21.8718839Z ### 1 cmux-next check(s) failed\n"
+               "2026-11-10T20:32:21.8718929Z \n"
+               "2026-11-10T20:32:21.8718999Z - Check the app FFI pin (failure)\n"
+               "2026-11-10T20:32:21.8719087Z \n")
+        self.assertEqual(self.LOG.count(old), 1)
+        return self.LOG.replace(old, "\n".join(said) + "\n")
+
+    def test_the_fixture_log_is_not_placed(self):
+        self.assertIs(excuse.failed_view(self.gh.jobs[1], self.LOG, base=False, **UNKNOWN), excuse.UNPLACED)
+
+    def test_a_carried_over_jobs_stale_ffi_pin_is_excused_from_its_rollups_own_list(self):
+        self.assertEqual(self.judge(), [self.EXCUSED])
+        self.assertEqual(len(self.graphql), 1)
+
+    def test_its_rollup_annotations_excuse_it_too(self):
+        # A job that ran in its own attempt: its check run has the annotations, and they are read first.
+        self.notes = [{"annotation_level": "failure", "title": "cmux-next check", "message": f"red check: {self.PIN}"}]
+        self.assertEqual(self.judge(), [self.EXCUSED])
+
+    def test_the_rollup_log_names_the_reds_its_annotations_would(self):
+        self.assertEqual(excuse.rollup_log_reds(self.LOG), {self.PIN})
+        two = ("Motion tokens", self.PIN)
+        self.assertEqual(excuse.rollup_log_reds(self.rollup(*two)), set(two))
+        for case, text in {
+            "a count that is not its lines'": self.rollup(self.PIN, count=2),
+            "a list that names another check": self.rollup(self.PIN).replace(f"- {self.PIN} (failure)",
+                                                                               "- Motion tokens (failure)"),
+            "a second summary": self.rollup(self.PIN, extra=["2026-11-10T20:32:21.87Z ### 0 cmux-next check(s) failed"]),
+            "a red line away from its summary": self.LOG.replace(
+                "2026-11-10T20:31:59.4061566Z ##[group]Run",
+                "2026-11-10T20:31:59.4061Z ##[error]red check: Motion tokens\n2026-11-10T20:31:59.4061566Z ##[group]Run"),
+            "no summary": self.LOG.replace("### 1 cmux-next check(s) failed", "### checks failed"),
+        }.items():
+            with self.subTest(case):
+                self.assertIsNone(excuse.rollup_log_reds(text))
+
+    def test_another_red_check_beside_the_pin_is_not_excused(self):
+        self.gh.logs[1] = self.rollup("Motion tokens", self.PIN)
+        self.refused(NOT_JUDGED)
+
+    def test_another_failed_step_beside_the_rollup_is_not_excused(self):
+        step = next(step for step in self.gh.jobs[1]["steps"] if step["name"] == "Daemon capabilities export is fresh")
+        step["conclusion"] = "failure"
+        self.refused(NOT_JUDGED)
+
+    def test_a_rollup_list_that_cannot_be_read_is_not_excused(self):
+        self.gh.logs[1] = self.rollup(self.PIN, count=2)
+        self.refused("its annotations do not name its reds .*, nor does its log")
+
+    def test_a_pin_error_printed_twice_or_not_at_all_is_not_excused(self):
+        line = "2026-11-10T20:31:58.7617120Z error: the app FFI sources changed since the pinned source "
+        for case, text in {"twice": self.LOG.replace(line, line + "x\n" + line),
+                           "not at all": self.LOG.replace(line, "2026-11-10T20:31:58.7617120Z note: ")}.items():
+            with self.subTest(case):
+                self.gh.logs[1] = text
+                self.refused(NOT_JUDGED)
+
+    def test_a_crash_anywhere_in_an_unplaced_log_is_not_excused(self):
+        self.gh.logs[1] = self.LOG.replace("2026-11-10T20:31:59.4061566Z ##[group]Run",
+                                           "2026-11-10T20:31:59.40Z error: the test helper died on signal 11\n"
+                                           "2026-11-10T20:31:59.4061566Z ##[group]Run")
+        # test_reds.read finds it before any rule is asked; crashed_anywhere keeps the pin rule from reading past it.
+        self.refused("crash")
+
+    def test_the_pin_rule_still_refuses_a_head_it_does_not_cover(self):
+        self.files(*self.RUST, "scripts/cmux-next/check-app-ffi-pin.sh")
+        self.refused("changes the app FFI pin check's code")
+
+
+class RollupLogRedsByStep(StepFixture, unittest.TestCase):
+    """fixed_on_base_by_step reads a head rollup's reds the same way: from its check run's annotations, or, when they
+    name none (a job a re-run attempt carried over), from the rollup's own list in its log (rollup_log_reds)."""
+
+    def listed(self, github, *reds):
+        # StepFixture's rollup prints its red lines alone; the real one lists them under its summary too.
+        lines = github.logs[1].splitlines()
+        last = max(n for n, line in enumerate(lines) if "##[error]red check: " in line)
+        stamp = lines[last].split(" ", 1)[0]
+        lines[last + 1:last + 1] = [f"{stamp} ### {len(reds)} cmux-next check(s) failed", stamp,
+                                    *(f"{stamp} - {red} (failure)" for red in reds)]
+        github.logs[1] = "\n".join(lines)
+
+    def test_a_head_with_no_annotations_is_judged_by_its_rollups_list(self):
+        for placed in (True, False):
+            with self.subTest(placed=placed):
+                github = self.github(({self.MOTION: "quiet-red"}, {}), ({self.SURFACES: "quiet-red"}, {}),
+                                     ({self.MOTION: "quiet-red"}, {}))
+                self.notes[1] = []
+                with self.assertRaisesRegex(excuse.Refused, "annotations do not name its reds .*, nor does its log"):
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+                if not placed:
+                    github.logs[1] = github.logs[1].replace(
+                        "##[group]Run scripts/check-1.sh",
+                        "##[group]Run a/composite@v1\n" + github.logs[1].splitlines()[3][:28] + " ##[group]Run inner.sh")
+                self.listed(github, self.MOTION)
+                said = "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+                self.assertTrue(said.startswith(f"excused '{self.JOB}': fixed on base ("), said)
+                self.assertIn(f"step '{self.MOTION}'", said)
+
+    def test_the_rollups_list_never_names_a_red_it_lacks(self):
+        # The list names Surface roles too, which the base's newest run fails: not fixed on base.
+        github = self.github(({self.MOTION: "quiet-red"}, {}), ({self.SURFACES: "quiet-red"}, {}),
+                             ({self.MOTION: "quiet-red"}, {}))
+        self.notes[1] = []
+        lines = github.logs[1].splitlines()
+        last = max(n for n, line in enumerate(lines) if "##[error]red check: " in line)
+        lines.insert(last + 1, lines[last].replace(self.MOTION, self.SURFACES))
+        github.logs[1] = "\n".join(lines)
+        self.listed(github, self.MOTION, self.SURFACES)
+        with self.assertRaisesRegex(excuse.Refused, f"'{self.SURFACES}' is failure"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
 
 # cmux#40984 at a6698ad5: 'next-autoland / verdict' read "its own red: cmux-next / cmux-next checks (god files,
 # concurrency, crash safety, l10n) (and 2 more red, not probed)", and judge() refused it as a status with no job. It is a
