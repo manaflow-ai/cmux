@@ -1659,9 +1659,15 @@
       "menu-fit:div[aria-label=\"Model\"]"
     ],
     "agent-pane.model-picker#search-empty": [],
-    "agent-pane.model-picker#search-flat": [],
-    "agent-pane.model-picker#search-grouped": [],
-    "agent-pane.model-picker#search-grouped-top-rail": [],
+    "agent-pane.model-picker#search-flat": [
+      "menu-fit:div[aria-label=\"Model\"]"
+    ],
+    "agent-pane.model-picker#search-grouped": [
+      "menu-fit:div[aria-label=\"Model\"]"
+    ],
+    "agent-pane.model-picker#search-grouped-top-rail": [
+      "menu-fit:div[aria-label=\"Model\"]"
+    ],
     "agent-pane.model-picker#signed-out": [
       "menu-fit:div[aria-label=\"Model\"]"
     ],
