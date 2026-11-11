@@ -1949,7 +1949,10 @@ _SHELL_SHAPES: tuple[tuple[str, bool, str, str | None], ...] = (
     ("(\ncd scripts/ci\n)\npython3 x", True, "x", ""),
     ("(cd scripts/ci && true); python3 x", True, "x", ""),
     ("x=$(cd scripts/ci && pwd)\npython3 x", True, "x", ""),
-    ("cd scripts && (cd ci; python3 x)", True, "x", _CI),
+    ("cd scripts && (cd ci && python3 x)", True, "x", _CI),
+    # A failed cd inside a group goes on there if the group turns out to be left of && or ||, which
+    # is not known yet where python runs inside it: unknown.
+    ("cd scripts && (cd ci; python3 x)", True, "x", None),
     # A pipeline or & runs its commands in subshells.
     ("cd scripts/ci | cat\npython3 x", True, "x", ""),
     ("cd scripts/ci &\npython3 x", True, "x", ""),
