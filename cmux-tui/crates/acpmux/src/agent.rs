@@ -150,6 +150,9 @@ const HOST_KIND_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// How long the reader waits for the Exit entry's ack to be written.
 const EXIT_ACK_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
+/// The most entries logged before an ack while more wait: the host keeps each entry until it
+/// is acked, so this bounds what a streaming link adds to the host's buffer.
+const ACK_BATCH: usize = 64;
 
 /// The agent runs under an `__agent-host` process (durable sessions).
 struct Hosted {
@@ -2136,12 +2139,15 @@ impl ChildAgent {
         true
     }
 
-    /// Read `link`'s entries: log each, act on it, then acknowledge it.
+    /// Read `link`'s entries: log each, act on it, then acknowledge it (one ack for a run of
+    /// queued entries, at most [`ACK_BATCH`] apart).
     fn start_reader(self: &Arc<Self>, link: Arc<crate::agent_host::link::Link>) {
         let reader = self.clone();
         tokio::spawn(async move {
             let Some(hosted) = reader.hosted.as_ref() else { return };
             let mut entries = link.entries.lock().await;
+            // Entries logged since the last ack.
+            let mut unacked = 0usize;
             while let Some((h, entry)) = entries.recv().await {
                 let is_exit = matches!(entry, crate::agent_host::Entry::Exit { .. });
                 #[cfg(debug_assertions)]
@@ -2190,8 +2196,19 @@ impl ChildAgent {
                     }
                     continue;
                 }
-                if ack_fails || link.ack(h).await.is_err() {
+                if ack_fails {
                     break;
+                }
+                // An ack is cumulative: the host drops every entry through `h` (`host.rs`
+                // `drop_through`, so since the first host build). While more entries wait here
+                // one ack goes per ACK_BATCH entries; the entry that empties the queue is always
+                // acked, so an idle link leaves none unacked.
+                unacked += 1;
+                if unacked >= ACK_BATCH || entries.is_empty() {
+                    if link.ack(h).await.is_err() {
+                        break;
+                    }
+                    unacked = 0;
                 }
             }
             #[cfg(debug_assertions)]
