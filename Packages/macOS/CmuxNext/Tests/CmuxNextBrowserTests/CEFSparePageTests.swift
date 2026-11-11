@@ -325,6 +325,7 @@ extension CEFSparePageSuites {
             host.createDeferred()
             #expect(link.browserID == page, "the stalled page is still the next tab's")
             #expect(SpareSpy.added.isEmpty)
+            #expect(needed.value == 1, "a take still asks: the first idle moment after the rest makes the next page")
 
             runtime.spareWindow.prepare(runtime: runtime)
             #expect(SpareSpy.added.isEmpty, "after a stalled spare page the next idle moment makes none")
@@ -336,9 +337,14 @@ extension CEFSparePageSuites {
             runtime.spareWindow.prepare(runtime: runtime)
             #expect(SpareSpy.added.map(\.anchor) == [20], "after the rest the next idle moment makes one again")
             runtime.spareWindow.closePage(in: try #require(runtime.spareWindow.host))
+            SpareSpy.addCost = .milliseconds(900)
             SpareSpy.clearRecords()
             runtime.spareWindow.prepare(runtime: runtime)
-            #expect(SpareSpy.added.count == 1, "a page made in budget sets no rest")
+            #expect(SpareSpy.added.count == 1)
+            runtime.spareWindow.closePage(in: try #require(runtime.spareWindow.host))
+            SpareSpy.clearRecords()
+            runtime.spareWindow.prepare(runtime: runtime)
+            #expect(SpareSpy.added.count == 1, "a slow cold page within the budget sets no rest")
         }
 
         /// Memory pressure (Chrome's Memory Saver drops spare renderers first): a warning closes the waiting

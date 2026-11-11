@@ -70,8 +70,9 @@ final class CEFSpareWindow {
     /// once the call returned and the page is known.
     private var createdDuringPage: [(browser: Int32, window: Int32, created: CEFCreatedBy)]?
     /// A spare page's `tab_add` longer than this stalled the main thread: the page saves a new tab about
-    /// 12 ms (`cef.tab_add` p95 15 ms), so one that took 20 times that cost more than any take can win back.
-    static let stallBudget: Duration = .milliseconds(250)
+    /// 12 ms (`cef.tab_add` p95 15 ms). One second leaves room for the first page of a cold start (Chromium's
+    /// code and color tables not yet paged in) and is still far below the 2.6-7.1 s stalls it stops repeating.
+    static let stallBudget: Duration = .seconds(1)
     /// How long no page is made ahead after one stalled (`restsUntil`).
     static let stallRest: Duration = .seconds(30 * 60)
     /// The clock the stall guard reads (tests move it).
@@ -160,7 +161,11 @@ final class CEFSpareWindow {
         let browser = add()
         #endif
         let ended = now()
-        if started.duration(to: ended) > Self.stallBudget { restsUntil = ended.advanced(by: Self.stallRest) }
+        let took = started.duration(to: ended)
+        if took > Self.stallBudget {
+            restsUntil = ended.advanced(by: Self.stallRest)
+            runtime.logger.notice("spare page stalled: tab_add took \(took, privacy: .public); no page made ahead for \(Self.stallRest, privacy: .public)")
+        }
         let created = createdDuringPage ?? []
         createdDuringPage = nil
         // A tab Chromium made itself during the call (an extension's) goes the way of every such tab,
