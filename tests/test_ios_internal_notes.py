@@ -16,6 +16,9 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 SPEC = importlib.util.spec_from_file_location("ios_internal_notes", ROOT / "scripts/ci/ios_internal_notes.py")
 notes = importlib.util.module_from_spec(SPEC)
 sys.modules["ios_internal_notes"] = notes
@@ -401,14 +404,14 @@ class WorkflowTests(unittest.TestCase):
 
     def test_notes_job_has_no_secret_and_a_read_only_token(self):
         notes_job = self.jobs()["notes"]
-        self.assertNotIn("secrets.", notes_job)
+        self.assertEqual(workflow_jobs.secret_names(notes_job), set())
         self.assertNotIn("environment:", notes_job)
         self.assertNotIn("write", notes_job.split("permissions:", 1)[1].split("env:", 1)[0])
         self.assertIn("ios_internal_notes.py notes", notes_job)
 
     def test_previous_build_holds_only_the_app_store_connect_key(self):
         job = self.jobs()["previous-build"]
-        self.assertEqual(set(re.findall(r"secrets\.(\w+)", job)), {"ASC_API_KEY_ID", "ASC_API_ISSUER_ID", "ASC_API_KEY_P8_BASE64"})
+        self.assertEqual(workflow_jobs.secret_names(job), {"ASC_API_KEY_ID", "ASC_API_ISSUER_ID", "ASC_API_KEY_P8_BASE64"})
         self.assertIn("inputs.base == ''", job)
         self.assertIn("continue-on-error: true", job)
 

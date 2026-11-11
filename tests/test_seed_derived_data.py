@@ -18,6 +18,9 @@ import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import seed_derived_data as seed  # noqa: E402
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
+from workflow_jobs import holds_secret  # noqa: E402
 
 BUILD_TIME_NS = 1_700_000_000_000_000_000
 FAKE_R2 = """#!/usr/bin/env bash
@@ -679,11 +682,32 @@ class SeedDerivedData(unittest.TestCase):
 
 
 def load(workflow):
-    return yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text())
+    return workflow_jobs.document(ROOT / ".github/workflows" / workflow)
 
 
 def steps(workflow, job):
     return load(workflow)["jobs"][job]["steps"]
+
+
+def sole_runs_on(job):
+    """The runs-on a job without a matrix writes, as written (workflow_jobs.runs_on_cells)."""
+    cells = workflow_jobs.runs_on_cells(job)
+    assert cells is not None and len(cells) == 1, cells
+    return cells[0]
+
+
+def job_env(job):
+    """The env a job's steps start from: the workflow's, then the job's (workflow_jobs.resolve)."""
+    return workflow_jobs.resolve(job).env
+
+
+def seed_runs_on():
+    """The seed job's runs-on as written. decide computes its matrix at run time, so the runs-on is the one part
+    nothing resolves, and only because workflow_jobs.UNRESOLVED_MATRICES audits that job."""
+    resolved = workflow_jobs.resolve(load("seed-derived-data.yml")["jobs"]["seed"], "seed", "seed-derived-data.yml")
+    assert resolved.runs_on_cells is None and resolved.matrix_audit, resolved.runs_on_cells
+    (runs_on,) = resolved.runs_on_unresolved
+    return runs_on
 
 
 def seed_pools():
@@ -717,10 +741,38 @@ OWNED_ONLY_NIGHTLY_JOBS = frozenset({"sign-nightly-identity-legacy", "verify-nig
                                      "verify-final-dmg-nightly", "launch-smoke-nightly", "signer-dmg-image",
                                      "verify-recovered-nightly-next"})
 OWNED_ONLY_NIGHTLY_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}"
-# The secret-bearing ones end on the signer's label alone (signing_runner.SIGNER_LABEL).
-SIGNING_NIGHTLY_JOBS = frozenset({"sign-nightly-identity-legacy", "generate-nightly-deltas", "build-sign-notarize-nightly",
-                                  "recover-nightly-next-notarization"})
 SIGNING_NIGHTLY_FALLBACK = "|| 'glaeda-trusted-next-signing' }}"
+
+
+def signing_nightly_jobs(jobs):
+    return frozenset(name for name, job in jobs.items() if holds_secret(job))
+
+
+# The secret-bearing nightly.yml jobs end on the signer's label alone (signing_runner.SIGNER_LABEL), never a label
+# they share with PR side lanes. Derived from nightly.yml, not kept by hand: the hand list named
+# sign-nightly-identity-legacy, which nightly.yml no longer has, and would have missed a new secret job.
+SIGNING_NIGHTLY_JOBS = signing_nightly_jobs(load("nightly.yml")["jobs"])
+SIGNING_NIGHTLY_ANCHORS = {"generate-nightly-deltas", "build-sign-notarize-nightly", "recover-nightly-next-notarization"}
+
+
+def late_attempt_failure(workflow, name, job, runs_on, labels, side):
+    """None when an owned-lane job's last attempt leaves the minis as it must, else why not."""
+    if workflow == "nightly.yml" and holds_secret(job):
+        if not runs_on.endswith(SIGNING_NIGHTLY_FALLBACK):
+            return f"{name} holds a secret, but its route does not end on the signer's label alone: {runs_on}"
+        if labels != ["glaeda-trusted-next-signing"]:
+            return f"{name} holds a secret, but its last attempt takes {labels}"
+        return None
+    if workflow == "nightly.yml" and name in OWNED_ONLY_NIGHTLY_JOBS:
+        # Owned-only by design: the late attempt takes the owned pool route, not a picked mini.
+        if not runs_on.endswith(OWNED_ONLY_NIGHTLY_FALLBACK):
+            return f"{name} is owned-only, but its route does not end on the owned pool route: {runs_on}"
+        if labels != [side]:
+            return f"{name} is owned-only, but its last attempt takes {labels}"
+        return None
+    if any(str(item).startswith("glaeda-") for item in labels):
+        return f"{name}'s last attempt still takes a mini: {labels}"
+    return None
 
 
 TOKEN = re.compile(r"\s*(\|\||&&|==|!=|>=|<=|>|<|!|\(|\)|\[|\]|\.|,|'(?:[^']|'')*'|[0-9]+(?:\.[0-9]+)?|[A-Za-z_][A-Za-z0-9_.*-]*)")
@@ -961,8 +1013,8 @@ class Wiring(unittest.TestCase):
         probe = (ROOT / ".github/workflows/main-compile-probe.yml").read_text()
         self.assertEqual(set(re.findall(r"seed_derived_data\.py (\w+)", probe)), {"adopt"})
         self.assertNotIn("cache-save", probe)
-        self.assertNotIn("secrets.", probe)
-        self.assertNotIn("secrets.", json.dumps(adopt))
+        self.assertEqual(workflow_jobs.secret_names(workflow_jobs.document(probe)), set())
+        self.assertEqual(workflow_jobs.secret_names(adopt), set())
 
     def test_every_main_push_seeds_incrementally_under_the_key_admission_reads(self):
         workflow = load("seed-derived-data.yml")
@@ -974,7 +1026,7 @@ class Wiring(unittest.TestCase):
         # arriving faster than a seed builds; see the comment beside it.
         self.assertIs(workflow["jobs"]["seed"]["concurrency"]["cancel-in-progress"], False)
         # One group per pool: a seed is only useful to admission on that pool.
-        self.assertIn(workflow["jobs"]["seed"]["runs-on"].strip("${} "), workflow["jobs"]["seed"]["concurrency"]["group"])
+        self.assertIn(seed_runs_on().strip("${} "), workflow["jobs"]["seed"]["concurrency"]["group"])
 
         seeder = steps("seed-derived-data.yml", "seed")
         resolve_at, _ = named(seeder, "Resolve Swift packages")
@@ -999,16 +1051,16 @@ class Wiring(unittest.TestCase):
         # The nightly cold seed runs on our nightly-only minis, never Blacksmith (nightlies never use
         # Blacksmith, Lawrence 2026-10-30), never a GitHub-hosted Mac (Leo, 2026-10-27;
         # tests/test_ci_nightly_no_hosted_mac.py) and never macOS 15, with the per-push seeder's Xcode.
-        self.assertEqual(nightly["runs-on"], "${{ matrix.pool }}")
+        self.assertEqual(workflow_jobs.runs_on_cells(nightly), nightly["strategy"]["matrix"]["pool"])
         schedule = github_context("schedule")
-        nightly_pools = [pool if "${{" in pool else f"${{{{ '{pool}' }}}}" for pool in nightly["strategy"]["matrix"]["pool"]]
+        nightly_pools = [pool if "${{" in pool else f"${{{{ '{pool}' }}}}" for pool in workflow_jobs.runs_on_cells(nightly)]
         self.assertEqual([evaluate(pool, schedule) for pool in nightly_pools],
                          ["glaeda-nightly-only-m4pro"])
         for pool, blacksmith in (("blacksmith-6vcpu-macos-26", "blacksmith-6vcpu-macos-26"),
                                  ("macos-26", "blacksmith-6vcpu-macos-26")):
             with self.subTest(pool=pool):
-                self.assertEqual(evaluate(nightly["env"]["CMUX_CI_XCODE_APP"], {**schedule, "matrix": {"pool": pool}}),
-                                 evaluate(job["env"]["CMUX_CI_XCODE_APP"], {**schedule, "matrix": {"pool": blacksmith}}))
+                self.assertEqual(evaluate(job_env(nightly)["CMUX_CI_XCODE_APP"], {**schedule, "matrix": {"pool": pool}}),
+                                 evaluate(job_env(job)["CMUX_CI_XCODE_APP"], {**schedule, "matrix": {"pool": blacksmith}}))
 
         # Resolve against the same Swift package cache admission restores, so
         # a layout change invalidates both keys together.
@@ -1020,14 +1072,14 @@ class Wiring(unittest.TestCase):
         """Pull-request admission runs on the 6 or 12 vCPU macOS 26 pool, and a
         seed only serves the width it was built at, so both pools seed."""
         job = load("seed-derived-data.yml")["jobs"]["seed"]
-        self.assertEqual(job["runs-on"], "${{ matrix.pool }}")
+        self.assertEqual(seed_runs_on(), "${{ matrix.pool }}")
         self.assertIs(job["strategy"]["fail-fast"], False)
         context = github_context("push", MACOS_RUNNER_PR="blacksmith-6vcpu-macos-26")
         pools = {evaluate(pool, context) for pool in seed_pools()}
         # macOS 15 too: pull requests overflow there, on its own Xcode.
         self.assertEqual(pools, {"blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26",
                                  "blacksmith-6vcpu-macos-15"})
-        admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]["runs-on"]
+        admission = sole_runs_on(load("ci-macos.yml")["jobs"]["macos-compile-admission"])
         self.assertIn(evaluate(admission, github_context("pull_request", ref="refs/pull/1/merge",
                                                          MACOS_RUNNER_PR="blacksmith-6vcpu-macos-26")), pools)
         # Each pool queues on its own, so a slow 6 vCPU seed never holds the
@@ -1058,7 +1110,7 @@ class Wiring(unittest.TestCase):
         # The 12 vCPU pool comes first: it starts in seconds, and the first
         # entry alone publishes the app-host product.
         runs_on, own, _ = seed_pools()
-        admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]["runs-on"]
+        admission = sole_runs_on(load("ci-macos.yml")["jobs"]["macos-compile-admission"])
         larger = "vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26'"
         self.assertIn(larger, runs_on)
         # Any other pool value is admission's pull-request pool, unchanged.
@@ -1098,8 +1150,8 @@ class Wiring(unittest.TestCase):
         job = load("seed-derived-data.yml")["jobs"]["seed"]
         ctx = context("push", CI_SEED_TRUSTED_POOL=label)
         ctx["matrix"] = {"pool": label}
-        self.assertEqual(evaluate(job["env"]["CMUX_CI_XCODE_APP"], ctx), "/Applications/Xcode-pr.app")
-        self.assertEqual(evaluate(job["environment"], ctx), "ci-cache-writer")
+        self.assertEqual(evaluate(job_env(job)["CMUX_CI_XCODE_APP"], ctx), "/Applications/Xcode-pr.app")
+        self.assertEqual(evaluate(workflow_jobs.resolve(job).environment["name"], ctx), "ci-cache-writer")
         # Never the product publisher.
         self.assertNotIn("TRUSTED", seed_pools()[0])
 
@@ -1133,7 +1185,7 @@ class Wiring(unittest.TestCase):
         self.assertNotEqual(pools(label, "x")[0], 0)
 
         job = workflow["jobs"]["seed"]
-        self.assertEqual(job["env"]["CMUX_SEED_ROOT"], "${{ matrix.root }}")
+        self.assertEqual(job_env(job)["CMUX_SEED_ROOT"], "${{ matrix.root }}")
         self.assertIn("matrix.root", job["concurrency"]["group"])
         _, prepare = named(job["steps"], "Prepare admission build paths")
 
@@ -1234,7 +1286,7 @@ class Wiring(unittest.TestCase):
         pool = evaluate(overflow, context)
         self.assertEqual(pool, pr_runner_pool.MACOS_15_RUNNER)
         context["matrix"] = {"pool": pool}
-        self.assertEqual(evaluate(job["env"]["CMUX_CI_XCODE_APP"], context), "/Applications/Xcode-15.app")
+        self.assertEqual(evaluate(job_env(job)["CMUX_CI_XCODE_APP"], context), "/Applications/Xcode-15.app")
         self.assertEqual(pr_runner_pool.POOLS[pool], "CMUX_CI_XCODE_APP_MACOS_15")
         # Only the first entry publishes the product, never this one.
         self.assertNotEqual(seed_pools()[0], overflow)
@@ -1293,7 +1345,7 @@ class Wiring(unittest.TestCase):
             self.assertIs(step.get("continue-on-error"), True)
         self.assertIn("steps.package-products.outcome == 'success'", upload["if"])
         self.assertIn("matrix.pool == needs.decide.outputs.publisher", package["if"])
-        self.assertNotIn("secrets.", json.dumps([package, upload]))
+        self.assertEqual(workflow_jobs.secret_names([package, upload]), set())
 
     def test_the_seeder_reads_and_writes_through_the_public_url_admission_reads(self):
         # r2-cache.sh restores through CI_CACHE_R2_PUBLIC_URL and refuses to
@@ -1301,8 +1353,8 @@ class Wiring(unittest.TestCase):
         seeder = load("seed-derived-data.yml")
         admission = load("ci-macos.yml")
         self.assertEqual(
-            seeder.get("env", {}).get("CI_CACHE_R2_PUBLIC_URL"),
-            admission["env"]["CI_CACHE_R2_PUBLIC_URL"],
+            job_env(seeder["jobs"]["seed"]).get("CI_CACHE_R2_PUBLIC_URL"),
+            job_env(admission["jobs"]["macos-compile-admission"])["CI_CACHE_R2_PUBLIC_URL"],
         )
 
     def test_the_seed_downloads_while_packages_resolve(self):
@@ -1384,19 +1436,19 @@ class Wiring(unittest.TestCase):
                 for name in unset:
                     context["vars"].pop(name)
                 pools = [evaluate(pool, context) for pool in seed_pools()]
-                self.assertIn(evaluate(admission["runs-on"], context), pools)
+                self.assertIn(evaluate(sole_runs_on(admission), context), pools)
                 self.assertEqual(
-                    evaluate(admission["env"]["CMUX_CI_XCODE_APP"], context),
-                    evaluate(seeder["env"]["CMUX_CI_XCODE_APP"], context),
+                    evaluate(job_env(admission)["CMUX_CI_XCODE_APP"], context),
+                    evaluate(job_env(seeder)["CMUX_CI_XCODE_APP"], context),
                 )
         # Pull requests already compile there; other events keep their lane.
         pull_request = github_context("pull_request", ref="refs/pull/1/merge")
-        self.assertEqual(evaluate(admission["runs-on"], pull_request), "pool-pr")
+        self.assertEqual(evaluate(sole_runs_on(admission), pull_request), "pool-pr")
         merge_group = github_context("merge_group", ref="refs/heads/gh-readonly-queue/main/x", CI_PAID_MACOS_OVERFLOW="1")
-        self.assertEqual(evaluate(admission["runs-on"], merge_group), "pool-15-paid")
-        self.assertEqual(evaluate(admission["env"]["CMUX_CI_XCODE_APP"], merge_group), "/Applications/Xcode-15.app")
+        self.assertEqual(evaluate(sole_runs_on(admission), merge_group), "pool-15-paid")
+        self.assertEqual(evaluate(job_env(admission)["CMUX_CI_XCODE_APP"], merge_group), "/Applications/Xcode-15.app")
         branch_dispatch = github_context("workflow_dispatch", ref="refs/heads/topic")
-        self.assertEqual(evaluate(admission["runs-on"], branch_dispatch), "pool-pr")
+        self.assertEqual(evaluate(sole_runs_on(admission), branch_dispatch), "pool-pr")
 
     def test_fork_pull_request_admission_stays_on_blacksmith(self):
         # MACOS_RUNNER_PR (pool-pr here) may name an owned Mac. A fork pull
@@ -1416,10 +1468,10 @@ class Wiring(unittest.TestCase):
                                      event={"pull_request": {"head": {"repo": {"full_name": head}}}})
             context["inputs"]["pr_runner"] = picked
             with self.subTest(head=head, picked=picked):
-                self.assertEqual(evaluate(admission["runs-on"], context), runner)
-                self.assertEqual(evaluate(admission["env"]["CMUX_PRODUCT_RUNNER"], context), runner)
+                self.assertEqual(evaluate(sole_runs_on(admission), context), runner)
+                self.assertEqual(evaluate(job_env(admission)["CMUX_PRODUCT_RUNNER"], context), runner)
                 self.assertEqual(
-                    evaluate(admission["env"]["CMUX_CI_XCODE_APP"], context),
+                    evaluate(job_env(admission)["CMUX_CI_XCODE_APP"], context),
                     "/Applications/Xcode-pr.app" if head == "manaflow-ai/cmux" else "/Applications/Xcode-15.app",
                 )
 
@@ -1446,8 +1498,8 @@ class Wiring(unittest.TestCase):
             context["inputs"].update(pr_runner="glaeda-std-xcode-26.6", pr_retry_runner=retry,
                                      pr_owned_jobs=owned_jobs)
             with self.subTest(attempt=attempt, retry=retry, owned_jobs=owned_jobs):
-                self.assertEqual(evaluate(admission["runs-on"], context), runner)
-                self.assertEqual(evaluate(admission["env"]["CMUX_PRODUCT_RUNNER"], context), runner)
+                self.assertEqual(evaluate(sole_runs_on(admission), context), runner)
+                self.assertEqual(evaluate(job_env(admission)["CMUX_PRODUCT_RUNNER"], context), runner)
 
     def test_a_retry_goes_to_blacksmith_after_a_host_fault_and_to_the_fleet_after_a_code_failure(self):
         # Attempt 2 is placed like attempt 1, whoever re-ran it: the owned label
@@ -1466,8 +1518,41 @@ class Wiring(unittest.TestCase):
             context["inputs"].update(pr_runner="glaeda-std-xcode-26.6", pr_retry_runner="blacksmith-12vcpu-macos-26",
                                      pr_owned_jobs=" admission ")
             with self.subTest(actor=actor, attempt=attempt):
-                self.assertEqual(evaluate(admission["runs-on"], context), runner)
-                self.assertEqual(evaluate(admission["env"]["CMUX_PRODUCT_RUNNER"], context), runner)
+                self.assertEqual(evaluate(sole_runs_on(admission), context), runner)
+                self.assertEqual(evaluate(job_env(admission)["CMUX_PRODUCT_RUNNER"], context), runner)
+
+    def test_secret_nightly_jobs_are_derived_and_checked_on_the_owned_lane(self):
+        # A parser regression that empties the derived set would empty the signer check with it.
+        self.assertLessEqual(SIGNING_NIGHTLY_ANCHORS, SIGNING_NIGHTLY_JOBS)
+        # The class #36559 hit in backend.yml: a secret job split out on the shared side-lane chain, unlisted. Both a
+        # new name and an owned-only name that gains a secret are named, since a secret outranks the exemption.
+        side = "glaeda-side-std-xcode-26.6"
+        runs_on = ("${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.owned "
+                   + OWNED_ONLY_NIGHTLY_FALLBACK)
+        for name, secret in (("staple-fixture-nightly", "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}"),
+                             ("verify-signed-nightly", "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}"),
+                             # Read only by bracket: no `secrets.` anywhere in the job (Codex, #40754 review).
+                             ("staple-bracket-fixture-nightly", "${{ secrets['APPLE_CERTIFICATE_PASSWORD'] }}")):
+            job = {"runs-on": runs_on, "steps": [{"run": "codesign", "env": {"P": secret}}]}
+            with self.subTest(job=name):
+                jobs = {**load("nightly.yml")["jobs"], name: job}
+                self.assertIn(name, signing_nightly_jobs(jobs))
+                failure = late_attempt_failure("nightly.yml", name, job, runs_on, [side], side)
+                self.assertIsNotNone(failure)
+                self.assertIn(name, failure)
+                self.assertIn("signer's label", failure)
+        # The same job without the secret keeps the owned-only route it is exempt for.
+        clean = {"runs-on": runs_on, "steps": [{"run": "true"}]}
+        self.assertIsNone(late_attempt_failure("nightly.yml", "verify-signed-nightly", clean, runs_on, [side], side))
+        # The positive half: a bracket-secret job on the signer's label alone passes.
+        signer_route = ("${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+                        "needs.pick-nightly-sign-runner.outputs.owned " + SIGNING_NIGHTLY_FALLBACK)
+        signed = {"runs-on": signer_route,
+                  "steps": [{"run": "codesign", "env": {"P": "${{ secrets['APPLE_CERTIFICATE_PASSWORD'] }}"}}]}
+        jobs = {**load("nightly.yml")["jobs"], "staple-signer-fixture-nightly": signed}
+        self.assertIn("staple-signer-fixture-nightly", signing_nightly_jobs(jobs))
+        self.assertIsNone(late_attempt_failure("nightly.yml", "staple-signer-fixture-nightly", signed, signer_route,
+                                               ["glaeda-trusted-next-signing"], side))
 
     def test_no_retry_attempt_of_any_workflow_takes_an_owned_label(self):
         # Every macOS job an owned mini may take, in every workflow: with the
@@ -1488,45 +1573,46 @@ class Wiring(unittest.TestCase):
         checked = set()
         for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
             for name, job in (load(path.name).get("jobs") or {}).items():
-                runs_on = job.get("runs-on")
-                if not isinstance(runs_on, str) or not any(
-                        key in runs_on for key in ("pr_owned_jobs", "SIDE_LANE_RUNNER", "LIGHT_LANE_RUNNER")):
+                # Each matrix cell (`${{ matrix.runner }}` read as its values) is a route of its own. A matrix nothing
+                # resolves fails here, unless workflow_jobs.UNRESOLVED_MATRICES names why that job is read elsewhere.
+                resolved = workflow_jobs.resolve(job, name, path.name)
+                if resolved.runs_on_cells is None:
+                    with self.subTest(workflow=path.name, job=name):
+                        self.assertIsNotNone(resolved.matrix_audit,
+                                             f"{path.name}#{name}: runs-on reads a matrix value nothing resolves")
                     continue
-                runs_on = (runs_on.replace("format(' shard-{0} ', matrix.shard)", "' shard-1 '")
-                           .replace("format('shard-{0}', matrix.shard)", "'shard-1'"))
-                last = "4" if path.name in MINIS_FIRST_THROUGH_ATTEMPT_3 else "3"
-                for attempt in ("1", "2", "3", "4")[:int(last)]:
-                    context = github_context("pull_request", ref="refs/pull/1/merge",
-                                             CI_PR_POOL_OWNED="1", CI_SIDE_LANE_RUNNER=side,
-                                             CI_LIGHT_LANE_RUNNER="glaeda-side-light-xcode-26.6")
-                    context["github"].update(
-                        repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor="github-actions[bot]",
-                        workflow_ref=f"manaflow-ai/cmux/.github/workflows/{path.name}@refs/pull/1/merge",
-                        event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
-                    context["inputs"].update(pr_runner=mini, pr_retry_runner="blacksmith-12vcpu-macos-26",
-                                             pr_root_runner=root, pr_gui_runner=gui, pr_side_runner=side,
-                                             pr_owned_jobs=owned_jobs)
-                    outputs = {"macos_pr_runner": mini, "macos_pr_retry_runner": "blacksmith-12vcpu-macos-26",
-                               "macos_pr_side_runner": side, "macos_pr_owned_jobs": owned_jobs}
-                    context["needs"] = {"changes": {"outputs": outputs},
-                                        # late-placement skips the bot's attempt 3 (asserted below).
-                                        "late-placement": {"outputs": {"runners": late, "attempt": attempt}
-                                                           if attempt not in ("3", "4") else {}},
-                                        "macos-compile-admission": {"outputs": {"runner": root}}}
-                    label = evaluate(runs_on, context)
-                    labels = label if isinstance(label, list) else [label]
-                    with self.subTest(workflow=path.name, job=name, attempt=attempt):
-                        if attempt != last:
-                            checked.add((path.name, name, any(str(item).startswith("glaeda-") for item in labels)))
-                        elif path.name == "nightly.yml" and name in SIGNING_NIGHTLY_JOBS:
-                            self.assertTrue(runs_on.endswith(SIGNING_NIGHTLY_FALLBACK), runs_on)
-                            self.assertEqual(labels, ["glaeda-trusted-next-signing"])
-                        elif path.name == "nightly.yml" and name in OWNED_ONLY_NIGHTLY_JOBS:
-                            # Owned-only by design: the late attempt takes the owned pool route, not a picked mini.
-                            self.assertTrue(runs_on.endswith(OWNED_ONLY_NIGHTLY_FALLBACK), runs_on)
-                            self.assertEqual(labels, [side])
-                        else:
-                            self.assertFalse(any(str(item).startswith("glaeda-") for item in labels), labels)
+                for runs_on in resolved.runs_on_cells:
+                    if not any(key in runs_on for key in ("pr_owned_jobs", "SIDE_LANE_RUNNER", "LIGHT_LANE_RUNNER")):
+                        continue
+                    runs_on = (runs_on.replace("format(' shard-{0} ', matrix.shard)", "' shard-1 '")
+                               .replace("format('shard-{0}', matrix.shard)", "'shard-1'"))
+                    last = "4" if path.name in MINIS_FIRST_THROUGH_ATTEMPT_3 else "3"
+                    for attempt in ("1", "2", "3", "4")[:int(last)]:
+                        context = github_context("pull_request", ref="refs/pull/1/merge",
+                                                 CI_PR_POOL_OWNED="1", CI_SIDE_LANE_RUNNER=side,
+                                                 CI_LIGHT_LANE_RUNNER="glaeda-side-light-xcode-26.6")
+                        context["github"].update(
+                            repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor="github-actions[bot]",
+                            workflow_ref=f"manaflow-ai/cmux/.github/workflows/{path.name}@refs/pull/1/merge",
+                            event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
+                        context["inputs"].update(pr_runner=mini, pr_retry_runner="blacksmith-12vcpu-macos-26",
+                                                 pr_root_runner=root, pr_gui_runner=gui, pr_side_runner=side,
+                                                 pr_owned_jobs=owned_jobs)
+                        outputs = {"macos_pr_runner": mini, "macos_pr_retry_runner": "blacksmith-12vcpu-macos-26",
+                                   "macos_pr_side_runner": side, "macos_pr_owned_jobs": owned_jobs}
+                        context["needs"] = {"changes": {"outputs": outputs},
+                                            # late-placement skips the bot's attempt 3 (asserted below).
+                                            "late-placement": {"outputs": {"runners": late, "attempt": attempt}
+                                                               if attempt not in ("3", "4") else {}},
+                                            "macos-compile-admission": {"outputs": {"runner": root}}}
+                        label = evaluate(runs_on, context)
+                        labels = label if isinstance(label, list) else [label]
+                        with self.subTest(workflow=path.name, job=name, attempt=attempt):
+                            if attempt != last:
+                                checked.add((path.name, name, any(str(item).startswith("glaeda-") for item in labels)))
+                            else:
+                                failure = late_attempt_failure(path.name, name, job, runs_on, labels, side)
+                                self.assertIsNone(failure, failure)
         # Matrix-picked runners (cmux-tui) and input-gated lanes (reload-build)
         # are not evaluated above: no workflow may name an attempt after 2. Naming attempt 2 itself
         # (`run_attempt == 2`, the bot's attempt 2 placed like attempt 1) is allowed: attempts 1 and 2 may
@@ -1570,13 +1656,13 @@ class Wiring(unittest.TestCase):
             context["inputs"].update(pr_runner=mini, pr_retry_runner=retry,
                                      pr_root_runner=root_runner, pr_owned_jobs=owned_jobs)
             with self.subTest(attempt=attempt, actor=actor, owned_jobs=owned_jobs, root_runner=root_runner):
-                admission = evaluate(macos["macos-compile-admission"]["runs-on"], context)
+                admission = evaluate(sole_runs_on(macos["macos-compile-admission"]), context)
                 self.assertEqual(admission, runner)
-                self.assertEqual(evaluate(macos["macos-compile-admission"]["env"]["CMUX_PRODUCT_RUNNER"], context),
+                self.assertEqual(evaluate(job_env(macos["macos-compile-admission"])["CMUX_PRODUCT_RUNNER"], context),
                                  runner)
                 # cli-product-tests follows admission.
                 context["needs"] = {"macos-compile-admission": {"outputs": {"runner": admission}}}
-                self.assertEqual(evaluate(macos["cli-product-tests"]["runs-on"], context), runner)
+                self.assertEqual(evaluate(sole_runs_on(macos["cli-product-tests"]), context), runner)
 
     def test_cli_product_takes_the_gui_label_like_the_shards(self):
         # glaeda runs cli-product-tests under the mini's gui token, so on the
@@ -1602,7 +1688,7 @@ class Wiring(unittest.TestCase):
                                      pr_root_runner=root, pr_gui_runner=gui_runner, pr_owned_jobs=owned_jobs)
             context["needs"] = {"macos-compile-admission": {"outputs": {"runner": root}}}
             with self.subTest(attempt=attempt, owned_jobs=owned_jobs, gui_runner=gui_runner):
-                self.assertEqual(evaluate(job["runs-on"], context), runner)
+                self.assertEqual(evaluate(sole_runs_on(job), context), runner)
                 self.assertEqual(evaluate(job["steps"][0]["env"]["REQUESTED_RUNNER"], context), runner)
 
     def test_a_warm_admission_takes_the_warm_labels_on_attempt_one_only(self):
@@ -1631,11 +1717,11 @@ class Wiring(unittest.TestCase):
                                      pr_owned_jobs=owned_jobs)
             with self.subTest(attempt=attempt, actor=actor, admission_runner=admission_runner):
                 admission = macos["macos-compile-admission"]
-                self.assertEqual(evaluate(admission["runs-on"], context), runner)
-                product_runner = evaluate(admission["env"]["CMUX_PRODUCT_RUNNER"], context)
+                self.assertEqual(evaluate(sole_runs_on(admission), context), runner)
+                product_runner = evaluate(job_env(admission)["CMUX_PRODUCT_RUNNER"], context)
                 self.assertEqual(product_runner, runner[0] if isinstance(runner, list) else runner)
                 context["needs"] = {"macos-compile-admission": {"outputs": {"runner": product_runner}}}
-                self.assertEqual(evaluate(macos["cli-product-tests"]["runs-on"], context), product_runner)
+                self.assertEqual(evaluate(sole_runs_on(macos["cli-product-tests"]), context), product_runner)
 
     def test_main_full_suite_dispatch_takes_the_owned_pool_the_picker_names(self):
         # pr_runner_pool.py may put main's full-suite dispatch on an owned
@@ -1655,11 +1741,11 @@ class Wiring(unittest.TestCase):
                                      pr_root_runner=root, pr_owned_jobs=owned_jobs, source_parent1="parent")
             with self.subTest(attempt=attempt, actor=actor):
                 admission = macos["macos-compile-admission"]
-                self.assertEqual(evaluate(admission["runs-on"], context), runner)
-                self.assertEqual(evaluate(admission["env"]["CMUX_PRODUCT_RUNNER"], context), runner)
-                self.assertEqual(evaluate(admission["env"]["CMUX_CI_XCODE_APP"], context), "/Applications/Xcode-pr.app")
+                self.assertEqual(evaluate(sole_runs_on(admission), context), runner)
+                self.assertEqual(evaluate(job_env(admission)["CMUX_PRODUCT_RUNNER"], context), runner)
+                self.assertEqual(evaluate(job_env(admission)["CMUX_CI_XCODE_APP"], context), "/Applications/Xcode-pr.app")
                 context["needs"] = {"macos-compile-admission": {"outputs": {"runner": runner}}}
-                self.assertEqual(evaluate(macos["cli-product-tests"]["runs-on"], context), runner)
+                self.assertEqual(evaluate(sole_runs_on(macos["cli-product-tests"]), context), runner)
                 # An owned Mac's kept build is reused on main too, starting at main's own commit.
                 context["env"] = {"CMUX_PRODUCT_RUNNER": runner}
                 context["steps"] = {"reuse-products": {"outputs": {"hit": "false"}},

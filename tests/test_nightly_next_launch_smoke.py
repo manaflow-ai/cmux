@@ -41,6 +41,9 @@ from unittest import mock
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 WORKFLOW = ROOT / ".github" / "workflows" / "nightly-next-launch-smoke.yml"
 NIGHTLY = ROOT / ".github" / "workflows" / "nightly.yml"
 GATE = ROOT / "scripts" / "ci" / "nightly-steps" / "launch-smoke-gate.sh"
@@ -230,7 +233,7 @@ class DmgDigestTests(unittest.TestCase):
     def test_the_download_step_verifies_the_bytes(self) -> None:
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         self.assertEqual(jobs["pick"]["outputs"]["ed_signature"], "${{ steps.feed.outputs.ed_signature }}")
-        self.assertEqual(jobs["smoke"]["env"]["DMG_ED_SIGNATURE"], "${{ needs.pick.outputs.ed_signature }}")
+        self.assertEqual(workflow_jobs.resolve(jobs["smoke"]).env["DMG_ED_SIGNATURE"], "${{ needs.pick.outputs.ed_signature }}")
         sparse = jobs["smoke"]["steps"][0]["with"]["sparse-checkout"].split()
         self.assertIn("scripts/ci/nightly_next_artifact_check.py", sparse)
         self.assertIn("scripts/ci/release-signer/verify_appcast_item.py", sparse)
@@ -343,21 +346,22 @@ class NothingWaitsOnTheSmokeTests(unittest.TestCase):
         # The one secret is the routing App's key, read on Linux by the pick's placement (a read-only
         # token for the runner and queue reads), never by a pull request's run and never on the Mac
         # that runs the published app.
-        mints = [step for step in self.jobs["pick"]["steps"] if "secrets." in json.dumps(step)]
+        mints = [step for step in self.jobs["pick"]["steps"] if workflow_jobs.secret_names(step)]
         self.assertEqual([step.get("id") for step in mints], ["route-token"])
         self.assertIn("github.event_name != 'pull_request'", mints[0]["if"])
         self.assertEqual({key: value for key, value in mints[0]["with"].items() if key.startswith("permission-")},
                          {"permission-administration": "read", "permission-organization-self-hosted-runners": "read"})
         for name, job in self.jobs.items():
             if name != "pick":
-                self.assertNotIn("secrets.", json.dumps(job), name)
+                self.assertEqual(workflow_jobs.secret_names(job), set(), name)
         allowed = {"actions": "write", "contents": "read", "issues": "write"}
         self.assertEqual(self.workflow.get("permissions"), {})
         for name, job in self.jobs.items():
             if name == "pick":
-                self.assertEqual(job["environment"], "${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}")
+                self.assertEqual(workflow_jobs.resolve(job).environment,
+                                 {"name": "${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}"})
                 continue
-            self.assertNotIn("environment", job, name)
+            self.assertIsNone(workflow_jobs.resolve(job).environment, name)
             for scope, level in (job.get("permissions") or {}).items():
                 self.assertEqual(allowed.get(scope), level, f"{name}: {scope}: {level}")
         self.assertEqual(self.jobs["smoke"]["permissions"], {"contents": "read"})
@@ -374,7 +378,10 @@ class NothingWaitsOnTheSmokeTests(unittest.TestCase):
         self.assertEqual(self.workflow["concurrency"]["group"],
                          "nightly-next-launch-smoke-${{ github.event_name == 'pull_request' && "
                          "format('pr-{0}', github.event.pull_request.number) || github.run_id }}")
-        runs_on = self.jobs["smoke"]["runs-on"]
+        cells = workflow_jobs.runs_on_cells(self.jobs["smoke"])
+        self.assertIsNotNone(cells, "smoke: runs-on has a matrix value nothing resolves")
+        self.assertEqual(len(cells), 1, cells)
+        runs_on = cells[0]
         self.assertTrue(runs_on.rstrip(" }").endswith("fromJSON(vars.RUNNER_POOLS).macos_26"))
         self.assertLess(runs_on.index("CI_SIDE_LANE_RUNNER"), runs_on.rindex("fromJSON(vars.RUNNER_POOLS).macos_26"))
         for label in re.findall(r"'(macos-[^']+)'", runs_on):
@@ -473,7 +480,7 @@ class PrePublishGateTests(unittest.TestCase):
         self.assertLess(index, upload, f"{job}: the smoke must run before the tested digests upload")
         # The app runs only in a job without secrets or an environment.
         self.assertNotIn("environment", self.jobs[job])
-        self.assertNotIn("secrets.", json.dumps(self.jobs[job]))
+        self.assertEqual(workflow_jobs.secret_names(self.jobs[job]), set())
 
     def test_this_runs_build_is_smoked_before_publish(self) -> None:
         self.assert_gates("verify-final-dmg-nightly", 'final-dmg/${CHANNEL_DMG_PREFIX}-arm64.dmg')

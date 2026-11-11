@@ -20,6 +20,8 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 CI = ROOT / "scripts" / "ci"
 sys.path.insert(0, str(CI))
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 
 
 def load(name: str, file: str):
@@ -539,7 +541,7 @@ class OwnedRefusal(unittest.TestCase):
         import yaml
         jobs = yaml.safe_load((ROOT / ".github/workflows/nightly-next-train.yml").read_text(encoding="utf-8"))["jobs"]
         pick = jobs["pick-train-runner"]
-        self.assertEqual(pick["environment"], {"name": "ci-routing-agent", "deployment": False})
+        self.assertEqual(workflow_jobs.resolve(pick).environment, {"name": "ci-routing-agent", "deployment": False})
         self.assertIn("nightly_build_runner.py", pick["steps"][-1]["run"])
         self.assertNotIn("DEDICATED_LABEL", pick["steps"][-1]["env"])
         # vars.NIGHTLY_NEXT_TRAIN_RUNNER reaches only OWNED_LABELS, and the picker offers no hosted Mac from it.
@@ -551,8 +553,13 @@ class OwnedRefusal(unittest.TestCase):
         self.assertEqual([line.split(":")[0].strip() for line in text.splitlines()
                           if "vars.NIGHTLY_NEXT_TRAIN_RUNNER" in line and not line.lstrip().startswith("#")],
                          ["OWNED_LABELS"])
-        self.assertIn("ubuntu", pick["runs-on"])
-        runs_on = jobs["build"]["runs-on"]
+        pick_cells = workflow_jobs.runs_on_cells(pick)
+        self.assertIsNotNone(pick_cells, "pick-train-runner: runs-on has a matrix value nothing resolves")
+        self.assertIn("ubuntu", "\n".join(pick_cells))
+        cells = workflow_jobs.runs_on_cells(jobs["build"])
+        self.assertIsNotNone(cells, "build: runs-on has a matrix value nothing resolves")
+        self.assertEqual(len(cells), 1, cells)
+        runs_on = cells[0]
         self.assertEqual(jobs["build"]["needs"], "pick-train-runner")
         self.assertIn("needs.pick-train-runner.outputs.attempt == format('{0}', github.run_attempt) && "
                       "needs.pick-train-runner.outputs.owned || needs.pick-train-runner.outputs.blacksmith || "

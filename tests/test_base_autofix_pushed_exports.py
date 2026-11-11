@@ -31,6 +31,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/cmux-next"))
 import base_autofix_pushed_exports as px  # noqa: E402
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 
 PACK_SCRIPT = ROOT / "scripts/cmux-next/base-autofix-exports-pack.sh"
 AUTOFIX = yaml.safe_load((ROOT / ".github/workflows/cmux-next-base-autofix.yml").read_text())
@@ -713,7 +715,10 @@ sys.exit(subprocess.run(["jq", "-r", query], input=json.dumps(body), text=True).
         self.assertLess(2700 / 60, step["timeout-minutes"])
         self.assertLess(step["timeout-minutes"], job["timeout-minutes"])
         self.assertNotIn("runs-on: macos", json.dumps(job))
-        self.assertIn("ubuntu", job["runs-on"])
+        cells = workflow_jobs.runs_on_cells(job)
+        self.assertTrue(cells, "a runs-on matrix nothing resolves, or no runs-on")
+        for cell in cells:
+            self.assertIn("ubuntu", cell)
 
     def test_the_consumer_job_cannot_fail_so_the_mac_job_always_has_its_fallback(self):
         # action-exports needs pushed-exports with no status function: a failed pushed-exports would

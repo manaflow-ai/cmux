@@ -21,7 +21,12 @@ import subprocess
 import tempfile
 import unittest
 
+import sys
+
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 DOC = yaml.safe_load((ROOT / ".github/workflows/cmux-next-base-autofix.yml").read_text())
@@ -350,8 +355,12 @@ class BaseAutofixFinishes(unittest.TestCase):
         # held. The graph is made on Linux from the manifest alone, so its own job needs nothing.
         job = DOC["jobs"]["target-graph"]
         self.assertNotIn("needs", job)
-        self.assertIn("ubuntu", job["runs-on"])
-        self.assertNotIn("macos", job["runs-on"])
+        cells = workflow_jobs.runs_on_cells(job)
+        self.assertIsNotNone(cells, "target-graph runs-on reads a matrix value nothing resolves")
+        self.assertTrue(cells)
+        for runner in cells:
+            self.assertIn("ubuntu", runner)
+            self.assertNotIn("macos", runner)
         self.assertFalse(job["concurrency"]["cancel-in-progress"])
         self.assertNotEqual(job["concurrency"]["group"], DOC["jobs"]["autofix"]["concurrency"]["group"])
         push = next(step for step in job["steps"] if step.get("name") == "Push the graph")

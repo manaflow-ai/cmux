@@ -26,6 +26,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from workflow_jobs import runs_on_cells, secret_names  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/portable_job_placement.py"
 WORKFLOWS = ROOT / ".github/workflows"
@@ -524,6 +527,14 @@ def jobs(name: str) -> dict:
     return yaml.safe_load((WORKFLOWS / name).read_text(encoding="utf-8"))["jobs"]
 
 
+def routes(job: dict, name: str) -> list[str]:
+    """The job's runs-on per matrix cell; a matrix nothing resolves, or no runs-on, fails the guard."""
+    cells = runs_on_cells(job)
+    if not cells:
+        raise AssertionError(f"{name}: runs-on {'matrix does not resolve' if cells is None else 'is missing'}")
+    return cells
+
+
 class SharedWait(unittest.TestCase):
     def test_wait_uses_document_once_then_observes_idle_capacity_live(self):
         idle_row = dict(runner("synthetic-glaeda"), id=1, os="macOS")
@@ -590,7 +601,7 @@ class OrganizationFallback(unittest.TestCase):
 class Wiring(unittest.TestCase):
     def test_next_portable_bootstrap_needs_no_private_app_credentials(self):
         bootstrap = jobs("cmux-next.yml")["portable-placement"]
-        self.assertNotIn("secrets.", yaml.safe_dump(bootstrap))
+        self.assertEqual(secret_names(bootstrap), set())
         self.assertNotIn("environment", bootstrap)
         self.assertFalse(any("actions/create-github-app-token@" in step.get("uses", "")
                              for step in bootstrap["steps"]))
@@ -652,11 +663,12 @@ class Wiring(unittest.TestCase):
                 self.assertIn("portable-placement", needs)
                 self.assertIn("always()", job["if"])
                 self.assertIn("!cancelled()", job["if"])
+                route = "\n".join(routes(job, name))
                 self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)",
-                              job["runs-on"])
-                self.assertIn(f"contains(needs.portable-placement.outputs.mini_jobs, ' {name} ')", job["runs-on"])
+                              route)
+                self.assertIn(f"contains(needs.portable-placement.outputs.mini_jobs, ' {name} ')", route)
                 self.assertEqual(bootstrap["permissions"], {"contents": "read"})
-                self.assertNotIn("secrets.", yaml.safe_dump(bootstrap))
+                self.assertEqual(secret_names(bootstrap), set())
                 self.assertIn("CI_PORTABLE_LIGHT_JOBS_OFF != '1'", bootstrap["if"])
                 offered += len(placed.mini_jobs)
         print(f"status reports offered an idle mini: {offered}/2")
@@ -676,23 +688,23 @@ class Wiring(unittest.TestCase):
                     self.assertIn(name, listed)
                     self.assertEqual(job["needs"], ["portable-placement"])
                     self.assertTrue(str(job["if"]).startswith("${{ !cancelled()"))
-                    runs_on = job["runs-on"]
-                    linux = runs_on.index(f"contains(needs.portable-placement.outputs.linux_jobs, ' {name} ')")
-                    mini = runs_on.index(f"contains(needs.portable-placement.outputs.mini_jobs, ' {name} ')")
-                    blacksmith = runs_on.rindex(f"fromJSON(vars.RUNNER_POOLS).{pool}")
-                    self.assertLess(linux, mini)
-                    self.assertLess(mini, blacksmith)
-                    self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)",
-                                  runs_on)
+                    for runs_on in routes(job, name):
+                        linux = runs_on.index(f"contains(needs.portable-placement.outputs.linux_jobs, ' {name} ')")
+                        mini = runs_on.index(f"contains(needs.portable-placement.outputs.mini_jobs, ' {name} ')")
+                        blacksmith = runs_on.rindex(f"fromJSON(vars.RUNNER_POOLS).{pool}")
+                        self.assertLess(linux, mini)
+                        self.assertLess(mini, blacksmith)
+                        self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)",
+                                      runs_on)
 
     def test_release_notary_takes_the_placement_through_ci_guards(self):
         guards = jobs("cmux-next-guards.yml")
         self.assertIn("release-notary", guards["portable-placement"]["steps"][-1]["env"]["JOBS"].split())
         runner = guards["nightly-guards"]["with"]["guard_tests_runner"]
         self.assertIn("contains(needs.portable-placement.outputs.mini_jobs, ' release-notary ')", runner)
-        tests = jobs("ci-guards.yml")["workflow-guard-tests"]["runs-on"]
-        self.assertIn("inputs.guard_tests_runner != '' && inputs.guard_tests_runner", tests)
-        self.assertLess(tests.index("head.repo.full_name != github.repository"), tests.index("inputs.guard_tests_runner"))
+        for tests in routes(jobs("ci-guards.yml")["workflow-guard-tests"], "workflow-guard-tests"):
+            self.assertIn("inputs.guard_tests_runner != '' && inputs.guard_tests_runner", tests)
+            self.assertLess(tests.index("head.repo.full_name != github.repository"), tests.index("inputs.guard_tests_runner"))
 
     def test_the_cmux_tui_macos_targets_take_a_free_mini_before_the_linux_cross_build(self):
         preflight = jobs("cmux-tui-artifacts.yml")["tree-preflight"]
@@ -750,14 +762,14 @@ class Wiring(unittest.TestCase):
             with self.subTest(job=name):
                 job = nightly[name]
                 self.assertIn("build-nightly-app", job["needs"])
-                runs_on = job["runs-on"]
-                mini = runs_on.index(f"contains(needs.build-nightly-app.outputs.light_mini_jobs, ' {name} ')")
-                self.assertTrue(runs_on.endswith(fallback), runs_on)
-                self.assertLess(mini, runs_on.rindex(fallback))
-                self.assertNotIn("blacksmith", runs_on)
-                self.assertNotIn("RUNNER_POOLS", runs_on)
-                self.assertIn("needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt)",
-                              runs_on)
+                for runs_on in routes(job, name):
+                    mini = runs_on.index(f"contains(needs.build-nightly-app.outputs.light_mini_jobs, ' {name} ')")
+                    self.assertTrue(runs_on.endswith(fallback), runs_on)
+                    self.assertLess(mini, runs_on.rindex(fallback))
+                    self.assertNotIn("blacksmith", runs_on)
+                    self.assertNotIn("RUNNER_POOLS", runs_on)
+                    self.assertIn("needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt)",
+                                  runs_on)
 
 
     def test_new_light_workflows_place_status_jobs_before_hosted_overflow(self):
@@ -775,7 +787,7 @@ class Wiring(unittest.TestCase):
                     job = workflow_jobs[name]
                     needs = job["needs"] if isinstance(job["needs"], list) else [job["needs"]]
                     self.assertIn("portable-placement", needs)
-                    route = job["runs-on"]
+                    route = "\n".join(routes(job, name))
                     self.assertIn(f"contains(needs.portable-placement.outputs.linux_jobs, ' {name} ')", route)
                     self.assertIn(f"contains(needs.portable-placement.outputs.mini_jobs, ' {name} ')", route)
                     self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)", route)
@@ -831,7 +843,7 @@ class Wiring(unittest.TestCase):
                 self.assertIn("CI_PORTABLE_LIGHT_JOBS_OFF != '1'", placement_if)
                 if workflow == "web-validation.yml":
                     self.assertIn("github.event_name != 'merge_group'", placement_if)
-                route = placement_job["runs-on"]
+                route = "\n".join(routes(placement_job, "portable-placement"))
                 self.assertIn("github.run_attempt == 1 && 'ubuntu-24.04'", route)
                 self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_2", route)
                 self.assertNotIn("vars.CI_LIGHT_LANE_RUNNER", route)

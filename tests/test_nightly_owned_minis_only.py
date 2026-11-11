@@ -51,6 +51,7 @@ from test_ci_fork_runner_routing import parse_expression  # noqa: E402
 from test_nightly_trusted_routing import evaluate  # noqa: E402
 import test_nightly_never_blacksmith as never_blacksmith  # noqa: E402
 from test_nightly_never_blacksmith import JOBS, ROOT  # noqa: E402
+import workflow_jobs  # noqa: E402
 from test_nightly_never_blacksmith import manaflow_route as fork_free_route  # noqa: E402
 from test_ci_signing_owned_mac import CLAIM, CLAIM_GATE_ID, claim_gate_for, picker_ref_failures  # noqa: E402
 
@@ -108,6 +109,17 @@ def manaflow_route(name: str) -> str:
     return route.replace(TRACK_HOSTED, "", 1) if name in NIGHTLY_NEXT_ONLY_OWNED else route
 
 
+def manaflow_routes(name: str) -> list[str] | None:
+    """manaflow_route of each matrix cell of the job's runs-on (`${{ matrix.pool }}` read as its values), or
+    None when a matrix value nothing resolves: a guard counts that job as off our minis, never as on them."""
+    routes = never_blacksmith.manaflow_routes(name)
+    if routes is None:
+        return None
+    if name in HOSTED_SIGNING_SWITCHES:
+        routes = [route.replace(HOSTED_SIGNING_SWITCHES[name], "", 1) for route in routes]
+    return [route.replace(TRACK_HOSTED, "", 1) for route in routes] if name in NIGHTLY_NEXT_ONLY_OWNED else routes
+
+
 # Secret jobs glaeda's SIGNING_JOBS gives the whole mini, that hold no signing keychain. The last three ran on
 # GitHub-hosted Ubuntu until glaeda admitted them on the trusted signing runner; keep-published-dsyms holds the
 # push group (it runs in the loop run), republish-nightly-deltas follows generate-nightly-deltas' own hold.
@@ -146,27 +158,26 @@ class EveryJobOnOurMinis(unittest.TestCase):
         for name, job in JOBS.items():
             if name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS or job.get("uses"):
                 continue
-            runs_on = str(job.get("runs-on", ""))
-            if runs_on == "${{ needs.route-visual-gate-nightly.outputs.runs_on }}":
-                continue  # cmux_next_media_runner.py --idle-now: an idle owned session runner, else the job skips
-            if runs_on == "${{ matrix.pool }}":
-                bad = [p for p in job["strategy"]["matrix"]["pool"]
-                       if NOT_OURS.search(re.sub(r"github\.repository_owner != 'manaflow-ai' && '[^']*' \|\|", "", p))]
-                if bad:
-                    failures[name] = bad
+            # Each matrix cell (`${{ matrix.pool }}` read as its values) is a route of its own.
+            cells, routes = workflow_jobs.runs_on_cells(job), manaflow_routes(name)
+            if cells is None or routes is None:
+                failures[name] = "runs-on has a matrix value nothing resolves"
                 continue
-            if not runs_on.startswith("${{"):
-                if not runs_on or NOT_OURS.search(runs_on):
-                    failures[name] = runs_on
-                continue
-            source = manaflow_route(name).removeprefix("${{").removesuffix("}}")
-            expression = parse_expression(source)
-            for _ in range(400):
-                context = sample(source, rng)
-                value = evaluate(expression, context)
-                if not value or NOT_OURS.search(str(value)) or not re.search(r"glaeda", str(value)):
-                    failures[name] = (value, {k: v for k, v in context.items() if v})
-                    break
+            for runs_on, route in zip(cells or [""], routes or [""]):
+                if runs_on == "${{ needs.route-visual-gate-nightly.outputs.runs_on }}":
+                    continue  # cmux_next_media_runner.py --idle-now: an idle owned session runner, else the job skips
+                if not runs_on.startswith("${{"):
+                    if not runs_on or NOT_OURS.search(runs_on):
+                        failures[name] = runs_on
+                    continue
+                source = route.removeprefix("${{").removesuffix("}}")
+                expression = parse_expression(source)
+                for _ in range(400):
+                    context = sample(source, rng)
+                    value = evaluate(expression, context)
+                    if not value or NOT_OURS.search(str(value)) or not re.search(r"glaeda", str(value)):
+                        failures[name] = (value, {k: v for k, v in context.items() if v})
+                        break
         self.assertEqual(sorted(failures), [], "\n".join(f"{k}: {v}" for k, v in sorted(failures.items())))
 
     def test_other_tracks_keep_the_hosted_route(self) -> None:
@@ -178,19 +189,22 @@ class EveryJobOnOurMinis(unittest.TestCase):
     def test_the_hosted_signing_switch_is_only_on_the_signing_jobs(self) -> None:
         for name in JOBS:
             with self.subTest(job=name):
-                route = str(JOBS[name].get("runs-on", ""))
+                cells = workflow_jobs.runs_on_cells(JOBS[name])
+                self.assertIsNotNone(cells, "a runs-on matrix nothing resolves")
+                route = "\n".join(cells)
                 switches = route.count("CI_NIGHTLY_MINI_SIGNER") + route.count("CI_NIGHTLY_MINI_PUBLISHER")
                 self.assertEqual(switches, 1 if name in HOSTED_SIGNING_SWITCHES else 0)
                 if name in HOSTED_SIGNING_SWITCHES:
                     self.assertIn(HOSTED_SIGNING_SWITCHES[name], route)
 
     def test_only_the_listed_tail_jobs_are_hosted(self) -> None:
-        hosted = {name for name in JOBS if not JOBS[name].get("uses") and NOT_OURS.search(manaflow_route(name))}
+        hosted = {name for name in JOBS if not JOBS[name].get("uses")
+                  and ((routes := manaflow_routes(name)) is None or any(NOT_OURS.search(route) for route in routes))}
         self.assertEqual(hosted, set(HOSTED_TAIL_JOBS) | set(HOSTED_LOOP_JOBS),
                          "a nightly job may not reach a GitHub-hosted runner")
         for name in (*HOSTED_TAIL_JOBS, *HOSTED_LOOP_JOBS):
             with self.subTest(job=name):
-                self.assertIn("secrets.", json.dumps(JOBS[name]), "a hosted job without a secret moves to the light runners")
+                self.assertTrue(workflow_jobs.secret_names(JOBS[name]), "a hosted job without a secret moves to the light runners")
 
     def test_the_hosted_loop_upload_never_reaches_a_mini(self) -> None:
         # Leo's override covers this one job only, and only on a hosted VM: no variable, pick or one-mini mode may put
@@ -198,11 +212,13 @@ class EveryJobOnOurMinis(unittest.TestCase):
         self.assertEqual(set(HOSTED_LOOP_JOBS), {"publish-nightly-next-github"})
         for name in HOSTED_LOOP_JOBS:
             job = JOBS[name]
+            resolved = workflow_jobs.resolve(job, name)
             with self.subTest(job=name):
-                self.assertEqual(str(job.get("runs-on")),
-                                 "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}")
+                self.assertEqual(resolved.runs_on_cells,
+                                 ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}"])
                 self.assertIn("secrets.CMUX_RELEASE_APP_KEY", json.dumps(job))
-                self.assertIn("release-next", str(job.get("environment")))
+                self.assertIn("release-next", resolved.environments)
+                self.assertEqual(resolved.environments_unresolved, set())
                 self.assertNotIn("pick-nightly-sign-runner", json.dumps(job))
                 # It stays in the loop run, which the next decide reads (tests/test_nightly_next_tail_off_push_group).
                 self.assertIn("needs.published-build.outputs.cross_run != 'true'", str(job.get("if")))
@@ -291,7 +307,7 @@ class PublishersHoldTheWholeMini(unittest.TestCase):
                 self.assertEqual(gate.get("id"), CLAIM_GATE_ID)
                 self.assertEqual(str(gate.get("run", "")).strip(), claim_gate_for("nightly.yml").strip())
                 self.assertFalse(set(gate) - {"name", "run", "shell", "id"})
-                first_secret = next(i for i, step in enumerate(job_steps) if "secrets." in json.dumps(step))
+                first_secret = next(i for i, step in enumerate(job_steps) if workflow_jobs.secret_names(step))
                 claim = next((i for i, step in enumerate(job_steps) if CLAIM in str(step.get("run", ""))), None)
                 # Second, before any checkout: the workspace an earlier job left is emptied on an owned Mac.
                 clean = job_steps[1]
@@ -300,7 +316,7 @@ class PublishersHoldTheWholeMini(unittest.TestCase):
                 self.assertRegex(str(clean.get("run", "")), r'find "\$ws" -mindepth 1 -maxdepth 1 -exec rm -rf')
                 self.assertIsNotNone(claim)
                 self.assertLess(claim, first_secret)
-                self.assertFalse(JOBS[name].get("env") and "secrets." in json.dumps(JOBS[name]["env"]))
+                self.assertEqual(workflow_jobs.secret_names(JOBS[name].get("env") or {}), set())
 
     def test_credentials_are_wiped_after_the_job(self) -> None:
         for name in EXCLUSIVE_PUBLISHERS:

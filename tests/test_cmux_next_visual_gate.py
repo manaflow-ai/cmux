@@ -22,6 +22,7 @@ import zlib
 ROOT = Path(__file__).resolve().parents[1]
 GATE = ROOT / "scripts/cmux-next/visual-gate"
 sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 from nightly_workflow_text import nightly_text  # noqa: E402
 spec = importlib.util.spec_from_file_location("visual_gate", GATE / "visual_gate.py")
 gate = importlib.util.module_from_spec(spec)
@@ -1232,7 +1233,7 @@ class WiringTests(unittest.TestCase):
         self.assertIn("contents: read", perms)
         self.assertIn("actions: read", perms)
         self.assertNotIn("environment:", verdict)
-        self.assertNotIn("secrets.", verdict)
+        self.assertEqual(workflow_jobs.secret_names(verdict), set())
         # Bounded: on attempt 1 at most 10 min past the signed build (5 for a gate still queued); a
         # re-run, which starts the gate beside this job, the queue budget plus the gate's own timeout.
         self.assertIn('budget=(--queue-budget-minutes 5 --hold-minutes 10 --since-job "Verify final nightly DMG")', verdict)

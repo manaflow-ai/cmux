@@ -16,10 +16,14 @@ import re
 import shutil
 import subprocess
 import tempfile
+import sys
 import unittest
 from pathlib import Path
 
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
@@ -174,7 +178,7 @@ def route_ctx(event, ref, generated, swift, targets, daemon, tree, marker, label
 class GeneratedFoldTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        cls.jobs = workflow_jobs.jobs(WORKFLOW)
         cls.daemon = cls.jobs["daemon-test"]
         cls.swift = cls.jobs["swift-test"]
         cls.generated = cls.jobs["generated-files"]
@@ -201,7 +205,7 @@ class GeneratedFoldTest(unittest.TestCase):
 
     def test_each_host_folds_exactly_where_path_routing_picks_it(self):
         for job_id in HOSTS:
-            self.assertEqual(self.jobs[job_id]["env"]["CMUX_NEXT_FOLD_GENERATED"],
+            self.assertEqual(workflow_jobs.resolve(self.jobs[job_id]).env["CMUX_NEXT_FOLD_GENERATED"],
                              "${{ needs.path_route.outputs.generated_host == '%s' }}" % job_id)
             self.assertIn("steps.generated-files-verdict.outputs.verdict", self.jobs[job_id]["outputs"]["generated_files"])
         self.assertIn("needs.path_route.outputs.generated_host == 'generated-files'", self.generated["if"])
@@ -246,7 +250,7 @@ class GeneratedFoldTest(unittest.TestCase):
                 "generated-files": runs["generated-files"],
             }
             folds = {job_id: runs[job_id]
-                     and Expr(self.jobs[job_id]["env"]["CMUX_NEXT_FOLD_GENERATED"], ctx).value() is True
+                     and Expr(workflow_jobs.resolve(self.jobs[job_id]).env["CMUX_NEXT_FOLD_GENERATED"], ctx).value() is True
                      for job_id in HOSTS}
             ctx["needs"]["swift-test"] = {"result": "success" if runs["swift-test"] else "skipped"}
             ctx["needs"]["daemon-test"] = {"result": "success" if runs["daemon-test"] else "skipped"}

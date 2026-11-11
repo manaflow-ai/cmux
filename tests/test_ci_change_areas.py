@@ -20,6 +20,7 @@ from unittest.mock import patch
 import yaml
 
 import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+import workflow_jobs
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "detect_ci_change_areas.py"
@@ -205,7 +206,11 @@ def test_linux_guard_only_scripts_reach_no_other_runner() -> None:
             if referrer == ".github/workflows/ci-guards.yml":
                 for job_name, job in guard_jobs.items():
                     if name in yaml.safe_dump(job):
-                        assert module.is_plainly_linux_runner(str(job.get("runs-on", ""))), (path, job_name)
+                        cells = workflow_jobs.runs_on_cells(job)
+                        assert cells is not None or workflow_jobs.audited_matrix(GUARD_WORKFLOW.name, job_name), \
+                            (path, job_name, "runs-on matrix does not resolve")
+                        # No runs-on (a reusable call) is not plainly Linux.
+                        assert all(module.is_plainly_linux_runner(cell) for cell in cells or [""]), (path, job_name)
                 continue
             if referrer.startswith("tests/"):
                 assert module.is_guard_only_test(referrer, references), (path, referrer)
@@ -839,7 +844,9 @@ def test_remote_daemon_rejects_stale_heads_before_allocating_macos() -> None:
     jobs = yaml.safe_load(REMOTE_DAEMON_WORKFLOW.read_text())["jobs"]
     admission = jobs["remote-daemon-admission"]
     # Secretless Linux jobs read the runner pool (#30878), not a fixed size.
-    assert "fromJSON(vars.RUNNER_POOLS).linux" in admission["runs-on"]
+    cells = workflow_jobs.runs_on_cells(admission)
+    assert cells is not None, "remote-daemon-admission: runs-on matrix does not resolve"
+    assert "fromJSON(vars.RUNNER_POOLS).linux" in "\n".join(cells)
     assert jobs["remote-daemon-macos-tests"]["needs"] == "remote-daemon-admission"
     script = admission["steps"][0]["run"]
     with tempfile.TemporaryDirectory() as directory:
@@ -3335,7 +3342,13 @@ def _job_runs_only_on_linux(job: dict) -> bool:
     if uses:
         called = yaml.safe_load((ROOT / uses.removeprefix("./")).read_text(encoding="utf-8"))
         return all(_job_runs_only_on_linux(inner) for inner in called["jobs"].values())
-    runs_on = str(job.get("runs-on", ""))
+    cells = workflow_jobs.runs_on_cells(job)
+    if not cells:  # a matrix nothing resolves, or no runs-on: not shown to be Linux-only
+        return False
+    return all(_runs_on_is_linux(runs_on) for runs_on in cells)
+
+
+def _runs_on_is_linux(runs_on: str) -> bool:
     # A job on the runner capability map (.github/runners.json) names its key.
     capabilities = re.findall(r"outputs\.map\)\.([a-z0-9_]+)", runs_on)
     if capabilities:
@@ -4325,8 +4338,9 @@ def product_consumer_route_violations(workflow: dict) -> list[str]:
     """
     producer = workflow["jobs"]["macos-compile-admission"]
     violations = []
-    if (producer["env"].get("CMUX_PRODUCT_RUNNER") or "").replace(WARM_ADMISSION_FIRST, WARM_ADMISSION) \
-            .replace(OVERFLOW_ADMISSION_FIRST, OVERFLOW_ADMISSION) != producer["runs-on"]:
+    restated = (workflow_jobs.effective_env(workflow, producer).get("CMUX_PRODUCT_RUNNER") or "") \
+        .replace(WARM_ADMISSION_FIRST, WARM_ADMISSION).replace(OVERFLOW_ADMISSION_FIRST, OVERFLOW_ADMISSION)
+    if [restated] != workflow_jobs.runs_on_cells(producer):
         violations.append("macos-compile-admission: CMUX_PRODUCT_RUNNER does not restate runs-on")
     outputs = producer.get("outputs", {})
     if outputs.get("runner") != "${{ env.CMUX_PRODUCT_RUNNER }}":
@@ -4334,9 +4348,10 @@ def product_consumer_route_violations(workflow: dict) -> list[str]:
     if outputs.get("xcode_app") != "${{ env.CMUX_CI_XCODE_APP }}":
         violations.append("macos-compile-admission: missing xcode_app output")
     for name, job in app_host_product_consumers(workflow).items():
-        runs_on = late_placement_route(workflow, name, job.get("runs-on", ""))
-        xcode = (job.get("env") or {}).get("CMUX_CI_XCODE_APP")
-        if name in PRODUCT_RUNNER_KEYS and runs_on == product_runner_output(PRODUCT_RUNNER_KEYS[name]) \
+        cells = workflow_jobs.runs_on_cells(job)
+        runs_on = None if cells is None else [late_placement_route(workflow, name, cell) for cell in cells]
+        xcode = workflow_jobs.effective_env(workflow, job).get("CMUX_CI_XCODE_APP")
+        if name in PRODUCT_RUNNER_KEYS and runs_on == [product_runner_output(PRODUCT_RUNNER_KEYS[name])] \
                 and xcode == PRODUCT_XCODE_OUTPUT:
             continue
         violations.append(f"{name}: runs-on {runs_on}; CMUX_CI_XCODE_APP {xcode}")
@@ -4357,8 +4372,10 @@ def test_app_host_product_consumers_run_on_the_producers_pool_and_xcode() -> Non
     # The shell regressions read the outputs, so a route added to the admission moves
     # it without an edit here.
     cli = workflow["jobs"]["cli-product-tests"]
-    assert late_placement_route(workflow, "cli-product-tests", cli["runs-on"]) == PRODUCT_RUNNER_OUTPUT
-    assert cli["env"]["CMUX_CI_XCODE_APP"] == PRODUCT_XCODE_OUTPUT
+    cells = workflow_jobs.runs_on_cells(cli)
+    assert cells is not None, "cli-product-tests: runs-on matrix does not resolve"
+    assert [late_placement_route(workflow, "cli-product-tests", cell) for cell in cells] == [PRODUCT_RUNNER_OUTPUT]
+    assert workflow_jobs.effective_env(workflow, cli)["CMUX_CI_XCODE_APP"] == PRODUCT_XCODE_OUTPUT
 
 
 def test_late_placement_must_keep_the_admissions_xcode() -> None:
@@ -4381,15 +4398,21 @@ def test_product_consumer_guard_follows_a_new_admission_route() -> None:
     producer = workflow["jobs"]["macos-compile-admission"]
     pull_request = "github.event_name == 'pull_request'"
     new_route = "(github.event_name == 'pull_request' || github.event_name == 'merge_group')"
+    # The jobs' own env (resolve on a plain load reads no workflow env), edited and written back.
+    producer_env = workflow_jobs.resolve(producer).env
     for key in ("CMUX_PRODUCT_RUNNER", "CMUX_CI_XCODE_APP"):
-        assert pull_request in producer["env"][key], key
-        producer["env"][key] = producer["env"][key].replace(pull_request, new_route, 1)
-    producer["runs-on"] = producer["env"]["CMUX_PRODUCT_RUNNER"].replace(WARM_ADMISSION_FIRST, WARM_ADMISSION) \
+        assert pull_request in producer_env[key], key
+        producer_env[key] = producer_env[key].replace(pull_request, new_route, 1)
+    producer["env"] = producer_env
+    producer_route = producer_env["CMUX_PRODUCT_RUNNER"].replace(WARM_ADMISSION_FIRST, WARM_ADMISSION) \
         .replace(OVERFLOW_ADMISSION_FIRST, OVERFLOW_ADMISSION)
+    producer["runs-on"] = producer_route
     assert product_consumer_route_violations(workflow) == []
     consumer = workflow["jobs"]["cli-product-tests"]
-    consumer["runs-on"] = admission_route(producer["runs-on"])
-    consumer["env"]["CMUX_CI_XCODE_APP"] = producer["env"]["CMUX_CI_XCODE_APP"]
+    consumer["runs-on"] = admission_route(producer_route)
+    consumer_env = workflow_jobs.resolve(consumer).env
+    consumer_env["CMUX_CI_XCODE_APP"] = producer_env["CMUX_CI_XCODE_APP"]
+    consumer["env"] = consumer_env
     violations = product_consumer_route_violations(workflow)
     assert [line.split(":", 1)[0] for line in violations] == ["cli-product-tests"], violations
 
@@ -5074,10 +5097,13 @@ def test_package_lane_fleet_step_is_opt_in_and_restates_its_runner() -> None:
         "github.event_name == 'pull_request' && "
         "!(inputs.full_suite == 'true' && inputs.release_build == 'true')"
     )
-    assert "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository" in job["runs-on"]
-    assert "!contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-15'" in job["runs-on"]
-    assert via_step + " && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY" in job["runs-on"]
-    assert job["env"]["PACKAGE_TESTS_VIA_STEP"] == (
+    cells = workflow_jobs.runs_on_cells(job)
+    assert cells is not None, "swift-package-tests: runs-on matrix does not resolve"
+    runs_on = "\n".join(cells)
+    assert "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository" in runs_on
+    assert "!contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-15'" in runs_on
+    assert via_step + " && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY" in runs_on
+    assert workflow_jobs.resolve(job).env["PACKAGE_TESTS_VIA_STEP"] == (
         "${{ github.repository_owner == 'manaflow-ai' && "
         "(github.event.pull_request.head.repo.full_name == github.repository || contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)) && "
         "vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY != '' && " + via_step + " && '1' || '0' }}"

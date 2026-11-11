@@ -28,6 +28,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 
 from test_ci_quota_hold_gate import DRAFT, DRAFT_SKIPPED, GATE, HOLD_GATED  # noqa: E402
 from test_ci_required_checks_are_bounded import context_of, load  # noqa: E402
@@ -230,10 +231,16 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertEqual(self.workflow["permissions"], {})
         job = self.job
         self.assertEqual(job["permissions"], {"contents": "read", "pull-requests": "read"})
-        self.assertNotIn("environment", job)
-        self.assertNotIn("macos", str(job["runs-on"]).lower())
-        self.assertNotIn("self-hosted", str(job["runs-on"]).lower())
-        self.assertNotIn("secrets.", self.text)
+        resolved = workflow_jobs.resolve(job, JOB)
+        self.assertIsNone(resolved.environment)
+        self.assertIsNotNone(resolved.runs_on_cells, "a runs-on matrix nothing resolves")
+        self.assertTrue(resolved.runs_on_cells, "the job has no runs-on")
+        for cell in resolved.runs_on_cells:
+            self.assertNotIn("macos", cell.lower())
+            self.assertNotIn("self-hosted", cell.lower())
+        self.assertEqual(workflow_jobs.secret_names(self.text), set())
+        for name, each in workflow_jobs.jobs(self.workflow).items():
+            self.assertEqual(workflow_jobs.secret_names(each), set(), name)
 
     def test_not_ruleset_required_gated_and_draft_skipping(self) -> None:
         job = self.job

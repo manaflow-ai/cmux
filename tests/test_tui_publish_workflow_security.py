@@ -12,6 +12,7 @@ from pathlib import Path
 import tomllib
 import yaml
 import git_fixture_env
+import workflow_jobs
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -1706,7 +1707,7 @@ def test_tui_pypi_publishers_reconcile_every_wheel_after_upload() -> None:
         assert verify_step.get("env", {}).get("VERSION") == version
         run = verify_step.get("run", "")
         assert "bash cmux-tui/scripts/verify-pypi-tui-upload.sh dist \"$VERSION\"" in run
-        assert "secrets." not in run
+        assert not workflow_jobs.secret_names(run)
         assert "gh-action-pypi-publish" not in run
         assert "twine " not in run
 
@@ -2350,7 +2351,8 @@ def test_cmux_next_daemon_tests_take_blacksmith_linux_and_the_mac_shadow_never_t
     # promote pool or the nightly label (tests/test_cmux_tui_daemon_tests_gate.py).
     document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
     jobs = document["jobs"]
-    daemon = jobs["cmux-next-daemon-tests"]["runs-on"]
+    daemon_cells = workflow_jobs.runs_on_cells(jobs["cmux-next-daemon-tests"])
+    assert daemon_cells, "cmux-next-daemon-tests: runs-on reads a matrix value nothing resolves, or is missing"
     # Every label it can resolve to is Blacksmith Linux or the GCP fleet Linux label, which tree-preflight's
     # linux-placement step emits only when the runner census shows an idle Linux member; size and overflow
     # wiring are free to change.
@@ -2360,11 +2362,14 @@ def test_cmux_next_daemon_tests_take_blacksmith_linux_and_the_mac_shadow_never_t
     assert picker["env"]["FLEET_LINUX"] == fleet_linux, picker["env"]
     assert picker["env"]["LINUX_ONLY"] == "cmux-next-daemon-tests", picker["env"]
     assert picker["env"]["REQUIRE_LIVE_CAPACITY"] == "1", picker["env"]
-    placed = daemon.replace("needs.tree-preflight.outputs.linux_runner", f"'{fleet_linux}'")
-    assert set(disallowed_labels(placed)) <= {fleet_linux}, (daemon, disallowed_labels(placed))
+    for daemon in daemon_cells:
+        placed = daemon.replace("needs.tree-preflight.outputs.linux_runner", f"'{fleet_linux}'")
+        assert set(disallowed_labels(placed)) <= {fleet_linux}, (daemon, disallowed_labels(placed))
     assert "cmux-next-daemon-macos-shadow" not in jobs
     shadow_doc = yaml.load(workflow("cmux-next-daemon-macos-shadow.yml"), Loader=yaml.BaseLoader)
-    shadow = shadow_doc["jobs"]["cmux-next-daemon-macos-shadow"]["runs-on"]
+    shadow_cells = workflow_jobs.runs_on_cells(shadow_doc["jobs"]["cmux-next-daemon-macos-shadow"])
+    assert shadow_cells, "cmux-next-daemon-macos-shadow: runs-on reads a matrix value nothing resolves, or is missing"
+    shadow = "\n".join(shadow_cells)
     assert "MACOS_RUNNER_PR" not in shadow and "inputs.macos_runner" not in shadow
     assert "vars.MACOS_RUNNER_26" not in shadow, shadow
     assert "fromJSON(vars.RUNNER_POOLS).macos_15" in shadow, shadow
@@ -2401,7 +2406,7 @@ def test_tree_publish_and_nightly_promotion_do_not_wait_for_daemon_tests() -> No
     assert {"publish-tree", "cmux-next-daemon-tests"} <= set(marker["needs"])
     assert "needs.cmux-next-daemon-tests.result == 'success'" in marker["if"]
     assert "needs.cmux-next-daemon-tests.outputs.key == needs.tree-preflight.outputs.key" in marker["if"]
-    assert marker["environment"] == "artifacts"
+    assert workflow_jobs.resolve(marker).environment == {"name": "artifacts"}
     assert marker_script in str(marker["steps"])
     assert [name for name, job in jobs.items() if marker_script in str(job.get("steps", ""))] == ["publish-tree-tested"]
     script_text = (ROOT / marker_script).read_text()

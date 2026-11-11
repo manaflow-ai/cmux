@@ -40,19 +40,33 @@ def secret_route_failures(workflow_text):
     for name, job in workflow_jobs.jobs(workflow_text).items():
         if not workflow_jobs.holds_secret(job):
             continue
-        route = workflow_jobs.runs_on(job)
-        match = re.search(r"contains\(fromJSON\('([^']+)'\), vars.LINUX_RUNNER\) && vars.LINUX_RUNNER", route)
-        if "fromJSON(vars.RUNNER_POOLS)" not in route:
-            failures[name] = "runs-on does not read RUNNER_POOLS"
-        elif "github.event.pull_request.head.repo.full_name != github.repository" not in route:
-            failures[name] = "runs-on has no fork guard"
-        elif match is None:
-            failures[name] = "runs-on does not gate LINUX_RUNNER on the ephemeral mirror"
-        elif set(json.loads(match[1])) != LINUX_EPHEMERAL:
-            failures[name] = f"mirror is {sorted(json.loads(match[1]))}, not {sorted(LINUX_EPHEMERAL)}"
-        elif not route.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_8 }}"):
-            failures[name] = "runs-on does not fall back to linux_8"
+        # Each matrix cell (`${{ matrix.runner }}` read as its values) is a route of its own.
+        cells = workflow_jobs.runs_on_cells(job)
+        if cells is None:
+            failures[name] = "runs-on has a matrix value nothing resolves"
+            continue
+        for route in cells or [""]:
+            failure = secret_route_failure(route)
+            if failure:
+                failures[name] = failure
+                break
     return failures
+
+
+def secret_route_failure(route):
+    """Why one route of a credentialed job can leave the ephemeral Linux mirror, or None."""
+    match = re.search(r"contains\(fromJSON\('([^']+)'\), vars.LINUX_RUNNER\) && vars.LINUX_RUNNER", route)
+    if "fromJSON(vars.RUNNER_POOLS)" not in route:
+        return "runs-on does not read RUNNER_POOLS"
+    if "github.event.pull_request.head.repo.full_name != github.repository" not in route:
+        return "runs-on has no fork guard"
+    if match is None:
+        return "runs-on does not gate LINUX_RUNNER on the ephemeral mirror"
+    if set(json.loads(match[1])) != LINUX_EPHEMERAL:
+        return f"mirror is {sorted(json.loads(match[1]))}, not {sorted(LINUX_EPHEMERAL)}"
+    if not route.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_8 }}"):
+        return "runs-on does not fall back to linux_8"
+    return None
 
 
 class SecretRouteBoundary(unittest.TestCase):

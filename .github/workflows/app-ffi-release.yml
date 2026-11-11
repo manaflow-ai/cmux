@@ -408,7 +408,7 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: CCmuxAppFFI.xcframework
-          path: assets
+          path: ${{ runner.temp }}/assets
 
       # Exactly one of these two runs. The token is for this repository only.
       - name: Mint release App token
@@ -443,8 +443,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          (cd assets && sha256sum --check --strict SHA256SUMS)
-          [[ "$(tr -d '[:space:]' < assets/SOURCE_SHA)" == "$GITHUB_SHA" ]]
+          (cd "$RUNNER_TEMP/assets" && sha256sum --check --strict SHA256SUMS)
+          [[ "$(tr -d '[:space:]' < "$RUNNER_TEMP/assets/SOURCE_SHA")" == "$GITHUB_SHA" ]]
           notes="The cmux app FFI (remote desktop core + sidebar layout reducer) as CCmuxAppFFI.xcframework (one static library, universal macOS arm64/x86_64). Source $GITHUB_SHA. SwiftPM binaryTarget checksum (SHA-256 of the zip): $CHECKSUM"
           if gh release view "$TAG" >/dev/null 2>&1; then
             existing="$(mktemp -d)"
@@ -456,9 +456,9 @@ jobs:
             fi
             echo "release $TAG already has the matching archive"
           elif ! gh release create "$TAG" \
-              assets/CCmuxAppFFI.xcframework.zip \
-              assets/CCmuxAppFFI.xcframework.zip.sha256 \
-              assets/SHA256SUMS assets/SOURCE_SHA \
+              "$RUNNER_TEMP"/assets/CCmuxAppFFI.xcframework.zip \
+              "$RUNNER_TEMP"/assets/CCmuxAppFFI.xcframework.zip.sha256 \
+              "$RUNNER_TEMP"/assets/SHA256SUMS "$RUNNER_TEMP"/assets/SOURCE_SHA \
               --target "$GITHUB_SHA" --title "$TAG" --notes "$notes" --prerelease --latest=false; then
             echo "::error title=Publish by hand::the release App token could not create release $TAG (see the gh error above, for example HTTP 403). Publish by hand: $HAND_PUBLISH"
             exit 1

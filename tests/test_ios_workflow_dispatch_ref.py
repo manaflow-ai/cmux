@@ -7,6 +7,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,6 +16,8 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 WORKFLOW = ROOT / ".github" / "workflows" / "test-ios.yml"
 
 
@@ -47,7 +50,10 @@ class IOSWorkflowDispatchRefTests(unittest.TestCase):
     def test_requested_family_matrix_is_selected_on_linux(self) -> None:
         jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
         detect = jobs["detect-ios-changes"]
-        self.assertIn("LINUX_RUNNER", detect["runs-on"])
+        cells = workflow_jobs.runs_on_cells(detect)
+        self.assertTrue(cells, "detect-ios-changes: runs-on reads a matrix value nothing resolves, or is missing")
+        for runs_on in cells:
+            self.assertIn("LINUX_RUNNER", runs_on)
         selector = next(step for step in detect["steps"] if step.get("id") == "families")
         self.assertEqual(selector["env"]["DEVICE_FAMILY"], "${{ inputs.device_family }}")
         self.assertEqual(
