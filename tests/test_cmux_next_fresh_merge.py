@@ -21,6 +21,9 @@ import sys
 import tempfile
 import unittest
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from real_git import real_git, run_bounded  # noqa: E402
+
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/cmux-next/fresh-merge.py"
 
 FAKE_GH = """#!/usr/bin/env python3
@@ -69,7 +72,7 @@ exec %(git)s "$@"
 
 
 def git(cwd, *args):
-    return subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True).stdout.strip()
+    return run_bounded(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True, timeout=60).stdout.strip()
 
 
 class FreshMergeTests(unittest.TestCase):
@@ -79,9 +82,9 @@ class FreshMergeTests(unittest.TestCase):
         self.origin, self.work, bin_dir = root / "origin.git", root / "work", root / "bin"
         self.state, self.log = root / "state.json", root / "gh.log"
         bin_dir.mkdir()
-        subprocess.run(["git", "init", "-q", "--bare", "-b", "feat-cmux-next", str(self.origin)], check=True)
-        subprocess.run(["git", "clone", "-q", str(self.origin), str(self.work)], check=True,
-                       capture_output=True)
+        run_bounded(["git", "init", "-q", "--bare", "-b", "feat-cmux-next", str(self.origin)], check=True, timeout=60)
+        run_bounded(["git", "clone", "-q", str(self.origin), str(self.work)], check=True, capture_output=True,
+                    timeout=60)
         git(self.work, "config", "user.email", "t@example.com")
         git(self.work, "config", "user.name", "t")
         git(self.work, "config", "core.hooksPath", "/dev/null")
@@ -128,8 +131,8 @@ class FreshMergeTests(unittest.TestCase):
         git(self.work, "push", "-q", "origin", "feat-cmux-next")
 
     def run_script(self, *args):
-        return subprocess.run([sys.executable, str(SCRIPT), "7", *args], cwd=self.work, env=self.env,
-                              capture_output=True, text=True, timeout=120)
+        return run_bounded([sys.executable, str(SCRIPT), "7", *args], cwd=self.work, env=self.env,
+                           capture_output=True, text=True, timeout=120)
 
     def calls(self):
         if not self.log.exists():
@@ -254,7 +257,7 @@ class FreshMergeTests(unittest.TestCase):
         head = self.open_pull_request("App/B.swift")
         racy = self.bin_dir / "git"
         racy.write_text(RACY_GIT % {"marker": str(Path(self.temporary.name) / "raced"),
-                                    "git": shutil.which("git")})
+                                    "git": real_git()})  # never a wrapper that execs this fake again
         racy.chmod(0o755)
         result = self.run_script()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

@@ -254,7 +254,8 @@ git -C "$src" config uploadpack.allowAnySHA1InWant true
 git -C "$src" update-ref refs/heads/feat-cmux-next "$other"
 shallow="$TMP/shallow"
 git_q clone -q --no-local --depth=1 "file://$src" "$shallow"
-real_git=$(command -v git)
+# The git binary, never a wrapper on PATH that would exec this shim again (tests/real_git.py).
+real_git=$(python3 "$ROOT/tests/real_git.py") || exit 2
 mkdir -p "$TMP/gitbin"
 cat > "$TMP/gitbin/git" <<STUB
 #!/usr/bin/env bash

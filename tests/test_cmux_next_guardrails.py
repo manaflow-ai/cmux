@@ -26,6 +26,9 @@ import types
 import unittest
 from unittest import mock
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from real_git import real_git  # noqa: E402
+
 
 def _load_git_fixture_env():
     """tests/git_fixture_env.py by path, so `python3 -I` (no script folder on sys.path) runs this file too."""
@@ -141,7 +144,7 @@ class Fixture(unittest.TestCase):
 
     def git(self, *args, check=True):
         return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env, text=True, capture_output=True,
-                              check=check)
+                              check=check, timeout=120)
 
     def write(self, relative, text):
         path = self.repo / relative
@@ -2246,7 +2249,7 @@ class BlobReadTests(Fixture):
 
     def fake_git(self, body):
         """Put a `git` first on PATH whose `cat-file` runs BODY (sh) and whose other commands are the real git."""
-        real = shutil.which("git")
+        real = real_git()  # the binary, never a wrapper on PATH that would exec this fake again
         folder = self.root / "fake-bin"
         folder.mkdir(exist_ok=True)
         script = folder / "git"
@@ -2644,7 +2647,7 @@ class HookTests(Fixture):
         # process the same way stands in for the daemon (the builtin one runs on macOS and Windows only).
         hooks = self.repo / ".git" / "cmux-git-hooks"
         pidfile = self.root / "detached.pid"
-        real = os.path.realpath(shutil.which("git", path=self.env.get("PATH")))
+        real = real_git()  # the binary, never a wrapper on PATH that would exec this stub again
         stub = self.root / "git-stub"
         stub.mkdir()
         (stub / "git").write_text(

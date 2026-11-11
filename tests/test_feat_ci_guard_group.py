@@ -19,6 +19,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 from blacksmith_linux_sizes import entry  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from real_git import real_git, run_bounded  # noqa: E402
 WORKFLOWS = ROOT / ".github/workflows"
 
 
@@ -131,9 +133,9 @@ class APushRunsEveryRoutedGroup(unittest.TestCase):
             env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
 
             def git(*args: str) -> str:
-                return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com",
-                                       "-c", "commit.gpgsign=false", *args], cwd=repo, env=env, check=True,
-                                      capture_output=True, text=True).stdout.strip()
+                return run_bounded(["git", "-c", "user.name=t", "-c", "user.email=t@example.com",
+                                    "-c", "commit.gpgsign=false", *args], cwd=repo, env=env, check=True,
+                                   capture_output=True, text=True, timeout=60).stdout.strip()
 
             git("init", "--quiet")
             (repo / "a.txt").write_text("a\n", encoding="utf-8")
@@ -149,13 +151,13 @@ class APushRunsEveryRoutedGroup(unittest.TestCase):
             git("add", "-A")
             git("commit", "--quiet", "-m", "head")
             # The push path fetches the previous tip; this repository already has it.
-            real_git = shutil.which("git")
+            # The git binary, never a wrapper on PATH that would exec this fake again (tests/real_git.py).
             (bin_dir / "git").write_text(
-                f'#!/bin/sh\n[ "$1" = fetch ] && exit 0\nexec "{real_git}" "$@"\n', encoding="utf-8")
+                f'#!/bin/sh\n[ "$1" = fetch ] && exit 0\nexec "{real_git()}" "$@"\n', encoding="utf-8")
             (bin_dir / "git").chmod(0o755)
             output = runner_temp / "github_output"
-            subprocess.run(["bash", "-eo", "pipefail", "-c", step["run"]], cwd=repo, check=True,
-                           capture_output=True, text=True,
+            run_bounded(["bash", "-eo", "pipefail", "-c", step["run"]], cwd=repo, check=True,
+                        capture_output=True, text=True, timeout=120,
                            env={**env, "PATH": f"{bin_dir}:{env['PATH']}", "EVENT_NAME": event,
                                 "BEFORE": before if event == "push" else "", "RUNNER_TEMP": str(runner_temp),
                                 "GITHUB_OUTPUT": str(output)})
