@@ -3,7 +3,8 @@
 # An entry suppresses the findings of RULE inside FUNCTION of RELPATH only: a new finding in another
 # function of the same file still fails. `function` is what --json and each finding line print after
 # 'in' (Python `Class.method`, Swift `Type.method`, a JS test's title path, or <module>).
-# --strict fails on an entry that no longer matches any finding ("stale entry"): delete it.
+# --strict fails on an entry that no longer matches any finding ("stale entry"): delete it; and on one
+# whose function its file does not declare ("missing function"): rename or delete it.
 # A reason that starts with 'hang guard:' marks a deadline-only bound, well above any normal run, that
 # exists so a hang fails instead of stalling CI; it says what would hang. Every other entry is old debt:
 # tests/test_determinism_allowlist_ratchet.py lets that debt only shrink. Fix a new finding (a recorded
@@ -68,9 +69,9 @@ Packages/iOS/CmuxMobileSSH/Tests/CmuxMobileSSHTests/SSHHandshakeDeadlineTests.sw
 Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests/ActionBudgetMonitorTests.swift	ActionBudgetMonitorTests.aRegistryRunIsRecordedAtItsCommitBoundary	assert-on-duration	feat-cmux-next debt while the gate was red (added in ef75220ecca7); determinize, then remove
 Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AcpmuxLaunchReadyWaitTests.swift	AcpmuxLaunchReadyWaitTests.aDaemonThatWritesNothingFailsAfterTheStallTime	assert-on-duration	debt the widened gate first saw; remove once determinized
 Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AcpmuxMailboxReaderTests.swift	AcpmuxMailboxReaderTests.aPageResetsThePacing	assert-on-duration	debt the widened gate first saw; remove once determinized
-Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AcpmuxPeerUpdateTargetTests.swift	aRunPastItsDeadlineEndsItsChild	assert-on-duration	debt the widened gate first saw; remove once determinized
-Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AcpmuxPeerUpdateTargetTests.swift	anExitWatchWaitsForItsChildUpToItsBound	assert-on-duration	debt the widened gate first saw; remove once determinized
-Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AcpmuxPeerUpdateTargetTests.swift	theLiveSourcesBundledVersionEndsAtItsBound	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AcpmuxPeerUpdateTargetTests.swift	AcpmuxPeerUpdateTargetTests.aRunPastItsDeadlineEndsItsChild	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AcpmuxPeerUpdateTargetTests.swift	AcpmuxPeerUpdateTargetTests.anExitWatchWaitsForItsChildUpToItsBound	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AcpmuxPeerUpdateTargetTests.swift	AcpmuxPeerUpdateTargetTests.theLiveSourcesBundledVersionEndsAtItsBound	assert-on-duration	debt the widened gate first saw; remove once determinized
 Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AcpmuxSlowDaemonTests.swift	AcpmuxSlowDaemonTests.aDaemonThatAnswersAfterFiveSecondsIsWaitedFor	assert-on-duration	debt the widened gate first saw; remove once determinized
 Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AgentPaneColdChatRevealTests.swift	AgentPaneColdChatRevealTests.aHandshakedPageKeepsItsLoadingStatePastTheSilentBound	sleep-then-assert	feat-cmux-next debt before the gate ran there
 Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AgentPaneColdChatRevealTests.swift	AgentPaneColdChatRevealTests.aPaneOutOfSightKeepsItsLoadingState	sleep-then-assert	feat-cmux-next debt before the gate ran there
@@ -452,7 +453,7 @@ webviews/test/sandbox-run.test.tsx	a send the host refuses as holding another st
 webviews/test/sandbox-run.test.tsx	a send whose answer is lost while another attempt's receipt holds the tab gets its prompt back	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 3dbd6fe57560); determinize, then remove
 webviews/test/sandbox-run.test.tsx	the tab renders what the host says: a running send, then its receipt	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 3dbd6fe57560); determinize, then remove
 webviews/test/sent-video-tile.test.tsx	a frameless video's tile reads its poster and length from the file, at the size it had	sleep-then-assert	debt from #32697 (landed while this step was red on the base); await the render, not a zero-delay timer
-webviews/test/sent-video-tile.test.tsx	a frameless video's tile reads its poster and length from the file, at the size it had.a click on a sent video's ▶ plays it in place: the reply's player, with controls, on the host's streamed URL	sleep-then-assert	debt from #32697 (landed while this step was red on the base); await the render, not a zero-delay timer
+webviews/test/sent-video-tile.test.tsx	a click on a sent video's ▶ plays it in place: the reply's player, with controls, on the host's streamed URL	sleep-then-assert	debt from #32697 (landed while this step was red on the base); await the render, not a zero-delay timer
 webviews/test/sent-video-tile.test.tsx	acpmux's record of a prompt with a video draws its poster and length, never a file chip, and plays on click	sleep-then-assert	debt from #32697 (landed while this step was red on the base); await the render, not a zero-delay timer
 webviews/test/session-info-changes.test.tsx	the whole lit row is one target: its owner chip opens the pull request, and the link covers the row	sleep-then-assert	fixed sleep before assert; needs a webview-suite run to determinize safely (follow-up); test added in #29921
 webviews/test/session-info-no-flicker.test.tsx	${UPDATES} streamed tokens, tool calls and usage ticks paint nothing in Session Info	sleep-then-assert	debt from #33203 (landed while this step was red on the base); use fake timers instead of a 50 ms wait
