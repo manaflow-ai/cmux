@@ -52,6 +52,8 @@ mod pending;
 #[cfg(test)]
 mod delivery_tests;
 #[cfg(test)]
+mod inbound_close_tests;
+#[cfg(test)]
 mod repo_sync_tests;
 #[cfg(test)]
 mod review_policy_tests;
@@ -60,24 +62,29 @@ impl Hub {
     // ------------------------------------------------------------- inbound
 
     /// The chat's inbound loop, spawned once per start in the hub's scope (`spawn_inbound_loop`):
-    /// it ends when the hub closes, or when the chat closes after what was already queued. Then
-    /// it hands the receiver back, so the start that reopens the chat starts it again; a chat
-    /// reopened before the hand-back keeps this loop.
+    /// it ends when the hub closes, or once the chat is closed and its producers are done: nothing
+    /// queued, and no agent (or its reader) still holds a sender, so a late `Exited` and the last
+    /// updates of an agent a close killed are still handled (#41081 F1). Then it hands the
+    /// receiver back, so the start that reopens the chat starts it again; a chat reopened before
+    /// the hand-back keeps this loop.
     pub(super) async fn inbound_loop(
         self: Arc<Self>,
         session: Arc<Session>,
         mut rx: mpsc::Receiver<Inbound>,
     ) {
         let stop = self.scope.token();
+        // Its current value counts: a loop that first runs after the close sees it (#41081 F2).
         let mut closed = session.closed.subscribe();
-        closed.borrow_and_update();
         loop {
             self.clone().inbound_items(session.clone(), &mut rx, &stop, &mut closed).await;
             if stop.is_cancelled() {
                 return;
             }
             let mut slot = session.inbound_rx.lock().await;
-            if session.status() == SessionStatus::Closed {
+            if session.status() == SessionStatus::Closed
+                && rx.is_empty()
+                && !producers_live(&session.inbound_tx)
+            {
                 *slot = Some(rx);
                 return;
             }
@@ -99,7 +106,7 @@ impl Hub {
         stop: &tokio_util::sync::CancellationToken,
         closed: &mut tokio::sync::watch::Receiver<bool>,
     ) {
-        while let Some(item) = next_inbound(rx, stop, closed).await {
+        while let Some(item) = next_inbound(rx, stop, closed, &session.inbound_tx).await {
             match item {
                 Inbound::Notification {
                     method: m,
@@ -1939,23 +1946,48 @@ mod probe_env_tests {
     }
 }
 
-/// The inbound loop's next item, or None once it should stop: the hub is closing, or the chat
-/// closed with nothing left queued (`Hub::inbound_loop`).
+/// Whether an agent, its reader, or anything else but the chat itself still holds a sender of
+/// the chat's inbound channel (`tx` is the chat's own, `Session::inbound_tx`).
+fn producers_live(tx: &mpsc::Sender<Inbound>) -> bool {
+    tx.strong_count() > 1
+}
+
+/// How often a closed chat whose agent still holds a sender looks again whether it let go: no
+/// event says that the last other sender dropped. Only while a closed chat waits on its agent's
+/// last messages (an exit a kill already caused, normally a few milliseconds).
+const PRODUCERS_RECHECK: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// The inbound loop's next item, or None once it should stop: the hub is closing, or the chat is
+/// closed (its current value counts, not only a change) with nothing queued and no producer
+/// left besides the chat's own sender `own` (#41081 F1 F2).
 async fn next_inbound(
     rx: &mut mpsc::Receiver<Inbound>,
     stop: &tokio_util::sync::CancellationToken,
     closed: &mut tokio::sync::watch::Receiver<bool>,
+    own: &mpsc::Sender<Inbound>,
 ) -> Option<Inbound> {
     loop {
+        let is_closed = *closed.borrow_and_update();
+        if is_closed && rx.is_empty() && !producers_live(own) {
+            return None;
+        }
+        let recheck = async {
+            if is_closed {
+                tokio::time::sleep(PRODUCERS_RECHECK).await;
+            } else {
+                std::future::pending::<()>().await;
+            }
+        };
         tokio::select! {
             biased;
             item = rx.recv() => return item,
             () = stop.cancelled() => return None,
             changed = closed.changed() => {
-                if changed.is_err() || *closed.borrow_and_update() {
+                if changed.is_err() {
                     return None;
                 }
             }
+            () = recheck => {}
         }
     }
 }

@@ -62,11 +62,53 @@ pub struct Scope {
 
 /// The tasks still running, by id: what each is called and how to abort it.
 #[derive(Default)]
-struct Live(Mutex<HashMap<u64, (TaskName, Option<AbortHandle>)>>);
+struct Live(Mutex<LiveTable>);
+
+/// One live table, under one lock: a task's row and its abort handle, and whether the owner's
+/// close is past its wait (`aborting`). A spawn fills in its handle under the same lock, so a
+/// task a close could not abort yet (its handle was not in) is aborted by its own spawn.
+#[derive(Default)]
+struct LiveTable {
+    tasks: HashMap<u64, (TaskName, Option<AbortHandle>)>,
+    aborting: bool,
+}
 
 impl Live {
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<u64, (TaskName, Option<AbortHandle>)>> {
+    fn lock(&self) -> std::sync::MutexGuard<'_, LiveTable> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Fill in task `id`'s abort handle; abort it now when this table's close is past its wait.
+    /// A task that already ended removed its row: nothing to fill in.
+    fn fill_in(&self, id: u64, abort: &AbortHandle) {
+        let mut table = self.lock();
+        let aborting = table.aborting;
+        if let Some((_, slot)) = table.tasks.get_mut(&id) {
+            if aborting {
+                abort.abort();
+            } else {
+                *slot = Some(abort.clone());
+            }
+        }
+    }
+
+    /// The close's end: from now on every task of this table, and every one whose spawn has not
+    /// filled in its handle yet, is aborted. The names of the ones still running, sorted.
+    fn abort_all(&self) -> Vec<String> {
+        let mut table = self.lock();
+        table.aborting = true;
+        let mut names: Vec<String> = table
+            .tasks
+            .values()
+            .map(|(name, abort)| {
+                if let Some(abort) = abort {
+                    abort.abort();
+                }
+                name.to_string()
+            })
+            .collect();
+        names.sort();
+        names
     }
 }
 
@@ -104,7 +146,7 @@ struct Running {
 impl Drop for Running {
     fn drop(&mut self) {
         for table in &self.tables {
-            table.lock().remove(&self.id);
+            table.lock().tasks.remove(&self.id);
         }
     }
 }
@@ -231,7 +273,7 @@ impl Scope {
         let mut tables = vec![self.live.clone()];
         tables.extend(self.ancestors.iter().map(|(_, live)| live.clone()));
         for table in &tables {
-            table.lock().insert(id, (name, None));
+            table.lock().tasks.insert(id, (name, None));
         }
         let running = Running {
             id,
@@ -244,11 +286,9 @@ impl Scope {
             let _running = running;
             future.await
         }));
-        // A task that already ended removed its rows: nothing to fill in.
+        let abort = handle.abort_handle();
         for table in &tables {
-            if let Some((_, abort)) = table.lock().get_mut(&id) {
-                *abort = Some(handle.abort_handle());
-            }
+            table.fill_in(id, &abort);
         }
         handle
     }
@@ -281,25 +321,15 @@ impl Scope {
 
     /// The shutdown: cancel every task (children's too), wait at most
     /// `within` for them all to end, then abort and name the ones that did
-    /// not. A task spawned after this starts already cancelled.
+    /// not. A task spawned while it waits starts already cancelled and is
+    /// waited for too; one spawned after it returns (or whose spawn had not
+    /// registered its abort handle by the deadline) is aborted by its spawn.
     pub async fn close(&self, within: Duration) -> CloseReport {
         self.closed.store(true, Ordering::SeqCst);
         self.cancel.cancel();
         self.tracker.close();
-        if tokio::time::timeout(within, self.tracker.wait()).await.is_ok()
-            && self.live.lock().is_empty()
-        {
-            return CloseReport { owner: self.owner, still_running: Vec::new() };
-        }
-        let mut still_running = Vec::new();
-        for (name, abort) in self.live.lock().values() {
-            still_running.push(name.to_string());
-            if let Some(abort) = abort {
-                abort.abort();
-            }
-        }
-        still_running.sort();
-        CloseReport { owner: self.owner, still_running }
+        let _ = tokio::time::timeout(within, self.tracker.wait()).await;
+        CloseReport { owner: self.owner, still_running: self.live.abort_all() }
     }
 }
 
@@ -333,6 +363,7 @@ impl Drop for Scope {
         let mut running: Vec<String> = self
             .live
             .lock()
+            .tasks
             .iter()
             .filter(|(id, _)| Some(**id) != current)
             .map(|(_, (name, _))| name.to_string())

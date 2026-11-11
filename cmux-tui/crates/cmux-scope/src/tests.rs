@@ -76,12 +76,14 @@ async fn a_child_closes_alone_and_a_parent_close_takes_its_children() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_task_spawned_after_close_starts_cancelled() {
+async fn a_task_spawned_after_close_starts_cancelled_and_is_aborted() {
     let scope = Scope::new("test");
     assert!(scope.close(Duration::from_secs(1)).await.joined());
+    assert!(scope.is_cancelled());
     let stop = scope.cancelled();
     let late = scope.spawn(stop);
-    tokio::time::timeout(Duration::from_secs(1), late).await.unwrap().unwrap();
+    let ended = tokio::time::timeout(Duration::from_secs(1), late).await.unwrap();
+    assert!(ended.is_err_and(|e| e.is_cancelled()));
 }
 
 #[tokio::test(start_paused = true)]
@@ -146,4 +148,47 @@ async fn a_task_that_holds_the_last_handle_of_its_owner_drops_it_quietly() {
     drop(owner);
     // The owner, and its scope, drop as the task that held it ends: no panic (strict here).
     task.await.unwrap();
+}
+
+/// #41081 F3: a spawn whose abort handle was not in its row yet when a close passed its deadline
+/// is aborted by the spawn itself, under the table's lock, not left running unaborted.
+#[tokio::test(start_paused = true)]
+async fn a_task_registered_after_the_deadline_is_aborted_by_its_spawn() {
+    let scope = Scope::new("test");
+    // A spawn caught between its row and its handle: the row is in, the handle is not.
+    let id = NEXT_TASK.fetch_add(1, Ordering::Relaxed);
+    scope.live.lock().tasks.insert(id, (TaskName::Named("registering"), None));
+    let report = scope.close(Duration::from_millis(10)).await;
+    assert_eq!(report.still_running, vec!["registering".to_string()]);
+    // The spawn goes on and fills its handle in: the close is past its wait, so it is aborted.
+    let task = tokio::spawn(std::future::pending::<()>());
+    scope.live.fill_in(id, &task.abort_handle());
+    let ended = task.await.expect_err("aborted");
+    assert!(ended.is_cancelled(), "{ended}");
+}
+
+/// #41081 F3: a task spawned after the close returned is aborted, even one that never looks at
+/// the cancellation.
+#[tokio::test(start_paused = true)]
+async fn a_task_spawned_after_close_is_aborted() {
+    let scope = Scope::new("test");
+    let report = scope.close(Duration::from_secs(1)).await;
+    assert!(report.joined(), "{report}");
+    let late = scope.spawn_named("late", std::future::pending::<()>());
+    let ended = late.await.expect_err("aborted");
+    assert!(ended.is_cancelled(), "{ended}");
+    assert!(scope.live.lock().tasks.is_empty());
+}
+
+/// #41081 F3: a child scope's task spawned after its parent's close is aborted too.
+#[tokio::test(start_paused = true)]
+async fn a_child_task_spawned_after_the_parent_closed_is_aborted() {
+    let parent = Scope::new("parent");
+    let child = parent.child("child");
+    let report = parent.close(Duration::from_secs(1)).await;
+    assert!(report.joined(), "{report}");
+    let late = child.spawn_named("late", std::future::pending::<()>());
+    let ended = late.await.expect_err("aborted");
+    assert!(ended.is_cancelled(), "{ended}");
+    drop(child);
 }
