@@ -2157,6 +2157,12 @@
       "title" : "Fill Codes from Verification Emails",
       "type" : "boolean"
     },
+    "browser.vimKeys" : {
+      "default" : true,
+      "description" : "Outside a text field, f clicks a link by its label, Shift-F opens one in a new split, j and k scroll, gg and Shift-G go to the top and bottom.",
+      "title" : "Vim Keys in Pages",
+      "type" : "boolean"
+    },
     "browser.wakeTabsOnHover" : {
       "default" : false,
       "description" : "When the pointer rests on a tab or a workspace, its sleeping pages start to load before you click. Uses more memory.",
@@ -5704,7 +5710,7 @@
       "type" : "string"
     },
     "workspaceColors.indicatorStyle" : {
-      "default" : "dot",
+      "default" : "leftRail",
       "description" : "How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color.",
       "enum" : [
         "dot",

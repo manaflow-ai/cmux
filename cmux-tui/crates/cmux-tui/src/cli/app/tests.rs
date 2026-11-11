@@ -17,6 +17,7 @@ fn call(command: AppCommand) -> (&'static str, Value) {
         | AppCommand::Screenshot { .. }
         | AppCommand::Right { .. }
         | AppCommand::Renderers { .. }
+        | AppCommand::ChatPerf { .. }
         | AppCommand::Settings(_)
         | AppCommand::Nightly(_)
         | AppCommand::Live(_)
@@ -1205,6 +1206,7 @@ fn only_a_confirmed_settings_write_waits_without_a_deadline() {
         | AppCommand::Screenshot { .. }
         | AppCommand::Right { .. }
         | AppCommand::Renderers { .. }
+        | AppCommand::ChatPerf { .. }
         | AppCommand::Settings(_)
         | AppCommand::Nightly(_)
         | AppCommand::Live(_)
