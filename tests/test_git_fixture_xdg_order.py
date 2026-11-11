@@ -4,7 +4,8 @@
 Plain git reads $XDG_CONFIG_HOME/git/config (~/.config/git/config when XDG_CONFIG_HOME is unset) and then
 ~/.gitconfig, so a key in ~/.gitconfig wins. At 59e37b4c tests/git_fixture_env.py and
 scripts/cmux-next/tests/lib/git-fixture.sh included ~/.gitconfig first and ~/.config/git/config after it, and
-ignored XDG_CONFIG_HOME: loading either helper changed user.name. Each case here builds a HOME, asks plain git
+ignored XDG_CONFIG_HOME: loading either helper changed user.name. At d4422bca (cmux#40939) a relative HOME or
+XDG_CONFIG_HOME was written as a relative include path, which git resolves against the fixture file's folder. Each case here builds a HOME, asks plain git
 (no GIT_CONFIG_GLOBAL) for a key, and checks that git under each helper answers the same: the Python module as
 loaded, fixture_env() for an env with another HOME, and the shell helper.
 
@@ -120,6 +121,22 @@ class GlobalConfigOrder(unittest.TestCase):
         self.write(self.home / "more.gitconfig", "[user]\n\tname = from-include\n")
         self.write(self.home / ".gitconfig", "[include]\n\tpath = ~/more.gitconfig\n")
         self.assertAllMatchPlainGit("user.name", self.env, "0 from-include")
+
+    def test_a_relative_home_counts_from_the_callers_cwd(self):
+        """git reads a relative HOME against its cwd; the fixture file's includes must name the same files
+        (an [include] path resolves against the fixture file's own folder)."""
+        self.write(self.home / ".config/git/config", "[user]\n\tname = from-xdg\n\temail = xdg@example.invalid\n")
+        self.write(self.home / ".gitconfig", "[user]\n\tname = from-gitconfig\n")
+        env = dict(self.env, HOME=os.path.relpath(self.home, self.cwd))
+        self.assertFalse(os.path.isabs(env["HOME"]))
+        self.assertAllMatchPlainGit("user.name", env, "0 from-gitconfig")
+        self.assertAllMatchPlainGit("user.email", env, "0 xdg@example.invalid")
+
+    def test_a_relative_xdg_config_home_counts_from_the_callers_cwd(self):
+        self.write(self.tmp / "xdg/git/config", "[user]\n\tname = from-relative-xdg\n")
+        env = dict(self.env, XDG_CONFIG_HOME=os.path.relpath(self.tmp / "xdg", self.cwd))
+        self.assertFalse(os.path.isabs(env["XDG_CONFIG_HOME"]))
+        self.assertAllMatchPlainGit("user.name", env, "0 from-relative-xdg")
 
     def test_the_shell_helper_prints_the_python_text(self):
         """One rule: the shell helper's GIT_CONFIG_GLOBAL holds what git_fixture_env.py --global-config-text prints."""
