@@ -744,6 +744,10 @@ fn session_snapshot_with_journal_head(
             .collect::<Result<Vec<_>, ResourceError>>()?;
         let _terminal_defaults = public_projections.terminal_defaults;
 
+        // The rows built for this request move in; `json!` would copy each of
+        // them (a deep copy of every terminal, notification and agent value).
+        // The committed parts are copied: the cached snapshot keeps them. A
+        // map's keys serialize sorted, so the reply bytes do not change.
         let mut snapshot = json!({
             "machine": machine_snapshot(&context, false),
             "session": session_snapshot(&context),
@@ -751,18 +755,22 @@ fn session_snapshot_with_journal_head(
             "screens": committed.screens,
             "panes": committed.panes,
             "tabs": committed.tabs,
-            "terminals": terminals,
-            "browsers": browsers,
             "clients": [],
-            "notifications": notifications,
-            "agents": agents,
-            "frontend_projections": frontend_projections,
-            "sidebar_views": sidebar_views,
             "cursor": {
                 "generation": topology.generation,
                 "revision": topology.revision.to_string(),
             },
         });
+        for (name, rows) in [
+            ("terminals", terminals),
+            ("browsers", browsers),
+            ("notifications", notifications),
+            ("agents", agents),
+            ("frontend_projections", frontend_projections),
+            ("sidebar_views", sidebar_views),
+        ] {
+            snapshot.set(name, Value::Array(rows));
+        }
         snapshot.set("extra", json!({"state": committed.state}));
         Ok((snapshot, journal_head))
     })()
