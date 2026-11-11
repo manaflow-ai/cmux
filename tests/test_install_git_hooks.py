@@ -262,7 +262,7 @@ class InstallGitHooksTests(unittest.TestCase):
         """Only the tools the hook needs on PATH, plus a recording rustfmt."""
         bin_dir = self.root / ("bin-rustfmt" if with_rustfmt else "bin-plain")
         bin_dir.mkdir(exist_ok=True)
-        for tool in ("git", "bash", "sh", "sed", "awk", "grep", "cut", "sort", "head", "cat", "env", "dirname", "basename", "mktemp", "rm", "mv", "mkdir", "rmdir", "find"):
+        for tool in ("git", "bash", "sh", "sed", "awk", "grep", "cut", "sort", "head", "cat", "env", "dirname", "basename", "mktemp", "rm", "mv", "mkdir", "rmdir", "find", "tail"):
             found = shutil.which(tool)
             if found and not (bin_dir / tool).exists():
                 (bin_dir / tool).symlink_to(found)
@@ -517,6 +517,93 @@ cat > node_modules/.bin/vp <<'VP'
         self.assertNotIn("another agent is installing", result.stderr)
         self.assertEqual(self.git("show", ":webviews/src/app.ts").stdout, "formatted\n", result.stderr)
         self.assertFalse(lock.exists(), "the hook releases the lock it took over")
+
+    # A bun that breaks the way bun 1.4 does when BUN_OPTIONS holds `--preload PATH`:
+    # bun prepends the options, and every subcommand but `bun run` then reads as a
+    # script name. `--version` still answers. `install` records its argv[0] and
+    # writes the recording vp.
+    def fake_bun(self, path, version, install_body=None):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        install_body = install_body or f"""printf '%s\\n' "$0" >> {shlex.quote(str(self.root / "bun.log"))}
+cat > node_modules/.bin/vp <<'VP'
+{self.FAKE_VP}VP
+{shutil.which("chmod")} +x node_modules/.bin/vp"""
+        path.write_text(f"""#!/bin/sh
+[ "$1" = --version ] && {{ echo {version}; exit 0; }}
+if [ -n "$BUN_OPTIONS" ]; then echo "error: Script not found \\"$1\\"" >&2; exit 1; fi
+[ "$1" = install ] || exit 0
+mkdir -p node_modules/.bin
+{install_body}
+""")
+        path.chmod(0o755)
+        return path
+
+    def bootstrap_env(self, **extra):
+        """An agent commit (a missing vp is fatal) whose webviews has a bun.lock and no vp."""
+        self.stage_web_file("webviews")
+        web = self.repo / "webviews"
+        (web / "node_modules/.bin/vp").unlink()
+        (web / "bun.lock").write_text("{}\n")
+        (web / "package.json").write_text(
+            '{\n  "devEngines": {\n    "packageManager": {\n      "name": "bun",\n'
+            '      "version": "1.4.4",\n      "onFail": "error"\n    }\n  }\n}\n')
+        env = self.formatter_env(with_rustfmt=False, FAKE_VP_LOG=str(self.root / "vp.log"), CMUX_AGENT="1",
+                                 MISE_DATA_DIR=str(self.root / "mise"), ASDF_DATA_DIR=str(self.root / "asdf"),
+                                 BUN_INSTALL=str(self.root / "bun-home"), **extra)
+        env.pop("XDG_DATA_HOME", None)
+        return env
+
+    def test_pre_commit_installs_vp_when_bun_options_carry_a_preload(self):
+        """BUN_OPTIONS=--preload PATH (a shell profile's preload) made `bun install` fail with
+        'Script not found "install"', so every agent commit to webviews stopped at "vp is unavailable"."""
+        self.assertEqual(self.install().returncode, 0)
+        env = self.bootstrap_env(BUN_OPTIONS="--preload /nowhere/preload.js")
+        bun = self.fake_bun(Path(env["PATH"]) / "bun", "1.4.4")
+        try:
+            result = self.run_pre_commit(env)
+        finally:
+            bun.unlink()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.git("show", ":webviews/src/app.ts").stdout, "formatted\n", result.stderr)
+        self.assertEqual((self.root / "bun.log").read_text().splitlines(), [str(bun)],
+                         "the install runs the bun it resolved, by absolute path")
+
+    def test_pre_commit_installs_with_the_bun_webviews_pins(self):
+        self.assertEqual(self.install().returncode, 0)
+        env = self.bootstrap_env()
+        path_bun = self.fake_bun(Path(env["PATH"]) / "bun", "1.3.0")
+        pinned = self.fake_bun(self.root / "mise/installs/bun/1.4.4/bin/bun", "1.4.4")
+        try:
+            result = self.run_pre_commit(env)
+        finally:
+            path_bun.unlink()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.root / "bun.log").read_text().splitlines(), [str(pinned)], result.stderr)
+
+    def test_a_failed_bootstrap_prints_its_command_tool_version_and_output(self):
+        self.assertEqual(self.install().returncode, 0)
+        env = self.bootstrap_env(BUN_OPTIONS="--preload /nowhere/preload.js", NODE_OPTIONS="--max-old-space-size=512")
+        bun = self.fake_bun(Path(env["PATH"]) / "bun", "1.4.4", install_body=(
+            "echo 'bun install v1.4.4'\n"
+            "echo 'error: lockfile had changes, but lockfile is frozen' >&2\n"
+            "exit 1"))
+        try:
+            result = self.run_pre_commit(env)
+        finally:
+            bun.unlink()
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertIn("vp is unavailable for webviews", result.stderr)
+        for line in (
+            f"command: env -u BUN_OPTIONS {bun} install --frozen-lockfile --ignore-scripts",
+            f"argv[0]: {bun}",
+            f"{bun} --version: 1.4.4",
+            "BUN_OPTIONS: set",
+            "NODE_OPTIONS: set",
+            "bun install v1.4.4",
+            "error: lockfile had changes, but lockfile is frozen",
+        ):
+            self.assertIn(line, result.stderr)
+        self.assertNotIn("/nowhere/preload.js", result.stderr, "only whether BUN_OPTIONS is set, not its value")
 
     def test_skip_variable_commits_without_formatting(self):
         self.assertEqual(self.install().returncode, 0)
