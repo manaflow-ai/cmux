@@ -5,8 +5,8 @@ name: language boundaries
 # core should be rust (together with cmux-tui/acpmux) and should have very minimal in swift." A pull request into
 # feat-cmux-next or main that deletes or moves an area's files out of its language, adds a foreign language there,
 # or adds Swift to a Swift-minimal area fails the `language-boundaries` check unless Leo approved the port (the
-# `leo-approved-port` label added by teamleaderleo plus his `leo-approved-port:` comment; the script's docstring has
-# the limit). Adding or removing a label re-runs it.
+# `leo-approved-port` label added by teamleaderleo plus his `leo-approved-port:` PR comment, not a review; the
+# script's docstring has the limit). Adding or removing a label re-runs it.
 #
 # scripts/ci/language_boundaries.py decides, run from the base commit with the base's manifest, never the pull
 # request's code; the head is read only as a list of changed files. It runs on pull_request_target, so this file is
@@ -62,10 +62,13 @@ jobs:
             echo "::notice::The base has no language-boundaries check yet; nothing to check."
             exit 0
           fi
-          files="$RUNNER_TEMP/files.tsv"
-          # One record per changed file: status, path, and a rename's old path.
+          files="$RUNNER_TEMP/files.jsonl"
+          format=json
+          # One JSON object per changed file: status, path, and a rename's old path, every character kept (a TSV
+          # or git's default output quotes or escapes a path with a quote, tab or newline, and it then matches no
+          # area).
           if ! gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" \
-            --jq '.[] | [.status, .filename, (.previous_filename // "")] | @tsv' > "$files"; then
+            --jq '.[] | {status, path: .filename, old: (.previous_filename // "")} | tojson' > "$files"; then
             # The REST listing shares the installation's rate limit. Read the same files from the PR's merge
             # commit (classic-frozen-guard.yml's fallback): its first parent is the base.
             echo "::warning::The REST file listing failed; reading the changed files from refs/pull/$PR/merge."
@@ -76,7 +79,10 @@ jobs:
                  origin "+refs/pull/$PR/merge:refs/guard/merge" \
                && [ "$(git rev-parse refs/guard/merge^1)" = "$BASE_SHA" ] \
                && [ "$(git rev-parse refs/guard/merge^2)" = "$HEAD_SHA" ] \
-               && git -c core.quotePath=false diff --name-status -M refs/guard/merge^1 refs/guard/merge > "$files"; then
+               && git diff -z --name-status -M refs/guard/merge^1 refs/guard/merge > "$RUNNER_TEMP/files.z"; then
+              # -z: NUL-separated, every path byte for byte, nothing quoted.
+              files="$RUNNER_TEMP/files.z"
+              format=git-z
               # No GitHub listing cap applies to git, and a base that already has some of the changes lists fewer.
               CHANGED_FILES=""
             else
@@ -84,19 +90,21 @@ jobs:
               exit 1
             fi
           fi
-          set -- --files "$files" --labels-json "$LABELS_JSON"
+          set -- --files "$files" --format "$format" --labels-json "$LABELS_JSON"
           if [ -n "$CHANGED_FILES" ]; then set -- "$@" --expected-files "$CHANGED_FILES"; fi
           if printf '%s' "$LABELS_JSON" | grep -q '"leo-approved-port"'; then
-            # Only with the label on: who added it, and Leo's approval line (comments and reviews), one compact
-            # JSON object per line (`tojson`, so a body's newlines stay escaped).
+            # Only with the label on: who added it, and Leo's approval line, one compact JSON object per line
+            # (`tojson`, so a body's newlines stay escaped). Each carries its author's type (User, Bot) and the
+            # GitHub App it went through. GitHub reports no app for a review (REST or GraphQL), so a review is
+            # marked `source: "review"` and never approves: an app acting for Leo would look like him.
             gh api --paginate "repos/$REPOSITORY/issues/$PR/events?per_page=100" \
-              --jq '.[] | {event, label: (.label.name // null), actor: (.actor.login // null), app: (.performed_via_github_app.slug // null)} | tojson' \
+              --jq '.[] | {event, label: (.label.name // null), actor: (.actor.login // null), type: (.actor.type // null), app: (.performed_via_github_app.slug // null)} | tojson' \
               > "$RUNNER_TEMP/events.jsonl" || { echo "::error::Could not read the label's events; re-run this check."; exit 3; }
             gh api --paginate "repos/$REPOSITORY/issues/$PR/comments?per_page=100" \
-              --jq '.[] | {user: (.user.login // null), body, app: (.performed_via_github_app.slug // null)} | tojson' \
+              --jq '.[] | {user: (.user.login // null), type: (.user.type // null), body, app: (.performed_via_github_app.slug // null), source: "comment"} | tojson' \
               > "$RUNNER_TEMP/notes.jsonl" || { echo "::error::Could not read the comments; re-run this check."; exit 3; }
             gh api --paginate "repos/$REPOSITORY/pulls/$PR/reviews?per_page=100" \
-              --jq '.[] | {user: (.user.login // null), body, app: null} | tojson' >> "$RUNNER_TEMP/notes.jsonl" \
+              --jq '.[] | {user: (.user.login // null), type: (.user.type // null), body, app: (.performed_via_github_app.slug // null), source: "review"} | tojson' >> "$RUNNER_TEMP/notes.jsonl" \
               || { echo "::error::Could not read the reviews; re-run this check."; exit 3; }
             set -- "$@" --events "$RUNNER_TEMP/events.jsonl" --notes "$RUNNER_TEMP/notes.jsonl"
           fi

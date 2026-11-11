@@ -358,7 +358,13 @@ pub(super) fn table(listed: &Value) -> String {
     }
     lines.insert(0, ["NAME", "ID", "STATUS", "CREATED"].map(str::to_owned));
     let widths: Vec<usize> = (0..4)
-        .map(|column| lines.iter().map(|line| line[column].chars().count()).max().unwrap_or(0))
+        .map(|column| {
+            lines
+                .iter()
+                .map(|line| line.get(column).map_or(0, |cell| cell.chars().count()))
+                .max()
+                .unwrap_or(0)
+        })
         .collect();
     let mut out = String::new();
     for line in &lines {

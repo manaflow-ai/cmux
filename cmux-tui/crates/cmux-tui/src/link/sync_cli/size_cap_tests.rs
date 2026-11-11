@@ -130,6 +130,62 @@ fn a_git_folder_counts_its_history_and_names_it() {
     assert_eq!(with_limits(1, 1, || super::check_plain(&top)), Ok(()));
 }
 
+/// In git the listing streams through the cap: `git ls-files` is stopped at the first file past the
+/// limit, so a working copy of millions of files is never listed whole before it is refused.
+#[test]
+fn a_git_folder_listing_stops_at_the_first_file_past_the_limit() {
+    let root = tempfile::tempdir().unwrap();
+    let top = std::fs::canonicalize(root.path()).unwrap();
+    let git = |args: &[&str]| {
+        let status = cmux_process::Command::new("git")
+            .arg("-C")
+            .arg(&top)
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"])
+            .args(args)
+            .status()
+            .unwrap();
+        assert!(status.success(), "git {args:?}");
+    };
+    git(&["init", "-q"]);
+    for index in 0..300 {
+        write(&top, &format!("tracked/d{}/f{index}.txt", index % 7), 1);
+    }
+    git(&["add", "tracked"]);
+    git(&["commit", "-qm", "tracked"]);
+    for index in 0..300 {
+        write(&top, &format!("untracked/f{index}.txt"), 1);
+    }
+
+    // The listing itself: the first error from a visit ends it, with that error, and nothing
+    // more is visited.
+    let mut visited = 0;
+    let mut skipped = 0;
+    let stopped = super::super::local::working_files(&top, &mut skipped, &mut |_, _| {
+        visited += 1;
+        if visited > 100 {
+            anyhow::bail!("stop at {visited}");
+        }
+        Ok(())
+    });
+    assert_eq!(stopped.unwrap_err().to_string(), "stop at 101");
+    assert_eq!(visited, 101, "nothing is listed past the first file over the limit");
+
+    // Every file, tracked and untracked, is visited once when nothing stops it.
+    let mut all = Vec::new();
+    super::super::local::working_files(&top, &mut skipped, &mut |path, untracked| {
+        all.push((path, untracked));
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(all.len(), 600);
+    assert_eq!(all.iter().filter(|(_, untracked)| *untracked).count(), 300);
+
+    // A copy past the file limit is refused there, counted from the listing, before .git/.
+    let large = with_limits(u64::MAX, 150, || refused(&top));
+    assert_eq!(large.files, 151, "counting stops at the first file past the limit");
+    assert_eq!(large.git_bytes, 0, "refused while listing the working files, before .git/");
+}
+
 /// `--allow-large` records the folder for a day; a copy of it then counts nothing.
 #[test]
 fn allow_large_lets_one_folder_through() {
@@ -161,8 +217,13 @@ fn sizes_and_counts_read_plainly() {
     assert_eq!(size(128 * 1024 * 1024), "128 MB");
     assert_eq!(count(500_001), "500,001");
     assert_eq!(count(999), "999");
+    let words = |list: &[&str]| list.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
+    let take = |list: &[&str]| super::take_allow_large(&words(list), &["--socket"]);
+    assert_eq!(take(&["a", "--allow-large"]), (words(&["a"]), true));
+    // A flag's value and anything after `--` are never the flag.
     assert_eq!(
-        super::take_allow_large(&["a".into(), "--allow-large".into()]),
-        (vec!["a".into()], true)
+        take(&["--socket", "--allow-large", "a"]),
+        (words(&["--socket", "--allow-large", "a"]), false)
     );
+    assert_eq!(take(&["--", "--allow-large"]), (words(&["--", "--allow-large"]), false));
 }
