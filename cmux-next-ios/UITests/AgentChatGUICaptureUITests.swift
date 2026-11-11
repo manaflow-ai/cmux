@@ -92,6 +92,15 @@ final class AgentChatGUICaptureUITests: XCTestCase {
                     XCTAssertFalse(text.contains(mark), "Select Text shows raw Markdown \"\(mark)\" (\(look))")
                 }
             }
+            scene("composer-dismissed", look, Self.history) { app in
+                // Expanded (96 pt) with the keyboard, then the keyboard goes down with no draft:
+                // the composer collapses to its capsule, and the transcript's dock must follow it.
+                self.openComposer(app)
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35)).tap()
+                let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.keyboards.firstMatch)
+                XCTAssertEqual(XCTWaiter().wait(for: [gone], timeout: 5), .completed, "the keyboard went down (\(look))")
+                self.pause(2)
+            }
             scene("long-draft", look, Self.history) { app in
                 self.openComposer(app)
                 app.typeText("Check the transport layer, then the relay, then the dialer. Summarize what changed in each, list the tests that cover it, and say which of them you ran.")
