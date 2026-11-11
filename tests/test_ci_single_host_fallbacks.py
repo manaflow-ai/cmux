@@ -376,6 +376,31 @@ class PrepushGateLayer(unittest.TestCase):
         reaches = self.gate.APT_DIST_PACKAGES in self.gate.interpreter_sys_path(sys.executable)
         self.assertEqual(command == "sudo apt-get install -y python3-yaml", reaches, command)
 
+    def test_a_venv_is_not_externally_managed_even_where_its_base_is(self) -> None:
+        # Codex on #40966 (F1): a Debian venv reads its base's stdlib, so it sees the base's EXTERNALLY-MANAGED marker,
+        # yet pip installs into the venv. Externally managed is one rule, asked of the probed interpreter with -I: it
+        # is not a venv (sys.prefix == sys.base_prefix) and the marker is present.
+        base = getattr(sys, "_base_executable", sys.executable)
+        asked = subprocess.run([base, "-I", "-c", "import sys; print(sys.prefix == sys.base_prefix)"],
+                               capture_output=True, text=True, check=True).stdout.strip()
+        self.assertEqual(asked, "True", f"{base} is itself a venv, so it cannot stand for a base interpreter")
+        with tempfile.TemporaryDirectory() as tmp:
+            site, stdlib, env = Path(tmp) / "site", Path(tmp) / "lib", Path(tmp) / "venv"
+            site.mkdir(); stdlib.mkdir()
+            (stdlib / "EXTERNALLY-MANAGED").write_text("", encoding="utf-8")
+            subprocess.run([base, "-I", "-m", "venv", "--without-pip", str(env)], check=True, capture_output=True)
+            venv_python = str(env / "bin" / "python3")
+            self.assertTrue(self.gate.externally_managed(base, str(stdlib)))
+            self.assertFalse(self.gate.externally_managed(venv_python, str(stdlib)))
+            # The venv interpreter, marker present: pip into the venv.
+            self.assertEqual(self.gate.pyyaml_install_command(venv_python, str(site), str(stdlib), apt=False,
+                                                              syspath=[str(site)]),
+                             f"{venv_python} -I -m pip install PyYAML==6.0.3")
+            # The base interpreter, marker present, no apt route: the refusal that says what to do.
+            refused = self.gate.pyyaml_install_command(base, str(site), str(stdlib), apt=False, syspath=[str(site)])
+            self.assertIn("externally managed", refused)
+            self.assertNotIn("--break-system-packages", refused)
+
     def test_a_missing_install_only_warns(self) -> None:
         self.workflow("b.yml", "${{ vars.NEW_X }}")
         self.commit("head")
