@@ -29,6 +29,10 @@ PAGES = 20
 MAX_ROWS = 2000
 # Printed values are scrubbed as well as allowlisted: a free-text msg, error or path may hold one (run logs are public).
 SCRUB = [(re.compile(r"\?\S*"), "?<query>"),
+         (re.compile(r"(?i)\b(bearer|basic)\s+\S+"), r"\1 <redacted>"),
+         (re.compile(r"(?i)\b([a-z_-]*(?:token|secret|key|password|passwd|code|nonce|signature|auth|cookie|session)[a-z_-]*)\s*[=:]\s*[^\s,;&}]+"), r"\1=<redacted>"),
+         # A path segment that is itself a secret (an invite code: /v1/invites/card/<code>).
+         (re.compile(r"(/invites/card/)[^/\s]+"), r"\1<code>"),
          (re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"), "<email>"),
          (re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b|\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{0,4}){4,7}\b"), "<ip>"),
          (re.compile(r"[A-Za-z0-9+=-]{32,}"), "<long>")]
