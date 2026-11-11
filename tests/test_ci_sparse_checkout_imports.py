@@ -1381,28 +1381,34 @@ _SUBSHELL_COMMAND = _Tok("word", "( ... )", "( ... )", True, 0, 0)
 
 
 # Words that run the command after them as that builtin, in this shell: `builtin shopt -s lastpipe`
-# and `command cd x` are shopt and cd (review of #41199). `command -v`/`-V` only looks the name up.
-_WRAPPERS = {"builtin": (), "command": ("-p",)}
+# and `command cd x` are shopt and cd (review of #41199). Each maps to the option letters it runs a
+# command with and the ones that make it only look the name up (`command -v cd`, `command -pV cd`).
+# Short options combine (`command -pp cd` runs cd); any other option is one this check does not read.
+_WRAPPERS = {"builtin": ("", ""), "command": ("p", "vV")}
+_UNREAD_WRAPPER = _Tok("word", "<wrapper option>", "<wrapper option>", True, 0, 0)
 
 
 def _command_name(command: list[_Tok]) -> tuple[_Tok | None, list[str]]:
     """A simple command's name (after its VAR=value words and any _WRAPPERS in front of it) and its
-    arguments' text. A wrapper with nothing after it, or with an option this check does not read
-    (`command -v cd`, a lookup), is itself the name."""
+    arguments' text. A wrapper with nothing after it, or that only looks the name up (`command -v
+    cd`), is itself the name; one with an option this check does not read is _UNREAD_WRAPPER, a name
+    _Shell._allowed gives up on (rule 5: flag it, never guess)."""
     at = 0
     while at < len(command) and not command[at].quoted and _SHELL_ASSIGNMENT.match(command[at].raw):
         at += 1
     while at < len(command) and command[at].text in _WRAPPERS:
-        after = at + 1
+        runs, looks = _WRAPPERS[command[at].text]
+        after, lookup = at + 1, False
         while after < len(command) and command[after].text.startswith("-") and command[after].text != "-":
-            if command[after].text == "--":
-                after += 1
-                break
-            if command[after].text not in _WRAPPERS[command[at].text]:
-                after = len(command) + 1  # an option it does not run a command with
-                break
+            option = command[after].text
             after += 1
-        if after >= len(command):
+            if option == "--":
+                break
+            letters = option[1:]
+            if command[after - 1].quoted or not letters.isalpha() or set(letters) - set(runs + looks):
+                return _UNREAD_WRAPPER, []
+            lookup = lookup or bool(set(letters) & set(looks))
+        if lookup or after >= len(command):
             break
         at = after
     if at == len(command):
@@ -1527,7 +1533,7 @@ class _Shell:
         name, words = _command_name(command)
         if name is None:
             return True
-        if "$" in name.raw or "`" in name.raw or name.text in _GIVES_UP:
+        if name is _UNREAD_WRAPPER or "$" in name.raw or "`" in name.raw or name.text in _GIVES_UP:
             return False  # a computed name may be cd
         # A wrapper left as the name ran nothing (`command -v cd` looks it up): _command_name unwraps
         # every one that runs a command.
@@ -1770,12 +1776,12 @@ class _Shell:
                     if tok.kind != "word":
                         return True  # not a header this check reads: unknown
                     header = "after"
-                elif header == "after":
+                elif header == "after":  # newlines may come before `in` or `do` (`for b` NL `in x; do`)
                     if plain and tok.text == "in":
                         header = "list"
                     elif plain and tok.text == "do":
                         header, depth = None, depth + 1
-                    elif tok.kind == "op" and tok.text in (";", "\n"):
+                    elif tok.kind == "op" and tok.text == ";":
                         header = None
                     else:
                         return True
@@ -1799,8 +1805,8 @@ class _Shell:
                 previous = tok
             if header == "name":
                 return True
-            if header in ("after", "list"):
-                header = None  # the line's end ends the header, as ; does
+            if header == "list":
+                header = None  # the line's end ends the list, as ; does; before `in` it ends nothing
         return True
 
     def _word(self, tok: _Tok) -> bool:
@@ -2347,6 +2353,12 @@ _SHELL_SHAPES: tuple[tuple[str, bool, str, str | None], ...] = (
     ("command -p -- shopt -s lastpipe\ntrue | cd scripts\npython3 x", True, "x", None),
     ("command -p cd scripts/ci\npython3 x", True, "x", _CI),
     ("command -v cd\ncd scripts/ci\npython3 x", True, "x", _CI),
+    # Review of #41334: short options combine (`-pp` runs cd), an option this check does not read is
+    # unknown, and a for header may break across lines before `in` (a nested loop's list `do done`).
+    ("command -pp cd scripts\npython3 x", True, "x", "scripts"),
+    ("command -x cd scripts\npython3 x", True, "x", None),
+    ("command -pv cd\ncd scripts/ci\npython3 x", True, "x", _CI),
+    ("for a in a b; do for b\nin do done; do true; done; python3 x; cd scripts; done", True, "x", None),
     ("for v in a b; do true; done\ncd scripts/ci\npython3 x", True, "x", _CI),
     ("command -v python3\ncd scripts/ci\npython3 x", True, "x", _CI),
     ("python3 - <<'EOF'\nprint(1)\nEOF", True, "-", ""),
@@ -2585,7 +2597,12 @@ def run_bash_oracle(cases, timeouts: list[str] | None = None) -> tuple[Counter, 
 # and without -e. Every command but python is a builtin, so bash takes one path per python status.
 # Seeds are fixed, so a disagreement reproduces from its seed.
 
-GENERATED_SHELL_SEEDS = int(os.environ.get("SPARSE_SHELL_SEEDS", "20000"))
+# CI runs a fixed seed count (no wall-clock bound), sized with headroom: 10000 seeds take about half
+# the ~15 s budget (review of #41334). Before a change to the checker or the grammar, run the deep
+# check by hand:
+#   SPARSE_SHELL_SEEDS=100000 python3 tests/test_ci_sparse_checkout_imports.py SparseCheckoutOracleTests
+# and pin any seed it finds (_GENERATED_SHELL_FINDS, or a _SHELL_SHAPES fixture).
+GENERATED_SHELL_SEEDS = int(os.environ.get("SPARSE_SHELL_SEEDS", "10000"))
 _GEN_FOLDERS = (*_SHELL_FOLDERS, "has space")
 _GEN_TARGETS = (
     "scripts/ci", "scripts", "ci", "lib", "missing", "..", "scripts/a",
@@ -2613,7 +2630,12 @@ _GEN_SHELLS = ("", "", "bash", "bash -e {0}", "bash {0}", "bash --noprofile --no
 # Review of #41199: reserved words as plain words (a for list, an argument, echo text), and each
 # wrapper in _WRAPPERS in front of shopt, set and cd.
 _GEN_RESERVED = ("do", "done", "then", "fi", "for", "in", "if", "while", "else", "{", "}", "!")
-_GEN_WRAPPED = (*(f"{w} " for w in _WRAPPERS), "command -p ", "command -- ", "builtin command ", "command -v ")
+_GEN_WRAPPED = (
+    *(f"{w} " for w in _WRAPPERS), "command -p ", "command -- ", "builtin command ", "command -v ",
+    # Combined and unknown options (review of #41334): -pp runs the command, -pv looks it up, and
+    # -x, builtin -p are options bash refuses.
+    "command -pp ", "command -p -p ", "command -pv ", "command -x ", "builtin -p ", "builtin -- ",
+)
 
 
 def _generated_shell(seed: int, wide: bool = True) -> tuple[str, bool, str]:
@@ -2655,7 +2677,7 @@ def _generated_shell(seed: int, wide: bool = True) -> tuple[str, bool, str]:
         if depth < 2 and r < 0.35:
             n = next(counters)
             head = f"for v{n}; do " if rng.random() < 0.15 else f"for v{n} in {' '.join('abc'[: rng.randint(0, 3)])}; do "
-            if wide and head.endswith("; do ") and " in " in head and rng.random() < 0.5:
+            if wide and head.endswith("; do ") and " in " in head and rng.random() < (0.8 if in_loop else 0.5):
                 # Often a reserved word that can lead a command, then `done` (`for v in do done`), the
                 # shape a reader that takes list words as delimiters gets wrong.
                 words = [rng.choice(("a", "b", *_GEN_RESERVED)) for _ in range(rng.randint(0, 2))]
@@ -2663,6 +2685,11 @@ def _generated_shell(seed: int, wide: bool = True) -> tuple[str, bool, str]:
                     words.insert(rng.randint(0, len(words)), rng.choice(("do", "then", "else", "{", "!")) + " done")
                 listed = " ".join(words) or "done"
                 head = f"for v{n} in {listed}; do "
+            if wide and " in " in head and rng.random() < (0.8 if in_loop else 0.15):
+                # A header broken across lines (review of #41334): newlines may come before `in` and `do`.
+                head = head.replace(" in ", "\nin ", 1)
+                if rng.random() < 0.5:
+                    head = head.replace("; do ", "\ndo ", 1)
             return head + and_or_list(inner, 3, True) + sep() + "done" + redirect
         if depth < 2 and r < 0.41:
             n = next(counters)
@@ -4131,7 +4158,7 @@ class SparseCheckoutOracleTests(unittest.TestCase):
         self.assertGreater(counts["agree"], 0, dict(counts))
 
     def test_generated_shell_programs_agree_with_bash(self) -> None:
-        # GENERATED_SHELL_SEEDS random programs of the grammar above (20000 by default), each through
+        # GENERATED_SHELL_SEEDS random programs of the grammar above (10000 by default), each through
         # bash: wherever this check gives a known directory for the python call, bash ran it there.
         import time
 
