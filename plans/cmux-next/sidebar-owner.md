@@ -895,6 +895,14 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 3. Failing test first, then the fix. Real-app captures from the Mac-mini fleet, before and after.
 4. Land on `feat-cmux-next` (rebase, plain push). Add the commit to the log at the end of this note.
 
+## 2 pt between list rows (2026-11-11)
+
+Lucas 2026-11-11: "1px spacing between workspace items is what i meant", then "lets change this to 2px". At
+Default the list rows are 2 pt apart (`SidebarDensityTokens.rowSpacing`, `space1` as at every other density), so a lit row's fill no longer touches the next one; the row stays Codex's 30 pt
+with its 10 pt corner and fills. This takes back one part of #39984 (Austin, 2026-11-10: Codex's rows touch, 0 pt).
+A smaller "Workspaces" heading and a hairline over it were tried the same day and taken back (Lucas: "we'll just go
+back to how it was"). Tests: `SidebarCodexMatchTests`.
+
 ## An agent driving the screen or a browser shows on its row (2026-11-08)
 
 Lawrence 2026-11-07: "i think the computer use/browser use indiciator in workspaces needs to be better".
