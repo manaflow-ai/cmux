@@ -38,15 +38,16 @@ BUNDLE = "com.example.fresh-smoke-stub"
 
 # The stub app: MODE (crash | healthy | no-home | new-tab | first-run | first-run-unmarked | sync-crash | no-sync |
 # seeded-no-home | empty-sync | own-report | quit-report | helper-report | first-report | other-report |
-# blank-report) comes from the bundle's Resources/mode file. sync-crash,
+# home-report | blank-report) comes from the bundle's Resources/mode file. sync-crash,
 # no-sync, empty-sync (the sync saves a baseline of no site) and seeded-no-home are healthy in an empty home. own-report: healthy, and in the seeded home a crash report that names
 # this process appears while it is up. quit-report: healthy, and the empty home's process "crashes while it quits":
 # a crash report that names it appears once the seeded home's launch is up, as ReportCrash writes one seconds later.
 # helper-report: the same, but the report is of the empty home's HELPER, which died when its app went away: its
 # parent is pid 1 by then and its path is in the app copy, so only the time it died says whose it is.
-# first-report, other-report, blank-report: healthy, and while the EMPTY home's launch is up a crash report appears
-# that names this process, a process of another build's app copy (as another tagged build that crashes on the same
-# host does), or no process at all.
+# first-report, other-report, home-report, blank-report: healthy, and while the EMPTY home's launch is up a crash
+# report appears that names this process, a process of another build's app copy (as another tagged build that
+# crashes on the same host does), a detached process whose program is in this run's HOME (a daemon that the app
+# put there), or no process at all.
 STUB = r'''#!PYTHON
 import json, os, signal, socket, subprocess, sys, time
 here = os.path.dirname(os.path.abspath(__file__))
@@ -99,7 +100,8 @@ if mode in ("sync-crash", "no-sync", "empty-sync"):
     mode = "healthy"
 if mode == "seeded-no-home":
     mode = "no-home" if seeded else "healthy"
-if mode in ("own-report", "quit-report", "helper-report", "first-report", "other-report", "blank-report"):
+if mode in ("own-report", "quit-report", "helper-report", "first-report", "other-report", "home-report",
+            "blank-report"):
     folder = open(os.path.join(here, "..", "Resources", "diagnostics_path")).read().strip()
     os.makedirs(folder, exist_ok=True)
     name = os.path.join(folder, "stub-2026-11-11-000000.ips")
@@ -120,6 +122,9 @@ if mode in ("own-report", "quit-report", "helper-report", "first-report", "other
         # Another tagged build's launch on this host: its own pid, its own copy of the app.
         open(name, "w").write(ips(4190001, 1, time.time(),
                                   "/private/tmp/cmux-fresh-other00/app/Stub capfeedface00.app/Contents/MacOS/stub"))
+    if mode == "home-report" and not seeded:
+        # Not this process and not a child of it by the time it died, and not in the app copy: in the run's HOME.
+        open(name, "w").write(ips(4190002, 1, time.time(), os.path.join(home, ".cmux", "bin", "stub-daemon")))
     if mode == "blank-report" and not seeded:
         open(name, "w").write(json.dumps({"app_name": "stub", "bug_type": "309"}) + "\n")
     if mode in ("quit-report", "helper-report") and not seeded:
@@ -573,7 +578,9 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assert_cleaned_up(report)
 
     def test_a_crash_report_of_the_first_arms_own_launch_or_of_no_process_fails_it_as_before(self):
-        for mode in ("first-report", "blank-report"):
+        # home-report: a detached process whose program is under the run's HOME, not in the app copy. It is of this
+        # run (nothing else writes under the run's private root), so it counts, as it did before the filter.
+        for mode in ("first-report", "home-report", "blank-report"):
             with self.subTest(mode=mode):
                 status, output, report = self.run_smoke(mode, "--seconds", "2", "--startup-timeout", "20")
                 self.assertEqual(status, smoke.FAIL, output)
