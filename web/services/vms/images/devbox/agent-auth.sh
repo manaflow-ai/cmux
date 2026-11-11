@@ -126,7 +126,7 @@ sys.exit(0 if isinstance(auth, dict) and auth else 1)
 # env over its process env, and its last --settings over those; the launcher
 # passes that one's value in cmux_claude_flag_settings (set when
 # cmux_claude_flag_settings_given=1).
-#   login  a key, token or enabled provider switch in the env of the managed,
+#   login  a key, token, endpoint or enabled provider switch in the env of the managed,
 #          user, project (this folder and its parents) or local settings or of
 #          the --settings; a credential helper in any of them; the API key
 #          /login saved in .claude.json; or a --settings that does not read
@@ -142,7 +142,8 @@ def on(v):
     return v is True or (isinstance(v, (int, float)) and not isinstance(v, bool) and v != 0) or (isinstance(v, str) and v.strip() not in ("", "0") and v.strip().lower() != "false")
 def credential(s):
     env = s.get("env") if isinstance(s.get("env"), dict) else {}
-    return (any(isinstance(env.get(k), str) and env.get(k) for k in keys)
+    # A personal endpoint (a proxy that signs requests itself) counts too.
+    return (any(isinstance(env.get(k), str) and env.get(k) for k in keys + ("ANTHROPIC_BASE_URL",))
             or any(on(env.get(k)) for k in switches)
             or any(isinstance(s.get(h), str) and s.get(h) for h in helpers))
 def load(text):

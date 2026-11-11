@@ -95,7 +95,10 @@ where
                 let flag_helper = flag.is_some_and(|s| {
                     HELPERS.iter().any(|h| s.get(*h).is_some_and(|v| v.as_str() != Some("")))
                 });
-                if flag_helper || crate::claude_auth::find_in(&env, cwd).signed_in() {
+                // A personal endpoint in a settings file (a proxy that signs requests itself)
+                // is the person's too, as one in the env or the flag is above.
+                let found = crate::claude_auth::find_in(&env, cwd);
+                if flag_helper || found.signed_in() || found.endpoint.is_some() {
                     return None;
                 }
             }
@@ -327,6 +330,18 @@ mod tests {
         let var = move |k: &str| map.get(k).cloned();
         let inputs = Inputs { root: &m.root, home: &m.home, var: &var, broker: false };
         team_pair(&inputs, &env, None, &m.home, |_| async move { dns }).await
+    }
+
+    #[tokio::test]
+    async fn a_personal_endpoint_in_a_settings_file_keeps_own() {
+        let m = machine("owner");
+        assert!(pair(&m, &[], true).await.is_some());
+        std::fs::write(
+            m.home.join(".claude/settings.json"),
+            r#"{"env":{"ANTHROPIC_BASE_URL":"https://proxy.example.test"}}"#,
+        )
+        .unwrap();
+        assert_eq!(pair(&m, &[], true).await, None);
     }
 
     #[tokio::test]

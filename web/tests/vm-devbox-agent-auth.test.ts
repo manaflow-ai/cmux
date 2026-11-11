@@ -322,6 +322,11 @@ describe("Claude Code sign-in precedence", () => {
         writeFileSync(path.join(m.home, ".claude/settings.json"), JSON.stringify({ env: { ANTHROPIC_AUTH_TOKEN: "t" } }));
         return "";
       }],
+      ["a personal endpoint alone in the user settings", (m) => {
+        mkdirSync(path.join(m.home, ".claude"), { recursive: true });
+        writeFileSync(path.join(m.home, ".claude/settings.json"), JSON.stringify({ env: { ANTHROPIC_BASE_URL: "https://proxy.example.test" } }));
+        return "";
+      }],
       ["a key helper in the project settings", (m) => {
         mkdirSync(path.join(m.root, "proj/.claude"), { recursive: true });
         writeFileSync(path.join(m.root, "proj/.claude/settings.local.json"), JSON.stringify({ apiKeyHelper: "/bin/key" }));
