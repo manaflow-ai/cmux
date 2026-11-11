@@ -90,6 +90,9 @@ mod windows_stubs {
         )
     }
 
+    /// Windows keeps the default send buffer of a client connection.
+    pub(crate) fn size_client_send_buffer(_stream: &HostStream) {}
+
     /// Windows v1 hosts never hand over PTY custody (`supports_pty_custody:
     /// false`), so no value of this type exists there.
     pub(crate) enum PtyCustody {}

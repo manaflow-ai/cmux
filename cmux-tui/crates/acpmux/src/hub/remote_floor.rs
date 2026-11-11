@@ -128,14 +128,15 @@ impl Hub {
             return self.cloud_mobile_mode_asks(meta);
         }
         let table = self.web_modes();
-        if !table.session_asks(meta) {
+        let modes_of = self.trusted_mode_family(meta);
+        if !table.session_asks_as(meta, &modes_of) {
             return false;
         }
         if crate::web_modes::mode_of(meta).is_some() {
             return true;
         }
         match session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()).as_deref() {
-            Some(mode) => table.modes(&crate::web_modes::family_of(meta)).iter().any(|m| m == mode),
+            Some(mode) => table.modes(&modes_of).iter().any(|m| m == mode),
             None => true,
         }
     }

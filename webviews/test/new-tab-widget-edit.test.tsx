@@ -128,6 +128,11 @@ async function openEditMode() {
   await act(async () => item!.click());
 }
 
+const ADD_BUTTON = 'button.nt-edit-button[data-menu="newtab-add-widget"]';
+/// The open Add Widgets menu's rows (ui/Menu draws them in a portal, outside the page's root).
+const addRows = () => [
+  ...window.document.querySelectorAll<HTMLElement>('.nt-edit-add-menu[role="menu"] [role="menuitem"]'),
+];
 const frame = (widget: PageWidget) => host.querySelector<HTMLElement>(`.nt-widget-frame[data-widget="${widget}"]`);
 
 test("the host's order places the movable widgets; the others keep their places", () => {
@@ -216,24 +221,24 @@ test("edit mode: ✕ and Delete turn a widget off, Option-arrows move it, Escape
     );
     expect(edits.at(-1)).toEqual({ edit: "remove", widget: "projects" });
 
-    // Add Widgets is a menu of the widgets (#24631): a row turns its widget on.
-    await act(async () => host.querySelector<HTMLElement>('.nt-edit-button[data-edit="add"]')!.click());
-    expect(host.querySelector(".nt-edit-add")?.hasAttribute("open")).toBe(true);
-    const projects = [...host.querySelectorAll<HTMLButtonElement>('.nt-edit-add-menu [role="menuitem"]')].find(
-      (row) => row.textContent === "Projects",
-    );
+    // Add Widgets is a ui/Menu of the widgets (#24631): a row turns its widget on.
+    const add = () => host.querySelector<HTMLButtonElement>(ADD_BUTTON)!;
+    await act(async () => add().click());
+    expect(add().getAttribute("aria-expanded")).toBe("true");
+    const projects = addRows().find((row) => row.textContent === "Projects");
     expect(projects).toBeDefined();
     await act(async () => projects!.click());
     expect(edits.at(-1)).toEqual({ edit: "show", widget: "projects" });
     // A pick closes the menu; with it open, Escape closes the menu first and keeps edit mode.
-    expect(host.querySelector(".nt-edit-add-menu")).toBeNull();
-    await act(async () => host.querySelector<HTMLElement>('.nt-edit-button[data-edit="add"]')!.click());
+    expect(window.document.querySelector(".nt-edit-add-menu")).toBeNull();
+    await act(async () => add().click());
+    expect(addRows().length).toBeGreaterThan(0);
     await act(async () =>
       window.document.dispatchEvent(
         new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
       ),
     );
-    expect(host.querySelector(".nt-edit-add-menu")).toBeNull();
+    expect(window.document.querySelector(".nt-edit-add-menu")).toBeNull();
     expect(host.querySelector(".nt-screen")?.hasAttribute("data-editing")).toBe(true);
 
     await act(async () =>
@@ -243,6 +248,48 @@ test("edit mode: ✕ and Delete turn a widget off, Option-arrows move it, Escape
     );
     expect(host.querySelector(".nt-screen")?.hasAttribute("data-editing")).toBe(false);
     expect(host.querySelectorAll(".nt-widget-frame")).toHaveLength(0);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("Add Widgets is a ui/Menu: the arrow keys move along its rows, Enter adds one, Escape hands focus back", async () => {
+  const edits: WidgetEdit[] = [];
+  const root = await render("minimal", ["projects", "actions", "chats"], (edit) => edits.push(edit));
+  const key = (target: EventTarget, name: string) =>
+    act(async () => {
+      target.dispatchEvent(new window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }));
+    });
+  try {
+    await openEditMode();
+    const add = host.querySelector<HTMLButtonElement>(ADD_BUTTON)!;
+    expect(add.getAttribute("aria-haspopup")).toBe("menu");
+    await act(async () => add.focus());
+    await act(async () => add.click());
+    const rows = addRows();
+    // Every built-in widget is a row of the menu, the headline first.
+    expect(rows).toHaveLength(11);
+    expect(rows[0]!.textContent).toBe("Headline");
+    expect(rows[1]!.textContent).toBe("Clock");
+    const menu = window.document.querySelector<HTMLElement>(".nt-edit-add-menu")!;
+    expect(menu.getAttribute("aria-label")).toBe("Add Widgets");
+    await key(window.document.activeElement ?? menu, "ArrowDown");
+    await key(window.document.activeElement ?? menu, "ArrowDown");
+    // Opened from the keyboard, the first row has the keyboard; two arrows go to the third (the timer).
+    const active = window.document.activeElement as HTMLElement;
+    expect(rows.indexOf(active)).toBe(2);
+    await key(active, "Enter");
+    expect(edits).toEqual([{ edit: "show", widget: "timer" }]);
+    expect(window.document.querySelector(".nt-edit-add-menu")).toBeNull();
+    expect(window.document.activeElement).toBe(add);
+
+    // Escape closes the open menu only, and the keyboard is back on Add Widgets.
+    await act(async () => add.click());
+    expect(addRows().length).toBe(rows.length);
+    await key(window.document.activeElement ?? add, "Escape");
+    expect(window.document.querySelector(".nt-edit-add-menu")).toBeNull();
+    expect(host.querySelector(".nt-screen")?.hasAttribute("data-editing")).toBe(true);
+    expect(window.document.activeElement).toBe(add);
   } finally {
     await act(async () => root.unmount());
   }
