@@ -8417,6 +8417,7 @@ STEP_OWNERS_READERS = frozenset({"failed_view", "failed_steps_log"})
 # may: it reads it into a failed_view, or only refuses, or reads evidence that is not a step's section. A new one fails
 # the scan until it is listed here or reads a failed_view instead.
 RAW_LOG_READERS = {
+    "generated_stale_host": "only the shared generated-files check's own one error line, to name its host; compares nothing",
     "failed_view": "the one reader: the owned non-passed sections, or UNPLACED",
     "failed_steps_log": "what a comment shows; never compared",
     "step_owners": "the one placer of a line in a step, read by the two above alone",
@@ -8434,7 +8435,7 @@ RAW_LOG_READERS = {
 }
 # The functions that read a log from GitHub: they hand it to failed_view, a gate or a per-test verdict above, and
 # return no raw log to a comparator.
-LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unplaced_base_evidence", "guard_routes_view", "guard_group_report",
+LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unplaced_base_evidence", "shared_generated_host", "pr_only_step_verdict", "guard_routes_view", "guard_group_report",
                           "web_test_verdict", "cut_short_web_verdict", "windows", "ws_check_verdict", "log"})
 RAW_NAME = re.compile(r"^(?:\w+_)?logs?$")
 # next_batch's expand_job may read its raw log only into these (keying a red as its own) and failed_view.
@@ -8619,6 +8620,109 @@ class UnplacedGitHub(FakeGitHub):
         self.jobs = {1: failed_job(1, 10, HEAD, name=name, step=step),
                      2: dict(failed_job(2, 20, BASE_SHA, name=name, step=step), conclusion=base_conclusion)}
         self.logs = {1: unplaced_log(name, step, *head_lines), 2: unplaced_log(name, step, *base_lines)}
+
+
+class PrOnlyStepGitHub(FakeGitHub):
+    """cmux#41046 at b329575b: head 'cmux-next daemon tests' (job 1, run 10) fails its live suites and 'Regenerate
+    stale files'; the base's newest verdict of the job (job 2, run 20) fails the live suites and skips the
+    regeneration; the base tier (job 3, run 21) fails 'Regenerate stale files' in 'cmux-next generated files'."""
+
+    DAEMON, GEN, SHARED = "cmux-next daemon tests", "cmux-next generated files", excuse.GENERATED_VERDICT_JOB
+    LIVE, REGEN = "Run the live-daemon suites", "Regenerate stale files"
+    QUIT = "✘ Test keepLeavesTheDaemon() failed after 1.000 seconds with 1 issue."
+    MENU = ("✘ Test everyMenuKeepsAShortTopLevel() recorded an issue at ActionSurfaceParityTests.swift:107:13: "
+            "Expectation failed: (rows.count → 14) <= (cap → 13)",
+            "✘ Test everyMenuKeepsAShortTopLevel() failed after 0.559 seconds with 1 issue.",
+            "##[error]the action exports could not be regenerated")
+
+    def __init__(self, menu=MENU, base_regen=None, shared=True, gen_menu=MENU):
+        super().__init__()
+
+        def job(job_id, run, sha, name, steps):
+            return {"id": job_id, "run_id": run, "head_sha": sha, "name": name, "status": "completed",
+                    "conclusion": "failure", "steps": [{"name": "Set up runner", "status": "completed",
+                                                         "conclusion": "success"}]
+                    + [{"name": step, "status": "completed", "conclusion": state} for step, state in steps]}
+        self.jobs = {1: job(1, 10, HEAD, self.DAEMON, [(self.LIVE, "failure"), (self.REGEN, "failure")]),
+                     2: job(2, 20, BASE_SHA, self.DAEMON, [(self.LIVE, "failure"), (self.REGEN, base_regen)]),
+                     3: job(3, 21, BASE_SHA, self.GEN, [(self.REGEN, "failure")])}
+        self.logs = {1: unplaced_log(self.DAEMON, self.LIVE, self.QUIT) + "\n" + log(self.DAEMON, self.REGEN, *menu),
+                     2: unplaced_log(self.DAEMON, self.LIVE, self.QUIT),
+                     3: log(self.GEN, self.REGEN, *gen_menu)}
+        if shared:
+            self.jobs[4] = job(4, 10, HEAD, self.SHARED, [("Read the generated files verdict of the shared build",
+                                                           "failure")])
+            self.logs[4] = log(self.SHARED, "Read the generated files verdict of the shared build",
+                               "##[error]Generated cmux-next files are stale. daemon-test's step summary says how to "
+                               "regenerate them; its cmux-next-generated-patch artifact holds the regenerated files.",
+                               "##[error]Process completed with exit code 1.")
+        self.base_runs = [{"id": 21, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                           "status": "completed", "conclusion": "failure", "head_sha": BASE_SHA,
+                           "created_at": "2026-11-11T07:02:30Z"},
+                          {"id": 20, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                           "status": "completed", "conclusion": "failure", "head_sha": BASE_SHA,
+                           "created_at": "2026-11-11T06:58:50Z"}]
+
+
+class PrOnlyStepsAreExcusedByAnotherBaseJob(unittest.TestCase):
+    """2026-11-11: a pull request's 'cmux-next daemon tests' runs 'Regenerate stale files', which base pushes run in
+    'cmux-next generated files' instead; its only red there was the base's everyMenuKeepsAShortTopLevel()."""
+
+    def judge(self, github):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+
+    def test_a_step_the_base_job_skips_failing_only_another_base_jobs_tests_is_excused(self):
+        said = self.judge(PrOnlyStepGitHub())
+        self.assertIn("never run in feat-cmux-next run 20's 'cmux-next daemon tests'", said)
+        self.assertIn("everyMenuKeepsAShortTopLevel()", said)
+        self.assertIn("run 21's 'cmux-next generated files'", said)
+        # The shared check's stale verdict is its host's, excused with it.
+        self.assertIn(f"excused '{excuse.GENERATED_VERDICT_JOB}': its one red is the 'stale' verdict", said)
+
+    def test_a_green_base_verdict_that_skipped_the_step_still_excuses_it(self):
+        # The deadlock (cmux#41086, #40991 on 2026-11-11): the base's daemon job passed and skipped 'Regenerate stale
+        # files'; the head failed only that step, on the base tier's menu-cap test.
+        github = PrOnlyStepGitHub()
+        github.jobs[1]["steps"] = [step for step in github.jobs[1]["steps"] if step["name"] != PrOnlyStepGitHub.LIVE]
+        github.logs[1] = unplaced_log(PrOnlyStepGitHub.DAEMON, PrOnlyStepGitHub.REGEN, *PrOnlyStepGitHub.MENU)
+        github.jobs[2] = dict(github.jobs[2], conclusion="success",
+                              steps=[dict(step, conclusion="success" if step["name"] == PrOnlyStepGitHub.LIVE
+                                          else step["conclusion"]) for step in github.jobs[2]["steps"]])
+        github.base_runs[1]["conclusion"] = "success"
+        said = self.judge(github)
+        self.assertIn("never run in feat-cmux-next run 20's", said)
+        # A head red in a step the green verdict ran is the PR's own.
+        github.jobs[1]["steps"].append({"name": PrOnlyStepGitHub.LIVE, "status": "completed", "conclusion": "failure"})
+        github.logs[1] += "\n" + log(PrOnlyStepGitHub.DAEMON, PrOnlyStepGitHub.LIVE, PrOnlyStepGitHub.QUIT)
+        with self.assertRaises(excuse.Refused):
+            self.judge(github)
+
+    def test_a_test_no_base_job_fails_is_the_prs_own(self):
+        mine = ("✘ Test aNewMenuTest() failed after 0.100 seconds with 1 issue.",) + PrOnlyStepGitHub.MENU
+        with self.assertRaisesRegex(excuse.Refused, "compared whole"):
+            self.judge(PrOnlyStepGitHub(menu=mine))
+
+    def test_an_error_line_no_base_job_prints_is_the_prs_own(self):
+        mine = PrOnlyStepGitHub.MENU + ("##[error]a new export error",)
+        with self.assertRaisesRegex(excuse.Refused, "compared whole"):
+            self.judge(PrOnlyStepGitHub(menu=mine))
+
+    def test_a_step_the_base_job_ran_and_passed_is_the_prs_own(self):
+        with self.assertRaisesRegex(excuse.Refused, "compared whole"):
+            self.judge(PrOnlyStepGitHub(base_regen="success"))
+
+    def test_without_a_failing_test_nothing_is_matched(self):
+        # Matching test IDs only: an extra step whose red names no test is never excused by another job.
+        only = ("##[error]the action exports could not be regenerated",)
+        with self.assertRaisesRegex(excuse.Refused, "compared whole"):
+            self.judge(PrOnlyStepGitHub(menu=only, gen_menu=only))
+
+    def test_a_stale_shared_check_without_an_excused_host_is_not_excused_by_it(self):
+        github = PrOnlyStepGitHub(menu=("✘ Test aNewMenuTest() failed after 0.100 seconds with 1 issue.",))
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge(github)
+        self.assertNotIn("its one red is the 'stale' verdict", str(caught.exception))
+        self.assertIsNone(excuse.generated_stale_host("##[error]The action catalog checks fail on daemon-test"))
 
 
 class UnplacedLogsAreComparedWhole(unittest.TestCase):

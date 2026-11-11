@@ -1511,6 +1511,98 @@ def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, f
             f"{'; '.join(said)[:400]}")
 
 
+# A step the base never runs in this job (2026-11-11, cmux#41046 at b329575b and #41086 at 5d0fb077): on a pull request
+# 'cmux-next daemon tests' also hosts the generated-files check (CMUX_NEXT_FOLD_GENERATED), and its 'Regenerate stale
+# files' step runs regenerate-action-contracts.sh, which runs ActionSurfaceParityTests. Base pushes check generated
+# files in another job ('cmux-next generated files', base tier), so the base's 'cmux-next daemon tests' skips that
+# step and no base verdict of the job carries it. The base red everyMenuKeepsAShortTopLevel() (agentChat 14 > 13,
+# through the pinned FFI) failed that step on every PR. Such a step is excused only when: the rest of the job is
+# identical with one red base verdict of the job (UnplacedSignature: the head's failed steps less these, the same
+# failing tests and error lines as often each); every extra step was skipped or absent in that verdict; one red base
+# job of another name in the same workflow's base runs (the same window) failed every extra step; at least one
+# failing test is extra, and every extra failing test (by name, digits kept) and every extra error line is that job's
+# too. Nothing else is: a new test, a new error line, or a step the base job ran and passed is the PR's own.
+PR_ONLY_STEP_SKIPPED = (None, "skipped")
+
+
+def pr_only_extra(head: UnplacedSignature, same: dict, found: UnplacedSignature
+                  ) -> "tuple[Counter, Counter, Counter] | None":
+    """(extra failed steps by (name, conclusion), extra failing tests, extra error lines) of HEAD over FOUND, the
+    red base verdict SAME of the same job, when the rest is identical and no extra step ran in SAME; else None."""
+    extra = head.steps - found.steps
+    if not extra or found.steps - head.steps:
+        return None
+    ran = {str(step.get("name") or ""): step.get("conclusion") for step in same.get("steps") or []}  # step-name: classify
+    if any(ran.get(step) not in PR_ONLY_STEP_SKIPPED for step, _ in extra):
+        return None
+    if found.tests - head.tests or found.errors - head.errors:
+        return None
+    tests, errors = head.tests - found.tests, head.errors - found.errors
+    return (extra, tests, errors) if tests else None
+
+
+def pr_only_step_verdict(repo: str, base: str, name: str, head: UnplacedSignature,
+                         window: "list[tuple[dict, dict, UnplacedSignature]]", runs: list[dict], base_jobs: dict,
+                         github) -> str | None:
+    """The audit line for an unplaced red NAME whose only difference from a red base verdict of its own (WINDOW:
+    (run, job, signature), newest first) is a step that verdict never ran, failing only tests another red base job
+    failed (the rule above); None when no base evidence shows it. RUNS: the workflow's base runs, newest first."""
+    candidates = [(run, same, found, extra) for run, same, found in window
+                  if (extra := pr_only_extra(head, same, found)) is not None]
+    if not candidates:
+        return None
+    newest = created(window[0][0])
+    reads = 0
+    for run in runs:
+        if run.get("conclusion") != "failure":  # only a finished red run has a red job to read
+            continue
+        if newest and created(run) and abs(newest - created(run)) > timedelta(hours=BASE_WINDOW_HOURS):
+            continue
+        if run["id"] not in base_jobs or base_jobs[run["id"]] is None:
+            if reads >= BASE_WINDOW:
+                break
+            reads += 1
+            base_jobs[run["id"]] = base_run_jobs(repo, run, github)
+        for other in base_jobs[run["id"]]:
+            failed = failed_step_keys(other)
+            if other.get("name") == name or other.get("conclusion") != "failure":
+                continue
+            fits = [(same_run, extra) for same_run, _, _, extra in candidates if not extra[0] - failed]
+            if not fits:
+                continue
+            theirs = unplaced_base_evidence(repo, other, github)
+            for same_run, (steps, tests, errors) in fits:
+                if set(tests) <= set(theirs.tests) and set(errors) <= set(theirs.errors):
+                    url = run.get("html_url") or f"https://github.com/{repo}/actions/runs/{run['id']}"
+                    return (f"excused '{name}': its steps ({step_keys_text(steps)}) never run in {base} run {same_run['id']}'s "
+                            f"'{name}', which fails the same way otherwise; the failing tests there "
+                            f"({'; '.join(sorted(tests))[:300]}) fail in {base} run {run['id']}'s "
+                            f"'{other.get('name')}' ({url}), in the same steps")
+    return None
+
+
+# The shared generated-files check reads its host job's verdict and prints nothing of its own (GENERATED_VERDICT_JOB).
+# A 'stale' verdict from a host whose regeneration could not run is the host's red, not a stale file: when that host's
+# red on this head was excused by pr_only_step_verdict (its regeneration failed only on base reds), the shared check's
+# stale line is excused with it. A 'catalog' verdict or a host that is not excused stays the PR's own.
+GENERATED_STALE = re.compile(r"^##\[error\]\s*Generated cmux-next files are stale\. (swift-test|daemon-test)'s ")
+GENERATED_HOSTS = {"swift-test": "cmux-next swift test", "daemon-test": "cmux-next daemon tests"}
+
+
+def shared_generated_host(repo: str, job: dict, github) -> str | None:
+    """generated_stale_host of the shared generated-files check JOB's log: its one read."""
+    return generated_stale_host(github.log(repo, job))
+
+
+def generated_stale_host(log: str) -> str | None:
+    """The host job name of a shared generated-files check whose one red is its host's 'stale' verdict; else None."""
+    lines = [text for text in test_reds.lines_of(log) if text.startswith("##[error]")
+             and not text.startswith("##[error]Process completed with exit code")]
+    if len(lines) != 1 or not (match := GENERATED_STALE.match(lines[0])):
+        return None
+    return GENERATED_HOSTS[match.group(1)]
+
+
 def no_verdict(log: str) -> str | None:
     """The line where a compile check says it gave no verdict, if it does."""
     return next((text for text in lines_of(log) if NO_VERDICT.match(text)), None)
@@ -5073,8 +5165,17 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
     if not jobs and not audit:
         # A red run or check with no failed job to show has nothing the base can excuse.
         raise Refused("no failed job found on the head to compare with the base")
+    # The shared generated-files check is judged after its host (generated_stale_host).
+    jobs = sorted(jobs, key=lambda found: found.get("name") == GENERATED_VERDICT_JOB)
+    pr_only: set[tuple] = set()  # (run id, job name) excused by pr_only_step_verdict
     for job in jobs:
         name = job.get("name", "")
+        if (name == GENERATED_VERDICT_JOB and job.get("conclusion") == "failure" and not refused_at_setup(job)
+                and (host := shared_generated_host(repo, job, github)) is not None
+                and (job.get("run_id"), host) in pr_only):
+            audit.append(f"excused '{name}': its one red is the 'stale' verdict of '{host}', whose regeneration "
+                         "failed only on base reds (excused above)")
+            continue
         if job.get("conclusion") != "failure":
             if (cut := cut_short_web_verdict(repo, base, name, job, github, run_reads, base_runs)) is not None:
                 audit.append(cut)
@@ -5164,6 +5265,16 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                     continue
                 except Refused as step_why:
                     why = Refused(f"{why}; per step: {step_why}")
+                # A green verdict that skipped a step the head failed: that step may be the PR-only kind
+                # (pr_only_step_verdict), red here only on tests another base job fails (the menu cap deadlock,
+                # 2026-11-11: cmux#41086, #40991). A green job has no failed step, test or error line of its own.
+                if got.unplaced is not None and (only := pr_only_step_verdict(
+                        repo, base, name, got.unplaced,
+                        [(base_run, base_job, UnplacedSignature(Counter(), Counter(), Counter()))],
+                        base_runs[workflow], base_jobs, github)) is not None:
+                    audit.append(only)
+                    pr_only.add((job.get("run_id"), name))
+                    continue
                 if (stale := before_merge_base(repo, base, sha, base_run, github, merge_bases)) is not None:
                     dispatch = base_dispatch(repo, base, workflow_info, base_runs[workflow], github)
                     raise Refused(f"'{name}' has no {base} verdict at or after this PR's merge-base yet: the newest, "
@@ -5197,13 +5308,14 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 # The window the placed comparison reads (BASE_WINDOW verdicts within BASE_WINDOW_HOURS of the newest,
                 # a green one ends it): identity with any one red verdict in it, never a mix of several. cmux#41086 at
                 # 5d0fb077: the newest base run had one more failing test than the head (a pre-push gate flake).
-                newest, read = created(base_run), 1
+                newest, read, seen = created(base_run), 1, []
                 while True:
                     try:
                         theirs = unplaced_base_evidence(repo, base_job, github)
                         # A pin the rules set aside leaves both sides: the base's own pin red (cmux#41086's base) is no
                         # difference, and identity still holds for all the rest.
                         theirs = unplaced_without_ffi_pin(theirs) if aside is not None else theirs
+                        seen.append((base_run, base_job, theirs))
                         audit.append(unplaced_verdict(repo, name, base, mine, theirs, base_run)
                                      + (f"; {aside}" if aside is not None else ""))
                         break
@@ -5214,6 +5326,11 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                         if (run is None or found.get("conclusion") != "failure"
                                 or (newest and created(run)
                                     and newest - created(run) > timedelta(hours=BASE_WINDOW_HOURS))):
+                            if (only := pr_only_step_verdict(repo, base, name, mine, seen, base_runs[workflow],
+                                                             base_jobs, github)) is not None:
+                                audit.append(only + (f"; {aside}" if aside is not None else ""))
+                                pr_only.add((job.get("run_id"), name))
+                                break
                             raise
                         read += 1
                         base_run, base_job = run, found
