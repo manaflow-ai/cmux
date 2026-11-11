@@ -534,13 +534,14 @@ fn shown_answer(answer: &str) -> String {
     for line in answer.lines() {
         if line.starts_with("HTTP/") {
             (in_headers, dropping) = (true, false);
-        } else if in_headers && line.trim().is_empty() {
-            (in_headers, dropping) = (false, false);
         } else if in_headers && line.starts_with([' ', '\t']) {
-            // A folded header goes on with the one before it.
+            // A folded header goes on with the one before it, a line of only whitespace too: only an empty line ends
+            // the headers.
             if dropping {
                 continue;
             }
+        } else if in_headers && line.trim_end_matches('\r').is_empty() {
+            (in_headers, dropping) = (false, false);
         } else if in_headers {
             // A header line without a name (no `:`) is dropped too: it cannot be told from a credential's value.
             dropping = line.split_once(':').is_none_or(|(name, _)| secret(name));
@@ -710,6 +711,16 @@ mod tests {
                 .replace('\t', "")
         );
         assert!(!shown.contains("sid=") && !shown.contains("more=") && !shown.contains("zzz"));
+    }
+
+    #[test]
+    fn a_whitespace_only_continuation_keeps_the_header_it_folds() {
+        // A continuation of only whitespace neither ends the headers nor the dropped header it goes on with.
+        let answer = "HTTP/1.1 403 Forbidden\r\nSet-Cookie:\r\n \r\n sid=private-session\r\n\
+                      Authorization: Bearer private-token\r\nserver: edge\r\n\t\r\n\r\nrefused";
+        let shown = shown_answer(answer);
+        assert!(!shown.contains("private-session") && !shown.contains("private-token"), "{shown}");
+        assert_eq!(shown, "HTTP/1.1 403 Forbidden\nserver: edge\n\n\nrefused");
     }
 
     #[test]
