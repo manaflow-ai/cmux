@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 624,
+  "count": 626,
   "sections": [
     {
       "id": "general",
@@ -503,6 +503,14 @@
           "kind": "toggle",
           "default": true,
           "group": "Announcements"
+        },
+        {
+          "key": "app.confirmQuit",
+          "title": "Ask Before Quitting Ends Agents or Terminals",
+          "help": "Cmd-Q asks first when quitting would end working agents or open terminals. A quit that keeps the sessions running never asks.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Quitting"
         },
         {
           "key": "app.globalHotKey",
@@ -5562,7 +5570,7 @@
           "title": "Open Pull Requests in cmux GitHub Page",
           "help": "A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Opening Links"
         },
         {
@@ -6218,7 +6226,7 @@
           "title": "Move the Workspace to the Top",
           "help": "A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Attention Ring"
         },
         {
@@ -6754,6 +6762,14 @@
       "id": "development",
       "title": "Development",
       "rows": [
+        {
+          "key": "app.internalDeveloperMode",
+          "title": "Internal Developer Mode",
+          "help": "Shows the debug commands (playgrounds, Debug Settings, diagnostics) in the Command Palette as \"Debug: …\" rows. There is no Debug menu.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Internal Developer Mode"
+        },
         {
           "key": "deviceHub.url",
           "title": "Device Hub Address",
