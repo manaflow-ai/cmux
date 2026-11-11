@@ -504,7 +504,16 @@ export class UserDO extends DurableObject<Env> {
 
   async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
     const [deviceId] = this.ctx.getTags(ws);
-    console.warn(`device-hub: device ${deviceId ?? "?"}'s socket failed (${why(error)})`);
+    const reason = `error: ${why(error)}`;
+    console.warn(`device-hub: device ${deviceId ?? "?"}'s socket failed (${reason})`);
+    // A failed socket the runtime still lists as open must stop counting as online,
+    // or the offline alarm would see it live and drop the grace entry.
+    try {
+      ws.serializeAttachment({ ...this.socketState(ws), closed: true } satisfies SocketState);
+      ws.close(1011, reason.slice(0, 120));
+    } catch {
+      // already closed
+    }
     if (deviceId) await this.markOffline(deviceId, ws);
     this.broadcast({ type: "devices.changed" }, deviceId);
   }

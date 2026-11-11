@@ -140,6 +140,22 @@ describe("User DO: a device that goes silent without closing its socket", () => 
     expect(alarm! - attachment!.openedAt!).toBeLessThanOrEqual(SILENT_MS);
   });
 
+  it("a device socket error counts as offline at once, and its sessions end after the grace", async () => {
+    const { account, host, viewer } = await setup();
+    const s = await approvedSession(host, viewer);
+    const stub = userStub(account.userId);
+    await runInDurableObject(stub, async (instance: any, st) => {
+      await instance.webSocketError(st.getWebSockets(viewer.id)[0], new Error("connection reset"));
+    });
+    expect(await online(host, viewer.id)).toBe(false);
+    expect((await viewer.user!.waitClosed()).code).toBe(1011);
+    await runInDurableObject(stub, (_i, st) => {
+      st.storage.sql.exec("UPDATE offline SET since = since - 31000");
+    });
+    await runDurableObjectAlarm(stub);
+    expect((await host.user!.next((f) => f.type === "session.ended" && f.sessionId === s.sid)).reason).toBe("peer_offline");
+  });
+
   it("records a ping's auto-response as a sign of life", async () => {
     const { account, viewer } = await setup();
     viewer.user!.send({ type: "ping" });
