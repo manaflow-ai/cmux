@@ -346,3 +346,63 @@ fn ancestors_walk_every_parent_to_the_root_and_stop_at_a_loop() {
     // An unreadable pid reads as nothing.
     assert!(ancestors_in(of(&table), 77).is_empty());
 }
+
+#[test]
+fn a_tool_an_app_ships_is_not_that_app() {
+    // Our outbox relay, run by the python3 Xcode ships: no "Xcode" (Leo, 2026-11-11: "what's up
+    // with this?").
+    let xcode_python = "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python";
+    assert_eq!(app_bundle(xcode_python), None);
+    for shipped in [
+        "/Applications/Xcode.app/Contents/Developer/usr/bin/git",
+        "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang",
+        "/Applications/Foo.app/Contents/Resources/bin/tool",
+        "/Applications/Foo.app/Contents/SharedSupport/bin/tool",
+    ] {
+        assert_eq!(app_bundle(shipped), None, "{shipped}");
+    }
+    // Xcode's own executable is Xcode.
+    assert_eq!(
+        app_bundle("/Applications/Xcode.app/Contents/MacOS/Xcode"),
+        Some(("Xcode.app".into(), "/Applications/Xcode.app".into()))
+    );
+    // A Claude helper bundle in Claude.app's frameworks is still Claude.app's code.
+    assert_eq!(
+        app_bundle(
+            "/Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper"
+        ),
+        Some(("Claude.app".into(), "/Applications/Claude.app".into()))
+    );
+    for own in [
+        "/Applications/A.app/Contents/Helpers/h",
+        "/Applications/A.app/Contents/XPCServices/x.xpc/Contents/MacOS/x",
+        "/Applications/A.app/Contents/Library/LoginItems/L.app/Contents/MacOS/L",
+    ] {
+        assert_eq!(app_bundle(own).map(|(n, _)| n), Some("A.app".into()), "{own}");
+    }
+    assert_eq!(app_bundle("/usr/bin/python3"), None);
+    assert_eq!(app_bundle("/Applications/.app/Contents/MacOS/x"), None);
+}
+
+#[test]
+fn the_relay_under_xcodes_python_claims_no_app_and_the_walk_goes_on() {
+    let table = [
+        proc(50, 40, "/usr/local/bin/acpmux"),
+        proc(
+            40,
+            1,
+            "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python",
+        ),
+    ];
+    let walked = chain(of(&table), 50);
+    assert_eq!(walked, Chain::default());
+    assert_eq!(from_chain(&walked), None, "no app, no harness: no claim");
+    // The same python under Claude desktop's shell still finds Claude.app above it.
+    let under_claude = [
+        proc(50, 40, "/usr/local/bin/acpmux"),
+        proc(40, 30, "/Applications/Xcode.app/Contents/Developer/usr/bin/python3"),
+        proc(30, 20, "/bin/zsh"),
+        proc(20, 1, "/Applications/Claude.app/Contents/MacOS/Claude"),
+    ];
+    assert_eq!(chain(of(&under_claude), 50).app.unwrap().0, "Claude.app");
+}

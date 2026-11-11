@@ -861,6 +861,7 @@ pub(super) async fn handle_request(
     conn: &Arc<Conn>,
     m: &str,
     mut params: Value,
+    sender_token: Option<crate::sender_token::Presented>,
 ) -> Result<Value, RpcError> {
     if conn.is_trigger() && !m.starts_with("trigger/chat.") {
         return Err(RpcError::new(
@@ -989,6 +990,22 @@ pub(super) async fn handle_request(
             // The program that ran a send no session proved (`sender_program.rs`), so a prompt
             // no proof attributes still says which program sent it.
             crate::sender_program::stamp(prompt, pid, carried, conn.caller().is_none()).await;
+            // Whether a local send presented this host's sender token (`sender_token.rs`): only a
+            // unix connection's is read; the Web's, the app pane's and a peer link's were taken
+            // out unread (`server/mod.rs`).
+            let token = sender_token.filter(|_| {
+                conn.origin == super::Origin::Local
+                    && matches!(conn.socket_peer, crate::sender_harness::SocketPeer::Pid(_))
+            });
+            let matched = match token {
+                Some(token) => {
+                    let home = crate::config::home();
+                    let check = move || crate::sender_token::matches(&home, &token);
+                    Some(tokio::task::spawn_blocking(check).await.unwrap_or(false))
+                }
+                None => None,
+            };
+            crate::sender_token::stamp(prompt, matched, carried);
             // A Claude desktop session's own send, bound to its bridged chat by the same pid
             // (`hub/desktop_bridge.rs`), so an answer reaches it.
             let outbox = conn.socket_peer == crate::sender_harness::SocketPeer::Outbox;
@@ -1864,6 +1881,11 @@ async fn dispatch_request_with_identity(
                     &params,
                 )),
             };
+            // A named sender whose send matched this host's sender token is `verified` by it
+            // (`sender_token::label`). A label only: nothing above (the person, the owner's
+            // terminal, who may do what) read it, and it makes no prompt the person's.
+            let token = crate::sender_token::matched(&params);
+            let provenance = provenance.map(|p| crate::sender_token::label(p, token));
             // A peer's prompt keeps its sender and names the peer that passed it on beside it.
             let provenance = provenance.map(|p| match conn.origin {
                 super::Origin::Peer => {

@@ -502,12 +502,29 @@ pub(crate) fn parent(pid: u32) -> Option<u32> {
     lookup(pid).map(|p| p.ppid)
 }
 
-/// The outermost `.app` bundle in an executable path: its name and its path.
+/// Where an app bundle keeps its own code: its main executable, its frameworks and helper apps
+/// (Claude.app's `Contents/Frameworks/Claude Helper.app`), its helpers, XPC services and login
+/// items.
+const OWN_CODE: &[&str] = &[
+    "Contents/MacOS/",
+    "Contents/Frameworks/",
+    "Contents/Helpers/",
+    "Contents/XPCServices/",
+    "Contents/Library/LoginItems/",
+];
+
+/// The app bundle an executable is the code of: the outermost `.app` in its path, when the
+/// executable is that app's own code ([`OWN_CODE`]), with its name and path. A tool an app only
+/// ships is not that app, nor is any bundle inside it: Xcode's
+/// `Contents/Developer/.../Python.app/Contents/MacOS/Python` (which ran our outbox relay and drew as
+/// "Xcode", Leo, 2026-11-11: "what's up with this?"), its git and clang, anything under
+/// `Contents/Resources/` or `Contents/SharedSupport/`; the walk goes on past it.
 fn app_bundle(exe: &str) -> Option<(String, String)> {
     let end = exe.find(".app/")? + ".app".len();
-    let path = exe.get(..end)?;
+    let (path, inside) = (exe.get(..end)?, exe.get(end + 1..)?);
     let name = path.rsplit('/').next()?;
-    (name.len() > ".app".len()).then(|| (name.to_owned(), path.to_owned()))
+    (name.len() > ".app".len() && OWN_CODE.iter().any(|dir| inside.starts_with(dir)))
+        .then(|| (name.to_owned(), path.to_owned()))
 }
 
 fn is_terminal(app: &str) -> bool {
