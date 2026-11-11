@@ -34,8 +34,8 @@ struct LinkReusesExistingPaneTests {
             }
             try await PinnedPageTests.until({ opened() != nil }, report: { "the link opened no tab: " + Self.describe(content) })
             let tab = try #require(opened())
-            #expect(right.pane.tabs.contains { $0.id == tab.id }, "the link's tab is not in the pane on the right: " + Self.describe(content))
-            #expect(content.panes.count == 2, "the link made a new pane: " + Self.describe(content))
+            #expect(right.pane.tabs.contains { $0.id == tab.id }, "the link's tab is not in the pane on the right: \(Self.describe(content))")
+            #expect(content.panes.count == 2, "the link made a new pane: \(Self.describe(content))")
             #expect(!left.pane.tabs.contains { $0.id == tab.id }, "the link's tab stayed in the terminal it was clicked in")
         }
     }
@@ -48,9 +48,9 @@ struct LinkReusesExistingPaneTests {
         try await PinnedPageTests.withApp { services, _ in
             let (content, left, right) = try await Self.twoTerminals(services)
             #expect(services.linkOpener.target(from: left, kind: .browser, link: true) == .pane(right.layoutPaneID),
-                    "a link beside the terminal splits: " + Self.describe(content))
+                    "a link beside the terminal splits: \(Self.describe(content))")
             #expect(services.linkOpener.target(from: left, kind: .browser) == .splitBelow(of: right.layoutPaneID),
-                    "the window is too narrow for the lower split, so this cannot tell the rules apart: " + Self.describe(content))
+                    "the window is too narrow for the lower split, so this cannot tell the rules apart: \(Self.describe(content))")
         }
     }
 
