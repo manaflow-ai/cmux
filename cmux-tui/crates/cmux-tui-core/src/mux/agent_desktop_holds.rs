@@ -261,9 +261,11 @@ impl Mux {
         }
     }
 
-    /// A client attached or detached: post every held desktop notification
-    /// now, so the person sees it on the client they use now. The dedupe
-    /// keeps working for later notifications.
+    /// A view client announced its attach, or a view client that did so
+    /// left: post every held desktop notification now, so the person sees
+    /// it on the client they use now. A plain client (a CLI call, a status
+    /// query or a hook emit) does not call this. The dedupe keeps working
+    /// for later notifications.
     pub(crate) fn post_held_agent_desktop_notifications(&self) {
         for held in self.agent_desktop_holds.take(None, true) {
             self.post_terminal_notification_now(held.surface, held.notification);

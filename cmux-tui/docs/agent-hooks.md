@@ -57,11 +57,14 @@ these sources: a hook event of that source set the session's fence, and no
     comes within 2 s of a Claude permission or finished-turn hook
     notification in the same terminal is dropped as its copy.
   - **No loss in the hold.** A held notification posts at once when the
-    terminal's output ends, when a client attaches or detaches, and when the
-    daemon stops by any path (`server stop`, `--end-terminals`, a restart
-    handoff, a signal, the last client or the starter leaving). A posted
+    terminal's output ends, when a view client (a TUI or the app) attaches
+    or detaches, and when the daemon stops by any path (`server stop`,
+    `--end-terminals`, a restart handoff, a signal, the last client or the
+    starter leaving). A posted
     notification is durable: when no client is attached, `notification list`
-    shows it, also after the restart.
+    shows it, also after the restart. A plain client that connects for one
+    request (a CLI call, a status query or a hook emit) and closes does not
+    end the hold.
 - **OSC 7501 alerts.** A `done` alert or a `blocked` alert with
   `kind=permission` is dropped when the record's app (its own or an
   ancestor's) is one of the agent's `app` names (case does not matter). A

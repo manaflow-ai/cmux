@@ -185,8 +185,13 @@ fn disconnect_client_with_notice(
     } else {
         record.writer.close();
     }
-    // A desktop notification held for the agent dedupe window posts now.
-    mux.post_held_agent_desktop_notifications();
+    // A view client that announced its attach left: a desktop notification
+    // held for the agent dedupe window posts now. A plain client (a CLI
+    // call, a status query or a hook emit) closes after each request, so it
+    // keeps the hold.
+    if record.announced_attached {
+        mux.post_held_agent_desktop_notifications();
+    }
     mux.emit(MuxEvent::ClientDetached(client));
     true
 }
