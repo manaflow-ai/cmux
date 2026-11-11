@@ -2299,6 +2299,7 @@ Params:
 | `url` | string | required | Nonempty, at most 32 KiB, no control characters |
 | `engine` | string | required | `"webkit"` or `"cef"` |
 | `pane` | `Id` | default active pane | Destination pane |
+| `workspace` | `Id` | optional | Destination workspace instead of `pane`: the tab goes in its pane, or in a first pane the daemon makes when it has none (a workspace from `create-workspace`), so no terminal is needed to host it. Refused with `pane` or `split`; capability `frontend-browser-tab-workspace-v1` |
 | `title` | string | optional | At most 2048 characters |
 | `favicon_url` | string | optional | As `url` |
 | `profile_id` | string | optional | 1-128 printable ASCII characters; frontend profile (cookies, extensions) |
@@ -2692,13 +2693,22 @@ Params:
 | --- | --- | --- | --- |
 | `name` | `string` | default null | Defaults to the zero-based workspace count at creation time |
 | `key` | `string` | default generated UUID | Must be a lowercase canonical UUID and never previously used |
+| `first_tab` | object | optional | `{kind:"browser", ...}` with the params of `new-frontend-browser-tab` except `pane`, `workspace`, `split` and `after`: the workspace's first tab, made by this request; capability `workspace-first-tab-v1` |
 | mutation fields | see [common envelope](#durable-workspace-mutation-envelope) | optional | Exactly-once retry and CAS |
 
 Result:
 
 ```text
-object{workspace:Id,key:string,index:usize,workspace_revision:uint64,replayed:bool,registry_id:string,generation:string}
+object{workspace:Id,key:string,index:usize,workspace_revision:uint64,replayed:bool,registry_id:string,generation:string,first_tab?:object}
 ```
+
+With `first_tab` the workspace and its tab are one request: no client makes a
+terminal to host the tab, and none sees a terminal in its place. `first_tab` in
+the result is the `new-frontend-browser-tab` result of that tab. A `first_tab`
+the daemon refuses (a bad field, or the tab cannot be made) leaves no
+workspace: the daemon closes the one it made and the request fails. A replayed
+create (same mutation id) replays the tab only when `first_tab` carries an
+`idempotency_key`; clients that retry must send one.
 
 Errors include `workspace key must be a lowercase UUID`, `workspace key already exists: <key>`, `workspace revision conflict: expected <n>, current <n>`, and malformed request errors.
 
