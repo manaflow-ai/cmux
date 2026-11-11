@@ -223,8 +223,10 @@ def route_wait(route: str, runners: Sequence[Mapping[str, Any]] | None, seen: An
     math.inf when every online runner carrying it sits on one host: a single-host reservation, which the
     rulebook never lets a job wait on with no fallback ("No job waits on one reserved machine: every
     reservation (a label one host serves) has a fallback within minutes"). Otherwise the pool snapshot's
-    oldest queued wait on it (next_macos_cascade.Seen.owned), 0 with no queue there. None while an idle
-    runner carries it, or with the runners unread: nothing then is known to be stuck. The cascade sends the
+    oldest queued wait on it (next_macos_cascade.Seen.owned), 0 with no queue there, read from glaeda's gates
+    reading for the route even when the janitor snapshot is stale. None while an idle runner carries it, with the
+    runners unread, or with neither a fresh snapshot nor a gates reading for the route: nothing then is known to
+    be stuck. The cascade sends the
     jobs to Blacksmith 6 vCPU when this queue is the longer one (next_macos_cascade.dead_end()).
     """
     if runners is None or not route:
@@ -237,9 +239,33 @@ def route_wait(route: str, runners: Sequence[Mapping[str, Any]] | None, seen: An
              for runner in carriers}
     if len(hosts) <= 1:
         return math.inf
-    if seen is None or getattr(seen, "stale", False):
+    if seen is None:
+        return None
+    # glaeda's per-label listener reading (the snapshot's `gates`, from CI_FLEET_GATES) has its own clock, so a
+    # janitor snapshot too old for the counts does not void it: seen() already ages its oldest queued wait by its
+    # own as_of. On 2026-11-10 the janitor snapshot was late while the gates showed 55 jobs queued on
+    # glaeda-side-std-xcode-26.6, the oldest for 21 hours, and this read None, so no dead end was seen.
+    snapshot = getattr(seen, "snapshot", None)
+    gates = snapshot.get("gates") if isinstance(snapshot, Mapping) else None
+    labels = gates.get("labels") if isinstance(gates, Mapping) else None
+    if getattr(seen, "stale", False) and not _gates_current(labels, route, getattr(seen, "observed_at", None)):
         return None
     return float(getattr(seen, "owned", {}).get(route, 0.0))
+
+
+def _gates_current(labels: Any, route: str, now: dt.datetime | None) -> bool:
+    """Whether the gates carry a reading for `route` at most RESERVED_SNAPSHOT_MINUTES old: a gates copy as late as
+    the janitor would keep aging its oldest wait after the queue drained."""
+    entry = labels.get(route) if isinstance(labels, Mapping) else None
+    if not isinstance(entry, Mapping) or now is None:
+        return False
+    try:
+        as_of = dt.datetime.fromisoformat(str(entry.get("as_of") or "").replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if as_of.tzinfo is None:
+        return False
+    return 0 <= (now - as_of).total_seconds() <= cascade.RESERVED_SNAPSHOT_MINUTES * 60
 
 
 def route_label(label: str, runners: Sequence[Mapping[str, Any]] | None, want: int = 0) -> str:
@@ -754,7 +780,7 @@ def rerun_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | No
     """The rescue's full re-run (next_macos_cascade.bot_rerun()): only the cascade is placed afresh.
 
     The side runner is emitted only for freshly allocated owned jobs (the idle minis `owned` names);
-    fast_runner and gateway_runner stay empty, as every re-run had them: those jobs keep the routes their
+    fast_runner and gateway_runner stay empty here (fast-tier-rerun-placement may still give the fast tier an idle gateway on the bot's attempt 3): those jobs keep the routes their
     runs-on gives a re-run. With no gateway the build-fleet compiles skip, so their Mac fallbacks cascade.
     The GUI jobs follow the routing order, as on attempt 1: gui_runner and session_runner (and the free
     labels) name only a GUI or session runner idle now, else gui_overflow names the Blacksmith leg.
@@ -851,7 +877,9 @@ def rerun_fleet(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | N
     the tier keeps its re-run route.
     """
     attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip() or "1"
-    if attempt == "1" or cascade.bot_rerun(env):
+    # The rescue's attempt 2 always runs macos-placement; its attempt 3 only as a re-placement, and a re-run of
+    # failed jobs on attempt 3 (a refusal) carries attempt 2's, so it still reads the gateway here.
+    if attempt == "1" or attempt == "2" and cascade.bot_rerun(env):
         return "", f"attempt {attempt} is placed by macos-placement"
     status = (env.get("FAST_TIER_STATUS") or "").strip()
     if not status:
