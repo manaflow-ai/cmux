@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 64b6943e7829ef9a3daee2da66c346cfb2a8a2f7cb50674beffb6d797e6ac7ae. */
+/* cmux-tui mux protocol 12, IR 9045becabf1427b7c6927f308478e6847bba2656c9bfc23ca6596ff6e98274ed. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1847,10 +1847,26 @@ export type Workspace = {
   "short_id"?: string;
 };
 
+export type WorkspaceFirstTab = ({ "kind": "browser" } & {
+  "activate"?: boolean;
+  "cols"?: (number) | null;
+  "engine": string;
+  "favicon_url"?: (string) | null;
+  "idempotency_key"?: (string) | null;
+  "kind": "browser";
+  "owner"?: (string) | null;
+  "profile_id"?: (string) | null;
+  "rows"?: (number) | null;
+  "title"?: (string) | null;
+  "url": string;
+});
+
 export type WorkspaceMutationResult = {
   "changed"?: boolean;
   /** close-workspace with end_terminals and report_closed_ids: the closed.list groups the close stored, oldest first; closed.reopen of each restores exactly what it closed. */
   "closed_ids"?: Array<string>;
+  /** create-workspace with first_tab (workspace-first-tab-v1): the new-frontend-browser-tab reply for the workspace's first tab. */
+  "first_tab"?: JsonValue;
   "generation": string;
   "index": bigint;
   "key": string;

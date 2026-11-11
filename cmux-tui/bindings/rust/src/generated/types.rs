@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 64b6943e7829ef9a3daee2da66c346cfb2a8a2f7cb50674beffb6d797e6ac7ae.
+// cmux-tui mux protocol 12, IR 9045becabf1427b7c6927f308478e6847bba2656c9bfc23ca6596ff6e98274ed.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -3253,12 +3253,42 @@ pub struct Workspace {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum WorkspaceFirstTab {
+    #[serde(rename = "browser")]
+    Browser {
+        #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+        activate: Option<bool>,
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        cols: Optional<u16>,
+        engine: String,
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        favicon_url: Optional<String>,
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        idempotency_key: Optional<String>,
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        owner: Optional<String>,
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        profile_id: Optional<String>,
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        rows: Optional<u16>,
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        title: Optional<String>,
+        url: String,
+    },
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorkspaceMutationResult {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub changed: Option<bool>,
     /// close-workspace with end_terminals and report_closed_ids: the closed.list groups the close stored, oldest first; closed.reopen of each restores exactly what it closed.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub closed_ids: Option<Vec<String>>,
+    /// create-workspace with first_tab (workspace-first-tab-v1): the new-frontend-browser-tab reply for the workspace's first tab.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub first_tab: Option<JsonValue>,
     pub generation: String,
     pub index: u64,
     pub key: String,

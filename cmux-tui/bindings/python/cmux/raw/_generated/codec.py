@@ -224,6 +224,7 @@ MODEL_BY_PATH = {
     'types/VtStateResult': models.VtStateResult,
     'types/WaitForResult': models.WaitForResult,
     'types/Workspace': models.Workspace,
+    'types/WorkspaceFirstTab/variants/browser': models.WorkspaceFirstTabBrowser,
     'types/WorkspaceMutationResult': models.WorkspaceMutationResult,
     'types/ZoomPaneResult': models.ZoomPaneResult,
     'commands/ack-tab-notifications/request': models.AckTabNotificationsRequest,
