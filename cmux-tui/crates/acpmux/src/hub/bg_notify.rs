@@ -227,11 +227,13 @@ impl Hub {
     }
 }
 
-/// The end's notice: its outcome as the title, `warn` unless it went well.
+/// The end's notice: its outcome as the title, `warn` unless it went well (an exit 0 whose
+/// command may hide a failure, `bg_run::exit_warning`, is not known to have gone well).
 fn end_notice(dir: &Path, record: &Record) -> Value {
     let view = bg_view(dir, record, 0);
     let (summary, status) = bg_run::outcome(&view);
-    let severity = if status == "ok" { "info" } else { "warn" };
+    let severity =
+        if status == "ok" && view.get("exitWarning").is_none() { "info" } else { "warn" };
     json!({"sender": SENDER, "severity": severity, "title": summary})
 }
 

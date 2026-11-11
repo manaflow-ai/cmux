@@ -400,6 +400,43 @@ async fn a_task_with_notify_tells_its_chat_once_when_it_ends() {
     assert_eq!(statuses, [&json!("ok"), &json!("failed")], "{list}");
 }
 
+/// A command whose exit is its last stage's, not its work's (2026-11-11: `cmux-ci test -- ... >
+/// log 2>&1; echo "cmux-ci exit $?" >> log` failed with exit 1 and its end said exit 0), still
+/// runs, and its start and its end say the exit may not be its own (`bg_exit_masking.rs`). A
+/// command that keeps its exit says nothing.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_command_that_hides_its_exit_runs_and_its_end_says_so() {
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(crate::daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "masked").await;
+    let masked = json!({"sessionId": id, "notify": true, "description": "wrapped run",
+        "command": "false > /dev/null 2>&1; echo \"run exit $?\""});
+    let task = r.c.request(method::MUX_BG_START, masked).await.unwrap();
+    assert_eq!(task["exitWarning"], "last stage is echo", "{task}");
+    let masked = task["id"].as_str().unwrap().to_owned();
+    let clean = start(&mut r, &id, "set -o pipefail; false | cat").await;
+    assert!(clean.get("exitWarning").is_none(), "{clean}");
+    let clean = clean["id"].as_str().unwrap().to_owned();
+    r.until("the masked task's end never reached its chat", || ends(&r.hub, &id).len() == 1).await;
+    r.until("the clean task never ended", || state(&r, &id, &clean) == "exited").await;
+    let end = &ends(&r.hub, &id)[0];
+    assert!(
+        end.contains("Background command finished: wrapped run (exit 0; this command's exit may not be its own: last stage is echo)"),
+        "{end}"
+    );
+    assert!(end.contains("run exit 1"), "{end}");
+    let list = r.hub.bg_list(&r.hub.resolve(&id).unwrap());
+    let tasks = list["tasks"].as_array().unwrap();
+    let of = |task: &str| tasks.iter().find(|t| t["id"] == task).cloned().unwrap();
+    assert_eq!(of(&masked)["status"], "ok", "{list}");
+    assert_eq!(
+        of(&clean)["summary"],
+        "Background command finished: set -o pipefail; false | cat (exit 1)",
+        "{list}"
+    );
+}
+
 /// Waits up to 20 s for `done`.
 async fn until_true(what: &str, done: impl Fn() -> bool) {
     let deadline = std::time::Instant::now() + Duration::from_secs(20);

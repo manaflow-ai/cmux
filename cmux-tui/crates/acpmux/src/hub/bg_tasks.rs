@@ -646,6 +646,9 @@ pub(super) fn bg_view(dir: &std::path::Path, r: &Record, tail: u64) -> Value {
         let last = text.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or_default();
         view.set("lastLine", json!(last));
     }
+    if let Some(why) = bg_run::exit_warning(&view) {
+        view.set("exitWarning", json!(why));
+    }
     let (summary, status) = bg_run::outcome(&view);
     view.set("summary", json!(summary));
     view.set("status", json!(status));

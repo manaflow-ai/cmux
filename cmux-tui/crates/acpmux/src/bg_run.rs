@@ -323,9 +323,20 @@ pub fn label(description: Option<&str>, command: &str) -> String {
     cut
 }
 
+/// Why a task's exit may not be its command's own (`bg_exit_masking`), e.g. `last stage is
+/// echo`; never for a task that prints its own outcome last (`resultLine`, `run_wait`).
+pub fn exit_warning(view: &serde_json::Value) -> Option<String> {
+    if view.get("resultLine") == Some(&serde_json::Value::Bool(true)) {
+        return None;
+    }
+    crate::bg_exit_masking::check(view.get("command")?.as_str()?)
+}
+
 /// A task's view (`hub/bg_tasks.rs` `bg_view`) as one summary line and a status: `running`,
 /// `ok` (exit 0) or `failed` (any other end). The condensed-tool contract: the line is the first
-/// line of every `bg_*` result and its `summary`, the status its `status`.
+/// line of every `bg_*` result and its `summary`, the status its `status`. An exit 0 whose
+/// command may hide a failure ([`exit_warning`]) says so: `(exit 0; this command's exit may not
+/// be its own: last stage is echo)`.
 pub fn outcome(view: &serde_json::Value) -> (String, &'static str) {
     use serde_json::Value;
     let s = |k: &str| view.get(k).and_then(Value::as_str).unwrap_or_default();
@@ -354,7 +365,14 @@ pub fn outcome(view: &serde_json::Value) -> (String, &'static str) {
         ),
         "lost" => ("lost", " (its runner ended without recording an exit)".to_owned(), "failed"),
         _ => match int("exitCode") {
-            Some(0) => ("finished", " (exit 0)".to_owned(), "ok"),
+            Some(0) => match exit_warning(view) {
+                Some(why) => (
+                    "finished",
+                    format!(" (exit 0; this command's exit may not be its own: {why})"),
+                    "ok",
+                ),
+                None => ("finished", " (exit 0)".to_owned(), "ok"),
+            },
             Some(n) => ("finished", format!(" (exit {n})"), "failed"),
             None => ("finished", String::new(), "failed"),
         },
@@ -723,6 +741,18 @@ mod tests {
         assert_eq!(killed, ("Background command killed: x (signal 9)".to_owned(), "failed"));
         assert_eq!(view(json!({"state": "stopped", "command": "x"})).1, "failed");
         assert_eq!(view(json!({"state": "lost", "command": "x"})).1, "failed");
+        // An exit 0 whose last stage is an echo says its exit may not be the command's own.
+        let masked = view(json!({"state": "exited", "exitCode": 0,
+            "command": "cmux-ci test -- x > log 2>&1; echo \"cmux-ci exit $?\" >> log"}));
+        assert_eq!(
+            masked.0,
+            "Background command finished: cmux-ci test -- x > log 2>&1; echo \"cmux-ci exit $?\" >> log (exit 0; this command's exit may not be its own: last stage is echo)"
+        );
+        assert_eq!(masked.1, "ok");
+        // A failed exit is already a failure; a resultLine task prints its own outcome.
+        let failed = view(json!({"state": "exited", "exitCode": 1, "command": "make || true"}));
+        assert_eq!(failed.0, "Background command finished: make || true (exit 1)");
+        assert_eq!(exit_warning(&json!({"command": "make || true", "resultLine": true})), None);
         let long = label(None, &"a".repeat(500));
         assert_eq!(long.chars().count(), LABEL_MAX);
         assert!(long.ends_with('…'));
