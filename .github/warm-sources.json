@@ -226,6 +226,7 @@
     "nightly.yml:visual-gate-nightly": {"class": "nightly-release-compile", "warm": ["deriveddata-reuse"]},
     "nightly.yml:visual-gate-nightly-verdict": {"class": "mac-sign", "warm": [], "exempt": "a nightly control on the dedicated nightly mini (#30249) or Linux: waits for and records the visual gate's advisory verdict; compiles nothing"},
     "presence.yml:test": {"class": "linux-js", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
+    "relay-publish-npm.yml:smoke": {"class": "mac-test", "warm": [], "exempt": "installs the published cmux-relay npm package and runs its launcher's --version; nothing compiles"},
     "relay-tls.yml:diagnostic-presentation": {"class": "mac-test", "warm": [], "exempt": "cold: swift build or test into a fresh .build; no warm source wired yet"},
     "relay-tls.yml:system-keychain": {"class": "mac-build", "warm": [], "exempt": "cold: swift (tests/relay_tls/system_keychain.py builds the native verifier) into a fresh .build; no warm source wired yet"},
     "release-rails.yml:cmux-vm-schema-gate": {"class": "linux-js", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
