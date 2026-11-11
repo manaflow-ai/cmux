@@ -90,6 +90,11 @@ pub(crate) fn run_cli(arguments: Vec<String>, exe_prefix: &[&str]) -> ExitCode {
 
 fn run(args: Args, exe_prefix: &[&str]) -> anyhow::Result<()> {
     let started = Instant::now();
+    // Orders this agent's events in the daemon (cmux_tui_core::stamp_agent_hook_observed_at).
+    let started_at_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|since| u64::try_from(since.as_millis()).ok());
     // Read once, before any decision: a Claude hook stands down by the
     // payload's `session_id` (plugin_copy.rs).
     let payload = read_payload_bytes(io::stdin().lock())?;
@@ -100,7 +105,7 @@ fn run(args: Args, exe_prefix: &[&str]) -> anyhow::Result<()> {
         return Ok(());
     }
     let context = session_context::applies(&args.source, &args.native_event, getenv);
-    let route = deliver(&args, exe_prefix, &payload, session, started)?;
+    let route = deliver(&args, exe_prefix, &payload, session, started, started_at_ms)?;
     if context {
         // After the handoff: the read connects from a helper thread, which
         // must not exist when the detached child forks.
@@ -124,6 +129,7 @@ fn deliver(
     payload: &[u8],
     session: Option<&str>,
     started: Instant,
+    started_at_ms: Option<u64>,
 ) -> anyhow::Result<Option<(PathBuf, Option<String>)>> {
     if shadowed_by_grok(&args.source, env::var_os("GROK_HOOK_EVENT").as_deref()) {
         return Ok(None);
@@ -141,12 +147,15 @@ fn deliver(
     }
     let native = read_native_payload(payload)?;
     let start_source = native.get("source").and_then(Value::as_str).map(str::to_owned);
-    let ingress = cmux_tui_core::agent_hook_journal_ingress(
+    let mut ingress = cmux_tui_core::agent_hook_journal_ingress(
         &args.source,
         &args.native_event,
         terminal.as_deref(),
         native,
     )?;
+    if let Some(observed_at_ms) = started_at_ms {
+        cmux_tui_core::stamp_agent_hook_observed_at(&mut ingress, observed_at_ms);
+    }
     let event = serde_json::to_value(ingress)?;
     let (request_id, encoded) = encode_request(event)?;
     let handoff = handoff_wait(&args.source, &args.native_event);
