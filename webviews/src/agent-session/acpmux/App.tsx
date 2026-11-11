@@ -4719,16 +4719,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (cloudStartPending.current) return false;
     // The Environment chip's pick (CLOUD_ENVIRONMENTS_ENABLED); Auto, and the flag off, name none.
     const environment = cloudEnvironment.forSend(start.environment);
-    const reservationKey = cloudReservation.handoff(environment);
     const team = cloudSwitchTeam.forSend();
-    const request: CloudStart = {
+    const unreserved: CloudStart = {
       task: text,
       attachments,
       ...start,
       ...(environment ? { environment } : {}),
-      ...(reservationKey ? { reservationKey } : {}),
       ...(team ? { team } : {}),
     };
+    // The compose's warm machine goes only with the Send it first went with (or that Send's retry,
+    // the same start key): after a refused start, another prompt from this page would be refused
+    // by the platform as `409 reservation.bound` (cloudComposeReservation.ts `handoff`).
+    const reservationKey = cloudReservation.handoff(environment, cloudStartKeys.keyFor(unreserved));
+    const request: CloudStart = { ...unreserved, ...(reservationKey ? { reservationKey } : {}) };
     // A page's send leaves the page: its draft comes back in the chat composer, compared there.
     const started = beginCloudSend(request, false, fromPage ? undefined : composerHandle.current?.draft(), fromPage);
     // A composer's send leaves the composer open and empty, as a local send does: the prompt shows
