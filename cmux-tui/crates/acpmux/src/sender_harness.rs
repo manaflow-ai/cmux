@@ -692,30 +692,17 @@ impl BundleFiles {
 }
 
 impl FileStamp {
-    #[cfg(unix)]
-    fn of(path: &std::path::Path) -> Option<Self> {
-        use std::os::unix::fs::MetadataExt;
-        let meta = std::fs::metadata(path).ok()?;
-        Some(Self {
-            dev: meta.dev(),
-            ino: meta.ino(),
-            len: meta.len(),
-            modified: meta.modified().ok(),
-            changed: (meta.ctime(), meta.ctime_nsec()),
-        })
-    }
-
-    /// No app bundle to sign off Unix: the length and modification time alone.
-    #[cfg(not(unix))]
     fn of(path: &std::path::Path) -> Option<Self> {
         let meta = std::fs::metadata(path).ok()?;
-        Some(Self {
-            dev: 0,
-            ino: 0,
-            len: meta.len(),
-            modified: meta.modified().ok(),
-            changed: (0, 0),
-        })
+        #[cfg(unix)]
+        let (dev, ino, changed) = {
+            use std::os::unix::fs::MetadataExt;
+            (meta.dev(), meta.ino(), (meta.ctime(), meta.ctime_nsec()))
+        };
+        // App bundles and codesign are macOS only; elsewhere the length and mtime are the stamp.
+        #[cfg(not(unix))]
+        let (dev, ino, changed) = (0, 0, (0, 0));
+        Some(Self { dev, ino, len: meta.len(), modified: meta.modified().ok(), changed })
     }
 }
 
