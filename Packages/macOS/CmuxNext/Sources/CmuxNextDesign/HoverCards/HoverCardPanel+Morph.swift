@@ -57,8 +57,9 @@ extension HoverCardPanel {
     func morph(from previous: CGRect, spring: MotionSpring = .panel) -> Bool {
         let rest = cardFrame
         guard abs(previous.width - rest.width) > 0.5 || abs(previous.height - rest.height) > 0.5 else { return false }
-        // The same gate as the slide it runs with (`Motion.set`): Reduce Motion or speed off resize at once.
-        guard Motion.hoverCards.animatesMovement, let host, let body, let glassLayer = glass.layer else { return false }
+        // The same gate as the slide it runs with (`Motion.set`): Reduce Motion, speed off, or a live resize of the
+        // window this card is a child of, resize at once.
+        guard Motion.hoverCards.animatesMovement(in: self), let host, let body, let glassLayer = glass.layer else { return false }
         let corner = fixedCorner
         // The larger card the mask shows a part of, about the fixed corner.
         let big = CGSize(width: max(previous.width, rest.width), height: max(previous.height, rest.height))
@@ -129,9 +130,10 @@ extension HoverCardPanel {
 
     /// A first show that grows out of its target (`HoverCardEntrance.morph`): the same resize as a
     /// retarget's, from a drop as wide as the target (at most the card) and as tall as the card's
-    /// rounded corners, on the card's touching edge, to the whole card. The settle spring is
-    /// slightly under-damped, so the card stretches a hair past rest and pulls back, the surface
-    /// tension Leo asked for (2026-11-07). Motion off: no growth, the fade alone.
+    /// rounded corners, on the card's touching edge, to the whole card, on the settle spring. The
+    /// card stops on its rest size: it does not stretch past it and pull back (that stretch, Leo
+    /// 2026-11-07, went with every other bounce, Lawrence 2026-11-10). Motion off: no growth, the
+    /// fade alone.
     @discardableResult
     func grow() -> Bool {
         let rest = cardFrame

@@ -151,6 +151,9 @@ import { useHarnessesListed } from "../catalog";
 import { agentName } from "../agents";
 import { openHarnessesPage } from "../harnesses/harnessesPage";
 import { NewTabExtras } from "./NewTabExtras";
+import { GRID_BUILTINS, gridOrder, useNewTabExtensionWidgets } from "./ExtensionWidgets";
+import { panelId } from "../../../apps/scene/panelsClient";
+import type { PageClient } from "../../../pages/shared/pageClient";
 import type { SuggestionOrder } from "./suggestionOrder";
 import { newTabComposerTrailingGapArm } from "./composerGap.experiment";
 import { newTabIconColumnArm } from "./iconColumn.experiment";
@@ -199,6 +202,9 @@ export type NewTabScreenActions = NewTabCommandActions & {
   onOpenChat?(key: string): void | Promise<unknown>;
   /// Open in terminal from an All chats row's right-click menu.
   onOpenChatInTerminal?(key: string): void;
+  /// A chat card's Compress Chat or Decompress Chat: acpmux's cold archive (`_acpmux/cold_archive`) of
+  /// that session. It rejects with acpmux's refusal (a chat under way), which the page shows.
+  onColdArchive?(sessionId: string, archived: boolean): Promise<unknown>;
   onViewChat?(key: string): void;
   /// One page of All chats from the host (`chats.page`); without it the page shows no All chats list.
   loadChatsPage?: LoadChatsPage;
@@ -370,6 +376,9 @@ type Props = NewTabScreenActions & {
   upload?(files: File[]): Promise<UploadResult>;
   /// A fix-from-link request failed while the New Tab remains mounted.
   fixError?: string;
+  /// Where installed apps' New Tab widgets come from (ExtensionWidgets.tsx): the gallery's and tests'
+  /// mock; the page host's when unset, `null` for none.
+  widgetClient?: PageClient | null;
 };
 
 /// `/`, `/Users`, a home folder: never a chat's start folder (AgentPaneStartFolders drops them).
@@ -411,6 +420,8 @@ export function NewTabScreen(props: Props) {
   const onEditWidgets = template === "minimal" ? props.onEditWidgets : undefined;
   const editing = useWidgetEditing(onEditWidgets);
   const order = shownMovable(widgets);
+  // Installed apps' widgets in the widget row: mounted only when placed, and kept through a switch.
+  const appWidgets = useNewTabExtensionWidgets(props.widgetClient);
   const [carried] = useState(() => props.takeDraft?.());
   // A host-provided location is literal text, not Markdown (paths can contain `_`, `*`, or `[`);
   // a carried composer draft is already serialized Markdown, including attachment tokens.
@@ -1138,6 +1149,12 @@ export function NewTabScreen(props: Props) {
     const key = cards.find((card) => card.sessionId === id)?.chatKey;
     if (key) props.onOpenChatInTerminal?.(key);
   };
+  // A card's Compress Chat or Decompress Chat; acpmux's refusal stays on the page, as an open's does.
+  const coldArchiveCard = (id: string, archived: boolean) => {
+    void props.onColdArchive?.(id, archived).catch((error: unknown) => {
+      setStartError(errorMessage(error) || t("switch.unknownError"));
+    });
+  };
   const list = useRef<HTMLDivElement>(null);
   // With no room under the box for every row, the rows go past the window's edge (cx-6k6cg); the
   // field keeps the keyboard and the list its highlight.
@@ -1635,10 +1652,11 @@ export function NewTabScreen(props: Props) {
       pick(stepSelection(current, 1, rows.length));
       return;
     }
-    // In the text (no row selected), a prompt of several lines keeps ↑ and ↓ for the caret, as in
-    // the chat's composer; the rows take them from the caret's first (↑) or last (↓) line. In the
-    // list they always step the rows.
-    const step = current < 0 && movesCaretInPrompt(event, state) ? undefined : listStep(event);
+    // Until the arrows pick a row (the top row typing lights is not a pick), a prompt of several
+    // lines, wrapped ones too, keeps ↑ and ↓ for the caret, as in the chat's composer: the rows
+    // take them from the caret's first (↑) or last (↓) line. Once a row is picked, the arrows step
+    // the rows.
+    const step = kept < 0 && movesCaretInPrompt(event, state, input) ? undefined : listStep(event);
     if (step && rows.length) {
       event.preventDefault();
       pick(stepSelection(current, step, rows.length));
@@ -1935,6 +1953,7 @@ export function NewTabScreen(props: Props) {
         {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
         {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
         {...(snapshot.peerResources ? { peerResources: snapshot.peerResources } : {})}
+        {...(snapshot.peerLinks ? { peerLinks: snapshot.peerLinks } : {})}
         {...(props.onRefreshMachines ? { onRefreshMachines: props.onRefreshMachines } : {})}
         onComputer={(computer) => pickMachine(computer === "local" ? undefined : { peer: computer })}
         {...(props.onCloudMachinePicked ? { onCloudMachinePicked: props.onCloudMachinePicked } : {})}
@@ -2102,6 +2121,7 @@ export function NewTabScreen(props: Props) {
           variant={sections.chats}
           onOpen={openCard}
           {...(props.onOpenChatInTerminal ? { onOpenInTerminal: openCardInTerminal } : {})}
+          {...(props.onColdArchive ? { onColdArchive: coldArchiveCard } : {})}
           onShowAll={props.onShowAll}
         />
       )}
@@ -2394,7 +2414,29 @@ export function NewTabScreen(props: Props) {
       now={at}
     />
   );
-  const extras = <NewTabExtras widgets={widgets} now={at} />;
+  const extras = (
+    <NewTabExtras
+      widgets={widgets}
+      now={at}
+      extensions={appWidgets}
+      editing={editing}
+      {...(onEditWidgets ? { onEdit: onEditWidgets } : {})}
+    />
+  );
+  // Add Widgets places an app's widget at the row's end, keeping the row's order as the person sees it.
+  const placedAppWidgets = new Set(appWidgets.mounted.map((widget) => panelId(widget.panel)));
+  const addableAppWidgets = !appWidgets.editable
+    ? []
+    : appWidgets.available
+        .filter((panel) => !placedAppWidgets.has(panelId(panel)))
+        .map((panel) => ({ id: panelId(panel), title: panel.title }));
+  const addAppWidget = (id: string) => {
+    const row = gridOrder(
+      [...GRID_BUILTINS.filter((widget) => widgets.has(widget)), ...placedAppWidgets],
+      appWidgets.layout,
+    );
+    appWidgets.setLayout([...row, id]);
+  };
   // First run (no chats on this Mac or its peers yet): three things to ask, under the composer. A
   // pick fills the composer and sends nothing; the first chat takes them away for good.
   const pickStarter = (prompt: string) => {
@@ -2506,7 +2548,9 @@ export function NewTabScreen(props: Props) {
         data-layout={stage ? "stage" : undefined}
         data-minimal={minimal || undefined}
       >
-        {onEditWidgets && <WidgetEditBar editing={editing} onEdit={onEditWidgets} />}
+        {onEditWidgets && (
+          <WidgetEditBar editing={editing} onEdit={onEditWidgets} apps={addableAppWidgets} onAddApp={addAppWidget} />
+        )}
         {stage ? (
           <>
             {/* Claude Code desktop's new-session screen (Leo 2026-10-19): the free space over the
@@ -2738,14 +2782,18 @@ function listStep(event: KeyboardEvent): 1 | -1 | undefined {
 }
 
 /// Whether ↑ or ↓ (no modifier) has a line of the prompt to move the caret to: one above the caret
-/// for ↑, one below it for ↓ (Composer.tsx's rule for a recalled prompt).
+/// for ↑, one below it for ↓ (Composer.tsx's rule for a recalled prompt). A line the field wraps
+/// counts as its visual lines, so a long one-paragraph prompt keeps ↑ and ↓ for its caret too.
 function movesCaretInPrompt(
   event: KeyboardEvent,
   field: { value: string; selectionStart: number; selectionEnd: number },
+  editor: Pick<MarkdownFieldHandle, "caretOnEdgeLine">,
 ): boolean {
   if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return false;
-  if (event.key === "ArrowUp") return field.value.slice(0, field.selectionStart).includes("\n");
-  if (event.key === "ArrowDown") return field.value.slice(field.selectionEnd).includes("\n");
+  if (event.key === "ArrowUp")
+    return field.value.slice(0, field.selectionStart).includes("\n") || !editor.caretOnEdgeLine("up");
+  if (event.key === "ArrowDown")
+    return field.value.slice(field.selectionEnd).includes("\n") || !editor.caretOnEdgeLine("down");
   return false;
 }
 

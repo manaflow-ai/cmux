@@ -22,6 +22,10 @@
 // Six parts of about 701 stages each then reached their 450 s limit: part 6 scanned every stage and
 // still ran out on a busy shard (2026-11-05, run 42061901722), so seven.
 // Each part scans every `parts`-th stage of the sorted list.
+// Each part is also `// cmux-web-test-alone`: about 280 s alone, but three parts the split put on
+// one shard ran together in its dev-server pool, each hit its limit, and each paid its alone retry
+// on top (react-apps-check shard 8 on #40611, 2026-11-10: about 20 minutes of a 28 to 33 minute
+// shard). Alone, the split counts each part in series and spreads them over the shards.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 // Warm the first stage through its scoped frame. Crawling the generic frame follows every lazy

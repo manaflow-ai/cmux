@@ -392,32 +392,27 @@ class Notify(unittest.TestCase):
         """A 404 (or any read error) is no record: the failed state stands."""
         seen = []
 
-        class Response(io.BytesIO):
-            status = 200
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *exc):
-                return False
-
-        def urlopen(request, timeout):
-            seen.append(request.full_url)
-            if "missing" in seen[-1]:
-                raise notify.urllib.error.HTTPError(request.full_url, 404, "Not Found", {}, None)
-            if "truncated" in seen[-1]:  # the connection drops mid-body
+        def request(url, seconds):
+            seen.append(url)
+            self.assertEqual(seconds, notify.REQUEST_TIMEOUT_S)
+            if "missing" in url:
+                return 404, b"Not Found", {}
+            if "truncated" in url:  # the connection drops mid-body
                 raise http.client.IncompleteRead(b"{")
-            return Response(json.dumps(completion_json()).encode())
+            if "timeout" in url:
+                raise notify.RequestTimeout("no full answer")
+            return 200, json.dumps(completion_json()).encode(), {}
 
-        original = notify.urllib.request.urlopen
-        notify.urllib.request.urlopen = urlopen
+        original = notify.deadline_http.request
+        notify.deadline_http.request = request
         try:
             self.assertEqual(notify.fetch_completion(KEY), completion_json())
             self.assertTrue(seen[-1].startswith(f"https://files.cmux.com/cmux-tui/tree/{KEY}/completion.json?"))
             self.assertIsNone(notify.fetch_completion("missing"))
             self.assertIsNone(notify.fetch_completion("truncated"))
+            self.assertIsNone(notify.fetch_completion("timeout"))
         finally:
-            notify.urllib.request.urlopen = original
+            notify.deadline_http.request = original
 
     def test_a_failed_tree_is_reported_once_per_marker(self):
         """2026-11-02: tree 4e172926 could not build (a stale Cargo.lock on the base its commits came
@@ -694,6 +689,38 @@ class SupersededSameTreeRuns(unittest.TestCase):
                     api = FakeApi([marker], runs=[dict(item) for item in runs], pr=pr)
                     run(api)
                     self.assertEqual(api.cancelled, [])
+
+    def test_fork_markers_do_not_fill_the_marker_slots(self):
+        """Review of #39634 (comment 6745208604): fork markers are skipped, so they must be dropped before the
+        MAX_MARKERS cut. Otherwise 50 newer fork markers (GitHub lists the newest first) hide a same-repository
+        marker: its run is neither dispatched nor swept."""
+        markers = [pr_marker(**self.FORGED, run_id=1000 + index) for index in range(notify.MAX_MARKERS + 5)]
+        markers.append(pr_marker())
+        api = FakeApi(markers, runs=[open_run(501, 1), open_run(502, 2), open_run(503, 3)],
+                      artifact_runs=[FORK_RUN] * (len(markers) - 1) + [None])
+        self.assertEqual(run(api), 1)
+        self.assertEqual([body["ref"] for body in api.dispatched], ["lane/x"])
+        self.assertEqual(sorted(api.cancelled), [502, 503])
+
+    def test_an_artifact_without_a_run_is_skipped_and_the_rest_is_swept(self):
+        """Older artifacts list `workflow_run: null`; reading its id must not end the notify."""
+        api = FakeApi([pr_marker(run_id=13), pr_marker()],
+                      runs=[open_run(501, 1), open_run(502, 2), open_run(503, 3)])
+        api.artifacts[0]["workflow_run"] = None
+        self.assertEqual(run(api), 1)
+        self.assertEqual(sorted(api.cancelled), [502, 503])
+
+    def test_a_marker_naming_another_head_branch_than_its_run_starts_nothing(self):
+        """dispatch_refs reads the marker's head_ref; GitHub records the run's branch (workflow_run.head_branch).
+        A pull request marker whose head_ref is not that branch starts no run on another branch."""
+        for head_branch in ("lane/x", None):
+            with self.subTest(head_branch=head_branch):
+                api = FakeApi([pr_marker(head_ref="lane/victim")], artifact_runs=[{"head_branch": head_branch}],
+                              runs=[open_run(501, 1, branch="lane/victim"), open_run(502, 2, branch="lane/victim"),
+                                    open_run(503, 3, branch="lane/victim")])
+                self.assertEqual(run(api), 0)
+                self.assertEqual(api.dispatched, [])
+                self.assertEqual(api.cancelled, [])
 
     def test_an_unreadable_run_list_cancels_nothing_and_still_dispatches(self):
         class ListDown(FakeApi):

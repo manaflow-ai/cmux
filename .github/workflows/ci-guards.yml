@@ -206,6 +206,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_classic_frozen_guard.py
 
+      - name: Validate the language-boundaries check
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_language_boundaries.py
+
       - name: Validate the PR capture check
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_capture_check.py
@@ -704,9 +708,11 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: ./tests/test_testbox_demo_cleanup.sh
 
+      # -x follows each `# shellcheck source=` (repo-root relative), so a test that sources
+      # scripts/cmux-next/tests/lib/git-fixture.sh lints with it instead of failing SC1091.
       - name: Lint the Testbox lane helpers
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: shellcheck scripts/blacksmith-bounded-command.sh scripts/blacksmith-cmux-tui-testbox-stage.sh scripts/blacksmith-testbox-cleanup.sh scripts/blacksmith-testbox-keepalive.sh scripts/blacksmith-testbox-busy.sh tests/test_testbox_keepalive_busy.sh scripts/blacksmith-testbox-target-prune.sh scripts/blacksmith-testbox-release.sh tests/test_testbox_target_prune.sh scripts/ci/install-actionlint.sh tests/test_ci_actionlint_download.sh tests/test_testbox_setup_identity.sh scripts/blacksmith-testbox-demo.sh scripts/blacksmith-testbox-approve.sh tests/test_testbox_approve.sh tests/test_testbox_demo_cleanup.sh
+        run: shellcheck -x scripts/blacksmith-bounded-command.sh scripts/blacksmith-cmux-tui-testbox-stage.sh scripts/blacksmith-testbox-cleanup.sh scripts/blacksmith-testbox-keepalive.sh scripts/blacksmith-testbox-busy.sh tests/test_testbox_keepalive_busy.sh scripts/blacksmith-testbox-target-prune.sh scripts/blacksmith-testbox-release.sh tests/test_testbox_target_prune.sh scripts/ci/install-actionlint.sh tests/test_ci_actionlint_download.sh tests/test_testbox_setup_identity.sh scripts/blacksmith-testbox-demo.sh scripts/blacksmith-testbox-approve.sh tests/test_testbox_approve.sh tests/test_testbox_demo_cleanup.sh
 
       - name: Test the actionlint downloader without a network outage
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -716,9 +722,17 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_actionlint_covers_every_workflow.py
 
+      - name: Check that every workflow file is under GitHub's 500 KB limit, with room
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflow_file_size.py
+
       - name: Check that push and pull_request path filters agree
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_path_filter_parity.py
+
+      - name: Check that path-filtered workflows start for their tests' inputs
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflow_paths_cover_inputs.py
 
       - name: Validate the backend migration flow (append-only plan, push-safe guards)
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -900,7 +914,10 @@ jobs:
 
       - name: Validate that no workflow polls the API with GITHUB_TOKEN
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_no_github_token_polling.py
+        # And that every HTTP call in scripts/ci ends by its deadline (deadline_http.py, no bare urlopen).
+        run: |
+          python3 tests/test_ci_no_github_token_polling.py
+          python3 tests/test_ci_no_bare_urlopen.py
 
       - name: Validate CI queue janitor policy
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1064,9 +1081,14 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ios_internal_runner.py
 
+      # Every vars.NAME a runs-on reads should declare its fallback in .github/single-host-fallbacks.json, which the
+      # build-fleet runner label policy reads from here (cmux#40221 merged two undeclared names unseen). Advisory
+      # only (no new CI gate, Lawrence 2026-10-23): --advisory warns and exits 0; the pre-push hook enforces it.
       - name: Validate no runs-on waits on one machine through a variable's value
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_runs_on_values.py
+        run: |
+          python3 tests/test_ci_runs_on_values.py
+          python3 scripts/cmux-next/check-single-host-fallbacks.py --advisory
 
       - name: Validate the INTERNAL iOS builder What to Test notes
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1851,6 +1873,7 @@ jobs:
           python3 tests/test_ci_runs_on_fallback.py
           python3 tests/test_ci_warm_sources.py
           python3 tests/test_ci_checkout_lean.py
+          python3 tests/test_ci_sparse_checkout_imports.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
           python3 tests/test_ci_killpg_tolerates_eperm.py
 
@@ -2106,6 +2129,12 @@ jobs:
           python3 tests/test_lint_errno_in_test_assertions.py
           python3 scripts/lint-errno-in-test-assertions.py
 
+      - name: Validate no short fixed gates on Cloud and daemon slow paths
+        if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}
+        run: |
+          python3 scripts/lint-short-gates.py --self-test
+          python3 scripts/lint-short-gates.py
+
       - name: Validate test determinism gate
         if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}
         run: |
@@ -2307,6 +2336,24 @@ jobs:
           import os
           import sys
 
+          def exit_with_verdict(results, what, may_skip=()):
+              """scripts/ci/needs_verdict.py PYTHON_RULE, copied verbatim (tests/test_needs_verdict.py)."""
+              def word(r):
+                  return (r or "").replace(":", " ").split(" ", 1)[0]
+              bad = {n: r for n, r in results.items() if word(r) != "success" and not (r == "skipped" and n in may_skip)}
+              if not bad:
+                  return
+              failed = {n: r for n, r in bad.items() if word(r) in ("failure", "invalid")}
+              for n, r in bad.items():
+                  print(f"{n}: {r or 'none'}", file=sys.stderr)
+              if failed:
+                  print(f"::error::summary red: {what}: " + "; ".join(f"{n}: {r}" for n, r in failed.items()))
+                  sys.exit(1)
+              named = ", ".join(f"{n} {r or 'none'}" for n, r in bad.items())
+              print(f"::error::no verdict: {what}: {named}; nothing it summarizes was judged: re-run the run")
+              sys.exit(3)
+
+
           inputs = json.loads(os.environ["GUARD_INPUTS"])
           needs = json.loads(os.environ["GUARD_NEEDS"])
           route_jobs = {
@@ -2316,16 +2363,15 @@ jobs:
               "linux_guard_cli": "workflow-guard-cli-scripts",
               "linux_guard_source": "workflow-guard-source-lints",
           }
-          bad = {}
+          results, may_skip = {}, set()
           for route, job in sorted(route_jobs.items()):
               if route == "submodule_forward_only":
-                  if needs[job]["result"] != "success":
-                      bad[job] = needs[job]["result"]
+                  results[job] = needs[job]["result"]
                   continue
               value = inputs.get(route)
               result = needs[job]["result"]
               if value not in {"true", "false"}:
-                  bad[route] = f"invalid route {route}={value!r}"
+                  results[route] = f"invalid route {route}={value!r}"
               elif value == "true":
                   # Pull requests run the `ci` group in the first-class
                   # `CI fast guards` job in ci.yml. The reusable matrix
@@ -2341,20 +2387,17 @@ jobs:
                       except (TypeError, ValueError):
                           groups = None
                       if not isinstance(groups, list) or not all(isinstance(group, str) for group in groups):
-                          bad[route] = f"invalid linux_guard_test_groups={raw_groups!r}"
+                          results[route] = f"invalid linux_guard_test_groups={raw_groups!r}"
                           continue
                       if groups and set(groups) == {"ci"}:
                           print("linux_guard_tests=authoritative CI fast guards job")
                           continue
-                  if result != "success":
-                      bad[job] = f"{result} (route {route}=true)"
-              elif result not in {"success", "skipped"}:
-                  bad[job] = result
+                  results[job] = f"{result} (route {route}=true)"
+              else:
+                  results[job] = result
+                  may_skip.add(job)
 
-          if bad:
-              for name, result in bad.items():
-                  print(f"{name}: {result}", file=sys.stderr)
-              sys.exit(1)
+          exit_with_verdict(results, "Guard status", may_skip)
 
           for route, job in sorted(route_jobs.items()):
               print(f"{route}={inputs.get(route)} {job}={needs[job]['result']}")

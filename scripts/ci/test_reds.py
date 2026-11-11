@@ -778,7 +778,8 @@ def lost_runner(job, annotations=(), log=None):
     unfinished = [step for step in steps if step.get("status") != "completed"
                   and (step.get("status") == "in_progress" or step.get("started_at"))]
     if unfinished:
-        return (f"it completed with step {unfinished[0].get('name')!r} still {unfinished[0].get('status')} and no "
+        said = unfinished[0].get("name")  # step-name: display
+        return (f"it completed with step {said!r} still {unfinished[0].get('status')} and no "
                 "step failed: its runner stopped reporting mid-step")
     if isinstance(log, str) and BLOB_NOT_FOUND.search(log):
         return "GitHub stored no log for it (BlobNotFound) and no step failed: its runner went away"

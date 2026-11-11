@@ -15,6 +15,7 @@ import {
   inlineIds,
   inlinePlugin,
   insertInline,
+  type InlinePlace,
   orderInline,
   placeTokensIn,
   removeInline,
@@ -106,6 +107,10 @@ export type MarkdownFieldHandle = {
   /// Whether Backspace here would do nothing: an empty caret at the very start of a plain first
   /// paragraph (a heading, list item or quote there takes Backspace to lift itself).
   atStart(): boolean;
+  /// Whether the caret is on the prompt's first visual line ("up") or its last ("down"), wrapped
+  /// lines counted: ↑ or ↓ there has no line of the prompt to move to. True before the editor is
+  /// made (one line of plain text).
+  caretOnEdgeLine(direction: "up" | "down"): boolean;
   /// Rewrites the plain text to `value` as one undoable edit of the span that changed, then
   /// selects `selectionStart...selectionEnd`; the composer hears it through `onChange`.
   writeText(value: string, selectionStart: number, selectionEnd: number): void;
@@ -132,10 +137,13 @@ export type MarkdownFieldHandle = {
   /// The formats active at the selection, for the toolbar's pressed states.
   formats(): Set<MarkdownFormat>;
   /// The field's own history (its context menu's Undo and Redo): whether there is an edit to
-  /// undo or redo, and doing it.
-  history(): { undo: boolean; redo: boolean };
+  /// undo or redo, how many it can undo (`depth`) and redo (`redoDepth`), and doing it.
+  history(): { undo: boolean; redo: boolean; depth: number; redoDepth: number };
   undo(): void;
   redo(): void;
+  /// Ends the current undo step: what is typed next is its own step (a surface's own edit, such as
+  /// a staged file, went in between).
+  closeHistory(): void;
   /// Selects the whole prompt (its context menu's Select All).
   selectAll(): void;
   /// Inserts `text` at the selection as a paste of plain text goes in, with no surface rule run on it
@@ -143,8 +151,10 @@ export type MarkdownFieldHandle = {
   insertText(text: string): void;
   /// Places attachments `ids` at the caret, in the text (composer/inlineNode.ts); false where they
   /// cannot go (a code block, an editor not made yet). `replace`: the person's paste or drop, which
-  /// takes the selection's place; otherwise nothing typed is replaced.
-  insertInline(ids: readonly string[], replace?: boolean): boolean;
+  /// takes the selection's place; otherwise nothing typed is replaced. `at` "start": at the start of
+  /// the prompt's first line that can hold them, the selection kept; "restore": there, as no undo
+  /// step of its own (inlineNode.ts `insertInline`).
+  insertInline(ids: readonly string[], replace?: boolean, at?: InlinePlace): boolean;
   /// Takes attachment `id` out of the text; `caret`, the caret goes where it was.
   removeInline(id: string, caret?: boolean): void;
   /// Puts the attachments placed in the text in `ids`' order, each place in the text kept.
@@ -1574,6 +1584,24 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
             $from.parent.type.name === "paragraph"
           );
         },
+        caretOnEdgeLine: (direction) => {
+          const current = view.current;
+          if (!current) return true;
+          const { doc, selection } = current.state;
+          // The selection's top (↑) or bottom (↓) end, as endOfTextblock measures it. A selected
+          // block (a rule) has no line to move within.
+          const $end = direction === "up" ? selection.$from : selection.$to;
+          if (!$end.parent.isTextblock) return true;
+          // No text block before (↑) or after (↓) the end's, a rule or other block atom between
+          // them aside, and the end on its block's top (or bottom) visual line: ProseMirror
+          // measures the wrapped layout.
+          const beyond =
+            direction === "up"
+              ? Selection.findFrom(doc.resolve($end.before()), -1, true)
+              : Selection.findFrom(doc.resolve($end.after()), 1, true);
+          if (beyond) return false;
+          return current.endOfTextblock(direction);
+        },
         writeText: (value, selectionStart, selectionEnd) => {
           const current = view.current;
           if (!current) return;
@@ -1606,7 +1634,13 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         focused: () => view.current?.hasFocus() ?? false,
         history: () => {
           const state = view.current?.state;
-          return { undo: state ? undoDepth(state) > 0 : false, redo: state ? redoDepth(state) > 0 : false };
+          const depth = state ? undoDepth(state) : 0;
+          const redos = state ? redoDepth(state) : 0;
+          return { undo: depth > 0, redo: redos > 0, depth, redoDepth: redos };
+        },
+        closeHistory: () => {
+          const current = view.current;
+          if (current) current.dispatch(closeHistory(current.state.tr));
         },
         undo: () => {
           if (view.current) undo(view.current.state, view.current.dispatch);
@@ -1623,10 +1657,10 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           refocus.current = null;
           insertPlain(view.current, text);
         },
-        insertInline: (ids, replace) => {
+        insertInline: (ids, replace, at) => {
           if (!view.current) return false;
           refocus.current = null;
-          return insertInline(view.current, ids, replace);
+          return insertInline(view.current, ids, replace, at);
         },
         removeInline: (id, caret) => {
           if (view.current) removeInline(view.current, id, caret);
