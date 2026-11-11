@@ -9169,7 +9169,7 @@ class DerivedStatusByParts(StepFixture, unittest.TestCase):
     BUILD_FIXED = ({StepFixture.UNIT: "red"}, {}, {StepFixture.UNIT: "red"})
     OWN = ({StepFixture.UNIT: "red"}, {}, {})  # green on base before and after the merge-base
 
-    def parts(self, parts, description, *, extra_checks=(), check_total=None):
+    def parts(self, parts, description, *, extra_checks=(), check_total=None, green_statuses=0):
         """A head whose red jobs are PARTS ((job name, (head, newest, prior) states), ...) and whose derived status
         reads DESCRIPTION."""
         github = self.github(({}, {}), ({}, {}), ({}, {}))
@@ -9180,14 +9180,18 @@ class DerivedStatusByParts(StepFixture, unittest.TestCase):
                 job_id = 10 * n + k + 1
                 job, github.logs[job_id] = self.side(job_id, run_id, sha, side)
                 github.jobs[job_id] = dict(job, name=name)
-        statuses = [{"context": self.VERDICT, "state": "failure", "description": description},
-                    {"context": "Vercel", "state": "success", "description": "Deployed"}]
+        statuses = [{"context": f"green {n}", "state": "success", "description": "ok"} for n in range(green_statuses)]
+        statuses += [{"context": self.VERDICT, "state": "failure", "description": description},
+                     {"context": "Vercel", "state": "success", "description": "Deployed"}]
         inner = github.json
 
         def json(route, *, paginate=False):
             if route.endswith(f"commits/{HEAD}/status?per_page=100"):
+                # GitHub's combined status: 100 contexts a page, total_count all of them.
                 github.routes.append(route)
-                return {"state": "failure", "total_count": len(statuses), "statuses": copy.deepcopy(statuses)}
+                pages = [{"state": "failure", "total_count": len(statuses), "statuses": copy.deepcopy(statuses[n:n + 100])}
+                         for n in range(0, len(statuses), 100)]
+                return pages if paginate else pages[0]
             found = inner(route, paginate=paginate)
             if route.endswith(f"commits/{HEAD}/check-runs?filter=all&per_page=100"):
                 found[0]["check_runs"] += copy.deepcopy(list(extra_checks))
@@ -9243,6 +9247,62 @@ class DerivedStatusByParts(StepFixture, unittest.TestCase):
         github = self.parts([(self.JOB, self.FIXED)], self.own(self.JOB, 2))
         with self.assertRaisesRegex(excuse.Refused, "counts 3 reds, and aaaaaaaaaaaa has 1"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[self.VERDICT])
+
+    def test_f1_a_third_party_red_sharing_an_actions_jobs_name_is_unknown(self):
+        # A newer check of another app, red, with the Actions job's name: judged by name, the Actions job's base
+        # evidence excused it. Its identity is "other-ci / NAME", never "run 10 / NAME": unknown, not excused.
+        other = {"id": 999, "name": self.JOB, "status": "completed", "conclusion": "failure",
+                 "app": {"slug": "other-ci"}, "details_url": "https://ci.example.com/build/1"}
+        github = self.parts([(self.JOB, self.FIXED)], self.own(self.JOB), extra_checks=[other])
+        with self.assertRaisesRegex(excuse.Refused, f"'other-ci / {re.escape(self.JOB)}'"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[self.VERDICT])
+        # Another app's red of its own name has no job judge() can rule on either.
+        github = self.parts([(self.JOB, self.FIXED)], self.own(self.JOB), extra_checks=[dict(other, name="lint")])
+        with self.assertRaisesRegex(excuse.Refused, "'other-ci / lint' is another app's check"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[self.VERDICT])
+
+    def test_f1_one_name_red_in_two_actions_runs_is_unknown(self):
+        github = self.parts([(self.JOB, self.FIXED)], self.own(self.JOB))
+        twin, github.logs[90] = self.side(90, 11, HEAD, {self.MOTION: "quiet-red"})
+        github.jobs[90] = twin
+        with self.assertRaisesRegex(excuse.Refused, "red in 2 Actions runs at"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[self.VERDICT])
+
+    def test_f2_a_red_aggregate_part_carries_its_own_judgement(self):
+        # ci-status, red for its one failed job under its needs ('macos / ...'), is excused when judged alone; as a
+        # part of the derived status it was refused for having no line of its own.
+        child = "macos / cmux-next checks"
+        github = self.parts([(child, self.FIXED)], self.own("ci-status", 1))
+        github.jobs[50] = {"id": 50, "run_id": 10, "head_sha": HEAD, "name": "ci-status", "status": "completed",
+                           "conclusion": "failure", "steps": [{"name": "Report", "status": "completed",
+                                                                "conclusion": "failure"}]}
+        alone = excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=["ci-status"])
+        self.assertTrue(any(line.startswith(f"excused '{child}': fixed on base (") for line in alone), alone)
+        said = excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[self.VERDICT])
+        line = next(line for line in said if line.startswith("excused 'ci-status'"))
+        self.assertTrue(line.startswith("excused 'ci-status': fixed on base (run 10 / ci-status: an aggregate"), line)
+        self.assertTrue(said[-1].startswith(f"excused '{self.VERDICT}': fixed on base ("), said[-1])
+
+    def test_f3_the_combined_status_is_read_past_100_contexts(self):
+        # 101 contexts: the derived status is the 100th, its parts' reds past the first page would be unread.
+        github = self.parts([(self.JOB, self.FIXED)], self.own(self.JOB), green_statuses=99)
+        github_red = self.parts([(self.JOB, self.FIXED)], self.own(self.JOB), green_statuses=99)
+        said = excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[self.VERDICT])
+        self.assertTrue(said[-1].startswith(f"excused '{self.VERDICT}': fixed on base ("), said[-1])
+        # A red context on the second page is a part too: one judge() cannot rule on keeps it red.
+        statuses_route = f"repos/{REPO}/commits/{HEAD}/status?per_page=100"
+        inner = github_red.json
+
+        def json(route, *, paginate=False):
+            found = inner(route, paginate=paginate)
+            if route == statuses_route and paginate:
+                found[-1]["statuses"].append({"context": "Vercel – docs", "state": "failure", "description": "x"})
+                for page in found:
+                    page["total_count"] += 1
+            return found
+        github_red.json = json
+        with self.assertRaisesRegex(excuse.Refused, "Vercel – docs"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], github_red, checks=[self.VERDICT])
 
     def test_a_derived_status_red_for_another_reason_is_not_judged_by_its_parts(self):
         github = self.parts([(self.JOB, self.FIXED)], "conflicting with feat-cmux-next")

@@ -2503,11 +2503,23 @@ def read_in_full(pages: object, key: str, what: str) -> list[dict]:
     return items
 
 
-def derived_status_parts(repo: str, sha: str, name: str, github) -> list[str]:
-    """The red check runs and statuses on SHA whose verdict derived status NAME is (the rule above), every one read;
-    Refused when NAME is not red for its parts or the parts cannot all be read."""
-    statuses = read_in_full(github.json(f"repos/{repo}/commits/{sha}/status?per_page=100"), "statuses",
-                            f"the combined status of {sha[:12]}")
+class Part(NamedTuple):
+    """A red a derived status is a function of, by the identity hq#9188's update_branch guard keys reds by: "run RUN /
+    JOB" for an Actions job (judged by its check name, which names one Actions job at the head), "status / CONTEXT"
+    for a commit status. NAME is what judge() is asked about and its audit lines name; RUN, the Actions run."""
+    identity: str
+    name: str
+    run: int | None = None
+
+
+def derived_status_parts(repo: str, sha: str, name: str, github) -> list[Part]:
+    """The red check runs and statuses on SHA whose verdict derived status NAME is (the rule above), every one read,
+    each by its identity (Part); Refused when NAME is not red for its parts, the parts cannot all be read, or a red
+    part's identity is not one judge() can rule on: another app's check ("SLUG / NAME"), a name another app's check
+    shares with an Actions job, or a name red in two Actions runs. Judged by name, any of those borrowed an Actions
+    job's base evidence (#41113's review F1)."""
+    statuses = read_in_full(github.json(f"repos/{repo}/commits/{sha}/status?per_page=100", paginate=True),
+                            "statuses", f"the combined status of {sha[:12]}")
     status = next((found for found in statuses if found.get("context") == name), None)
     if status is None or status.get("state") not in ("failure", "error"):
         raise Refused(f"'{name}' is {status.get('state') if status else 'not'} on {sha[:12]}: no derived red to judge")
@@ -2515,7 +2527,8 @@ def derived_status_parts(repo: str, sha: str, name: str, github) -> list[str]:
     form = DERIVED_STATUSES[name].fullmatch(said)
     if form is None:
         raise Refused(f"'{name}': {said[:200]!r} is not a red of the head's other checks, so it is not judged by them")
-    parts, running = [], []
+    parts: list[Part] = []
+    running = []
     for found in statuses:
         context = str(found.get("context") or "")
         if context in DERIVED_STATUSES:
@@ -2523,45 +2536,90 @@ def derived_status_parts(repo: str, sha: str, name: str, github) -> list[str]:
         if found.get("state") == "pending":
             running.append(context)
         elif found.get("state") in ("failure", "error"):
-            parts.append(context)
-    newest: dict[str, dict] = {}
+            parts.append(Part(f"status / {context}", context))
+    # The newest check run of each (name, app), and of each (name, Actions run).
+    by_app: dict[str, dict[str, dict]] = {}
+    by_run: dict[str, dict[int, dict]] = {}
     for check in read_in_full(github.json(f"repos/{repo}/commits/{sha}/check-runs?filter=all&per_page=100",
                                           paginate=True), "check_runs", f"the check runs of {sha[:12]}"):
-        if check.get("id", -1) > newest.get(str(check.get("name")), {}).get("id", -1):
-            newest[str(check.get("name"))] = check
-    for check_name, check in sorted(newest.items()):
+        check_name, slug = str(check.get("name")), str((check.get("app") or {}).get("slug") or "")
         if check_name in DERIVED_STATUSES:
             continue
-        if check.get("status") in PENDING_CHECK or check.get("status") != "completed":
+        if check.get("id", -1) > by_app.setdefault(check_name, {}).get(slug, {}).get("id", -1):
+            by_app[check_name][slug] = check
+        link = re.search(r"/actions/runs/(\d+)/job/\d+", str(check.get("details_url") or ""))
+        if slug == "github-actions" and link:
+            run = int(link[1])
+            if check.get("id", -1) > by_run.setdefault(check_name, {}).get(run, {}).get("id", -1):
+                by_run[check_name][run] = check
+    unknown = []
+    for check_name, apps in sorted(by_app.items()):
+        if any(check.get("status") != "completed" for check in apps.values()):
             running.append(check_name)
-        elif check.get("conclusion") not in GREEN:
-            parts.append(check_name)
+            continue
+        reds = {slug: check for slug, check in apps.items() if check.get("conclusion") not in GREEN}
+        if not reds:
+            continue
+        others = sorted(slug for slug in apps if slug != "github-actions")
+        if others:
+            unknown.append(f"'{others[0]} / {check_name}' is another app's check"
+                           + (f", sharing its name with an Actions job, so whose red it is is unknown"
+                              if "github-actions" in apps else ": judge() has no Actions job to rule on it"))
+            continue
+        actions = apps["github-actions"]
+        in_runs = sorted(run for run, check in by_run.get(check_name, {}).items()
+                         if check.get("conclusion") in VERDICT_REDS)
+        if len(in_runs) > 1:
+            unknown.append(f"'{check_name}' is red in {len(in_runs)} Actions runs at {sha[:12]} "
+                           f"({', '.join(map(str, in_runs))}), so which job it names is unknown")
+            continue
+        link = re.search(r"/actions/runs/(\d+)/job/\d+", str(actions.get("details_url") or ""))
+        if link is None:
+            unknown.append(f"'{check_name}' links no Actions job")
+            continue
+        parts.append(Part(f"run {link[1]} / {check_name}", check_name, int(link[1])))
     if running:
         raise Refused(f"'{name}': {', '.join(map(repr, sorted(running)))[:300]} not finished at {sha[:12]}, so not every "
                       "red it is a function of can be probed")
+    if unknown:
+        raise Refused(f"'{name}': " + "; ".join(unknown)[:600] + "; unknown is never excused")
     key = form["key"]
-    if not any(key == part or key.endswith(f" / {part}") for part in parts):
+    if not any(key == part.name or key.endswith(f" / {part.name}") for part in parts):
         raise Refused(f"'{name}' names '{key}', which is not red at {sha[:12]} (its reds: "
-                      f"{', '.join(map(repr, parts))[:300] or 'none'})")
+                      f"{', '.join(part.identity for part in parts)[:300] or 'none'})")
     if form["more"] is not None and len(parts) < 1 + int(form["more"]):
         raise Refused(f"'{name}' counts {1 + int(form['more'])} reds, and {sha[:12]} has {len(parts)}: a red it "
                       "names is not at the head")
     return parts
 
 
-def derived_status_line(name: str, sha: str, parts: list[str], audit: list[str]) -> str:
-    """The audit line for derived status NAME once judge() has judged each of its PARTS (AUDIT, its lines so far);
-    Refused when a part has none."""
+def derived_status_line(repo: str, name: str, sha: str, parts: list[Part], audit: list[str], jobs: list[dict]) -> str:
+    """The audit line for derived status NAME once judge() has judged each of its PARTS (AUDIT, its lines so far; JOBS,
+    the head jobs it judged). A red aggregate part (ci-status) has no line of its own, since judge() judges the failed
+    jobs under it (head_jobs), so its line is added here from theirs: its own judgement carried into the verdict
+    (#41113's review F2). Refused when a part has no verdict."""
     lines = {}
     for part in parts:
-        line = next((line for line in audit if line.startswith((f"excused '{part}'", f"ignored '{part}'"))), None)
+        line = next((line for line in audit if line.startswith((f"excused '{part.name}'", f"ignored '{part.name}'"))),
+                    None)
+        if line is None and part.run is not None and is_aggregate(part.name, repo):
+            children = sorted({job.get("name", "") for job in jobs
+                               if job.get("run_id") == part.run and job.get("name") != part.name})
+            said = {child: next((line for line in audit if line.startswith(f"excused '{child}'")), None)
+                    for child in children}
+            if children and all(said.values()):
+                fixed = all(line.startswith(f"excused '{child}': fixed on base (") for child, line in said.items())
+                what = (f"{part.identity}: an aggregate of the failed jobs under it, each judged above: "
+                        f"{', '.join(map(repr, children))}")[:600]
+                line = f"excused '{part.name}': " + (f"fixed on base ({what})" if fixed else f"its jobs are excused ({what})")
+                audit.append(line)
         if line is None:
-            raise Refused(f"'{name}': judge() gave its red part '{part}' no verdict line, so it is not excused")
+            raise Refused(f"'{name}': judge() gave its red part {part.identity} no verdict line, so it is not excused")
         lines[part] = line
     red = [part for part, line in lines.items() if line.startswith("excused ")]
-    fixed = bool(red) and all(lines[part].startswith(f"excused '{part}': fixed on base (") for part in red)
+    fixed = bool(red) and all(lines[part].startswith(f"excused '{part.name}': fixed on base (") for part in red)
     what = (f"a derived status: its red is a function of the {len(parts)} red checks at {sha[:12]}, every one read "
-            f"and judged above: {', '.join(repr(part) for part in parts)}")[:900]
+            f"and judged above: {', '.join(part.identity for part in parts)}")[:900]
     return f"excused '{name}': fixed on base ({what})" if fixed else f"excused '{name}': its parts are excused ({what})"
 
 
@@ -4685,12 +4743,13 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         audit.extend(ws_check(repo, base, sha, github))
         if not (runs or checks):
             return audit
-    derived: dict[str, list[str]] = {}
+    derived: dict[str, list[Part]] = {}
     for name in [name for name in checks if name in DERIVED_STATUSES]:
-        # A derived status is judged by its parts (DERIVED_STATUSES): each is judged here as if named on its own.
+        # A derived status is judged by its parts (DERIVED_STATUSES): each is judged here as if named on its own, by
+        # a name that is one Actions job's or one status's at the head (derived_status_parts).
         derived[name] = derived_status_parts(repo, sha, name, github)
         checks = [check for check in checks if check != name]
-        checks += [part for part in derived[name] if part not in checks]
+        checks += [part.name for part in derived[name] if part.name not in checks]
     if not (runs or checks):
         # Asked about no red run or check: no failure, exit 0 (cmuxterm-hq#7234 at ce69ab6d, 16/16 green, exited 1
         # here as "no failed job found", and a merge check that asks about every head refused every green PR). A red
@@ -4842,7 +4901,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             audit.append(f"{verb} '{context}': its status is the verdict of job '{name}' {job['id']} in run "
                          f"{job.get('run_id')}, {verb} above")
     for name, parts in derived.items():
-        audit.append(derived_status_line(name, sha, parts, audit))
+        audit.append(derived_status_line(repo, name, sha, parts, audit, jobs))
     return audit
 
 
