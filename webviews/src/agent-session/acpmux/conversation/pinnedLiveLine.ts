@@ -36,6 +36,8 @@ type Pinned = {
   top: number;
   /// The thread offset last drawn against.
   x: number;
+  /// The reader took the view: the line and its clips hold where they are drawn.
+  held?: boolean;
 };
 const pinned = new WeakMap<HTMLElement, Pinned>();
 
@@ -80,7 +82,7 @@ function dropClipGlides(row: HTMLElement) {
 /// top. Nothing pinned: nothing drawn.
 export function drawPinned(thread: HTMLElement, x: number): void {
   const rows = pinned.get(thread);
-  if (!rows) return;
+  if (!rows || rows.held) return;
   rows.x = x;
   if (Math.abs(x) < 0.25) {
     clear(rows);
@@ -103,20 +105,34 @@ export function drawPinned(thread: HTMLElement, x: number): void {
 /// Pins the live line in `thread` (or unpins it, `pin` false) for this placement pass. Let go while
 /// it was held away from the thread's offset, it returns what it was held back by for the pass's glide
 /// to start from; `settle` plays it home if no glide takes it (`finish`).
-export function pinLiveLine(
-  thread: HTMLElement | null,
-  pin: boolean,
-  free?: (row: HTMLElement) => void,
-): PinCarry | undefined {
+/// Whether `row` plays a translate of its own (a glide, a send's rise, a carry home). O(its own).
+function moving(row: HTMLElement): boolean {
+  if (typeof row.getAnimations !== "function") return false;
+  return row.getAnimations().some((animation) => {
+    if (animation.playState === "finished" || animation.playState === "idle") return false;
+    const frames = (animation.effect as KeyframeEffect | null)?.getKeyframes?.();
+    return frames?.some((frame) => "translate" in frame || "transform" in frame) ?? false;
+  });
+}
+
+/// `hold`: the reader took the view. What the pin draws holds where it is (as the chase and the row
+/// glides hold, tailGlide `hold`), never played home under the reader's own scroll; the pin draws on
+/// once the view follows again.
+export function pinLiveLine(thread: HTMLElement | null, pin: boolean, hold = false): PinCarry | undefined {
   if (!thread) return undefined;
   const was = pinned.get(thread);
-  const live = pin ? thread.querySelector<HTMLElement>(`:scope > .acpmux-row[data-row-id="${LIVE_THINKING}"]`) : null;
+  if (was && !pin && hold && was.live.isConnected) {
+    was.held = true;
+    return undefined;
+  }
+  const found = pin ? thread.querySelector<HTMLElement>(`:scope > .acpmux-row[data-row-id="${LIVE_THINKING}"]`) : null;
+  // A line that plays a translate of its own (a send's rise, a carry home) finishes it first: taken
+  // mid-way, the pin's translate would lose to it, or cancelling it would jump the line. The next pass
+  // takes it.
+  const live = found && (was?.live === found || !moving(found)) ? found : null;
   if (live) {
     const x = threadY(thread);
     if (was) clear(was);
-    // Taken from its glide (a carry still playing): the pin draws it from now on, and the glide's
-    // translate would win over the pin's.
-    if (!was || was.live !== live) free?.(live);
     // A row over the line lies under its held place by at most the most the chase holds back.
     const reach = Math.max(Math.abs(x), thread.ownerDocument.defaultView?.innerHeight ?? 0);
     pinned.set(thread, { live, above: rowsAbove(live, reach), top: live.offsetTop, x: was?.x ?? 0 });

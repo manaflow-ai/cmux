@@ -129,9 +129,6 @@ export type TailGlide = {
   ): void;
   /// Ends what plays, the rows drawn at their places, and forgets where they were.
   stop(): void;
-  /// Ends what plays on `row` and the clips its glide guards (a row the pinned live line takes over:
-  /// its glide's translate would win over the pin's, pinnedLiveLine.ts).
-  release(row: HTMLElement): void;
   /// The reader took the view: what plays holds where it is drawn (as the follow chase does).
   hold(): void;
   /// Followed again: what the reader's input held plays on.
@@ -269,7 +266,6 @@ export function createTailGlide(): TailGlide {
   };
   return {
     stop,
-    release: cancelOn,
     moving: () =>
       [...playing].some((animation) => animation.playState !== "finished" && animation.playState !== "idle"),
     hold() {

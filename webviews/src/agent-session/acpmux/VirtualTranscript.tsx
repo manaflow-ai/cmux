@@ -3871,7 +3871,8 @@ function TranscriptView({
     // rows above it grow or come (pinnedLiveLine.ts), for as long as it stays the last row: a pin
     // dropped and taken again a pass later left the line on its own glide, whose translate wins over
     // the pin's, under a reply clipped for where the pin would draw it (overlap). A send's rows rise
-    // with theirs, and the turn's end folds them itself, so those let it go.
+    // with theirs, and the turn's end folds them itself, so those let it go; the reader taking the
+    // view holds it where it is drawn.
     const lastRow = rows.at(-1);
     const lineStays = oldRows.at(-1)?.id === LIVE_THINKING;
     const pinLive =
@@ -3883,7 +3884,7 @@ function TranscriptView({
       turnEndCapture.current === undefined &&
       !thread.current?.hasAttribute(TURN_END_ATTR) &&
       !(sends !== seenSends.current || performance.now() < sendRiseUntil.current);
-    const carry = pinLiveLine(thread.current, pinLive, (row) => tailGlide.current?.release(row));
+    const carry = pinLiveLine(thread.current, pinLive, !followingRef.current);
     tailGlide.current?.place(
       thread.current,
       tailGlides && chasing,
