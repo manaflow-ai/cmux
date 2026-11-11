@@ -124,7 +124,7 @@ import os
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body: [String: Any] = ["model": Optional(modelID(model)).filter { $0.hasPrefix("claude-") } ?? "claude-haiku-5-5", "max_tokens": 1, "system": "You are Claude Code, Anthropic's official CLI for Claude.",
+        let body: [String: Any] = ["model": [modelID(model)].first { $0.hasPrefix("claude-") } ?? "claude-haiku-5-5", "max_tokens": 1, "system": "You are Claude Code, Anthropic's official CLI for Claude.",
                                    "messages": [["role": "user", "content": "ok"]]]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         return request
