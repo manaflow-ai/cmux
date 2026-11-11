@@ -337,6 +337,13 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
     # A new agent chat, as New Agent Chat makes it (no focus), then the composer's own picks. Untargeted
     # palette.newAgentChat is the open frame-pacing's transcript run uses on the same runners; after
     # new.agentChat.tab there, no pane showed an agent tab in any cell (run 42941064792).
+    # A start opens its chat in the machine's own workspace and focus follows it; the next chat then opened
+    # beside it on a New Tab page with no composer (run 43021965230's removed cells). Back to the first
+    # workspace, then open, then take the pane the open added.
+    journey.call("action.run", {"action": "selectWorkspaceByNumber", "index": 1})
+    # The panes showing an agent tab now (untargeted: the focused one, or every one when none is focused).
+    shown = journey.pane("chat_state")
+    listed_before = set(shown.get("agent_panes") or ([shown["pane"]] if shown.get("pane") else []))
     opened = journey.call("action.run", {"action": "palette.newAgentChat"})
     if opened.get("error"):
         cell["result"] = f"fail: new chat tab: {opened['error']}"
@@ -347,12 +354,13 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
         if state.get("pane") and not state.get("error"):
             pane = state["pane"]
             break
-        # Several panes show a chat (an earlier cell's Cloud chat opened in its machine's workspace): the
-        # pane the first cell used, else the newest listed.
+        # Several panes show a chat (an earlier cell's Cloud chat opened in its machine's workspace): the one
+        # the open added, else the pane the first cell used while it still shows an agent tab, else the newest.
         listed = [p for p in (state.get("agent_panes") or []) if isinstance(p, str)]
-        # The remembered pane no longer shows an agent tab (a start closed its tab into the machine's
-        # workspace, run 42981215182): the newest listed pane is where the palette opened this chat.
-        if listed and (not journey.home_pane or journey.home_pane not in listed):
+        added = [p for p in listed if p not in listed_before]
+        if added:
+            journey.home_pane = added[-1]
+        elif listed and (not journey.home_pane or journey.home_pane not in listed):
             journey.home_pane = listed[-1]
         time.sleep(1)
     journey.home_pane = journey.home_pane or pane
@@ -399,6 +407,15 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
     prompt, reply_token = answer_prompt(word)
     sent = journey.pane("compose_send", pane, text=prompt, timeout=60)
     cell["sent"] = sent.get("sent")
+    if sent.get("error"):
+        # No composer took the prompt (the pane shows a New Tab page): nothing can start, so no 600 s wait.
+        cell["after_send"] = {"compose_send": sent, "composer": journey.pane("chat_state", pane).get("composer")}
+        problems.append(f"compose_send: {clean(str(sent['error']), 160)}")
+        journey.call("action.run", {"action": "closeTab", "target": pane})
+        cell["outcome"] = "not sent"
+        cell["seconds"] = round(time.monotonic() - started, 1)
+        cell["result"] = "fail: " + "; ".join(problems)
+        return cell
     if sent.get("sent") is not True:
         # Why the composer kept the draft, read right after Send: its own answer (`blocked`: the send's
         # gate, when the app says), the chips and Cloud state as drawn, and every notice on the page.
@@ -430,7 +447,7 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
         if isinstance(start, dict) and start.get("ask"):
             outcome, message = "asked", str((start.get("ask") or {}).get("title") or "")
             break
-        if sent.get("sent") is False and not start:
+        if sent.get("sent") is not True and not start:
             outcome = "kept"
             message = str(sent.get("blocked") or "") or " ".join(
                 journey.page_text("[role='alert'], .acpmux-composer-notice")).strip()
