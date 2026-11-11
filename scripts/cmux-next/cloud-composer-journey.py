@@ -17,8 +17,10 @@ Each cell asserts:
     the team it names, the Mode chip) matches what happens;
   * outcome: the start succeeds and the agent replies, or it is refused BEFORE a machine is leased, with
     an actionable message (not a bare Retry);
-  * no machine is left behind: every machine this app made in the cell is deleted, and a refused start
-    made none;
+  * no machine is left behind: every machine this run made is deleted, and a refused start made none.
+    Only a machine with positive evidence that this run made it is ever deleted: the app's own creation
+    record (composer) or the start's answer (CLI). Any other machine that appears meanwhile (the person's
+    own, another run's) is reported and never touched; a cancelled or crashed run deletes what it made too;
   * the chips name what they show: the Mode chip never reads a bare "Mode", the team tag never names a
     team the account is not in. (Truncation of the chips is the gallery's check,
     webviews/src/agent-session/acpmux/cloudComposerChips.gallery.ts, where widths are measured.)
@@ -175,7 +177,9 @@ class Journey(Matrix):
     def __init__(self, args):
         super().__init__(args)
         self.composer = False  # set once `debug.agent_pane` answers
-        self.made: set[str] = set()
+        # Machines this run made and has not deleted yet: a cancel, a crashed cell or the end deletes them.
+        self.owned: set[str] = set()
+        self.cell_creations_before: set[str] | None = None
         self.home_pane: str | None = None  # the pane the cells open their new chat tabs in
 
     # -- app calls
@@ -289,13 +293,33 @@ def guest_peek(journey: Journey, machine: str) -> str:
     return clean(str(answer.get("stdout") or err or out), 1800)
 
 
-def new_machines(journey: Journey, before: set[str], since: float) -> list[str]:
-    """Machines this app made since the cell began: its own creations first, else new ids not named by
-    another run (the account is shared with other CI runs, whose machines are never ours to delete)."""
-    ids = {str(r.get("machine_id") or r.get("id") or "") for r in journey.creations()} - {""}
+def creation_ids(journey: Journey) -> set[str]:
+    """The machines the app's own creation record names (`cloud.machines` creations)."""
+    return {str(r.get("machine_id") or r.get("id") or "") for r in journey.creations()} - {""}
+
+
+def owned_and_seen(made_by_us: set[str], before: set[str], now: set[str]) -> tuple[list[str], list[str]]:
+    """Which machines are this cell's to delete, and which only appeared. Ours: positive evidence only
+    (`made_by_us`: the app's creations new since the cell began, or the start's answered machine). A new
+    id with no such evidence (the person started a machine meanwhile, or another run did) is seen, never
+    deleted: the account is the person's, and a machine of theirs holds their work."""
+    owned = sorted(made_by_us - before)
+    seen = sorted((now - before) - set(owned))
+    return owned, seen
+
+
+def new_machines(journey: Journey, before: set[str], creations_before: set[str]) -> tuple[list[str], list[str]]:
+    """The machines this app made since the cell began (its creation record), and the other new ones."""
     rows = journey.machine_rows()
-    fresh = {m for m, row in rows.items() if m not in before and not OTHER_RUNS.match(str(row.get("title") or ""))}
-    return sorted((ids & set(rows)) | (ids - before) | fresh) if journey.composer else sorted(fresh)
+    seen_ids = {m for m, row in rows.items() if not OTHER_RUNS.match(str(row.get("title") or ""))}
+    return owned_and_seen(creation_ids(journey) - creations_before, before, seen_ids)
+
+
+def sweep(journey: Journey) -> list[str]:
+    """Deletes every machine this run made and still holds (`owned`); returns those that would not go."""
+    left = [m for m in sorted(journey.owned) if not journey.kill(m)]
+    journey.owned = set(left)
+    return left
 
 
 def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, account: str, mode: str,
@@ -303,6 +327,8 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
     cell = {"folder": folder_kind, "account": account, "mode": mode, "driver": "composer", "problems": []}
     problems = cell["problems"]
     before = set(journey.machine_rows())
+    creations_before = creation_ids(journey)
+    journey.cell_creations_before = creations_before  # a crash in this cell still finds what it made
     started = time.monotonic()
 
     # A new agent chat, as New Agent Chat makes it (no focus), then the composer's own picks. Untargeted
@@ -411,8 +437,11 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
     if outcome == "started":
         journey.home_pane = None  # this tab closed into the machine's chat; the next cell finds its own pane
     cell["message"] = clean(message, 300)
-    made = new_machines(journey, before, started)
+    made, seen = new_machines(journey, before, creations_before)
+    journey.owned.update(made)
     cell["machines_made"] = made
+    if seen:
+        cell["machines_seen_not_ours"] = seen
 
     # Says vs does.
     if said_unavailable and (outcome == "started" or made):
@@ -426,7 +455,11 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
             current = journey.team_id()
             if current == team_for_account:
                 problems.append("started in a team the account is not in")
-        machine = made[0] if made else ""
+        # The reply is read from the machine the app's record names; one only seen is read too (reading
+        # deletes nothing), but it is not ours to delete, so the cell says so.
+        machine = made[0] if made else (seen[0] if seen else "")
+        if machine and not made:
+            problems.append(f"started {machine}, which the app's creation record does not name: not deleted")
         replied = False
         reply_deadline = time.monotonic() + timeout
         while machine and time.monotonic() < reply_deadline:
@@ -453,7 +486,8 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
         problems.append(f"no outcome within {timeout} s")
 
     # Leave nothing behind.
-    left = [m for m in made if not journey.kill(m)]
+    left = [m for m in cell["machines_made"] if not journey.kill(m)]
+    journey.owned.difference_update(set(cell["machines_made"]) - set(left))
     cell["machines_left"] = left
     if left:
         problems.append(f"machines left: {', '.join(left)}")
@@ -491,8 +525,14 @@ def cell_cli(journey: Journey, folder_kind: str, folder: Path | None, account: s
         if trusted:
             journey.cmux("setup", "trust", str(folder), "--level", "unknown", timeout=60)
     answer = journey.parsed(out) if code == 0 else {}
-    made = sorted((set(journey.machine_rows()) - before) | ({answer["machine_id"]} if answer.get("machine_id") else set()))
+    # Ours only by the start's own answer; a refused start answers no machine, so any new one is only seen
+    # (a lease after a refusal shows as seen, and fails the cell below without deleting it).
+    made, seen = owned_and_seen({str(answer["machine_id"])} if answer.get("machine_id") else set(), before,
+                                set(journey.machine_rows()))
+    journey.owned.update(made)
     cell["machines_made"] = made
+    if seen:
+        cell["machines_seen_not_ours"] = seen
     untrusted_rules(folder_kind, "started" if code == 0 else "refused",
                     "" if code == 0 else (journey.error(out, err).get("message") or clean(err or out, 300)), problems)
     if code == 0:
@@ -505,14 +545,16 @@ def cell_cli(journey: Journey, folder_kind: str, folder: Path | None, account: s
     else:
         message = journey.error(out, err).get("message") or clean(err or out, 300)
         cell["outcome"], cell["message"] = "refused", clean(message, 300)
-        if made:
+        if made or seen:
+            made = made or seen
             why = " by the agent's own usage limit on that machine" if USAGE_LIMIT.search(message) else ""
             problems.append(f"refused AFTER leasing a machine ({', '.join(made)}){why}")
         if not actionable(message):
             problems.append(f"the refusal is not actionable: {clean(message, 120)!r}")
         if folder_kind in ("small-repo", "plain", "none"):
             problems.append("a start that should run was refused")
-    left = [m for m in made if not journey.kill(m)]
+    left = [m for m in cell["machines_made"] if not journey.kill(m)]
+    journey.owned.difference_update(set(cell["machines_made"]) - set(left))
     cell["machines_left"] = left
     if left:
         problems.append(f"machines left: {', '.join(left)}")
@@ -592,7 +634,11 @@ def main(argv=None) -> int:
               "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
 
     def cancelled(signum, frame):
-        journey.stop()
+        # A cancelled run (a superseded PR run, a timeout) deletes what it made before it stops.
+        try:
+            sweep(journey)
+        finally:
+            journey.stop()
         sys.exit(128 + signum)
     signal.signal(signal.SIGTERM, cancelled)
     try:
@@ -638,6 +684,12 @@ def main(argv=None) -> int:
                     except Exception as error:  # one cell's crash is its own row
                         cell = {"folder": folder_kind, "account": account, "mode": mode,
                                 "result": f"fail: harness: {clean(repr(error), 300)}"}
+                        # What the app made before the crash is still ours: the sweep below deletes it.
+                        if journey.cell_creations_before is not None:
+                            try:
+                                journey.owned |= creation_ids(journey) - journey.cell_creations_before
+                            except Exception:
+                                pass
                 else:
                     cell = cell_cli(journey, folder_kind, fixtures[folder_kind], account, mode, args.timeout)
                 report["cells"].append(cell)
@@ -646,14 +698,20 @@ def main(argv=None) -> int:
                       f"[{cell['result'][:400]}]", flush=True)
                 report["result"] = f"running: {len(report['cells'])} cells so far"
                 finish(report, out, 0, quiet=True)
-        left: list[str] = []
-        report["machines_left"] = sorted({m for c in report["cells"] for m in (c.get("machines_left") or [])}) + left
+        left = sweep(journey)
+        # What is still up after the last sweep (a cell's own `machines_left` the sweep retried, and any other).
+        report["machines_left"] = sorted(set(left))
         failed = [c for c in report["cells"] if not c["result"].startswith(("pass", "skipped"))]
         report["result"] = "pass" if not failed and not report["machines_left"] else (
             f"fail: {len(failed)} of {len(report['cells'])} cells red"
             + (f", {len(report['machines_left'])} machines left" if report["machines_left"] else ""))
         return finish(report, out, 0 if report["result"] == "pass" else 1)
     finally:
+        if journey.owned:  # a run that ended early (an exception) still deletes what it made
+            try:
+                sweep(journey)
+            except Exception:
+                pass
         if args.app:
             journey.quit()
         if not args.keep_fixtures:

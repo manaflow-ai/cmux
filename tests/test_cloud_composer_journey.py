@@ -79,3 +79,35 @@ class Report(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Ownership(unittest.TestCase):
+    """Only a machine this run made is ever deleted (review F1: a machine the person started meanwhile is theirs)."""
+
+    def test_a_machine_with_no_evidence_is_seen_never_owned(self):
+        owned, seen = journey.owned_and_seen(set(), {"vm_old"}, {"vm_old", "vm_person"})
+        self.assertEqual(owned, [])
+        self.assertEqual(seen, ["vm_person"])
+
+    def test_the_run_owns_only_what_it_made(self):
+        owned, seen = journey.owned_and_seen({"vm_ours"}, {"vm_old"}, {"vm_old", "vm_ours", "vm_person"})
+        self.assertEqual(owned, ["vm_ours"])
+        self.assertEqual(seen, ["vm_person"])
+
+    def test_a_machine_there_before_the_cell_is_never_owned(self):
+        owned, _ = journey.owned_and_seen({"vm_old"}, {"vm_old"}, {"vm_old"})
+        self.assertEqual(owned, [])
+
+    def test_the_sweep_deletes_what_is_owned_and_keeps_what_would_not_go(self):
+        class Fake:
+            owned = {"vm_a", "vm_b"}
+            killed: list[str] = []
+
+            def kill(self, machine):
+                self.killed.append(machine)
+                return machine == "vm_a"
+
+        fake = Fake()
+        self.assertEqual(journey.sweep(fake), ["vm_b"])
+        self.assertEqual(sorted(fake.killed), ["vm_a", "vm_b"])
+        self.assertEqual(fake.owned, {"vm_b"})
