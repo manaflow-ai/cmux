@@ -16,6 +16,13 @@ import unittest
 from pathlib import Path
 
 import yaml
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 STAMP = "schemas/settings-export/settings-schema.sources.sha256"
@@ -231,7 +238,7 @@ class ExportsAreComparedWithAFreshExport(unittest.TestCase):
             (fake / "regenerate-settings-exports.sh").write_text("#!/bin/sh\necho EXPORTED\n")
             (fake / "regenerate-settings-exports.sh").chmod(0o755)
             self.install_check(repo)
-            env = {"RUNNER_TEMP": tmp, "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"}
+            env = git_fixture_env.fixture_env({"RUNNER_TEMP": tmp, "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"})
             result = self.run_check(repo, env)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertNotIn("EXPORTED", result.stdout)
@@ -345,7 +352,7 @@ class ExportsAreComparedWithAFreshExport(unittest.TestCase):
             products = repo / "Packages/macOS/CmuxNext/.build/debug"
             products.mkdir(parents=True)
             (products / "CmuxNextSettingsTests.xctest").write_text("built from whichever sources\n")
-        env = {"RUNNER_TEMP": tmp, "PATH": path, **(env_extra or {})}
+        env = git_fixture_env.fixture_env({"RUNNER_TEMP": tmp, "PATH": path, **(env_extra or {})})
         result = self.run_check(repo, env)
         left = [line for line in run("git", "status", "--porcelain", "--untracked-files=no").stdout.splitlines()
                 if not any(line.endswith(path) for path in keep)]

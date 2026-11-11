@@ -34,6 +34,9 @@
 //!   when a seed answered at the chat's head while the machine fills the rest
 //!   ([`push`]). The push's
 //!   progress lines go to stderr; `--acpmux-home H` adds `source_trusted` ([`trust`]).
+//! - `trust --folder F --acpmux-home H`: the same trust answer for `F`, read
+//!   before any machine is taken, so a start from a folder this Mac does not
+//!   trust is refused here, never after a lease ([`trust::cli`]).
 //! - `ensure --workspace W --key K [--repo OWNER/NAME] [--project-key KEY] [--ref REF] [--environment env_...]
 //!   [--platform URL]`, the cmux credential on stdin: the workspace's own
 //!   machine from the cmux platform (`POST /v1/workspaces/{W}/machine`), made
@@ -55,6 +58,8 @@
 mod ledger;
 mod pick;
 mod project;
+#[cfg(test)]
+mod refusal_table_tests;
 mod reservations;
 mod spare_warm;
 #[cfg(test)]
@@ -79,7 +84,8 @@ cmux link start-chat target-pane --key KEY --account ACCOUNT --machine ID --pane
 cmux link start-chat ensure --workspace ID --key KEY [--repo OWNER/NAME] [--project-key KEY] [--ref REF] [--environment env_ID] [--platform URL] (the cmux credential on stdin)\n       \
 cmux link start-chat import --entries JSON\n       \
 cmux link start-chat reserve|release|warm-spare --request JSON (the session credential, then the install token, on stdin), wait-copy --machine ID --provider P\n       \
-cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH... [--acpmux-home PATH] [--store PLATFORM|default] (with --store, the cmux credential on stdin)";
+cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH... [--acpmux-home PATH] [--store PLATFORM|default] (with --store, the cmux credential on stdin)\n       \
+cmux link start-chat trust --folder FOLDER --acpmux-home PATH";
 
 /// The error code a work root the machine's user cannot write answers with:
 /// the next root is tried.
@@ -161,6 +167,7 @@ pub(super) fn run(args: &[String]) -> i32 {
             })
         }),
         "import" => flags.one("--entries").map(|entries| import(&ledger, entries)),
+        "trust" => trust::cli(&flags),
         "ensure" => Ensure::of(&flags).map(|ensure| ensure.run(&mut std::io::stdin().lock())),
         "reserve" => {
             reservations::run(&flags, reservations::Action::Reserve, &mut std::io::stdin().lock())
@@ -434,7 +441,7 @@ fn plan_with_calls(
                     .map(|_| request.key.to_lowercase()),
             };
             let answer = if credential.0.is_empty() {
-                Err(crate::cli::PlatformCallError::Status { status: 401, code: "" })
+                Err(crate::cli::PlatformCallError::Status { status: 401, code: "", facts: None })
             } else {
                 ensure(&ask, credential.0)
             };
@@ -548,10 +555,20 @@ fn ensures(request: &PlanRequest, project_key: Option<&str>) -> bool {
 
 /// Whether a failed ensure made no machine, so the App may make one: the platform has no workspace machines here (a
 /// 404 that is not a refused environment), refused the sign-in, has none configured, or admitted none.
+///
+/// Never a refusal of the platform's Cloud table (cmux-platform#1192) but a refused sign-in: a cap, the plan, a rate
+/// limit or a machine's state is the platform's answer for this send, final or retried with the same key, and the
+/// App's own create would only meet it again (a 403 at the team's VM limit went to that create and hit the limit).
 pub(super) fn made_no_machine(error: &crate::cli::PlatformCallError) -> bool {
     use crate::cli::PlatformCallError as E;
     match error {
         E::Status { code: "cloud_environment.not_found", .. } => false,
+        E::Status { code, .. }
+            if *code != "auth.forbidden"
+                && cmux_cloud_machine::refusals::platform(code).is_some() =>
+        {
+            false
+        }
         E::Status { status: 401 | 403 | 404, .. } => true,
         E::Status {
             code: "workspace_machine.unconfigured" | "workspace_machine.not_admitted",
@@ -874,16 +891,21 @@ pub(super) fn ensure_answer(answer: Result<Value, crate::cli::PlatformCallError>
                 None => refused("bad_answer", "the cmux platform answered without the machine"),
             }
         }
-        Err(E::Status { status: 404, code: "" | "not_found" }) => {
+        Err(E::Status { status: 404, code: "" | "not_found", .. }) => {
             refused("unavailable", "this cmux platform has no workspace machines (it answered 404)")
         }
-        Err(E::Status { status, code }) => refused(
-            if code.is_empty() { "refused" } else { code },
-            format!(
-                "the cmux platform refused the workspace's machine: {}",
-                format!("{status} {code}").trim_end()
-            ),
-        ),
+        Err(E::Status { status, code, facts }) => {
+            let mut line = refused(
+                if code.is_empty() { "refused" } else { code },
+                format!(
+                    "the cmux platform refused the workspace's machine: {}{}",
+                    format!("{status} {code}").trim_end(),
+                    crate::cli::platform_refusal_reason(code, facts.as_ref())
+                ),
+            );
+            with_handling(&mut line, status, code, facts);
+            line
+        }
         Err(E::Unreachable(reason)) => {
             refused("unreachable", format!("the cmux platform did not answer: {reason}"))
         }
@@ -891,6 +913,32 @@ pub(super) fn ensure_answer(answer: Result<Value, crate::cli::PlatformCallError>
             "bad_answer",
             format!("the cmux platform answered {status} with no readable body"),
         ),
+    }
+}
+
+/// Adds to a refused `line` how the refusal is handled: final (shown, never retried), a rate
+/// limit's wait (`retry_after_s`: the body's `retryAfterSeconds`, the Retry-After header or
+/// `details.retry_after_ms`), or a retry with the same key. The body's `retryable` decides for
+/// any code, in the platform's Cloud table or not (a workspace's 503
+/// `machine.placement_unavailable`); a code of the table with no flag takes its row's. A code of
+/// neither, with no flag, adds nothing: the App reads the code alone, as before.
+pub(super) fn with_handling(
+    line: &mut Value,
+    status: u16,
+    code: &str,
+    facts: Option<cmux_cloud_machine::refusals::Facts>,
+) {
+    use cmux_cloud_machine::refusals::{self, Handling};
+    let facts = facts.unwrap_or_default();
+    let Value::Object(object) = line else { return };
+    if refusals::platform(code).is_none() && facts.retryable.is_none() {
+        return;
+    }
+    let handling = refusals::handling(status, Some(code), facts.retryable);
+    object.insert("handling".into(), json!(handling));
+    object.insert("retryable".into(), json!(handling != Handling::Final));
+    if handling == Handling::RetryAfter {
+        object.insert("retry_after_s".into(), json!(facts.wait_s()));
     }
 }
 

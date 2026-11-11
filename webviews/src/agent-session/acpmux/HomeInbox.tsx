@@ -18,6 +18,7 @@ import { type StringKey, useT } from "./i18n";
 import { askText } from "./needsYou/needsYouModel";
 import type { NeedsYouAnswer, NeedsYouItem, NeedsYouKind } from "./needsYou/model";
 import { PermissionActionButton } from "./PermissionCard";
+import { recommendedLabel } from "./question/model";
 import { sessionIndex } from "./sessionIndex";
 import { type AcpmuxSessionEntry, projectLabel } from "./sessionList";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
@@ -69,7 +70,10 @@ export function HomeInbox({
   // The list's shared id map (sessionIndex.ts), not one of its own per draw.
   const byId = sessionIndex(sessions);
   // The first row an answer can be given on takes the keys.
-  const keyed = shortcuts ? shown.find((item) => inlineAnswers(item).length > 0)?.id : undefined;
+  // A question's choices take no permission shortcut: only an allow or a deny does.
+  const keyed = shortcuts
+    ? shown.find((item) => inlineAnswers(item).some((answer) => answer.tone !== "choice"))?.id
+    : undefined;
   if (shown.length === 0) return null;
   const row = (item: NeedsYouItem) => (
     <InboxRow
@@ -153,6 +157,8 @@ function InboxRow({
   const answers = inlineAnswers(item);
   const allow = answers.find((a) => a.tone === "allow");
   const deny = answers.find((a) => a.tone === "deny");
+  // A one-pick question's choices, answered here as its card would (homeInboxModel.ts `replyElsewhere`).
+  const choices = answers.filter((a) => a.tone === "choice");
   const answer = (choice: NeedsYouAnswer) => {
     if (inFlight.current) return;
     inFlight.current = true;
@@ -201,7 +207,12 @@ function InboxRow({
   const chat = item.who.chief ? t("needsYou.chief") : item.who.name;
   const where = [chat, look === "grouped" ? undefined : project, machine].filter(Boolean).join(" · ");
   return (
-    <li className="acpmux-home-inbox-row" data-kind={item.kind} data-sending={sending ? "" : undefined}>
+    <li
+      className="acpmux-home-inbox-row"
+      data-kind={item.kind}
+      data-question={item.question ? "" : undefined}
+      data-sending={sending ? "" : undefined}
+    >
       <button
         type="button"
         className="acpmux-home-inbox-open"
@@ -257,6 +268,24 @@ function InboxRow({
               onClick={() => answer(deny)}
             />
           )}
+          {choices.map((choice) => {
+            const { label, recommended } = recommendedLabel(choice.label);
+            return (
+              <button
+                key={choice.id}
+                type="button"
+                className="acpmux-home-inbox-answer"
+                data-tone="choice"
+                data-recommended={recommended || undefined}
+                disabled={sending !== undefined}
+                aria-busy={sending === choice.id}
+                onClick={() => answer(choice)}
+              >
+                {label}
+                {recommended && <span className="acpmux-home-inbox-recommended">{t("hat.questions.recommended")}</span>}
+              </button>
+            );
+          })}
         </fieldset>
       )}
       {failed && (
