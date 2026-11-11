@@ -525,8 +525,14 @@ pub fn service_shortcuts() -> Option<Vec<(u16, u64)>> {
             st.refreshing = false;
         }
     }
-    // A list older than SERVICES_STALE (reads kept failing) no longer counts.
-    st.last.as_ref().filter(|(at, _)| at.elapsed() < SERVICES_STALE).map(|(_, list)| list.clone())
+    // A list stops counting only when it is older than SERVICES_STALE AND a
+    // refresh after that has failed (an idle pause alone keeps it).
+    let stale = st.last.as_ref().is_some_and(|(at, _)| at.elapsed() > SERVICES_STALE)
+        && st.failed_at.is_some_and(|f| st.last.as_ref().is_some_and(|(at, _)| f > *at + SERVICES_STALE));
+    if stale {
+        return None;
+    }
+    st.last.as_ref().map(|(_, list)| list.clone())
 }
 
 /// The Services shortcuts the person assigned (System Settings > Keyboard >

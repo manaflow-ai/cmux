@@ -646,32 +646,38 @@ impl ElementCache {
 
 /// Where a menu item sits: the index of the menu bar item it is under, how
 /// many menus it is inside, and the titles of the items of its own menu.
-pub fn menu_context(item: &Ax) -> (Option<usize>, usize, Vec<String>) {
-    let parent = item.element("AXParent");
-    let siblings = parent
-        .as_ref()
-        .filter(|p| p.string("AXRole").as_deref() == Some("AXMenu"))
-        .map(|p| p.elements("AXChildren").iter().map(|c| c.string("AXTitle").unwrap_or_default()).collect())
-        .unwrap_or_default();
+pub fn menu_context(item: &Ax) -> Option<(Option<usize>, usize, Vec<String>)> {
+    // Every read here can fail; any failure is None (the caller fails closed).
+    let role = |n: &Ax| n.attr("AXRole").map(|v| v.and_then(|v| v.as_string()));
+    let kids = |n: &Ax| -> Option<Vec<Ax>> {
+        n.attr("AXChildren").ok().map(|v| v.map(|l| l.items().into_iter().filter_map(Ax::from_cf).collect()).unwrap_or_default())
+    };
+    let parent = item.attr("AXParent").ok()?.and_then(Ax::from_cf);
+    let siblings = match &parent {
+        Some(p) if role(p).ok()?.as_deref() == Some("AXMenu") => kids(p)?
+            .iter()
+            .map(|c| c.attr("AXTitle").map(|v| v.and_then(|v| v.as_string()).unwrap_or_default()))
+            .collect::<Result<Vec<_>, _>>()
+            .ok()?,
+        _ => Vec::new(),
+    };
     let mut menus = 0usize;
     let mut top_item: Option<Ax> = None;
     let mut current = parent;
     for _ in 0..16 {
         let Some(node) = current else { break };
-        match node.string("AXRole").as_deref() {
+        match role(&node).ok()?.as_deref() {
             Some("AXMenu") => menus += 1,
             Some("AXMenuBarItem") => top_item = Some(node.clone()),
             Some("AXMenuBar") => {
-                let index = top_item
-                    .as_ref()
-                    .and_then(|t| node.elements("AXChildren").iter().position(|c| c.same(t)));
-                return (index, menus, siblings);
+                let index = top_item.as_ref().and_then(|t| kids(&node).and_then(|k| k.iter().position(|c| c.same(t))));
+                return Some((index, menus, siblings));
             }
             _ => {}
         }
-        current = node.element("AXParent");
+        current = node.attr("AXParent").ok()?.and_then(Ax::from_cf);
     }
-    (None, menus, siblings)
+    Some((None, menus, siblings))
 }
 
 /// Whether the element is a menu item (or menu bar item) of an app's menu bar.

@@ -449,33 +449,45 @@ pub fn service_equivalents(dump: &str) -> Vec<String> {
 fn dump_dict_values(body: &str) -> (Vec<String>, usize) {
     let mut values = Vec::new();
     let mut in_value = false;
-    let mut current = String::new();
+    // An unquoted value's text, trimmed when stored.
+    let mut bare = String::new();
+    // A quoted value, verbatim (spaces, \t and \r are keys).
+    let mut quoted: Option<String> = None;
     let mut chars = body.char_indices();
+    let take = |bare: &mut String, quoted: &mut Option<String>, values: &mut Vec<String>| {
+        match quoted.take() {
+            Some(q) => values.push(q),
+            None if !bare.trim().is_empty() => values.push(bare.trim().to_string()),
+            None => {}
+        }
+        bare.clear();
+    };
     while let Some((i, c)) = chars.next() {
         match c {
             '"' => {
-                while let Some((_, q)) = chars.next() {
-                    match q {
+                let mut q = String::new();
+                while let Some((_, ch)) = chars.next() {
+                    match ch {
                         '\\' => match chars.next().map(|(_, e)| e) {
-                            Some('"') => current.push('"'),
-                            Some('\\') => current.push('\\'),
-                            Some('n') => current.push('\n'),
-                            Some('t') => current.push('\t'),
-                            Some('a') => current.push('\u{7}'),
-                            Some('b') => current.push('\u{8}'),
-                            Some('f') => current.push('\u{c}'),
-                            Some('r') => current.push('\r'),
-                            Some('v') => current.push('\u{b}'),
+                            Some('"') => q.push('"'),
+                            Some('\\') => q.push('\\'),
+                            Some('n') => q.push('\n'),
+                            Some('t') => q.push('\t'),
+                            Some('a') => q.push('\u{7}'),
+                            Some('b') => q.push('\u{8}'),
+                            Some('f') => q.push('\u{c}'),
+                            Some('r') => q.push('\r'),
+                            Some('v') => q.push('\u{b}'),
                             Some('U') => {
                                 let hex: String = chars.clone().take(4).map(|(_, h)| h).collect();
                                 match u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32) {
-                                    Some(ch) if hex.len() == 4 => {
-                                        current.push(ch);
+                                    Some(x) if hex.len() == 4 => {
+                                        q.push(x);
                                         for _ in 0..4 {
                                             chars.next();
                                         }
                                     }
-                                    _ => current.push('U'),
+                                    _ => q.push('U'),
                                 }
                             }
                             Some(d @ '0'..='7') => {
@@ -489,37 +501,45 @@ fn dump_dict_values(body: &str) -> (Vec<String>, usize) {
                                         _ => break,
                                     }
                                 }
-                                if let Some(ch) = char::from_u32(n) {
-                                    current.push(ch);
+                                if let Some(x) = char::from_u32(n) {
+                                    q.push(x);
                                 }
                             }
-                            Some(other) => current.push(other),
+                            Some(other) => q.push(other),
                             None => {}
                         },
                         '"' => break,
-                        other => current.push(other),
+                        other => q.push(other),
                     }
+                }
+                if in_value {
+                    quoted = Some(q);
                 }
             }
             '=' => {
                 in_value = true;
-                current.clear();
+                bare.clear();
+                quoted = None;
             }
             ';' => {
                 if in_value {
-                    values.push(current.trim().to_string());
+                    take(&mut bare, &mut quoted, &mut values);
                 }
                 in_value = false;
-                current.clear();
+                bare.clear();
             }
             '}' => {
                 // A last entry may have no trailing ";".
-                if in_value && !current.trim().is_empty() {
-                    values.push(current.trim().to_string());
+                if in_value {
+                    take(&mut bare, &mut quoted, &mut values);
                 }
                 return (values, i + 1);
             }
-            other => current.push(other),
+            other => {
+                if quoted.is_none() {
+                    bare.push(other);
+                }
+            }
         }
     }
     (values, body.len())
@@ -530,7 +550,9 @@ fn dump_dict_values(body: &str) -> (Vec<String>, usize) {
 /// ("@$"), the last one is the key ("$" with Command).
 pub fn is_key_equivalent(value: &str) -> bool {
     let keys = value.chars().filter(|c| !matches!(c, '$' | '^' | '~' | '@')).count();
-    keys == 1 || (keys == 0 && value.chars().count() >= 2)
+    // One key; or marks only, the last being the key (a single "@" is the
+    // "@" key, Command implied).
+    keys == 1 || (keys == 0 && !value.is_empty())
 }
 
 /// Whether background keys may go to the target window: it is the key
@@ -660,41 +682,49 @@ pub struct ChordFacts<'a> {
     /// The menu search saw every item (no AX error, no branch cut).
     pub complete: bool,
     pub background: bool,
-    /// The chord has Command.
+    /// A background Command chord (posting it would lose its Shift).
     pub command: bool,
     pub denies_any: bool,
     /// The layout's keys are the ANSI codes posted (checked only when needed).
     pub ansi_layout: bool,
-    /// Whether the chord is a registered Services shortcut: None when the
-    /// Services shortcuts could not be read.
-    pub is_service: Option<bool>,
+    /// Whether the chord is a registered Services shortcut.
+    pub is_service: ServiceCheck,
 }
 
 pub const REFUSE_TOO_DEEP: &str = "this app's menus could not all be read to check this shortcut against the Computer Use deny list; use the app's menu items in the tree";
 pub const REFUSE_LAYOUT: &str = "this shortcut cannot be checked against the Computer Use deny list on this keyboard layout; use the app's menu items in the tree";
+pub const REFUSE_SERVICES_UNPLACEABLE: &str = "a Services shortcut assigned in System Settings uses a key this check cannot place, so shortcuts cannot be checked against the Computer Use deny list; use the app's menu items in the tree";
 pub const REFUSE_SERVICES_UNREAD: &str = "the Services shortcuts could not be read yet; try again in a moment, or use the app's menu items in the tree";
 pub const REFUSE_SERVICE: &str = "this shortcut runs a Service, which can hand the selection to an app on the Computer Use deny list; use the app's menu items in the tree";
 pub const REFUSE_DISABLED: &str = "the menu item for this shortcut is disabled right now";
 pub const REFUSE_BLOCKED: &str = "the menu item for this shortcut would reach an app on the Computer Use deny list";
 
-/// AppKit's routing, held to the deny list. In the background an enabled
-/// match is pressed through AX (no key codes, no layout question). Posted
-/// keys (foreground, or no enabled match) are routed by AppKit with the
-/// layout's characters, so while any app is denied they need an ANSI layout,
-/// a complete search, and no Services shortcut on the chord.
+/// AppKit's routing, held to the deny list, as one rule:
+/// - Background, the first enabled match not blocked and the walk to it
+///   complete: press that item through AX (no key is posted, so nothing else
+///   can take the chord).
+/// - Nothing denied: post (in the background a disabled Command item is
+///   reported as disabled: posting it would lose the Shift).
+/// - Otherwise keys are posted while something is denied, and AppKit decides
+///   at key time which item or Service runs. So `matches` holds EVERY match
+///   the walk found, enabled or not, and the chord is refused when any of
+///   them is blocked, the walk was incomplete (bounds, a read error), the
+///   layout is not ANSI, or it is (or may be) a Services shortcut.
 pub fn decide_chord(f: &ChordFacts) -> ChordAction {
-    match pick_shortcut(f.matches) {
-        ShortcutPick::Blocked(_) => return ChordAction::Refuse(REFUSE_BLOCKED),
-        ShortcutPick::Press(i) if f.background => return ChordAction::PressItem(i),
-        // A disabled Command item in the background: posting it would lose
-        // the Shift (the reason items are pressed), so say it is disabled.
-        ShortcutPick::Disabled(_) if f.background && f.command => return ChordAction::Refuse(REFUSE_DISABLED),
-        // Foreground Press, foreground Disabled (AppKit falls through to
-        // Services) and no match: keys are posted.
-        _ => {}
+    if f.background
+        && f.complete
+        && let ShortcutPick::Press(i) = pick_shortcut(f.matches)
+    {
+        return ChordAction::PressItem(i);
     }
     if !f.denies_any {
+        if f.command && matches!(pick_shortcut(f.matches), ShortcutPick::Disabled(_)) {
+            return ChordAction::Refuse(REFUSE_DISABLED);
+        }
         return ChordAction::Post;
+    }
+    if f.matches.iter().any(|m| m.blocked) {
+        return ChordAction::Refuse(REFUSE_BLOCKED);
     }
     if !f.complete {
         return ChordAction::Refuse(REFUSE_TOO_DEEP);
@@ -702,12 +732,21 @@ pub fn decide_chord(f: &ChordFacts) -> ChordAction {
     if !f.ansi_layout {
         return ChordAction::Refuse(REFUSE_LAYOUT);
     }
-    // Posted keys are routed by AppKit at key time: a menu item that is
-    // disabled by then falls through to a Service on the same chord, so a
-    // Services shortcut is refused even when an enabled item matched.
     match f.is_service {
-        None => ChordAction::Refuse(REFUSE_SERVICES_UNREAD),
-        Some(true) => ChordAction::Refuse(REFUSE_SERVICE),
-        Some(false) => ChordAction::Post,
+        ServiceCheck::Unread => ChordAction::Refuse(REFUSE_SERVICES_UNREAD),
+        ServiceCheck::Unplaceable => ChordAction::Refuse(REFUSE_SERVICES_UNPLACEABLE),
+        ServiceCheck::Match => ChordAction::Refuse(REFUSE_SERVICE),
+        ServiceCheck::NoMatch => ChordAction::Post,
     }
+}
+
+/// Whether a chord is a Services shortcut.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ServiceCheck {
+    NoMatch,
+    Match,
+    /// The services' own list has not been read.
+    Unread,
+    /// A person's assignment uses a key this check cannot place.
+    Unplaceable,
 }

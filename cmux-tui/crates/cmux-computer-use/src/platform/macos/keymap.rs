@@ -246,7 +246,7 @@ pub fn service_shortcut(equivalent: &str, implied_command: bool) -> Option<(u16,
     // Every character a mark ("@$"): the last one is the key.
     let all_marks = equivalent.chars().all(|c| matches!(c, '$' | '^' | '~' | '@'));
     let (marks, last) = match (all_marks, equivalent.char_indices().last()) {
-        (true, Some((i, c))) if equivalent.chars().count() >= 2 => (&equivalent[..i], Some(c)),
+        (true, Some((i, c))) => (&equivalent[..i], Some(c)),
         _ => (equivalent, None),
     };
     if let Some(c) = last {
@@ -274,6 +274,7 @@ pub fn service_shortcut(equivalent: &str, implied_command: bool) -> Option<(u16,
         0x03 => Some(76),         // Enter (keypad)
         0x0D => Some(KEY_RETURN), // Return
         0x09 => Some(KEY_TAB),
+        0x20 => Some(49), // Space
         0xF700 => Some(126), // Up
         0xF701 => Some(125), // Down
         0xF702 => Some(123), // Left

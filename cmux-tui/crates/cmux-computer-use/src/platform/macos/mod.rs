@@ -46,8 +46,15 @@ impl MacDesktop {
     /// Open With and Services entries that reach a denied or protected app).
     fn menu_item_blocked(&self, item: &Ax) -> bool {
         let Some(guard) = self.guard() else { return false };
-        let (top_index, depth, siblings) = ax::menu_context(item);
-        let title = item.string("AXTitle").unwrap_or_default();
+        // A title or place that cannot be read cannot be checked: while
+        // something is denied, that is blocked.
+        let Some((top_index, depth, siblings)) = ax::menu_context(item) else {
+            return guard.denies_any();
+        };
+        let title = match item.attr("AXTitle") {
+            Ok(v) => v.and_then(|v| v.as_string()).unwrap_or_default(),
+            Err(_) => return guard.denies_any(),
+        };
         let ctx = roles::MenuItemContext { title: &title, top_index, depth, siblings: &siblings };
         roles::menu_item_blocked(&*guard, &ctx, &workspace::apps_named)
     }
