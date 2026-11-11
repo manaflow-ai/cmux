@@ -443,6 +443,7 @@ class Workflow(unittest.TestCase):
             (bins / "bun").write_text(FAKE_BUN)
             (bins / "bun").chmod(0o755)
             shutil.copy(ROOT / "scripts/ci/run-webviews-tests.sh", head / "scripts/ci/run-webviews-tests.sh")
+            shutil.copy(ROOT / "scripts/ci/timeout.sh", head / "scripts/ci/timeout.sh")  # the runner's GNU timeout stand-in
             # The old base reaches a named assertion after its former long deadline. It must
             # not supply a different file-level verdict from the head's bounded runner.
             (base / "scripts/ci/run-webviews-tests.sh").write_text('#!/bin/sh\nprintf \'{"test/hang.test.ts > late assertion": false}\\n\' > "$CMUX_WEB_TEST_RESULTS"\nexit 1\n')
