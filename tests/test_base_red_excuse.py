@@ -17,6 +17,7 @@ import unittest
 import urllib.error
 import urllib.parse
 import unittest.mock
+from collections import Counter
 import zipfile
 from pathlib import Path
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
@@ -6334,6 +6335,63 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
     # app compile passed at its head against that pin.
     STEP_B = ("Packages/macOS/CmuxNext/Package.swift",
               "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/RustSidebarClient.swift")
+
+    def unplaced_rollup_head(self):
+        """cmux#40552's unplaced checks job (RollupJobReadsItsNamedReds' fixture) as this case's head: its whole log
+        sets the pin aside (a passing step's next-batch lines), so the rollup reading asks the pin rule again."""
+        fixtures = ROOT / "tests/fixtures/test_reds"
+        job = json.loads((fixtures / "cmux-40552-checks-job-130212680188.json").read_text())
+        self.gh.jobs[1] = dict(job, id=1, run_id=10, head_sha=HEAD)
+        self.gh.logs[1] = (fixtures / "cmux-40552-checks-job-130212680188.log").read_text(encoding="utf-8")
+
+    def counted_reads(self, fail_second=False):
+        """Every network read of one judgement, by source: (kind, what) -> times read. FAIL_SECOND: a second read of
+        any source fails, as GitHub's 503 does."""
+        reads: Counter = Counter()
+        inner_json, inner_run, inner_blob, inner_release = self.gh.json, self.gh.run, self.gh.blob, self.release_file
+
+        def counted(key, read):
+            reads[key] += 1
+            if fail_second and reads[key] > 1:
+                raise excuse.Refused(f"gh: Service Unavailable (HTTP 503) on {key}")
+            return read()
+        self.gh.json = lambda route, *, paginate=False: counted(("json", route, paginate),
+                                                                lambda: inner_json(route, paginate=paginate))
+        self.gh.run = lambda args: counted(("graphql", repr(args)), lambda: inner_run(args))
+        self.gh.blob = lambda repo, ref, path: counted(("blob", path), lambda: inner_blob(repo, ref, path))
+        patched = unittest.mock.patch.object(
+            excuse, "ffi_release_file",
+            lambda repo, tag, name: counted(("release", tag, name), lambda: inner_release(repo, tag, name)))
+        patched.start()
+        self.addCleanup(patched.stop)
+        return reads
+
+    def test_review_f1_a_second_read_of_a_proven_published_pin_never_overturns_it(self):
+        # Review of cmux#41151 at bfa0db5f (F1): a Swift change's pin is a published base release it compiled against.
+        # The whole-log reading proves it and sets the pin aside; the rollup reading asks the pin rule again, and its
+        # second read of the release files got a 503, refusing what the first proof had excused.
+        self.unplaced_rollup_head()
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        reads = self.counted_reads(fail_second=True)
+        said = self.judge()
+        self.assertEqual(len(said), 1, said)
+        self.assertTrue(said[0].startswith(f"excused '{self.JOB}': only '{self.PIN}' is red"), said)
+        self.assertIn(f"pins cmux-app-ffi-{self.STEP_B_PIN}", said[0])
+        self.assertEqual(reads[("release", f"cmux-app-ffi-{self.STEP_B_PIN}", "SOURCE_SHA")], 1)
+
+    def test_one_judgement_reads_each_source_once(self):
+        # The class: every network source an excuse path reads is read once per judgement, however many paths ask.
+        self.unplaced_rollup_head()
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        reads = self.counted_reads()
+        self.assertTrue(self.judge()[0].startswith(f"excused '{self.JOB}'"))
+        self.assertTrue(reads)
+        self.assertEqual({key: n for key, n in reads.items() if n > 1}, {})
+        # A new judgement reads afresh: nothing is kept past the judgement that read it.
+        self.judge()
+        self.assertEqual(reads[("release", f"cmux-app-ffi-{self.STEP_B_PIN}", "SOURCE_SHA")], 2)
 
     def test_review_f1_a_failed_compile_job_read_falls_back_to_the_status(self):
         # Review of cmux#41151 at fd50c9b7 (F1), the same class: compile_pass_at's first source (the head's check runs)
