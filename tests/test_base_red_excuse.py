@@ -1947,6 +1947,113 @@ class SlimRunRecord(unittest.TestCase):
         self.assertFalse([r for r in self.gh.routes if "/workflows/None/" in r], self.gh.routes)
 
 
+class SupersededRunGitHub(FakeGitHub):
+    """The head's run list (`actions/runs?head_sha=SHA`, LISTED): cmux#40850 at 4dd65e96, where backend-migrations runs
+    42921917680 and 42921920329 were cancelled with no job while run 42921946667 of the same workflow file passed."""
+
+    def __init__(self):
+        super().__init__()
+        self.listed: list[dict] = []
+
+    def json(self, route, *, paginate=False):
+        if "/actions/runs?head_sha=" in route:
+            self.routes.append(route)
+            return [{"total_count": len(self.listed), "workflow_runs": copy.deepcopy(self.listed)}]
+        return super().json(route, paginate=paginate)
+
+
+def head_run(run_id, conclusion, created, *, path=".github/workflows/backend-migrations.yml", event="pull_request",
+             sha=HEAD, name="backend-migrations", **extra):
+    return {"id": run_id, "name": name, "path": path, "workflow_id": 70, "event": event, "head_sha": sha,
+            "status": "completed", "conclusion": conclusion, "created_at": f"2026-11-11T00:{created:02d}:00Z", **extra}
+
+
+class CancelledRunSupersededByLaterGreen(unittest.TestCase):
+    """dep-fleet-6: "A cancelled run counts as superseded, not red, only when all of these hold": a later run of the
+    same workflow file, at the same head SHA, from the same event (for workflow_dispatch, the same inputs), created
+    after the cancelled one, concluded success. Anything less stays red."""
+
+    def setUp(self):
+        self.gh = SupersededRunGitHub()
+        self.gh.jobs = {}  # run 30 ran no job, as 42921917680 did
+        self.gh.listed = [head_run(30, "cancelled", 1)]
+
+    def judge(self, runs=(30,)):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, list(runs), self.gh)
+
+    def test_a_jobless_cancelled_run_a_later_green_of_its_workflow_file_superseded_is_ignored(self):
+        self.gh.listed.append(head_run(31, "success", 5))
+        lines = self.judge()
+        self.assertEqual(len(lines), 1, lines)
+        self.assertTrue(lines[0].startswith("ignored 'backend-migrations': its cancelled run 30 is superseded by run 31"),
+                        lines)
+        self.assertEqual(self.gh.logged if hasattr(self.gh, "logged") else [], [])
+
+    def test_every_cancelled_run_of_a_head_shares_one_run_list_read(self):
+        self.gh.listed += [head_run(32, "cancelled", 2), head_run(31, "success", 5)]
+        lines = self.judge(runs=(30, 32))
+        self.assertEqual(len(lines), 2, lines)
+        self.assertEqual(len([r for r in self.gh.routes if "runs?head_sha=" in r]), 1, self.gh.routes)
+
+    def test_a_cancelled_run_with_no_later_run_refuses(self):
+        with self.assertRaisesRegex(excuse.Refused, "no failed job found"):
+            self.judge()
+
+    def test_a_later_green_at_another_sha_refuses(self):
+        self.gh.listed.append(head_run(31, "success", 5, sha="c" * 40))
+        with self.assertRaisesRegex(excuse.Refused, "no failed job found"):
+            self.judge()
+
+    def test_a_later_green_of_another_workflow_file_with_the_same_name_refuses(self):
+        self.gh.listed.append(head_run(31, "success", 5, path=".github/workflows/backend-migrations-2.yml"))
+        with self.assertRaisesRegex(excuse.Refused, "no failed job found"):
+            self.judge()
+
+    def test_a_later_run_that_skipped_refuses(self):
+        for conclusion in ("skipped", "neutral", "cancelled"):
+            with self.subTest(conclusion=conclusion):
+                self.gh.listed[1:] = [head_run(31, conclusion, 5)]
+                with self.assertRaisesRegex(excuse.Refused, "no failed job found"):
+                    self.judge()
+
+    def test_a_green_created_before_the_cancelled_run_refuses(self):
+        self.gh.listed.append(head_run(31, "success", 0))
+        with self.assertRaisesRegex(excuse.Refused, "no failed job found"):
+            self.judge()
+
+    def test_a_later_green_from_another_event_refuses(self):
+        self.gh.listed.append(head_run(31, "success", 5, event="push"))
+        with self.assertRaisesRegex(excuse.Refused, "no failed job found"):
+            self.judge()
+
+    def test_a_workflow_dispatch_with_other_inputs_refuses(self):
+        self.gh.listed = [head_run(30, "cancelled", 1, event="workflow_dispatch", inputs={"lane": "a"}),
+                          head_run(31, "success", 5, event="workflow_dispatch", inputs={"lane": "b"})]
+        with self.assertRaisesRegex(excuse.Refused, "no failed job found"):
+            self.judge()
+        # Inputs GitHub's run record does not carry are unknown, never the same.
+        for run in self.gh.listed:
+            del run["inputs"]
+        with self.assertRaisesRegex(excuse.Refused, "no failed job found"):
+            self.judge()
+        self.gh.listed = [head_run(30, "cancelled", 1, event="workflow_dispatch", inputs={"lane": "a"}),
+                          head_run(31, "success", 5, event="workflow_dispatch", inputs={"lane": "a"})]
+        self.assertTrue(self.judge()[0].startswith("ignored 'backend-migrations': its cancelled run 30"))
+
+    def test_a_superseded_run_names_each_cancelled_job_and_still_judges_a_failure(self):
+        self.gh.listed.append(head_run(31, "success", 5))
+        self.gh.jobs = {3: dict(failed_job(3, 30, HEAD, name="migrate"), conclusion="cancelled")}
+        lines = self.judge()
+        self.assertTrue(any(line.startswith("ignored 'migrate': its cancelled job 3 in run 30 is superseded by run 31")
+                            for line in lines), lines)
+        # A failure is a verdict: a later green never launders it (merge_hold's _superseded_cancels).
+        self.gh.jobs = {1: failed_job(1, 30, HEAD), 2: failed_job(2, 20, BASE_SHA)}
+        self.assertIn(f"excused '{SWIFT}'", "\n".join(self.judge()))
+        self.gh.logs[2] = log(SWIFT, TEST_STEP, OTHER, "##[error]1 red test: palette()")
+        with self.assertRaises(excuse.Refused):
+            self.judge()
+
+
 class StatusOnlyChecks(unittest.TestCase):
     """A same-tree run posts 'cmux-next daemon tests (same-tree)' as a commit status, not a check run (cmux#30294):
     it is judged by the job behind it, in the run its target_url links."""
