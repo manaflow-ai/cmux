@@ -18,6 +18,8 @@ import {
 import {
   AppsOps,
   OPEN_ACTION,
+  SETTINGS_ACTION,
+  CLOUD_ACTION,
   type AppDetail,
   type AppIconRef,
   type AppUpdate,
@@ -115,9 +117,9 @@ export class AppsStore {
       updates: [],
       updatesLoading: client !== null,
       updatesStale: false,
-      selection: route.app && listedInStore({ id: route.app }) ? route.app : undefined,
+      selection: route.app,
       catalogStatus: client ? "loading" : "ready",
-      detailStatus: client && route.app && listedInStore({ id: route.app }) ? "loading" : "idle",
+      detailStatus: client && route.app ? "loading" : "idle",
       grants: {},
       logs: {},
       loading: client !== null,
@@ -219,7 +221,8 @@ export class AppsStore {
           .catch((error: unknown) => ({ result: undefined, error })),
       ]);
       if (generation !== this.generation) return;
-      const listed = catalog.apps.filter(listedInStore);
+      // The owner lists only apps (store_listing.rs): never Home or the App Store.
+      const listed = catalog.apps;
       // Installed rows carry no icon: they take their listing's.
       const iconOf = new Map(listed.map((app) => [app.id, app.icon]));
       const installedRows = installed.apps
@@ -355,7 +358,6 @@ export class AppsStore {
   }
 
   async select(app: string | undefined): Promise<void> {
-    if (app && !listedInStore({ id: app })) app = undefined;
     this.set({
       selection: app,
       detail: app === this.snapshot.detail?.id ? this.snapshot.detail : undefined,
@@ -536,6 +538,24 @@ export class AppsStore {
     return this.intent(
       OPEN_ACTION.op,
       { action: OPEN_ACTION.action, args: { app } },
+      { reread: false, mutation: false },
+    );
+  }
+
+  /** Opens the Cloud page on its storefront (the Discover banner): the Cloud page's own action. */
+  openCloud(): Promise<void> {
+    return this.intent(
+      CLOUD_ACTION.op,
+      { action: CLOUD_ACTION.action, args: { route: CLOUD_ACTION.route } },
+      { reread: false, mutation: false },
+    );
+  }
+
+  /** Opens Settings, where cmux's own features are (the Discover Settings card): the host action `openSettings`. */
+  openSettings(): Promise<void> {
+    return this.intent(
+      SETTINGS_ACTION.op,
+      { action: SETTINGS_ACTION.action, args: {} },
       { reread: false, mutation: false },
     );
   }

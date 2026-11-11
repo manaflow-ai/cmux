@@ -66,7 +66,5 @@ import Testing
         let classic = SettingsSchema.all.filter { $0.title.localizedCaseInsensitiveContains("classic mode") }
         #expect(classic.isEmpty, "Settings still lists \(classic.map(\.id))")
         #expect(!ActionCatalog.all.contains { $0.id == "sidebar.workspaceTabs.toggle" })
-        let features = AppFeature.catalog.filter { ["tabs.terminalFirst", "sidebar.showWorkspaceTabs"].contains($0.setting) }
-        #expect(features.isEmpty, "the App Store still offers \(features.map(\.id))")
     }
 }

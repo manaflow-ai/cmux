@@ -70,6 +70,8 @@ export interface WireInstalledApp {
   name: string;
   tier: AppTier;
   hide_only: boolean;
+  /** Whether the store shows the app (apps/store_listing.rs); absent from an older owner. */
+  listed?: boolean;
   state: WireInstallState;
   grants: unknown[];
   /** The deployed instance; null or absent for an app with none. */
@@ -179,6 +181,7 @@ export function fromInstalled(row: WireInstalledApp): InstalledApp {
     source: row.state.source,
     tier: row.tier,
     hide_only: row.hide_only,
+    listed: row.listed,
     update: row.state.update ?? undefined,
     failure: row.state.failure ?? undefined,
     instance: instanceFrom(row.instance),

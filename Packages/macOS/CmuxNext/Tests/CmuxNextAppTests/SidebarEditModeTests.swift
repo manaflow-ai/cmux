@@ -9,8 +9,8 @@ import Testing
 
 /// The sidebar's edit mode (Leo 2026-10-20, as an iPhone's home screen): Edit Sidebar makes its items
 /// wiggle (through the sidebar's motion gate: still under Reduce Motion), a drag moves one, its ✕
-/// takes it out (the menu's Remove), a press opens nothing, Add Items opens App Store Features on
-/// Sidebar, where the built-in items are cards, and Done ends it.
+/// takes it out (the menu's Remove), a press opens nothing, Add Items opens Settings on the
+/// sidebar's rows, and Done ends it.
 @MainActor @Suite(.serialized, .closesItsWindows) struct SidebarEditModeTests {
     static let link = LayoutItemID("itm_link"), app = LayoutItemID("itm_app")
 
@@ -141,31 +141,5 @@ import Testing
         let edit = try #require(ActionCatalog.all.first { $0.id == "sidebar.edit" })
         #expect(edit.surfaces.contains(.palette) && edit.surfaces.contains(.contextMenu))
         #expect(edit.title == "Edit Sidebar")
-    }
-
-    /// Add Items' cards: Home, Notifications, History, Bookmarks and the launchers (Search Chats, New
-    /// Terminal, New Browser Tab, New Agent Chat, Customize, Automations) beside the Chief's, each on when the
-    /// sidebar shows it (Home as the app it is now), Get and Remove the sidebar's own actions.
-    @Test func theSidebarCategoryListsTheBuiltInItems() {
-        let builtIns: Set<String> = ["home", "notifications", "history", "bookmarks", "search_chats", "new_terminal", "new_browser",
-                                     "new_agent_chat", "customize", "automations"]
-        let items = AppFeature.catalog.filter { $0.category == .sidebar }.compactMap(\.sidebarItem)
-        #expect(Set(items) == builtIns)
-
-        let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
-        var runs: [String] = []
-        registry.bind("sidebar.item.add", invoke: { runs.append("add \($0["item"]?.stringValue ?? "")") })
-        registry.bind("sidebar.item.removeEverywhere", invoke: { runs.append("remove \($0.target?.id ?? "")") })
-        let chief = SettingsAppFeatures.SidebarItems(names: ["chief"], isShown: { _ in true }, set: { _, _ in runs.append("chief"); return true })
-        let store = SidebarSectionHandlers.storeItems(chief: chief, document: { .defaults }, registry: registry)
-        #expect(store.names == builtIns.union(["chief"]))
-        #expect(store.isShown("home"), "the default sidebar's Home (an app item) reads as off")
-        #expect(!store.isShown("bookmarks"))
-        #expect(!store.isShown("automations"), "Automations stays opt-in in the default layout")
-        #expect(store.isShown("chief"), "the Chief's own answer was lost")
-        _ = store.set("bookmarks", true)
-        _ = store.set("history", false)
-        _ = store.set("chief", true)
-        #expect(runs == ["add bookmarks", "remove history", "chief"])
     }
 }

@@ -7,7 +7,6 @@ import { listedInStore, parseRoute } from "./model";
 import { MockAppsProvider, sampleApps } from "./mockProvider";
 import { AppIcon } from "./parts";
 import { AppsStore } from "./store";
-import { APP_STORE_ID, HOME_ID } from "./types";
 import { fromListing } from "./wire";
 
 test("fallback initials preserve emoji and combining graphemes", () => {
@@ -44,15 +43,19 @@ test("a symbol icon draws as the host's glyph mask, never as initials", () => {
   expect(html).not.toContain(">CM<");
 });
 
-test("Home and the App Store are never listed", async () => {
-  expect(listedInStore({ id: HOME_ID })).toBe(false);
-  expect(listedInStore({ id: APP_STORE_ID })).toBe(false);
+test("Home and the App Store are never listed: the page follows the owner's listed word", async () => {
+  expect(listedInStore({ listed: false })).toBe(false);
+  expect(listedInStore({ listed: true })).toBe(true);
+  expect(listedInStore({})).toBe(true);
   const data = sampleApps();
   const template = Object.values(data.details)[0]!;
-  data.details[HOME_ID] = { ...structuredClone(template), id: HOME_ID, name: "Home" };
+  data.details["cmux/home"] = { ...structuredClone(template), id: "cmux/home", name: "Home" };
   const store = new AppsStore(new MockAppsProvider(data));
   await store.start();
-  expect(store.getSnapshot().catalog.some((app) => app.id === HOME_ID)).toBe(false);
+  const snap = store.getSnapshot();
+  expect(snap.catalog.some((app) => app.id === "cmux/home" || app.id === "cmux/app-store")).toBe(false);
+  expect(snap.installed.some((app) => app.id === "cmux/app-store")).toBe(false);
+  expect(snap.installed.some((app) => app.id === "cmux.github-prs")).toBe(true);
   store.stop();
 });
 

@@ -12,6 +12,13 @@ import Testing
         #expect(!PageDescriptor.apps.admits("cmux.app.features.list"), "the store has no Features tab (extensibility-DESIGN.md)")
     }
 
+    /// Discover's Settings card sends a person looking for one of cmux's own switches to Settings
+    /// (extensibility-DESIGN.md section 7), and the Cloud banner opens the Cloud page by its own action
+    /// (the manifest's pane has no native switch): the page may run these three and nothing else.
+    @Test func thePageRunsOpenSettingsAndCloudOnly() {
+        #expect(PageDescriptor.apps.actions == ["app.open", "openSettings", "palette.openCloudPane"])
+    }
+
     @Test func aGlyphIsAPNGOfThePacksDrawingAndNeverASystemSymbol() async throws {
         let glyphs = AppsGlyphResource()
         func request(_ prefix: String, _ name: String) -> PageResourceRequest {

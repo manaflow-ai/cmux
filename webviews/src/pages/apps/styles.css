@@ -848,6 +848,57 @@ code {
   }
 }
 
+/* The Settings card at the end of Discover: cmux's own features are in Settings, not the store. Quieter
+   than the Cloud banner (no eyebrow, no art, a plain button), on the same edge and radius. */
+.apps-settings-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--page-separator);
+  border-radius: 12px;
+}
+
+.apps-settings-card-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.apps-settings-card-title {
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+
+.apps-settings-card-body {
+  font-size: var(--text-detail);
+  line-height: 1.4;
+  color: var(--page-text-2);
+  text-wrap: pretty;
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+
+@media (max-width: 520px) {
+  .apps-settings-card {
+    flex-wrap: wrap;
+  }
+}
+
+/* In the split view's narrow list column the button goes under the text, as the Cloud banner's does. */
+@container apps-discover (max-width: 480px) {
+  .apps-settings-card {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .apps-settings-card-text {
+    flex-basis: 100%;
+  }
+}
+
 /* A list column too narrow for the banner and chips in one row (the split view's list): the banner
    puts its button under the text and drops the art, and the chips scroll sideways instead of
    wrapping one chip onto a line of its own. */

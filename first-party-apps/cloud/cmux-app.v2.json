@@ -42,7 +42,6 @@
   },
   "implements": {
     "cmux.pane/1": {
-      "native": "cloud",
       "title": { "en": "Cloud", "ja": "クラウド" },
       "symbol": "cloud"
     },

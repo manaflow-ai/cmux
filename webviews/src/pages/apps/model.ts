@@ -1,7 +1,7 @@
 // Pure presentation model of the App Store page (plans/cmux-next/react-pages.md 3.3). Catalog
 // semantics (tiers, install states, grants) belong to the app platform lead's owner; this file
 // only filters, orders and labels what the owner returns.
-import { APP_STORE_ID, HOME_ID, type AppTier, type CatalogApp, type GrantRow, type ScopeRisk } from "./types";
+import type { AppTier, CatalogApp, GrantRow, ScopeRisk } from "./types";
 
 export const RiskLabel: Record<ScopeRisk, string> = {
   standard: "store.risk.standard",
@@ -72,11 +72,12 @@ export function matches(app: CatalogApp, query: string): boolean {
 }
 
 /**
- * Whether the page shows `app` at all: never the App Store itself or Home, which are places in
- * cmux, not apps to get (FIRST-PARTY-APPS; extensibility-DESIGN.md).
+ * Whether the page shows an installed row: the owner's word (`listed`, cmux-tui-core
+ * apps/store_listing.rs), false for Home and the App Store, which are places in cmux, not apps
+ * (extensibility-DESIGN.md section 7). The owner leaves them out of the catalog itself.
  */
-export function listedInStore(app: { id: string }): boolean {
-  return app.id !== APP_STORE_ID && app.id !== HOME_ID;
+export function listedInStore(app: { listed?: boolean }): boolean {
+  return app.listed !== false;
 }
 
 /**

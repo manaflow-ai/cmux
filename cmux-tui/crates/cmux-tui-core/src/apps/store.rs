@@ -4,9 +4,11 @@
 //! (`server/apps.rs`) carries them; `op` is the canonical `cmux.apps.<verb>`
 //! or its short alias `apps.<verb>`.
 //!
-//! - `catalog.list` and `catalog.get`: the catalog packages, never
-//!   `cmux/app-store` itself; first-party apps are `hide_only`.
-//! - `installed.list`: the installed apps with their state and grants.
+//! - `catalog.list` and `catalog.get`: the catalog packages the store lists
+//!   (`store_listing.rs`: never Home or the App Store, which are cmux
+//!   itself); first-party apps are `hide_only`.
+//! - `installed.list`: the installed apps with their state and grants, each
+//!   with `listed` (whether the store shows it).
 //! - `set`: every field (`enabled`, `hidden`, `sandboxed`) only from the
 //!   user, in both directions (D55 as amended, APPS-ENABLE-ORIGIN): agents
 //!   must not change what the user sees or what an app may do.
@@ -28,10 +30,9 @@ use serde_json::Value;
 
 use super::catalog::Package;
 use super::mirror::{Origin, Record, SetOp, Source, Tier};
+use super::store_listing::listed;
 use super::supervisor::{ApiError, Supervisor};
 
-/// The App Store never lists itself.
-const APP_STORE: &str = "cmux/app-store";
 const DEFAULT_LIMIT: usize = 50;
 const MAX_LIMIT: usize = 200;
 
@@ -183,6 +184,9 @@ struct InstalledApp {
     name: String,
     tier: Tier,
     hide_only: bool,
+    /// Whether the App Store shows the app (`store_listing.rs`); false for
+    /// the parts of cmux itself.
+    listed: bool,
     state: InstallState,
     grants: Vec<String>,
     /// The deployed instance (`deploy.rs`), null for an app with none.
@@ -281,6 +285,7 @@ fn installed_app(app: &str, record: &Record, package: Option<&Package>) -> Insta
         name: package.map_or_else(|| app.to_string(), |p| text(&p.manifest["name"])),
         tier: package.map_or(Tier::Unverified, |p| p.tier),
         hide_only: package.is_some_and(|p| p.tier == Tier::FirstParty),
+        listed: listed(app),
         state: state(record, package),
         grants: record.grants.iter().cloned().collect(),
         instance: Value::Null,
@@ -368,7 +373,7 @@ impl Supervisor {
             .catalog
             .packages
             .values()
-            .filter(|package| package.id != APP_STORE)
+            .filter(|package| listed(&package.id))
             .filter(|package| p.tier.is_none_or(|tier| package.tier == tier))
             .filter(|package| {
                 p.category.as_deref().is_none_or(|category| {
@@ -401,7 +406,7 @@ impl Supervisor {
             .catalog
             .packages
             .get(&p.app)
-            .filter(|package| package.id != APP_STORE)
+            .filter(|package| listed(&package.id))
             .ok_or_else(|| ApiError::new("apps.unknown", "no such app"))?;
         let mut scopes = Vec::new();
         for (field, optional) in [("scopes", false), ("optionalScopes", true)] {
