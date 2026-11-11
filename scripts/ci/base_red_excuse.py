@@ -183,13 +183,54 @@ def once_per_judgement(kind: str, key: Callable[..., tuple] | None = None):
     return wrap
 
 
+# gh api's flags that take a value (gh help api); a value is never read as the method, a field or the endpoint.
+GH_API_FIELD_FLAGS = ("-f", "-F", "--field", "--raw-field")
+GH_API_VALUE_FLAGS = ("-H", "--header", "-q", "--jq", "-t", "--template", "--hostname", "--cache", "-p", "--preview")
+
+
 def gh_read(args: list[str]) -> bool:
-    """Whether gh ARGS only reads: `gh api` with no other method than GET (a GraphQL query included), or `gh run view`."""
+    """Whether gh ARGS only reads, by the HTTP method gh sends (review of cmux#41312 at 67c48fb7, F1): `gh run view`;
+    `gh api` with an explicit GET (its fields are query parameters); `gh api` with no method and no body, which gh
+    sends as GET; or a GraphQL query. Any other explicit method writes, a field or --input with no method is gh's
+    POST, and a GraphQL mutation, a query from a file or stdin, or a call with no query writes. Only a read is kept
+    for the judgement (read_once), so a write always goes out."""
     if args[:2] == ["run", "view"]:
         return True
-    if args[:1] != ["api"] or any(arg in ("-X", "--method") or arg.startswith("--method=") for arg in args):
+    if args[:1] != ["api"]:
         return False
-    return not (args[1:2] == ["graphql"] and any(arg.startswith("query=mutation") for arg in args))
+    method, fields, body, endpoint = None, [], False, None
+    rest = iter(args[1:])
+    for arg in rest:
+        if arg in ("-X", "--method"):
+            method = next(rest, "")
+        elif arg.startswith("--method="):
+            method = arg.partition("=")[2]
+        elif arg.startswith("-X"):
+            method = arg[2:]
+        elif arg in GH_API_FIELD_FLAGS:
+            fields.append(next(rest, ""))
+        elif arg.startswith(("--field=", "--raw-field=")):
+            fields.append(arg.partition("=")[2])
+        elif arg.startswith(("-f", "-F")) and not arg.startswith("--"):
+            fields.append(arg[2:])
+        elif arg == "--input":
+            body = True
+            next(rest, None)
+        elif arg.startswith("--input="):
+            body = True
+        elif arg in GH_API_VALUE_FLAGS:
+            next(rest, None)
+        elif not arg.startswith("-") and endpoint is None:
+            endpoint = arg
+    if endpoint == "graphql":
+        queries = [field.partition("=")[2] for field in fields if field.startswith("query=")]
+        if body or len(queries) != 1 or (method is not None and method.upper() not in ("GET", "POST")):
+            return False
+        text = queries[0].lstrip()
+        return not text.startswith(("mutation", "@")) and text != "-"
+    if method is not None:
+        return method.upper() == "GET"
+    return not fields and not body
 
 
 def once_key(name: str, args: tuple, kwargs: dict) -> tuple | None:
