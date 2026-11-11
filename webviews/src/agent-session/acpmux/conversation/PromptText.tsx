@@ -100,21 +100,28 @@ export function PromptText({
   // and laying out megabytes of hidden text froze the chat (promptCollapse.ts HUGE_PROMPT_CHARS).
   const head = huge && collapsed;
   const body = useRef<HTMLDivElement>(null);
+  /// Whether this mount has measured once: only its first measure may read a kept answer.
+  const measuredHere = useRef(false);
   useLayoutEffect(() => {
     const node = body.current;
     if (!node) return;
     // A measure kept from an earlier mount of the same text at the same bubble width (a row
-    // scrolled out and back): the fold is known without laying the text out again.
+    // scrolled out and back): the fold is known without laying the text out again. Only a mount's
+    // first measure reads it. A later one means the bubble changed while drawn (a sent pick
+    // opened, say), so it lays the text out, and the kept answers of that row are dropped.
     const kept = (width: number) => {
       const entry = width > 0 ? longPrompts.get(rowId) : undefined;
       return entry && entry.text === text && entry.join === join ? entry.widths.get(width) : undefined;
     };
     const measure = (width: number) => {
-      const known = kept(width);
+      const first = !measuredHere.current;
+      measuredHere.current = true;
+      const known = first ? kept(width) : undefined;
       if (known !== undefined) {
         setMeasured((last) => ((last?.parts === parts ? last.long : guess) === known ? last : { parts, long: known }));
         return;
       }
+      if (!first) longPrompts.delete(rowId);
       // The node's own window: a test DOM may install none as a global.
       const style = node.ownerDocument.defaultView?.getComputedStyle?.(node);
       const lineHeight = parseFloat(style?.lineHeight ?? "");
@@ -133,7 +140,7 @@ export function PromptText({
       // to the head again, and loop until React's update limit. Only the whole text, drawn open or
       // unfolded, can measure short. One rule for typed and pasted parts.
       if (!next && (head || node.querySelector("[data-prompt-head]"))) return;
-      if (width > 0) {
+      if (first && width > 0) {
         let entry = longPrompts.get(rowId);
         if (!entry || entry.text !== text || entry.join !== join) entry = { text, join, widths: new Map() };
         longPrompts.delete(rowId);
