@@ -3486,6 +3486,123 @@ class OtherRepoRollups(unittest.TestCase):
             excuse.rollups(HQ)
 
 
+# hq#9249 (2026-11-11): a child PR into lane/rerun-guard-fixed-on-base, the head of open PR hq#9226 at d755d38b.
+# Its 'Skill policy tests' (run 42988800012) failed the LaunchAgent step exactly as the parent's head did (run
+# 42985609913); the lane branch has no run of its own, so it was refused as "no lane/... run ... to compare with".
+LANE = "lane/rerun-guard-fixed-on-base"
+PARENT_SHA = "d755d38ba189a2c4c853ad5b5b2596cf6b3ea9e0"
+LAUNCHAGENT_STEP = "Shared clone maintenance LaunchAgent runs the compaction daily"
+LAUNCHAGENT_RED = ("AssertionError: ['/bin/bash', '/home/runner/Library/Application Support/cmuxterm-hq/"
+                   "shared-clone-maintenance/scripts/shared-clone-maintenance.sh', '/x/a&b/repo']",
+                   "FAIL: plist content", "##[error]Process completed with exit code 1.")
+
+
+def parent_pull(number=9226, sha=PARENT_SHA, ref=LANE, repo=HQ):
+    return {"number": number, "state": "open", "head": {"ref": ref, "sha": sha, "repo": {"full_name": repo}}}
+
+
+class StackedParentGitHub(HQGitHub):
+    """hq#9249's shape: head run 10 (Skill policy tests red, its rollup Skill documentation tests red) into LANE, the
+    head of open PR #9226 whose run 30 at PARENT_SHA has the same 'Skill policy tests' red. LANE has no push run."""
+
+    def __init__(self):
+        super().__init__()
+        del self.jobs[2]
+        self.base_runs = []
+        self.jobs[1] = failed_job(1, 10, HEAD, name="Skill policy tests", step=LAUNCHAGENT_STEP)
+        self.logs[1] = log("Skill policy tests", LAUNCHAGENT_STEP, *LAUNCHAGENT_RED)
+        self.jobs[2] = failed_job(2, 30, PARENT_SHA, name="Skill policy tests", step=LAUNCHAGENT_STEP)
+        self.logs[2] = log("Skill policy tests", LAUNCHAGENT_STEP, *LAUNCHAGENT_RED)
+        self.pulls = [parent_pull()]
+        self.tip = PARENT_SHA
+        self.parent_runs = [{"id": 30, "event": "pull_request", "head_branch": LANE, "head_sha": PARENT_SHA,
+                             "status": "completed", "conclusion": "failure", "workflow_id": 7,
+                             "created_at": "2026-11-11T08:40:00Z"}]
+
+    def blob(self, repo, ref, path):
+        self.blobs.append((repo, ref, path))
+        return SKILLS_YML
+
+    def json(self, route, *, paginate=False):
+        if route.startswith(f"repos/{HQ}/pulls?"):
+            self.routes.append(route)
+            assert f"head=manaflow-ai:{LANE}" in route and "state=open" in route, route
+            return copy.deepcopy(self.pulls)
+        if route == f"repos/{HQ}/branches/{LANE}":
+            self.routes.append(route)
+            return {"name": LANE, "commit": {"sha": self.tip}}
+        if route.startswith(f"repos/{HQ}/actions/workflows/7/runs?head_sha="):
+            self.routes.append(route)
+            sha = route.split("head_sha=", 1)[1].split("&", 1)[0]
+            return {"workflow_runs": [copy.deepcopy(run) for run in self.parent_runs if run["head_sha"] == sha]}
+        if route.startswith(f"repos/{HQ}/actions/workflows/7/runs?branch={LANE}"):
+            self.routes.append(route)
+            return {"workflow_runs": []}  # a lane branch has no push or dispatch run of its own
+        return super().json(route, paginate=paginate)
+
+
+class StackedChildIntoLaneParent(unittest.TestCase):
+    """A child PR into a lane branch that heads an open PR is judged by that parent PR's checks at its head
+    (stacked_parent): identity-keyed, as any base verdict; anything less refuses."""
+
+    def setUp(self):
+        self.gh = StackedParentGitHub()
+        patch = unittest.mock.patch.object(excuse, "_REPO_ROLLUPS", {})
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def judge(self):
+        return excuse.judge(HQ, LANE, HEAD, [10], self.gh)
+
+    def test_hq9249_a_red_the_parents_head_has_too_is_excused(self):
+        lines = "\n".join(self.judge())
+        self.assertIn("excused 'Skill policy tests'", lines)
+        self.assertIn(f"open PR #9226's head {PARENT_SHA[:12]}", lines)
+        self.assertIn(f"repos/{HQ}/actions/workflows/7/runs?head_sha={PARENT_SHA}&per_page=100", self.gh.routes)
+
+    def test_a_child_red_the_parents_head_does_not_have_is_refused(self):
+        self.gh.logs[1] = log("Skill policy tests", LAUNCHAGENT_STEP, *LAUNCHAGENT_RED[:1],
+                              "FAIL: launchd label", LAUNCHAGENT_RED[2])
+        with self.assertRaisesRegex(excuse.Refused, "'Skill policy tests'.*not on lane/rerun-guard-fixed-on-base"):
+            self.judge()
+
+    def test_a_green_parent_job_makes_the_red_the_childs_own(self):
+        self.gh.jobs[2] = dict(self.gh.jobs[2], conclusion="success",
+                               steps=[dict(step, conclusion="success") for step in self.gh.jobs[2]["steps"]])
+        with self.assertRaisesRegex(excuse.Refused, "passed on .*PR #9226 at its head d755d38ba189.*own"):
+            self.judge()
+
+    def test_a_parent_head_with_no_completed_run_is_refused(self):
+        for runs in ([], [dict(self.gh.parent_runs[0], status="in_progress", conclusion=None)]):
+            with self.subTest(runs=runs):
+                self.gh.parent_runs = runs
+                with self.assertRaisesRegex(excuse.Refused, "PR #9226's head; its head d755d38ba189 has no completed"):
+                    self.judge()
+
+    def test_a_branch_that_moved_past_its_prs_head_is_refused(self):
+        self.gh.tip = "c" * 40
+        with self.assertRaisesRegex(excuse.Refused, "tip cccccccccccc is not that PR's head d755d38ba189"):
+            self.judge()
+
+    def test_two_open_prs_headed_by_the_branch_judge_as_before(self):
+        # Ambiguous: no parent is chosen, and the lane branch's own (absent) runs refuse as they always did.
+        self.gh.pulls = [parent_pull(), parent_pull(number=9300)]
+        with self.assertRaisesRegex(excuse.Refused, f"no {LANE} run of its workflow has a verdict"):
+            self.judge()
+
+    def test_a_fork_or_other_ref_is_no_parent(self):
+        for pull in (parent_pull(repo="someone/cmuxterm-hq"), parent_pull(ref="lane/other")):
+            with self.subTest(pull=pull):
+                self.gh.pulls = [pull]
+                with self.assertRaisesRegex(excuse.Refused, f"no {LANE} run of its workflow has a verdict"):
+                    excuse.judge(HQ, LANE, HEAD, [10], self.gh)
+
+    def test_an_integration_base_never_reads_a_parent(self):
+        self.assertIsNone(excuse.stacked_parent(HQ, "main", self.gh, {}))
+        self.assertIsNone(excuse.stacked_parent(REPO, "feat-cmux-next", self.gh, {}))
+        self.assertFalse(any("/pulls?" in route for route in self.gh.routes))
+
+
 SOURCE_FAKE_GH = """#!/usr/bin/env python3
 import json, os, sys
 args = sys.argv[1:]
