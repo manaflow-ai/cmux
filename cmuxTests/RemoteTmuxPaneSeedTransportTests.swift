@@ -1908,10 +1908,10 @@ import Testing
         on connection: RemoteTmuxControlConnection,
         captureRows: [String],
         paneHeight: Int,
-        startingAt firstCommandNumber: Int
+        startingAt firstCommandNumber: Int, until stop: () -> Bool = { false }
     ) {
         var commandNumber = firstCommandNumber
-        while let kind = connection.pendingCommandKindsForTesting.first {
+        while !stop(), let kind = connection.pendingCommandKindsForTesting.first {
             let lines: [String]
             switch kind {
             case .paneReflow:

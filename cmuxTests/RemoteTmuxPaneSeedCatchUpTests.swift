@@ -239,4 +239,48 @@ extension RemoteTmuxPaneSeedTransportTests {
         #expect(!fixture.connection.isCatchingUpAfterFallingBehind)
         #expect(fixture.connection.pendingReconnectPaneIDs.isEmpty)
     }
+
+    /// A pane whose seed already has its capture can't be covered by that capture: the output
+    /// still in the stream is newer than it. The catch-up starts another capture behind it, so
+    /// the backlog that arrives after the first seed finishes is dropped instead of drawn.
+    @Test func aCatchUpRecapturesAPaneWhoseSeedAlreadyHasItsCapture() throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+        fixture.connection.windowsByID[1] = RemoteTmuxWindow(
+            id: 1,
+            width: 80,
+            height: 24,
+            layout: RemoteTmuxLayoutNode(width: 80, height: 24, x: 0, y: 0, content: .pane(7))
+        )
+        var rendered = 0
+        var seeds: [RemoteTmuxPaneSeed] = []
+        let token = fixture.connection.addObserver(
+            onPaneOutput: { _, data in rendered += data.count },
+            onPaneSeed: { _, seed in seeds.append(seed) }
+        )
+        defer { fixture.connection.removeObserver(token) }
+
+        let firstSeed = try #require(fixture.connection.capturePane(paneId: 7, clearScrollback: true))
+        finishPendingCommands(
+            on: fixture.connection, captureRows: ["older screen"], paneHeight: 24, startingAt: 400,
+            until: { fixture.connection.pendingPaneSeeds[7]?.first?.isCaptureInstalled == true }
+        )
+        fixture.connection.requestCatchUpAfterFallingBehind()
+        #expect(fixture.connection.pendingPaneSeeds[7]?.count == 2, "the catch-up left the pane uncovered")
+
+        finishPendingCommands(
+            on: fixture.connection, captureRows: ["current screen"], paneHeight: 24, startingAt: 500,
+            until: { fixture.connection.pendingPaneSeeds[7]?.first?.id != firstSeed }
+        )
+        fixture.connection.handleMessageForTesting(.output(paneId: 7, data: Data("stale backlog".utf8)))
+        #expect(rendered == 0, "the backlog after the first seed was drawn")
+
+        finishPendingCommands(
+            on: fixture.connection, captureRows: ["current screen"], paneHeight: 24, startingAt: 600
+        )
+        #expect(seeds.count == 2)
+        #expect(seeds.last?.restartsLiveStream == true)
+        #expect(seeds.last.map { Self.occurrences(of: "current screen", in: $0.snapshot) } == 1)
+        #expect(!fixture.connection.isCatchingUpAfterFallingBehind)
+    }
 }

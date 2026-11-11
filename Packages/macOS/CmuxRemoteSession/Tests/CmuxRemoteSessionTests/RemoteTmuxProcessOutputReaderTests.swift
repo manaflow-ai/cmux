@@ -51,6 +51,33 @@ import Testing
         #expect(await capture.value == payload)
     }
 
+    /// A connection tearing down can let go of a paused reader before its queued close runs, and
+    /// that close holds the reader weakly. The reader still has to cancel its suspended read
+    /// source, which Dispatch traps on releasing, and end its streams.
+    @Test(.timeLimit(.minutes(1))) func releasingAPausedReaderEndsItsStream() async throws {
+        let pipe = Pipe()
+        defer {
+            try? pipe.fileHandleForWriting.close()
+            try? pipe.fileHandleForReading.close()
+        }
+        var reader: RemoteTmuxProcessOutputReader? = RemoteTmuxProcessOutputReader(
+            label: "remote-tmux-process-output-reader-released-test",
+            maxPendingChunks: 64,
+            maxPendingBytes: 100
+        )
+        let stream = try #require(reader?.stream)
+        var pauses = try #require(reader?.pauses.makeAsyncIterator())
+        reader?.attach(to: pipe.fileHandleForReading)
+        try pipe.fileHandleForWriting.write(contentsOf: Data(repeating: 1, count: 1_000))
+        #expect(await pauses.next() != nil)
+
+        reader = nil
+
+        var received = 0
+        for await chunk in stream { received += chunk.count }
+        #expect(received == 100)
+    }
+
     @Test(.timeLimit(.minutes(1))) func processExitDrainsEveryByteToASlowConsumer() async throws {
         let pipe = Pipe()
         let reader = RemoteTmuxProcessOutputReader(
