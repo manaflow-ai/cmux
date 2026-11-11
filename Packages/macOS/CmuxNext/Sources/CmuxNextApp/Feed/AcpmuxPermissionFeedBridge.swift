@@ -78,6 +78,10 @@ final class AcpmuxPermissionFeedBridge {
     private var reconnect: Task<Void, Never>?
     private var backoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
     private var nextID = 10
+    /// Recovery's info reads, kept for the bridge's life: one outstanding per session, a late answer posted.
+    private let pendingReads: AcpmuxPendingReads
+    /// The session-list filters this connection's acpmux serves (its `initialize`).
+    private var listGate = AcpmuxSessionListGate(capabilities: [])
     /// Waiting requests by id; a reply is its `result` as JSON bytes (Sendable).
     private var replies: [Int: CheckedContinuation<Data?, Never>] = [:]
     /// Feed item id -> the prompt it carries. This launch only.
@@ -88,8 +92,8 @@ final class AcpmuxPermissionFeedBridge {
 
     init(environment: AcpmuxEnvironment, owner: @escaping Owner, isSignedIn: @escaping @MainActor () -> Bool,
          ownInstall: @escaping @Sendable () async -> String?,
-         presenceKeys: @escaping PresenceKeys) {
-        self.environment = environment
+         presenceKeys: @escaping PresenceKeys, pendingReads: AcpmuxPendingReads = .feed) {
+        (self.environment, self.pendingReads) = (environment, pendingReads)
         self.owner = owner
         self.isSignedIn = isSignedIn
         self.ownInstall = ownInstall
@@ -128,6 +132,7 @@ final class AcpmuxPermissionFeedBridge {
     /// The `initialize` reply: the person proof for its challenge as the SECOND request (acpmux
     /// `hub/person.rs`, transport unix), then `_acpmux/watch` over every session.
     private func initialized(_ result: [String: Any]?, on line: AcpmuxCheckedLine) {
+        listGate = AcpmuxSessionListGate(initialize: result)
         let challenge = ((result?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["personChallenge"] as? [String: Any]
         if let nonce = challenge?["nonce"] as? String, let id = challenge?["connection"] as? String,
            let proof = line.personProof(nonce: nonce, connection: id) {
@@ -135,7 +140,7 @@ final class AcpmuxPermissionFeedBridge {
         } else {
             logger.error("feed bridge: no person challenge or no key for this daemon; phone answers stay refused")
         }
-        line.send(Data(acpmuxRequest: 3, method: "_acpmux/watch", params: ["enabled": true, "limit": 1]))
+        line.send(.acpmuxFeedWatch)
     }
 
     private func lost(_ line: AcpmuxCheckedLine) {
@@ -163,9 +168,7 @@ final class AcpmuxPermissionFeedBridge {
         guard let connection else { return nil }
         nextID += 1
         let id = nextID
-        let request: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method, "params": params]
-        guard var data = try? JSONSerialization.data(withJSONObject: request) else { return nil }
-        data.append(0x0A)
+        let data = Data(acpmuxRequest: id, method: method, params: params)
         let reply: Data? = await withCheckedContinuation { waiter in
             replies[id] = waiter
             connection.send(data)
@@ -178,16 +181,11 @@ final class AcpmuxPermissionFeedBridge {
         if let id = (message["id"] as? NSNumber)?.intValue {
             if id == 1 {
                 if let connection { initialized(message["result"] as? [String: Any], on: connection) }
-            } else if id == 2 {
-                let person = (message["result"] as? [String: Any])?["person"] as? Bool ?? false
-                if !person { logger.error("feed bridge: acpmux refused the person proof; phone answers stay refused") }
+            } else if id == 2, (message["result"] as? [String: Any])?["person"] as? Bool != true {
+                logger.error("feed bridge: acpmux refused the person proof; phone answers stay refused")
             } else if id == 3, message["result"] != nil {
                 backoff.reset()
-                // Prompts pending before this connection: those chats alone (pendingOnly), never the whole list.
-                Task {
-                    let rows = await self.call("_acpmux/sessions", ["pendingOnly": true])?["sessions"] as? [[String: Any]] ?? []
-                    for session in rows.compactMap({ $0["sessionId"] as? String }) { await self.postPending(of: session) }
-                }
+                Task { await self.recoverPending() }
             } else if let waiter = replies.removeValue(forKey: id) {
                 let result = message["error"] == nil
                     ? try? JSONSerialization.data(withJSONObject: message["result"] as? [String: Any] ?? [:]) : nil
@@ -217,10 +215,11 @@ final class AcpmuxPermissionFeedBridge {
         (await call("_acpmux/info", ["sessionId": session]))?["pending"] as? [[String: Any]] ?? []
     }
 
-    private func postPending(of session: String) async {
-        for entry in await pending(of: session) {
-            guard let permission = entry["permissionId"] as? String, let request = entry["request"] as? [String: Any] else { continue }
-            await post(session: session, permission: permission, request: request)
+    /// Prompts pending before this connection, each session read on its own (``AcpmuxPendingReads/feed``).
+    private func recoverPending() async {
+        guard let rows = await listGate.pendingSessions(call: { await self.call($0, $1) }) else { return }
+        await pendingReads.forEachPrompt(rows, read: { [weak self] in await self?.call("_acpmux/info", ["sessionId": $0]) }) { [weak self] session, permission, request in
+            await self?.post(session: session, permission: permission, request: request)
         }
     }
 
