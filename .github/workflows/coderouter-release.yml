@@ -115,11 +115,6 @@ jobs:
             npm_target: darwin-x64
             executable: coderouter
             maturin_container: "off"
-          - runner: ${{ !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-8vcpu-ubuntu-2404' }}
-            rust_target: x86_64-unknown-linux-gnu
-            npm_target: linux-x64
-            executable: coderouter
-            maturin_container: quay.io/pypa/manylinux2014_x86_64@sha256:0a42cb7e5f4ba6bbfb8d0a86d1aab0c8876ba9c3be16bd99360ae42bf010ec77
           - runner: blacksmith-4vcpu-ubuntu-2404-arm
             rust_target: aarch64-unknown-linux-gnu
             npm_target: linux-arm64
@@ -451,8 +446,174 @@ jobs:
           security delete-keychain "$RUNNER_TEMP/coderouter-signing.keychain-db" 2>/dev/null || true
           rm -f "$RUNNER_TEMP/coderouter-signing.p12"
 
+  # The x86_64 Linux build, split from `build` so it runs outside the release environment. It signs
+  # nothing and reads no secret, so it may take its runner from the Linux outage switch (#30837), which
+  # can name a fleet runner: no release signing material ever reaches one (rule 4 of
+  # tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py). Linux binaries were never
+  # signed; `release` checks the downloaded files against the digests this job outputs before it
+  # packages them.
+  build-linux:
+    needs: validate
+    if: github.repository_owner == 'manaflow-ai'
+    runs-on: ${{ !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    permissions:
+      contents: read
+    env:
+      RUST_TARGET: x86_64-unknown-linux-gnu
+      NPM_TARGET: linux-x64
+    outputs:
+      binary_sha256: ${{ steps.digests.outputs.binary_sha256 }}
+      wheel_name: ${{ steps.digests.outputs.wheel_name }}
+      wheel_sha256: ${{ steps.digests.outputs.wheel_sha256 }}
+    defaults:
+      run:
+        working-directory: coderouter
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        with:
+          toolchain: 1.94.0
+          targets: x86_64-unknown-linux-gnu
+      # Before rust-cache: its cleanup must never reach a home a sibling runner builds from.
+      - name: Give this runner instance its own CARGO_HOME
+        uses: ./.github/actions/runner-cargo-home
+      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.2
+        with:
+          cache-bin: false
+          workspaces: coderouter
+          key: x86_64-unknown-linux-gnu
+      - run: cargo test --locked --release --target x86_64-unknown-linux-gnu
+      - run: cargo build --locked --release --target x86_64-unknown-linux-gnu --bins
+      - name: Build PyPI wheel
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380 # v1.49.4
+        with:
+          command: build
+          maturin-version: v1.14.1
+          rust-toolchain: 1.94.0
+          target: x86_64-unknown-linux-gnu
+          args: --locked --release --out coderouter/dist --manifest-path coderouter/Cargo.toml
+          manylinux: auto
+          container: quay.io/pypa/manylinux2014_x86_64@sha256:0a42cb7e5f4ba6bbfb8d0a86d1aab0c8876ba9c3be16bd99360ae42bf010ec77
+      - name: Verify PyPI wheel programs
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v python3 >/dev/null 2>&1; then
+            python_command=python3
+          else
+            python_command=python
+          fi
+          tool_venv="$RUNNER_TEMP/coderouter-wheel-tools"
+          "$python_command" -m venv "$tool_venv"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            wheel_python="$tool_venv/Scripts/python.exe"
+          else
+            wheel_python="$tool_venv/bin/python"
+          fi
+          "$wheel_python" -m pip install --disable-pip-version-check 'wheel==0.45.1'
+          echo "CODEROUTER_WHEEL_PYTHON=$wheel_python" >> "$GITHUB_ENV"
+          shopt -s nullglob
+          wheels=(dist/*.whl)
+          [[ "${#wheels[@]}" -eq 1 ]]
+          unpack_root="$RUNNER_TEMP/coderouter-wheel-alias"
+          mkdir -p "$unpack_root"
+          "$wheel_python" -m wheel unpack "${wheels[0]}" --dest "$unpack_root"
+          package_dirs=("$unpack_root"/*)
+          [[ "${#package_dirs[@]}" -eq 1 ]]
+          coderouter_programs=()
+          while IFS= read -r -d '' candidate; do
+            coderouter_programs+=("$candidate")
+          done < <(
+            find "${package_dirs[0]}" -type f \
+              \( -name coderouter -o -name coderouter.exe \) \
+              -print0
+          )
+          cr_programs=()
+          while IFS= read -r -d '' candidate; do
+            cr_programs+=("$candidate")
+          done < <(
+            find "${package_dirs[0]}" -type f \
+              \( -name cr -o -name cr.exe \) \
+              -print0
+          )
+          [[ "${#coderouter_programs[@]}" -eq 1 ]]
+          [[ "${#cr_programs[@]}" -eq 1 ]]
+          if [[ "$RUNNER_OS" != "Windows" ]]; then
+            [[ -x "${coderouter_programs[0]}" ]]
+            [[ -x "${cr_programs[0]}" ]]
+          fi
+          PYTHONOPTIMIZE='' "$wheel_python" - "${package_dirs[0]}" \
+            "${coderouter_programs[0]}" "${cr_programs[0]}" LICENSE <<'PY'
+          import base64
+          import csv
+          import hashlib
+          import pathlib
+          import sys
+
+          root = pathlib.Path(sys.argv[1])
+          programs = [pathlib.Path(value) for value in sys.argv[2:]]
+          expected_license = programs.pop()
+          records = list(root.glob("*.dist-info/RECORD"))
+          assert len(records) == 1
+          with records[0].open(newline="", encoding="utf-8") as handle:
+              rows = {row[0]: row[1:] for row in csv.reader(handle)}
+          for program in programs:
+              relative = program.relative_to(root).as_posix()
+              hash_field, size_field = rows[relative]
+              algorithm, encoded = hash_field.split("=", 1)
+              assert algorithm == "sha256"
+              digest = base64.urlsafe_b64encode(
+                  hashlib.sha256(program.read_bytes()).digest()
+              ).rstrip(b"=").decode("ascii")
+              assert encoded == digest
+              assert int(size_field) == program.stat().st_size
+          metadata_files = list(root.glob("*.dist-info/METADATA"))
+          assert len(metadata_files) == 1
+          metadata = metadata_files[0].read_text(encoding="utf-8")
+          assert "License-Expression: GPL-3.0-or-later\n" in metadata
+          license_files = list(root.glob("*.dist-info/licenses/LICENSE"))
+          assert len(license_files) == 1
+          assert license_files[0].read_bytes() == expected_license.read_bytes()
+          PY
+          echo "CODEROUTER_WHEEL_CODEROUTER=${coderouter_programs[0]}" >> "$GITHUB_ENV"
+      - name: Stage npm platform binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # The npm Linux binary is the verified wheel's, on the same manylinux baseline (a host Ubuntu
+          # build can require a newer glibc).
+          [[ -f "$CODEROUTER_WHEEL_CODEROUTER" ]]
+          cp "$CODEROUTER_WHEEL_CODEROUTER" "dist/coderouter-$NPM_TARGET"
+          cmp "$CODEROUTER_WHEEL_CODEROUTER" "dist/coderouter-$NPM_TARGET"
+      - name: Record the digests release checks
+        id: digests
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          wheels=(dist/*.whl)
+          [[ "${#wheels[@]}" -eq 1 ]]
+          {
+            echo "binary_sha256=$(sha256sum "dist/coderouter-$NPM_TARGET" | cut -d' ' -f1)"
+            echo "wheel_name=$(basename "${wheels[0]}")"
+            echo "wheel_sha256=$(sha256sum "${wheels[0]}" | cut -d' ' -f1)"
+          } >> "$GITHUB_OUTPUT"
+      - name: Store build outputs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coderouter-build-linux-x64
+          path: |
+            coderouter/dist/coderouter-linux-x64
+            coderouter/dist/*.whl
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
   release:
-    needs: [validate, prepare_release, build]
+    needs: [validate, prepare_release, build, build-linux]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/coderouter-v')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
@@ -470,6 +631,19 @@ jobs:
           pattern: coderouter-build-*
           path: dist
           merge-multiple: true
+      - name: Check the Linux build against the digests its job recorded
+        env:
+          BINARY_SHA256: ${{ needs.build-linux.outputs.binary_sha256 }}
+          WHEEL_NAME: ${{ needs.build-linux.outputs.wheel_name }}
+          WHEEL_SHA256: ${{ needs.build-linux.outputs.wheel_sha256 }}
+        run: |
+          set -euo pipefail
+          # build-linux runs outside the release environment, on a runner the outage switch may pick; its
+          # files are trusted here only if they are byte for byte what that job recorded.
+          [[ "$BINARY_SHA256" =~ ^[0-9a-f]{64}$ && "$WHEEL_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$WHEEL_NAME" =~ ^coderouter-[A-Za-z0-9_.+-]+\.whl$ ]]
+          printf '%s  %s\n' "$BINARY_SHA256" dist/coderouter-linux-x64 "$WHEEL_SHA256" "dist/$WHEEL_NAME" \
+            | sha256sum --check --strict
       - name: Validate native build outputs
         run: |
           set -euo pipefail

@@ -89,7 +89,7 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
     ("cmux-tui.yml", "optchat-chief", "runs-on", BIG),
     ("cmux-vm-clients.yml", "rust", "runs-on", BIG),
     ("coderouter-ci.yml", "test", "runs-on", BIG),
-    ("coderouter-release.yml", "build", "matrix:rust_target=x86_64-unknown-linux-gnu:runner", BIG),
+    ("coderouter-release.yml", "build-linux", "runs-on", BIG),
     ("iroh-relay-minter.yml", "test", "runs-on", BIG),
     ("macos-cross-parity.yml", "linux-build", "runs-on", BIG),
     ("rust-workspaces.yml", "workspace", "runs-on", BIG),
@@ -228,7 +228,7 @@ PREFIX: dict[tuple[str, str, str], tuple[str, str]] = {
     ("cmux-next-terminal.yml", "rust-terminal-linux", "runs-on"): ("", ""),
     ("cmux-next-terminal.yml", "swift-terminal-linux", "runs-on"): ("", ""),
     ("cmux-tui-headless-debug.yml", "build", "runs-on"): ("", ""),
-    ("coderouter-release.yml", "build", "matrix:rust_target=x86_64-unknown-linux-gnu:runner"): ("", ""),
+    ("coderouter-release.yml", "build-linux", "runs-on"): ("", ""),
 }
 # Selectors with the owner branch and no fork pull request branch.
 OWNER_ONLY = {
