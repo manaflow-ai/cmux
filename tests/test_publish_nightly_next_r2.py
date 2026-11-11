@@ -378,6 +378,134 @@ class WriteFeedTests(FeedWriteCase):
             self.assertEqual(r2.item_source(merged.encode(), 200), source)
 
 
+class SameSourceStandDownTests(FeedWriteCase):
+    """A second build of the source the live feed already serves stands down, whatever the build numbers.
+
+    2026-11-11 20:17Z-21:38Z Actions started no runs; the fleet fallback (scripts/ci/nightly-next-fleet-fallback.sh)
+    publishes <live run id><50+k>. When Actions recovers, the stall-era run of the same commit builds <R><01>, above
+    the fallback's number: without this rule it passed source_order ("identical") and published the commit twice."""
+
+    def assert_stood_down(self, live: bytes) -> None:
+        out = self.output.read_text()
+        self.assertEqual(self.calls, [])  # no PUT
+        self.assertIn("feed_written=false", out)
+        self.assertIn("feed_current=true", out)
+        # refused: publish-nightly's `refused` output keeps every follow-up (GitHub names, deltas, notes) off a build
+        # that is not the live one; no refusal_reason, so no failure issue.
+        self.assertIn("publication_refused=true", out)
+        self.assertEqual(self.path.read_bytes(), live)
+
+    def test_a_higher_build_of_the_live_source_stands_down(self) -> None:
+        source = "a" * 40
+        live = feed((150, "fallback-download", 1), source={150: source}).encode()  # the fleet's <run><50+k>
+        with mock.patch.object(r2, "source_order", side_effect=AssertionError("no compare needed")):
+            self.assertEqual(self.run_with([live], [], source_sha=source), 0)
+        self.assert_stood_down(live)
+
+    def test_a_lower_build_of_the_live_source_stands_down(self) -> None:
+        source = "a" * 40
+        live = feed((250, "actions-download", 1), source={250: source}).encode()
+        self.assertEqual(self.run_with([live], [], source_sha=source), 0)
+        self.assert_stood_down(live)
+
+    def test_a_markerless_live_build_below_uses_its_verified_source(self) -> None:
+        source = "a" * 40
+        live = feed((150, "x", 1)).encode()
+        with mock.patch.object(r2, "signed_notes_source", return_value=source) as notes:
+            self.assertEqual(self.run_with([live], [], source_sha=source), 0)
+        notes.assert_called_once_with(150)
+        self.assert_stood_down(live)
+
+    def test_a_cas_race_lost_to_the_same_source_stands_down(self) -> None:
+        old, source = "b" * 40, "a" * 40
+        first = feed((100, "x", 1), source={100: old}).encode()
+        second = feed((180, "x", 1), source={180: source}).encode()
+        with mock.patch.object(r2, "source_order", return_value=True):
+            self.assertEqual(self.run_with([first, second], [r2.CONFLICT], source_sha=source), 0)
+        self.assertEqual(len(self.calls), 1)  # the lost PUT only
+        self.assertIn("publication_refused=true", self.output.read_text())
+
+    def test_the_same_build_and_source_is_still_a_handoff_retry_not_a_refusal(self) -> None:
+        source = "a" * 40
+        live = feed((200, "accepted", 1), source={200: source}).encode()
+        self.assertEqual(self.run_with([live], [], source_sha=source), 0)
+        self.assertNotIn("publication_refused=true", self.output.read_text())
+
+    def test_the_delta_republish_is_unchanged(self) -> None:
+        source = "a" * 40
+        live = feed((200, "x", 1), source={200: source}).encode()
+        self.assertEqual(self.run_with([live], [0], same_build=True), 0)
+        self.assertIn("--replace-sha256", self.calls[0])
+        self.assertIn("feed_written=true", self.output.read_text())
+
+
+class GitSourceOrderTests(unittest.TestCase):
+    """NIGHTLY_NEXT_SOURCE_GIT_DIR: source order from a git mirror, no GitHub API (the fleet fallback)."""
+
+    def setUp(self) -> None:
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        work = Path(self.dir.name) / "work"
+        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+               "GIT_COMMITTER_EMAIL": "t@t"}
+
+        def git(*args: str) -> str:
+            return subprocess.run(["git", *args], cwd=work, env=env, check=True, capture_output=True,
+                                  text=True).stdout.strip()
+
+        work.mkdir()
+        git("init", "-q")
+        shas = []
+        for n in range(3):
+            git("commit", "-q", "--allow-empty", "-m", f"c{n}")
+            shas.append(git("rev-parse", "HEAD"))
+        git("checkout", "-q", "-b", "side", shas[0])
+        git("commit", "-q", "--allow-empty", "-m", "side")
+        self.side = git("rev-parse", "HEAD")
+        self.a, self.b, self.c = shas
+        self.git_dir = str(work / ".git")
+
+    def order(self, live: str, candidate: str) -> bool:
+        with mock.patch.dict(os.environ, {"NIGHTLY_NEXT_SOURCE_GIT_DIR": self.git_dir, "GH_TOKEN": "",
+                                          "GITHUB_TOKEN": "", "GITHUB_REPOSITORY": ""}):
+            return r2.source_order(live, candidate)
+
+    def test_descendant_and_identical_pass_older_and_diverged_refuse(self) -> None:
+        self.assertTrue(self.order(self.a, self.c))
+        self.assertTrue(self.order(self.b, self.b))
+        self.assertFalse(self.order(self.c, self.a))
+        self.assertFalse(self.order(self.b, self.side))
+
+    def test_a_commit_the_mirror_lacks_refuses(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "lacks commit"):
+            self.order(self.a, "f" * 40)
+        with self.assertRaisesRegex(RuntimeError, "not a full SHA"):
+            self.order(self.a, self.c[:12])
+
+    def test_an_unreadable_mirror_refuses(self) -> None:
+        with mock.patch.dict(os.environ, {"NIGHTLY_NEXT_SOURCE_GIT_DIR": str(Path(self.dir.name) / "missing")}):
+            with self.assertRaises(RuntimeError):
+                r2.source_order(self.a, self.c)
+
+    def test_no_github_call_is_made(self) -> None:
+        real = subprocess.run
+
+        def guarded(args, *rest, **kwargs):
+            self.assertNotEqual(args[0], "gh", args)
+            return real(args, *rest, **kwargs)
+
+        with mock.patch.object(r2.subprocess, "run", guarded):
+            self.assertTrue(self.order(self.a, self.b))
+
+
+class FallbackBuildProvenanceTests(unittest.TestCase):
+    def test_a_fallback_build_is_never_read_as_a_run_attempt(self) -> None:
+        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "NIGHTLY_NEXT_PROVENANCE_TOKEN": "t"}), \
+                mock.patch.object(r2, "provenance_json", side_effect=AssertionError("no run lookup")):
+            for build in (4310027042650, 4310027042699):
+                self.assertIsNone(r2.compiled_artifact_source(build))
+
+
 # The live feed of 2026-11-01: the newest item binds cmux: inline, an item carried
 # from an older feed uses a bare <cmux:sourceCommit>, and the <rss> root declares
 # only sparkle:. Every XML reader refused it ("unbound prefix").

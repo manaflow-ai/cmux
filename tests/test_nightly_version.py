@@ -92,6 +92,52 @@ def test_build_above_both_feeds_is_allowed():
         assert run("check-build", "--build", "3719000000001", "--feed", nxt, "--feed", classic).returncode == 0
 
 
+def fallback(*args):
+    result = run("fallback-build", *args)
+    return result.returncode, result.stdout.strip()
+
+
+def test_fallback_build_is_the_live_run_with_attempt_fifty_plus_k():
+    # Actions builds are <run id><attempt 01..49>; the fleet fallback (Actions starting no runs) takes 50..99.
+    assert fallback("--live", "4310027042601") == (0, "4310027042650")
+    assert fallback("--live", "4310027042603", "--k", "2") == (0, "4310027042652")
+    # Above a fallback build already live: the next attempt.
+    assert fallback("--live", "4310027042650") == (0, "4310027042651")
+    assert fallback("--live", "4310027042698") == (0, "4310027042699")
+
+
+def test_fallback_build_refuses_to_overflow_the_attempt():
+    assert fallback("--live", "4310027042699")[0] != 0
+    assert fallback("--live", "4310027042601", "--k", "50")[0] != 0
+    assert fallback("--live", "4310027042601", "--k", "-1")[0] != 0
+    assert fallback("--live", "7")[0] != 0
+
+
+def test_fallback_build_sits_between_live_and_any_later_actions_run():
+    live = 4310027042601
+    _, build = fallback("--live", str(live))
+    assert live < int(build) < (live // 100 + 1) * 100 + 1  # the next run id's first attempt
+
+
+def test_fallback_build_reads_the_highest_build_of_every_feed():
+    # Pass check-build's feeds: nightly-next's and classic NIGHTLY's (one app, one build-number line).
+    with tempfile.TemporaryDirectory() as d:
+        nxt = write(d, "next.xml", appcast("4310027042601", "4300000000001"))
+        classic = write(d, "classic.xml", appcast("4310500000001"))
+        code, build = fallback("--feed", nxt, "--feed", classic)
+        assert (code, build) == (0, "4310500000050")
+        assert run("check-build", "--build", build, "--feed", nxt, "--feed", classic).returncode == 0
+
+
+def test_check_build_accepts_a_fallback_build_above_the_feeds_only():
+    with tempfile.TemporaryDirectory() as d:
+        nxt = write(d, "next.xml", appcast("4310027042601"))
+        assert run("check-build", "--build", "4310027042650", "--feed", nxt).returncode == 0
+        later = write(d, "later.xml", appcast("4310027042650"))
+        assert run("check-build", "--build", "4310027042650", "--feed", later).returncode != 0
+        assert run("check-build", "--build", "4310027042651", "--feed", later).returncode == 0
+
+
 def test_build_not_above_the_next_feed_is_refused():
     with tempfile.TemporaryDirectory() as d:
         nxt = write(d, "next.xml", appcast("3718773117601"))

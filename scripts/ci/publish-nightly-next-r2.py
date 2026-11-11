@@ -30,6 +30,18 @@ follow-up job that never holds the feed.
       (nightly-next-rollback.yml) always has a published build to fall back
       to: every build on the live feed passed the publish gate, and a pulled
       one is no longer on it.
+      With --source-sha, a live feed whose newest build already serves that
+      source stands down whatever the build numbers (feed_current=true,
+      feed_written=false, publication_refused=true): another publisher (the
+      fleet fallback while Actions started no runs, or a stall-era run that
+      finally started) already shipped this commit, so a second build of it is
+      never offered (docs/ci/nightly-next-train.md, "When Actions starts no runs").
+      The same build number and source is a retried handoff (feed_current=true,
+      not refused), as before.
+
+Source order: GitHub's compare API, or with NIGHTLY_NEXT_SOURCE_GIT_DIR=<git dir>
+`git merge-base --is-ancestor` in that mirror (the fleet fallback, which uses no
+GitHub API). Either way a commit it cannot read refuses; it never guesses.
 
 Environment: AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (the nightly-next scoped
 token), R2_ENDPOINT, NIGHTLY_NEXT_R2_BUCKET, NIGHTLY_NEXT_R2_PREFIX,
@@ -65,6 +77,8 @@ RSS_OPEN = re.compile(rb"<rss\b[^>]*>")
 IMMUTABLE_CACHE = "public, max-age=31536000, immutable"
 FEED_CACHE = "no-cache, no-store, must-revalidate"
 CONFLICT = 3
+# Build numbers are <run id><2-digit attempt>; Actions attempts stay below this, fleet fallback builds use 50..99.
+FALLBACK_ATTEMPT_FLOOR = 50
 # The feed keeps this many builds: the new one and the newest earlier one, so a rollback can serve it.
 KEEP_BUILDS = 2
 ITEM = re.compile(rb"[ \t]*<item>.*?</item>[ \t]*\n?", re.S)
@@ -318,6 +332,9 @@ def source_order(live_source: str, candidate_source: str) -> bool:
     every CAS read, so a late run of an older source cannot win by having a
     larger run id.
     """
+    git_dir = os.environ.get("NIGHTLY_NEXT_SOURCE_GIT_DIR", "").strip()
+    if git_dir:
+        return git_source_order(git_dir, live_source, candidate_source)
     repository = os.environ.get("GITHUB_REPOSITORY", "").strip()
     if not repository or not os.environ.get("GH_TOKEN") and not os.environ.get("GITHUB_TOKEN"):
         raise RuntimeError("cannot compare nightly-next source commits without an authenticated GitHub token")
@@ -332,6 +349,27 @@ def source_order(live_source: str, candidate_source: str) -> bool:
     if status not in {"ahead", "identical", "behind", "diverged"}:
         raise RuntimeError(f"GitHub compare returned unknown status {status!r}")
     return status in {"ahead", "identical"}
+
+
+def git_source_order(git_dir: str, live_source: str, candidate_source: str) -> bool:
+    """source_order from a local git mirror (no GitHub API): is live_source an ancestor of (or equal to)
+    candidate_source? Both must be full SHAs the mirror holds; a missing object or any other git error
+    refuses (raises), as an unreadable GitHub compare does."""
+    for sha in (live_source, candidate_source):
+        if not re.fullmatch(r"[0-9a-f]{40}", sha or ""):
+            raise RuntimeError(f"cannot order nightly-next sources by git: {sha!r} is not a full SHA")
+        present = subprocess.run(["git", "--git-dir", git_dir, "cat-file", "-e", f"{sha}^{{commit}}"],
+                                 check=False, capture_output=True, text=True)
+        if present.returncode != 0:
+            raise RuntimeError(f"cannot order nightly-next sources: {git_dir} lacks commit {sha}; refusing, not guessing")
+    result = subprocess.run(["git", "--git-dir", git_dir, "merge-base", "--is-ancestor", live_source, candidate_source],
+                            check=False, capture_output=True, text=True)
+    if result.returncode == 0:
+        return True
+    if result.returncode == 1:
+        return False
+    detail = (result.stderr or result.stdout or "git merge-base failed").strip()
+    raise RuntimeError(f"could not order live source {live_source} and candidate {candidate_source} in {git_dir}: {detail}")
 
 
 def signed_notes_source(build: int) -> str | None:
@@ -400,6 +438,11 @@ def compiled_artifact_source(build: int) -> str | None:
     token = os.environ.get("NIGHTLY_NEXT_PROVENANCE_TOKEN", "")
     encoded = str(build)
     if repository != "manaflow-ai/cmux" or not token or len(encoded) <= 2 or int(encoded[-2:]) < 1:
+        return None
+    if int(encoded[-2:]) >= FALLBACK_ATTEMPT_FLOOR:
+        # A fleet fallback build (<live run id><50+k>, nightly_version.py fallback-build) names no Actions
+        # run attempt: it was built while Actions started nothing, and it always carries its
+        # cmux:sourceCommit marker. Never read it as run <id> attempt <50+k>.
         return None
     run_id, attempt = int(encoded[:-2]), int(encoded[-2:])
     prefix = f"repos/{repository}/actions/runs/{run_id}"
@@ -530,6 +573,22 @@ def write_feed(feed: Path, github_output: str | None, same_build: bool = False, 
                             out.write("feed_written=false\nfeed_current=true\n")
                     print(f"{feed.name}: this exact build and source are already live; reusing the live feed")
                     return 0
+            if not same_build and source_sha:
+                # Another publisher already shipped this source (the fleet fallback while Actions started
+                # no runs, or a stall-era run that finally started): stand down whatever the build numbers,
+                # so one commit is never offered twice. Below this build only an exact marker or verified
+                # source counts; above it only the marker (a newer build refuses either way).
+                live_source = item_source(live, theirs)
+                if live_source is None and theirs < ours:
+                    live_source = signed_notes_source(theirs) or compiled_artifact_source(theirs)
+                if live_source == source_sha.lower():
+                    feed.write_bytes(live)
+                    if github_output:
+                        with open(github_output, "a", encoding="utf-8") as out:
+                            out.write("feed_written=false\nfeed_current=true\npublication_refused=true\n")
+                    print(f"{feed.name}: already live from another publisher: build {theirs} serves source "
+                          f"{live_source}; this build {ours} of the same source stands down")
+                    return 0
             if (theirs != ours) if same_build else (theirs >= ours):
                 print(f"{feed.name}: the live feed serves build {theirs}, this feed's newest is {ours}; "
                       "left as it is")
@@ -538,9 +597,7 @@ def write_feed(feed: Path, github_output: str | None, same_build: bool = False, 
                         out.write("feed_written=false\npublication_refused=true\n")
                 return 0
             if source_sha and not same_build:
-                live_source = item_source(live, theirs)
-                if live_source is None:
-                    live_source = signed_notes_source(theirs) or compiled_artifact_source(theirs)
+                # Read once above (theirs < ours reaches here only through that full lookup).
                 if live_source is None:
                     raise RuntimeError(
                         f"{feed.name}: live build {theirs} has no source metadata and no verified signed "
