@@ -153,6 +153,71 @@ left="$(pgrep -f "seed-zig-package-archives.sh --one $TMP/slow-cache" || true)"
 [[ -z "$left" ]] || { kill $left 2>/dev/null; fail "cancelling the seed left downloads running: $left"; }
 kill "$server_pid" 2>/dev/null; wait "$server_pid" 2>/dev/null || true; server_pid=""
 
+# A package the source fetches can pin a git dependency in its own build.zig.zon:
+# translate_c (a deps.files.ghostty.org tarball) pins aro at
+# git+https://codeberg.org/ziglang/arocc, and codeberg's outage on 2026-11-11 failed
+# every ghostty-vt-sys build (ProtocolError; runs 42995220980, 43000201905,
+# 42998352626). Each such pin has a tarball in scripts/ci/zig-git-package-mirrors.txt,
+# seeded as p/<hash>.tar.gz (Zig checks its hash), and a pin with no line there
+# fails the seed with exit 3, naming it.
+mkdir -p "$TMP/www2" "$TMP/tree2/tc-1.0/examples" "$TMP/tree2/aro-src" "$TMP/git-src" "$TMP/git-cache/p"
+cat > "$TMP/tree2/tc-1.0/build.zig.zon" <<'EOF'
+.{ .dependencies = .{
+    .aro = .{
+        .url = "git+https://codeberg.invalid/ziglang/arocc#d0c8c4d9c55daa7ef6e40cf0f630a5b5e900989b",
+        .hash = "N-aro",
+    },
+} }
+EOF
+# Only the package's own manifest counts, not one of its examples.
+echo '.{ .dependencies = .{ .ex = .{ .url = "git+https://codeberg.invalid/x#abc", .hash = "N-ex" } } }' \
+  > "$TMP/tree2/tc-1.0/examples/build.zig.zon"
+tar -C "$TMP/tree2" -czf "$TMP/www2/tc.tar.gz" tc-1.0
+echo aro > "$TMP/tree2/aro-src/file"
+tar -C "$TMP/tree2" -czf "$TMP/www2/aro.tar.gz" aro-src
+git_port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
+(cd "$TMP/www2" && exec python3 -m http.server "$git_port" --bind 127.0.0.1 >/dev/null 2>&1) &
+server_pid=$!
+for _ in $(seq 1 50); do curl -fs "http://127.0.0.1:$git_port/tc.tar.gz" -o /dev/null && break; sleep 0.1; done
+base2="http://127.0.0.1:$git_port"
+echo ".{ .dependencies = .{ .tc = .{ .url = \"$base2/tc.tar.gz\", .hash = \"N-tc\" } } }" > "$TMP/git-src/build.zig.zon"
+printf '# hash tarball\nN-aro %s/aro.tar.gz\n' "$base2" > "$TMP/mirrors"
+
+status=0
+CMUX_ZIG_GIT_MIRRORS="$TMP/mirrors" "$SEED" "$TMP/git-cache" "$TMP/git-src" > "$TMP/out" 2>&1 || status=$?
+[[ "$status" == 0 ]] || fail "a listed transitive git pin failed the seed (exit $status)"
+cmp -s "$TMP/git-cache/p/N-aro.tar.gz" "$TMP/www2/aro.tar.gz" \
+  || fail "a transitive git pin was not seeded from its listed tarball"
+[[ ! -e "$TMP/git-cache/p/N-ex.tar.gz" ]] || fail "an example's manifest inside a package was read"
+
+# The same pin with no list line: exit 3, naming the pin and its git URL.
+rm -f "$TMP/git-cache/p/N-aro.tar.gz"
+printf '# no lines\n' > "$TMP/mirrors"
+status=0
+CMUX_ZIG_GIT_MIRRORS="$TMP/mirrors" "$SEED" "$TMP/git-cache" "$TMP/git-src" > "$TMP/out" 2>&1 || status=$?
+[[ "$status" == 3 ]] || fail "an unlisted transitive git pin did not fail the seed with exit 3 (got $status)"
+grep -q "N-aro" "$TMP/out" && grep -q "git+https://codeberg.invalid/ziglang/arocc" "$TMP/out" \
+  || fail "the unlisted pin was not named"
+
+# A package Zig already unpacked (zig-pkg/<hash>) is read too.
+rm -rf "$TMP/git-cache" "$TMP/git-src/zig-pkg"; mkdir -p "$TMP/git-cache/p" "$TMP/git-src/zig-pkg/N-tc"
+cp "$TMP/tree2/tc-1.0/build.zig.zon" "$TMP/git-src/zig-pkg/N-tc/build.zig.zon"
+status=0
+CMUX_ZIG_GIT_MIRRORS="$TMP/mirrors" "$SEED" "$TMP/git-cache" "$TMP/git-src" > "$TMP/out" 2>&1 || status=$?
+[[ "$status" == 3 ]] || fail "an unlisted git pin in an unpacked package did not fail the seed (got $status)"
+
+# The fetch step fails on it before Zig runs, so no job waits on the git host.
+mkdir -p "$TMP/bin"
+printf '#!/bin/sh\n[ "$1" = env ] && exit 1\necho zig-ran >> "%s/zig-ran"\nexit 0\n' "$TMP" > "$TMP/bin/zig"
+chmod +x "$TMP/bin/zig"
+status=0
+CMUX_ZIG="$TMP/bin/zig" ZIG_GLOBAL_CACHE_DIR="$TMP/git-cache" CMUX_ZIG_GIT_MIRRORS="$TMP/mirrors" \
+  "$ROOT/scripts/ci/fetch-ghostty-zig-packages.sh" "$TMP/git-src" > "$TMP/out" 2>&1 || status=$?
+[[ "$status" != 0 ]] || fail "the fetch step passed with an unlisted transitive git pin"
+[[ ! -e "$TMP/zig-ran" ]] || fail "zig ran after the seed found an unlisted transitive git pin"
+grep -q "zig-git-package-mirrors.txt" "$TMP/out" || fail "the fetch error does not say where to add the pin"
+kill "$server_pid" 2>/dev/null; wait "$server_pid" 2>/dev/null || true; server_pid=""
+
 # The fetch seeds before Zig runs, unless CMUX_ZIG_SEED=0.
 grep -q 'seed-zig-package-archives.sh" "$cache"' "$ROOT/scripts/ci/fetch-ghostty-zig-packages.sh" \
   || fail "fetch-ghostty-zig-packages.sh no longer seeds the archives with curl"
