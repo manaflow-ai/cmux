@@ -61,6 +61,11 @@ public struct CreateTerminalRequest: TerminalSpawningRequest {
     /// Arguments for the terminal's shell (`terminal-shell-args-v1`), set by
     /// `DaemonConnection` from `env`; never with `argv` or `command`.
     public var shellArgs: [String]?
+    /// `create-terminal-workspace-v1`: make the workspace `workspace` names by key first when the daemon has none
+    /// (named ``workspaceName``), so a workspace and its first terminal are one request. Needs a key and ``mutation``.
+    public var createWorkspace: Bool?
+    /// The name of the workspace ``createWorkspace`` makes; nil: the daemon names it.
+    public var workspaceName: String?
 
     public init(workspace: WorkspaceRef, argv: [String]? = nil, command: String? = nil, cwd: String? = nil,
                 name: String? = nil, size: CellSize? = nil, terminalID: TerminalID? = nil, env: [String: String]? = nil,
@@ -80,6 +85,8 @@ public struct CreateTerminalRequest: TerminalSpawningRequest {
     enum CodingKeys: String, CodingKey {
         case argv, command, cwd, name, cols, rows, terminalID, env, keep
         case shellArgs = "shell_args"
+        case createWorkspace = "create_workspace"
+        case workspaceName = "workspace_name"
     }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
@@ -93,6 +100,8 @@ public struct CreateTerminalRequest: TerminalSpawningRequest {
         try c.encodeIfPresent(env, forKey: .env)
         try c.encodeIfPresent(keep, forKey: .keep)
         try c.encodeIfPresent(shellArgs, forKey: .shellArgs)
+        try c.encodeIfPresent(createWorkspace, forKey: .createWorkspace)
+        try c.encodeIfPresent(workspaceName, forKey: .workspaceName)
         try WorkspaceRefFields(ref: workspace).encode(to: encoder)
         try MutationFields(identity: mutation).encode(to: encoder)
     }

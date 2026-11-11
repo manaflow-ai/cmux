@@ -69,16 +69,19 @@ fn an_existing_workspace_is_not_made_again() {
 fn create_workspace_needs_a_key_and_a_mutation() {
     let mux =
         Mux::new_for_test("create-terminal-workspace-refused", crate::SurfaceOptions::default());
-    let mut unkeyed = request();
-    unkeyed.as_object_mut().map(|fields| fields.remove("key"));
-    assert!(run(&mux, unkeyed).is_err(), "create_workspace without a key is a bad request");
-    let mut unreceipted = request();
-    unreceipted
-        .as_object_mut()
-        .map(|fields| (fields.remove("mutation_id"), fields.remove("origin")));
+    let without = |fields: &[&str]| {
+        let mut request = request();
+        if let Some(object) = request.as_object_mut() {
+            for field in fields {
+                object.remove(*field);
+            }
+        }
+        request
+    };
+    assert!(run(&mux, without(&["key"])).is_err(), "no key is a bad request");
     assert!(
-        run(&mux, unreceipted).is_err(),
-        "create_workspace without a mutation id is a bad request"
+        run(&mux, without(&["mutation_id", "origin"])).is_err(),
+        "no mutation id is a bad request"
     );
     assert!(workspaces(&mux).is_empty(), "a refused request made a workspace");
     mux.shutdown();

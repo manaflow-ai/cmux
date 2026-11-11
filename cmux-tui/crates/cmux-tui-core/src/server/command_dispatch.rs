@@ -439,6 +439,8 @@ fn dispatch_command(
             env,
             keep,
             detached,
+            create_workspace,
+            workspace_name,
             mutation,
         } => cmd_terminals::create_terminal(
             mux,
@@ -457,6 +459,7 @@ fn dispatch_command(
             env,
             keep,
             detached,
+            create_workspace.then_some(workspace_name),
             mutation,
         ),
         Command::NewScreen(params) => cmd_screens::new_screen(mux, client, params),
