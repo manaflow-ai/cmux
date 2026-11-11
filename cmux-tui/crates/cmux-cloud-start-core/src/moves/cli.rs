@@ -22,6 +22,10 @@ pub const DEFAULT_TIMEOUT_SECONDS: u64 = 30 * 60;
 /// 30 minutes of [`DEFAULT_TIMEOUT_SECONDS`], with the composer's start card silent all along.
 pub const START_CHAT_LEDGER_TIMEOUT_SECONDS: u64 = 60;
 
+/// `link start-chat preflight`: its count stops at the copy's limits, so a huge folder answers in
+/// seconds; two minutes covers a slow disk, and past it the start goes on to the copy's own count.
+pub const START_CHAT_PREFLIGHT_TIMEOUT_SECONDS: u64 = 120;
+
 /// One CLI's answer line.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -245,6 +249,10 @@ pub struct StartChatPlan {
     pub create_sent: bool,
     pub environment_id: Option<String>,
     pub setup: Option<Setup>,
+    /// `machine` was made for this send by this plan (the platform's workspace machine it created
+    /// now): a start that can't go on after it deletes it, as it deletes one the app made for it.
+    /// A machine it found, or a reserved warm one it bound, is never this send's to delete.
+    pub made_for_send: bool,
 }
 
 /// The plan an answer names. An ok answer without its keys is no answer: a create or open
@@ -266,6 +274,12 @@ pub fn start_chat_plan(
         create_sent: boolean(object, "create_sent").unwrap_or(false),
         environment_id: info.environment_id,
         setup: info.setup,
+        made_for_send: string(object, "machine").is_some()
+            && object
+                .get("ensured")
+                .and_then(Value::as_object)
+                .and_then(|ensured| boolean(ensured, "created"))
+                == Some(true),
     };
     if answer.ok && (plan.create_key.is_empty() || plan.tab_key.is_empty()) {
         return (
@@ -426,6 +440,11 @@ pub enum Call {
     /// `link start-chat import`: the sends the app kept itself before.
     StartChatImport {
         entries: String,
+    },
+    /// `link start-chat preflight --local FOLDER`: whether a start may copy `local` at all, asked
+    /// before any machine or lease is made for it.
+    StartChatPreflight {
+        local: String,
     },
     /// `link start-chat copy`: with `store` (the access token on stdin) through the content-addressed store.
     StartChatCopy {
@@ -642,6 +661,13 @@ pub fn invocation(call: &Call) -> Invocation {
         Call::StartChatImport { entries } => {
             ledger(words(&["link", "start-chat", "import", "--entries", entries]))
         }
+        // The count stops at the copy's limits (seconds on a huge folder); past this the start goes on
+        // and the copy's own count refuses it.
+        Call::StartChatPreflight { local } => Invocation {
+            args: words(&["link", "start-chat", "preflight", "--local", local]),
+            timeout_seconds: Some(START_CHAT_PREFLIGHT_TIMEOUT_SECONDS),
+            min_timeout_seconds: None,
+        },
         Call::StartChatCopy {
             key,
             account,

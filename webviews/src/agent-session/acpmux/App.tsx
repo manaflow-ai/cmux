@@ -4826,6 +4826,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         runCloudHere(key);
         return;
       }
+      // A folder the host refused before binding the compose's reservation: that machine is given back now.
+      if (!answer.ok && answer.code === "cloud_folder_too_big" && request.reservationKey)
+        cloudReservation.returned(request.reservationKey);
       setCloudStart((current) => cloudStartEnded(current, key, answer));
       if (!answer.ok && !cloudStartSaid(answer))
         notices.transient(translate("composer.offloadNotRun", { action: translate("composer.cloud") }));
@@ -6013,6 +6016,34 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// Retry on a failed Cloud start: the composer still holds its prompt, and sending it again keys the same
   /// start (cloudRun.ts `cloudStartKeys`), so the host reaches the machine the first try made.
   const retryCloudStart = () => sendStartPrompt();
+  /// The folder the next Cloud send names instead of the composer's (a too-big folder's card: a repository inside
+  /// it, another folder, or none), taken once by that send.
+  const cloudFolderOnce = useRef<{ cwd: string } | { home: true } | undefined>(undefined);
+  /// The too-big card's way on: the same prompt, sent again in `folder` (a new start: another folder is another key).
+  const sendCloudIn = (folder: { cwd: string } | { home: true }) => {
+    cloudFolderOnce.current = folder;
+    sendStartPrompt();
+  };
+  /// A repository inside the folder, or a folder the person browses to: picked as the chat's folder (granted to the
+  /// tab, shown in the composer), then sent. A pick the host refuses sends nothing.
+  const sendCloudInPicked = (cwd: string) => {
+    let refused = false;
+    void chooseProject(cwd, undefined, () => {
+      refused = true;
+    }).then(() => {
+      if (!refused) sendCloudIn({ cwd });
+    });
+  };
+  const cloudTooBigActions = {
+    onPickRepo: sendCloudInPicked,
+    onPickFolder: () => {
+      void callNative<{ cwd?: string }>("project.browse").then(
+        (result) => result?.cwd && sendCloudInPicked(result.cwd),
+        () => undefined,
+      );
+    },
+    onStartWithoutFolder: () => sendCloudIn({ home: true }),
+  };
   /// "This team has no Cloud plan": switch to the person's own team and send the same prompt again.
   const switchTeamAndRetry = (team: { id: string }) => {
     // The next Cloud send takes it (a send the composer holds for its files goes a moment later);
@@ -11505,11 +11536,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
               if (cloudPicked) {
                 // The chat's project, copied to the machine; none: the machine's own folder (cloudStartFolder).
+                const once = cloudFolderOnce.current;
+                cloudFolderOnce.current = undefined;
                 const started = sendToCloud(
                   text,
                   shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
                   {
-                    ...cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd),
+                    ...(once ?? cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd)),
                     ...heldPick(composerSnapshot),
                   },
                 );
@@ -12363,6 +12396,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                   onRunHere={runCloudHere}
                                   onDismiss={dismissCloudFailure}
                                   onSwitchTeam={switchTeamAndRetry}
+                                  {...cloudTooBigActions}
                                 />
                               ),
                             }
@@ -12897,6 +12931,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     onRunHere={runCloudHere}
                     onDismiss={dismissCloudFailure}
                     onSwitchTeam={switchTeamAndRetry}
+                    {...cloudTooBigActions}
                   />
                 ) : sandboxView && !snapshot.sessionId && (sandboxHoldsChat || sandbox.mode === "sandboxed") ? (
                   <SandboxRunView
