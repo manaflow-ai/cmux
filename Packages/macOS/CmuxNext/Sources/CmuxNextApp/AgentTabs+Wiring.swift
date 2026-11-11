@@ -22,16 +22,16 @@ extension AgentTabStore {
     }
 
     /// The same, for a workspace this app just created (not mirrored yet),
-    /// starting in `cwd`. With `chat`, a chat seeded with it instead of the
-    /// page (a person's New Agent Chat).
-    func openFirstPage(workspace: WorkspaceHandle, cwd: String?, on daemon: DaemonService,
-                       chat: AgentPaneSeed? = nil) async throws -> SurfaceID? {
+    /// starting in `cwd`. With `chat` (or its `source`, a Cloud chat start's), a chat seeded with it instead of the
+    /// page (a person's New Agent Chat); `mutationID` keys the tab, so a retry under it gets the same one.
+    func openFirstPage(workspace: WorkspaceHandle, cwd: String?, on daemon: DaemonService, chat: AgentPaneSeed? = nil,
+                       source: AgentPaneSeedSource? = nil, mutationID: String = UUID().uuidString) async throws -> SurfaceID? {
         guard let connection = daemon.connection, let localHost, canHost(on: daemon) else { throw DaemonError.notConnected }
         // A workspace of another machine: its chat runs there (cx-k21v), never in this Mac's acpmux,
         // and it gets no New Tab page (that page runs here). Callers open a terminal there instead
         // of a first page (``opensFirstPage(on:chat:)``).
         let remote = !daemon.isLocal
-        guard !remote || chat != nil else { throw DaemonError.notConnected }
+        guard !remote || chat != nil || source != nil else { throw DaemonError.notConnected }
         // A chat of this Mac (an outside chat it resumes, a past chat of its list) never opens in a
         // workspace of another machine (cx-k21v).
         if remote, chat?.adopt != nil || chat?.pastChat != nil { throw AgentTabRefusal(message: RefusalStrings.agentTabMachineMismatch) }
@@ -42,8 +42,8 @@ extension AgentTabStore {
         } else {
             record = AgentSessionRef(host: localHost, hostName: localHostName)
         }
-        let request = NewConversationTabRequest(agentSession: record, workspace: workspace, origin: Self.createOrigin, mutationID: UUID().uuidString)
-        if var chat {
+        let request = NewConversationTabRequest(agentSession: record, workspace: workspace, origin: Self.createOrigin, mutationID: mutationID)
+        if let source { firstChats[workspace] = source } else if var chat {
             chat.cwd = chat.cwd ?? cwd
             seedFirstChat(chat, in: workspace)
         }
@@ -52,7 +52,7 @@ extension AgentTabStore {
         let response = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command) { try await connection.request(request) }
         let key = response.tabKey
         let scoped = AgentTabKey(machine: daemon.machineID, key: key)
-        if chat != nil {
+        if chat != nil || source != nil {
             // No view took the seed while the request ran: the tab's view takes it.
             if let seed = firstChats.removeValue(forKey: workspace) { seeds[scoped] = seed }
             track(key, in: daemon.store, machine: daemon.machineID)
