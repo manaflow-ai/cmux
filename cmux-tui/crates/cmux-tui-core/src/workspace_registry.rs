@@ -3567,6 +3567,15 @@ impl WorkspaceRegistry {
         )
     }
 
+    /// `(origin, mutation_id)` of the event at `revision`, if there is one.
+    pub fn event_mutation(&self, revision: u64) -> anyhow::Result<Option<(String, String)>> {
+        let Ok(revision) = i64::try_from(revision) else { return Ok(None) };
+        let db = self.connection.get();
+        let mut statement =
+            db.prepare("SELECT origin, mutation_id FROM workspace_events WHERE revision = ?1")?;
+        Ok(statement.query_row([revision], |row| Ok((row.get(0)?, row.get(1)?))).optional()?)
+    }
+
     pub fn events_after(&self, revision: u64) -> anyhow::Result<Vec<RegistryEvent>> {
         let db = self.connection.get();
         let mut statement = db.prepare(

@@ -43,6 +43,7 @@ mod sidebar_rails;
 mod deferred_replay;
 mod dispatch;
 mod event_loop;
+mod idle_wait;
 mod pointer_frame;
 mod presentation;
 mod session_apply;

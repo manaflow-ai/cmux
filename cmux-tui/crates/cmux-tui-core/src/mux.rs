@@ -258,7 +258,9 @@ pub use layout_types::{
     LayoutUndoResult, ViewportWidthError, ZoomMode, ZoomState,
 };
 mod layout_undo_commit;
-pub use events::{GraphicsStatus, LayoutDelta, MachineUsage, MuxEvent, TreeDelta, TreeDeltaKind};
+pub use events::{
+    DeltaMutation, GraphicsStatus, LayoutDelta, MachineUsage, MuxEvent, TreeDelta, TreeDeltaKind,
+};
 mod notification_types;
 mod notifications;
 pub use notification_types::{
@@ -637,6 +639,10 @@ pub struct Mux {
     resource_projection_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_close_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Runs in a browser target adoption after its commit failed and before
+    /// its rollback closes the adopted tab (tests).
+    #[cfg(test)]
+    browser_adopt_before_rollback: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_close_after_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     /// Runs in a state mutation after its apply step (inside its open
@@ -648,6 +654,10 @@ pub struct Mux {
     layout_undo_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_close_cleanup: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Runs in a session journal stream that caught up on its database
+    /// reader, just before it moves to the shared ring (tests).
+    #[cfg(test)]
+    pub(crate) journal_stream_before_ring_switch: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     browser_providers: Arc<BrowserProviderRegistry>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     active_render_attachments: Arc<AtomicUsize>,
