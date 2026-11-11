@@ -69,6 +69,8 @@ public final class DesignSettings {
     public func interfaceScaleScript(pageZoom: Double? = nil) -> String {
         let effectivePageZoom = max(pageZoom ?? Double(uiScale), 0.01)
         return "document.documentElement.style.setProperty('--cmux-interface-scale', '\(Typography.pageScale)');"
+            + "document.documentElement.style.setProperty('--cmux-density-scale', '\(Typography.pageDensityScale)');"
+            + "document.documentElement.style.setProperty('--cmux-density-text-scale', '\(Typography.pageDensityTextScale)');"
             + "document.documentElement.style.setProperty('--cmux-ui-scale', '\(effectivePageZoom)');"
             + "window.dispatchEvent(new Event('cmux-ui-scale-change'))"
     }
