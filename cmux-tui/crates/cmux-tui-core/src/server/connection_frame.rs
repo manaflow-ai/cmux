@@ -39,10 +39,12 @@ pub(super) fn handle_connection_frame(
     if matches!(transport, ClientTransport::Remote) || mux.is_remote_client(client) {
         return remote_relay::handle_frame(mux, client, message, writer);
     }
+    // The hooks below that ask what the line is share its one JSON parse.
+    let line = line_value::LineValue::new(message);
     // A carrier stream's signed role, stamped by the session host before the person's first
     // byte (carrier_role.rs).
     #[cfg(unix)]
-    if let Some(keep_open) = carrier_role::try_handle(mux, client, message, writer) {
+    if let Some(keep_open) = carrier_role::try_handle(mux, client, &line, writer) {
         return keep_open;
     }
     // A phone's channel reaches only what hostd's Cloud ACP adapter sends (phone_carrier.rs).
@@ -62,6 +64,14 @@ pub(super) fn handle_connection_frame(
     // An older client's line, upgraded to this daemon's API revision before
     // any parse (server/api_revision_wire.rs); borrowed unchanged otherwise.
     let upgraded = writer.api_revision.upgrade_request(message);
+    let upgraded_line;
+    let line = match &upgraded {
+        std::borrow::Cow::Borrowed(_) => &line,
+        std::borrow::Cow::Owned(text) => {
+            upgraded_line = line_value::LineValue::new(text);
+            &upgraded_line
+        }
+    };
     let message: &str = &upgraded;
     // A remote device never names an incognito workspace's objects (#31210).
     if let Some(keep_open) = incognito_remote::refuse_line(mux, client, message, writer) {
@@ -73,7 +83,9 @@ pub(super) fn handle_connection_frame(
     if agent_session_attach::proxy_bound(mux, client) {
         return agent_session_attach::handle_bound(mux, client, message, writer);
     }
-    if let Some(request) = crate::resource_router::parse_resource_line(message) {
+    if let Some(request) =
+        crate::resource_router::parse_resource_line_given(message, || line.value())
+    {
         // A v2 line the catalog parse refuses may name a routed namespace
         // operation (page-router-v1): the same JSON parse decides, so every
         // spelling of the line gets one answer.
@@ -144,7 +156,7 @@ pub(super) fn handle_connection_frame(
         return keep_open;
     }
     #[cfg(unix)]
-    if let Some(keep_open) = cloud_repos::try_handle(mux, client, message, writer) {
+    if let Some(keep_open) = cloud_repos::try_handle(mux, client, line, writer) {
         return keep_open;
     }
     let mut request = match serde_json::from_str::<Request>(message) {

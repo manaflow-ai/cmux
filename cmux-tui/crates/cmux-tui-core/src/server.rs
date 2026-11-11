@@ -160,6 +160,7 @@ mod input_qos;
 pub(crate) use input_qos::current_thread_qos as current_input_thread_qos;
 pub(crate) use input_qos::raise_this_thread as raise_input_thread_qos;
 mod line_connection;
+mod line_value;
 pub(crate) mod tree_reply_flight;
 use command_args::{
     parse_direction, parse_split_dir, parse_zoom_mode, present_nullable, workspace_mutation,
