@@ -170,6 +170,30 @@ test("a jump marks its part current, and a second Change Background… lands on 
   page.unmount();
 });
 
+test("Change Background… waits for the host's lists before it reveals Background", async () => {
+  // The host's lists add the Theme part's override lines and Background's art picker above and in
+  // the part: a reveal on the values alone landed short once they grew (gallery backdrops-workspace).
+  let release = () => {};
+  const scrolled: string[] = [];
+  const original = HTMLElement.prototype.scrollIntoView;
+  HTMLElement.prototype.scrollIntoView = function (this: HTMLElement) {
+    if (this.dataset.part) scrolled.push(this.dataset.part);
+  };
+  const page = await renderPage({
+    path: "/settings/personalization?focus=personalization.background&open=1",
+    drawBeforeStart: true,
+    setup: (provider) => void (provider.holdHost = new Promise<void>((resolve) => (release = resolve))),
+  });
+  await settle();
+  expect(page.store.getSnapshot().host).toBeNull();
+  expect(scrolled).toEqual([]);
+  await act(async () => release());
+  await settle();
+  expect(scrolled).toEqual(["background"]);
+  HTMLElement.prototype.scrollIntoView = original;
+  page.unmount();
+});
+
 test("a jump to Theme, the first part, scrolls the page to its very top so its title shows", async () => {
   const page = await renderPage({ path: "/settings/personalization?focus=personalization.sounds" });
   await settle();

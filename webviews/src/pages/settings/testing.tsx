@@ -46,15 +46,16 @@ export async function renderPage(
     setup?: (provider: MockSettingsProvider) => void;
     /** Leave every card's More Options closed (the default opens them, so a test reaches every row). */
     closedMore?: boolean;
+    /** Draw the page while the store still starts, as the app does: a read the mock holds stays pending. */
+    drawBeforeStart?: boolean;
   } = {},
 ): Promise<Rendered> {
   setLocale(options.locale ?? "en");
   const mock = createMockClient(options.mock);
   options.setup?.(mock.provider);
   const store = new SettingsStore(mock.client);
-  await act(async () => {
-    await store.start();
-  });
+  const started = store.start();
+  if (!options.drawBeforeStart) await act(async () => await started);
   const history = createMemoryHistory({ initialEntries: [options.path ?? "/settings/general"] });
   const container = document.createElement("div");
   container.id = "root";
