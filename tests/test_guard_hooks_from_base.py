@@ -24,6 +24,13 @@ import time
 import unittest
 from pathlib import Path
 from unittest import mock
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 SETTINGS = ROOT / ".claude/settings.json"
@@ -70,7 +77,7 @@ class GuardsRunFromTheBase(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp)
         self.isolate_git()
-        git(self.tmp, "init", "-q", "--bare", "-b", "feat-cmux-next", "remote.git")
+        git_fixture_env.init_repo("remote.git", "--bare", "-b", "feat-cmux-next", cwd=self.tmp, env={**os.environ, **GIT_ENV})
         self.seed = self.tmp / "seed"
         git(self.tmp, "clone", "-q", "remote.git", "seed")
         git(self.seed, "checkout", "-q", "-b", "feat-cmux-next")
@@ -102,8 +109,8 @@ class GuardsRunFromTheBase(unittest.TestCase):
                           "[gc]\n\tauto = 0\n\tautoDetach = false\n"
                           # git 2.43 (Ubuntu 24.04): a push's receive-pack starts `git gc --auto` and reads no maintenance.auto.
                           "[receive]\n\tautogc = false\n")
-        env = {"HOME": str(self.home), "XDG_CONFIG_HOME": str(self.home / ".config"), "GIT_CONFIG_GLOBAL": str(config),
-               "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_COUNT": "0"}
+        env = git_fixture_env.fixture_env({"HOME": str(self.home), "XDG_CONFIG_HOME": str(self.home / ".config"), "GIT_CONFIG_GLOBAL": str(config),
+               "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_COUNT": "0"})
         patcher = mock.patch.dict(os.environ, env)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -296,7 +303,7 @@ class GuardsRunFromTheBase(unittest.TestCase):
         (bin_dir / "gtimeout").symlink_to(shutil.which("timeout"))
         self.install_gate()
         git(self.lane, "update-ref", "refs/remotes/origin/feat-cmux-next", self.old_base())
-        code, out, err = self.hook(MERGE, env={"PATH": str(bin_dir)})
+        code, out, err = self.hook(MERGE, env=git_fixture_env.fixture_env({"PATH": str(bin_dir)}))
         self.assertEqual(code, 0, err)
         self.assert_refused(out, "installed landing gate")
 

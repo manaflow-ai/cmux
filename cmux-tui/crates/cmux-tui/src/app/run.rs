@@ -426,6 +426,7 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         tree: TreeView::default(),
         tab_locations: HashMap::new(),
         render_states: HashMap::new(),
+        synchronized_output: Default::default(),
         chrome_row_scratch: ReusableRowBuffer::default(),
         sidebar_kind_scratch: Vec::new(),
         rendered_terminal_sizes: HashMap::new(),

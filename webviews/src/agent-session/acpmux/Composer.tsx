@@ -33,6 +33,7 @@ import {
   type LinkItem,
 } from "./attachments";
 import type { SendGesture } from "./heldPrompt";
+import { useTurnHandover } from "./composer/turnHandover";
 import { awaitsOriginals } from "./promptBudget";
 import type { UploadProgressReport, UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
@@ -762,7 +763,6 @@ function ComposerFrame({
     pending,
     loading,
     unsettled,
-    videoReading,
     cancel,
     retry,
     revive,
@@ -830,12 +830,11 @@ function ComposerFrame({
   // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
   // It binds the Enter's or click's gesture at once: the screenshot's upload would spend it meanwhile.
   const bindHeldSend = () => onBindSendGesture?.();
-  const holdForAttachments = useSendWhenAttached<SendGesture>(
-    loading + videoReading,
-    sessionId,
-    unsettled + videoReading,
-    bindHeldSend,
-  );
+  // A video's read (its poster, frames and speech, composer/videoAttachments.ts) holds no send: the
+  // chip is its path from the paste on, and what the host has read by the send goes with it (Leo,
+  // 2026-11-10: "it's 99% of the time fine for it to just to be a path and stuff, so idk why it's so
+  // slow").
+  const holdForAttachments = useSendWhenAttached<SendGesture>(loading, sessionId, unsettled, bindHeldSend);
   /// A prompt too large for one acpmux message waits for its images' originals still uploading,
   /// then goes with them as links (promptBudget.ts); the person's x on one lets it go without it.
   const holdForOriginals = useSendWhenOriginals<SendGesture>(
@@ -1401,11 +1400,9 @@ function ComposerFrame({
   const selected = Math.min(active, Math.max(matches.length - 1, 0));
   useLayoutEffect(() => {
     const node = shellField.current;
-    if (!node) return;
-    // One line grows with what is typed, as the prompt does (no scrollbar under 40vh).
-    node.style.height = "0px";
-    node.style.height = `${node.scrollHeight}px`;
-    if (shellCaret.current === undefined) return;
+    // It grows with what is typed by CSS (`field-sizing: content`, composerStates.css), as the prompt does: setting
+    // its height to 0 and reading scrollHeight here forced a layout on every render of the composer.
+    if (!node || shellCaret.current === undefined) return;
     node.focus();
     node.setSelectionRange(shellCaret.current, shellCaret.current);
     shellCaret.current = undefined;
@@ -2167,9 +2164,12 @@ function ComposerFrame({
     !snapshot.isWorking &&
     snapshot.switching?.phase === "starting" &&
     snapshot.rows.some((row) => row.queued !== undefined);
-  const stop = !shell && (snapshot.isWorking || holding) && !text.trim();
+  // A turn that ended with a queued prompt acpmux runs next keeps Stop until that turn starts, so
+  // the slot never flickers between two turns (composer/turnHandover.ts).
+  const handingOver = useTurnHandover(snapshot.isWorking, snapshot.queue, snapshot.summary?.queuePaused === true);
+  const stop = !shell && (snapshot.isWorking || holding || handingOver) && !text.trim();
   // Stop shows for the whole turn, a typed prompt or not; Esc stops only from an empty prompt.
-  const running = !shell && (snapshot.isWorking || holding);
+  const running = !shell && (snapshot.isWorking || holding || handingOver);
   const hasDraft = Boolean(text.trim() || attachments.length || pending.length);
   // Esc stops the turn on a double press (escapeStop.ts). The Quick Composer's page-level Esc hides
   // its panel, so only the pane counts an Esc that reaches the page.
