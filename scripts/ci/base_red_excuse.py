@@ -611,6 +611,12 @@ WARNING = re.compile(r"##\[warning\]|\bwarning:")
 # annotation, so 'signed host admission' had no error line to compare, and its base red on cmux#37855 (the same
 # "signed app pid N never kept an accepted host connection" on base run 42383535506) could not be matched.
 JOB_ERROR = {"signed host admission": re.compile(r"^FAIL: ")}
+# A shell check's own `FAIL: <what>` line (cmuxterm-hq's tests/*.sh: hq#9191's "Skill policy tests" failed only
+# `FAIL: plist content` in its LaunchAgent step), counted by the whole-log comparison (unplaced_signature) of any job,
+# so a second `FAIL:` line is a new failure there. A placed comparison keys it for JOB_ERROR's jobs alone (a `FAIL:`
+# line is no error line for another job's step_errors); a placed red with nothing else to compare is compared whole.
+# A unittest's `FAIL: test (module.Class)` is a failing test (test_reds), not this.
+SHELL_FAIL = re.compile(r"^FAIL: (?!\w+ \([\w.]+\)$)\S")
 # Release-notary helpers report successful validations as `ok: ... (error: ...)`.
 # The parenthesized diagnostic is expected output, not a failed check; only
 # error annotations outside a successful `ok:` wrapper are evidence.
@@ -1058,14 +1064,17 @@ def step_owners(job: dict, log: str, *, step_names) -> list[tuple[str, int | Non
       taken for an unnamed step's, whose header must be it.
     STEP_NAMES is workflow_step_names' answer, {step number: whether its workflow step has a `name:`}, or
     STEP_NAMES_UNKNOWN; anything else is a TypeError.
-    Any composite action, silent step, extra header, mismatch or step with no times places nothing. A placed section
+    Any composite action, silent step, extra header, mismatch or step with no times places nothing by that reading
+    (_one_to_one_starts). When STEP_NAMES carries the workflow's headers (StepNames), a log it does not place is read
+    a second way (_aligned_starts): every workflow step prints its own known header first, so a composite's inner
+    `Run` lines and steps sharing a second are placed when exactly one choice of own headers fits the headers and every
+    line's time; any other choice that fits places nothing. A placed section
     is FAILED when the jobs API says its step did not succeed, ERRORED when its step succeeded but it has a live
     SECTION_RED line outside its script's echo, else PASSED. The last section is "Complete job"'s too: when that failed
     and the step before it succeeded, which of the two its lines belong to is not proven, so they are AMBIGUOUS
     (#40542's fourth Codex BLOCK, F2)."""
     if step_names is not STEP_NAMES_UNKNOWN and not isinstance(step_names, dict):
         raise TypeError(f"step_names must be workflow_step_names' answer or STEP_NAMES_UNKNOWN, not {step_names!r}")
-    proven = {} if step_names is STEP_NAMES_UNKNOWN else step_names
     lines = log.splitlines()
     unknown = [(line, None, AMBIGUOUS) for line in lines]
     steps = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"]
@@ -1074,9 +1083,6 @@ def step_owners(job: dict, log: str, *, step_names) -> list[tuple[str, int | Non
     if len(steps) < 2 or len(lines) > STEP_OWNERS_MAX_LINES:
         return unknown
     texts = lines_of(log)
-    starts = [n for n, text in enumerate(texts) if STEP_START.match(text)]
-    if len(starts) != len(steps) - 2:
-        return unknown
     windows = []
     for step in steps:
         start, end = _stamp_time(step.get("started_at")), _stamp_time(step.get("completed_at"))
@@ -1084,25 +1090,11 @@ def step_owners(job: dict, log: str, *, step_names) -> list[tuple[str, int | Non
                        else None)
     if None in windows:
         return unknown
-    opened, closed = sorted(start for start, _ in windows[1:-1]), sorted(end for _, end in windows[1:-1])
-    for k, n in enumerate(starts, 1):
-        name = str(steps[k].get("name") or "")  # step-name: validate
-        header = texts[n].removeprefix("##[group]")
-        # Whether the workflow gives this step a `name:`, as workflow_step_names proved it (absent: not proven).
-        named = proven.get(steps[k].get("number"))
-        if header == "Post job cleanup." or name.startswith("Post "):
-            if not (header == "Post job cleanup." and name.startswith("Post ")):
-                return unknown
-        elif (named is False or (named is not True and name.startswith("Run "))) and header != name:
-            return unknown
-        parts = lines[n].replace("\ufeff", "").split("\t", 2)
-        stamp = STAMP.match(parts[2] if len(parts) == 3 and STAMP.match(parts[2]) else parts[0])
-        at = _stamp_time(stamp.group()) if stamp else None
-        if at is None or not windows[k][0] <= at < windows[k][1]:
-            return unknown
-        # The windows holding AT: those opened at or before it less those closed at or before it.
-        if bisect.bisect_right(opened, at) - bisect.bisect_right(closed, at) != 1:
-            return unknown
+    starts = _one_to_one_starts(steps, lines, texts, windows, step_names)
+    if starts is None:
+        starts = _aligned_starts(steps, lines, texts, windows, step_names)
+    if starts is None:
+        return unknown
     bounds = [0, *starts, len(lines)]
     found = []
     for k in range(len(bounds) - 1):
@@ -1112,21 +1104,155 @@ def step_owners(job: dict, log: str, *, step_names) -> list[tuple[str, int | Non
         elif k == len(bounds) - 2 and steps[-1].get("conclusion") != "success":
             status = AMBIGUOUS
         else:
-            # Every line is live but the runner's echo of the step's script and env: the group its own `##[group]Run
-            # ...` header opens, up to its `##[endgroup]` with no other group opened before it. A post step's
-            # `Post job cleanup.`, a group that is not the header's, or a header group with no end skips nothing
-            # (#40542's fifth Codex BLOCK: a post step's own `##[group]` hid its `##[error]` line).
-            live = bounds[k]
-            if k and texts[bounds[k]].startswith("##[group]Run "):
-                for n in range(bounds[k] + 1, bounds[k + 1]):
-                    if texts[n].startswith("##[group]"):
-                        break
-                    if texts[n] == "##[endgroup]":
-                        live = n + 1
-                        break
-            status = ERRORED if any(SECTION_RED.match(texts[n]) for n in range(live, bounds[k + 1])) else PASSED
+            status = ERRORED if _live_red(texts, bounds[k], bounds[k + 1], opened=k > 0) else PASSED
         found += [(lines[n], k, status) for n in section]
     return found
+
+
+def _live_red(texts: list[str], low: int, high: int, *, opened: bool) -> bool:
+    """Whether the section TEXTS[LOW:HIGH] (OPENED: by its step's own header) has a live SECTION_RED line. Every line
+    is live but the runner's echo of the step's script and env: the group its own `##[group]Run ...` header opens, up
+    to its `##[endgroup]` with no other group opened before it. A post step's `Post job cleanup.`, a group that is not
+    the header's, or a header group with no end skips nothing (#40542's fifth Codex BLOCK: a post step's own
+    `##[group]` hid its `##[error]` line)."""
+    live = low
+    if opened and texts[low].startswith("##[group]Run "):
+        for n in range(low + 1, high):
+            if texts[n].startswith("##[group]"):
+                break
+            if texts[n] == "##[endgroup]":
+                live = n + 1
+                break
+    return any(SECTION_RED.match(texts[n]) for n in range(live, high))
+
+
+def _line_time(line: str) -> datetime | None:
+    """The runner's stamp on a raw log LINE (either log format), None when it has none."""
+    parts = line.replace("\ufeff", "").split("\t", 2)
+    stamp = STAMP.match(parts[2] if len(parts) == 3 and STAMP.match(parts[2]) else parts[0])
+    return _stamp_time(stamp.group()) if stamp else None
+
+
+def _one_to_one_starts(steps: list[dict], lines: list[str], texts: list[str], windows: list, step_names
+                       ) -> list[int] | None:
+    """step_owners' first reading (its docstring): the STEP_START line of each of STEPS[1:-1] when there is exactly
+    one per step, each in its own step's times alone and fitting its name; else None."""
+    proven = {} if step_names is STEP_NAMES_UNKNOWN else step_names
+    starts = [n for n, text in enumerate(texts) if STEP_START.match(text)]
+    if len(starts) != len(steps) - 2:
+        return None
+    opened, closed = sorted(start for start, _ in windows[1:-1]), sorted(end for _, end in windows[1:-1])
+    for k, n in enumerate(starts, 1):
+        name = str(steps[k].get("name") or "")  # step-name: validate
+        header = texts[n].removeprefix("##[group]")
+        # Whether the workflow gives this step a `name:`, as workflow_step_names proved it (absent: not proven).
+        named = proven.get(steps[k].get("number"))
+        if header == "Post job cleanup." or name.startswith("Post "):
+            if not (header == "Post job cleanup." and name.startswith("Post ")):
+                return None
+        elif (named is False or (named is not True and name.startswith("Run "))) and header != name:
+            return None
+        at = _line_time(lines[n])
+        if at is None or not windows[k][0] <= at < windows[k][1]:
+            return None
+        # The windows holding AT: those opened at or before it less those closed at or before it.
+        if bisect.bisect_right(opened, at) - bisect.bisect_right(closed, at) != 1:
+            return None
+    return starts
+
+
+# Past this many STEP_START lines a log is not aligned (_aligned_starts): each is tried against each step's times.
+ALIGN_MAX_STARTS = 20_000
+
+
+def _aligned_starts(steps: list[dict], lines: list[str], texts: list[str], windows: list, step_names
+                    ) -> list[int] | None:
+    """step_owners' second reading, for a log whose STEP_START lines are not one per step (a composite action's
+    inner `Run` lines; cmux#41001's "cmux-next daemon tests", job 130369194352: 38 for 31 steps) or whose steps share
+    a second (hq#9191's "Skill policy tests", job 130394322965: five steps in 07:47:29), when its workflow is proven
+    (workflow_step_names' answer carries HEADERS, the header the runner opens each step with: `Run <its uses>`, `Run
+    <its script's first line>`, `Post job cleanup.` for a post step). Each step's own header is the first STEP_START
+    line of its section, where the runner always prints it; a step's other STEP_START lines (a composite's inner
+    steps, a script's own `::group::Run`) are its section's too. The log is placed only when exactly one choice of
+    own headers, in step order, has every one fitting its step's known header and every stamped line of each section,
+    the header's and every line after it up to the next step's, within that step's times [started_at, completed_at +
+    1s) (the last section: through "Complete job"'s), and the first STEP_START line the first step's own. Any other
+    choice that fits as well (a same-second step's header that could be a composite's inner line), a header the
+    workflow does not give, or a step with no times places nothing (None): the whole-log comparison then reads it."""
+    headers = getattr(step_names, "headers", None)
+    if not isinstance(headers, dict):
+        return None
+    printing = steps[1:-1]
+    starts = [n for n, text in enumerate(texts) if STEP_START.match(text)]
+    if not printing or not starts or len(starts) < len(printing) or len(starts) > ALIGN_MAX_STARTS:
+        return None
+    expected = []
+    for step in printing:
+        want = headers.get(step.get("number"))
+        if not (isinstance(want, tuple) and len(want) == 3 and isinstance(want[0], str) and want[0]):
+            return None
+        expected.append(want)
+    # Each segment: a STEP_START line and the lines after it up to the next one, as the earliest and latest stamp.
+    bounds = [*starts, len(lines)]
+    low: list[datetime | None] = []
+    high: list[datetime | None] = []
+    for s in range(len(starts)):
+        found = [at for n in range(bounds[s], bounds[s + 1]) if (at := _line_time(lines[n])) is not None]
+        low.append(min(found) if found else None)
+        high.append(max(found) if found else None)
+    if low[0] is None:
+        return None
+    spans = [windows[k] for k in range(1, len(steps) - 1)]
+    spans[-1] = (spans[-1][0], max(spans[-1][1], windows[-1][1]))  # "Complete job" prints into the last section
+
+    def fits(i: int, s: int) -> bool:
+        header = texts[starts[s]].removeprefix("##[group]")
+        text, exact, _ = expected[i]
+        return header == text if exact else header.startswith(text)
+
+    def within(i: int, s: int) -> bool:
+        return low[s] is None or (spans[i][0] <= low[s] and high[s] < spans[i][1])
+
+    # ways[s]: how many choices (0, 1, or 2 for "more than one") place steps 0..i with step i's own header at segment
+    # s; back[i][s] the segment of step i-1's in the one choice.
+    ways = {0: 1} if fits(0, 0) else {}
+    back: list[dict[int, int]] = [{}]
+    for i in range(len(printing) - 1):
+        nxt: dict[int, int] = {}
+        came: dict[int, int] = {}
+        for s, count in ways.items():
+            t = s + 1
+            while t < len(starts) and within(i, t - 1):
+                if fits(i + 1, t):
+                    nxt[t] = min(2, nxt.get(t, 0) + count)
+                    came[t] = s
+                t += 1
+        ways, back = nxt, [*back, came]
+        if not ways:
+            return None
+    last = len(printing) - 1
+    ends = {s: count for s, count in ways.items() if all(within(last, u) for u in range(s, len(starts)))}
+    if sum(ends.values()) != 1:
+        return None
+    s = next(iter(ends))
+    own = [s]
+    for i in range(last, 0, -1):
+        s = back[i][s]
+        own.append(s)
+    chosen = [starts[s] for s in reversed(own)]
+    # The one choice must also agree with what the jobs API says of each workflow step that cannot fail quietly (no
+    # `continue-on-error`): failed, its section has a live `##[error]` line (the runner's exit line, an action's
+    # failure); passed, it has none. A step that printed no header of its own (a "silent" step, which the runner
+    # never makes of a step it ran) would take a composite's same-second inner line for its own and with it the
+    # composite's failure: the composite's section then has no `##[error]` line, and nothing is placed
+    # (LocalCompositeCannotPose).
+    edges = [*chosen, len(lines)]
+    for i, step in enumerate(printing):
+        if not expected[i][2] or step.get("conclusion") not in ("success", "failure"):
+            continue
+        if (step.get("conclusion") == "failure") != _live_red(texts, edges[i], edges[i + 1], opened=True):
+            return None
+    return chosen
 
 
 def failed_steps_log(job: dict, log: str, *, step_names) -> str:
@@ -1223,11 +1349,9 @@ def workflow_step_names(repo: str, job: dict, path, github, seen: dict) -> dict[
     api = sorted(job.get("steps") or [], key=lambda step: step.get("number") if isinstance(step.get("number"), int)
                  else -1)
     names = [step.get("name") for step in api]  # step-name: validate
-    if not any(isinstance(name, str) and name.startswith("Run ") for name in names):
-        return STEP_NAMES_UNKNOWN
     sha = str(job.get("head_sha") or "")
     path = str(path or "").split("@", 1)[0]
-    if ([step.get("number") for step in api] != list(range(1, len(api) + 1)) or not re.fullmatch(r"[0-9a-f]{40}", sha)
+    if (not _numbered_in_full(api) or not re.fullmatch(r"[0-9a-f]{40}", sha)
             or not re.fullmatch(r"\.github/workflows/[\w.-]+\.ya?ml", path)
             or not all(isinstance(name, str) for name in names)):
         return STEP_NAMES_UNKNOWN
@@ -1267,16 +1391,73 @@ def workflow_step_names(repo: str, job: dict, path, github, seen: dict) -> dict[
     marks = _step_marks(named[0].get("steps"), names)
     if marks is None or any(_step_marks(spec.get("steps"), names) not in (None, marks) for spec in unread):
         return STEP_NAMES_UNKNOWN
-    return {step["number"]: mark for step, mark in zip(api, marks) if mark is not None}
+    found = StepNames({step["number"]: mark for step, mark in zip(api, marks) if mark is not None})
+    # The headers are the named job's; a job whose name is not read and whose steps fit too must give the same ones.
+    found.headers = _step_headers(named[0]["steps"], api, marks)
+    if any(_step_marks(spec.get("steps"), names) is not None
+           and _step_headers(spec["steps"], api, marks) != found.headers for spec in unread):
+        found.headers = None
+    return found
+
+
+def _numbered_in_full(api: list[dict]) -> bool:
+    """Whether API (a job's steps, by number) lists every step: numbered 1, 2, ... up to its trailing runner steps
+    (post steps, RUNNER_TRAILING_STEPS, "Complete job"), which the runner numbers apart (cmux-next daemon tests: 1-42,
+    then 81-85), and in increasing order through them."""
+    numbers = [step.get("number") for step in api]
+    if not all(isinstance(number, int) and not isinstance(number, bool) for number in numbers):
+        return False
+    head = 0
+    while head < len(api) and not (str(api[head].get("name") or "").startswith("Post ")  # step-name: validate
+                                   or api[head].get("name") in (*RUNNER_TRAILING_STEPS, "Complete job")):
+        head += 1
+    return (numbers[:head] == list(range(1, head + 1))
+            and all(earlier < later for earlier, later in zip(numbers, numbers[1:])))
+
+
+class StepNames(dict):
+    """workflow_step_names' answer: {step number: whether its workflow step has a `name:`}, and HEADERS, {step
+    number: (the STEP_START line the runner opens it with, less `##[group]`, whether that is the whole line or its
+    start, whether its conclusion is strict)} for every step but "Set up job" and "Complete job" (_step_headers), or
+    None. step_owners' second reading
+    (_aligned_starts) reads HEADERS; a plain dict has none, and is read as before."""
+    headers: dict | None = None
+
+
+def _step_headers(declared: list[dict], api: list[dict], marks: list) -> dict[int, tuple[str, bool, bool]] | None:
+    """{the number of each of the jobs-API steps API (marks: _step_marks') but the first and the last: (its header,
+    exact, strict)}: a `uses:` step's `Run <uses>`, a `run:` step's `Run <its script's first line>` (only up to a `${{`,
+    which the runner renders: a start), a post step's `Post job cleanup.`, a job hook's (Set up runner, Complete
+    runner) any `Run ...` line. STRICT: a workflow step with no `continue-on-error`, whose conclusion says whether its
+    section has an `##[error]` line (_aligned_starts). None when an unnamed step's API name is not its header (the
+    jobs API names it by it), so the workflow and the job disagree."""
+    found: dict[int, tuple[str, bool, bool]] = {}
+    workflow = iter(declared)
+    for k, (step, mark) in enumerate(zip(api, marks)):
+        if mark is not None:
+            spec = next(workflow)
+            if isinstance(spec.get("uses"), str):
+                said, exact = f"Run {spec['uses'].strip()}", True
+            else:
+                script = str(spec.get("run") or "").strip()
+                first = script.splitlines()[0].strip() if script else ""
+                said, exact = (f"Run {first}", True) if "${{" not in first else (
+                    f"Run {first.split('${{', 1)[0]}", False)
+            if mark is False and (not exact or step.get("name") != said):  # step-name: validate
+                return None
+            found[step["number"]] = (said, exact, spec.get("continue-on-error", False) is False)
+        elif 0 < k < len(api) - 1:
+            name = str(step.get("name") or "")  # step-name: validate
+            found[step["number"]] = (("Post job cleanup.", True, False) if name.startswith("Post ")
+                                     else ("Run ", False, False))
+    return found
 
 
 def job_step_names(repo: str, job: dict, github, seen: dict, path=None) -> dict[int, bool] | StepNamesUnknown:
     """workflow_step_names for JOB, its workflow's PATH read from its run's record when not given (rest_run, once per
-    run in SEEN; an unread record is STEP_NAMES_UNKNOWN). Read only when a step's name starts with "Run ", the one case
-    the answer changes step_owners'."""
-    steps = job.get("steps") or []
-    if not any(str(step.get("name") or "").startswith("Run ") for step in steps):  # step-name: validate
-        return STEP_NAMES_UNKNOWN
+    run in SEEN; an unread record is STEP_NAMES_UNKNOWN). Read for every job: its headers (StepNames) let step_owners
+    place a log whose steps are not one header each (_aligned_starts), not only a step named "Run ..." (cmux#41001,
+    hq#9191: every step named, so neither was read and both logs went unplaced)."""
     if path is None:
         key = ("run-record", job.get("run_id"))
         if key not in seen:
@@ -1332,6 +1513,9 @@ class Unplaced:
 
 UNPLACED = Unplaced()
 # What a caller says when signature() is UNPLACED.
+# What a caller says when a placed head's failed sections name no failing test, error line or crash: compared whole.
+BARE_WHY = ("its failed steps' own lines name no failing test or error line (a shell check's `FAIL:` line is one only "
+            "in a whole-log comparison)")
 UNPLACED_WHY = ("its log does not map one to one onto its steps (step_owners: a composite action, a silent step or a "
                 "header that is not its step's own), so no line can be told to the step that printed it")
 
@@ -1440,6 +1624,7 @@ def unplaced_signature(job: dict, log: str) -> UnplacedSignature:
             continue
         if ((ERROR.search(line)
              or ((marker := JOB_ERROR.get(job.get("name", ""))) is not None and marker.search(line))
+             or SHELL_FAIL.match(line)
              or (not named and ("default" in job.get("name", "").lower()
                                 or "snapshot" in job.get("name", "").lower())
                  and SUMMARY_FAILURE.search(line)))
@@ -1475,31 +1660,34 @@ def unplaced_base_evidence(repo: str, base_job: dict, github) -> UnplacedSignatu
 
 
 def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, found: UnplacedSignature,
-                     base_run: dict) -> str:
+                     base_run: dict, *, why: str | None = None) -> str:
     """The audit line for an unplaced red job NAME whose whole-log signature HEAD is FOUND's, the newest red base
     verdict's (the rule above); raises Refused naming what differs."""
+    why = UNPLACED_WHY if why is None else why
     url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
     where = f"{base} run {base_run['id']} ({url})"
     if not head.steps:
-        raise Refused(f"'{name}': {UNPLACED_WHY}, and it names no failed step; nothing is compared with the base")
+        raise Refused(f"'{name}': {why}, and it names no failed step; nothing is compared with the base")
     if not head.tests and not head.errors:
-        raise Refused(f"'{name}': {UNPLACED_WHY}, and its log names no failing test or error line; nothing to "
+        raise Refused(f"'{name}': {why}, and its log names no failing test or error line; nothing to "
                       "compare with the base")
     for side, said in (("its", head.unnamed), (f"{where}'s", found.unnamed)):
         if said:
-            raise Refused(f"'{name}': {UNPLACED_WHY}; compared whole, {side} log says tests failed and names none of "
+            raise Refused(f"'{name}': {why}; compared whole, {side} log says tests failed and names none of "
                           f"them ({said[0][:200]}), so no failure can be told from another")
     if head.steps != found.steps:
-        raise Refused(f"'{name}': {UNPLACED_WHY}; compared whole, its failed steps ({step_keys_text(head.steps)}) are "
+        raise Refused(f"'{name}': {why}; compared whole, its failed steps ({step_keys_text(head.steps)}) are "
                       f"not {where}'s ({step_keys_text(found.steps)})")
     for what, mine, theirs in (("failing tests", head.tests, found.tests), ("error lines", head.errors, found.errors)):
         if mine != theirs:
             more, fewer = sorted((mine - theirs).elements()), sorted((theirs - mine).elements())
-            raise Refused(f"'{name}': {UNPLACED_WHY}; compared whole, its {what} are not {where}'s"
+            raise Refused(f"'{name}': {why}; compared whole, its {what} are not {where}'s"
                           + (f": more on this head: {'; '.join(more)[:500]}" if more else "")
                           + (f"; more on the base: {'; '.join(fewer)[:300]}" if fewer else ""))
     said = sorted(head.tests) or sorted(head.errors)
-    return (f"excused '{name}': its log does not map onto its steps, so it was compared whole: the same failed steps "
+    said_why = ("its log does not map onto its steps" if why == UNPLACED_WHY
+                else "its failed steps name no failing test or error line")
+    return (f"excused '{name}': {said_why}, so it was compared whole: the same failed steps "
             f"({step_keys_text(head.steps)[:200]}), failing tests and error lines, as often each, as {where}: "
             f"{'; '.join(said)[:400]}")
 
@@ -4952,7 +5140,8 @@ class Head(NamedTuple):
     view: "FailedView | Unplaced | None" = None
     chromium_without_diagnostics: bool = False
     per_test: Callable[[dict], str | None] = lambda workflow_info: None
-    # The whole-log signature of an unplaced head (VIEW UNPLACED), else None: unplaced_verdict compares it.
+    # The whole-log signature of an unplaced head (VIEW UNPLACED) or of a placed one with nothing to compare, else
+    # None: unplaced_verdict compares it.
     unplaced: "UnplacedSignature | None" = None
 
 
@@ -5009,8 +5198,12 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
     def per_test(workflow_info: dict) -> str | None:
         return (gallery_crash_verdict(repo, base, name, job, head_log, workflow_info, github, base_runs)
                 or web_test_verdict(repo, base, name, job, head_log, workflow_info, github, base_runs))
+    # A placed head whose failed sections name no failing test, error line or crash (hq#9191's `FAIL: plist content`)
+    # is compared whole too, never refused for want of a key: the whole-log identity is the fallback either way.
+    bare = (early is not UNPLACED and not early[1] and not early[2] and not crash_signals(view)
+            and not chromium_without_diagnostics)
     return Head(None, view, chromium_without_diagnostics, per_test,
-                unplaced_signature(job, head_log) if view is UNPLACED else None)
+                unplaced_signature(job, head_log) if view is UNPLACED or bare else None)
 
 
 def base_evidence(repo: str, base: str, name: str, run: dict, found: dict, github, run_reads: dict) -> tuple:
@@ -5166,9 +5359,15 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 raise Refused(f"'{name}' is not red on {base} run {base_run['id']} ({base_job.get('conclusion')}), "
                               f"and not fixed on base: {why}; fix it on this head") from None
             continue
-        if view is UNPLACED:
+        bare = view is not UNPLACED and got.unplaced is not None
+        if bare and aside is None:
+            head = signature(view)
+            bare = not head[1] and not head[2]
+        why_whole = UNPLACED_WHY if view is UNPLACED else BARE_WHY
+        if view is UNPLACED or bare:
             # An unplaced head is read per step first (update-branch alone: by_step refuses a land), then compared
-            # whole with the base (#41129, carried forward): identity with one red base verdict.
+            # whole with the base (#41129, carried forward): identity with one red base verdict. So is a placed head
+            # whose failed sections name nothing to compare (BARE_WHY).
             try:
                 audit.append(by_step())
                 continue
@@ -5179,7 +5378,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             try:
                 # Why: UnplacedSignature (compared whole, excused only on identity with the newest red base verdict)
                 if got.unplaced is None:
-                    raise Refused(f"'{name}': {UNPLACED_WHY}; nothing is compared with the base")
+                    raise Refused(f"'{name}': {why_whole}; nothing is compared with the base")
                 # A pin red ffi_pin_step_a did not excuse or set aside raised there; one it set aside leaves the
                 # comparison. Never compared by identity: the masked pin error is the same for any pin.
                 mine = unplaced_without_ffi_pin(got.unplaced) if aside is not None else got.unplaced
@@ -5197,7 +5396,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                         # A pin the rules set aside leaves both sides: the base's own pin red (cmux#41086's base) is no
                         # difference, and identity still holds for all the rest.
                         theirs = unplaced_without_ffi_pin(theirs) if aside is not None else theirs
-                        audit.append(unplaced_verdict(repo, name, base, mine, theirs, base_run)
+                        audit.append(unplaced_verdict(repo, name, base, mine, theirs, base_run, why=why_whole)
                                      + (f"; {aside}" if aside is not None else ""))
                         break
                     except Final:

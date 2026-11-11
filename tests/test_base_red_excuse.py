@@ -7137,15 +7137,18 @@ class FailingStepLogOnly(unittest.TestCase):
     # leo-workspace tools/failed_steps_log.py (base-red-watch reads job logs there and cannot import this script); each
     # copy's test pins the same fingerprint. A change here updates this value and both copies.
     # Each copy keeps STEP_NAMES_UNKNOWN too: step_owners requires a caller to pass it when it reads no workflow.
-    VENDORED_FINGERPRINT = "b25a8e4f61d1d373e53ae5fe0797484f4adf9c6cf104dda2d1472f1e8af5a61a"
+    # Its helpers are copied with it (_aligned_starts reads a StepNames' headers alone, so with STEP_NAMES_UNKNOWN a
+    # copy places exactly what it placed before).
+    VENDORED_FINGERPRINT = "262d2f13a0af6f360630e7d4ba2a18451be143b0d2f25d70139852e200db471d"
 
     def test_the_code_vendored_into_base_red_watch_is_pinned(self):
         import hashlib
         import inspect
         parts = [getattr(excuse, name).pattern for name in ("ANSI", "STAMP", "STEP_START", "SECTION_RED")]
-        parts += [str(excuse.STEP_OWNERS_MAX_LINES)]
+        parts += [str(excuse.STEP_OWNERS_MAX_LINES), str(excuse.ALIGN_MAX_STARTS)]
         parts += [inspect.getsource(getattr(excuse, name))
-                  for name in ("lines_of", "_stamp_time", "step_owners", "failed_steps_log")]
+                  for name in ("lines_of", "_stamp_time", "step_owners", "_live_red", "_line_time",
+                               "_one_to_one_starts", "_aligned_starts", "failed_steps_log")]
         parts += [repr(excuse.STEP_NAMES_UNKNOWN)]  # the sentinel step_owners requires when no workflow is read
         self.assertEqual(hashlib.sha256("\0".join(parts).encode()).hexdigest(), self.VENDORED_FINGERPRINT,
                          "step_owners or failed_steps_log changed: copy them to cmuxterm-hq "
@@ -8133,11 +8136,14 @@ class LocalCompositeCannotPose(unittest.TestCase):
     step of the jobs API, so it never shifts the order its marks rely on, and its inner steps' `##[group]Run ...` lines
     never become another step's header. Here a failing composite's inner step is named exactly like the header of the
     unnamed step after it (`Run swift test`), which the workflow proves unnamed, so its header text alone would fit.
-    - With several inner `Run` lines and the sibling's own header, there are more headers than steps: nothing is
-      placed (every line AMBIGUOUS), and the red is refused.
+    - With several inner `Run` lines and the sibling's own header, there are more headers than steps. The one-to-one
+      reading places nothing; the workflow's headers (_aligned_starts) place it, and the inner `Run swift test` line
+      (in the composite's times alone) stays the composite's: only the sibling's own header and echo are the sibling's.
     - With one inner `Run` line and a silent sibling (the counts balance), the inner line's stamp lies in the
-      composite's window: inside it alone, it is not in the sibling's; in the second they share, it is in two windows.
-      Either way nothing is placed, and no line is ever the sibling's."""
+      composite's window: inside it alone, it is not in the sibling's; in the second they share, it fits the
+      sibling's times and header, but the failed composite's section would then have no `##[error]` line, which a
+      failed step without `continue-on-error` always prints. Either way nothing is placed, and no line is ever the
+      sibling's."""
 
     NAME = "cmux-next swift checks"
     PATH = ".github/workflows/cmux-next.yml"
@@ -8210,6 +8216,18 @@ class LocalCompositeCannotPose(unittest.TestCase):
                     # The composite does not stop the marks: the workflow proves the sibling unnamed.
                     self.assertEqual(names, {2: False, 3: True, 4: False})
                     owned = excuse.step_owners(job, log_text, step_names=names)
+                    if several:
+                        # Placed by the workflow's headers: the composite keeps its inner lines and its red.
+                        said = {(excuse.lines_of(line)[0], excuse.STAMP.search(line.split("\t")[-1]).group()[17:19]):
+                                (index, status) for line, index, status in owned}
+                        self.assertEqual(said[(f"##[group]{self.SIBLING}", "15")], (2, excuse.FAILED))
+                        self.assertEqual(said[(NEW_RED, "15")], (2, excuse.FAILED))
+                        self.assertEqual(said[(f"##[group]{self.SIBLING}", "20")], (3, excuse.PASSED))
+                        self.assertEqual(sum(1 for _, index, _ in owned if index == 3), 2)
+                        said = "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.github(log_text, steps)))
+                        self.assertIn(f"excused '{self.NAME}'", said)
+                        self.assertNotIn("compared whole", said)
+                        continue
                     self.assertEqual({status for _, _, status in owned}, {excuse.AMBIGUOUS})
                     self.assertFalse(any(index == 3 for _, index, _ in owned), "a line was placed on the sibling")
                     self.assertIs(excuse.failed_view(job, log_text, base=True, step_names=names), excuse.UNPLACED)
@@ -9911,6 +9929,130 @@ class DerivedStatusByParts(StepFixture, unittest.TestCase):
         github = self.parts([(self.JOB, self.FIXED)], "conflicting with feat-cmux-next")
         with self.assertRaisesRegex(excuse.Refused, "is not a red of the head's other checks"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[self.VERDICT], **self.PURPOSE)
+
+
+STEP_MAPPING_FIXTURES = ROOT / "tests/fixtures/base_red_excuse_step_mapping"
+
+
+class WorkflowHeadersPlaceRealLogs(unittest.TestCase):
+    """2026-11-11: two reds that fail as their base did were refused because step_owners could not place their logs
+    one header per step, and none of their steps is named "Run ...", so their workflow was never read:
+    - cmux#41001's "cmux-next daemon tests" (PR run 42973557339, job 130369194352; feat-cmux-next run 42976173821, job
+      130375759923): two composite actions (setup-cmux-tui-rust, cache-restore) print 7 inner `Run` lines, 38 for 31
+      steps, and many steps share a second. Compared whole instead, the base's extra flake
+      (aOneWorkspaceSnapshot...) and the head's extra failed step each broke identity, so nothing was told apart.
+    - hq#9191's "Skill policy tests" (run 42981858520, job 130394322965; main run 42981664549, job 130393775750): one
+      header per step, but five steps in 07:47:29, so no header was in its step's times alone.
+    With the workflow's headers (StepNames.headers: `Run <uses>`, `Run <script's first line>`), _aligned_starts places
+    both (the trimmed logs below keep every header, with each failure line and stamp as served). The fixtures are
+    those jobs' steps and logs, trimmed to the step headers, groups and failure lines, and each workflow job's steps."""
+
+    PATHS = {"cmux-41001": ".github/workflows/cmux-next.yml", "hq-9191": ".github/workflows/skills-tests.yml"}
+    FLAKE = ("✘ Test aOneWorkspaceSnapshotCostsTheMainThreadTheSameAt3000WorkspacesAsAt100() failed after 213.793 "
+             "seconds with 1 issue.")
+    # The last live-daemon failure line of cmux#41001's head, after which a test adds a line in the same step.
+    LIVE_LAST = "✘ Test endEverythingWithHomeEndsTheRestAndKeepsHome() failed after 216.505 seconds with 1 issue."
+
+    def fixture(self, case, side):
+        job = json.loads((STEP_MAPPING_FIXTURES / f"{case}-{side}-job.json").read_text())
+        return job, (STEP_MAPPING_FIXTURES / f"{case}-{side}.log").read_text()
+
+    def after(self, text, anchor, line):
+        """TEXT with LINE added after the line that ends with ANCHOR, at its stamp."""
+        out = []
+        for raw in text.splitlines():
+            out.append(raw)
+            if raw.endswith(anchor):
+                out.append(raw.split(" ", 1)[0] + " " + line)
+        self.assertGreater(len(out), len(text.splitlines()), anchor)
+        return "\n".join(out)
+
+    def github(self, case, head, base):
+        """A fake serving CASE's workflow and HEAD's and BASE's (job, log) as head job 1 (run 10) and base job 2 (run
+        20)."""
+        path = self.PATHS[case]
+        workflow = (STEP_MAPPING_FIXTURES / f"{case}.yml").read_text()
+
+        class Fake(FakeGitHub):
+            def json(self, route, *, paginate=False):
+                found = super().json(route, paginate=paginate)
+                if (isinstance(found, dict) and "/actions/runs/" in route and "/jobs" not in route
+                        and "workflow_id" in found):
+                    found["path"] = path
+                return found
+
+            def blob(self, repo, ref, wanted):
+                if wanted != path:
+                    raise excuse.Refused(f"{repo}@{ref}: {wanted} is not a text file GitHub served")
+                return workflow
+
+        github = Fake()
+        github.base_runs = [{**run, "path": path} for run in github.base_runs]
+        (head_job, head_log), (base_job, base_log) = head, base
+        github.jobs = {1: dict(copy.deepcopy(head_job), id=1, run_id=10, head_sha=HEAD, status="completed",
+                               conclusion="failure"),
+                       2: dict(copy.deepcopy(base_job), id=2, run_id=20, head_sha=BASE_SHA, status="completed",
+                               conclusion="failure")}
+        github.logs = {1: head_log, 2: base_log}
+        return github
+
+    def judge(self, github):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+
+    def test_both_logs_are_placed_by_their_workflows_headers(self):
+        for case, failed in (("cmux-41001", {"Check generated action catalog, surfaces and inventory": "errored",
+                                             "Run the live-daemon suites": "failed", "Regenerate stale files": "failed"}),
+                             ("hq-9191", {"Shared clone maintenance LaunchAgent runs the compaction daily": "failed"})):
+            with self.subTest(case=case):
+                github = self.github(case, self.fixture(case, "head"), self.fixture(case, "base"))
+                job = copy.deepcopy(github.jobs[1])
+                names = excuse.workflow_step_names(REPO, job, self.PATHS[case], github, {})
+                view = excuse.failed_view(job, github.logs[1], step_names=names, base=False)
+                self.assertIsNot(view, excuse.UNPLACED)
+                self.assertEqual({str(view.steps[k]["name"]): status for k, status, _ in view.sections}, failed)
+
+    def test_cmux_41001_the_bases_failures_are_excused(self):
+        # The head fails what the base fails; the base fails one test more (the flake base run 42976173821 had).
+        head = self.fixture("cmux-41001", "head")
+        base = (head[0], self.after(head[1], self.LIVE_LAST, self.FLAKE))
+        said = self.judge(self.github("cmux-41001", head, base))
+        self.assertIn("excused 'cmux-next daemon tests'", said)
+        self.assertNotIn("compared whole", said)
+        # And the same failures exactly, compared by step, never whole.
+        said = self.judge(self.github("cmux-41001", head, head))
+        self.assertIn("excused 'cmux-next daemon tests'", said)
+        self.assertNotIn("compared whole", said)
+
+    def test_cmux_41001_a_failure_the_head_adds_is_refused(self):
+        head = self.fixture("cmux-41001", "head")
+        added = (head[0], self.after(head[1], self.LIVE_LAST,
+                                     "✘ Test quitKeepsTheNewWorkspace() failed after 1.250 seconds with 1 issue."))
+        with self.assertRaises(excuse.Refused) as said:
+            self.judge(self.github("cmux-41001", added, head))
+        self.assertIn("quitKeepsTheNewWorkspace", str(said.exception))
+        self.assertNotIn("does not map one to one", str(said.exception))
+
+    def test_cmux_41001_against_its_real_base_run_refuses_only_the_heads_own_test(self):
+        # The real pair: the live-daemon failures are the base's, everyMenuKeepsAShortTopLevel (the catalog check and
+        # "Regenerate stale files", skipped on the base) is the head's own.
+        with self.assertRaises(excuse.Refused) as said:
+            self.judge(self.github("cmux-41001", self.fixture("cmux-41001", "head"), self.fixture("cmux-41001", "base")))
+        self.assertIn("everyMenuKeepsAShortTopLevel", str(said.exception))
+        self.assertNotIn("endEverythingWithHomeEndsTheRestAndKeepsHome", str(said.exception))
+        self.assertNotIn("does not map one to one", str(said.exception))
+
+    def test_hq_9191_the_bases_failure_is_excused(self):
+        # Its failed step says only `FAIL: plist content`: placed, nothing names the failure, so it is compared whole.
+        said = self.judge(self.github("hq-9191", self.fixture("hq-9191", "head"), self.fixture("hq-9191", "base")))
+        self.assertIn("excused 'Skill policy tests': its failed steps name no failing test or error line, so it was "
+                      "compared whole", said)
+        self.assertIn("FAIL: plist content", said)
+
+    def test_hq_9191_a_failure_the_head_adds_is_refused(self):
+        head = self.fixture("hq-9191", "head")
+        added = (head[0], self.after(head[1], "FAIL: plist content", "FAIL: plist label"))
+        with self.assertRaisesRegex(excuse.Refused, "more on this head: FAIL: plist label"):
+            self.judge(self.github("hq-9191", added, self.fixture("hq-9191", "base")))
 
 
 if __name__ == "__main__":
