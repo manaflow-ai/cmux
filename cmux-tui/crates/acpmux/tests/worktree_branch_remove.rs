@@ -197,5 +197,66 @@ async fn w7f_a_named_branch_worktree_is_removed_with_its_branch_and_refuses_unsa
     assert!(!refused.status.success(), "{}", said(&refused));
     assert!(said(&refused).contains("main checkout"), "{}", said(&refused));
     assert!(repo.join(".git").exists());
+
+    // Review finding 1: a branch the person made, even a `cmux/...` one an
+    // earlier worktree marked, stays with its commit after `--discard`.
+    for (name, branch) in [("r6d", "cmux/mine"), ("r6e", "cmux/stale")] {
+        git(&repo, &["checkout", "-q", "-b", branch]);
+        git(&repo, &["commit", "-q", "--allow-empty", "-m", "only on my branch"]);
+        let commit = git(&repo, &["rev-parse", "HEAD"]);
+        git(&repo, &["checkout", "-q", "-"]);
+        if branch == "cmux/stale" {
+            git(&repo, &["config", &format!("branch.{branch}.cmuxCreated"), "true"]);
+        }
+        let mine = call(
+            &hub,
+            "session/new",
+            new_params(&repo, name, json!({"name": name, "branch": branch})),
+        )
+        .await;
+        assert_eq!(mine["result"]["_meta"]["acpmux"]["worktree"]["branch"], branch, "{mine}");
+        let removed = acpmux(&scratch, &home, &["worktree", "remove", name, "--discard", "--json"]);
+        assert!(removed.status.success(), "{}", said(&removed));
+        let value: Value = serde_json::from_slice(&removed.stdout).unwrap();
+        assert_eq!(value["branchDeleted"], false, "{branch}: {value}");
+        assert_eq!(git(&repo, &["rev-parse", branch]), commit, "{branch} lost its commit");
+    }
+
+    // Review finding 3: a relative TARGET is taken against the folder as the
+    // shell typed it ($PWD), so mainRoot keeps that spelling (here a link).
+    let plain = call(&hub, "session/new", new_params(&repo, "r6f", json!({"name": "r6f"}))).await;
+    assert!(plain["result"].is_object(), "{plain}");
+    let alias = std::env::temp_dir().join(format!("acpmux-w7f-alias-{}", uuid::Uuid::now_v7()));
+    std::os::unix::fs::symlink(&root, &alias).unwrap();
+    let typed = alias.join("home/.cmux/worktrees/proj");
+    let removed = daemon_env::acpmux(&scratch)
+        .env("HOME", &home)
+        .env("PWD", &typed)
+        .current_dir(&typed)
+        .args(["worktree", "remove", "./r6f", "--json"])
+        .output()
+        .unwrap();
+    assert!(removed.status.success(), "{}", said(&removed));
+    let value: Value = serde_json::from_slice(&removed.stdout).unwrap();
+    assert_eq!(value["mainRoot"], json!(alias.join("proj")), "{value}");
+    let _ = std::fs::remove_file(&alias);
+
+    // Review finding 4: in a Japanese locale `worktree remove --help` describes
+    // the command and its arguments in Japanese, and a folder outside git says so.
+    let help = acpmux_in(&scratch, &home, "ja_JP.UTF-8", &["worktree", "remove", "--help"]);
+    assert!(help.status.success(), "{}", said(&help));
+    for english in ["Remove one worktree now", "The worktree's folder", "Remove it even with"] {
+        assert!(!said(&help).contains(english), "{english} is still English: {}", said(&help));
+    }
+    assert!(said(&help).contains("ワークツリーを 1 つ"), "{}", said(&help));
+    assert!(said(&help).contains("セッション名"), "{}", said(&help));
+    let help_en = acpmux(&scratch, &home, &["worktree", "remove", "--help"]);
+    assert!(said(&help_en).contains("Remove one worktree now"), "{}", said(&help_en));
+    let outside = scratch.to_str().unwrap();
+    let not_git = acpmux_in(&scratch, &home, "ja_JP.UTF-8", &["worktree", "remove", outside]);
+    assert!(!not_git.status.success(), "{}", said(&not_git));
+    assert!(said(&not_git).contains("git リポジトリ"), "{}", said(&not_git));
+    let not_git_en = acpmux(&scratch, &home, &["worktree", "remove", outside]);
+    assert!(said(&not_git_en).contains("not in a git repository"), "{}", said(&not_git_en));
     let _ = std::fs::remove_dir_all(&root);
 }

@@ -1191,3 +1191,108 @@ fn w7f_main_root_is_printed_as_typed_and_apply_still_finds_the_main_checkout() {
     assert!(!worktree.exists());
     let _ = fs::remove_dir_all(&root);
 }
+
+/// W7-F review finding 1: a branch the person made before, even one named
+/// `cmux/...` that a cmux worktree once marked, is never cmux's to delete.
+/// `--branch` on it, then `worktree remove --discard`: the branch and its
+/// commit stay. Only a branch the create itself made goes with the worktree.
+#[test]
+fn w7f_a_users_cmux_named_branch_and_its_commit_stay_after_remove_discard() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-w7f-user-branch-{}-{:x}",
+        std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let home = root.join("home");
+    let repo = root.join("project");
+    fs::create_dir_all(home.join(".cmux/worktrees")).unwrap();
+    fs::create_dir_all(&repo).unwrap();
+    let server = HeadlessServer::start_with_options(
+        "w7f-user-branch",
+        None,
+        None,
+        &[("HOME", home.to_str().unwrap())],
+    );
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "user.name", "cmux test"]);
+    git(&repo, &["config", "user.email", "cmux@example.invalid"]);
+    git(&repo, &["config", "commit.gpgsign", "false"]);
+    fs::write(repo.join("a.txt"), "one\n").unwrap();
+    git(&repo, &["add", "a.txt"]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    // `stale` carries the mark an earlier cmux worktree left on it.
+    for (key, branch) in [("1", "cmux/foo"), ("2", "cmux/stale")] {
+        git(&repo, &["checkout", "-q", "-b", branch]);
+        fs::write(repo.join("mine.txt"), format!("{branch}\n")).unwrap();
+        git(&repo, &["add", "mine.txt"]);
+        git(&repo, &["commit", "-q", "-m", "only on my branch"]);
+        let commit = git(&repo, &["rev-parse", "HEAD"]);
+        git(&repo, &["checkout", "-q", "main"]);
+        if branch == "cmux/stale" {
+            git(&repo, &["config", &format!("branch.{branch}.cmuxCreated"), "true"]);
+        }
+
+        let name = format!("mine{key}");
+        let args = ["worktree", "create", "--name", &name, "--branch", branch];
+        let created = git_cli(
+            &server,
+            &repo,
+            &[&args[..], &["--idempotency-key", &format!("c{key}")]].concat(),
+        );
+        assert_success(&created);
+        let value = json_output(&created);
+        assert_eq!(value["value"]["new_branch"], false, "{value}");
+        let worktree = home.join(".cmux/worktrees/project").join(&name);
+        let args = ["worktree", "remove", "--discard", "--idempotency-key", &format!("r{key}")];
+        let removed = git_cli(&server, &worktree, &args);
+        assert_success(&removed);
+        let value = json_output(&removed);
+        assert_eq!(value["value"]["branch_deleted"], false, "{branch}: {value}");
+        assert!(!worktree.exists());
+        assert_eq!(git(&repo, &["rev-parse", branch]), commit, "{branch} lost its commit");
+    }
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// W7-F review finding 2: `--path ../project` from a folder reached through
+/// a link prints `main_root` as `<link>/project`, not `<link>/a/../project`.
+#[test]
+fn w7f_a_relative_path_with_dots_prints_main_root_without_them() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-w7f-dots-{}-{:x}",
+        std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let real = root.join("real");
+    fs::create_dir_all(real.join("home/.cmux/worktrees")).unwrap();
+    fs::create_dir_all(real.join("project")).unwrap();
+    fs::create_dir_all(real.join("a")).unwrap();
+    let link = root.join("link");
+    symlink(&real, &link).unwrap();
+    let home = link.join("home");
+    let repo = link.join("project");
+    let server = HeadlessServer::start_with_options(
+        "w7f-dots-path",
+        None,
+        None,
+        &[("HOME", home.to_str().unwrap())],
+    );
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "user.name", "cmux test"]);
+    git(&repo, &["config", "user.email", "cmux@example.invalid"]);
+    git(&repo, &["config", "commit.gpgsign", "false"]);
+    fs::write(repo.join("a.txt"), "one\n").unwrap();
+    git(&repo, &["add", "a.txt"]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+
+    let args = ["worktree", "create", "--path", "../project", "--name", "dots"];
+    let created = git_cli_typed(
+        &server,
+        &link.join("a"),
+        &[&args[..], &["--idempotency-key", "c1"]].concat(),
+    );
+    assert_success(&created);
+    let value = json_output(&created)["value"].clone();
+    assert_eq!(value["main_root"], repo.to_str().unwrap(), "{value}");
+    let _ = fs::remove_dir_all(&root);
+}
