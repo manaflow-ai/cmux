@@ -256,7 +256,6 @@ mod keychain {
     use core_foundation::data::CFData;
     use core_foundation::dictionary::CFDictionary;
     use core_foundation::string::{CFString, CFStringRef};
-    use security_framework::os::macos::keychain::SecKeychain;
     use security_framework::passwords::generic_password;
     use security_framework::passwords_options::PasswordOptions;
     use security_framework_sys::access_control::kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly;
@@ -304,16 +303,69 @@ mod keychain {
         }
     }
 
-    /// The key in the Keychain item, made when there is none. Keychain user
-    /// interaction is off for the whole call (`SecKeychainSetUserInteractionAllowed`,
-    /// as CmuxNext `LoginKeychain.withoutUI` does): only that stops the login
-    /// Keychain's access prompt, and then a read that needs the person's
-    /// approval answers `errSecInteractionNotAllowed` at once instead of
-    /// blocking the connect path on a prompt nobody can answer. The switch is
-    /// the process's; the carrier helper makes no Keychain call that should prompt.
+    /// Keychain user interaction off while it lives, back to what it was after
+    /// (`SecKeychain{Get,Set}UserInteractionAllowed`, as CmuxNext
+    /// `LoginKeychain.withoutUI` does). Only that stops the login Keychain's
+    /// access prompt: `kSecUseAuthenticationUI` and an `LAContext` govern only
+    /// the data-protection Keychain, not a login-Keychain item's access list.
+    /// Both functions are resolved at run time, as `LoginKeychain` does: they
+    /// are deprecated and absent from the framework stubs the macOS
+    /// cross-build links against (`scripts/ci/macos-stubs`), so a direct
+    /// import failed that link. Security is loaded by the time this runs (the
+    /// binary links it). The switch is the process's; every caller (`prepare`
+    /// of dial and serve, `secrets`, `key`) runs once, before its async
+    /// runtime starts, in a one-shot process.
+    struct NoPrompt {
+        restore: Option<(SetFn, u8)>,
+    }
+
+    type GetFn = unsafe extern "C" fn(*mut u8) -> i32;
+    type SetFn = unsafe extern "C" fn(u8) -> i32;
+
+    /// The address of Security's function `name`, null when this macOS lacks it.
+    fn symbol(name: &std::ffi::CStr) -> *mut libc::c_void {
+        // SAFETY: dlsym with a NUL-terminated name.
+        unsafe { libc::dlsym(libc::RTLD_DEFAULT, name.as_ptr()) }
+    }
+
+    impl NoPrompt {
+        fn new() -> Self {
+            let get = symbol(c"SecKeychainGetUserInteractionAllowed");
+            let set = symbol(c"SecKeychainSetUserInteractionAllowed");
+            if get.is_null() || set.is_null() {
+                return Self { restore: None };
+            }
+            // SAFETY: non-null results are the functions named, with these C
+            // signatures (Security's SecKeychain.h).
+            let get = unsafe { std::mem::transmute::<*mut libc::c_void, GetFn>(get) };
+            // SAFETY: as above.
+            let set = unsafe { std::mem::transmute::<*mut libc::c_void, SetFn>(set) };
+            let mut allowed = 1_u8;
+            // SAFETY: `allowed` is a valid out-pointer for the call.
+            if unsafe { get(&raw mut allowed) } != 0 {
+                allowed = 1;
+            }
+            // SAFETY: no preconditions; 0 turns prompts off.
+            let _ = unsafe { set(0) };
+            Self { restore: Some((set, allowed)) }
+        }
+    }
+
+    impl Drop for NoPrompt {
+        fn drop(&mut self) {
+            if let Some((set, allowed)) = self.restore {
+                // SAFETY: the function resolved in `new`; no preconditions.
+                let _ = unsafe { set(allowed) };
+            }
+        }
+    }
+
+    /// The key in the Keychain item, made when there is none, with prompts off
+    /// ([`NoPrompt`]): a read that needs the person's approval answers
+    /// `errSecInteractionNotAllowed` at once instead of blocking the connect
+    /// path on a prompt nobody can answer.
     pub(super) fn load_or_create(service: &str, account: &str) -> Result<[u8; 32], String> {
-        let _no_prompt = SecKeychain::disable_user_interaction()
-            .map_err(|e| format!("the Keychain could not turn its prompts off ({})", e.code()))?;
+        let _no_prompt = NoPrompt::new();
         if let Some(key) = read(service, account)? {
             return Ok(key);
         }
