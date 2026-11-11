@@ -202,8 +202,11 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
     /// hidden close reads: that close never takes the keys typed meanwhile. They go to the terminal that has the focus
     /// (the neighbour the hide showed), never into the other terminal when its program asks and the person cancels.
     @Test func aCloseOfAnUnfocusedTerminalDuringTheReadNeverTakesTheHeldKeys() async throws {
-        try await Self.withFocusedTerminal(before: 1) { t in
-            let neighbour = try #require(t.before.last) // the tab before: the hide shows it
+        try await Self.withFocusedTerminal { t in
+            // Strip: ..., the closing terminal, `neighbour`, `running`. The hide shows the NEXT tab (the one close-selection
+            // rule, R1), so the terminal that runs the program is not the one that gets the focus.
+            let neighbour = try await Self.newTerminal(t)
+            try await Self.waitRunning(nil, t, surface: neighbour.surface)
             let running = try await Self.newTerminal(t) // runs cat: its close asks
             _ = try await t.connection.request(SendInputRequest(surface: running.surface, text: "cat\r"))
             try await Self.waitRunning("cat", t, surface: running.surface)
@@ -238,8 +241,11 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
     /// read ends: that close ends while the question asks, and Cancel still types only the question's own keys into the
     /// terminal it asked about. The keys typed for the focused neighbour go to it.
     @Test func aCloseThatEndsWhileAnotherTerminalAsksKeepsItsKeysForTheFocusedTerminal() async throws {
-        try await Self.withFocusedTerminal(before: 1) { t in
-            let neighbour = try #require(t.before.last) // the tab before: the hide shows it
+        try await Self.withFocusedTerminal { t in
+            // Strip: ..., the closing terminal, `neighbour`, `running`. The hide shows the NEXT tab (the one close-selection
+            // rule, R1), so the terminal that runs the program is not the one that gets the focus.
+            let neighbour = try await Self.newTerminal(t)
+            try await Self.waitRunning(nil, t, surface: neighbour.surface)
             let running = try await Self.newTerminal(t) // runs cat: its close asks
             _ = try await t.connection.request(SendInputRequest(surface: running.surface, text: "cat\r"))
             try await Self.waitRunning("cat", t, surface: running.surface)
@@ -350,8 +356,10 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
         let store: DaemonStore
         let pane: PaneController
         let tab: TabModel
-        /// Terminal tabs made just before `tab`, in strip order: a close selects the tab before it (#38328), so
-        /// `before.last` is the neighbour a close of `tab` shows.
+        /// Terminal tabs made just before `tab`, in strip order. `tab` is the LAST tab of the strip and no tab here has
+        /// an opener, so a close selects the tab before it (the one close-selection rule,
+        /// /work/wt/handoff/tasks/close-selection-rule.md R1 rank 4: the previous tab only when the closed one was the
+        /// last; it was "always the tab before", #38328): `before.last` is the neighbour a close of `tab` shows.
         let before: [TabModel]
     }
 

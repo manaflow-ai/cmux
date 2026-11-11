@@ -23,9 +23,12 @@ RUNNER_GUARD = ROOT / "tests/test_ci_self_hosted_guard.sh"
 STEP = "Validate macOS runner guards"
 JOB = "workflow-guard-tests / preflight"
 
-spec = importlib.util.spec_from_file_location("base_red_excuse", ROOT / "scripts/ci/base_red_excuse.py")
-excuse = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(excuse)
+# Imported by name, never loaded by path: one module object per file, so a test that patches it
+# patches what every other test reads (tests/test_script_module_loads.py).
+import sys  # noqa: E402
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import base_red_excuse as excuse  # noqa: E402
 
 
 def fixture_env() -> dict[str, str]:

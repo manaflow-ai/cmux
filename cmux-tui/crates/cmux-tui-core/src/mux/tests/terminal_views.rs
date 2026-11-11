@@ -124,6 +124,34 @@ fn geometry_authority_moves_between_views_of_one_terminal() {
     assert!(mux.client_size_participates(projected.id, 0));
 }
 
+/// A program that prints a burst of BEL bytes (`yes $'\a'`, `cat` of a binary file) never
+/// overflows an event subscriber. Before, every bell was its own pending event, so 4096 bells
+/// between two reads of a subscriber closed its mailbox: the client stream ended with an
+/// overflow and the apps event thread stopped for good.
+#[test]
+fn a_bell_burst_never_overflows_a_subscriber() {
+    let mux = test_mux();
+    let source = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let events = mux.subscribe();
+    for _ in 0..10_000 {
+        mux.emit_terminal_bell(source.id);
+    }
+    mux.emit_terminal_title(source.id, Arc::from("after the bells"));
+    assert!(!events.overflowed(), "a bell burst closed the subscriber");
+    let mut bells = 0;
+    let mut title = false;
+    while let Ok(event) = events.try_recv() {
+        match event {
+            MuxEvent::Bell(surface) if surface == source.id => bells += 1,
+            MuxEvent::TitleChanged { surface, .. } if surface == source.id => title = true,
+            _ => {}
+        }
+    }
+    assert!(bells >= 1, "the bell still arrives");
+    assert!(bells <= 2, "a burst is one pending bell, not {bells}");
+    assert!(title, "events after the burst still arrive");
+}
+
 #[test]
 fn terminal_runtime_events_fan_out_only_to_materialized_views() {
     let mux = test_mux();
@@ -675,4 +703,34 @@ fn resize_audit_sized_creation_uses_the_sizing_engine_minimum() {
     assert_eq!(surface.size(), (2, 24));
     mux.resize_surface_for_client(surface.id, 0, 1, 24).unwrap();
     assert_eq!(surface.size(), (2, 24));
+}
+
+/// The sidebar view's terminal runs inside the daemon, so it follows the one size rule
+/// (`clamp_terminal_size`) like every other terminal: a client's 10000 x 401 (just over the
+/// 4,000,000-cell limit; any u16 pair was accepted) is clamped on spawn and on a v2 resize.
+/// Before, both paths applied only `max(1)`, so a 65535 x 65535 request built a grid of
+/// 4.29e9 cells in the daemon while the state lock was held.
+#[test]
+fn sidebar_view_sizes_follow_the_cell_area_limit() {
+    let mux = test_mux();
+    mux.configure_sidebar_plugin(Some(SidebarPluginOptions {
+        command: vec!["/bin/cat".to_string()],
+        cwd: None,
+    }));
+    let status = mux.ensure_sidebar_plugin(10_000, 401, false);
+    let surface = mux.surface(status.surface.expect("the sidebar view runs")).unwrap();
+    assert_eq!(surface.size(), (10_000, 400), "spawned over the cell-area limit");
+
+    let context = mux.local_resource_context().unwrap();
+    let sidebar_id = crate::sidebar_resource::sidebar_view_id(&context.session_id).unwrap();
+    let selectors = crate::ResourceSelectors {
+        sidebar_view: Some("current".into()),
+        ..Mux::ordinary_resource_selectors()
+    };
+    let resize = WorkspaceMutation::daemon_local("sidebar-resize-over-limit");
+    let commit = mux
+        .resource_resize_sidebar_selected(selectors, &sidebar_id, 10_000, 450, None, &resize)
+        .unwrap();
+    assert_eq!(surface.size(), (10_000, 400), "resized over the cell-area limit");
+    assert_eq!(commit.result["rows"], 400, "the committed row says the clamped size");
 }
