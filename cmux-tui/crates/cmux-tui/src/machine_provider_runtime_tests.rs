@@ -522,13 +522,15 @@ fn accepted_mutation_request(kind: AcceptedMutationKind, machine: MachineKey) ->
     }
 }
 
+/// Answers one accepted mutation and returns the `mutation_id` it carried.
 fn serve_accepted_mutation(
     kind: AcceptedMutationKind,
     stream: &mut UnixStream,
     reader: &mut BufReader<UnixStream>,
-) {
+) -> protocol::OpaqueId {
     let mutation: protocol::RequestEnvelope = read_frame(reader);
     let request_id = mutation.id;
+    let mutation_id = sent_mutation_id(&mutation.request);
     match (kind, mutation.request) {
         (AcceptedMutationKind::CreateMachine, protocol::ProviderRequest::CreateMachine(_)) => {
             write_frame(
@@ -644,6 +646,7 @@ fn serve_accepted_mutation(
         }
         (_, request) => panic!("unexpected request for {kind:?}: {request:?}"),
     }
+    mutation_id
 }
 
 #[test]
@@ -3872,6 +3875,110 @@ fn provider_eof_requests_and_completes_a_fresh_authenticated_connection() {
     assert_eq!(ui.snapshot.machines[0].status, MachineStatus::Sleeping);
 
     finish.send(()).unwrap();
+    drop(runtime);
+    server.join().unwrap();
+}
+
+fn sent_mutation_id(request: &protocol::ProviderRequest) -> protocol::OpaqueId {
+    let mut request = request.clone();
+    request_mutation_id_mut(&mut request).expect("request carries a mutation id").clone()
+}
+
+fn fail_followup_refresh(
+    stream: &mut UnixStream,
+    reader: &mut BufReader<UnixStream>,
+    kind: AcceptedMutationKind,
+) {
+    let failed_refresh: protocol::RequestEnvelope = read_frame(reader);
+    assert!(matches!(failed_refresh.request, protocol::ProviderRequest::Snapshot(_)));
+    write_frame(
+        stream,
+        &protocol::ResponseEnvelope::<protocol::SnapshotResult>::failure(
+            failed_refresh.id,
+            protocol::ProviderError {
+                code: protocol::ProviderErrorCode::Unavailable,
+                message: format!("refresh failed after accepted {kind:?}"),
+                retryable: true,
+            },
+        ),
+    );
+}
+
+/// A mutation whose answer outran its bound may still commit on the
+/// provider. Its retry must replay the same mutation_id, so a slow create
+/// makes one machine, not two. Success then settles the id.
+#[test]
+fn every_timed_out_provider_mutation_replays_its_mutation_id_on_retry() {
+    use crate::machine_provider_client::ProviderRequestDeadlines;
+
+    let socket = TestProviderSocket::bind();
+    let listener = socket.listener();
+    let catalog = provider_managed_snapshot(1);
+    let workspace = active_workspace_snapshot(1);
+    let server_catalog = catalog;
+    let server_workspace = workspace;
+    let server = thread::spawn(move || {
+        let (mut stream, mut reader) = serve_initial_snapshot(&listener, server_catalog.clone());
+        serve_workspace_snapshot(&mut stream, &mut reader, &server_workspace);
+        let mut first_create_id = None;
+        for kind in AcceptedMutationKind::ALL {
+            serve_runtime_refresh(
+                &mut stream,
+                &mut reader,
+                &server_catalog,
+                Some(&server_workspace),
+            );
+            // The provider is still working: no answer before the bound.
+            let unanswered: protocol::RequestEnvelope = read_frame(&mut reader);
+            let first_id = sent_mutation_id(&unanswered.request);
+
+            serve_runtime_refresh(
+                &mut stream,
+                &mut reader,
+                &server_catalog,
+                Some(&server_workspace),
+            );
+            let retry_id = serve_accepted_mutation(kind, &mut stream, &mut reader);
+            assert_eq!(retry_id, first_id, "{kind:?} retry minted a new mutation_id");
+            if matches!(kind, AcceptedMutationKind::CreateMachine) {
+                first_create_id = Some(first_id);
+            }
+            fail_followup_refresh(&mut stream, &mut reader, kind);
+        }
+
+        // The answered create settled its id; a new create is a new machine.
+        serve_runtime_refresh(&mut stream, &mut reader, &server_catalog, Some(&server_workspace));
+        let next_create_id =
+            serve_accepted_mutation(AcceptedMutationKind::CreateMachine, &mut stream, &mut reader);
+        assert_ne!(Some(next_create_id), first_create_id);
+        fail_followup_refresh(&mut stream, &mut reader, AcceptedMutationKind::CreateMachine);
+    });
+
+    let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+    let bound = Duration::from_millis(500);
+    runtime.client.set_request_deadlines(ProviderRequestDeadlines {
+        control: bound,
+        create: bound,
+        open: bound,
+    });
+    let machine = key_for_id(&runtime.keys, &id("machine-1")).unwrap();
+    for kind in AcceptedMutationKind::ALL {
+        let Err(first) = runtime.perform_request(accepted_mutation_request(kind, machine)) else {
+            panic!("{kind:?} completed although the provider never answered");
+        };
+        assert!(
+            matches!(
+                first.downcast_ref::<ProviderClientError>(),
+                Some(ProviderClientError::Timeout)
+            ),
+            "{kind:?} failed with {first:#} instead of a timeout"
+        );
+        if let Err(error) = runtime.perform_request(accepted_mutation_request(kind, machine)) {
+            panic!("{kind:?} retry failed: {error:#}");
+        }
+        runtime.open = None;
+    }
+    runtime.perform_request(MachineRequest::Create).unwrap();
     drop(runtime);
     server.join().unwrap();
 }
