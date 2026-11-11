@@ -1,12 +1,19 @@
 // l10n-allow-file: test fixtures.
-// The selection's Reply chip (SelectionReply.tsx): it shows when a transcript selection ends,
-// quotes the selection through Quote in Reply when clicked, and goes when the selection collapses.
+// The selection's action bar (SelectionReply.tsx): it shows when a transcript selection ends with
+// Reply, Copy, Ask in side chat and Add to chat, every time (#40948), quotes the selection through
+// Quote in Reply, and goes when the selection collapses.
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { SelectionReplyChip } from "./SelectionReply";
-import { configureSelectionReply, quoteMarkdown, selectionReplyPlace, setQuoteReplySink } from "./selectionReplyModel";
+import {
+  configureSelectionReply,
+  quoteMarkdown,
+  selectionReplyPlace,
+  setQuoteReplySink,
+  setSelectionActionSinks,
+} from "./selectionReplyModel";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -63,14 +70,63 @@ function select(doc: Document, id: string, from = 0, to?: number) {
   });
 }
 
-const chip = (doc: Document) => doc.querySelector<HTMLButtonElement>(".cv-selection-reply");
+const chip = (doc: Document) => doc.querySelector<HTMLElement>(".cv-selection-reply");
+const action = (doc: Document, name: string) =>
+  doc.querySelector<HTMLButtonElement>(`.cv-selection-reply [data-action="${name}"]`);
+const labels = (doc: Document) =>
+  Array.from(doc.querySelectorAll<HTMLButtonElement>(".cv-selection-reply button")).map((button) =>
+    button.getAttribute("aria-label"),
+  );
+const ALL = ["Reply", "Copy", "Ask in side chat", "Add to chat"];
 
-test("selecting transcript text shows the Reply chip at once", () => {
+test("selecting transcript text shows Reply, Copy, Ask in side chat and Add to chat at once", () => {
   const doc = mount(REPLY);
   expect(chip(doc)).toBeNull();
   select(doc, "prose", 6, 25);
   expect(chip(doc)).not.toBeNull();
-  expect(chip(doc)!.textContent).toBe("Reply");
+  expect(labels(doc)).toEqual(ALL);
+  expect(chip(doc)!.textContent).toBe(ALL.join(""));
+});
+
+// #40948: Ask in side chat showed only on some selections (the right-click menu's Open in Side
+// Chat needs a finished, forkable turn). The bar's four never depend on the row or the chat.
+test("every selection gets all four actions, in a prompt, a reply or a working turn's text", () => {
+  const doc = mount(`<div data-row-id="user-3"><p id=prompt>Why does it retry?</p></div>
+<div data-row-id="assistant-4"><div class="cv-md"><p id=prose>Retry only on 429 and 503.</p></div></div>
+<div data-row-id="assistant-9"><div class="cv-md"><p id=live>Still reading the fetch helper</p></div></div>`);
+  for (const id of ["prompt", "prose", "live"]) {
+    select(doc, id, 0, 5);
+    expect(labels(doc)).toEqual(ALL);
+  }
+});
+
+test("Copy copies the selected text and keeps the selection", () => {
+  const doc = mount(REPLY);
+  const copied: string[] = [];
+  unsink = setSelectionActionSinks({ copy: (text) => copied.push(text) });
+  select(doc, "prose", 6, 25);
+  act(() => action(doc, "copy")!.click());
+  expect(copied).toEqual(["only on 429 and 503"]);
+  expect(doc.getSelection()!.toString()).toBe("only on 429 and 503");
+  expect(chip(doc)).toBeNull();
+});
+
+test("Ask in side chat and Add to chat hand the selected text to the pane", () => {
+  const doc = mount(REPLY);
+  const asked: string[] = [];
+  const added: string[] = [];
+  unsink = setSelectionActionSinks({
+    askInSideChat: (text) => asked.push(text),
+    addToChat: (text) => added.push(text),
+  });
+  select(doc, "prose", 6, 25);
+  act(() => action(doc, "askInSideChat")!.click());
+  expect(asked).toEqual(["only on 429 and 503"]);
+  select(doc, "prose", 0, 5);
+  act(() => action(doc, "addToChat")!.click());
+  expect(added).toEqual(["Retry"]);
+  // The chip goes into the composer, which takes focus: the transcript selection goes too.
+  expect(doc.getSelection()!.rangeCount).toBe(0);
 });
 
 test("clicking the chip quotes the selection into the composer through Quote in Reply", () => {
@@ -78,7 +134,7 @@ test("clicking the chip quotes the selection into the composer through Quote in 
   const quoted: string[] = [];
   unsink = setQuoteReplySink((markdown) => quoted.push(markdown));
   select(doc, "prose", 6, 25);
-  act(() => chip(doc)!.click());
+  act(() => action(doc, "reply")!.click());
   expect(quoted).toEqual(["> only on 429 and 503\n\n"]);
   expect(quoted[0]).toBe(quoteMarkdown("only on 429 and 503"));
   expect(chip(doc)).toBeNull();
@@ -98,7 +154,7 @@ test("quoting keeps the caret the composer placed under the quote", () => {
     doc.getSelection()!.addRange(caret);
   });
   select(doc, "prose", 6, 25);
-  act(() => chip(doc)!.click());
+  act(() => action(doc, "reply")!.click());
   expect(doc.getSelection()!.rangeCount).toBe(1);
   expect(doc.getSelection()!.getRangeAt(0).startContainer).toBe(field);
   field.remove();
@@ -123,7 +179,7 @@ test("no chip for text in a code block or the composer", () => {
   expect(chip(doc)).toBeNull();
 });
 
-test("the right-click-only look draws no chip; the icon look draws the glyph alone", () => {
+test("the right-click-only look draws no bar; the icon look draws the glyphs alone", () => {
   const doc = mount(REPLY);
   act(() => configureSelectionReply("none"));
   select(doc, "prose", 6, 25);
@@ -131,7 +187,7 @@ test("the right-click-only look draws no chip; the icon look draws the glyph alo
   act(() => configureSelectionReply("icon"));
   select(doc, "prose", 6, 25);
   expect(chip(doc)!.textContent).toBe("");
-  expect(chip(doc)!.getAttribute("aria-label")).toBe("Reply");
+  expect(labels(doc)).toEqual(ALL);
 });
 
 // A sent message's "Sent to <session>" line right over the reply, laid out as the pane draws them:
