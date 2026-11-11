@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1385,
-    "shortcuts": 187
+    "entries": 1389,
+    "shortcuts": 190
   },
   "sections": [
     {
@@ -5120,6 +5120,30 @@
           "title": "Screenshots",
           "shortcut": null,
           "command": "cmux screenshots open"
+        },
+        {
+          "id": "browserScrollDown",
+          "title": "Scroll Down",
+          "shortcut": "J",
+          "command": null
+        },
+        {
+          "id": "browserScrollToBottom",
+          "title": "Scroll to Bottom",
+          "shortcut": "⇧G",
+          "command": null
+        },
+        {
+          "id": "browserScrollToTop",
+          "title": "Scroll to Top",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "browserScrollUp",
+          "title": "Scroll Up",
+          "shortcut": "K",
+          "command": null
         },
         {
           "id": "browser.focusSearch",

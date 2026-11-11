@@ -2119,6 +2119,9 @@ fn only_a_cap_refusal_reads_as_a_cap() {
     assert_eq!(cap_of("app.unreachable", "no app", None), None);
     // cmux-platform's `details.resource` decides over its words.
     assert_eq!(cap_of("cloud.quota.exceeded", "any words", Some("machines")), Some(Cap::Held));
+    // The VM limit by its own code, whatever its words.
+    assert_eq!(cap_of("cloud.quota.vm_limit", "any words", None), Some(Cap::Held));
+    assert_eq!(cap_of("cmux.cloud.vm_limit", "any words", None), Some(Cap::Held));
     assert_eq!(cap_of("cloud.quota.exceeded", "any words", Some("active")), Some(Cap::Running));
     assert_eq!(
         cap_of("cloud.quota.exceeded", "this plan keeps 200 saved snapshots", Some("saved")),
