@@ -64,6 +64,33 @@ struct AgentPaneAttachDroppedTests {
             == .attachDropped(.paste, names: ["a.mov"]))
     }
 
+    /// A screenshot copied to the clipboard has no file: the host writes its bytes once, off the main
+    /// actor, to the chat's Chat Uploads folder, and the page's ask for the paste's `image.png`
+    /// answers that path, so the page streams no copy of it.
+    @Test func aPastedBitmapIsWrittenOnceAndAnsweredAsAPath() async throws {
+        let rig = Rig()
+        let uploads = FileManager.default.temporaryDirectory.appendingPathComponent("bitmap-\(UUID().uuidString)")
+        rig.model.chatUploadFolders = ChatUploadFolders(root: uploads)
+        let bytes = Data([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
+        rig.model.stashPastedBitmap(bytes, png: true)
+        let items = try #require(Self.items(await rig.ask("paste", ["image.png"])))
+        let path = try #require(items.first?["path"] as? String)
+        #expect(items.count == 1)
+        #expect(path.hasPrefix(uploads.path))
+        #expect(try Data(contentsOf: URL(fileURLWithPath: path)) == bytes)
+        // Used once: a second ask answers nothing.
+        #expect(Self.items(await rig.ask("paste", ["image.png"]))?.isEmpty == true)
+    }
+
+    /// A chat on another machine keeps streaming the bitmap: nothing is written here.
+    @Test func aPastedBitmapInAChatElsewhereIsNotWritten() async throws {
+        let rig = Rig(local: false)
+        let uploads = FileManager.default.temporaryDirectory.appendingPathComponent("bitmap-\(UUID().uuidString)")
+        rig.model.chatUploadFolders = ChatUploadFolders(root: uploads)
+        rig.model.stashPastedBitmap(Data([0x89, 0x50, 0x4e, 0x47]), png: true)
+        #expect(!FileManager.default.fileExists(atPath: uploads.path))
+    }
+
     @Test func refusesAMalformedRequest() {
         let method = "chat.attach.dropped"
         for params: [String: Any] in [

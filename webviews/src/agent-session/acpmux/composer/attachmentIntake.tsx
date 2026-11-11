@@ -295,9 +295,9 @@ export function PendingTile({
         className="acpmux-attachment acpmux-attachment-image acpmux-attachment-pending acpmux-attachment-pending-chip"
         data-paste-look={look}
         aria-busy="true"
-        // An image's header (a frame or a few): its box holds its place at a screenshot's 16:10, unseen,
-        // so words typed right after the paste already go after it; it shows once its shape is known.
-        // A video never waits: a screen recording is the widest a tile is (PENDING_VIDEO_RATIO).
+        // The Mac host tells its size before the paste (AgentPaneGestureShapes.swift): it shows at once.
+        // Without it, while its header reads (a frame or a few), its box holds its place at a
+        // screenshot's 16:10, unseen, so words typed right after the paste already go after it.
         {...(chip.sizing ? { "data-reserving": "" } : {})}
         aria-label={name}
       >
@@ -318,12 +318,15 @@ export function PendingTile({
         className="acpmux-attachment-image acpmux-attachment-pending acpmux-attachment-pending-chip"
         data-paste-look={look}
         aria-busy="true"
+        // As an image's: told by the host, it shows at once; else unseen while its header reads, at a
+        // screen recording's 16:10, and square if the header gives none (the chip's own fallback).
+        {...(chip.sizing ? { "data-reserving": "" } : {})}
         aria-label={name}
       >
         <VideoAttachmentTile
           name={name}
           video={undefined}
-          shape={chip.videoShape ?? PENDING_VIDEO_RATIO}
+          shape={chip.videoShape ?? (chip.sizing ? PENDING_VIDEO_RATIO : 1)}
           remove={remove}
           onPlay={() => {}}
         />
@@ -342,9 +345,8 @@ export function PendingTile({
   );
 }
 
-/// A pasted video's shape until its header answers (a frame or two): the widest a tile is
-/// (videoShape.ts VIDEO_RATIO), which a screen recording (16:9 or wider) always is. Its chip shows in
-/// the paste's frame, never held unseen for the header, so words typed right after go after it.
+/// The room a pasted video's unseen tile holds while its header reads: the widest a tile is
+/// (videoShape.ts VIDEO_RATIO), which a screen recording (16:9 or wider) always is.
 const PENDING_VIDEO_RATIO = 1.6;
 
 /// A loading image's own picture in its thumbnail's box. One the engine cannot draw (a HEIC in

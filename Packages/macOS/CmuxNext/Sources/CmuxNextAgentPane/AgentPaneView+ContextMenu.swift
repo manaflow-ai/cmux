@@ -118,6 +118,12 @@ extension AgentPaneView {
     /// records where the files of the person's drop or paste are, for the page's
     /// `chat.attach.dropped` (``AgentPaneDroppedPaths``), and what the person's drop, paste or pick
     /// in the file input says about where they came from, for `chat.attach.source`.
+    /// Tells the page the pixel sizes of a gesture's images before the page gets the gesture
+    /// (``AgentPaneGestureShapes``).
+    func tellShapes(_ shapes: [AgentPaneGestureShapes.Shape], kind: AgentPaneDroppedPaths.Kind) {
+        if let script = AgentPaneGestureShapes.script(shapes, kind: kind) { evaluateScript(script) }
+    }
+
     func installContextMenu() {
         let dropped: @MainActor ([URL]) -> Void = { [weak self] urls in
             guard let self else { return }
@@ -128,6 +134,7 @@ extension AgentPaneView {
             let event = page?.chromiumPage != nil ? page?.droppedEvent : NSApp.currentEvent
             guard let event, AgentPanePersonInput.isPerson(event, sources: eventSources) else { return }
             model.transport.gestures.record(click: false)
+            tellShapes(AgentPaneGestureShapes.shapes(of: urls), kind: .drop)
             model.droppedPaths.stash(urls, kind: .drop)
             let drag = NSPasteboard(name: .drag)
             // A Chromium drop is dated by its drag's entry, before the page took it (the ask's rule).
@@ -141,6 +148,14 @@ extension AgentPaneView {
             guard let self, AgentPanePersonInput.currentIsPerson(sources: eventSources) else { return }
             let urls = AgentPaneDroppedPaths.fileURLs(on: .general)
             model.droppedPaths.stash(urls, kind: .paste)
+            // Before WebKit hands the page the paste: its chips draw at their shapes at once. A
+            // bitmap with no file is written to one off the main actor, for the page's ask.
+            if urls.isEmpty, let bitmap = AgentPaneGestureShapes.pastedBitmap(on: .general) {
+                model.stashPastedBitmap(bitmap.data, png: bitmap.png)
+                tellShapes(bitmap.shape.map { [$0] } ?? [], kind: .paste)
+            } else {
+                tellShapes(AgentPaneGestureShapes.shapes(of: urls), kind: .paste)
+            }
             model.droppedPaths.stashSource(
                 urls, items: NSPasteboard.general.pasteboardItems?.count ?? 0,
                 claimed: AttachmentSource.claimed(on: .general), kind: .paste)
@@ -155,6 +170,7 @@ extension AgentPaneView {
         let chosen: @MainActor ([URL]) -> Void = { [weak self] urls in
             guard let self else { return }
             AgentPanePersonInput.record(model.transport.gestures, sources: eventSources)
+            tellShapes(AgentPaneGestureShapes.shapes(of: urls), kind: .choose)
             model.droppedPaths.stash(urls, kind: .choose)
             model.droppedPaths.stashSource(urls, items: urls.count, claimed: nil, kind: .choose)
         }

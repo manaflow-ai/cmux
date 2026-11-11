@@ -27,6 +27,8 @@ type Way = "paste" | "drop" | "pick";
 type ProbeWindow = Window & {
   __probe?: { frames: Frame[]; stop: boolean; before: Set<Element> };
   __images?: Record<string, File>;
+  __sizes?: Record<string, { width: number; height: number }>;
+  __cmuxAttachShapes?: unknown;
 };
 
 await requireBrowserLane("composer-attach-no-jump.test.ts", async () => {
@@ -108,6 +110,7 @@ await requireBrowserLane("composer-attach-no-jump.test.ts", async () => {
         const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
         const state = window as ProbeWindow;
         state.__images = { ...state.__images, [name]: new File([blob], name, { type: "image/png" }) };
+        state.__sizes = { ...state.__sizes, [name]: { width, height } };
       },
       { name, width, height },
     );
@@ -157,6 +160,22 @@ await requireBrowserLane("composer-attach-no-jump.test.ts", async () => {
     });
 
   /// Pastes or drops image `name` (the pick goes through the + menu's file chooser instead).
+  /// What the Mac host does as a drop, paste or pick goes to the page (AgentPaneGestureShapes.swift):
+  /// tells the page the image's size from its header before the page gets the gesture.
+  const tell = (page: Page, way: Way, name: string) =>
+    page.evaluate(
+      ({ way, name }) => {
+        const state = window as ProbeWindow;
+        const { width, height } = state.__sizes![name]!;
+        state.__cmuxAttachShapes = {
+          kind: way === "pick" ? "choose" : way,
+          at: Date.now(),
+          shapes: [{ name, width, height }],
+        };
+      },
+      { way, name },
+    );
+
   const gesture = (page: Page, way: Way, name: string) =>
     page.evaluate(
       ({ way, name, prompt }) => {
@@ -226,6 +245,9 @@ await requireBrowserLane("composer-attach-no-jump.test.ts", async () => {
     again = false,
     pane = 900,
     room?: number,
+    /// Whether the host tells the image's size first, as the Mac app does; false is an older host
+    /// (or a Chromium page's drop the page saw first), whose tile reads the image's header.
+    told = true,
   ): Promise<Frame[]> {
     const page = await newChat(engine, pane);
     if (pane < 900) await page.keyboard.type("Compare these two screenshots of the settings page ");
@@ -254,6 +276,7 @@ await requireBrowserLane("composer-attach-no-jump.test.ts", async () => {
         { prompt: PROMPT, room },
       );
     await startProbe(page);
+    if (told) await tell(page, way, "second.png");
     if (way === "pick") await pick(page, "second.png");
     else await gesture(page, way, "second.png");
     await settled(page, 2);
@@ -356,6 +379,10 @@ await requireBrowserLane("composer-attach-no-jump.test.ts", async () => {
       const old = last.find((each) => !each.fresh)!;
       // Beside the attachment, on its line: the 48 px tile fit in the 60 px left.
       expect(Math.abs(fresh.rect.y - old.rect.y)).toBeLessThanOrEqual(1);
+    });
+
+    test(`${engine}: from an older host that tells no size, a tall image pasted beside an attachment takes its final slot from its first frame`, async () => {
+      check(`${engine} paste tall untold`, await trace(engine, "paste", 900, 2880, false, 900, undefined, false));
     });
 
     test(`${engine}: a tall image pasted beside an attachment takes its final slot from its first frame`, async () => {

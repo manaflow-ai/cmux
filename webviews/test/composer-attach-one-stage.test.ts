@@ -27,7 +27,7 @@ import { chromium, webkit, type Browser, type BrowserType, type Page } from "pla
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
-type Kind = "image" | "bigImage" | "video" | "file";
+type Kind = "image" | "bigImage" | "untoldImage" | "video" | "file";
 type Sample = {
   at: number;
   box?: { width: number; height: number };
@@ -42,6 +42,10 @@ type Metrics = {
   pasteToFirstBoxMs: number | null;
   /// Painted frames after the paste's with no box yet: 0 is the chip in the paste's next frame.
   framesToFirstBox: number | null;
+  /// When an image's header answered its size, from the paste (ms).
+  headerAnsweredMs: number | null;
+  /// The first frames' times from the paste (ms).
+  frameTimes: number[];
   pasteToReadyMs: number | null;
   pasteToPictureMs: number | null;
   boxSizes: string[];
@@ -61,9 +65,19 @@ await requireBrowserLane("composer-attach-one-stage.test.ts", async () => {
   const FILES: Record<Kind, { name: string; type: string }> = {
     image: { name: "Screenshot 2026-11-10 at 4.20.01 PM.png", type: "image/png" },
     bigImage: { name: "Screenshot 2026-11-10 at 4.22.40 PM.png", type: "image/png" },
+    // The same screenshot from an older host that tells no size first: its tile reads the header.
+    untoldImage: { name: "Screenshot 2026-11-10 at 4.23.02 PM.png", type: "image/png" },
     video: { name: "Screen Recording 2026-11-10 at 4.21.16 PM.mov", type: "video/quicktime" },
     file: { name: "build-logs.zip", type: "application/zip" },
   };
+  /// The pixel size the Mac host tells for each image before the paste reaches the page.
+  const TOLD: Partial<Record<Kind, { width: number; height: number }>> = {
+    image: { width: 2880, height: 1800 },
+    bigImage: { width: 2048, height: 1280 },
+    video: { width: 1920, height: 1080 },
+  };
+  /// An image whose size nobody told is unseen until its header answers: at most this long.
+  const HEADER_WAIT_MS = 120;
   /// The stand-in host holds a video's read (poster, length) until the test lets it go, after the chip
   /// is ready: the native read's place, with no fixed wait.
   const RELEASE_VIDEO_READ = "one-stage-release-video-read";
@@ -192,7 +206,7 @@ await requireBrowserLane("composer-attach-one-stage.test.ts", async () => {
           ink.putImageData(pixels, 0, 0);
           const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
           file = new File([blob], name, { type });
-        } else if (kind === "image") {
+        } else if (kind === "image" || kind === "untoldImage") {
           const canvas = document.createElement("canvas");
           canvas.width = 2880;
           canvas.height = 1800;
@@ -287,7 +301,8 @@ await requireBrowserLane("composer-attach-one-stage.test.ts", async () => {
           : false;
         const where = typed();
         probe.samples.push({
-          at: performance.now() - probe.pasteAt,
+          // Read against the paste's own time when the run ends: a frame sampled before it is negative.
+          at: performance.now(),
           ...(shown ? { box: { width: shown.width, height: shown.height } } : {}),
           ...(chip ? { state: chip.getAttribute("data-state") ?? "strip" } : {}),
           spinner,
@@ -302,9 +317,18 @@ await requireBrowserLane("composer-attach-one-stage.test.ts", async () => {
 
   const paste = (page: Page, kind: Kind) =>
     page.evaluate(
-      ({ kind, prompt }) => {
+      ({ kind, prompt, told }) => {
         const data = new DataTransfer();
-        data.items.add((window as ProbeWindow).__files![kind]!);
+        const file = (window as ProbeWindow).__files![kind]!;
+        data.items.add(file);
+        // What the Mac host does as the paste goes to the page (AgentPaneGestureShapes.swift): tells
+        // the image's size from its header first. An older host (untoldImage) tells nothing.
+        if (told)
+          (window as { __cmuxAttachShapes?: unknown }).__cmuxAttachShapes = {
+            kind: "paste",
+            at: Date.now(),
+            shapes: [{ name: file.name, ...told }],
+          };
         const field = document.querySelector(prompt)!;
         const event = new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true });
         // WebKit's constructor drops the clipboard; the app's paste route hands it on the same way.
@@ -312,7 +336,7 @@ await requireBrowserLane("composer-attach-one-stage.test.ts", async () => {
         (window as ProbeWindow).__probe!.pasteAt = performance.now();
         field.dispatchEvent(event);
       },
-      { kind, prompt: PROMPT },
+      { kind, prompt: PROMPT, told: TOLD[kind] },
     );
 
   /// The attachment is final: its ready chip, with its picture drawn where it has one.
@@ -411,6 +435,10 @@ await requireBrowserLane("composer-attach-one-stage.test.ts", async () => {
     await finished(page, kind).catch(() => {
       done = false;
     });
+    const headerAnsweredMs = await page.evaluate(() => {
+      const mark = performance.getEntriesByName("acpmux:header-answered").at(-1);
+      return mark ? Math.round(mark.startTime - (window as ProbeWindow).__probe!.pasteAt) : null;
+    });
     const pictureAt = done
       ? await page.evaluate(() => performance.now() - (window as ProbeWindow).__probe!.pasteAt)
       : null;
@@ -419,7 +447,7 @@ await requireBrowserLane("composer-attach-one-stage.test.ts", async () => {
     const samples = await page.evaluate(() => {
       const probe = (window as ProbeWindow).__probe!;
       probe.stop = true;
-      return probe.samples;
+      return probe.samples.map((sample) => ({ ...sample, at: sample.at - probe.pasteAt }));
     });
     const after = samples.filter((sample) => sample.at >= 0);
     const boxes = after.filter((sample) => sample.box);
@@ -451,6 +479,8 @@ await requireBrowserLane("composer-attach-one-stage.test.ts", async () => {
       kind,
       bytes,
       pasteToFirstBoxMs: first ? Math.round(first.at) : null,
+      headerAnsweredMs,
+      frameTimes: after.slice(0, 8).map((sample) => Math.round(sample.at)),
       framesToFirstBox: firstBoxAt < 0 ? null : firstBoxAt,
       pasteToReadyMs: ready ? Math.round(ready.at) : null,
       pasteToPictureMs: pictureAt === null ? null : Math.round(pictureAt),
@@ -501,9 +531,15 @@ await requireBrowserLane("composer-attach-one-stage.test.ts", async () => {
           results.set(`${engine}/${kind}`, await measure(engine, kind));
         }, 120_000);
         const of = () => results.get(`${engine}/${kind}`)!;
-        test(`${engine} ${kind}: the chip is there in the paste's next frame`, () => {
-          expect(of().framesToFirstBox).toBe(0);
-        });
+        if (kind === "untoldImage")
+          test(`${engine} ${kind}: without the host's size, the chip is there once its header answers`, () => {
+            expect(of().pasteToFirstBoxMs).not.toBeNull();
+            expect(of().pasteToFirstBoxMs!).toBeLessThanOrEqual(HEADER_WAIT_MS + 50);
+          });
+        else
+          test(`${engine} ${kind}: the chip is there in the paste's next frame`, () => {
+            expect(of().framesToFirstBox).toBe(0);
+          });
         test(`${engine} ${kind}: one box from the paste to its picture`, () => {
           expect(of().boxSizes).toHaveLength(1);
         });
