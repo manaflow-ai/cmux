@@ -3,6 +3,7 @@ public import AppKit
 /// Where the floating chat sits on each screen (cx-b9qi): the frame it was
 /// last moved or resized to there, saved in user defaults by display.
 public struct FloatingChatFrames {
+    /// The defaults key of the Quick Agent Chat's floating chat.
     public static let key = "quickComposer.floatingChatFrames"
     /// A first floating chat: a narrow column, tall enough to read a turn.
     public static let defaultSize = CGSize(width: 440, height: 620)
@@ -11,22 +12,28 @@ public struct FloatingChatFrames {
     public static let barHeight: CGFloat = 44
 
     public let defaults: UserDefaults
+    /// The defaults key the frames are saved under: one per floating window kind.
+    public let storageKey: String
 
-    public init(defaults: UserDefaults) {
+    /// - Parameters:
+    ///   - defaults: Where the frames are saved.
+    ///   - storageKey: The key under `defaults`; the Quick Agent Chat's (``key``) by default.
+    public init(defaults: UserDefaults, storageKey: String = Self.key) {
         self.defaults = defaults
+        self.storageKey = storageKey
     }
 
     /// The frame saved on display `id`, if any.
     public func frame(onDisplay id: String) -> CGRect? {
-        guard let saved = (defaults.dictionary(forKey: Self.key) as? [String: String])?[id] else { return nil }
+        guard let saved = (defaults.dictionary(forKey: storageKey) as? [String: String])?[id] else { return nil }
         let frame = NSRectFromString(saved)
         return frame.width > 0 && frame.height > 0 ? frame : nil
     }
 
     public func save(_ frame: CGRect, onDisplay id: String) {
-        var all = defaults.dictionary(forKey: Self.key) as? [String: String] ?? [:]
+        var all = defaults.dictionary(forKey: storageKey) as? [String: String] ?? [:]
         all[id] = NSStringFromRect(frame)
-        defaults.set(all, forKey: Self.key)
+        defaults.set(all, forKey: storageKey)
     }
 
     /// `saved`, kept inside `visible`; without one, the default size with its
@@ -53,21 +60,5 @@ public struct FloatingChatFrames {
     public static func display(_ screen: NSScreen) -> String {
         guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return screen.localizedName }
         return String(number.uint32Value)
-    }
-}
-
-/// The floating chat's top edge: a drag there moves the panel. The page
-/// under it would take the press, and a web view never moves its window.
-public final class FloatingChatGrip: NSView {
-    public static let height: CGFloat = 12
-
-    override public var mouseDownCanMoveWindow: Bool { true }
-
-    override public func mouseDown(with event: NSEvent) {
-        window?.performDrag(with: event)
-    }
-
-    override public func resetCursorRects() {
-        addCursorRect(bounds, cursor: .openHand)
     }
 }
