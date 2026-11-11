@@ -176,7 +176,8 @@ pub(super) struct Fixture {
     pub(super) phone: Option<PhoneFloor>,
     /// With [`Fixture::phone`], the modes acpmux's start gate refuses a `session/new` that names
     /// one (`_meta.acpmux.mode`) for this connection, which is never the person
-    /// (`permission.person_required`); a named mode it takes is the session's.
+    /// (`permission.person_required`); a named mode it takes is the session's, unless the floor's
+    /// agent is `stuck`.
     pub(super) refused_start_modes: &'static [&'static str],
     /// When set, `_acpmux/harnesses` answers this long after it is asked: a starting acpmux
     /// holds its catalog until its login shell read ends (`Hub::harnesses_reply`).
@@ -319,7 +320,11 @@ fn serve(
                     json!({FAKE_ERROR: "the person must approve this mode",
                         FAKE_ERROR_DATA: {"reason": "permission.person_required"}})
                 } else {
-                    *fixture.phone.as_ref().unwrap().mode.lock().unwrap() = mode.to_owned();
+                    // A `stuck` agent takes no mode it is asked for, at its start either.
+                    let phone = fixture.phone.as_ref().unwrap();
+                    if !phone.stuck {
+                        *phone.mode.lock().unwrap() = mode.to_owned();
+                    }
                     json!({"sessionId": SESSION, "_meta": {"acpmux": {"harness": "claude"}}})
                 })
             }
