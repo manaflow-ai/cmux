@@ -310,7 +310,7 @@ export default agentPaneEntry({
     "chip-short-mid": {
       ...variant(
         "chip",
-        "Two words mid-paragraph in a dense reply: every spot near holds text, so the chip is its glyph alone over the selected words.",
+        "Two words mid-paragraph in a dense reply: every spot near holds text, so the bar is its glyphs alone over the selected words.",
         shortMid,
         chat(denseRows),
       ),
@@ -343,7 +343,7 @@ export default agentPaneEntry({
       ),
       height: 640,
     },
-    "chip-icon-only": variant("icon", "The same chip as a quote glyph alone.", (ctx) => selectPhrase(ctx, true)),
+    "chip-icon-only": variant("icon", "The same bar as its four glyphs alone (Reply, Copy, Ask in side chat, Add to chat).", (ctx) => selectPhrase(ctx, true)),
     "row-reply-button": variant(
       "row",
       "Rejected: a Reply button on every message's row. You nearly always reply to the latest message, so it repeats on every row for little use.",

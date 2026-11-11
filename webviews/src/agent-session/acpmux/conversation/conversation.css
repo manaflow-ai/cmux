@@ -7402,7 +7402,7 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
 .cv-received > .cv-disclosure__line:not(:has(.cv-received__preview)) > .cv-received__sender {
   max-width: calc(100% - var(--cv-chevron-glyph, 12px) - var(--ds-space-4, 16px));
 }
-/* The selection's Reply chip (SelectionReply.tsx): a small pill over the selection's end, as
+/* The selection's action bar (SelectionReply.tsx; Reply, Copy, Ask in side chat, Add to chat): a small pill over the selection's end, as
    Claude's and ChatGPT's, placed where no transcript text is under it. It shows on the selection's end with no fade-in and goes when the
    selection does. `icon` draws the glyph alone.
    Its label reads over anything under it (Leo 2026-11-07: "this reply, it has too little opacity
@@ -7417,12 +7417,11 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   position: fixed;
   z-index: var(--layer-dropdown);
   display: inline-flex;
-  align-items: center;
-  gap: 4px;
+  align-items: stretch;
   height: 28px;
-  padding-inline: 8px 12px;
   border: var(--cmux-hairline, 0.5px) solid color-mix(in srgb, var(--agent-text) 18%, transparent);
   border-radius: 8px;
+  overflow: hidden;
   background: color-mix(in srgb, var(--glass-surface) var(--cv-selection-reply-veil), transparent);
   -webkit-backdrop-filter: blur(var(--glass-frost)) saturate(1.4);
   backdrop-filter: blur(var(--glass-frost)) saturate(1.4);
@@ -7435,17 +7434,31 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   cursor: default;
   user-select: none;
 }
-.cv-selection-reply[data-look="icon"] {
+/* One action of the bar (#40948: Reply, Copy, Ask in side chat, Add to chat): its glyph and label,
+   split from the next by a hairline. Compact or `icon`, each is a 28 px square glyph. */
+.cv-selection-reply__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding-inline: 8px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: default;
+}
+.cv-selection-reply__action + .cv-selection-reply__action {
+  border-inline-start: var(--cmux-hairline, 0.5px) solid color-mix(in srgb, var(--agent-text) 12%, transparent);
+}
+.cv-selection-reply[data-look="icon"] .cv-selection-reply__action {
   width: 28px;
   padding: 0;
   justify-content: center;
 }
-.cv-selection-reply:hover {
-  background: linear-gradient(
-      color-mix(in srgb, var(--agent-text) 8%, transparent),
-      color-mix(in srgb, var(--agent-text) 8%, transparent)
-    ),
-    color-mix(in srgb, var(--glass-surface) var(--cv-selection-reply-veil), transparent);
+.cv-selection-reply__action:hover {
+  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
 }
 @media (prefers-reduced-transparency: reduce) {
   .cv-selection-reply {

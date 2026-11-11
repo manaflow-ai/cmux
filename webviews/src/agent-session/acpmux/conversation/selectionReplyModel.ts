@@ -44,6 +44,29 @@ export function quoteInReply(text: string): boolean {
   return true;
 }
 
+/// The selection bar's other actions (#40948): Copy, Ask in side chat and Add to chat, each the
+/// pane's own path (App.tsx): the app's pasteboard, `/side`'s fork with the quote as its prompt,
+/// and the right-click menu's Attach selection as context. Set while the pane is mounted.
+export type SelectionActionSinks = {
+  copy?: (text: string) => void;
+  askInSideChat?: (text: string) => void;
+  addToChat?: (text: string) => void;
+};
+let actionSinks: SelectionActionSinks = {};
+export function setSelectionActionSinks(next: SelectionActionSinks): () => void {
+  actionSinks = next;
+  return () => {
+    if (actionSinks === next) actionSinks = {};
+  };
+}
+/// Runs the bar's `action` on `text`; false when the pane has no such path or the text is blank.
+export function runSelectionAction(action: keyof SelectionActionSinks, text: string): boolean {
+  const run = actionSinks[action];
+  if (!run || !text.trim()) return false;
+  run(text);
+  return true;
+}
+
 const EDITABLE = '[contenteditable]:not([contenteditable="false"]), textarea, input';
 /// Text selected here is never offered the chip: the composer and fields, code blocks (selected to
 /// copy; their own Copy is in the corner), a guest's read-only transcript and the chip itself.
@@ -218,11 +241,11 @@ export function unselectedTextProbe(doc: Document, range: Range): TextProbe {
 ///   5. Over the selection's own last words, centred on its last line: the person's own text
 ///      (`own-end` ends at the selection's end, `own-start` starts at its last line's start).
 ///   6. A free spot up to three lines away.
-///   7. The chip's glyph alone (`compact`, a square the chip's height) over the selection's own
-///      last words, for a last line shorter than the chip in dense text.
+///   7. The chip's glyphs alone (`compact`: `size.compact` wide, else a square the chip's height)
+///      over the selection's own last words, for a last line shorter than the chip in dense text.
 export function selectionReplyPlace(
   target: SelectionReplyTarget,
-  size: { width: number; height: number },
+  size: { width: number; height: number; compact?: number },
   pane: { width: number; height: number; top?: number },
   probe: TextProbe,
   wrap: SelectionReplyWrap = "own-end",
@@ -284,7 +307,8 @@ export function selectionReplyPlace(
     yield* rows(0, wrap === "farther" ? FARTHER : 0);
     yield [ownX, line];
     if (wrap !== "farther") yield* rows(1, FARTHER);
-    yield [wrap === "own-start" ? ownX : end.right - height, line, height];
+    const glyphs = Math.min(size.compact ?? height, width);
+    yield [wrap === "own-start" ? ownX : end.right - glyphs, line, glyphs];
   }
   for (const [x, y, w] of candidates()) {
     const place = accept(x, y, w);
