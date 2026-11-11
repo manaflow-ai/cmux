@@ -65,6 +65,10 @@ pub(super) fn run<C: ControlPlane>(
                 "size",
                 "image",
                 "from_snapshot",
+                // Who started it and how long it may live: the platform checks
+                // and records both (origin, expires_at on the machine).
+                "origin",
+                "ttl_seconds",
                 "size_name",
                 "idle_seconds",
                 "bootstrap",

@@ -249,7 +249,18 @@ export type CloudMachine = {
   readonly notice?: CloudRetentionNotice | null
   readonly paused_by?: "spend_cap"
   readonly spend_cap_pause_at?: number
+  readonly origin?: CloudMachineOrigin
+  readonly expires_at?: number
   readonly revision: Revision
+}
+
+export type CloudMachineOrigin = {
+  readonly kind?: "workflow" | "lane" | "agent" | "person"
+  readonly label: string
+  readonly url?: string
+  readonly run?: string
+  readonly workflow?: string
+  readonly lane?: string
 }
 
 /** A machine size. The plan decides which sizes are allowed (cloud.size.locked). */
@@ -1972,13 +1983,15 @@ export interface CloudOps {
     }
     readonly result: CloudConnectInfo
   }
-  /** Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used, resource, free_up} (at the machines cap, free_up names the oldest machine a person can delete to make room: {machine, name, reason: test|failed_create|never_used|requested}, or null), cloud.size.locked. A same-key retry never makes a second machine. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
+  /** Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used, resource, free_up} (at the machines cap, free_up names the oldest machine a person can delete to make room: {machine, name, reason: test|failed_create|never_used|requested}, or null), cloud.size.locked. A same-key retry never makes a second machine. origin {kind?, label, url?, run?, workflow?, lane?} says who started it and ttl_seconds (300 to 604800) when the platform deletes it (expires_at on the machine). After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
   readonly "cloud.machine.create": {
     readonly params: {
       readonly name?: string
       readonly size: CloudMachineSize
       readonly image?: string
       readonly from_snapshot?: SnapshotId
+      readonly origin?: CloudMachineOrigin
+      readonly ttl_seconds?: number
     }
     readonly result: {
       readonly machine: CloudMachine
