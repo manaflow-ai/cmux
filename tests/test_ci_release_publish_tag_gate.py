@@ -14,9 +14,11 @@ What counts as publishing is read from the step, not its name:
 - a command it may run, direct or wrapped (tests/shell_invocations.may_run_nested: a substitution, eval, `bash -c`,
   xargs, sudo, env ... all count): `gh release create|upload|edit|delete`, a write through `gh api .../releases`
   (the method as gh reads it, tests/shell_invocations.gh_api_request: a field flag or --input is a POST),
-  `npm|pnpm|yarn|bun|cargo publish`, `twine upload`, `codesign` (classified by action first: any --sign or -s signs,
-  whatever else it has; only a verify or display with no sign is read-only), `productsign`, `xcrun notarytool`; and executable content it cannot read (a heredoc into a shell, eval of a variable, a sourced
-  file), which may publish;
+  `npm|pnpm|yarn|bun|cargo publish`, `twine upload`, `codesign` (other than a verify or display), `productsign`,
+  `xcrun notarytool`; and executable content it cannot read (a heredoc into a shell, eval of a variable, a sourced
+  file), which may publish. Every one of these checks writes first: a write marker anywhere (codesign's --sign, -s
+  or --remove-signature, gh api's write method or --input, a write subcommand or `publish` after any options) wins,
+  and an exemption (a verify or display, a GET, a read subcommand) applies only when no write marker is present;
 - a step that reads a secret other than GITHUB_TOKEN (a signing certificate, an App key, a registry token), or a job
   that reads one in its own env/with/secrets, or a workflow-level env that does (it reaches every job).
 A call to a local reusable workflow counts as publishing at the call when anything it reaches publishes, followed
@@ -67,8 +69,15 @@ STATUS_FUNCTION = re.compile(r"\b(always|failure|cancelled|success)\s*\(", re.IG
 RELEASE_ACTION = re.compile(
     r"attest|gh-action-pypi-publish|action-gh-release|release-action|upload-release-asset|create-release|"
     r"npm-publish|cargo-publish", re.IGNORECASE)
-# codesign's short options that take a value (`codesign --help`): in a cluster, the letters after one are its value.
+# codesign's options (`codesign --help`). Short ones that take a value: in a cluster, the letters after one are its
+# value. Those a verify or display may carry are the only ones that are not a write marker.
 CODESIGN_VALUES = frozenset("aDiIoPrRs")
+CODESIGN_READ_SHORT = frozenset("vdfRrah")
+CODESIGN_READ_LONG = frozenset({"--verify", "--display", "--verbose", "--strict", "--no-strict", "--deep", "--force",
+                                "--entitlements", "--requirements", "--xml", "--der", "--check-notarization",
+                                "--test-requirement", "--architecture", "--arch", "--file-list", "--all-architectures",
+                                "--extract-certificates", "--detached"})
+GH_RELEASE_WRITES = frozenset({"create", "upload", "edit", "delete", "delete-asset"})
 
 
 def _strip(expression: Any) -> str:
@@ -118,7 +127,8 @@ def publishing_command(words: list[str]) -> bool:
         return False
     program, rest = Path(words[0]).name, words[1:]
     if program == "gh":
-        if rest[:1] == ["release"] and rest[1:2] and rest[1] in {"create", "upload", "edit", "delete", "delete-asset"}:
+        # Writes first: a write subcommand anywhere after `release` (`gh release -R o/r upload`) is a write.
+        if rest[:1] == ["release"] and any(word in GH_RELEASE_WRITES for word in rest[1:]):
             return True
         if rest[:1] != ["api"]:
             return False
@@ -126,8 +136,9 @@ def publishing_command(words: list[str]) -> bool:
         # No endpoint it can read (xargs feeds it, a variable holds it): it may be a release path.
         return request.writes and (request.endpoint is None or bool(RELEASE_PATH.search(request.endpoint)))
     if program in {"npm", "pnpm", "yarn", "bun", "cargo"}:
-        return "publish" in rest[:2]
-    if program == "twine" or (program.startswith("python") and rest[:2] == ["-m", "twine"]):
+        return "publish" in rest  # wherever options put it (`npm -w pkg publish`)
+    if program == "twine" or (program.startswith("python") and any(
+            rest[at:at + 2] == ["-m", "twine"] or rest[at] == "-mtwine" for at in range(len(rest)))):
         return "upload" in rest
     if program == "codesign":
         return codesign_signs_or_writes(rest)
@@ -137,26 +148,29 @@ def publishing_command(words: list[str]) -> bool:
 
 
 def codesign_signs_or_writes(args: list[str]) -> bool:
-    """codesign classified by its action first. Any --sign or -s (`-s ID`, `-fs ID`, `--sign=ID`) signs, and then -v
-    only means verbose; with no sign, a verify (-v, --verify) or display (-d, --display) is read-only. Anything else
-    (--remove-signature, an action this does not know) counts as a write."""
+    """codesign, writes first. A write marker anywhere makes it a write, whatever else is present: --sign or -s
+    (`-s ID`, `-fs ID`, `--sign=ID`), --remove-signature, or any option a verify or display does not take (-o,
+    -i, --timestamp, an option this does not know). Only then may an exemption apply: read-only needs a read action,
+    --verify, --display, -d in a short cluster (`-dv` displays), or -v standing alone (`-v`, `-vv`). In a cluster
+    with anything else -v is verbosity, so `-fv` is no verify."""
     reads = False
     for word in args:
         if word == "--":
             break
         if word.startswith("--"):
             name = word.split("=", 1)[0]
-            if name == "--sign":
-                return True
+            if name not in CODESIGN_READ_LONG:
+                return True  # --sign, --remove-signature, a signing option or one this does not know
             reads = reads or name in ("--verify", "--display")
             continue
         if word.startswith("-") and len(word) > 1:
-            for letter in word[1:]:
-                if letter == "s":
-                    return True
+            letters = word[1:]
+            for letter in letters:
+                if letter not in CODESIGN_READ_SHORT:
+                    return True  # -s, a signing option (-o, -i ...) or one this does not know
                 if letter in CODESIGN_VALUES:
                     break  # the rest of the word is this option's value
-                reads = reads or letter in "vd"
+            reads = reads or set(letters) == {"v"} or "d" in letters.split("R")[0].split("r")[0].split("a")[0]
     return not reads
 
 

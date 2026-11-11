@@ -666,30 +666,33 @@ def _unreadable(text: str) -> bool:
 def gh_api_request(args: list[str]) -> GhApiRequest:
     """The method and endpoint of `gh api ARGS`, read the way gh reads them: a field flag (-f, -F, --field,
     --raw-field) or --input makes it a POST unless -X/--method names another; flags come spaced, attached
-    (-XPOST, -ftag=v1, --method=POST) or clustered (-iXPOST). An option gh does not document, or a method held
-    in a variable, leaves the method unknown, which `writes` counts as a write."""
-    method: str | None = None
-    explicit = False
+    (-XPOST, -ftag=v1, --method=POST) or clustered (-iXPOST).
+
+    Writes first: a write method anywhere wins over a GET or HEAD anywhere else (`-X POST -X GET` is a write), and
+    --input, a request body, makes even a GET a write. An option gh does not document, a method held in a
+    variable, or more than one endpoint leaves the method or endpoint unknown, which a caller counts as a write
+    (`writes`) or as possibly any path. Only a read method with no write marker is a read; with no method, field
+    flags alone (-f, -F with -X GET) are query parameters."""
+    methods: list[str | None] = []
     posts = False
+    body = False
     unknown = False
-    endpoint: str | None = None
-    seen_endpoint = False
+    endpoints: list[str | None] = []
 
     def take(name: str, value: str | None) -> None:
-        nonlocal method, explicit, posts, unknown
+        nonlocal posts, body
         if name == "--method":
-            explicit = True
-            method = None if value is None or _unreadable(value) else value.upper()
+            methods.append(None if value is None or _unreadable(value) else value.upper())
         elif name in _GH_API_POST:
             posts = True
+            body = body or name == "--input"
 
     index = 0
     while index < len(args):
         word = args[index]
         index += 1
         if word == "--":
-            if index < len(args) and not seen_endpoint:
-                endpoint, seen_endpoint = (None if _unreadable(args[index]) else args[index]), True
+            endpoints.extend(None if _unreadable(rest) else rest for rest in args[index:])
             break
         if word.startswith("--"):
             name, joined, value = word.partition("=")
@@ -716,13 +719,16 @@ def gh_api_request(args: list[str]) -> GhApiRequest:
                 unknown = True
                 break
             continue
-        if not seen_endpoint:
-            endpoint, seen_endpoint = (None if _unreadable(word) else word), True
-    if not explicit:
-        method = "POST" if posts else "GET"
-    if unknown:
-        method = None
-    return GhApiRequest(method, endpoint)
+        endpoints.append(None if _unreadable(word) else word)
+    endpoint = endpoints[0] if len(endpoints) == 1 else None
+    if unknown or None in methods:
+        return GhApiRequest(None, endpoint)
+    written = [method for method in methods if method not in ("GET", "HEAD")]
+    if written:
+        return GhApiRequest(written[0], endpoint)
+    if methods:
+        return GhApiRequest(None if body else methods[-1], endpoint)  # a GET with a request body is no read
+    return GhApiRequest("POST" if posts else "GET", endpoint)
 
 
 # Past this many levels of one command running another, what it runs counts as unreadable.
