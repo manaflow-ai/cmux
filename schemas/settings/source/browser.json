@@ -1595,7 +1595,7 @@
             "text": "A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "github",
             "github.com",
