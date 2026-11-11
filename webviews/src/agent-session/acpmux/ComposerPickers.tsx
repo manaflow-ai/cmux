@@ -983,9 +983,9 @@ export function ComposerPickers({
   // machine starts it in, Bypass permissions included (Leo 2026-11-10: "but shouldnt the user be
   // allowed to just go through with stuff?"); with no pick, the asking mode above.
   const chipFamily = summary?.family ?? snapshot.catalog.find((entry) => entry.id === chipHarness)?.family;
-  // The Cloud send names a harness only after a switch, so the machine starts its default agent:
-  // Claude first (acpmux default_harness.rs). A harness whose Cloud start mode cmux does not know
-  // (a Mac with no agent CLI shows another one) names the agent the machine starts, Claude.
+  // The agent the Cloud machine starts (cloudStartAgent): the composer's own, except UniiChat (a Mac
+  // with no agent CLI shows it), which the send leaves out so the machine starts Claude. Another
+  // agent whose Cloud modes cmux does not know keeps the chip's generic label: the machine decides.
   const cloudAgent = cloudStartAgent(chipFamily, chipHarness);
   const cloudKnown = cloudAgent.named;
   const cloudFamily = cloudAgent.family;

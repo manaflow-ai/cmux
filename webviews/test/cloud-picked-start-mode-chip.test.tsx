@@ -255,6 +255,9 @@ test("both Cloud sends start the agent and mode the chip names, for every face h
     { face: "codex", family: "codex", runs: "codex", asking: "Ask" },
     { face: "unii", family: "unii", runs: CLOUD_DEFAULT_AGENT, asking: "Manual" },
   ];
+  // Another agent the person picked is the one the machine runs, never swapped for Claude.
+  expect(cloudSendAgent("opencode", "opencode", "m")).toEqual({ harness: "opencode", model: "m" });
+  expect(cloudStartAgent("opencode", "opencode")).toEqual({ family: "opencode", harness: "opencode", named: true });
   for (const { face, family, runs, asking } of cases) {
     // Each face is its own new chat: a fresh page, no pick or menu left from the last.
     clearCloudModePick();
