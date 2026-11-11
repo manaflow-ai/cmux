@@ -7,6 +7,27 @@
       "shot": false
     },
     {
+      "title": "A workspace for the Mac Screen tab",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "devices"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Open it",
+      "cmux": [
+        "workspace",
+        "name:devices",
+        "focus"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
       "title": "A device hub that is not started",
       "rpc": {
         "method": "debug.device_hub",
