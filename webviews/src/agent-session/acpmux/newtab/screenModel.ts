@@ -49,6 +49,17 @@ export type ScreenRow =
   /// Open `url` in the browser profile `id` (a row of the profile search).
   | { type: "profile"; url: string; id: string; name: string; color?: string };
 
+/// The web search row searches the draft's words, as `words` reads them: never an attachment's
+/// token, whose id is no text the person wrote, which a pasted image's search row showed and
+/// searched for (#41016). A draft of attachments alone searches nothing.
+export function searchWords(rows: readonly ScreenRow[], words: (text: string) => string): ScreenRow[] {
+  return rows.flatMap((row): ScreenRow[] => {
+    if (row.type !== "search") return [row];
+    const text = words(row.text).trim();
+    return text ? [{ ...row, text }] : [];
+  });
+}
+
 /// What a create row opens, in the order the rows list them.
 export type CreateKind = "terminal" | "browser" | "chat";
 

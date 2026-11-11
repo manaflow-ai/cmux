@@ -84,6 +84,7 @@ import {
   profileRows,
   recentChatCards,
   screenRows,
+  searchWords,
   inStrip,
   shellEntry,
   shortHost,
@@ -1012,18 +1013,21 @@ export function NewTabScreen(props: Props) {
       profilePick
         ? profileRows(typed, profilePick.url, profiles ?? [])
         : touched && !shell && !commandTyping
-          ? screenRows(typed, {
-              omnibar: profiles ? omnibar : { ...omnibar, profiles: undefined },
-              home,
-              create: creates,
-              ...(ask ? { ask } : {}),
-              createNames: {
-                terminal: nt("create.terminal"),
-                browser: nt("create.browser"),
-                chat: nt("create.chat"),
-              },
-              ...(props.suggestionOrder ? { order: props.suggestionOrder } : {}),
-            })
+          ? searchWords(
+              screenRows(typed, {
+                omnibar: profiles ? omnibar : { ...omnibar, profiles: undefined },
+                home,
+                create: creates,
+                ...(ask ? { ask } : {}),
+                createNames: {
+                  terminal: nt("create.terminal"),
+                  browser: nt("create.browser"),
+                  chat: nt("create.chat"),
+                },
+                ...(props.suggestionOrder ? { order: props.suggestionOrder } : {}),
+              }),
+              (words) => withoutInlineTokens(words),
+            )
           : [],
     [
       profilePick,
