@@ -2810,8 +2810,9 @@ class SparseCheckoutImportTests(unittest.TestCase):
             "scripts/ci/mpkg/__init__.py": "",
             "scripts/ci/mpkg/main.py": "from .helper import go\n",
             "scripts/ci/mpkg/helper.py": "def go():\n    return 1\n",
-            # Dynamic imports: one this check cannot follow, and a fixed sys.path insert it learns.
-            "scripts/ci/dyn.py": "import importlib\nmod = importlib.import_module('helper')\n",
+            # Dynamic imports: one this check cannot follow (a computed name: a literal one is read as an
+            # import statement), and a fixed sys.path insert it learns.
+            "scripts/ci/dyn.py": "import importlib\nmod = importlib.import_module('hel' + 'per')\n",
             "scripts/ci/lit.py": (
                 "import sys\nfrom pathlib import Path\n"
                 "HERE = Path(__file__).resolve()\n"
@@ -2821,9 +2822,9 @@ class SparseCheckoutImportTests(unittest.TestCase):
             "scripts/toplib.py": "",
             "scripts/ci/varpath.py": "import sys, os\nsys.path.append(os.environ['X'])\n",
             "scripts/ci/dyn2.py": (
-                "import importlib\na = importlib.import_module('helper')\nb = importlib.import_module('extra')\n"
+                "import importlib\na = importlib.import_module('hel' + 'per')\nb = importlib.import_module('ex' + 'tra')\n"
             ),
-            "scripts/ci/dyn_ws.py": 'import importlib\nmod = importlib.import_module(  "helper"  )\n',
+            "scripts/ci/dyn_ws.py": 'import importlib\nmod = importlib.import_module(  "hel"+"per"  )\n',
             "scripts/ci/loader.py": (
                 "import importlib.util\nfrom pathlib import Path\n"
                 "spec = importlib.util.spec_from_file_location('k', Path(__file__).with_name('loaded-by-path.py'))\n"
@@ -3055,33 +3056,33 @@ class SparseCheckoutImportTests(unittest.TestCase):
         self.assertEqual(
             self._misses(listed),
             [
-                "w.yml run Check out: scripts/ci/dyn.py calls importlib.import_module('helper') (line 2), which "
+                "w.yml run Check out: scripts/ci/dyn.py calls importlib.import_module('hel' + 'per') (line 2), which "
                 "this check cannot follow; make the import static or audit it in DYNAMIC_IMPORT_AUDIT"
             ],
         )
-        audit = {("scripts/ci/dyn.py", "importlib.import_module", "'helper'"): "loads helper.py, listed beside it"}
+        audit = {("scripts/ci/dyn.py", "importlib.import_module", "'hel' + 'per'"): "loads helper.py, listed beside it"}
         self.assertEqual(self._misses(listed, audit=audit), [])
 
     def test_fixture_audit_names_one_call_not_a_kind(self) -> None:
         # dyn2.py makes two import_module calls; the entry for one leaves the other unverifiable.
         listed = self.block("scripts/ci/dyn2.py", "scripts/ci/helper.py", "scripts/ci/deadline_http.py")
-        audit = {("scripts/ci/dyn2.py", "importlib.import_module", "'helper'"): "loads helper.py, listed beside it"}
+        audit = {("scripts/ci/dyn2.py", "importlib.import_module", "'hel' + 'per'"): "loads helper.py, listed beside it"}
         self.assertEqual(
             self._misses(listed, audit=audit),
             [
-                "w.yml run Check out: scripts/ci/dyn2.py calls importlib.import_module('extra') (line 3), which "
+                "w.yml run Check out: scripts/ci/dyn2.py calls importlib.import_module('ex' + 'tra') (line 3), which "
                 "this check cannot follow; make the import static or audit it in DYNAMIC_IMPORT_AUDIT"
             ],
         )
 
     def test_fixture_an_edited_audited_call_makes_its_entry_stale(self) -> None:
-        # The entry was written for import_module('other'); the file now calls import_module('helper').
+        # The entry was written for import_module('other'); the file now calls import_module('hel' + 'per').
         listed = self.block("scripts/ci/dyn.py", "scripts/ci/helper.py", "scripts/ci/deadline_http.py")
         audit = {("scripts/ci/dyn.py", "importlib.import_module", "'other'"): "loads other.py"}
         self.assertEqual(
             self._misses(listed, audit=audit),
             [
-                "w.yml run Check out: scripts/ci/dyn.py calls importlib.import_module('helper') (line 2), which "
+                "w.yml run Check out: scripts/ci/dyn.py calls importlib.import_module('hel' + 'per') (line 2), which "
                 "this check cannot follow; make the import static or audit it in DYNAMIC_IMPORT_AUDIT",
                 "DYNAMIC_IMPORT_AUDIT: scripts/ci/dyn.py importlib.import_module('other'): no call in "
                 "scripts/ci/dyn.py matches it; re-check the call and the entry",
@@ -3089,10 +3090,10 @@ class SparseCheckoutImportTests(unittest.TestCase):
         )
 
     def test_fixture_whitespace_and_quotes_do_not_change_the_audit_match(self) -> None:
-        # dyn.py writes import_module('helper'), dyn_ws.py import_module(  "helper"  ); one spelling
-        # of the entry matches both, and so does a spelling with other spaces and quotes.
+        # dyn.py writes import_module('hel' + 'per'), dyn_ws.py import_module(  "hel"+"per"  ); one
+        # spelling of the entry matches both, and so does a spelling with other spaces and quotes.
         for script in ("scripts/ci/dyn.py", "scripts/ci/dyn_ws.py"):
-            for text in ("'helper'", '  "helper" '):
+            for text in ("'hel' + 'per'", '  "hel"+"per" '):
                 with self.subTest(script=script, text=text):
                     listed = self.block(script, "scripts/ci/helper.py", "scripts/ci/deadline_http.py")
                     audit = {(script, "importlib.import_module", text): "loads helper.py, listed beside it"}
@@ -3101,7 +3102,7 @@ class SparseCheckoutImportTests(unittest.TestCase):
     def test_fixture_stale_audit_entries_fail(self) -> None:
         listed = self.block("scripts/ci/dyn.py", "scripts/ci/helper.py", "scripts/ci/deadline_http.py")
         audit = {
-            ("scripts/ci/dyn.py", "importlib.import_module", "'helper'"): "loads helper.py, listed beside it",
+            ("scripts/ci/dyn.py", "importlib.import_module", "'hel' + 'per'"): "loads helper.py, listed beside it",
             ("scripts/ci/dyn.py", "runpy.run_path", "'x.py'"): "a call the file does not make",
             ("scripts/ci/dyn.py", "scripts/ci/nothing.py"): "a load the file does not make",
             ("scripts/ci/gone.py", "importlib.import_module", "'helper'"): "a file that does not exist",
@@ -3910,17 +3911,22 @@ def _oracle_program(seed: int) -> tuple[dict[str, str], str, dict, str]:
     rng.shuffle(calls)  # functions run in any order, not their definition order
     for _ in range(rng.randint(1, 3)):
         calls.insert(rng.randint(0, len(calls)), import_line())
-    # The builtin __import__ under each of its names, drawn from a stream of its own so every other
-    # seed's program stays as it was. The checker must call each unverifiable, never miss its module.
-    # Rare (5%): each one makes its program unverifiable, and the test keeps a floor of verified runs.
+    # An import by name (the builtin __import__ under each of its names, importlib's two), drawn from a
+    # stream of its own so every other seed's program stays as it was. A literal name must load what
+    # the same import statement loads; a computed one must make the run unverifiable.
     dyn = random.Random(seed * 2 + 1)
-    if dyn.random() < 0.05:
-        name = dyn.choice(offered)[0]
+    if dyn.random() < 0.1:
+        name, kind = dyn.choice(offered)
+        target = name if kind == "module" or dyn.random() < 0.5 else f"{name}.sub"
+        arg = repr(target) if dyn.random() < 0.7 else f"{target[:1]!r} + {target[1:]!r}"
         stmt = dyn.choice((
-            f"__import__({name!r})\n",
-            f"import builtins\nbuiltins.__import__({name!r})\n",
-            f"import builtins as _b\n_b.__import__({name!r})\n",
-            f"from builtins import __import__ as load\nload({name!r})\n",
+            f"__import__({arg})\n",
+            f"import builtins\nbuiltins.__import__({arg})\n",
+            f"import builtins as _b\n_b.__import__({arg})\n",
+            f"from builtins import __import__ as load\nload({arg})\n",
+            f"importlib.import_module({arg})\n",
+            f"from importlib import import_module as _im\n_im({arg})\n",
+            f"importlib.__import__({arg})\n",
         ))
         calls.insert(dyn.randint(0, len(calls)), stmt)
     files[entry] = "".join(body + functions + calls) + _ORACLE_TRACE
@@ -4222,10 +4228,11 @@ class GuardNeverRaisesTests(unittest.TestCase):
 
     def test_review_40829_f2_the_builtin_import_by_its_qualified_and_aliased_names(self) -> None:
         more = {
-            "scripts/ci/bimp.py": "import builtins\nmod = builtins.__import__('helper')\n",
-            "scripts/ci/bimp_as.py": "import builtins as b\nmod = b.__import__('helper')\n",
-            "scripts/ci/bimp_from.py": "from builtins import __import__ as load\nmod = load('helper')\n",
-            "scripts/ci/bimp_dunder.py": "import os\nmod = __builtins__.__import__('helper')\n",
+            # Computed names: a literal one is an import statement (LiteralImportsAndGuardedLoadsTests).
+            "scripts/ci/bimp.py": "import builtins\nmod = builtins.__import__('hel' + 'per')\n",
+            "scripts/ci/bimp_as.py": "import builtins as b\nmod = b.__import__('hel' + 'per')\n",
+            "scripts/ci/bimp_from.py": "from builtins import __import__ as load\nmod = load('hel' + 'per')\n",
+            "scripts/ci/bimp_dunder.py": "import os\nmod = __builtins__.__import__('hel' + 'per')\n",
         }
         for script, call in (
             ("scripts/ci/bimp.py", "builtins.__import__"),
@@ -4238,18 +4245,18 @@ class GuardNeverRaisesTests(unittest.TestCase):
                 self.assertEqual(
                     self._misses(listed, more=more),
                     [
-                        f"{self.PREFIX}{script} calls {call}('helper') (line 2), which this check cannot "
+                        f"{self.PREFIX}{script} calls {call}('hel' + 'per') (line 2), which this check cannot "
                         "follow; make the import static or audit it in DYNAMIC_IMPORT_AUDIT"
                     ],
                 )
 
     def test_review_40829_f2_real_python_loads_through_the_aliased_builtin(self) -> None:
         # Under real Python each form loads witness.py; a checker that misses the call names only the
-        # entry script: a divergence. It must say it cannot verify the run.
+        # entry script: a divergence. With a computed name it must say it cannot verify the run.
         outside = set(sys.stdlib_module_names) | _installed_names()
         for form in (
-            "import builtins\nbuiltins.__import__('witness')\n",
-            "from builtins import __import__ as load\nload('witness')\n",
+            "import builtins\nbuiltins.__import__('wit' + 'ness')\n",
+            "from builtins import __import__ as load\nload('wit' + 'ness')\n",
         ):
             with self.subTest(form=form):
                 files = {"scripts/ci/bentry.py": "import os\n" + form + _ORACLE_TRACE, "scripts/ci/witness.py": ""}
@@ -4330,6 +4337,140 @@ class GuardNeverRaisesTests(unittest.TestCase):
                 "follow (its import chain or its code's nesting)"
             ],
         )
+
+
+class LiteralImportsAndGuardedLoadsTests(unittest.TestCase):
+    """Follow-up to #40829 (dep-fleet-6): the check must not be stricter than its contract.
+    F1: an import by a literal name (__import__ under every spelling, importlib.import_module,
+    importlib.__import__) loads what the same import statement loads: a stdlib name is static and a repo
+    module joins the closure; only a computed name is unverifiable. F2: a load is optional when a try
+    catches every error it raises for a missing file, by the rule import statements use (_catches)."""
+
+    _fixture = SparseCheckoutImportTests._fixture
+    _misses = SparseCheckoutImportTests._misses
+    block = SparseCheckoutImportTests.block
+    PREFIX = "w.yml run Check out: "
+    SPELLINGS = (
+        ("", "__import__"),
+        ("import builtins\n", "builtins.__import__"),
+        ("import builtins as b\n", "b.__import__"),
+        ("from builtins import __import__ as load\n", "load"),
+        ("import os\n", "__builtins__.__import__"),
+        ("import importlib\n", "importlib.import_module"),
+        ("from importlib import import_module\n", "import_module"),
+        ("import importlib\n", "importlib.__import__"),
+    )
+
+    def test_f1_a_literal_name_resolves_like_an_import_statement(self) -> None:
+        for prelude, call in self.SPELLINGS:
+            with self.subTest(call=call):
+                more = {"scripts/ci/lit.py": f"{prelude}osmod = {call}('os')\nmod = {call}('helper')\n"}
+                self.assertEqual(
+                    self._misses(self.block("scripts/ci/lit.py"), more=more),
+                    [
+                        f"{self.PREFIX}scripts/ci/helper.py imports scripts/ci/deadline_http.py, not in its sparse "
+                        "checkout (via scripts/ci/lit.py)",
+                        f"{self.PREFIX}scripts/ci/lit.py imports scripts/ci/helper.py, not in its sparse checkout",
+                    ],
+                )
+                listed = self.block("scripts/ci/lit.py", "scripts/ci/helper.py", "scripts/ci/deadline_http.py")
+                self.assertEqual(self._misses(listed, more=more), [])
+
+    def test_f1_a_literal_stdlib_name_is_static(self) -> None:
+        for prelude, call in self.SPELLINGS:
+            with self.subTest(call=call):
+                more = {"scripts/ci/litos.py": f"{prelude}osmod = {call}('os')\nurl = {call}('urllib.request')\n"}
+                self.assertEqual(self._misses(self.block("scripts/ci/litos.py"), more=more), [])
+
+    def test_f1_a_literal_name_in_an_import_error_guard_is_optional(self) -> None:
+        more = {"scripts/ci/litopt.py": "try:\n    extra = __import__('extra')\nexcept ImportError:\n    extra = None\n"}
+        self.assertEqual(self._misses(self.block("scripts/ci/litopt.py"), more=more), [])
+
+    def test_f1_computed_and_relative_names_stay_unverifiable(self) -> None:
+        for source, text in (
+            ("mod = __import__('hel' + 'per')\n", "__import__('hel' + 'per')"),
+            ("import importlib\nmod = importlib.import_module('.helper', 'pkg')\n", "importlib.import_module('.helper', 'pkg')"),
+            ("mod = __import__('helper', fromlist=['go'])\n", "__import__('helper', fromlist=['go'])"),
+        ):
+            with self.subTest(source=source):
+                line = source.count("\n")
+                self.assertEqual(
+                    self._misses(self.block("scripts/ci/litc.py"), more={"scripts/ci/litc.py": source}),
+                    [
+                        f"{self.PREFIX}scripts/ci/litc.py calls {text} (line {line}), which this check cannot follow; "
+                        "make the import static or audit it in DYNAMIC_IMPORT_AUDIT"
+                    ],
+                )
+
+    LOAD = (
+        "spec = importlib.util.spec_from_file_location('g', Path(__file__).with_name('gtarget.py'))\n"
+        "mod = importlib.util.module_from_spec(spec)\n"
+        "spec.loader.exec_module(mod)\n"
+    )
+    LOAD_HEAD = "import importlib.util\nfrom pathlib import Path\n"
+
+    def _guarded(self, handler: str, split: bool = False) -> str:
+        if split:  # only the spec is guarded; exec_module runs outside the try
+            first, rest = self.LOAD.split("\n", 1)
+            return self.LOAD_HEAD + f"try:\n    {first}\n{handler}\n    spec = None\n{rest}"
+        return self.LOAD_HEAD + "try:\n" + textwrap.indent(self.LOAD, "    ") + f"{handler}\n    mod = None\n"
+
+    GUARDS = (
+        # (handler, optional: does Python run on without gtarget.py?)
+        ("except Exception:", True),
+        ("except BaseException:", True),
+        ("except:", True),
+        ("except (OSError, ImportError):", True),
+        ("except (FileNotFoundError, ModuleNotFoundError) as error:", True),
+        ("except ImportError:", False),  # a missing file raises FileNotFoundError, which this lets through
+        ("except OSError:", False),  # a checked-out target's missing import raises ModuleNotFoundError
+    )
+
+    def test_f2_a_load_in_a_try_that_catches_a_missing_file_is_optional(self) -> None:
+        miss = f"{self.PREFIX}scripts/ci/gload.py imports scripts/ci/gtarget.py, not in its sparse checkout"
+        for handler, optional in self.GUARDS:
+            with self.subTest(handler=handler):
+                more = {"scripts/ci/gload.py": self._guarded(handler), "scripts/ci/gtarget.py": "import deadline_http\n"}
+                misses = self._misses(self.block("scripts/ci/gload.py"), more=more)
+                if optional:
+                    self.assertEqual(misses, [])
+                else:
+                    self.assertIn(miss, misses)
+        # exec_module outside the try reads the file unguarded: required, whatever the handler.
+        more = {"scripts/ci/gload.py": self._guarded("except Exception:", split=True), "scripts/ci/gtarget.py": ""}
+        self.assertEqual(self._misses(self.block("scripts/ci/gload.py"), more=more), [miss])
+
+    def test_differential_real_python_agrees_on_literal_names_and_guarded_loads(self) -> None:
+        # F1: under real Python each literal form loads witness.py: the checker must name exactly the
+        # files Python loaded ("verified"), not call the run unverifiable.
+        outside = set(sys.stdlib_module_names) | _installed_names()
+        for prelude, call in self.SPELLINGS:
+            with self.subTest(call=call):
+                files = {
+                    "scripts/ci/bentry.py": f"import os\n{prelude}{call}('witness')\n" + _ORACLE_TRACE,
+                    "scripts/ci/witness.py": "",
+                }
+                outcome, detail = _oracle_judge(files, "scripts/ci/bentry.py", {"run": "python3 scripts/ci/bentry.py"}, outside)
+                self.assertEqual(outcome, "verified", detail)
+        # F2: real Python runs each guarded load with gtarget.py left out of the checkout; the checker
+        # calls the load optional exactly when Python ran on without the file.
+        for handler, _ in self.GUARDS:
+            for split in (False, True):
+                with self.subTest(handler=handler, split=split), tempfile.TemporaryDirectory() as tmp:
+                    root = self._fixture(
+                        Path(tmp),
+                        self.block("scripts/ci/gload.py"),
+                        more={"scripts/ci/gload.py": self._guarded(handler, split), "scripts/ci/gtarget.py": "import nothere\n"},
+                    )
+                    checker_optional = find_misses(root) == []
+                    sparse = Path(tmp) / "sparse"
+                    (sparse / "scripts/ci").mkdir(parents=True)
+                    (sparse / "scripts/ci/gload.py").write_text(self._guarded(handler, split), encoding="utf-8")
+                    absent = subprocess.run([sys.executable, "-S", "scripts/ci/gload.py"], cwd=sparse, capture_output=True, text=True)
+                    (sparse / "scripts/ci/gtarget.py").write_text("import nothere\n", encoding="utf-8")
+                    broken = subprocess.run([sys.executable, "-S", "scripts/ci/gload.py"], cwd=sparse, capture_output=True, text=True)
+                    python_optional = absent.returncode == 0 and broken.returncode == 0
+                    self.assertEqual(checker_optional, python_optional, (absent.stderr[-300:], broken.stderr[-300:]))
 
 
 if __name__ == "__main__":
