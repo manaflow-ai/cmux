@@ -10,7 +10,14 @@ Arms, each on its own APFS clone of the generated state, with real owner process
   kill-renamed  kill -9 as soon as the backup file exists (after the rename, before the start
          is complete); then start, stop.
   space  a debug owner with a free-space margin no disk has: the rebuild is refused.
-  old    an older owner binary on the migrated state: does it open it.
+  old    each older owner binary (--old-bin, a list) on its own clone of the migrated state:
+         does it open it, what does it serve, what do the counts say after it stayed up
+         --old-dwell seconds (a roster rebuild of another reducer version saves in that time),
+         and after the new owner opened the state again.
+  old-raised  each older owner binary on a clone of the migrated state whose stored
+         schema_version is RAISED by hand (sqlite, by this script: no build writes it): does it
+         refuse, with which lines and exit code, and is the folder byte for byte the same after
+         it (a list of each file with its size and SHA-256, before and after).
 After each arm: the counts of the registry (synth_registry --counts) against the counts before.
 Equal = workspaces, tabs, terminals, roster agents, History sessions; the journal head never
 goes back. Output: RMP {json} per step and a Markdown table. The report holds counts, sizes and
@@ -18,12 +25,14 @@ times only: no paths and no row contents. A time from a loaded host is not a per
 """
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
 import shutil
 import signal
 import socket
+import sqlite3
 import subprocess
 import sys
 import time
@@ -88,8 +97,8 @@ class Owner:
                 return line
         return None
 
-    def wait_ready(self):
-        deadline = self.started + self.args.ready_timeout
+    def wait_ready(self, timeout=None):
+        deadline = self.started + (timeout or self.args.ready_timeout)
         while time.monotonic() < deadline and self.child.poll() is None:
             if os.path.exists(self.socket):
                 reply = drs.identify(self.socket, 2.0)
@@ -461,14 +470,92 @@ def space_arm(args, state, before, report):
     report["steps"].append(step)
 
 
-def old_arm(args, state, before, report):
-    step = start_stop(args, state, "old", binary=args.old_bin)
-    step["opens"] = step["ready_s"] is not None
+# Owner log lines that say what an older owner did with the state (no row contents).
+OLD_LOG_WORDS = ("schema", "roster", "snapshot", "quarantin", "recover", "registry", "reducer")
+
+
+def log_lines(owner, limit=12):
+    lines = [line for line in owner.log_text().splitlines()
+             if any(word in line.lower() for word in OLD_LOG_WORDS)]
+    return [line[:300] for line in lines[:limit]]
+
+
+def old_arm(args, state, before, report, label, binary):
+    owner = Owner(args, state, label, binary=binary)
+    ready = owner.wait_ready()
+    step = {"arm": label, "ready_s": ready, "opens": ready is not None,
+            "load_1m": os.getloadavg()[0]}
+    if ready is None:
+        lines = owner.log_text().splitlines()
+        step["last_line"] = (lines[-1] if lines else "")[:200]
+    else:
+        step["served"] = served(owner)
+        # A reducer of another version rebuilds and saves after the owner is ready.
+        time.sleep(args.old_dwell)
+        step["served_after_dwell"] = served(owner)
+    step["exit"] = owner.stop()
+    step["log_lines"] = log_lines(owner)
     after = counts(args, state)
     step["lost"] = compare(before, after)
-    again = start_stop(args, state, "old-then-new")
+    again = start_stop(args, state, label + "-then-new")
     step["new_after_old_ready_s"] = again["ready_s"]
+    step["new_after_old_served"] = again.get("served")
     step["lost_after_new"] = compare(before, counts(args, state))
+    say("RMP", step)
+    report["steps"].append(step)
+
+
+def manifest(state):
+    """Each file under the state dir: [bytes, SHA-256]. Names are relative: no host path."""
+    files = {}
+    root = Path(state)
+    for path in sorted(root.rglob("*")):
+        if path.is_file() and not path.is_symlink():
+            digest = hashlib.sha256()
+            with open(path, "rb") as handle:
+                for block in iter(lambda: handle.read(1 << 22), b""):
+                    digest.update(block)
+            files[str(path.relative_to(root))] = [path.stat().st_size, digest.hexdigest()]
+        elif not path.is_dir():
+            files[str(path.relative_to(root))] = ["not a regular file", ""]
+    return files
+
+
+def raised_arm(args, state, report, label, binary):
+    """An older owner on a state whose schema_version this script raised by one."""
+    registry = registry_of(state)
+    connection = sqlite3.connect(str(registry))
+    try:
+        stored = int(connection.execute(
+            "SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0])
+        connection.execute("UPDATE meta SET value = ? WHERE key = 'schema_version'",
+                           (str(stored + 1),))
+        connection.commit()
+    finally:
+        connection.close()
+    before = manifest(state)
+    owner = Owner(args, state, label, binary=binary)
+    ready = owner.wait_ready(timeout=args.refusal_timeout)
+    step = {"arm": label, "schema_version": [stored, stored + 1], "ready_s": ready,
+            "opens": ready is not None, "files_before": len(before)}
+    if ready is not None:
+        step["served"] = served(owner)
+        step["exit"] = owner.stop()
+    else:
+        try:
+            step["exit"] = owner.child.wait(timeout=args.refusal_timeout)
+            owner.log.close()
+        except subprocess.TimeoutExpired:
+            step["still_running_at_s"] = round(owner.elapsed(), 1)
+            owner.kill9()
+            step["exit"] = "killed by this script"
+    step["log_lines"] = [line[:400] for line in owner.log_text().splitlines()[:14]]
+    after = manifest(state)
+    step["changed"] = {name: [before[name], after[name]] for name in before
+                       if name in after and before[name] != after[name]}
+    step["removed"] = [name for name in before if name not in after]
+    step["added"] = {name: after[name] for name in after if name not in before}
+    step["untouched"] = not (step["changed"] or step["removed"] or step["added"])
     say("RMP", step)
     report["steps"].append(step)
 
@@ -503,7 +590,9 @@ def table(report):
                  " / ".join(str((steps.get(f"main-start{n}", {}).get("served") or {})
                                 .get("agent_sessions")) for n in (1, 2, 3, 4))
                  + f"; differs: {json.dumps(report.get('served_lost', {}))}"))
-    for name in ("kill-stage", "kill-swap", "kill-renamed", "space", "old"):
+    names = ["kill-stage", "kill-swap", "kill-renamed", "space"]
+    names += [name for name in steps if name.startswith("old") and not name.endswith("-new")]
+    for name in names:
         step = steps.get(name)
         if step is not None:
             keep = {key: value for key, value in step.items()
@@ -511,7 +600,10 @@ def table(report):
                                "swapped", "refused", "staging_file", "opens", "lost_after_new",
                                "served", "ready_s", "last_line", "staging_seen",
                                "built_before_the_kill", "staging_bytes_at_kill",
-                               "after_restart", "new_after_old_ready_s")}
+                               "after_restart", "new_after_old_ready_s",
+                               "served_after_dwell", "new_after_old_served", "log_lines",
+                               "schema_version", "exit", "changed", "removed", "added",
+                               "untouched", "still_running_at_s", "files_before")}
             rows.append((name, json.dumps(keep)))
     print("RMP-TABLE | item | result |")
     print("RMP-TABLE | --- | --- |")
@@ -525,15 +617,24 @@ def main():
         parser.add_argument("--" + name, required=True)
     parser.add_argument("--debug-bin", default="")
     parser.add_argument("--old-bin", default="")
-    parser.add_argument("--arms", default="main,kill-stage,kill-swap,kill-renamed,space,old")
+    parser.add_argument("--arms",
+                        default="main,kill-stage,kill-swap,kill-renamed,space,old,old-raised")
+    parser.add_argument("--old-dwell", type=float, default=45)
+    parser.add_argument("--refusal-timeout", type=float, default=90)
     parser.add_argument("--ready-timeout", type=float, default=3600)
     parser.add_argument("--build-timeout", type=float, default=7200)
     args = parser.parse_args()
     args.arms = [arm for arm in args.arms.split(",") if arm]
     if not args.debug_bin and "space" in args.arms:
         args.arms.remove("space")
-    if not args.old_bin and "old" in args.arms:
-        args.arms.remove("old")
+    # --old-bin: "label=/abs/path,label=/abs/path" (a path alone gets the label oldN).
+    olds = []
+    for index, item in enumerate(part for part in args.old_bin.split(",") if part):
+        label, _, path = item.rpartition("=")
+        olds.append((label or f"old{index + 1}", path))
+    for name in ("old", "old-raised"):
+        if not olds and name in args.arms:
+            args.arms.remove(name)
     scratch = Path(args.scratch)
     generated = counts(args, args.state)
     say("RMP-COUNTS", {"at": "generated", **generated})
@@ -562,17 +663,29 @@ def main():
             kill_at_file_arm(args, scratch / name, before, report, name)
     if "space" in args.arms:
         space_arm(args, scratch / "space", before, report)
-    if "old" in args.arms and ok:
-        old_arm(args, clone(args.state, scratch / "old"), before, report)
+    for label, binary in olds:
+        if "old" in args.arms and ok:
+            name = f"old-{label}"
+            old_arm(args, clone(args.state, scratch / name), before, report, name, binary)
+            shutil.rmtree(scratch / name)
+        if "old-raised" in args.arms and ok:
+            name = f"old-raised-{label}"
+            raised_arm(args, clone(args.state, scratch / name), report, name, binary)
+            shutil.rmtree(scratch / name)
     Path(args.report).write_text(json.dumps(report, indent=1))
     table(report)
     lost = [step["arm"] for step in report["steps"]
             if step.get("lost") or step.get("lost_after_second") or step.get("lost_after_new")]
     failed = [step["arm"] for step in report["steps"] if "error" in step]
+    # A raised schema_version that an older owner opens, or a folder it changed: not a count,
+    # so it is named apart and does not change the exit code.
+    not_clean = [step["arm"] for step in report["steps"]
+                 if "untouched" in step and (step["opens"] or not step["untouched"])]
     if report.get("served_lost"):
         lost.append("served")
     unread = [step["arm"] for step in report["steps"] if "error" in (step.get("served") or {})]
-    say("RMP-VERDICT", {"lost_in": lost, "failed": failed, "served_not_read_in": unread})
+    say("RMP-VERDICT", {"lost_in": lost, "failed": failed, "served_not_read_in": unread,
+                        "raised_not_clean_in": not_clean})
     return 1 if lost or failed or not ok else 0
 
 

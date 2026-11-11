@@ -2,8 +2,9 @@
 # The migration proof of the registry rebuild at a retention floor, on a GENERATED registry of
 # the long-lived shape (many workspaces, agent and progress records, almost no stored output).
 #   scripts/measure/registry-migration-proof.sh [size_gb=1] [workspaces=826] [seal_age_minutes=120]
-#     [young_segments=N] [arms=main,kill-stage,kill-swap,kill-renamed,space,old] [debug=1]
-#     [old_bin=/abs/path/to/an/older/cmux-tui] [ready_timeout=3600] [build_timeout=7200]
+#     [young_segments=N] [arms=main,kill-stage,kill-swap,kill-renamed,space,old,old-raised]
+#     [debug=1] [old_bin=label=/abs/older/cmux-tui[,label=/abs/other/cmux-tui]] [old_dwell=45]
+#     [ready_timeout=3600] [build_timeout=7200]
 #     [state=/abs/path/of/a/generated/state/dir]
 # It builds release `cmux-tui` and cmux-tui-core's `synth_registry` example (and a debug
 # `cmux-tui` with debug=1, for the free-space arm: only a debug owner has that test seam), writes
@@ -21,7 +22,8 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 session=rmp
 size_gb=1 workspaces=826 seal_age_minutes=120 young_segments= debug=1 old_bin= state=
-arms=main,kill-stage,kill-swap,kill-renamed,space,old ready_timeout=3600 build_timeout=7200
+arms=main,kill-stage,kill-swap,kill-renamed,space,old,old-raised old_dwell=45
+ready_timeout=3600 build_timeout=7200
 for kv in "$@"; do
   case "$kv" in
     size_gb=*) size_gb="${kv#*=}" ;;
@@ -31,15 +33,20 @@ for kv in "$@"; do
     arms=*) arms="${kv#*=}" ;;
     debug=*) debug="${kv#*=}" ;;
     old_bin=*) old_bin="${kv#*=}" ;;
+    old_dwell=*) old_dwell="${kv#*=}" ;;
     ready_timeout=*) ready_timeout="${kv#*=}" ;;
     build_timeout=*) build_timeout="${kv#*=}" ;;
     state=*) state="${kv#*=}" ;;
     *) echo "error: unknown argument $kv" >&2; exit 2 ;;
   esac
 done
-if [[ -n "$old_bin" && ( "$old_bin" != /* || ! -x "$old_bin" ) ]]; then
-  echo "error: old_bin= needs the absolute path of an executable cmux-tui" >&2; exit 2
-fi
+# No space in a path: the list splits at commas (bash 3.2 has no safe empty array under -u).
+for one in ${old_bin//,/ }; do
+  one="${one##*=}"
+  if [[ "$one" != /* || ! -x "$one" ]]; then
+    echo "error: old_bin= needs the absolute path of an executable cmux-tui: $one" >&2; exit 2
+  fi
+done
 if [[ -n "$state" && ( "$state" != /* || ! -d "$state" ) ]]; then
   echo "error: state= needs the absolute path of a generated state dir" >&2; exit 2
 fi
@@ -91,5 +98,5 @@ fi
 python3 "$root/scripts/measure/registry-migration-proof.py" \
   --bin "$bin" --synth "$synth" --state "$scratch/state" --home "$scratch/home" \
   --session "$session" --socket-dir "$socket_dir" --scratch "$scratch" \
-  --debug-bin "$debug_bin" --old-bin "$old_bin" --arms "$arms" \
+  --debug-bin "$debug_bin" --old-bin "$old_bin" --arms "$arms" --old-dwell "$old_dwell" \
   --ready-timeout "$ready_timeout" --build-timeout "$build_timeout" --report "$out/report.json"
