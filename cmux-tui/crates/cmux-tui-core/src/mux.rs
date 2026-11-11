@@ -1506,17 +1506,6 @@ impl HookFence {
     }
 }
 
-/// When the hook that sent `ingress` started (`normalized.observed_at_ms`,
-/// a decimal string of ms since the epoch), if it said.
-fn hook_observed_at_ms(ingress: &crate::JournalIngress) -> Option<u64> {
-    ingress
-        .payload
-        .get("normalized")
-        .and_then(|normalized| normalized.get("observed_at_ms"))
-        .and_then(Value::as_str)
-        .and_then(|text| text.parse().ok())
-}
-
 /// Longest hook session id published for resume. Claude session ids are
 /// UUIDs; longer values are dropped rather than truncated into a wrong id.
 const MAX_PUBLISHED_AGENT_SESSION_ID_BYTES: usize = 256;
@@ -6676,11 +6665,16 @@ impl Mux {
         // connection and each connection has its own thread, so the journal
         // can take them out of order. The hook's start time orders what the
         // agent did; the journal sequence orders transport.
-        let observed_at_ms = hook_observed_at_ms(ingress);
-        if previous_fence.as_ref().is_some_and(|fence| {
-            fence.session_id == agent_session_id
-                && observed_at_ms.zip(fence.observed_at_ms).is_some_and(|(seen, last)| seen < last)
-        }) {
+        let observed_at_ms = crate::agent_hooks::hook_observed_at_ms(&ingress.payload);
+        let last_observed_at_ms = previous_fence
+            .as_ref()
+            .filter(|fence| fence.session_id == agent_session_id)
+            .and_then(|fence| fence.observed_at_ms);
+        if crate::agent_hooks::hook_event_is_reordered(
+            &ingress.kind,
+            observed_at_ms,
+            last_observed_at_ms,
+        ) {
             return Ok(());
         }
         // Attention-worthy transitions become durable notifications before
@@ -6725,12 +6719,7 @@ impl Mux {
         fences.insert(
             terminal_id.clone(),
             HookFence {
-                observed_at_ms: observed_at_ms.or_else(|| {
-                    previous_fence
-                        .as_ref()
-                        .filter(|fence| fence.session_id == agent_session_id)
-                        .and_then(|fence| fence.observed_at_ms)
-                }),
+                observed_at_ms: observed_at_ms.max(last_observed_at_ms),
                 session_id: agent_session_id,
                 sequence,
                 ended: state == AgentState::Done,
