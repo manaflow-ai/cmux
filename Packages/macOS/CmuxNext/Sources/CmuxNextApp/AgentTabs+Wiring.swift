@@ -350,6 +350,7 @@ extension AgentTabStore {
             guard let daemon = try? services.machines.agentDaemon(forTab: tab) else { return nil }
             return services.agentGit.link(for: daemon)
         }
+        tabs.startPermissionMode = { [weak services] in services?.settings?.chatSettings.permissionMode }
         tabs.remoteMachineName = { [weak services] daemon in
             services?.machines.machineName(daemon.machineID).flatMap(AgentTabStore.displayName)
         }

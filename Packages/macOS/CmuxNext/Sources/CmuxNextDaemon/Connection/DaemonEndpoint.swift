@@ -367,6 +367,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case agentSessionStartKeyedReason = "agent-session-start-keyed-reason-v1"
     case agentSessionStartVMKind = "agent-session-start-vm-kind-v1"
     case agentSessionStartModel = "agent-session-start-model-v1"
+    case agentSessionStartPermissionMode = "agent-session-start-permission-mode-v1"
     case agentSessionTrustVMKind = "agent-session-trust-vm-kind-v1"
     /// `agent-session-folders`: that machine's work folder (`$HOME/work`) and its folders, so a
     /// chat there with no folder starts in the work folder and Choose folder lists that machine's.
