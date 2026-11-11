@@ -357,7 +357,7 @@ import Testing
 }
 
 /// The feed ops the scene's fixture sent, from any thread.
-private final class FeedOps: @unchecked Sendable { // crash-allow: `all` is read and written under `lock`
+private nonisolated final class FeedOps: @unchecked Sendable { // crash-allow: `all` is read and written under `lock`
     private let lock = NSLock()
     private var all: [String] = []
     var ops: [String] { lock.withLock { all } }
@@ -365,7 +365,7 @@ private final class FeedOps: @unchecked Sendable { // crash-allow: `all` is read
 }
 
 /// A blocking JSON-RPC client of the scenes' acpmux socket, off the main actor.
-private enum FixtureClient {
+private nonisolated enum FixtureClient {
     /// `_acpmux/info` for each id in turn: "pending N", "error", or "no answer" (5 s each).
     static func infoAnswers(socket: String, ids: [String]) -> [String] {
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
