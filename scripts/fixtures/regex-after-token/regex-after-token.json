@@ -503,6 +503,12 @@
       "hit": true,
       "why": "review of manaflow-ai/cmux-platform#1275: an attribute named extends keeps a JSX tag, so the // is JSX text and the echo is code (visible)",
       "syntax_error": true
+    },
+    {
+      "source": "<div>echo // /tmp/out.$$</div>",
+      "hit": true,
+      "why": "review of manaflow-ai/cmux-platform#1271, F1: inside a JSX element the // is JSX text, not a comment, so the echo is code (visible); a tokenizer that does not track JSX text blanks it",
+      "ranges": [["jsx_text", 5, 24]]
     }
   ],
   "generate": {
@@ -40198,6 +40204,66 @@
       ]
     },
     {
+      "source": "#!/usr/bin/env node\n<div>echo // /tmp/out.$$</div>",
+      "family": "shebang_bom",
+      "hit": true,
+      "ranges": [["jsx_text", 25, 44]]
+    },
+    {
+      "source": "#!/usr/bin/env node\n<div>echo // /tmp/out.$$</div>",
+      "family": "shebang_bom_mutated",
+      "hit": true,
+      "ranges": [["jsx_text", 25, 44]]
+    },
+    {
+      "source": "#!/usr/bin/env\nnode\n<div>echo // /tmp/out.$$</div>",
+      "family": "shebang_bom_mutated",
+      "hit": false,
+      "ranges": [["comment", 30, 50]]
+    },
+    {
+      "source": "﻿<div>echo // /tmp/out.$$</div>",
+      "family": "shebang_bom",
+      "hit": true,
+      "ranges": [["jsx_text", 6, 25]]
+    },
+    {
+      "source": "﻿<div>echo /* m\n */ // /tmp/out.$$</div>",
+      "family": "shebang_bom_mutated",
+      "hit": true,
+      "ranges": [["jsx_text", 6, 34]]
+    },
+    {
+      "source": "﻿<div>echo // /tmp/out.$$</div>",
+      "family": "shebang_bom_mutated",
+      "hit": true,
+      "ranges": [["jsx_text", 6, 25]]
+    },
+    {
+      "source": "﻿<div>echo // /* m\n */ /tmp/out.$$</div>",
+      "family": "shebang_bom_mutated",
+      "hit": true,
+      "ranges": [["jsx_text", 6, 34]]
+    },
+    {
+      "source": "﻿#!/usr/bin/env -S node --no-warnings\n<div>echo // /tmp/out.$$</div>",
+      "family": "shebang_bom",
+      "hit": true,
+      "ranges": [["jsx_text", 43, 62]]
+    },
+    {
+      "source": "﻿#!/usr/bin/env /*m*/ -S node --no-warnings\n<div>echo // /tmp/out.$$</div>",
+      "family": "shebang_bom_mutated",
+      "hit": true,
+      "ranges": [["jsx_text", 49, 68]]
+    },
+    {
+      "source": "﻿#!/usr/bin/env -S node --no-warnings\n<div>echo\n// /tmp/out.$$</div>",
+      "family": "shebang_bom_mutated",
+      "hit": true,
+      "ranges": [["jsx_text", 43, 62]]
+    },
+    {
       "source": "/\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate",
       "hit": true,
@@ -40207,31 +40273,21 @@
       ]
     },
     {
-      "source": "/\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "/\\/\\//.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 0, 6],
+        ["string", 20, 46]
+      ]
+    },
+    {
+      "source": "/\\/\\//.test(s); run(\"echo\t> /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 0, 6],
         ["string", 20, 40]
-      ]
-    },
-    {
-      "source": "/\\/\\//.test(s);\nrun(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 0, 6],
-        ["string", 20, 40]
-      ]
-    },
-    {
-      "source": "/\\/\\//.test(s); /* m\n */ run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 0, 6],
-        ["comment", 16, 24],
-        ["string", 29, 49]
       ]
     },
     {
@@ -40245,6 +40301,24 @@
     },
     {
       "source": "/[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 0, 7],
+        ["string", 21, 41]
+      ]
+    },
+    {
+      "source": "/[/]\\//.test(s); run(\"echo >  /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 0, 7],
+        ["string", 21, 42]
+      ]
+    },
+    {
+      "source": "/[/]\\//.test(s); run(\"echo\t> /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -40272,8 +40346,35 @@
       ]
     },
     {
+      "source": "/a\\/\\/b/.test(s);  run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 0, 8],
+        ["string", 23, 43]
+      ]
+    },
+    {
+      "source": "/a\\/\\/b/.test(s); run(\"echo >  /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 0, 8],
+        ["string", 22, 43]
+      ]
+    },
+    {
       "source": "/\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate",
+      "hit": true,
+      "ranges": [
+        ["regex", 0, 8],
+        ["string", 22, 42]
+      ]
+    },
+    {
+      "source": "/\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 0, 8],
@@ -40290,12 +40391,13 @@
       ]
     },
     {
-      "source": "/\\\\\\/\\//.test(s); run(\"echo\t> /tmp/out.$$\")",
+      "source": "/\\\\\\/\\//.test(s); /* m\n */ run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 0, 8],
-        ["string", 22, 42]
+        ["comment", 18, 26],
+        ["string", 31, 51]
       ]
     },
     {
@@ -40308,7 +40410,7 @@
       ]
     },
     {
-      "source": "/\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "/\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -40317,16 +40419,7 @@
       ]
     },
     {
-      "source": "/\\/[/]/.test(s); run(\"echo >  /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 0, 7],
-        ["string", 21, 42]
-      ]
-    },
-    {
-      "source": "/\\/[/]/.test(s); run(\"echo\t> /tmp/out.$$\")",
+      "source": "/\\/[/]/.test(s); run(\"echo >﻿/tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -40344,26 +40437,16 @@
       ]
     },
     {
-      "source": "/[\\]/]\\//.test(s); /*m*/ run(\"echo > /tmp/out.$$\")",
+      "source": "/[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 0, 9],
-        ["comment", 19, 24],
-        ["string", 29, 49]
+        ["string", 23, 43]
       ]
     },
     {
-      "source": "/[\\]/]\\//.test(s);  run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 0, 9],
-        ["string", 24, 44]
-      ]
-    },
-    {
-      "source": "/[\\]/]\\//.test(s); run(\"echo >  /tmp/out.$$\")",
+      "source": "/[\\]/]\\//.test(s); run(\"echo  > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -40381,21 +40464,13 @@
       ]
     },
     {
-      "source": "if (ok) /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "if (ok) /\\/\\//.test(s); /* m\n */ run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 8, 14],
-        ["string", 28, 48]
-      ]
-    },
-    {
-      "source": "if (ok) /\\/\\//.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 8, 14],
-        ["string", 28, 54]
+        ["comment", 24, 32],
+        ["string", 37, 57]
       ]
     },
     {
@@ -40409,6 +40484,15 @@
       ]
     },
     {
+      "source": "if (ok) /\\/\\//.test(s); run(\"echo  > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 8, 14],
+        ["string", 28, 49]
+      ]
+    },
+    {
       "source": "if (ok) /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate",
       "hit": true,
@@ -40418,30 +40502,13 @@
       ]
     },
     {
-      "source": "if (ok) /[/]\\//.test(s);\nrun(\"echo > /tmp/out.$$\")",
+      "source": "if /*m*/ (ok) /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 8, 15],
-        ["string", 29, 49]
-      ]
-    },
-    {
-      "source": "if (ok) /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 8, 15],
-        ["string", 29, 49]
-      ]
-    },
-    {
-      "source": "if (ok) /[/]\\//.test(s); run(\"echo﻿> /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 8, 15],
-        ["string", 29, 49]
+        ["comment", 3, 8],
+        ["regex", 14, 21],
+        ["string", 35, 55]
       ]
     },
     {
@@ -40454,30 +40521,22 @@
       ]
     },
     {
-      "source": "if (ok) /a\\/\\/b/.test(s);\nrun(\"echo > /tmp/out.$$\")",
+      "source": "if (ok) /*m*/ /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 8, 16],
-        ["string", 30, 50]
+        ["comment", 8, 13],
+        ["regex", 14, 22],
+        ["string", 36, 56]
       ]
     },
     {
-      "source": "if (ok) /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "if (ok) /a\\/\\/b/.test(s); run(\"echo >  /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 8, 16],
-        ["string", 30, 50]
-      ]
-    },
-    {
-      "source": "if (ok) /a\\/\\/b/.test(s);  run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 8, 16],
-        ["string", 31, 51]
+        ["string", 30, 51]
       ]
     },
     {
@@ -40490,32 +40549,22 @@
       ]
     },
     {
-      "source": "if (ok) /\\\\\\/\\//.test(s); /* m\n */ run(\"echo > /tmp/out.$$\")",
+      "source": "if\t(ok) /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 8, 16],
-        ["comment", 26, 34],
-        ["string", 39, 59]
+        ["string", 30, 50]
       ]
     },
     {
-      "source": "if /* m\n */ (ok) /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "if (ok) /*m*/ /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["comment", 3, 11],
-        ["regex", 17, 25],
-        ["string", 39, 59]
-      ]
-    },
-    {
-      "source": "if (ok) /\\\\\\/\\//.test(s); run(\"echo  > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 8, 16],
-        ["string", 30, 51]
+        ["comment", 8, 13],
+        ["regex", 14, 22],
+        ["string", 36, 56]
       ]
     },
     {
@@ -40528,13 +40577,21 @@
       ]
     },
     {
-      "source": "if /*m*/ (ok) /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "if (ok) /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["comment", 3, 8],
-        ["regex", 14, 21],
-        ["string", 35, 55]
+        ["regex", 8, 15],
+        ["string", 29, 49]
+      ]
+    },
+    {
+      "source": "if﻿(ok) /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 8, 15],
+        ["string", 29, 49]
       ]
     },
     {
@@ -40547,22 +40604,21 @@
       ]
     },
     {
-      "source": "if (ok) /*m*/ /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["comment", 8, 13],
-        ["regex", 14, 23],
-        ["string", 37, 57]
-      ]
-    },
-    {
-      "source": "if (ok) /[\\]/]\\//.test(s); run(\"echo >  /tmp/out.$$\")",
+      "source": "if (ok) /[\\]/]\\//.test(s); run(\"echo >﻿/tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 8, 17],
-        ["string", 31, 52]
+        ["string", 31, 51]
+      ]
+    },
+    {
+      "source": "if (ok) /[\\]/]\\//.test(s); run(\"echo﻿> /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 8, 17],
+        ["string", 31, 51]
       ]
     },
     {
@@ -40575,7 +40631,7 @@
       ]
     },
     {
-      "source": "while\t(x) /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "while (x)\t/\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -40584,13 +40640,21 @@
       ]
     },
     {
-      "source": "while (x) /*m*/ /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "while (x) /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["comment", 10, 15],
-        ["regex", 16, 22],
-        ["string", 36, 56]
+        ["regex", 10, 16],
+        ["string", 30, 50]
+      ]
+    },
+    {
+      "source": "while (x) /\\/\\//.test(s);﻿run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 10, 16],
+        ["string", 30, 50]
       ]
     },
     {
@@ -40603,21 +40667,32 @@
       ]
     },
     {
-      "source": "while (x) /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "while /* m\n */ (x) /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 10, 17],
-        ["string", 31, 51]
+        ["comment", 6, 14],
+        ["regex", 19, 26],
+        ["string", 40, 60]
       ]
     },
     {
-      "source": "while﻿(x) /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "while /*m*/ (x) /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 10, 17],
-        ["string", 31, 51]
+        ["comment", 6, 11],
+        ["regex", 16, 23],
+        ["string", 37, 57]
+      ]
+    },
+    {
+      "source": "while  (x) /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 11, 18],
+        ["string", 32, 52]
       ]
     },
     {
@@ -40630,7 +40705,17 @@
       ]
     },
     {
-      "source": "while (x) /a\\/\\/b/.test(s); run(\"echo >﻿/tmp/out.$$\")",
+      "source": "while (x) /*m*/ /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["comment", 10, 15],
+        ["regex", 16, 24],
+        ["string", 38, 58]
+      ]
+    },
+    {
+      "source": "while (x) /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -40639,12 +40724,12 @@
       ]
     },
     {
-      "source": "while (x) /a\\/\\/b/.test(s); run(\"echo﻿> /tmp/out.$$\")",
+      "source": "while (x) /a\\/\\/b/.test(s);  run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 10, 18],
-        ["string", 32, 52]
+        ["string", 33, 53]
       ]
     },
     {
@@ -40657,25 +40742,17 @@
       ]
     },
     {
-      "source": "while (x)\t/\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "while (x) /* m\n */ /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 10, 18],
-        ["string", 32, 52]
+        ["comment", 10, 18],
+        ["regex", 19, 27],
+        ["string", 41, 61]
       ]
     },
     {
-      "source": "while (x) /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 10, 18],
-        ["string", 32, 52]
-      ]
-    },
-    {
-      "source": "while (x) /\\\\\\/\\//.test(s);﻿run(\"echo > /tmp/out.$$\")",
+      "source": "while (x) /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -40693,23 +40770,12 @@
       ]
     },
     {
-      "source": "while /* m\n */ (x) /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "while (x) /\\/[/]/.test(s); run(\"echo >﻿/tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["comment", 6, 14],
-        ["regex", 19, 26],
-        ["string", 40, 60]
-      ]
-    },
-    {
-      "source": "while /*m*/ (x) /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["comment", 6, 11],
-        ["regex", 16, 23],
-        ["string", 37, 57]
+        ["regex", 10, 17],
+        ["string", 31, 51]
       ]
     },
     {
@@ -40731,31 +40797,30 @@
       ]
     },
     {
-      "source": "while (x) /*m*/ /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["comment", 10, 15],
-        ["regex", 16, 25],
-        ["string", 39, 59]
-      ]
-    },
-    {
-      "source": "while (x) /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 10, 19],
-        ["string", 33, 53]
-      ]
-    },
-    {
       "source": "while (x) /[\\]/]\\//.test(s);  run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 10, 19],
         ["string", 34, 54]
+      ]
+    },
+    {
+      "source": "while (x) /[\\]/]\\//.test(s); run(\"echo >  /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 10, 19],
+        ["string", 33, 54]
+      ]
+    },
+    {
+      "source": "while (x)\n/[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 10, 19],
+        ["string", 33, 53]
       ]
     },
     {
@@ -40768,17 +40833,16 @@
       ]
     },
     {
-      "source": "for (;;) /* m\n */ /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "for (;;) /\\/\\//.test(s); run(\"echo >  /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["comment", 9, 17],
-        ["regex", 18, 24],
-        ["string", 38, 58]
+        ["regex", 9, 15],
+        ["string", 29, 50]
       ]
     },
     {
-      "source": "for (;;) /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "for\n(;;) /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -40796,21 +40860,12 @@
       ]
     },
     {
-      "source": "for (;;) /[/]\\//.test(s); run(\"echo >﻿/tmp/out.$$\")",
+      "source": "for (;;) /[/]\\//.test(s);\nrun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 9, 16],
         ["string", 30, 50]
-      ]
-    },
-    {
-      "source": "for  (;;) /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 10, 17],
-        ["string", 31, 51]
       ]
     },
     {
@@ -40823,30 +40878,31 @@
       ]
     },
     {
-      "source": "for (;;) /a\\/\\/b/.test(s);  run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 9, 17],
-        ["string", 32, 52]
-      ]
-    },
-    {
-      "source": "for (;;) /a\\/\\/b/.test(s); run(\"echo >  /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 9, 17],
-        ["string", 31, 52]
-      ]
-    },
-    {
-      "source": "for (;;)\n/a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "for (;;) /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 9, 17],
         ["string", 31, 51]
+      ]
+    },
+    {
+      "source": "for﻿(;;) /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 9, 17],
+        ["string", 31, 51]
+      ]
+    },
+    {
+      "source": "for (;;) /*m*/ /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["comment", 9, 14],
+        ["regex", 15, 23],
+        ["string", 37, 57]
       ]
     },
     {
@@ -40859,16 +40915,26 @@
       ]
     },
     {
-      "source": "for (;;) /\\\\\\/\\//.test(s); run(\"echo >  /tmp/out.$$\")",
+      "source": "for\t(;;) /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 9, 17],
-        ["string", 31, 52]
+        ["string", 31, 51]
       ]
     },
     {
-      "source": "for\n(;;) /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "for (;;) /* m\n */ /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["comment", 9, 17],
+        ["regex", 18, 26],
+        ["string", 40, 60]
+      ]
+    },
+    {
+      "source": "for (;;)﻿/\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -40886,7 +40952,7 @@
       ]
     },
     {
-      "source": "for (;;) /\\/[/]/.test(s);\nrun(\"echo > /tmp/out.$$\")",
+      "source": "for (;;)\n/\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -40904,31 +40970,31 @@
       ]
     },
     {
-      "source": "for (;;) /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "for (;;) /[\\]/]\\//.test(s); run(\"echo >  /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 9, 18],
-        ["string", 32, 52]
+        ["string", 32, 53]
       ]
     },
     {
-      "source": "for﻿(;;) /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "for /*m*/ (;;) /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 9, 18],
-        ["string", 32, 52]
-      ]
-    },
-    {
-      "source": "for (;;) /*m*/ /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["comment", 9, 14],
+        ["comment", 4, 9],
         ["regex", 15, 24],
         ["string", 38, 58]
+      ]
+    },
+    {
+      "source": "for (;;) /[\\]/]\\//.test(s); run(\"echo\t> /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 9, 18],
+        ["string", 32, 52]
       ]
     },
     {
@@ -40941,7 +41007,7 @@
       ]
     },
     {
-      "source": "with\t(o) /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "with (o) /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -40950,17 +41016,16 @@
       ]
     },
     {
-      "source": "with (o) /* m\n */ /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "with (o) /\\/\\//.test(s); run(\"echo >  /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["comment", 9, 17],
-        ["regex", 18, 24],
-        ["string", 38, 58]
+        ["regex", 9, 15],
+        ["string", 29, 50]
       ]
     },
     {
-      "source": "with (o)﻿/\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "with (o)\t/\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -40978,7 +41043,25 @@
       ]
     },
     {
-      "source": "with (o)\n/[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "with (o)﻿/[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 9, 16],
+        ["string", 30, 50]
+      ]
+    },
+    {
+      "source": "with (o) /[/]\\//.test(s); run(\"echo >  /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 9, 16],
+        ["string", 30, 51]
+      ]
+    },
+    {
+      "source": "with﻿(o) /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -40996,26 +41079,16 @@
       ]
     },
     {
-      "source": "with (o) /a\\/\\/b/.test(s); run(\"echo >  /tmp/out.$$\")",
+      "source": "with﻿(o) /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 9, 17],
-        ["string", 31, 52]
+        ["string", 31, 51]
       ]
     },
     {
-      "source": "with /*m*/ (o) /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["comment", 5, 10],
-        ["regex", 15, 23],
-        ["string", 37, 57]
-      ]
-    },
-    {
-      "source": "with (o) /a\\/\\/b/.test(s); run(\"echo\t> /tmp/out.$$\")",
+      "source": "with (o)\t/a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41033,15 +41106,6 @@
       ]
     },
     {
-      "source": "with (o) /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 9, 17],
-        ["string", 31, 51]
-      ]
-    },
-    {
       "source": "with (o) /\\\\\\/\\//.test(s); run(\"echo >  /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
@@ -41051,7 +41115,7 @@
       ]
     },
     {
-      "source": "with (o)\t/\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "with (o) /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41069,25 +41133,7 @@
       ]
     },
     {
-      "source": "with (o)﻿/\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 9, 16],
-        ["string", 30, 50]
-      ]
-    },
-    {
-      "source": "with (o) /\\/[/]/.test(s); run(\"echo >  /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 9, 16],
-        ["string", 30, 51]
-      ]
-    },
-    {
-      "source": "with﻿(o) /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "with (o) /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41105,6 +41151,15 @@
       ]
     },
     {
+      "source": "with (o) /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 9, 18],
+        ["string", 32, 52]
+      ]
+    },
+    {
       "source": "with﻿(o) /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
@@ -41114,7 +41169,7 @@
       ]
     },
     {
-      "source": "with (o)\t/[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "with\n(o) /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41132,16 +41187,25 @@
       ]
     },
     {
-      "source": "for await (const s of xs) /\\/\\//.test(s); run(\"echo  > /tmp/out.$$\")",
+      "source": "for await (const s of xs) /\\/\\//.test(s);\nrun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 26, 32],
-        ["string", 46, 67]
+        ["string", 46, 66]
       ]
     },
     {
-      "source": "for await (const s of xs) /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "for await (const s of xs) /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 26, 32],
+        ["string", 46, 66]
+      ]
+    },
+    {
+      "source": "for await (const s﻿of xs) /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41168,12 +41232,13 @@
       ]
     },
     {
-      "source": "for await (const s of xs) /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "for /* m\n */ await (const s of xs) /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 26, 33],
-        ["string", 47, 67]
+        ["comment", 4, 12],
+        ["regex", 35, 42],
+        ["string", 56, 76]
       ]
     },
     {
@@ -41186,7 +41251,7 @@
       ]
     },
     {
-      "source": "for await (const s of xs) /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "for await (const s\nof xs) /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41195,7 +41260,7 @@
       ]
     },
     {
-      "source": "for﻿await (const s of xs) /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "for await (const\ts of xs) /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41204,12 +41269,12 @@
       ]
     },
     {
-      "source": "for\nawait (const s of xs) /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "for await (const  s of xs) /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 26, 34],
-        ["string", 48, 68]
+        ["regex", 27, 35],
+        ["string", 49, 69]
       ]
     },
     {
@@ -41222,7 +41287,17 @@
       ]
     },
     {
-      "source": "for await (const s of xs) /\\\\\\/\\//.test(s);\nrun(\"echo > /tmp/out.$$\")",
+      "source": "for await (const /* m\n */ s of xs) /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["comment", 17, 25],
+        ["regex", 35, 43],
+        ["string", 57, 77]
+      ]
+    },
+    {
+      "source": "for await (const s of xs) /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41231,21 +41306,12 @@
       ]
     },
     {
-      "source": "for await (const s of xs) /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "for await (const s of xs) /\\\\\\/\\//.test(s); run(\"echo /*m*/ > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 26, 34],
-        ["string", 48, 68]
-      ]
-    },
-    {
-      "source": "for await (const s﻿of xs) /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 26, 34],
-        ["string", 48, 68]
+        ["string", 48, 74]
       ]
     },
     {
@@ -41258,7 +41324,7 @@
       ]
     },
     {
-      "source": "for await (const s of xs) /\\/[/]/.test(s);\nrun(\"echo > /tmp/out.$$\")",
+      "source": "for await (const s of xs) /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41267,13 +41333,21 @@
       ]
     },
     {
-      "source": "for /* m\n */ await (const s of xs) /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "for await (const s of xs) /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["comment", 4, 12],
-        ["regex", 35, 42],
-        ["string", 56, 76]
+        ["regex", 26, 33],
+        ["string", 47, 67]
+      ]
+    },
+    {
+      "source": "for await  (const s of xs) /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 27, 34],
+        ["string", 48, 68]
       ]
     },
     {
@@ -41286,7 +41360,7 @@
       ]
     },
     {
-      "source": "for await (const s\nof xs) /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "for await (const s of xs) /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41295,7 +41369,7 @@
       ]
     },
     {
-      "source": "for await (const\ts of xs) /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "for await (const s of xs) /[\\]/]\\//.test(s);\trun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41304,12 +41378,12 @@
       ]
     },
     {
-      "source": "for await (const  s of xs) /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "for await (const s of xs) /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 27, 36],
-        ["string", 50, 70]
+        ["regex", 26, 35],
+        ["string", 49, 69]
       ]
     },
     {
@@ -41322,17 +41396,7 @@
       ]
     },
     {
-      "source": "if (f(a, /* m\n */ (b))) /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["comment", 9, 17],
-        ["regex", 24, 30],
-        ["string", 44, 64]
-      ]
-    },
-    {
-      "source": "if (f(a, (b))) /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "if (f(a, (b))) /\\/\\//.test(s);\nrun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41341,17 +41405,35 @@
       ]
     },
     {
-      "source": "if (f(a, (b))) /\\/\\//.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
+      "source": "if (f(a, (b))) /\\/\\//.test(s); run(\"echo﻿> /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 15, 21],
-        ["string", 35, 61]
+        ["string", 35, 55]
+      ]
+    },
+    {
+      "source": "if (f(a, (b))) /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 15, 21],
+        ["string", 35, 55]
       ]
     },
     {
       "source": "if (f(a, (b))) /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate",
+      "hit": true,
+      "ranges": [
+        ["regex", 15, 22],
+        ["string", 36, 56]
+      ]
+    },
+    {
+      "source": "if (f(a, (b))) /[/]\\//.test(s);\nrun(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 15, 22],
@@ -41368,21 +41450,12 @@
       ]
     },
     {
-      "source": "if (f(a, (b))) /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "if\t(f(a, (b))) /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 15, 22],
         ["string", 36, 56]
-      ]
-    },
-    {
-      "source": "if  (f(a, (b))) /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 16, 23],
-        ["string", 37, 57]
       ]
     },
     {
@@ -41395,7 +41468,16 @@
       ]
     },
     {
-      "source": "if (f(a, (b))) /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "if (f(a, (b))) /a\\/\\/b/.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 15, 23],
+        ["string", 37, 63]
+      ]
+    },
+    {
+      "source": "if (f(a, (b))) /a\\/\\/b/.test(s); run(\"echo >\t/tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41404,16 +41486,7 @@
       ]
     },
     {
-      "source": "if (f(a, (b))) /a\\/\\/b/.test(s); run(\"echo\t> /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 15, 23],
-        ["string", 37, 57]
-      ]
-    },
-    {
-      "source": "if (f(a, (b))) /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "if (f(a, (b))) /a\\/\\/b/.test(s);\nrun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41431,6 +41504,15 @@
       ]
     },
     {
+      "source": "if (f(a, (b))) /\\\\\\/\\//.test(s);\trun(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 15, 23],
+        ["string", 37, 57]
+      ]
+    },
+    {
       "source": "if (f(a, (b))) /\\\\\\/\\//.test(s);\nrun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
@@ -41440,16 +41522,7 @@
       ]
     },
     {
-      "source": "if (f(a, (b))) /\\\\\\/\\//.test(s); run(\"echo﻿> /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 15, 23],
-        ["string", 37, 57]
-      ]
-    },
-    {
-      "source": "if (f(a, (b))) /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "if (f(a, (b))) /\\\\\\/\\//.test(s); run(\"echo >\t/tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41467,15 +41540,6 @@
       ]
     },
     {
-      "source": "if (f(a, (b))) /\\/[/]/.test(s);\nrun(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 15, 22],
-        ["string", 36, 56]
-      ]
-    },
-    {
       "source": "if (f(a, (b))) /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
@@ -41485,12 +41549,13 @@
       ]
     },
     {
-      "source": "if\t(f(a, (b))) /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "if (f(a, /* m\n */ (b))) /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 15, 22],
-        ["string", 36, 56]
+        ["comment", 9, 17],
+        ["regex", 24, 31],
+        ["string", 45, 65]
       ]
     },
     {
@@ -41512,16 +41577,17 @@
       ]
     },
     {
-      "source": "if (f(a, (b))) /[\\]/]\\//.test(s); run(\"echo >\t/tmp/out.$$\")",
+      "source": "if /*m*/ (f(a, (b))) /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 15, 24],
-        ["string", 38, 58]
+        ["comment", 3, 8],
+        ["regex", 21, 30],
+        ["string", 44, 64]
       ]
     },
     {
-      "source": "if (f(a, (b))) /[\\]/]\\//.test(s);\nrun(\"echo > /tmp/out.$$\")",
+      "source": "if (f(a, (b))) /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41539,12 +41605,12 @@
       ]
     },
     {
-      "source": "a, /\\/\\//.test(s); run(\"echo >  /tmp/out.$$\")",
+      "source": "a, /\\/\\//.test(s);\trun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 3, 9],
-        ["string", 23, 44]
+        ["string", 23, 43]
       ]
     },
     {
@@ -41557,7 +41623,7 @@
       ]
     },
     {
-      "source": "a, /\\/\\//.test(s);\trun(\"echo > /tmp/out.$$\")",
+      "source": "a,﻿/\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41575,7 +41641,7 @@
       ]
     },
     {
-      "source": "a, /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a, /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41584,21 +41650,21 @@
       ]
     },
     {
-      "source": "a, /[/]\\//.test(s); run(\"echo >  /tmp/out.$$\")",
+      "source": "a, /[/]\\//.test(s);\trun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 3, 10],
-        ["string", 24, 45]
+        ["string", 24, 44]
       ]
     },
     {
-      "source": "a, /[/]\\//.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
+      "source": "a,  /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 3, 10],
-        ["string", 24, 50]
+        ["regex", 4, 11],
+        ["string", 25, 45]
       ]
     },
     {
@@ -41611,30 +41677,31 @@
       ]
     },
     {
-      "source": "a, /a\\/\\/b/.test(s); run(\"echo /*m*/ > /tmp/out.$$\")",
+      "source": "a, /* m\n */ /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["comment", 3, 11],
+        ["regex", 12, 20],
+        ["string", 34, 54]
+      ]
+    },
+    {
+      "source": "a, /a\\/\\/b/.test(s);﻿run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 3, 11],
+        ["string", 25, 45]
+      ]
+    },
+    {
+      "source": "a, /a\\/\\/b/.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 3, 11],
         ["string", 25, 51]
-      ]
-    },
-    {
-      "source": "a, /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 3, 11],
-        ["string", 25, 45]
-      ]
-    },
-    {
-      "source": "a, /a\\/\\/b/.test(s);\trun(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 3, 11],
-        ["string", 25, 45]
       ]
     },
     {
@@ -41647,7 +41714,16 @@
       ]
     },
     {
-      "source": "a, /\\\\\\/\\//.test(s);\trun(\"echo > /tmp/out.$$\")",
+      "source": "a, /\\\\\\/\\//.test(s); run(\"echo /*m*/ > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 3, 11],
+        ["string", 25, 51]
+      ]
+    },
+    {
+      "source": "a, /\\\\\\/\\//.test(s); run(\"echo >﻿/tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41656,16 +41732,7 @@
       ]
     },
     {
-      "source": "a, /\\\\\\/\\//.test(s);﻿run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 3, 11],
-        ["string", 25, 45]
-      ]
-    },
-    {
-      "source": "a,﻿/\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a, /\\\\\\/\\//.test(s); run(\"echo\t> /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41683,7 +41750,7 @@
       ]
     },
     {
-      "source": "a, /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a,\n/\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41692,26 +41759,35 @@
       ]
     },
     {
-      "source": "a, /\\/[/]/.test(s);\trun(\"echo > /tmp/out.$$\")",
+      "source": "a,﻿/\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 3, 10],
         ["string", 24, 44]
-      ]
-    },
-    {
-      "source": "a,  /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 4, 11],
-        ["string", 25, 45]
       ]
     },
     {
       "source": "a, /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate",
+      "hit": true,
+      "ranges": [
+        ["regex", 3, 12],
+        ["string", 26, 46]
+      ]
+    },
+    {
+      "source": "a,﻿/[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 3, 12],
+        ["string", 26, 46]
+      ]
+    },
+    {
+      "source": "a,\t/[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 3, 12],
@@ -41729,24 +41805,6 @@
       ]
     },
     {
-      "source": "a, /[\\]/]\\//.test(s);﻿run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 3, 12],
-        ["string", 26, 46]
-      ]
-    },
-    {
-      "source": "a, /[\\]/]\\//.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 3, 12],
-        ["string", 26, 52]
-      ]
-    },
-    {
       "source": "a = /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate",
       "hit": true,
@@ -41756,17 +41814,7 @@
       ]
     },
     {
-      "source": "a = /\\/\\//.test(s); /*m*/ run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 4, 10],
-        ["comment", 20, 25],
-        ["string", 30, 50]
-      ]
-    },
-    {
-      "source": "a = /\\/\\//.test(s); run(\"echo >﻿/tmp/out.$$\")",
+      "source": "a = /\\/\\//.test(s);\trun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41775,7 +41823,16 @@
       ]
     },
     {
-      "source": "a = /\\/\\//.test(s);\trun(\"echo > /tmp/out.$$\")",
+      "source": "a =\n/\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 4, 10],
+        ["string", 24, 44]
+      ]
+    },
+    {
+      "source": "a﻿= /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41793,7 +41850,7 @@
       ]
     },
     {
-      "source": "a\n= /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a = /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41802,17 +41859,7 @@
       ]
     },
     {
-      "source": "a = /[/]\\//.test(s); /* m\n */ run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 4, 11],
-        ["comment", 21, 29],
-        ["string", 34, 54]
-      ]
-    },
-    {
-      "source": "a﻿= /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a = /[/]\\//.test(s); run(\"echo >\t/tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41830,7 +41877,7 @@
       ]
     },
     {
-      "source": "a﻿= /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a =\t/a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41839,7 +41886,7 @@
       ]
     },
     {
-      "source": "a\t= /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a = /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41848,13 +41895,12 @@
       ]
     },
     {
-      "source": "a = /* m\n */ /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a = /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["comment", 4, 12],
-        ["regex", 13, 21],
-        ["string", 35, 55]
+        ["regex", 4, 12],
+        ["string", 26, 46]
       ]
     },
     {
@@ -41867,7 +41913,7 @@
       ]
     },
     {
-      "source": "a = /\\\\\\/\\//.test(s);\trun(\"echo > /tmp/out.$$\")",
+      "source": "a = /\\\\\\/\\//.test(s); run(\"echo﻿> /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41876,7 +41922,7 @@
       ]
     },
     {
-      "source": "a =\n/\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a = /\\\\\\/\\//.test(s);\nrun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41903,21 +41949,23 @@
       ]
     },
     {
-      "source": "a = /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a = /* m\n */ /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 4, 11],
-        ["string", 25, 45]
+        ["comment", 4, 12],
+        ["regex", 13, 20],
+        ["string", 34, 54]
       ]
     },
     {
-      "source": "a = /\\/[/]/.test(s); run(\"echo >\t/tmp/out.$$\")",
+      "source": "a /* m\n */ = /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 4, 11],
-        ["string", 25, 45]
+        ["comment", 2, 10],
+        ["regex", 13, 20],
+        ["string", 34, 54]
       ]
     },
     {
@@ -41930,7 +41978,7 @@
       ]
     },
     {
-      "source": "a =\t/[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a =﻿/[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41939,7 +41987,7 @@
       ]
     },
     {
-      "source": "a = /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a = /[\\]/]\\//.test(s);\trun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41948,12 +41996,13 @@
       ]
     },
     {
-      "source": "a = /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a = /[\\]/]\\//.test(s); /* m\n */ run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 13],
-        ["string", 27, 47]
+        ["comment", 23, 31],
+        ["string", 36, 56]
       ]
     },
     {
@@ -41966,7 +42015,16 @@
       ]
     },
     {
-      "source": "a : /\\/\\//.test(s); run(\"echo﻿> /tmp/out.$$\")",
+      "source": "a  : /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 5, 11],
+        ["string", 25, 45]
+      ]
+    },
+    {
+      "source": "a : /\\/\\//.test(s);\trun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -41975,21 +42033,13 @@
       ]
     },
     {
-      "source": "a : /\\/\\//.test(s);\nrun(\"echo > /tmp/out.$$\")",
+      "source": "a : /* m\n */ /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 4, 10],
-        ["string", 24, 44]
-      ]
-    },
-    {
-      "source": "a﻿: /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 4, 10],
-        ["string", 24, 44]
+        ["comment", 4, 12],
+        ["regex", 13, 19],
+        ["string", 33, 53]
       ]
     },
     {
@@ -42002,23 +42052,21 @@
       ]
     },
     {
-      "source": "a : /* m\n */ /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a : /[/]\\//.test(s); run(\"echo\t> /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["comment", 4, 12],
-        ["regex", 13, 20],
-        ["string", 34, 54]
+        ["regex", 4, 11],
+        ["string", 25, 45]
       ]
     },
     {
-      "source": "a /* m\n */ : /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a\n: /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["comment", 2, 10],
-        ["regex", 13, 20],
-        ["string", 34, 54]
+        ["regex", 4, 11],
+        ["string", 25, 45]
       ]
     },
     {
@@ -42031,7 +42079,7 @@
       ]
     },
     {
-      "source": "a :﻿/a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a : /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -42040,22 +42088,21 @@
       ]
     },
     {
-      "source": "a : /a\\/\\/b/.test(s);\trun(\"echo > /tmp/out.$$\")",
+      "source": "a : /a\\/\\/b/.test(s);  run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 4, 12],
+        ["string", 27, 47]
+      ]
+    },
+    {
+      "source": "a : /a\\/\\/b/.test(s); run(\"echo >\t/tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 12],
         ["string", 26, 46]
-      ]
-    },
-    {
-      "source": "a : /a\\/\\/b/.test(s); /* m\n */ run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 4, 12],
-        ["comment", 22, 30],
-        ["string", 35, 55]
       ]
     },
     {
@@ -42068,16 +42115,7 @@
       ]
     },
     {
-      "source": "a  : /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 5, 13],
-        ["string", 27, 47]
-      ]
-    },
-    {
-      "source": "a : /\\\\\\/\\//.test(s);\trun(\"echo > /tmp/out.$$\")",
+      "source": "a﻿: /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -42086,13 +42124,22 @@
       ]
     },
     {
-      "source": "a : /* m\n */ /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a : /\\\\\\/\\//.test(s); /*m*/ run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["comment", 4, 12],
-        ["regex", 13, 21],
-        ["string", 35, 55]
+        ["regex", 4, 12],
+        ["comment", 22, 27],
+        ["string", 32, 52]
+      ]
+    },
+    {
+      "source": "a : /\\\\\\/\\//.test(s); run(\"echo﻿> /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 4, 12],
+        ["string", 26, 46]
       ]
     },
     {
@@ -42105,16 +42152,26 @@
       ]
     },
     {
-      "source": "a : /\\/[/]/.test(s); run(\"echo\t> /tmp/out.$$\")",
+      "source": "a : /*m*/ /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["comment", 4, 9],
+        ["regex", 10, 17],
+        ["string", 31, 51]
+      ]
+    },
+    {
+      "source": "a : /\\/[/]/.test(s); run(\"echo >  /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 11],
-        ["string", 25, 45]
+        ["string", 25, 46]
       ]
     },
     {
-      "source": "a\n: /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a : /\\/[/]/.test(s); run(\"echo >﻿/tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -42132,7 +42189,7 @@
       ]
     },
     {
-      "source": "a : /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a :\t/[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -42141,16 +42198,16 @@
       ]
     },
     {
-      "source": "a : /[\\]/]\\//.test(s);  run(\"echo > /tmp/out.$$\")",
+      "source": "a\t: /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 13],
-        ["string", 28, 48]
+        ["string", 27, 47]
       ]
     },
     {
-      "source": "a : /[\\]/]\\//.test(s); run(\"echo >\t/tmp/out.$$\")",
+      "source": "a : /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -42168,7 +42225,7 @@
       ]
     },
     {
-      "source": ";﻿/\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": ";\n/\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -42177,16 +42234,7 @@
       ]
     },
     {
-      "source": "; /\\/\\//.test(s); run(\"echo /*m*/ > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 2, 8],
-        ["string", 22, 48]
-      ]
-    },
-    {
-      "source": "; /\\/\\//.test(s); run(\"echo >﻿/tmp/out.$$\")",
+      "source": "; /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -42204,31 +42252,30 @@
       ]
     },
     {
-      "source": "; /[/]\\//.test(s); /*m*/ run(\"echo > /tmp/out.$$\")",
+      "source": "; /[/]\\//.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 2, 9],
-        ["comment", 19, 24],
-        ["string", 29, 49]
+        ["string", 23, 49]
       ]
     },
     {
-      "source": "; /[/]\\//.test(s); run(\"echo >  /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 2, 9],
-        ["string", 23, 44]
-      ]
-    },
-    {
-      "source": "; /[/]\\//.test(s); run(\"echo >﻿/tmp/out.$$\")",
+      "source": ";\t/[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 2, 9],
         ["string", 23, 43]
+      ]
+    },
+    {
+      "source": "; /[/]\\//.test(s); run(\"echo  > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 2, 9],
+        ["string", 23, 44]
       ]
     },
     {
@@ -42241,25 +42288,17 @@
       ]
     },
     {
-      "source": "; /a\\/\\/b/.test(s);\trun(\"echo > /tmp/out.$$\")",
+      "source": "; /* m\n */ /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 2, 10],
-        ["string", 24, 44]
+        ["comment", 2, 10],
+        ["regex", 11, 19],
+        ["string", 33, 53]
       ]
     },
     {
-      "source": ";\t/a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 2, 10],
-        ["string", 24, 44]
-      ]
-    },
-    {
-      "source": "; /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": ";\n/a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -42286,7 +42325,16 @@
       ]
     },
     {
-      "source": "; /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "; /\\\\\\/\\//.test(s); run(\"echo /*m*/ > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 2, 10],
+        ["string", 24, 50]
+      ]
+    },
+    {
+      "source": "; /\\\\\\/\\//.test(s);\trun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -42304,16 +42352,17 @@
       ]
     },
     {
-      "source": "; /\\/[/]/.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
+      "source": "; /* m\n */ /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 2, 9],
-        ["string", 23, 49]
+        ["comment", 2, 10],
+        ["regex", 11, 18],
+        ["string", 32, 52]
       ]
     },
     {
-      "source": ";\t/\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "; /\\/[/]/.test(s);﻿run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -42322,12 +42371,12 @@
       ]
     },
     {
-      "source": "; /\\/[/]/.test(s); run(\"echo  > /tmp/out.$$\")",
+      "source": "; /\\/[/]/.test(s); run(\"echo\t> /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 2, 9],
-        ["string", 23, 44]
+        ["string", 23, 43]
       ]
     },
     {
@@ -42340,22 +42389,22 @@
       ]
     },
     {
-      "source": "; /* m\n */ /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["comment", 2, 10],
-        ["regex", 11, 20],
-        ["string", 34, 54]
-      ]
-    },
-    {
-      "source": ";\n/[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "; /[\\]/]\\//.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 2, 11],
-        ["string", 25, 45]
+        ["string", 25, 51]
+      ]
+    },
+    {
+      "source": "; /*m*/ /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["comment", 2, 7],
+        ["regex", 8, 17],
+        ["string", 31, 51]
       ]
     },
     {
@@ -42368,7 +42417,7 @@
       ]
     },
     {
-      "source": "!\n/\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "!\t/\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -42377,16 +42426,7 @@
       ]
     },
     {
-      "source": "! /\\/\\//.test(s); run(\"echo /*m*/ > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 2, 8],
-        ["string", 22, 48]
-      ]
-    },
-    {
-      "source": "! /\\/\\//.test(s);\trun(\"echo > /tmp/out.$$\")",
+      "source": "! /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -42404,26 +42444,16 @@
       ]
     },
     {
-      "source": "! /* m\n */ /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["comment", 2, 10],
-        ["regex", 11, 18],
-        ["string", 32, 52]
-      ]
-    },
-    {
-      "source": "! /[/]\\//.test(s);﻿run(\"echo > /tmp/out.$$\")",
+      "source": "! /[/]\\//.test(s);  run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 2, 9],
-        ["string", 23, 43]
+        ["string", 24, 44]
       ]
     },
     {
-      "source": "! /[/]\\//.test(s); run(\"echo\t> /tmp/out.$$\")",
+      "source": "! /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -42441,22 +42471,21 @@
       ]
     },
     {
-      "source": "! /a\\/\\/b/.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
+      "source": "!\t/a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 2, 10],
-        ["string", 24, 50]
+        ["string", 24, 44]
       ]
     },
     {
-      "source": "! /*m*/ /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "!  /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["comment", 2, 7],
-        ["regex", 8, 16],
-        ["string", 30, 50]
+        ["regex", 3, 11],
+        ["string", 25, 45]
       ]
     },
     {
@@ -42469,21 +42498,23 @@
       ]
     },
     {
-      "source": "!\t/\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "! /*m*/ /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 2, 10],
-        ["string", 24, 44]
+        ["comment", 2, 7],
+        ["regex", 8, 16],
+        ["string", 30, 50]
       ]
     },
     {
-      "source": "! /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "! /* m\n */ /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 2, 10],
-        ["string", 24, 44]
+        ["comment", 2, 10],
+        ["regex", 11, 19],
+        ["string", 33, 53]
       ]
     },
     {
@@ -42496,12 +42527,22 @@
       ]
     },
     {
-      "source": "! /\\/[/]/.test(s);  run(\"echo > /tmp/out.$$\")",
+      "source": "! /\\/[/]/.test(s); run(\"echo >﻿/tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 2, 9],
-        ["string", 24, 44]
+        ["string", 23, 43]
+      ]
+    },
+    {
+      "source": "! /* m\n */ /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["comment", 2, 10],
+        ["regex", 11, 18],
+        ["string", 32, 52]
       ]
     },
     {
@@ -42523,7 +42564,16 @@
       ]
     },
     {
-      "source": "!\t/[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "! /[\\]/]\\//.test(s); run(\"echo >  /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 2, 11],
+        ["string", 25, 46]
+      ]
+    },
+    {
+      "source": "!\n/[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -42532,12 +42582,12 @@
       ]
     },
     {
-      "source": "!  /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "! /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 3, 12],
-        ["string", 26, 46]
+        ["regex", 2, 11],
+        ["string", 25, 45]
       ]
     },
     {
@@ -42550,23 +42600,21 @@
       ]
     },
     {
-      "source": "a & /*m*/ /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a & /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["comment", 4, 9],
-        ["regex", 10, 16],
-        ["string", 30, 50]
+        ["regex", 4, 10],
+        ["string", 24, 44]
       ]
     },
     {
-      "source": "a /* m\n */ & /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a & /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["comment", 2, 10],
-        ["regex", 13, 19],
-        ["string", 33, 53]
+        ["regex", 4, 10],
+        ["string", 24, 44]
       ]
     },
     {
@@ -42579,7 +42627,16 @@
       ]
     },
     {
-      "source": "a & /[/]\\//.test(s); run(\"echo >﻿/tmp/out.$$\")",
+      "source": "a & /[/]\\//.test(s); run(\"echo  > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 4, 11],
+        ["string", 25, 46]
+      ]
+    },
+    {
+      "source": "a & /[/]\\//.test(s);\trun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -42588,17 +42645,7 @@
       ]
     },
     {
-      "source": "a /* m\n */ & /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["comment", 2, 10],
-        ["regex", 13, 20],
-        ["string", 34, 54]
-      ]
-    },
-    {
-      "source": "a & /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a & /[/]\\//.test(s);﻿run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -42616,16 +42663,7 @@
       ]
     },
     {
-      "source": "a & /a\\/\\/b/.test(s); run(\"echo >  /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 4, 12],
-        ["string", 26, 47]
-      ]
-    },
-    {
-      "source": "a\n& /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a﻿& /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -42634,12 +42672,21 @@
       ]
     },
     {
-      "source": "a & /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a & /a\\/\\/b/.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 12],
-        ["string", 26, 46]
+        ["string", 26, 52]
+      ]
+    },
+    {
+      "source": "a & /a\\/\\/b/.test(s);  run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 4, 12],
+        ["string", 27, 47]
       ]
     },
     {
@@ -42652,21 +42699,21 @@
       ]
     },
     {
-      "source": "a & /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a &  /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 4, 12],
-        ["string", 26, 46]
+        ["regex", 5, 13],
+        ["string", 27, 47]
       ]
     },
     {
-      "source": "a & /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a & /\\\\\\/\\//.test(s);  run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 12],
-        ["string", 26, 46]
+        ["string", 27, 47]
       ]
     },
     {
@@ -42679,30 +42726,31 @@
       ]
     },
     {
-      "source": "a & /\\/[/]/.test(s); run(\"echo  > /tmp/out.$$\")",
+      "source": "a & /* m\n */ /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["comment", 4, 12],
+        ["regex", 13, 20],
+        ["string", 34, 54]
+      ]
+    },
+    {
+      "source": "a & /\\/[/]/.test(s); run(\"echo /*m*/ > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 4, 11],
+        ["string", 25, 51]
+      ]
+    },
+    {
+      "source": "a & /\\/[/]/.test(s); run(\"echo >  /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 11],
         ["string", 25, 46]
-      ]
-    },
-    {
-      "source": "a & /\\/[/]/.test(s);\trun(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 4, 11],
-        ["string", 25, 45]
-      ]
-    },
-    {
-      "source": "a & /\\/[/]/.test(s);﻿run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 4, 11],
-        ["string", 25, 45]
       ]
     },
     {
@@ -42715,16 +42763,7 @@
       ]
     },
     {
-      "source": "a﻿& /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 4, 13],
-        ["string", 27, 47]
-      ]
-    },
-    {
-      "source": "a & /[\\]/]\\//.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
+      "source": "a & /[\\]/]\\//.test(s); run(\"echo /*m*/ > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -42733,12 +42772,21 @@
       ]
     },
     {
-      "source": "a & /[\\]/]\\//.test(s);  run(\"echo > /tmp/out.$$\")",
+      "source": "a &﻿/[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 13],
-        ["string", 28, 48]
+        ["string", 27, 47]
+      ]
+    },
+    {
+      "source": "a & /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 4, 13],
+        ["string", 27, 47]
       ]
     },
     {
@@ -42751,12 +42799,12 @@
       ]
     },
     {
-      "source": "a |  /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a |\t/\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 5, 11],
-        ["string", 25, 45]
+        ["regex", 4, 10],
+        ["string", 24, 44]
       ]
     },
     {
@@ -42769,6 +42817,15 @@
       ]
     },
     {
+      "source": "a | /\\/\\//.test(s); run(\"echo >  /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 4, 10],
+        ["string", 24, 45]
+      ]
+    },
+    {
       "source": "a | /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate",
       "hit": true,
@@ -42778,31 +42835,12 @@
       ]
     },
     {
-      "source": "a | /* m\n */ /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["comment", 4, 12],
-        ["regex", 13, 20],
-        ["string", 34, 54]
-      ]
-    },
-    {
-      "source": "a | /[/]\\//.test(s); run(\"echo /*m*/ > /tmp/out.$$\")",
+      "source": "a | /[/]\\//.test(s); run(\"echo >﻿/tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 11],
-        ["string", 25, 51]
-      ]
-    },
-    {
-      "source": "a | /[/]\\//.test(s); run(\"echo >  /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 4, 11],
-        ["string", 25, 46]
+        ["string", 25, 45]
       ]
     },
     {
@@ -42815,25 +42853,7 @@
       ]
     },
     {
-      "source": "a | /a\\/\\/b/.test(s); run(\"echo /*m*/ > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 4, 12],
-        ["string", 26, 52]
-      ]
-    },
-    {
       "source": "a |﻿/a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 4, 12],
-        ["string", 26, 46]
-      ]
-    },
-    {
-      "source": "a | /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -42851,7 +42871,7 @@
       ]
     },
     {
-      "source": "a |\t/\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a | /\\\\\\/\\//.test(s); run(\"echo﻿> /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -42860,21 +42880,21 @@
       ]
     },
     {
-      "source": "a | /\\\\\\/\\//.test(s);  run(\"echo > /tmp/out.$$\")",
+      "source": "a | /\\\\\\/\\//.test(s);﻿run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 12],
-        ["string", 27, 47]
+        ["string", 26, 46]
       ]
     },
     {
-      "source": "a | /\\\\\\/\\//.test(s); run(\"echo >  /tmp/out.$$\")",
+      "source": "a | /\\\\\\/\\//.test(s); run(\"echo >﻿/tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 12],
-        ["string", 26, 47]
+        ["string", 26, 46]
       ]
     },
     {
@@ -42887,12 +42907,32 @@
       ]
     },
     {
-      "source": "a | /\\/[/]/.test(s); run(\"echo >﻿/tmp/out.$$\")",
+      "source": "a | /*m*/ /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["comment", 4, 9],
+        ["regex", 10, 17],
+        ["string", 31, 51]
+      ]
+    },
+    {
+      "source": "a | /\\/[/]/.test(s);  run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 11],
-        ["string", 25, 45]
+        ["string", 26, 46]
+      ]
+    },
+    {
+      "source": "a | /* m\n */ /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["comment", 4, 12],
+        ["regex", 13, 20],
+        ["string", 34, 54]
       ]
     },
     {
@@ -42905,7 +42945,25 @@
       ]
     },
     {
-      "source": "a |﻿/[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a\t| /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 4, 13],
+        ["string", 27, 47]
+      ]
+    },
+    {
+      "source": "a | /[\\]/]\\//.test(s);﻿run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 4, 13],
+        ["string", 27, 47]
+      ]
+    },
+    {
+      "source": "a | /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -42923,25 +42981,25 @@
       ]
     },
     {
-      "source": "if (ok) {} /\\/\\//.test(s); run(\"echo >﻿/tmp/out.$$\")",
+      "source": "if (ok) {} /\\/\\//.test(s); run(\"echo /*m*/ > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 11, 17],
-        ["string", 31, 51]
+        ["string", 31, 57]
       ]
     },
     {
-      "source": "if (ok) {} /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "if (ok) {} /\\/\\//.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 11, 17],
-        ["string", 31, 51]
+        ["string", 31, 57]
       ]
     },
     {
-      "source": "if (ok)\n{} /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "if (ok) {} /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -42959,17 +43017,7 @@
       ]
     },
     {
-      "source": "if (ok) {} /* m\n */ /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["comment", 11, 19],
-        ["regex", 20, 27],
-        ["string", 41, 61]
-      ]
-    },
-    {
-      "source": "if (ok) {} /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "if (ok) {} /[/]\\//.test(s);\nrun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -42978,7 +43026,17 @@
       ]
     },
     {
-      "source": "if (ok) {} /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "if (ok) /* m\n */ {} /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["comment", 8, 16],
+        ["regex", 20, 27],
+        ["string", 41, 61]
+      ]
+    },
+    {
+      "source": "if (ok) {} /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -42996,22 +43054,31 @@
       ]
     },
     {
-      "source": "if (ok) {} /a\\/\\/b/.test(s);  run(\"echo > /tmp/out.$$\")",
+      "source": "if (ok) {} /a\\/\\/b/.test(s); run(\"echo >﻿/tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 11, 19],
-        ["string", 34, 54]
+        ["string", 33, 53]
       ]
     },
     {
-      "source": "if /*m*/ (ok) {} /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "if (ok) {} /a\\/\\/b/.test(s); /*m*/ run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["comment", 3, 8],
-        ["regex", 17, 25],
+        ["regex", 11, 19],
+        ["comment", 29, 34],
         ["string", 39, 59]
+      ]
+    },
+    {
+      "source": "if  (ok) {} /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 12, 20],
+        ["string", 34, 54]
       ]
     },
     {
@@ -43024,25 +43091,16 @@
       ]
     },
     {
-      "source": "if (ok) {} /\\\\\\/\\//.test(s); run(\"echo /*m*/ > /tmp/out.$$\")",
+      "source": "if (ok) {} /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 11, 19],
-        ["string", 33, 59]
+        ["string", 33, 53]
       ]
     },
     {
-      "source": "if (ok) {} /\\\\\\/\\//.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 11, 19],
-        ["string", 33, 59]
-      ]
-    },
-    {
-      "source": "if (ok) {} /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "if (ok) {} /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -43060,7 +43118,7 @@
       ]
     },
     {
-      "source": "if (ok) {} /\\/[/]/.test(s);\nrun(\"echo > /tmp/out.$$\")",
+      "source": "if (ok) {} /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -43069,17 +43127,7 @@
       ]
     },
     {
-      "source": "if (ok) /* m\n */ {} /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["comment", 8, 16],
-        ["regex", 20, 27],
-        ["string", 41, 61]
-      ]
-    },
-    {
-      "source": "if (ok) {} /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "if\n(ok) {} /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -43097,7 +43145,7 @@
       ]
     },
     {
-      "source": "if (ok) {} /[\\]/]\\//.test(s); run(\"echo >﻿/tmp/out.$$\")",
+      "source": "if (ok)\t{} /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -43106,22 +43154,22 @@
       ]
     },
     {
-      "source": "if (ok) {} /[\\]/]\\//.test(s); /*m*/ run(\"echo > /tmp/out.$$\")",
+      "source": "if (ok) {} /[\\]/]\\//.test(s);﻿run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 11, 20],
-        ["comment", 30, 35],
-        ["string", 40, 60]
+        ["string", 34, 54]
       ]
     },
     {
-      "source": "if  (ok) {} /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "if /*m*/ (ok) {} /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 12, 21],
-        ["string", 35, 55]
+        ["comment", 3, 8],
+        ["regex", 17, 26],
+        ["string", 40, 60]
       ]
     },
     {
@@ -43134,7 +43182,7 @@
       ]
     },
     {
-      "source": "a + /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a + /\\/\\//.test(s);\nrun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -43143,7 +43191,7 @@
       ]
     },
     {
-      "source": "a + /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a + /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -43161,7 +43209,7 @@
       ]
     },
     {
-      "source": "a + /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a +﻿/[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -43170,7 +43218,16 @@
       ]
     },
     {
-      "source": "a\n+ /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a\t+ /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 4, 11],
+        ["string", 25, 45]
+      ]
+    },
+    {
+      "source": "a + /[/]\\//.test(s);\nrun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -43188,7 +43245,7 @@
       ]
     },
     {
-      "source": "a +\t/a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a + /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -43197,7 +43254,7 @@
       ]
     },
     {
-      "source": "a + /a\\/\\/b/.test(s); run(\"echo﻿> /tmp/out.$$\")",
+      "source": "a + /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -43206,11 +43263,11 @@
       ]
     },
     {
-      "source": "a /*m*/ + /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a + /*m*/ /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["comment", 2, 7],
+        ["comment", 4, 9],
         ["regex", 10, 18],
         ["string", 32, 52]
       ]
@@ -43225,7 +43282,7 @@
       ]
     },
     {
-      "source": "a + /\\\\\\/\\//.test(s);\nrun(\"echo > /tmp/out.$$\")",
+      "source": "a + /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -43234,7 +43291,7 @@
       ]
     },
     {
-      "source": "a + /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a + /\\\\\\/\\//.test(s); run(\"echo﻿> /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -43252,15 +43309,6 @@
       ]
     },
     {
-      "source": "a +﻿/\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 4, 11],
-        ["string", 25, 45]
-      ]
-    },
-    {
       "source": "a\t+ /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
@@ -43270,12 +43318,13 @@
       ]
     },
     {
-      "source": "a + /\\/[/]/.test(s);\nrun(\"echo > /tmp/out.$$\")",
+      "source": "a + /\\/[/]/.test(s); /*m*/ run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 11],
-        ["string", 25, 45]
+        ["comment", 21, 26],
+        ["string", 31, 51]
       ]
     },
     {
@@ -43288,7 +43337,7 @@
       ]
     },
     {
-      "source": "a + /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a + /[\\]/]\\//.test(s);﻿run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -43297,7 +43346,7 @@
       ]
     },
     {
-      "source": "a + /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a\n+ /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -43306,13 +43355,12 @@
       ]
     },
     {
-      "source": "a + /*m*/ /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a +\t/[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["comment", 4, 9],
-        ["regex", 10, 19],
-        ["string", 33, 53]
+        ["regex", 4, 13],
+        ["string", 27, 47]
       ]
     },
     {
@@ -43325,16 +43373,27 @@
       ]
     },
     {
-      "source": "a - /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a - /\\/\\//.test(s); /*m*/ run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 10],
-        ["string", 24, 44]
+        ["comment", 20, 25],
+        ["string", 30, 50]
       ]
     },
     {
-      "source": "a - /\\/\\//.test(s); run(\"echo﻿> /tmp/out.$$\")",
+      "source": "a - /\\/\\//.test(s); /* m\n */ run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 4, 10],
+        ["comment", 20, 28],
+        ["string", 33, 53]
+      ]
+    },
+    {
+      "source": "a - /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -43352,7 +43411,7 @@
       ]
     },
     {
-      "source": "a\t- /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a - /[/]\\//.test(s); run(\"echo﻿> /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -43361,13 +43420,21 @@
       ]
     },
     {
-      "source": "a - /[/]\\//.test(s); /*m*/ run(\"echo > /tmp/out.$$\")",
+      "source": "a - /[/]\\//.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 11],
-        ["comment", 21, 26],
-        ["string", 31, 51]
+        ["string", 25, 51]
+      ]
+    },
+    {
+      "source": "a  - /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 5, 12],
+        ["string", 26, 46]
       ]
     },
     {
@@ -43380,25 +43447,16 @@
       ]
     },
     {
+      "source": "a - /a\\/\\/b/.test(s);  run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 4, 12],
+        ["string", 27, 47]
+      ]
+    },
+    {
       "source": "a - /a\\/\\/b/.test(s);﻿run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 4, 12],
-        ["string", 26, 46]
-      ]
-    },
-    {
-      "source": "a\n- /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 4, 12],
-        ["string", 26, 46]
-      ]
-    },
-    {
-      "source": "a -\t/a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -43416,27 +43474,16 @@
       ]
     },
     {
-      "source": "a - /\\\\\\/\\//.test(s); /*m*/ run(\"echo > /tmp/out.$$\")",
+      "source": "a - /\\\\\\/\\//.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 12],
-        ["comment", 22, 27],
-        ["string", 32, 52]
+        ["string", 26, 52]
       ]
     },
     {
-      "source": "a - /\\\\\\/\\//.test(s); /* m\n */ run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 4, 12],
-        ["comment", 22, 30],
-        ["string", 35, 55]
-      ]
-    },
-    {
-      "source": "a - /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a - /\\\\\\/\\//.test(s); run(\"echo﻿> /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -43454,7 +43501,7 @@
       ]
     },
     {
-      "source": "a - /\\/[/]/.test(s); run(\"echo﻿> /tmp/out.$$\")",
+      "source": "a -\t/\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -43463,21 +43510,13 @@
       ]
     },
     {
-      "source": "a - /\\/[/]/.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
+      "source": "a /* m\n */ - /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 4, 11],
-        ["string", 25, 51]
-      ]
-    },
-    {
-      "source": "a  - /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 5, 12],
-        ["string", 26, 46]
+        ["comment", 2, 10],
+        ["regex", 13, 20],
+        ["string", 34, 54]
       ]
     },
     {
@@ -43490,16 +43529,26 @@
       ]
     },
     {
-      "source": "a - /[\\]/]\\//.test(s);  run(\"echo > /tmp/out.$$\")",
+      "source": "a /*m*/ - /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 4, 13],
-        ["string", 28, 48]
+        ["comment", 2, 7],
+        ["regex", 10, 19],
+        ["string", 33, 53]
       ]
     },
     {
       "source": "a - /[\\]/]\\//.test(s);﻿run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 4, 13],
+        ["string", 27, 47]
+      ]
+    },
+    {
+      "source": "a - /[\\]/]\\//.test(s); run(\"echo >\t/tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -43517,16 +43566,16 @@
       ]
     },
     {
-      "source": "a * /\\/\\//.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
+      "source": "a * /\\/\\//.test(s); run(\"echo  > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 10],
-        ["string", 24, 50]
+        ["string", 24, 45]
       ]
     },
     {
-      "source": "a * /\\/\\//.test(s); run(\"echo﻿> /tmp/out.$$\")",
+      "source": "a * /\\/\\//.test(s); run(\"echo >\t/tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -43544,7 +43593,7 @@
       ]
     },
     {
-      "source": "a *\t/[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a * /[/]\\//.test(s);﻿run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -43553,13 +43602,21 @@
       ]
     },
     {
-      "source": "a /* m\n */ * /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a * /[/]\\//.test(s); run(\"echo >  /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["comment", 2, 10],
-        ["regex", 13, 20],
-        ["string", 34, 54]
+        ["regex", 4, 11],
+        ["string", 25, 46]
+      ]
+    },
+    {
+      "source": "a  * /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 5, 12],
+        ["string", 26, 46]
       ]
     },
     {
@@ -43572,16 +43629,6 @@
       ]
     },
     {
-      "source": "a /*m*/ * /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["comment", 2, 7],
-        ["regex", 10, 18],
-        ["string", 32, 52]
-      ]
-    },
-    {
       "source": "a * /a\\/\\/b/.test(s);﻿run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
@@ -43591,7 +43638,16 @@
       ]
     },
     {
-      "source": "a * /a\\/\\/b/.test(s); run(\"echo >\t/tmp/out.$$\")",
+      "source": "a  * /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 5, 13],
+        ["string", 27, 47]
+      ]
+    },
+    {
+      "source": "a﻿* /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -43609,21 +43665,30 @@
       ]
     },
     {
-      "source": "a * /\\\\\\/\\//.test(s); run(\"echo  > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 4, 12],
-        ["string", 26, 47]
-      ]
-    },
-    {
-      "source": "a * /\\\\\\/\\//.test(s); run(\"echo >\t/tmp/out.$$\")",
+      "source": "a * /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 12],
         ["string", 26, 46]
+      ]
+    },
+    {
+      "source": "a  * /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 5, 13],
+        ["string", 27, 47]
+      ]
+    },
+    {
+      "source": "a * /\\\\\\/\\//.test(s); run(\"echo /*m*/ > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 4, 12],
+        ["string", 26, 52]
       ]
     },
     {
@@ -43636,7 +43701,7 @@
       ]
     },
     {
-      "source": "a * /\\/[/]/.test(s);﻿run(\"echo > /tmp/out.$$\")",
+      "source": "a * /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -43645,21 +43710,12 @@
       ]
     },
     {
-      "source": "a * /\\/[/]/.test(s); run(\"echo >  /tmp/out.$$\")",
+      "source": "a * /\\/[/]/.test(s); run(\"echo /*m*/ > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 11],
-        ["string", 25, 46]
-      ]
-    },
-    {
-      "source": "a  * /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 5, 12],
-        ["string", 26, 46]
+        ["string", 25, 51]
       ]
     },
     {
@@ -43672,25 +43728,26 @@
       ]
     },
     {
-      "source": "a * /[\\]/]\\//.test(s);﻿run(\"echo > /tmp/out.$$\")",
+      "source": "a * /* m\n */ /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["comment", 4, 12],
+        ["regex", 13, 22],
+        ["string", 36, 56]
+      ]
+    },
+    {
+      "source": "a * /[\\]/]\\//.test(s); run(\"echo >  /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 13],
-        ["string", 27, 47]
+        ["string", 27, 48]
       ]
     },
     {
-      "source": "a  * /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 5, 14],
-        ["string", 28, 48]
-      ]
-    },
-    {
-      "source": "a﻿* /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a * /[\\]/]\\//.test(s);\trun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -43708,30 +43765,22 @@
       ]
     },
     {
-      "source": "a % /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a % /\\/\\//.test(s); /*m*/ run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 4, 10],
+        ["comment", 20, 25],
+        ["string", 30, 50]
+      ]
+    },
+    {
+      "source": "a % /\\/\\//.test(s);\trun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 10],
         ["string", 24, 44]
-      ]
-    },
-    {
-      "source": "a  % /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 5, 11],
-        ["string", 25, 45]
-      ]
-    },
-    {
-      "source": "a % /\\/\\//.test(s); run(\"echo /*m*/ > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 4, 10],
-        ["string", 24, 50]
       ]
     },
     {
@@ -43744,7 +43793,7 @@
       ]
     },
     {
-      "source": "a % /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a % /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -43753,12 +43802,12 @@
       ]
     },
     {
-      "source": "a % /[/]\\//.test(s); run(\"echo /*m*/ > /tmp/out.$$\")",
+      "source": "a﻿% /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 11],
-        ["string", 25, 51]
+        ["string", 25, 45]
       ]
     },
     {
@@ -43771,26 +43820,25 @@
       ]
     },
     {
-      "source": "a % /* m\n */ /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a  % /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["comment", 4, 12],
-        ["regex", 13, 21],
-        ["string", 35, 55]
+        ["regex", 5, 13],
+        ["string", 27, 47]
       ]
     },
     {
-      "source": "a % /a\\/\\/b/.test(s); run(\"echo >  /tmp/out.$$\")",
+      "source": "a % /a\\/\\/b/.test(s);  run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 12],
-        ["string", 26, 47]
+        ["string", 27, 47]
       ]
     },
     {
-      "source": "a % /a\\/\\/b/.test(s);\trun(\"echo > /tmp/out.$$\")",
+      "source": "a\t% /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -43808,22 +43856,32 @@
       ]
     },
     {
-      "source": "a % /\\\\\\/\\//.test(s); /*m*/ run(\"echo > /tmp/out.$$\")",
+      "source": "a % /* m\n */ /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 4, 12],
-        ["comment", 22, 27],
+        ["comment", 4, 12],
+        ["regex", 13, 21],
+        ["string", 35, 55]
+      ]
+    },
+    {
+      "source": "a % /*m*/ /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["comment", 4, 9],
+        ["regex", 10, 18],
         ["string", 32, 52]
       ]
     },
     {
-      "source": "a % /\\\\\\/\\//.test(s);\trun(\"echo > /tmp/out.$$\")",
+      "source": "a % /\\\\\\/\\//.test(s); run(\"echo  > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 12],
-        ["string", 26, 46]
+        ["string", 26, 47]
       ]
     },
     {
@@ -43836,7 +43894,7 @@
       ]
     },
     {
-      "source": "a % /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a % /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -43845,7 +43903,16 @@
       ]
     },
     {
-      "source": "a﻿% /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a % /\\/[/]/.test(s);﻿run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 4, 11],
+        ["string", 25, 45]
+      ]
+    },
+    {
+      "source": "a % /\\/[/]/.test(s);\nrun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -43863,30 +43930,31 @@
       ]
     },
     {
-      "source": "a  % /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 5, 14],
-        ["string", 28, 48]
-      ]
-    },
-    {
-      "source": "a % /[\\]/]\\//.test(s);  run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 4, 13],
-        ["string", 28, 48]
-      ]
-    },
-    {
-      "source": "a\t% /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a % /[\\]/]\\//.test(s); run(\"echo﻿> /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 13],
         ["string", 27, 47]
+      ]
+    },
+    {
+      "source": "a % /[\\]/]\\//.test(s);\nrun(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 4, 13],
+        ["string", 27, 47]
+      ]
+    },
+    {
+      "source": "a % /*m*/ /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["comment", 4, 9],
+        ["regex", 10, 19],
+        ["string", 33, 53]
       ]
     },
     {
@@ -43899,32 +43967,30 @@
       ]
     },
     {
-      "source": "a < /* m\n */ /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["comment", 4, 12],
-        ["regex", 13, 19],
-        ["string", 33, 53]
-      ]
-    },
-    {
-      "source": "a < /*m*/ /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["comment", 4, 9],
-        ["regex", 10, 16],
-        ["string", 30, 50]
-      ]
-    },
-    {
-      "source": "a < /\\/\\//.test(s); run(\"echo  > /tmp/out.$$\")",
+      "source": "a < /\\/\\//.test(s); run(\"echo /*m*/ > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 10],
-        ["string", 24, 45]
+        ["string", 24, 50]
+      ]
+    },
+    {
+      "source": "a < /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 4, 10],
+        ["string", 24, 44]
+      ]
+    },
+    {
+      "source": "a < /\\/\\//.test(s); run(\"echo >\t/tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 4, 10],
+        ["string", 24, 44]
       ]
     },
     {
@@ -43937,16 +44003,17 @@
       ]
     },
     {
-      "source": "a < /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a < /*m*/ /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 4, 11],
-        ["string", 25, 45]
+        ["comment", 4, 9],
+        ["regex", 10, 17],
+        ["string", 31, 51]
       ]
     },
     {
-      "source": "a < /[/]\\//.test(s);﻿run(\"echo > /tmp/out.$$\")",
+      "source": "a\t< /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -43973,31 +44040,23 @@
       ]
     },
     {
-      "source": "a < /a\\/\\/b/.test(s); run(\"echo﻿> /tmp/out.$$\")",
+      "source": "a /*m*/ < /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 4, 12],
-        ["string", 26, 46]
-      ]
-    },
-    {
-      "source": "a < /a\\/\\/b/.test(s);\nrun(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 4, 12],
-        ["string", 26, 46]
-      ]
-    },
-    {
-      "source": "a < /*m*/ /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["comment", 4, 9],
+        ["comment", 2, 7],
         ["regex", 10, 18],
         ["string", 32, 52]
+      ]
+    },
+    {
+      "source": "a < /a\\/\\/b/.test(s); /* m\n */ run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 4, 12],
+        ["comment", 22, 30],
+        ["string", 35, 55]
       ]
     },
     {
@@ -44010,21 +44069,12 @@
       ]
     },
     {
-      "source": "a < /\\\\\\/\\//.test(s); run(\"echo /*m*/ > /tmp/out.$$\")",
+      "source": "a < /\\\\\\/\\//.test(s); run(\"echo >  /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 12],
-        ["string", 26, 52]
-      ]
-    },
-    {
-      "source": "a < /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 4, 12],
-        ["string", 26, 46]
+        ["string", 26, 47]
       ]
     },
     {
@@ -44037,6 +44087,16 @@
       ]
     },
     {
+      "source": "a < /* m\n */ /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["comment", 4, 12],
+        ["regex", 13, 21],
+        ["string", 35, 55]
+      ]
+    },
+    {
       "source": "a < /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate",
       "hit": true,
@@ -44046,17 +44106,7 @@
       ]
     },
     {
-      "source": "a < /*m*/ /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["comment", 4, 9],
-        ["regex", 10, 17],
-        ["string", 31, 51]
-      ]
-    },
-    {
-      "source": "a\t< /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a < /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -44065,12 +44115,13 @@
       ]
     },
     {
-      "source": "a < /\\/[/]/.test(s);\nrun(\"echo > /tmp/out.$$\")",
+      "source": "a < /\\/[/]/.test(s); /* m\n */ run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 11],
-        ["string", 25, 45]
+        ["comment", 21, 29],
+        ["string", 34, 54]
       ]
     },
     {
@@ -44083,23 +44134,21 @@
       ]
     },
     {
-      "source": "a /*m*/ < /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["comment", 2, 7],
-        ["regex", 10, 19],
-        ["string", 33, 53]
-      ]
-    },
-    {
-      "source": "a < /[\\]/]\\//.test(s); /* m\n */ run(\"echo > /tmp/out.$$\")",
+      "source": "a < /[\\]/]\\//.test(s);\trun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 13],
-        ["comment", 23, 31],
-        ["string", 36, 56]
+        ["string", 27, 47]
+      ]
+    },
+    {
+      "source": "a < /[\\]/]\\//.test(s); run(\"echo﻿> /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 4, 13],
+        ["string", 27, 47]
       ]
     },
     {
@@ -44112,31 +44161,21 @@
       ]
     },
     {
-      "source": "a > /\\/\\//.test(s); run(\"echo >  /tmp/out.$$\")",
+      "source": "a > /\\/\\//.test(s);  run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 10],
-        ["string", 24, 45]
+        ["string", 25, 45]
       ]
     },
     {
-      "source": "a > /\\/\\//.test(s); run(\"echo >\t/tmp/out.$$\")",
+      "source": "a > /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 10],
         ["string", 24, 44]
-      ]
-    },
-    {
-      "source": "a > /* m\n */ /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["comment", 4, 12],
-        ["regex", 13, 19],
-        ["string", 33, 53]
       ]
     },
     {
@@ -44149,7 +44188,7 @@
       ]
     },
     {
-      "source": "a > /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a > /[/]\\//.test(s); run(\"echo﻿> /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -44158,12 +44197,21 @@
       ]
     },
     {
-      "source": "a > /[/]\\//.test(s); /* m\n */ run(\"echo > /tmp/out.$$\")",
+      "source": "a >\t/[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 11],
-        ["comment", 21, 29],
+        ["string", 25, 45]
+      ]
+    },
+    {
+      "source": "a /* m\n */ > /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["comment", 2, 10],
+        ["regex", 13, 20],
         ["string", 34, 54]
       ]
     },
@@ -44177,16 +44225,26 @@
       ]
     },
     {
-      "source": "a > /a\\/\\/b/.test(s);\trun(\"echo > /tmp/out.$$\")",
+      "source": "a >  /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 4, 12],
-        ["string", 26, 46]
+        ["regex", 5, 13],
+        ["string", 27, 47]
       ]
     },
     {
-      "source": "a > /a\\/\\/b/.test(s); run(\"echo﻿> /tmp/out.$$\")",
+      "source": "a /*m*/ > /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["comment", 2, 7],
+        ["regex", 10, 18],
+        ["string", 32, 52]
+      ]
+    },
+    {
+      "source": "a > /a\\/\\/b/.test(s);\nrun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -44204,16 +44262,16 @@
       ]
     },
     {
-      "source": "a > /\\\\\\/\\//.test(s);  run(\"echo > /tmp/out.$$\")",
+      "source": "a  > /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 4, 12],
+        ["regex", 5, 13],
         ["string", 27, 47]
       ]
     },
     {
-      "source": "a > /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a >\t/\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -44231,31 +44289,22 @@
       ]
     },
     {
-      "source": "a > /\\/[/]/.test(s); run(\"echo﻿> /tmp/out.$$\")",
+      "source": "a /*m*/ > /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["comment", 2, 7],
+        ["regex", 10, 17],
+        ["string", 31, 51]
+      ]
+    },
+    {
+      "source": "a > /\\/[/]/.test(s);\nrun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 11],
         ["string", 25, 45]
-      ]
-    },
-    {
-      "source": "a >\t/\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 4, 11],
-        ["string", 25, 45]
-      ]
-    },
-    {
-      "source": "a /* m\n */ > /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["comment", 2, 10],
-        ["regex", 13, 20],
-        ["string", 34, 54]
       ]
     },
     {
@@ -44268,31 +44317,13 @@
       ]
     },
     {
-      "source": "a >  /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a > /* m\n */ /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 5, 14],
-        ["string", 28, 48]
-      ]
-    },
-    {
-      "source": "a /*m*/ > /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["comment", 2, 7],
-        ["regex", 10, 19],
-        ["string", 33, 53]
-      ]
-    },
-    {
-      "source": "a > /[\\]/]\\//.test(s);\nrun(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 4, 13],
-        ["string", 27, 47]
+        ["comment", 4, 12],
+        ["regex", 13, 22],
+        ["string", 36, 56]
       ]
     },
     {
@@ -44305,21 +44336,31 @@
       ]
     },
     {
-      "source": "~  /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "~ /\\/\\//.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 3, 9],
-        ["string", 23, 43]
+        ["regex", 2, 8],
+        ["string", 22, 48]
       ]
     },
     {
-      "source": "~ /\\/\\//.test(s);\trun(\"echo > /tmp/out.$$\")",
+      "source": "~ /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 2, 8],
         ["string", 22, 42]
+      ]
+    },
+    {
+      "source": "~ /* m\n */ /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["comment", 2, 10],
+        ["regex", 11, 17],
+        ["string", 31, 51]
       ]
     },
     {
@@ -44332,17 +44373,26 @@
       ]
     },
     {
-      "source": "~ /*m*/ /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "~ /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["comment", 2, 7],
-        ["regex", 8, 15],
+        ["regex", 2, 9],
+        ["string", 23, 43]
+      ]
+    },
+    {
+      "source": "~ /[/]\\//.test(s); /*m*/ run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 2, 9],
+        ["comment", 19, 24],
         ["string", 29, 49]
       ]
     },
     {
-      "source": "~ /[/]\\//.test(s);\nrun(\"echo > /tmp/out.$$\")",
+      "source": "~\t/[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -44360,13 +44410,21 @@
       ]
     },
     {
-      "source": "~ /a\\/\\/b/.test(s); /* m\n */ run(\"echo > /tmp/out.$$\")",
+      "source": "~ /a\\/\\/b/.test(s); run(\"echo >\t/tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 2, 10],
-        ["comment", 20, 28],
-        ["string", 33, 53]
+        ["string", 24, 44]
+      ]
+    },
+    {
+      "source": "~﻿/a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 2, 10],
+        ["string", 24, 44]
       ]
     },
     {
@@ -44379,16 +44437,7 @@
       ]
     },
     {
-      "source": "~ /\\\\\\/\\//.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 2, 10],
-        ["string", 24, 50]
-      ]
-    },
-    {
-      "source": "~ /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "~ /\\\\\\/\\//.test(s);\nrun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -44397,13 +44446,21 @@
       ]
     },
     {
-      "source": "~ /* m\n */ /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "~ /\\\\\\/\\//.test(s); run(\"echo /*m*/ > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["comment", 2, 10],
-        ["regex", 11, 19],
-        ["string", 33, 53]
+        ["regex", 2, 10],
+        ["string", 24, 50]
+      ]
+    },
+    {
+      "source": "~ /\\\\\\/\\//.test(s); run(\"echo﻿> /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 2, 10],
+        ["string", 24, 44]
       ]
     },
     {
@@ -44416,7 +44473,7 @@
       ]
     },
     {
-      "source": "~ /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "~ /\\/[/]/.test(s); run(\"echo >\t/tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -44425,17 +44482,7 @@
       ]
     },
     {
-      "source": "~ /\\/[/]/.test(s); /*m*/ run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 2, 9],
-        ["comment", 19, 24],
-        ["string", 29, 49]
-      ]
-    },
-    {
-      "source": "~\t/\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "~ /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -44453,7 +44500,7 @@
       ]
     },
     {
-      "source": "~ /[\\]/]\\//.test(s); run(\"echo >\t/tmp/out.$$\")",
+      "source": "~\n/[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -44462,7 +44509,16 @@
       ]
     },
     {
-      "source": "~﻿/[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "~ /[\\]/]\\//.test(s); run(\"echo  > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 2, 11],
+        ["string", 25, 46]
+      ]
+    },
+    {
+      "source": "~ /[\\]/]\\//.test(s);﻿run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -44480,7 +44536,7 @@
       ]
     },
     {
-      "source": "a ^ /\\/\\//.test(s);\nrun(\"echo > /tmp/out.$$\")",
+      "source": "a ^﻿/\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -44489,16 +44545,16 @@
       ]
     },
     {
-      "source": "a ^ /\\/\\//.test(s); run(\"echo /*m*/ > /tmp/out.$$\")",
+      "source": "a ^ /\\/\\//.test(s); run(\"echo\t> /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 10],
-        ["string", 24, 50]
+        ["string", 24, 44]
       ]
     },
     {
-      "source": "a ^ /\\/\\//.test(s); run(\"echo﻿> /tmp/out.$$\")",
+      "source": "a ^ /\\/\\//.test(s);\nrun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -44516,7 +44572,7 @@
       ]
     },
     {
-      "source": "a ^ /[/]\\//.test(s); run(\"echo >\t/tmp/out.$$\")",
+      "source": "a ^ /[/]\\//.test(s);\nrun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -44525,22 +44581,21 @@
       ]
     },
     {
-      "source": "a ^ /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a ^ /[/]\\//.test(s); run(\"echo  > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 11],
-        ["string", 25, 45]
+        ["string", 25, 46]
       ]
     },
     {
-      "source": "a ^ /[/]\\//.test(s); /* m\n */ run(\"echo > /tmp/out.$$\")",
+      "source": "a ^ /[/]\\//.test(s); run(\"echo /*m*/ > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 11],
-        ["comment", 21, 29],
-        ["string", 34, 54]
+        ["string", 25, 51]
       ]
     },
     {
@@ -44553,7 +44608,7 @@
       ]
     },
     {
-      "source": "a\n^ /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a ^ /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -44562,44 +44617,27 @@
       ]
     },
     {
-      "source": "a ^ /a\\/\\/b/.test(s);  run(\"echo > /tmp/out.$$\")",
+      "source": "a ^ /a\\/\\/b/.test(s); run(\"echo >  /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 12],
-        ["string", 27, 47]
+        ["string", 26, 47]
       ]
     },
     {
-      "source": "a ^﻿/a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a /*m*/ ^ /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 4, 12],
-        ["string", 26, 46]
+        ["comment", 2, 7],
+        ["regex", 10, 18],
+        ["string", 32, 52]
       ]
     },
     {
       "source": "a ^ /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate",
-      "hit": true,
-      "ranges": [
-        ["regex", 4, 12],
-        ["string", 26, 46]
-      ]
-    },
-    {
-      "source": "a ^﻿/\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 4, 12],
-        ["string", 26, 46]
-      ]
-    },
-    {
-      "source": "a ^ /\\\\\\/\\//.test(s); run(\"echo\t> /tmp/out.$$\")",
-      "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 12],
@@ -44616,6 +44654,15 @@
       ]
     },
     {
+      "source": "a ^ /\\\\\\/\\//.test(s); run(\"echo  > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 4, 12],
+        ["string", 26, 47]
+      ]
+    },
+    {
       "source": "a ^ /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate",
       "hit": true,
@@ -44625,30 +44672,22 @@
       ]
     },
     {
-      "source": "a ^ /\\/[/]/.test(s);\nrun(\"echo > /tmp/out.$$\")",
+      "source": "a /* m\n */ ^ /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["comment", 2, 10],
+        ["regex", 13, 20],
+        ["string", 34, 54]
+      ]
+    },
+    {
+      "source": "a\n^ /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 11],
         ["string", 25, 45]
-      ]
-    },
-    {
-      "source": "a ^ /\\/[/]/.test(s); run(\"echo  > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 4, 11],
-        ["string", 25, 46]
-      ]
-    },
-    {
-      "source": "a ^ /\\/[/]/.test(s); run(\"echo /*m*/ > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 4, 11],
-        ["string", 25, 51]
       ]
     },
     {
@@ -44661,7 +44700,7 @@
       ]
     },
     {
-      "source": "a ^ /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a ^ /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -44670,22 +44709,21 @@
       ]
     },
     {
-      "source": "a ^ /[\\]/]\\//.test(s); run(\"echo >  /tmp/out.$$\")",
+      "source": "a ^ /[\\]/]\\//.test(s); run(\"echo >\t/tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 13],
-        ["string", 27, 48]
+        ["string", 27, 47]
       ]
     },
     {
-      "source": "a /*m*/ ^ /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a ^\t/[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["comment", 2, 7],
-        ["regex", 10, 19],
-        ["string", 33, 53]
+        ["regex", 4, 13],
+        ["string", 27, 47]
       ]
     },
     {
@@ -44698,21 +44736,22 @@
       ]
     },
     {
-      "source": "x =>  /\\/\\//.test(s);\nrun(\"echo > /tmp/out.$$\")",
+      "source": "x =>  /*m*/ /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 6, 12],
-        ["string", 26, 46]
+        ["comment", 6, 11],
+        ["regex", 12, 18],
+        ["string", 32, 52]
       ]
     },
     {
-      "source": "x =>  /\\/\\//.test(s); run(\"echo  > /tmp/out.$$\")",
+      "source": "x =>  /\\/\\//.test(s);  run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 6, 12],
-        ["string", 26, 47]
+        ["string", 27, 47]
       ]
     },
     {
@@ -44722,6 +44761,16 @@
       "ranges": [
         ["regex", 6, 13],
         ["string", 27, 47]
+      ]
+    },
+    {
+      "source": "x =>  /[/]\\//.test(s); /*m*/ run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 6, 13],
+        ["comment", 23, 28],
+        ["string", 33, 53]
       ]
     },
     {
@@ -44735,12 +44784,12 @@
       ]
     },
     {
-      "source": "x\n=>  /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "x =>  /[/]\\//.test(s);  run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 6, 13],
-        ["string", 27, 47]
+        ["string", 28, 48]
       ]
     },
     {
@@ -44753,30 +44802,32 @@
       ]
     },
     {
-      "source": "x =>  /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "x =>  /* m\n */ /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 6, 14],
-        ["string", 28, 48]
+        ["comment", 6, 14],
+        ["regex", 15, 23],
+        ["string", 37, 57]
       ]
     },
     {
-      "source": "x =>  /a\\/\\/b/.test(s); run(\"echo >\t/tmp/out.$$\")",
+      "source": "x /*m*/ =>  /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 6, 14],
-        ["string", 28, 48]
+        ["comment", 2, 7],
+        ["regex", 12, 20],
+        ["string", 34, 54]
       ]
     },
     {
-      "source": "x =>\t /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "x =>   /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 6, 14],
-        ["string", 28, 48]
+        ["regex", 7, 15],
+        ["string", 29, 49]
       ]
     },
     {
@@ -44789,22 +44840,30 @@
       ]
     },
     {
-      "source": "x =>  /*m*/ /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["comment", 6, 11],
-        ["regex", 12, 20],
-        ["string", 34, 54]
-      ]
-    },
-    {
-      "source": "x =>  /\\\\\\/\\//.test(s);  run(\"echo > /tmp/out.$$\")",
+      "source": "x =>  /\\\\\\/\\//.test(s); run(\"echo\t> /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 6, 14],
-        ["string", 29, 49]
+        ["string", 28, 48]
+      ]
+    },
+    {
+      "source": "x =>  /\\\\\\/\\//.test(s);\trun(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 6, 14],
+        ["string", 28, 48]
+      ]
+    },
+    {
+      "source": "x\t=>  /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 6, 14],
+        ["string", 28, 48]
       ]
     },
     {
@@ -44817,32 +44876,22 @@
       ]
     },
     {
-      "source": "x =>  /\\/[/]/.test(s); /*m*/ run(\"echo > /tmp/out.$$\")",
+      "source": "x =>  /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 6, 13],
-        ["comment", 23, 28],
-        ["string", 33, 53]
+        ["string", 27, 47]
       ]
     },
     {
-      "source": "x => /* m\n */  /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "x /* m\n */ =>  /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["comment", 5, 13],
+        ["comment", 2, 10],
         ["regex", 15, 22],
         ["string", 36, 56]
-      ]
-    },
-    {
-      "source": "x =>  /\\/[/]/.test(s);  run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 6, 13],
-        ["string", 28, 48]
       ]
     },
     {
@@ -44855,23 +44904,12 @@
       ]
     },
     {
-      "source": "x =>  /* m\n */ /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "x => \t/[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["comment", 6, 14],
-        ["regex", 15, 24],
-        ["string", 38, 58]
-      ]
-    },
-    {
-      "source": "x /*m*/ =>  /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["comment", 2, 7],
-        ["regex", 12, 21],
-        ["string", 35, 55]
+        ["regex", 6, 15],
+        ["string", 29, 49]
       ]
     },
     {
@@ -44902,21 +44940,22 @@
       ]
     },
     {
-      "source": "a /  /\\/\\//.test(s);\trun(\"echo > /tmp/out.$$\")",
+      "source": "a /  /\\/\\//.test(s); run(\"echo  > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 5, 11],
-        ["string", 25, 45]
+        ["string", 25, 46]
       ]
     },
     {
-      "source": "a\t/  /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a /* m\n */ /  /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 5, 11],
-        ["string", 25, 45]
+        ["comment", 2, 10],
+        ["regex", 14, 20],
+        ["string", 34, 54]
       ]
     },
     {
@@ -44929,7 +44968,7 @@
       ]
     },
     {
-      "source": "a /  /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a /  /[/]\\//.test(s); run(\"echo >\t/tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -44938,18 +44977,44 @@
       ]
     },
     {
-      "source": "a /* m\n */ /  /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a /  /[/]\\//.test(s);﻿run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["comment", 2, 10],
-        ["regex", 14, 21],
-        ["string", 35, 55]
+        ["regex", 5, 12],
+        ["string", 26, 46]
+      ]
+    },
+    {
+      "source": "a\t/  /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 5, 12],
+        ["string", 26, 46]
       ]
     },
     {
       "source": "a /  /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate",
+      "hit": true,
+      "ranges": [
+        ["regex", 5, 13],
+        ["string", 27, 47]
+      ]
+    },
+    {
+      "source": "a /  /a\\/\\/b/.test(s); run(\"echo >  /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 5, 13],
+        ["string", 27, 48]
+      ]
+    },
+    {
+      "source": "a / ﻿/a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 5, 13],
@@ -44966,15 +45031,6 @@
       ]
     },
     {
-      "source": "a /   /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 6, 14],
-        ["string", 28, 48]
-      ]
-    },
-    {
       "source": "a /  /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate",
       "hit": true,
@@ -44984,7 +45040,7 @@
       ]
     },
     {
-      "source": "a /  /\\\\\\/\\//.test(s); run(\"echo\t> /tmp/out.$$\")",
+      "source": "a\t/  /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -44993,22 +45049,21 @@
       ]
     },
     {
-      "source": "a /  /\\\\\\/\\//.test(s); run(\"echo  > /tmp/out.$$\")",
+      "source": "a﻿/  /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 5, 13],
-        ["string", 27, 48]
+        ["string", 27, 47]
       ]
     },
     {
-      "source": "a /* m\n */ /  /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a /  /\\\\\\/\\//.test(s);\trun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["comment", 2, 10],
-        ["regex", 14, 22],
-        ["string", 36, 56]
+        ["regex", 5, 13],
+        ["string", 27, 47]
       ]
     },
     {
@@ -45021,7 +45076,7 @@
       ]
     },
     {
-      "source": "a /  /\\/[/]/.test(s); run(\"echo >\t/tmp/out.$$\")",
+      "source": "a /  /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -45030,16 +45085,7 @@
       ]
     },
     {
-      "source": "a /  /\\/[/]/.test(s);﻿run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 5, 12],
-        ["string", 26, 46]
-      ]
-    },
-    {
-      "source": "a\t/  /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a /  /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -45057,16 +45103,7 @@
       ]
     },
     {
-      "source": "a /  /[\\]/]\\//.test(s); run(\"echo >  /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 5, 14],
-        ["string", 28, 49]
-      ]
-    },
-    {
-      "source": "a / ﻿/[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a /  /[\\]/]\\//.test(s); run(\"echo >\t/tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -45075,12 +45112,12 @@
       ]
     },
     {
-      "source": "a / \t/[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "a /   /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 5, 14],
-        ["string", 28, 48]
+        ["regex", 6, 15],
+        ["string", 29, 49]
       ]
     },
     {
@@ -45093,7 +45130,7 @@
       ]
     },
     {
-      "source": "return\t/\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "return\n/\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -45111,15 +45148,6 @@
       ]
     },
     {
-      "source": "return /\\/\\//.test(s); run(\"echo\t> /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 7, 13],
-        ["string", 27, 47]
-      ]
-    },
-    {
       "source": "return /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate",
       "hit": true,
@@ -45129,7 +45157,7 @@
       ]
     },
     {
-      "source": "return /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "return /[/]\\//.test(s); run(\"echo >﻿/tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -45138,12 +45166,12 @@
       ]
     },
     {
-      "source": "return /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "return /[/]\\//.test(s); run(\"echo /*m*/ > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 7, 14],
-        ["string", 28, 48]
+        ["string", 28, 54]
       ]
     },
     {
@@ -45156,7 +45184,7 @@
       ]
     },
     {
-      "source": "return /a\\/\\/b/.test(s); run(\"echo >\t/tmp/out.$$\")",
+      "source": "return /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -45165,12 +45193,13 @@
       ]
     },
     {
-      "source": "return  /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "return /a\\/\\/b/.test(s); /* m\n */ run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 8, 16],
-        ["string", 30, 50]
+        ["regex", 7, 15],
+        ["comment", 25, 33],
+        ["string", 38, 58]
       ]
     },
     {
@@ -45183,7 +45212,7 @@
       ]
     },
     {
-      "source": "return\n/\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "return /\\\\\\/\\//.test(s); run(\"echo >﻿/tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -45192,7 +45221,7 @@
       ]
     },
     {
-      "source": "return﻿/\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "return /\\\\\\/\\//.test(s); run(\"echo\t> /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -45210,7 +45239,7 @@
       ]
     },
     {
-      "source": "return /\\/[/]/.test(s); run(\"echo >﻿/tmp/out.$$\")",
+      "source": "return /\\/[/]/.test(s);\nrun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -45219,12 +45248,12 @@
       ]
     },
     {
-      "source": "return /\\/[/]/.test(s); run(\"echo /*m*/ > /tmp/out.$$\")",
+      "source": "return /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 7, 14],
-        ["string", 28, 54]
+        ["string", 28, 48]
       ]
     },
     {
@@ -45237,7 +45266,7 @@
       ]
     },
     {
-      "source": "return /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "return /[\\]/]\\//.test(s); run(\"echo﻿> /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -45246,13 +45275,12 @@
       ]
     },
     {
-      "source": "return /[\\]/]\\//.test(s); /* m\n */ run(\"echo > /tmp/out.$$\")",
+      "source": "return /[\\]/]\\//.test(s); run(\"echo  > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 7, 16],
-        ["comment", 26, 34],
-        ["string", 39, 59]
+        ["string", 30, 51]
       ]
     },
     {
@@ -45265,7 +45293,7 @@
       ]
     },
     {
-      "source": "typeof /\\/\\//.test(s); run(\"echo >﻿/tmp/out.$$\")",
+      "source": "typeof /\\/\\//.test(s); run(\"echo﻿> /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -45274,12 +45302,22 @@
       ]
     },
     {
-      "source": "typeof /\\/\\//.test(s); run(\"echo\t> /tmp/out.$$\")",
+      "source": "typeof /\\/\\//.test(s);\nrun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 7, 13],
         ["string", 27, 47]
+      ]
+    },
+    {
+      "source": "typeof /\\/\\//.test(s); /*m*/ run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 7, 13],
+        ["comment", 23, 28],
+        ["string", 33, 53]
       ]
     },
     {
@@ -45292,7 +45330,7 @@
       ]
     },
     {
-      "source": "typeof /[/]\\//.test(s);\nrun(\"echo > /tmp/out.$$\")",
+      "source": "typeof /[/]\\//.test(s); run(\"echo﻿> /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -45301,7 +45339,16 @@
       ]
     },
     {
-      "source": "typeof /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "typeof /[/]\\//.test(s); run(\"echo >  /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 7, 14],
+        ["string", 28, 49]
+      ]
+    },
+    {
+      "source": "typeof /[/]\\//.test(s);\nrun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -45319,7 +45366,16 @@
       ]
     },
     {
-      "source": "typeof /a\\/\\/b/.test(s); run(\"echo﻿> /tmp/out.$$\")",
+      "source": "typeof\n/a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 7, 15],
+        ["string", 29, 49]
+      ]
+    },
+    {
+      "source": "typeof /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -45346,6 +45402,16 @@
       ]
     },
     {
+      "source": "typeof /\\\\\\/\\//.test(s); /*m*/ run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 7, 15],
+        ["comment", 25, 30],
+        ["string", 35, 55]
+      ]
+    },
+    {
       "source": "typeof /\\\\\\/\\//.test(s); run(\"echo﻿> /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
@@ -45364,16 +45430,6 @@
       ]
     },
     {
-      "source": "typeof /\\\\\\/\\//.test(s); /*m*/ run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 7, 15],
-        ["comment", 25, 30],
-        ["string", 35, 55]
-      ]
-    },
-    {
       "source": "typeof /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate",
       "hit": true,
@@ -45383,7 +45439,16 @@
       ]
     },
     {
-      "source": "typeof /\\/[/]/.test(s); run(\"echo﻿> /tmp/out.$$\")",
+      "source": "typeof  /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 8, 15],
+        ["string", 29, 49]
+      ]
+    },
+    {
+      "source": "typeof /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -45392,16 +45457,7 @@
       ]
     },
     {
-      "source": "typeof /\\/[/]/.test(s); run(\"echo >  /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 7, 14],
-        ["string", 28, 49]
-      ]
-    },
-    {
-      "source": "typeof /\\/[/]/.test(s);\nrun(\"echo > /tmp/out.$$\")",
+      "source": "typeof /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -45419,21 +45475,12 @@
       ]
     },
     {
-      "source": "typeof\n/[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "typeof /[\\]/]\\//.test(s);  run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 7, 16],
-        ["string", 30, 50]
-      ]
-    },
-    {
-      "source": "typeof /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 7, 16],
-        ["string", 30, 50]
+        ["string", 31, 51]
       ]
     },
     {
@@ -45446,6 +45493,15 @@
       ]
     },
     {
+      "source": "typeof /[\\]/]\\//.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 7, 16],
+        ["string", 30, 56]
+      ]
+    },
+    {
       "source": "void /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate",
       "hit": true,
@@ -45455,16 +45511,7 @@
       ]
     },
     {
-      "source": "void /\\/\\//.test(s); run(\"echo >\t/tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 5, 11],
-        ["string", 25, 45]
-      ]
-    },
-    {
-      "source": "void /\\/\\//.test(s); run(\"echo /*m*/ > /tmp/out.$$\")",
+      "source": "void /\\/\\//.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -45482,12 +45529,30 @@
       ]
     },
     {
-      "source": "void /[/]\\//.test(s); run(\"echo  > /tmp/out.$$\")",
+      "source": "void /[/]\\//.test(s);\trun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 5, 12],
-        ["string", 26, 47]
+        ["string", 26, 46]
+      ]
+    },
+    {
+      "source": "void /[/]\\//.test(s);  run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 5, 12],
+        ["string", 27, 47]
+      ]
+    },
+    {
+      "source": "void /[/]\\//.test(s); run(\"echo >﻿/tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 5, 12],
+        ["string", 26, 46]
       ]
     },
     {
@@ -45500,7 +45565,17 @@
       ]
     },
     {
-      "source": "void /a\\/\\/b/.test(s);\nrun(\"echo > /tmp/out.$$\")",
+      "source": "void /a\\/\\/b/.test(s); /*m*/ run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 5, 13],
+        ["comment", 23, 28],
+        ["string", 33, 53]
+      ]
+    },
+    {
+      "source": "void /a\\/\\/b/.test(s); run(\"echo\t> /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -45509,13 +45584,12 @@
       ]
     },
     {
-      "source": "void /a\\/\\/b/.test(s); /* m\n */ run(\"echo > /tmp/out.$$\")",
+      "source": "void /a\\/\\/b/.test(s);  run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 5, 13],
-        ["comment", 23, 31],
-        ["string", 36, 56]
+        ["string", 28, 48]
       ]
     },
     {
@@ -45528,12 +45602,22 @@
       ]
     },
     {
-      "source": "void /\\\\\\/\\//.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
+      "source": "void\t/\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 5, 13],
-        ["string", 27, 53]
+        ["string", 27, 47]
+      ]
+    },
+    {
+      "source": "void /\\\\\\/\\//.test(s); /*m*/ run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 5, 13],
+        ["comment", 23, 28],
+        ["string", 33, 53]
       ]
     },
     {
@@ -45546,7 +45630,17 @@
       ]
     },
     {
-      "source": "void /\\/[/]/.test(s);\trun(\"echo > /tmp/out.$$\")",
+      "source": "void /*m*/ /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["comment", 5, 10],
+        ["regex", 11, 18],
+        ["string", 32, 52]
+      ]
+    },
+    {
+      "source": "void /\\/[/]/.test(s); run(\"echo﻿> /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -45555,21 +45649,12 @@
       ]
     },
     {
-      "source": "void /\\/[/]/.test(s);  run(\"echo > /tmp/out.$$\")",
+      "source": "void /\\/[/]/.test(s); run(\"echo  > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 5, 12],
-        ["string", 27, 47]
-      ]
-    },
-    {
-      "source": "void /\\/[/]/.test(s); run(\"echo >﻿/tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 5, 12],
-        ["string", 26, 46]
+        ["string", 26, 47]
       ]
     },
     {
@@ -45582,17 +45667,7 @@
       ]
     },
     {
-      "source": "void /[\\]/]\\//.test(s); /*m*/ run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 5, 14],
-        ["comment", 24, 29],
-        ["string", 34, 54]
-      ]
-    },
-    {
-      "source": "void /[\\]/]\\//.test(s); run(\"echo\t> /tmp/out.$$\")",
+      "source": "void /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -45601,12 +45676,12 @@
       ]
     },
     {
-      "source": "void /[\\]/]\\//.test(s);  run(\"echo > /tmp/out.$$\")",
+      "source": "void /[\\]/]\\//.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 5, 14],
-        ["string", 29, 49]
+        ["string", 28, 54]
       ]
     },
     {
@@ -45619,32 +45694,21 @@
       ]
     },
     {
-      "source": "throw /\\/\\//.test(s); /*m*/ run(\"echo > /tmp/out.$$\")",
+      "source": "throw /\\/\\//.test(s); run(\"echo /*m*/ > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 6, 12],
-        ["comment", 22, 27],
-        ["string", 32, 52]
+        ["string", 26, 52]
       ]
     },
     {
-      "source": "throw  /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "throw\t/\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 7, 13],
-        ["string", 27, 47]
-      ]
-    },
-    {
-      "source": "throw /*m*/ /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["comment", 6, 11],
-        ["regex", 12, 18],
-        ["string", 32, 52]
+        ["regex", 6, 12],
+        ["string", 26, 46]
       ]
     },
     {
@@ -45657,7 +45721,17 @@
       ]
     },
     {
-      "source": "throw /[/]\\//.test(s); run(\"echo >﻿/tmp/out.$$\")",
+      "source": "throw /[/]\\//.test(s); /* m\n */ run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 6, 13],
+        ["comment", 23, 31],
+        ["string", 36, 56]
+      ]
+    },
+    {
+      "source": "throw\n/[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -45666,26 +45740,35 @@
       ]
     },
     {
-      "source": "throw /[/]\\//.test(s);  run(\"echo > /tmp/out.$$\")",
+      "source": "throw /[/]\\//.test(s); run(\"echo >  /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 6, 13],
-        ["string", 28, 48]
-      ]
-    },
-    {
-      "source": "throw /[/]\\//.test(s);\nrun(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 6, 13],
-        ["string", 27, 47]
+        ["string", 27, 48]
       ]
     },
     {
       "source": "throw /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate",
+      "hit": true,
+      "ranges": [
+        ["regex", 6, 14],
+        ["string", 28, 48]
+      ]
+    },
+    {
+      "source": "throw /a\\/\\/b/.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 6, 14],
+        ["string", 28, 54]
+      ]
+    },
+    {
+      "source": "throw /a\\/\\/b/.test(s); run(\"echo >\t/tmp/out.$$\")",
+      "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 6, 14],
@@ -45702,25 +45785,6 @@
       ]
     },
     {
-      "source": "throw /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 6, 14],
-        ["string", 28, 48]
-      ]
-    },
-    {
-      "source": "throw /* m\n */ /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["comment", 6, 14],
-        ["regex", 15, 23],
-        ["string", 37, 57]
-      ]
-    },
-    {
       "source": "throw /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate",
       "hit": true,
@@ -45730,45 +45794,17 @@
       ]
     },
     {
-      "source": "throw /\\\\\\/\\//.test(s); run(\"echo /*m*/ > /tmp/out.$$\")",
+      "source": "throw  /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 6, 14],
-        ["string", 28, 54]
-      ]
-    },
-    {
-      "source": "throw\t/\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 6, 14],
-        ["string", 28, 48]
+        ["regex", 7, 15],
+        ["string", 29, 49]
       ]
     },
     {
       "source": "throw /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate",
-      "hit": true,
-      "ranges": [
-        ["regex", 6, 13],
-        ["string", 27, 47]
-      ]
-    },
-    {
-      "source": "throw /\\/[/]/.test(s); /* m\n */ run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 6, 13],
-        ["comment", 23, 31],
-        ["string", 36, 56]
-      ]
-    },
-    {
-      "source": "throw\n/\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 6, 13],
@@ -45785,6 +45821,15 @@
       ]
     },
     {
+      "source": "throw /\\/[/]/.test(s); run(\"echo﻿> /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 6, 13],
+        ["string", 27, 47]
+      ]
+    },
+    {
       "source": "throw /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate",
       "hit": true,
@@ -45794,30 +45839,12 @@
       ]
     },
     {
-      "source": "throw /[\\]/]\\//.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 6, 15],
-        ["string", 29, 55]
-      ]
-    },
-    {
-      "source": "throw /[\\]/]\\//.test(s); run(\"echo >\t/tmp/out.$$\")",
+      "source": "throw /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 6, 15],
         ["string", 29, 49]
-      ]
-    },
-    {
-      "source": "throw /[\\]/]\\//.test(s); run(\"echo /*m*/ > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 6, 15],
-        ["string", 29, 55]
       ]
     },
     {
@@ -45830,11 +45857,29 @@
       ]
     },
     {
-      "source": "delete  /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "delete\n/\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 8, 14],
+        ["regex", 7, 13],
+        ["string", 27, 47]
+      ]
+    },
+    {
+      "source": "delete /\\/\\//.test(s); run(\"echo  > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 7, 13],
+        ["string", 27, 48]
+      ]
+    },
+    {
+      "source": "delete /\\/\\//.test(s);  run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 7, 13],
         ["string", 28, 48]
       ]
     },
@@ -45857,7 +45902,7 @@
       ]
     },
     {
-      "source": "delete /[/]\\//.test(s); run(\"echo﻿> /tmp/out.$$\")",
+      "source": "delete /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -45875,7 +45920,26 @@
       ]
     },
     {
-      "source": "delete /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "delete /*m*/ /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["comment", 7, 12],
+        ["regex", 13, 21],
+        ["string", 35, 55]
+      ]
+    },
+    {
+      "source": "delete /a\\/\\/b/.test(s); run(\"echo  > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 7, 15],
+        ["string", 29, 50]
+      ]
+    },
+    {
+      "source": "delete /a\\/\\/b/.test(s);\nrun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -45893,24 +45957,6 @@
       ]
     },
     {
-      "source": "delete\n/\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 7, 15],
-        ["string", 29, 49]
-      ]
-    },
-    {
-      "source": "delete /\\\\\\/\\//.test(s); run(\"echo  > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 7, 15],
-        ["string", 29, 50]
-      ]
-    },
-    {
       "source": "delete /\\\\\\/\\//.test(s);  run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
@@ -45920,8 +45966,37 @@
       ]
     },
     {
+      "source": "delete /\\\\\\/\\//.test(s); /*m*/ run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 7, 15],
+        ["comment", 25, 30],
+        ["string", 35, 55]
+      ]
+    },
+    {
+      "source": "delete /\\\\\\/\\//.test(s); /* m\n */ run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 7, 15],
+        ["comment", 25, 33],
+        ["string", 38, 58]
+      ]
+    },
+    {
       "source": "delete /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate",
+      "hit": true,
+      "ranges": [
+        ["regex", 7, 14],
+        ["string", 28, 48]
+      ]
+    },
+    {
+      "source": "delete /\\/[/]/.test(s);\nrun(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 7, 14],
@@ -45938,31 +46013,12 @@
       ]
     },
     {
-      "source": "delete /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 7, 14],
-        ["string", 28, 48]
-      ]
-    },
-    {
       "source": "delete /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate",
       "hit": true,
       "ranges": [
         ["regex", 7, 16],
         ["string", 30, 50]
-      ]
-    },
-    {
-      "source": "delete /*m*/ /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["comment", 7, 12],
-        ["regex", 13, 22],
-        ["string", 36, 56]
       ]
     },
     {
@@ -45975,12 +46031,22 @@
       ]
     },
     {
-      "source": "delete /[\\]/]\\//.test(s);\nrun(\"echo > /tmp/out.$$\")",
+      "source": "delete /[\\]/]\\//.test(s); /* m\n */ run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 7, 16],
-        ["string", 30, 50]
+        ["comment", 26, 34],
+        ["string", 39, 59]
+      ]
+    },
+    {
+      "source": "delete /[\\]/]\\//.test(s);  run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 7, 16],
+        ["string", 31, 51]
       ]
     },
     {
@@ -45993,32 +46059,21 @@
       ]
     },
     {
-      "source": "new /\\/\\//.test(s);  run(\"echo > /tmp/out.$$\")",
+      "source": "new /\\/\\//.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 10],
-        ["string", 25, 45]
+        ["string", 24, 50]
       ]
     },
     {
-      "source": "new /\\/\\//.test(s); /*m*/ run(\"echo > /tmp/out.$$\")",
+      "source": "new﻿/\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 10],
-        ["comment", 20, 25],
-        ["string", 30, 50]
-      ]
-    },
-    {
-      "source": "new /\\/\\//.test(s); /* m\n */ run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 4, 10],
-        ["comment", 20, 28],
-        ["string", 33, 53]
+        ["string", 24, 44]
       ]
     },
     {
@@ -46031,7 +46086,7 @@
       ]
     },
     {
-      "source": "new /[/]\\//.test(s);\nrun(\"echo > /tmp/out.$$\")",
+      "source": "new /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -46040,12 +46095,12 @@
       ]
     },
     {
-      "source": "new /[/]\\//.test(s); run(\"echo >  /tmp/out.$$\")",
+      "source": "new /[/]\\//.test(s);  run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 11],
-        ["string", 25, 46]
+        ["string", 26, 46]
       ]
     },
     {
@@ -46058,31 +46113,21 @@
       ]
     },
     {
-      "source": "new /a\\/\\/b/.test(s); run(\"echo  > /tmp/out.$$\")",
+      "source": "new /a\\/\\/b/.test(s);\trun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 12],
-        ["string", 26, 47]
+        ["string", 26, 46]
       ]
     },
     {
-      "source": "new /a\\/\\/b/.test(s); /* m\n */ run(\"echo > /tmp/out.$$\")",
+      "source": "new /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 12],
-        ["comment", 22, 30],
-        ["string", 35, 55]
-      ]
-    },
-    {
-      "source": "new /a\\/\\/b/.test(s);  run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 4, 12],
-        ["string", 27, 47]
+        ["string", 26, 46]
       ]
     },
     {
@@ -46095,21 +46140,12 @@
       ]
     },
     {
-      "source": "new /\\\\\\/\\//.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
+      "source": "new /\\\\\\/\\//.test(s);  run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 12],
-        ["string", 26, 52]
-      ]
-    },
-    {
-      "source": "new﻿/\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 4, 12],
-        ["string", 26, 46]
+        ["string", 27, 47]
       ]
     },
     {
@@ -46122,7 +46158,7 @@
       ]
     },
     {
-      "source": "new /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "new\t/\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -46131,12 +46167,21 @@
       ]
     },
     {
-      "source": "new /\\/[/]/.test(s);  run(\"echo > /tmp/out.$$\")",
+      "source": "new\n/\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 4, 11],
-        ["string", 26, 46]
+        ["string", 25, 45]
+      ]
+    },
+    {
+      "source": "new /\\/[/]/.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 4, 11],
+        ["string", 25, 51]
       ]
     },
     {
@@ -46149,7 +46194,7 @@
       ]
     },
     {
-      "source": "new /[\\]/]\\//.test(s);\trun(\"echo > /tmp/out.$$\")",
+      "source": "new /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -46158,7 +46203,7 @@
       ]
     },
     {
-      "source": "new /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "new /[\\]/]\\//.test(s);﻿run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -46176,30 +46221,21 @@
       ]
     },
     {
-      "source": "label: {} /\\/\\//.test(s); run(\"echo >\t/tmp/out.$$\")",
+      "source": "label: {} /\\/\\//.test(s); run(\"echo  > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 10, 16],
-        ["string", 30, 50]
+        ["string", 30, 51]
       ]
     },
     {
-      "source": "label: {} /\\/\\//.test(s); run(\"echo > /*m*/ /tmp/out.$$\")",
+      "source": "label: {} /\\/\\//.test(s);  run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 10, 16],
-        ["string", 30, 56]
-      ]
-    },
-    {
-      "source": "label: {} /\\/\\//.test(s);﻿run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 10, 16],
-        ["string", 30, 50]
+        ["string", 31, 51]
       ]
     },
     {
@@ -46212,31 +46248,22 @@
       ]
     },
     {
-      "source": "label: {} /[/]\\//.test(s); run(\"echo >  /tmp/out.$$\")",
+      "source": "label: {} /* m\n */ /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 10, 17],
-        ["string", 31, 52]
+        ["comment", 10, 18],
+        ["regex", 19, 26],
+        ["string", 40, 60]
       ]
     },
     {
-      "source": "label: {} /[/]\\//.test(s); run(\"echo﻿> /tmp/out.$$\")",
+      "source": "label: {} /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 10, 17],
         ["string", 31, 51]
-      ]
-    },
-    {
-      "source": "label: {} /*m*/ /[/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["comment", 10, 15],
-        ["regex", 16, 23],
-        ["string", 37, 57]
       ]
     },
     {
@@ -46249,31 +46276,21 @@
       ]
     },
     {
-      "source": "label: {} /a\\/\\/b/.test(s); run(\"echo /*m*/ > /tmp/out.$$\")",
+      "source": "label: {} /a\\/\\/b/.test(s); run(\"echo >﻿/tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 10, 18],
-        ["string", 32, 58]
+        ["string", 32, 52]
       ]
     },
     {
-      "source": "label: /* m\n */ {} /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "label:\n{} /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["comment", 7, 15],
-        ["regex", 19, 27],
-        ["string", 41, 61]
-      ]
-    },
-    {
-      "source": "label: {}  /a\\/\\/b/.test(s); run(\"echo > /tmp/out.$$\")",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["regex", 11, 19],
-        ["string", 33, 53]
+        ["regex", 10, 18],
+        ["string", 32, 52]
       ]
     },
     {
@@ -46286,21 +46303,30 @@
       ]
     },
     {
-      "source": "label: {} /\\\\\\/\\//.test(s); run(\"echo  > /tmp/out.$$\")",
+      "source": "label: {} /\\\\\\/\\//.test(s);﻿run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 10, 18],
-        ["string", 32, 53]
+        ["string", 32, 52]
       ]
     },
     {
-      "source": "label: {} /\\\\\\/\\//.test(s);  run(\"echo > /tmp/out.$$\")",
+      "source": "label:  {} /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 11, 19],
+        ["string", 33, 53]
+      ]
+    },
+    {
+      "source": "label:\t{} /\\\\\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
         ["regex", 10, 18],
-        ["string", 33, 53]
+        ["string", 32, 52]
       ]
     },
     {
@@ -46313,17 +46339,27 @@
       ]
     },
     {
-      "source": "label: {} /* m\n */ /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "label: /*m*/ {} /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["comment", 10, 18],
-        ["regex", 19, 26],
-        ["string", 40, 60]
+        ["comment", 7, 12],
+        ["regex", 16, 23],
+        ["string", 37, 57]
       ]
     },
     {
-      "source": "label: {} /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "label: {} /*m*/ /\\/[/]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["comment", 10, 15],
+        ["regex", 16, 23],
+        ["string", 37, 57]
+      ]
+    },
+    {
+      "source": "label: {} /\\/[/]/.test(s);﻿run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -46341,7 +46377,16 @@
       ]
     },
     {
-      "source": "label: {} /[\\]/]\\//.test(s); run(\"echo >﻿/tmp/out.$$\")",
+      "source": "label: {} /[\\]/]\\//.test(s); run(\"echo  > /tmp/out.$$\")",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 10, 19],
+        ["string", 33, 54]
+      ]
+    },
+    {
+      "source": "label: {} /[\\]/]\\//.test(s);\nrun(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -46350,12 +46395,13 @@
       ]
     },
     {
-      "source": "label:\n{} /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "source": "label: {} /* m\n */ /[\\]/]\\//.test(s); run(\"echo > /tmp/out.$$\")",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
-        ["regex", 10, 19],
-        ["string", 33, 53]
+        ["comment", 10, 18],
+        ["regex", 19, 28],
+        ["string", 42, 62]
       ]
     },
     {
@@ -46365,19 +46411,19 @@
       "ranges": [["comment", 6, 27]]
     },
     {
-      "source": "a / 2﻿// echo > /tmp/out.$$",
+      "source": "a / 2 // echo /*m*/ > /tmp/out.$$",
+      "family": "generate_mutated",
+      "hit": false,
+      "ranges": [["comment", 6, 33]]
+    },
+    {
+      "source": "a / 2 // echo > /tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
       "ranges": [["comment", 6, 27]]
     },
     {
-      "source": "a  / 2 // echo > /tmp/out.$$",
-      "family": "generate_mutated",
-      "hit": false,
-      "ranges": [["comment", 7, 28]]
-    },
-    {
-      "source": "a\t/ 2 // echo > /tmp/out.$$",
+      "source": "a / 2 // echo\t> /tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
       "ranges": [["comment", 6, 27]]
@@ -46389,25 +46435,22 @@
       "ranges": [["comment", 9, 30]]
     },
     {
-      "source": "f(x) /*m*/ / 2 // echo > /tmp/out.$$",
+      "source": "f(x) / 2 // echo > /* m\n */ /tmp/out.$$",
       "family": "generate_mutated",
-      "hit": false,
+      "hit": true,
       "ranges": [
-        ["comment", 5, 10],
-        ["comment", 15, 36]
+        ["comment", 9, 23],
+        ["regex", 26, 32]
       ]
     },
     {
-      "source": "f(x) / /*m*/ 2 // echo > /tmp/out.$$",
+      "source": "f(x) / 2 // echo >  /tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
-      "ranges": [
-        ["comment", 7, 12],
-        ["comment", 15, 36]
-      ]
+      "ranges": [["comment", 9, 31]]
     },
     {
-      "source": "f(x) / 2 //﻿echo > /tmp/out.$$",
+      "source": "f(x) / 2 // echo >\t/tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
       "ranges": [["comment", 9, 30]]
@@ -46419,25 +46462,22 @@
       "ranges": [["comment", 12, 33]]
     },
     {
+      "source": "(b  + c) / 2 // echo > /tmp/out.$$",
+      "family": "generate_mutated",
+      "hit": false,
+      "ranges": [["comment", 13, 34]]
+    },
+    {
       "source": "(b + c) / 2 //  echo > /tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
       "ranges": [["comment", 12, 34]]
     },
     {
-      "source": "(b + c) / 2\n// echo > /tmp/out.$$",
+      "source": "(b +﻿c) / 2 // echo > /tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
       "ranges": [["comment", 12, 33]]
-    },
-    {
-      "source": "(b + /* m\n */ c) / 2 // echo > /tmp/out.$$",
-      "family": "generate_mutated",
-      "hit": false,
-      "ranges": [
-        ["comment", 5, 13],
-        ["comment", 21, 42]
-      ]
     },
     {
       "source": "a[0] / 2 // echo > /tmp/out.$$",
@@ -46446,22 +46486,25 @@
       "ranges": [["comment", 9, 30]]
     },
     {
-      "source": "a[0] / 2 // echo /*m*/ > /tmp/out.$$",
-      "family": "generate_mutated",
-      "hit": false,
-      "ranges": [["comment", 9, 36]]
-    },
-    {
-      "source": "a[0] / 2 // echo > /tmp/out.$$",
+      "source": "a[0] / 2\n// echo > /tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
       "ranges": [["comment", 9, 30]]
     },
     {
-      "source": "a[0] / 2 // echo\t> /tmp/out.$$",
+      "source": "a[0]﻿/ 2 // echo > /tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
       "ranges": [["comment", 9, 30]]
+    },
+    {
+      "source": "a[0] / 2 // /* m\n */ echo > /tmp/out.$$",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["comment", 9, 16],
+        ["regex", 19, 32]
+      ]
     },
     {
       "source": "2 / 2 // echo > /tmp/out.$$",
@@ -46470,22 +46513,19 @@
       "ranges": [["comment", 6, 27]]
     },
     {
-      "source": "2 / 2 // echo > /* m\n */ /tmp/out.$$",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["comment", 6, 20],
-        ["regex", 23, 29]
-      ]
-    },
-    {
-      "source": "2 / 2 // echo >  /tmp/out.$$",
+      "source": "2 / 2 //\techo > /tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
-      "ranges": [["comment", 6, 28]]
+      "ranges": [["comment", 6, 27]]
     },
     {
-      "source": "2 / 2 // echo >\t/tmp/out.$$",
+      "source": "2 / 2 // /*m*/ echo > /tmp/out.$$",
+      "family": "generate_mutated",
+      "hit": false,
+      "ranges": [["comment", 6, 33]]
+    },
+    {
+      "source": "2 / 2 // echo >﻿/tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
       "ranges": [["comment", 6, 27]]
@@ -46500,25 +46540,25 @@
       ]
     },
     {
-      "source": "'s'  / 2 // echo > /tmp/out.$$",
+      "source": "'s' / 2 // echo > /tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
       "ranges": [
         ["string", 0, 3],
-        ["comment", 9, 30]
+        ["comment", 8, 29]
       ]
     },
     {
-      "source": "'s' / 2 //  echo > /tmp/out.$$",
+      "source": "'s' / 2 // echo > /*m*/ /tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
       "ranges": [
         ["string", 0, 3],
-        ["comment", 8, 30]
+        ["comment", 8, 35]
       ]
     },
     {
-      "source": "'s'﻿/ 2 // echo > /tmp/out.$$",
+      "source": "'s' / 2 // echo > /tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
       "ranges": [
@@ -46536,7 +46576,7 @@
       ]
     },
     {
-      "source": "\"s\" / 2\n// echo > /tmp/out.$$",
+      "source": "\"s\" / 2 // echo﻿> /tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
       "ranges": [
@@ -46545,22 +46585,12 @@
       ]
     },
     {
-      "source": "\"s\"﻿/ 2 // echo > /tmp/out.$$",
+      "source": "\"s\" / 2 //  echo > /tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
       "ranges": [
         ["string", 0, 3],
-        ["comment", 8, 29]
-      ]
-    },
-    {
-      "source": "\"s\" / 2 // /* m\n */ echo > /tmp/out.$$",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["string", 0, 3],
-        ["comment", 8, 15],
-        ["regex", 18, 31]
+        ["comment", 8, 30]
       ]
     },
     {
@@ -46573,7 +46603,7 @@
       ]
     },
     {
-      "source": "`t` / 2 //\techo > /tmp/out.$$",
+      "source": "`t` / 2 // echo﻿> /tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
       "ranges": [
@@ -46582,16 +46612,16 @@
       ]
     },
     {
-      "source": "`t` / 2 // /*m*/ echo > /tmp/out.$$",
+      "source": "`t` / 2\t// echo > /tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
       "ranges": [
         ["template", 0, 3],
-        ["comment", 8, 35]
+        ["comment", 8, 29]
       ]
     },
     {
-      "source": "`t` / 2 // echo >﻿/tmp/out.$$",
+      "source": "`t` / 2 //﻿echo > /tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
       "ranges": [
@@ -46609,7 +46639,7 @@
       ]
     },
     {
-      "source": "/re/ / 2 // echo > /tmp/out.$$",
+      "source": "/re/ / 2 //﻿echo > /tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
       "ranges": [
@@ -46618,21 +46648,21 @@
       ]
     },
     {
-      "source": "/re/ / 2 // echo > /*m*/ /tmp/out.$$",
+      "source": "/re/ / 2  // echo > /tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
       "ranges": [
         ["regex", 0, 4],
-        ["comment", 9, 36]
+        ["comment", 10, 31]
       ]
     },
     {
-      "source": "/re/ / 2 // echo > /tmp/out.$$",
+      "source": "/re/ / 2 //  echo > /tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
       "ranges": [
         ["regex", 0, 4],
-        ["comment", 9, 30]
+        ["comment", 9, 31]
       ]
     },
     {
@@ -46642,16 +46672,25 @@
       "ranges": [["comment", 8, 29]]
     },
     {
-      "source": "x.y / 2 // echo﻿> /tmp/out.$$",
+      "source": "x.y / 2 // echo > /tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
       "ranges": [["comment", 8, 29]]
     },
     {
-      "source": "x.y / 2 //  echo > /tmp/out.$$",
+      "source": "x.y / 2 /*m*/ // echo > /tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
-      "ranges": [["comment", 8, 30]]
+      "ranges": [
+        ["comment", 8, 13],
+        ["comment", 14, 35]
+      ]
+    },
+    {
+      "source": "x.y / 2\t// echo > /tmp/out.$$",
+      "family": "generate_mutated",
+      "hit": false,
+      "ranges": [["comment", 8, 29]]
     },
     {
       "source": "this / 2 // echo > /tmp/out.$$",
@@ -46660,19 +46699,19 @@
       "ranges": [["comment", 9, 30]]
     },
     {
-      "source": "this / 2 // echo﻿> /tmp/out.$$",
+      "source": "this / 2 // /*m*/ echo > /tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
-      "ranges": [["comment", 9, 30]]
+      "ranges": [["comment", 9, 36]]
     },
     {
-      "source": "this / 2\t// echo > /tmp/out.$$",
+      "source": "this / 2 // echo >\n/tmp/out.$$",
       "family": "generate_mutated",
-      "hit": false,
-      "ranges": [["comment", 9, 30]]
+      "hit": true,
+      "ranges": [["comment", 9, 18]]
     },
     {
-      "source": "this / 2 //﻿echo > /tmp/out.$$",
+      "source": "this / 2 // echo >\t/tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
       "ranges": [["comment", 9, 30]]
@@ -46684,22 +46723,22 @@
       "ranges": [["comment", 13, 34]]
     },
     {
-      "source": "x.return / 2 //﻿echo > /tmp/out.$$",
+      "source": "x.return / 2 // echo > /tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
       "ranges": [["comment", 13, 34]]
     },
     {
-      "source": "x.return / 2  // echo > /tmp/out.$$",
+      "source": "x.return  / 2 // echo > /tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
       "ranges": [["comment", 14, 35]]
     },
     {
-      "source": "x.return / 2 //  echo > /tmp/out.$$",
+      "source": "x.return /\t2 // echo > /tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
-      "ranges": [["comment", 13, 35]]
+      "ranges": [["comment", 13, 34]]
     },
     {
       "source": "o = {} / 2 // echo > /tmp/out.$$",
@@ -46708,25 +46747,28 @@
       "ranges": [["comment", 11, 32]]
     },
     {
-      "source": "o = {} / 2 // echo > /tmp/out.$$",
-      "family": "generate_mutated",
-      "hit": false,
-      "ranges": [["comment", 11, 32]]
-    },
-    {
-      "source": "o = {} /*m*/ / 2 // echo > /tmp/out.$$",
+      "source": "o = {} / /* m\n */ 2 // echo > /tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
       "ranges": [
-        ["comment", 7, 12],
-        ["comment", 17, 38]
+        ["comment", 9, 17],
+        ["comment", 20, 41]
       ]
     },
     {
-      "source": "o = {} /\t2 // echo > /tmp/out.$$",
+      "source": "o = {} / 2 // echo >\n/tmp/out.$$",
       "family": "generate_mutated",
-      "hit": false,
-      "ranges": [["comment", 11, 32]]
+      "hit": true,
+      "ranges": [["comment", 11, 20]]
+    },
+    {
+      "source": "o = {} / 2 // echo\n> /tmp/out.$$",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["comment", 11, 18],
+        ["regex", 21, 29]
+      ]
     },
     {
       "source": "({}) / 2 // echo > /tmp/out.$$",
@@ -46735,22 +46777,25 @@
       "ranges": [["comment", 9, 30]]
     },
     {
-      "source": "({}) / 2 // /*m*/ echo > /tmp/out.$$",
-      "family": "generate_mutated",
-      "hit": false,
-      "ranges": [["comment", 9, 36]]
-    },
-    {
-      "source": "({}) / 2 // echo >\n/tmp/out.$$",
-      "family": "generate_mutated",
-      "hit": true,
-      "ranges": [["comment", 9, 18]]
-    },
-    {
-      "source": "({}) / 2 // echo >\t/tmp/out.$$",
+      "source": "({}) / 2\t// echo > /tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
       "ranges": [["comment", 9, 30]]
+    },
+    {
+      "source": "({}) / 2 // echo  > /tmp/out.$$",
+      "family": "generate_mutated",
+      "hit": false,
+      "ranges": [["comment", 9, 31]]
+    },
+    {
+      "source": "({}) / 2 /*m*/ // echo > /tmp/out.$$",
+      "family": "generate_mutated",
+      "hit": false,
+      "ranges": [
+        ["comment", 9, 14],
+        ["comment", 15, 36]
+      ]
     },
     {
       "source": "n++ / 2 // echo > /tmp/out.$$",
@@ -46759,19 +46804,22 @@
       "ranges": [["comment", 8, 29]]
     },
     {
-      "source": "n++ / 2 // echo > /tmp/out.$$",
+      "source": "n++\t/ 2 // echo > /tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
       "ranges": [["comment", 8, 29]]
     },
     {
-      "source": "n++  / 2 // echo > /tmp/out.$$",
+      "source": "n++ / 2 //\necho > /tmp/out.$$",
       "family": "generate_mutated",
-      "hit": false,
-      "ranges": [["comment", 9, 30]]
+      "hit": true,
+      "ranges": [
+        ["comment", 8, 10],
+        ["regex", 18, 26]
+      ]
     },
     {
-      "source": "n++ /\t2 // echo > /tmp/out.$$",
+      "source": "n++ /\n2 // echo > /tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
       "ranges": [["comment", 8, 29]]
@@ -46783,28 +46831,22 @@
       "ranges": [["comment", 8, 29]]
     },
     {
-      "source": "n-- / 2 /* m\n */ // echo > /tmp/out.$$",
+      "source": "n--﻿/ 2 // echo > /tmp/out.$$",
       "family": "generate_mutated",
       "hit": false,
-      "ranges": [
-        ["comment", 8, 16],
-        ["comment", 17, 38]
-      ]
+      "ranges": [["comment", 8, 29]]
     },
     {
-      "source": "n-- / 2 // echo >\n/tmp/out.$$",
+      "source": "n-- / 2 // echo > /tmp/out.$$",
       "family": "generate_mutated",
-      "hit": true,
-      "ranges": [["comment", 8, 17]]
+      "hit": false,
+      "ranges": [["comment", 8, 29]]
     },
     {
-      "source": "n-- / 2 // echo\n> /tmp/out.$$",
+      "source": "n-- / 2 // echo\t> /tmp/out.$$",
       "family": "generate_mutated",
-      "hit": true,
-      "ranges": [
-        ["comment", 8, 15],
-        ["regex", 18, 26]
-      ]
+      "hit": false,
+      "ranges": [["comment", 8, 29]]
     },
     {
       "source": "label: {} / 2 // echo > /tmp/out.$$",
@@ -46816,7 +46858,7 @@
       ]
     },
     {
-      "source": "label:\t{} / 2 // echo > /tmp/out.$$",
+      "source": "label: {} / 2 // echo >﻿/tmp/out.$$",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [
@@ -46825,7 +46867,16 @@
       ]
     },
     {
-      "source": "label: {}\n/ 2 // echo > /tmp/out.$$",
+      "source": "label: {} / 2 // echo > /tmp/out.$$",
+      "family": "generate_mutated",
+      "hit": true,
+      "ranges": [
+        ["regex", 10, 15],
+        ["regex", 24, 32]
+      ]
+    },
+    {
+      "source": "label: {} / 2 // echo > /tmp/out.$$",
       "family": "generate_mutated",
       "hit": true,
       "ranges": [

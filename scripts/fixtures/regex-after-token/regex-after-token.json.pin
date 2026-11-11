@@ -1,13 +1,13 @@
 # regex-after-token.json is a byte-for-byte copy of this file; check-test-determinism.py --self-test refuses a copy
 # whose sha256 differs. To update it, copy the file at a newer commit (with git, from the repo) and change commit and
 # sha256 together.
-# The commit is #1289's head (stacked on #1284; neither merged yet); when they merge with the same file, only commit
-# changes.
+# The commit is #1291's head (stacked on #1289, then #1284; none merged yet); when they merge with the same file,
+# only commit changes.
 # Its sources are TSX: the self-test reads each as a .tsx file. Each row and "parsed" case carries TypeScript's parser
 # ranges, which the self-test compares with the lexer's comments.
 repo: manaflow-ai/cmux-platform
-pull: 1289
-commit: bd4cdb46f1503a00128e680514dfa2b81ca4b53c
+pull: 1291
+commit: 3a97071e8e15c9cd1a15ed53174fe28f0177ae2c
 path: test/node/fixtures/regex-after-token.json
-blob: 2577efccadf90b28df93d1e456ba494fa20866cd
-sha256: 8cfc94ae8587d96e479e7efe5b6910863a8312e70f41772781ae0de8e885b012
+blob: 1a001d46d413102cceb6042bdcb91d73849588ac
+sha256: 0cbbff045812915ed3f070c952fc1cc8550530a98b59349a7846c21a6d2f3a0d
