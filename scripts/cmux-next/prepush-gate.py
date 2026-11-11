@@ -1616,21 +1616,37 @@ def interpreter_sys_path(python: str) -> list[str]:
     return [p for p in listed if isinstance(p, str)] if isinstance(listed, list) else []
 
 
+def externally_managed(python: str, stdlib: str | None = None) -> bool:
+    """Whether PYTHON is externally managed (PEP 668): it is not a venv (sys.prefix == sys.base_prefix, asked of
+    PYTHON itself with -I) and its stdlib holds EXTERNALLY-MANAGED. A Debian venv reads its base's stdlib, so it sees
+    the base's marker, yet pip installs into the venv (Codex on #40966). STDLIB overrides the stdlib PYTHON reports;
+    a PYTHON that does not answer is judged by the marker alone, in STDLIB or this interpreter's stdlib."""
+    try:
+        done = subprocess.run([python, "-I", "-c", "import json, sys, sysconfig; "
+                               "print(json.dumps([sys.prefix != sys.base_prefix, sysconfig.get_paths()['stdlib']]))"],
+                              capture_output=True, text=True, timeout=30)
+        venv, reported = json.loads(done.stdout) if done.returncode == 0 else (False, None)
+    except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+        venv, reported = False, None
+    if venv is True:
+        return False
+    where = stdlib if stdlib is not None else reported if isinstance(reported, str) else sysconfig.get_paths()["stdlib"]
+    return os.path.exists(os.path.join(where, "EXTERNALLY-MANAGED"))
+
+
 def pyyaml_install_command(python: str, purelib: str | None = None, stdlib: str | None = None,
                            apt: bool | None = None, syspath: list[str] | None = None) -> str:
     """The one command that makes PyYAML importable for PYTHON under `-I`, which ignores user site-packages, so
     `pip install --user` never helps the hook. apt's python3-yaml only where it reaches PYTHON: apt-get exists and
     PYTHON's own sys.path (SYSPATH; read from PYTHON when None) holds APT_DIST_PACKAGES (Codex on #40880: a venv or
     a custom Python on an apt host never sees it). Otherwise pip, run as -I so a PyYAML already in the user site does
-    not satisfy it, into PYTHON's own prefix (with sudo when this user cannot write it). An externally managed
-    (PEP 668) PYTHON with no apt route gets what to do instead: no pip install here passes --break-system-packages."""
-    paths = sysconfig.get_paths()
-    purelib = paths["purelib"] if purelib is None else purelib
-    stdlib = paths["stdlib"] if stdlib is None else stdlib
+    not satisfy it, into PYTHON's own prefix (with sudo when this user cannot write it). An externally_managed()
+    PYTHON (a venv never is) with no apt route gets what to do instead: no pip install here passes --break-system-packages."""
+    purelib = sysconfig.get_paths()["purelib"] if purelib is None else purelib
     apt = shutil.which("apt-get") is not None if apt is None else apt
     if apt and APT_DIST_PACKAGES in (interpreter_sys_path(python) if syspath is None else syspath):
         return "sudo apt-get install -y python3-yaml"
-    if os.path.exists(os.path.join(stdlib, "EXTERNALLY-MANAGED")):
+    if externally_managed(python, stdlib):
         return (f"{python} is externally managed (PEP 668): install PyYAML 6.0.3 with its own package manager, or "
                 "rerun scripts/install-git-hooks.sh with a venv's python3 first on PATH")
     pip = f"{shlex.quote(python)} -I -m pip install {PYYAML_PIN}"
