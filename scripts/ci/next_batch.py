@@ -1339,6 +1339,10 @@ class Controller:
         # The job's log, readable while the rest of its run still goes. The classifier
         # strips ANSI in Python; use its compatible flag-first request here too.
         route = f"repos/{self.args.repo}/actions/jobs/{job_id}/logs"
+        kept = base_red_excuse.glaeda_log.cached_job_log(self.args.repo, job_id) \
+            if base_red_excuse.glaeda_log is not None else None  # this host's glaeda-gh kept it: no API call
+        if kept is not None:
+            return kept
         got = self.gh.gh("api", base_red_excuse.ESCAPE_FLAG, route, check=False)
         if got.returncode != 0 and base_red_excuse.escape_flag_unknown(got.stderr):
             got = self.gh.gh("api", route, check=False)
