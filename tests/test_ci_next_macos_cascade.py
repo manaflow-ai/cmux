@@ -1740,6 +1740,73 @@ class Wiring(unittest.TestCase):
         self.assertTrue(set(cascade.CASCADE_JOBS) <= set(place["env"]["JOBS"].split()))
 
 
+class CarriedPlacement(unittest.TestCase):
+    """A re-run whose macOS placement is carried from an earlier attempt never waits on an owned label.
+
+    GitHub's re-run of failed jobs re-runs the failed jobs and the jobs that need them, never a job they
+    need: macos-placement, and any re-run placement job skipped on attempt 1, keep the earlier attempt's
+    result and outputs. Such a reading may be hours old, so a Mac job that took the owned label from it had
+    no way off: cmux#38484's run 42728317341 (a same-tree dispatch) kept `cmux app scheme compile (Debug)`
+    on glaeda-side-std-xcode-26.6 through cmux-bot's attempt 2 (03:06Z to 05:17Z) and teamleaderleo's attempts
+    3 (05:45Z to 20:48Z) and 4 (21:27Z to 23:16Z). Only an attempt the placement read itself takes an owned
+    label; a carried one takes the moving Blacksmith label, as the push Release compile's fallback does.
+    """
+
+    OWNED = (SIDE, GUI, "glaeda-session-std-xcode-26.6", "glaeda-dev-std-xcode-26.6")
+
+    def setUp(self):
+        self.jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+
+    def context(self, event: str, attempt: str, actor: str, placed: str) -> dict:
+        side, gui, session, fresh = self.OWNED
+        context = github_context(event, ref="refs/pull/1/merge" if event == "pull_request" else
+                                 "refs/heads/feat-cmux-next", CI_PR_POOL_OWNED="1", CI_SIDE_LANE_RUNNER=side,
+                                 CI_SESSION_LANE_RUNNER=session, CI_DEV_COMPILE_RUNNER=fresh, MACOS_RUNNER_26=SMALL)
+        context["vars"].pop("MACOS_RUNNER_PR", None)
+        context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor=actor,
+                                 base_ref="feat-cmux-next" if event == "pull_request" else "")
+        if event == "pull_request":
+            context["github"]["event"] = {"pull_request": {
+                "head": {"repo": {"full_name": "manaflow-ai/cmux"}}, "labels": [{"name": "full-ci"}],
+                "author_association": "MEMBER"}}
+        # Attempt 1's placement as it left every Mac job: all of them on the owned pool, no Blacksmith slot.
+        context["needs"] = {"macos-placement": {"result": "success", "outputs": {
+            "runner": side, "deferred_runner": side, "gui_runner": gui, "session_runner": session,
+            "free_gui_runner": gui, "free_session_runner": session, "session_lane_runner": session,
+            "owned_jobs": f" {ALL_JOBS} ", "placed_attempt": placed}}}
+        return context
+
+    def test_a_rerun_with_a_carried_placement_never_waits_on_an_owned_label(self):
+        mac_jobs = [name for name, job in self.jobs.items()
+                    if "needs.macos-placement" in str(job.get("runs-on", ""))]
+        self.assertTrue(set(CASCADED) | set(GUI_JOBS) <= set(mac_jobs))
+        for name in mac_jobs:
+            runs_on = self.jobs[name]["runs-on"]
+            runner_env = (self.jobs[name].get("env") or {}).get("CMUX_NEXT_RUNNER")
+            for event, attempt, actor in itertools.product(
+                    ("pull_request", "push", "workflow_dispatch"), ("2", "3", "4", "6"),
+                    ("teamleaderleo", BOT, "cmux-bot[bot]")):
+                # Carried from attempt 1 or the attempt before, or skipped (a person's re-run of all jobs).
+                for placed in sorted({"1", str(int(attempt) - 1), ""}):
+                    with self.subTest(job=name, event=event, attempt=attempt, actor=actor, placed=placed):
+                        context = self.context(event, attempt, actor, placed)
+                        label = evaluate(runs_on, context)
+                        self.assertNotIn(label, self.OWNED)
+                        self.assertFalse(str(label).startswith("glaeda-"), label)
+                        if runner_env is not None:
+                            self.assertEqual(evaluate(runner_env, context), label)
+
+    def test_attempt_1_and_a_placed_rerun_keep_the_owned_label_the_placement_read(self):
+        for name in ("cmux-scheme-compile", "release-compile", "swift-canary"):
+            runs_on = self.jobs[name]["runs-on"]
+            for event in ("pull_request", "workflow_dispatch"):
+                with self.subTest(job=name, event=event):
+                    self.assertEqual(evaluate(runs_on, self.context(event, "1", "teamleaderleo", "1")), SIDE)
+                    # The rescue's attempt 2 and 3, placed afresh, read their own placement.
+                    self.assertEqual(evaluate(runs_on, self.context(event, "2", BOT, "2")), SIDE)
+                    self.assertEqual(evaluate(runs_on, self.context(event, "3", BOT, "3")), SIDE)
+
+
 class SaturatedOwnedPool(unittest.TestCase):
     """No placement path leaves a job on the owned side label with no way off it once the owned pool is full.
 
