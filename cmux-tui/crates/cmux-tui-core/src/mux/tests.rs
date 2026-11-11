@@ -15,6 +15,7 @@ mod agent_hooks_at_rest_reopen;
 #[cfg(unix)]
 mod agent_plugin_refresh_at_rest;
 mod agent_presence;
+mod agent_records;
 mod agent_reply_text;
 mod agent_reports;
 #[cfg(unix)]
@@ -31,6 +32,8 @@ mod cell_pixel_fanout;
 mod cell_pixels;
 mod checkpoint_retention;
 mod column_update;
+#[cfg(unix)]
+mod create_commit_cost;
 mod create_entity_cost;
 mod creation_burst;
 mod diagnostics;
@@ -64,6 +67,7 @@ mod restart;
 mod rows;
 mod session_lists;
 mod signaled_mutex;
+mod single_reads;
 mod snapshot_read;
 mod split_ratio;
 mod stack_layout;

@@ -202,7 +202,7 @@ enum TabHandlers {
             ScreenCommands.select(LayoutScreenID(screen.id), in: content)
         }
         if let tab, let pane {
-            controller.state.selection.select(tab.id, in: pane.id)
+            controller.state.selection.jump(to: tab.id, in: pane.id, byPerson: ActionRunScope.isPersonsAction())
             controller.focus.send(.selectTab(pane: pane.id, tab: tab.id, workspace: workspace.id, source: .intent))
             ctx.services.paneController(for: pane)?.select(StripTabID(tab.id))
         } else if let pane {

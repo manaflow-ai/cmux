@@ -14,8 +14,12 @@ struct QuitSessionsTests {
         let h = try await BranchDaemonHarness.start()
         do {
             let (_, _, surface) = try await h.workspaceWithTerminal("keep")
-            let hosts = TerminalHosts.of(daemon: h.identity.pid)
-            #expect(hosts.count == 1)
+            // The terminal's host. The spare (R81) is not in this set: the
+            // daemon may drop it at any time (memory pressure), Keep or not.
+            let census = TerminalHosts.census(daemon: h.identity.pid, state: h.root.appendingPathComponent("state"))
+            let hosts = census.terminals
+            #expect(hosts.count == 1, "one host for the terminal: \(census)")
+            #expect(census.all.subtracting(hosts).count <= 1, "at most one spare host (R81): \(census)")
             await h.connection.close()  // what Keep does at quit
             #expect(TerminalHosts.alive(hosts) == hosts, "Keep ended a terminal host")
             #expect(TerminalHosts.alive([h.identity.pid]) == [h.identity.pid], "Keep stopped the daemon")
@@ -44,8 +48,11 @@ struct QuitSessionsTests {
             let (key, _, _) = try await h.workspaceWithTerminal("end")
             _ = try await h.connection.createTerminal(in: key, cwd: h.root.path, size: CellSize(cols: 80, rows: 24))
             _ = try await h.workspaceWithTerminal("second")
-            hosts = TerminalHosts.of(daemon: h.identity.pid)
-            #expect(hosts.count == 3)
+            // All host children, the spare (R81) included: none may outlive End.
+            let census = TerminalHosts.census(daemon: h.identity.pid, state: h.root.appendingPathComponent("state"))
+            hosts = census.all
+            #expect(census.terminals.count == 3, "one host for each terminal: \(census)")
+            #expect(hosts.subtracting(census.terminals).count <= 1, "at most one spare host (R81): \(census)")
         } catch {
             await h.stop()
             throw error
@@ -90,8 +97,11 @@ struct QuitSessionsTests {
             _ = try await HomeWorkspaceClient(h.connection).ensureHome()
             _ = try await h.workspaceWithTerminal("end")
             _ = try await h.workspaceWithTerminal("second")
-            hosts = TerminalHosts.of(daemon: h.identity.pid)
-            #expect(hosts.count == 2)
+            // All host children, the spare (R81) included: none may outlive End Everything.
+            let census = TerminalHosts.census(daemon: h.identity.pid, state: h.root.appendingPathComponent("state"))
+            hosts = census.all
+            #expect(census.terminals.count == 2, "one host for each terminal: \(census)")
+            #expect(hosts.subtracting(census.terminals).count <= 1, "at most one spare host (R81): \(census)")
         } catch {
             await h.stop()
             throw error

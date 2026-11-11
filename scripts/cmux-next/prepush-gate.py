@@ -86,6 +86,14 @@ Also on every local run, the same way: "Runs-on variables declare their single-h
 hook) refuses each runs-on variable or single-host label the head reads with no declared fallback that the base did
 not already have (cmux#40221 merged two). CI runs it only with --advisory: warnings, never a red step.
 
+Also on every local run, the same way: "Every Cargo.lock matches its manifests" (cargo-locks.py check): when the push
+changes any Cargo.toml or Cargo.lock, every tracked Cargo.lock in the repository is resolved with
+`cargo update --workspace --locked` (index only, no build, seconds), not only the changed workspace's: a manifest
+reaches other workspaces' locks through path dependencies (2026-11-10: eb4f3eb1d94 changed cmux-tui/Cargo.toml, a
+direct push, and cmux-app-ffi's lock failed --locked on every pull request until #40883). It refuses only on cargo's
+own lock error. CI's rust workspaces plan job runs the same check, and the base autofix rewrites a stale lock on
+feat-cmux-next (base-autofix.sh --locks).
+
 Also on every local run, the same way: "Crash ratchet" (crash_ratchet_findings): the Rust classes of CI's crash
 ratchet (crash_ratchet.py: unwrap, expect, panic!/unreachable!/todo!/unimplemented!, process::exit/abort, outside
 test code), judged per crate over the files the push changes: a crate whose count rises in those files is refused
@@ -220,6 +228,8 @@ SCANNERS = (
      ["python3", "-I", "{s}/check-no-process-scan.py", "{root}"], SCOPES),
     ("No raw spawns in the daemon (cmux_process, reviews of pl-holder-11)",
      ["python3", "-I", "{s}/check-no-raw-spawn.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/raw-spawn-baseline.tsv")),
+    ("Every spawn has an owner (cmux_scope::Scope, cmux_process::Child; cmuxterm-hq#9096)",
+     ["python3", "-I", "{s}/check-spawn-owner.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/spawn-owner-baseline.tsv")),
     ("No app id special cases (zero first-party privilege, docs/app-store-platonic-ideal.md 5)",
      ["python3", "-I", "{s}/check-app-id-special-cases.py", "{root}"],
      (PKG + "/", "cmux-tui/", "first-party-apps/", "scripts/cmux-next/app-id-special-cases-baseline.tsv")),
@@ -270,11 +280,12 @@ FALLBACKS_DECLARATION = ".github/single-host-fallbacks.json"
 FALLBACKS_HINT = ("Declare each name in .github/single-host-fallbacks.json (variables.NAME or labels.LABEL: the "
                   "`fallback` that takes the job and `after_minutes`), then push. Check with "
                   "`python3 scripts/cmux-next/check-single-host-fallbacks.py`.")
-CARGO_LOCK_CHECK = "Cargo.lock matches its manifests (cargo metadata --locked)"
+CARGO_LOCK_CHECK = "Every Cargo.lock matches its manifests (scripts/cmux-next/cargo-locks.py)"
 CARGO_FILE = re.compile(r"(^|/)Cargo\.(toml|lock)$")
-CARGO_DRIFT = "cannot update the lock file"
-CARGO_HINT = ("Fix the lock: run `cargo metadata --offline --format-version 1 >/dev/null` in that workspace (it "
-              "rewrites Cargo.lock with no version changes), commit it, then push.")
+CARGO_LOCKS_SCRIPT = SCRIPTS + "/cargo-locks.py"
+CARGO_HINT = ("Fix the locks: run `scripts/cmux-next/cargo-locks.py fix` (it runs `cargo update --workspace` in each "
+              "stale workspace, which rewrites only what the manifests now need), commit the Cargo.lock files, then "
+              "push. A manifest change in one workspace can leave another workspace's lock stale (eb4f3eb1d94).")
 SIDEBAR_CHECK = "Sidebar look owner (plans/cmux-next/sidebar-owner.md)"
 SIDEBAR_VIEWS = "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/"
 # The sidebar package's code, not only Views/: a702 (9a2fceefbbb, 2026-10-25) changed the pinned section from tiles
@@ -314,6 +325,7 @@ RATCHET_BASELINES = {
     "process-scan-baseline.tsv": ((0,), 1),
     "state-roots-baseline.tsv": ((0,), 1),
     "raw-spawn-baseline.tsv": ((0,), 1),
+    "spawn-owner-baseline.tsv": ((0,), 1),
     "app-id-special-cases-baseline.tsv": ((0,), 1),
     "swift-type-scale-baseline.tsv": ((0, 1), 2),
 }
@@ -1422,58 +1434,45 @@ def ui_font(repo: Path, base: str, head: str, trusted_scripts: Path | None = Non
         return [line for line in head_lines if base_stopped or line not in set(base_lines)]
 
 
-def cargo_lock_drift(repo: Path, base: str, head: str) -> list[str]:
-    """Each Cargo workspace whose Cargo.lock no longer matches its manifests at head, when the push changes a
-    Cargo.toml or Cargo.lock in it.
+def cargo_lock_drift(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """Every tracked Cargo.lock that no longer matches its workspace's manifests at head, when the push changes any
+    Cargo.toml or Cargo.lock anywhere in the repository (scripts/cmux-next/cargo-locks.py check).
 
     2026-11-02: #31462 moved fs4 between two crates' Cargo.toml and put it under the wrong crate in Cargo.lock.
     Every --locked cargo step on feat-cmux-next then stopped ("cannot update the lock file"), the NEXT nightly
-    included, until #31717. It reads the pushing checkout itself (no tree is exported), so it runs only when
-    head is the checked-out HEAD and the workspace's Cargo files have no uncommitted edits; it refuses only on
-    cargo's own lock error and lets the push through on any other (no cargo, an uncached index, a timeout).
+    included, until #31717. 2026-11-10: eb4f3eb1d94 changed cmux-tui/Cargo.toml and cmux-tui/Cargo.lock only, and
+    the cmux-app-ffi and cmux-layout-reducer-ffi workspaces (their own locks, cmux-tui's crates by path) went stale;
+    this check then read only the lock of the workspace a changed file sat in, so it passed. Now any Cargo change
+    checks every lock: a manifest reaches other workspaces through path dependencies. It reads the pushing
+    checkout itself (no tree is exported), so it runs only when head is the checked-out HEAD and no Cargo file has
+    uncommitted edits; it refuses only on cargo's own lock error and lets the push through on any other (no cargo,
+    an uncached index, a timeout).
     """
-    changed = [p for p in changed_files(repo, base, head) if CARGO_FILE.search(p)]
-    if not changed or shutil.which("cargo") is None:
+    names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode("utf-8", "surrogateescape")
+    if not any(CARGO_FILE.search(p) for p in names.split("\0") if p) or shutil.which("cargo") is None:
         return []
     try:
         checked_out = git(repo, "rev-parse", "HEAD").decode().strip() == git(repo, "rev-parse", head).decode().strip()
     except subprocess.CalledProcessError:
         return []
     # Pathspecs here use git's default matching, where `*` also matches `/`.
-    locks = [p for p in git(repo, "ls-files", "-z", "--", "*Cargo.lock").decode().split("\0")
-             if p.rpartition("/")[2] == "Cargo.lock"]
-    roots = sorted({lock.rpartition("/")[0] for lock in locks
-                    if any(p.startswith(lock.rpartition("/")[0] + "/") or "/" not in lock for p in changed)})
-    if not roots:
-        return []
-    dirty = subprocess.run(["git", "-C", str(repo), "diff", "--quiet", "HEAD", "--",
-                            *(f"{root}/*Cargo.toml" if root else "*Cargo.toml" for root in roots),
-                            *(f"{root}/Cargo.lock" if root else "Cargo.lock" for root in roots)],
+    dirty = subprocess.run(["git", "-C", str(repo), "diff", "--quiet", "HEAD", "--", "*Cargo.toml", "*Cargo.lock"],
                            capture_output=True).returncode != 0
     if not checked_out or dirty:
         log("prepush-gate: Cargo.lock check skipped: the pushed head is not this checkout's clean HEAD")
         return []
-    # A toolchain the workspace pins but this host lacks is never installed for a lock check.
-    env = {**os.environ, "RUSTUP_AUTO_INSTALL": "0", "CARGO_TERM_COLOR": "never"}
-    found = []
-    for root in roots:
-        manifest = repo.resolve() / root / "Cargo.toml"
-        if not manifest.is_file():
-            continue
-        for network in ("--offline", None):
-            args = ["cargo", "metadata", "--locked", "--format-version", "1", "--manifest-path", str(manifest)]
-            try:
-                run = subprocess.run(args + ([network] if network else []), cwd=manifest.parent, env=env,
-                                     stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=60)
-            except (OSError, subprocess.TimeoutExpired):
-                break
-            if run.returncode == 0:
-                break
-            if CARGO_DRIFT in run.stderr:
-                found.append(f"{root + '/' if root else ''}Cargo.lock: does not match its manifests "
-                             f"(cargo metadata --locked: {CARGO_DRIFT})")
-                break
-    return found
+    script = check_script(repo, head, CARGO_LOCKS_SCRIPT, trusted_scripts)
+    if script is None:
+        return []  # a commit older than the shared check
+    with tempfile.TemporaryDirectory(prefix="cmux-cargo-locks-") as tmp:
+        check = Path(tmp) / "cargo-locks.py"
+        check.write_bytes(script)
+        # 30 workspaces resolve in parallel from the index (about 4 s); each cargo call has its own 120 s limit.
+        code, out = run(["python3", "-I", str(check), "check", "--repo", str(repo.resolve())], Path(tmp), timeout=300)
+    if code == 124:
+        log(f"prepush-gate: Cargo.lock check skipped: {out}")
+        return []
+    return [line.removeprefix("stale: ") for line in out.splitlines() if line.startswith("stale: ")]
 
 
 def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
@@ -1993,7 +1992,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
     # Local only, like SwiftFormat: CI's own --locked cargo steps stay the backstop. Not in gate_own's runs over the
     # ranges a merge does not own (RESTRICT): the check reads only the checkout, never those ranges' heads.
     if (highlights_layer if only is None else "cargo-lock" in only) and restrict is None:
-        drift = cargo_lock_drift(repo, base, head)
+        drift = cargo_lock_drift(repo, base, head, trusted_scripts)
         if drift:
             reserved.append((CARGO_LOCK_CHECK, drift))
     if only is None or "sidebar" in only:

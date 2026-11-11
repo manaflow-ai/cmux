@@ -3,7 +3,7 @@
 /// Existing document/text chips remain readable for persisted drafts from older versions.
 import { base64 } from "./composer/imageWork";
 import type { DictationRecording } from "./dictationText";
-import { keepThumb, prepareImageOffThread, thumbnailOffThread } from "./composer/imagePool";
+import { decoded, keepThumb, prepareImageOffThread, thumbnailOffThread } from "./composer/imagePool";
 import { liftInlineImages } from "./inlineImages";
 import { PASTE_FILE_CHARS, pastedTextBlocks } from "./pastedText";
 
@@ -444,7 +444,12 @@ export async function readAttachment(
 async function imageChip(file: File, id: string, name: string): Promise<ComposerAttachment | undefined> {
   const prepared = await prepareImageOffThread(file);
   if (!prepared) return undefined;
-  if (prepared.thumb) keepThumb(id, prepared.thumb);
+  if (prepared.thumb) {
+    keepThumb(id, prepared.thumb);
+    // Decoded before its chip draws, so the chip that takes a loading tile's place shows its
+    // picture from its first frame (Leo, 2026-11-11: "this 3 stage attachment thing is still there").
+    await decoded(prepared.thumb.url);
+  }
   return {
     id,
     kind: "image",
