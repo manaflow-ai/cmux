@@ -88,17 +88,78 @@ fn the_chat_index_cache_is_not_written_into_a_replaced_home() {
 #[test]
 fn launch_roots_are_not_recorded_into_a_replaced_home() {
     isolated("launch_roots_are_not_recorded_into_a_replaced_home", |home| {
-        let service = acpmux::chats::ChatService::start(sources(home));
-        let root = home.parent().unwrap().join("claude-projects");
-        std::fs::create_dir_all(&root).unwrap();
-        replace_held(home);
-        service.record_launch_roots(&[cmux_chat_index::RootSpec {
-            harness: cmux_chat_index::AdapterKind::ClaudeCode,
-            path: root,
-            label: None,
-        }]);
-        assert_eq!(left(home), Vec::<String>::new(), "a launch root was recorded in the new home");
+        record_a_launch_root(home, false);
     });
+}
+
+/// The same, with the chat text thread's first save held between its home check and its write
+/// until the launch root is recorded (`chats::text::SAVE_CHECKED`): a save that checked the
+/// home before it was replaced writes into the replacement, whatever the clock does.
+#[test]
+fn launch_roots_with_the_text_save_held_at_its_check() {
+    isolated("launch_roots_with_the_text_save_held_at_its_check", |home| {
+        record_a_launch_root(home, true);
+    });
+}
+
+/// Starts the chat service, records a launch root with the home replaced, then waits for the
+/// service's own threads to let it go, so a write they make late is seen too. `hold`: the
+/// text thread's save waits at its home check until the root is recorded.
+fn record_a_launch_root(home: &Path, hold: bool) {
+    if hold {
+        acpmux::chats::text::SAVE_CHECKED.set(held_save).unwrap();
+    }
+    let service = acpmux::chats::ChatService::start(sources(home));
+    let mut ended = service.subscribe();
+    if hold {
+        held_save_checked();
+    }
+    replace_held(home);
+    let root = home.parent().unwrap().join("claude-projects");
+    std::fs::create_dir_all(&root).unwrap();
+    service.record_launch_roots(&[cmux_chat_index::RootSpec {
+        harness: cmux_chat_index::AdapterKind::ClaudeCode,
+        path: root,
+        label: None,
+    }]);
+    if hold {
+        release_held_save();
+    }
+    // The service ends when its text thread lets go of it, after any save it was making; its
+    // change channel closes then.
+    drop(service);
+    while !matches!(ended.blocking_recv(), Err(tokio::sync::broadcast::error::RecvError::Closed)) {}
+    assert_eq!(left(home), Vec::<String>::new(), "a launch root was recorded in the new home");
+}
+
+/// The held save: whether its home check passed, and whether the test let it go on.
+static HELD: std::sync::Mutex<(Option<bool>, bool)> = std::sync::Mutex::new((None, false));
+static HELD_MOVED: std::sync::Condvar = std::sync::Condvar::new();
+
+/// `SAVE_CHECKED` on the text thread: tells the test the check ran, and holds a save whose check
+/// passed until [`release_held_save`].
+fn held_save(passed: bool) {
+    let mut held = HELD.lock().unwrap();
+    held.0.get_or_insert(passed);
+    HELD_MOVED.notify_all();
+    if passed {
+        let _released = HELD_MOVED.wait_while(held, |held| !held.1).unwrap();
+    }
+}
+
+fn held_save_checked() {
+    // timeout: only a text thread that never saves ends here; the order is the hook's.
+    let (held, waited) = HELD_MOVED
+        .wait_timeout_while(HELD.lock().unwrap(), std::time::Duration::from_secs(120), |held| {
+            held.0.is_none()
+        })
+        .unwrap();
+    assert!(!waited.timed_out(), "the chat text thread never saved: {:?}", held.0);
+}
+
+fn release_held_save() {
+    HELD.lock().unwrap().1 = true;
+    HELD_MOVED.notify_all();
 }
 
 /// The folder for agents no person asked for (`<home>/unattended`).
