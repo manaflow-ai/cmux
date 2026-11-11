@@ -368,6 +368,13 @@ public final class ChiefSession {
         carriedComposer = kept == nil && !focused ? nil : CarriedComposer(text: kept, focused: focused)
     }
 
+    /// Keeps the carried text but not its focus (the Chief route left).
+    public func dropCarriedComposerFocus() {
+        guard var carried = carriedComposer, carried.focused else { return }
+        carried.focused = false
+        carriedComposer = carried.text == nil ? nil : carried
+    }
+
     /// The carried composer, once.
     public func takeCarriedComposer() -> CarriedComposer? {
         defer { carriedComposer = nil }
