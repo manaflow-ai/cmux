@@ -265,6 +265,402 @@
         }
       }
     },
+    "settings.internalDeveloperMode.help": {
+      "comment": "Help text under the Internal Developer Mode toggle. \"Debug: …\" is the title prefix of the palette rows; translate it the same way as the action.debug.titleFormat string.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض أوامر تصحيح الأخطاء (ساحات التجربة، وإعدادات تصحيح الأخطاء، والتشخيصات) في لوحة الأوامر كصفوف \"تصحيح الأخطاء: …\". لا توجد قائمة تصحيح أخطاء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikazuje naredbe za otklanjanje grešaka (igrališta, postavke otklanjanja grešaka, dijagnostiku) u paleti naredbi kao redove \"Otklanjanje grešaka: …\". Nema menija za otklanjanje grešaka."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viser fejlfindingskommandoerne (legepladser, fejlfindingsindstillinger, diagnostik) i kommandopaletten som rækker med \"Fejlfinding: …\". Der er ingen fejlfindingsmenu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt die Debug-Befehle (Playgrounds, Debug-Einstellungen, Diagnose) in der Befehlspalette als Zeilen \"Fehlersuche: …\". Es gibt kein Debug-Menü."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows the debug commands (playgrounds, Debug Settings, diagnostics) in the Command Palette as \"Debug: …\" rows. There is no Debug menu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra los comandos de depuración (entornos de prueba, Ajustes de depuración, diagnósticos) en la paleta de comandos como filas \"Depuración: …\". No hay menú de depuración."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche les commandes de débogage (bacs à sable, réglages de débogage, diagnostics) dans la palette de commandes sous forme de lignes « Débogage : … ». Il n’y a pas de menu de débogage."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra i comandi di debug (playground, impostazioni di debug, diagnostica) nella palette dei comandi come righe \"Debug: …\". Non c’è un menu Debug."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバッグコマンド（プレイグラウンド、デバッグ設定、診断）をコマンドパレットに「デバッグ: …」の行として表示します。デバッグメニューはありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញពាក្យបញ្ជាបំបាត់កំហុស (កន្លែងសាកល្បង ការកំណត់បំបាត់កំហុស ការធ្វើរោគវិនិច្ឆ័យ) នៅក្នុងផ្ទាំងពាក្យបញ្ជាជាជួរ \"បំបាត់កំហុស៖ …\"។ មិនមានម៉ឺនុយបំបាត់កំហុសទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "디버그 명령(플레이그라운드, 디버그 설정, 진단)을 명령 팔레트에 \"디버그: …\" 행으로 표시합니다. 디버그 메뉴는 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viser feilsøkingskommandoene (lekeplasser, feilsøkingsinnstillinger, diagnostikk) i kommandopaletten som rader med \"Feilsøking: …\". Det finnes ingen feilsøkingsmeny."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokazuje polecenia debugowania (piaskownice, ustawienia debugowania, diagnostykę) w palecie poleceń jako wiersze \"Debugowanie: …\". Nie ma menu debugowania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra os comandos de depuração (playgrounds, Ajustes de depuração, diagnósticos) na paleta de comandos como linhas \"Depuração: …\". Não há menu de depuração."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывает команды отладки (песочницы, настройки отладки, диагностику) в палитре команд в виде строк «Отладка: …». Меню отладки нет."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงคำสั่งดีบัก (สนามทดลอง การตั้งค่าดีบัก การวินิจฉัย) ในจานคำสั่งเป็นแถว \"ดีบัก: …\" ไม่มีเมนูดีบัก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hata ayıklama komutlarını (deneme alanları, hata ayıklama ayarları, tanılama) komut paletinde \"Hata ayıklama: …\" satırları olarak gösterir. Hata ayıklama menüsü yoktur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показує команди налагодження (пісочниці, налаштування налагодження, діагностику) у палітрі команд як рядки «Налагодження: …». Меню налагодження немає."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiển thị các lệnh gỡ lỗi (sân thử, cài đặt gỡ lỗi, chẩn đoán) trong bảng lệnh dưới dạng hàng \"Gỡ lỗi: …\". Không có menu gỡ lỗi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在命令面板中以“调试：…”行显示调试命令（试验场、调试设置、诊断）。没有调试菜单。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在指令面板中以「除錯：…」列顯示除錯指令（試驗場、除錯設定、診斷）。沒有除錯選單。"
+          }
+        }
+      }
+    },
+    "settings.internalDeveloperMode": {
+      "comment": "Toggle in Settings > Development: when on, debug commands appear in the Command Palette.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وضع المطوّر الداخلي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Interni razvojni način"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intern udviklertilstand"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interner Entwicklermodus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Internal Developer Mode"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modo de desarrollador interno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mode développeur interne"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modalità sviluppatore interna"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内部開発者モード"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "របៀបអ្នកអភិវឌ្ឍន៍ផ្ទៃក្នុង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내부 개발자 모드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intern utviklermodus"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wewnętrzny tryb programisty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modo de desenvolvedor interno"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Внутренний режим разработчика"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โหมดนักพัฒนาภายใน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dahili geliştirici modu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Внутрішній режим розробника"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chế độ nhà phát triển nội bộ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内部开发者模式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "內部開發者模式"
+          }
+        }
+      }
+    },
+    "settings.group.internalDeveloperMode": {
+      "comment": "Group heading in Settings > Development (DEV and NIGHTLY builds only).",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وضع المطوّر الداخلي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Interni razvojni način"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intern udviklertilstand"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interner Entwicklermodus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Internal Developer Mode"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modo de desarrollador interno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mode développeur interne"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modalità sviluppatore interna"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内部開発者モード"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "របៀបអ្នកអភិវឌ្ឍន៍ផ្ទៃក្នុង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내부 개발자 모드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intern utviklermodus"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wewnętrzny tryb programisty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modo de desenvolvedor interno"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Внутренний режим разработчика"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โหมดนักพัฒนาภายใน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dahili geliştirici modu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Внутрішній режим розробника"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chế độ nhà phát triển nội bộ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内部开发者模式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "內部開發者模式"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.unreadBanner": {
       "comment": "Settings: the agent chat's and Markdown viewer's display rows",
       "extractionState": "manual",

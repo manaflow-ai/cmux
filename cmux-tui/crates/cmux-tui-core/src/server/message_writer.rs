@@ -299,13 +299,25 @@ impl MessageWriter {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
         let result = self.render_service.serialize_control(value).and_then(|text| {
-            self.sink
-                .send_control(self.project_api_revision(self.project_conversation_tabs(text)?)?)
+            let text = self.project_api_revision(self.project_conversation_tabs(text)?)?;
+            self.sink.send_control(self.mark_reply(text))
         });
         if result.is_err() {
             self.close();
         }
         result
+    }
+
+    /// Marks `text` as the reply of the request this thread handles for this connection, if it
+    /// handles one and no other connection shares the text (diagnostics/request_log.rs).
+    fn mark_reply(&self, mut text: Arc<BudgetedText>) -> Arc<BudgetedText> {
+        if let Some(unique) = Arc::get_mut(&mut text)
+            && unique.reply.is_none()
+        {
+            unique.reply =
+                crate::diagnostics::request_log::reply_mark(&self.open, unique.text.len());
+        }
+        text
     }
 
     pub(super) fn send_serialized_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
@@ -315,7 +327,7 @@ impl MessageWriter {
         let result = self
             .project_conversation_tabs(text)
             .and_then(|text| self.project_api_revision(text))
-            .and_then(|text| self.sink.send_control(text));
+            .and_then(|text| self.sink.send_control(self.mark_reply(text)));
         if result.is_err() {
             self.close();
         }

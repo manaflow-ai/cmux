@@ -240,7 +240,16 @@ pub(super) fn run(args: &[String]) -> i32 {
             }
         };
     }
-    let (args, allow_large) = sync_cli::size_cap::take_allow_large(args);
+    let value_flags = [
+        "--socket",
+        "--repo",
+        "--ref",
+        "--head-first",
+        "--base-head",
+        "--base-index",
+        "--base-work",
+    ];
+    let (args, allow_large) = sync_cli::size_cap::take_allow_large(args, &value_flags);
     let Some(command) = parse(&args) else {
         eprintln!("{USAGE}");
         return 64;

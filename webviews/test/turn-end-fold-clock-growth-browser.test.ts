@@ -1,5 +1,5 @@
 // The turn-end fold's clock grows when a later pass finds a move too long for it (turnEndFold.ts
-// `turnEndFoldMs`: a long move runs longer so no frame moves more than 0.6 of a line). When it grows
+// `turnEndFoldTiming`: a long move runs longer so no frame moves more than 0.6 of a line). When it grows
 // after a frame has painted, every row and copy goes on from where it was drawn, never from the
 // swap's places: a row the growth did not move keeps going one way, and a copy that has started to
 // fade never comes back up (review of #40350: a restart from the swap's places drew an unchanged row
@@ -8,7 +8,10 @@
 // The page is the transcript's shape without the pane: rows placed by `top` in a thread, as the
 // virtualizer places them. The fold plays on its first pass's moves (the copies tuck 70 px: 272 ms);
 // two painted frames into the fold one row below is placed 274 px lower, as rows the virtualizer mounts move
-// the rows under them, a move that needs the longest clock (720 ms), and the clock grows.
+// the rows under them, a move that needs the longest clock (720 ms), and the clock grows. c itself then
+// moves 274 px, and each of its frames stays under the two thirds of a line no transition's frame may
+// move (turn-transition-jumps.test.ts): at the 720 ms cap the settle's curve moved it 19.34 px in its
+// first frame (review of #40350, F1), so past the cap the fold's curve flattens (turnEndFoldTiming).
 //
 // The page runs on the frames' own clock (support/frames120.ts `clock: "frames"`, browser/frameClock.ts):
 // each frame comes exactly one 120 Hz slot after the last, however late the host draws it, so the
@@ -23,6 +26,11 @@ import os from "node:os";
 import path from "node:path";
 import { FramesUnsupported, open120Hz } from "./support/frames120";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+
+/// A line at the chat's default size (chatDisplay.ts), and the most a transition moves in one 120 Hz
+/// frame (turn-transition-jumps.test.ts `MAX_TRANSITION_PX`).
+const LINE_PX = 22.75;
+const MAX_TRANSITION_PX = (2 / 3) * LINE_PX;
 
 await requireBrowserLane("turn-end-fold-clock-growth-browser.test.ts", async () => {
   setDefaultTimeout(60_000);
@@ -122,13 +130,14 @@ await requireBrowserLane("turn-end-fold-clock-growth-browser.test.ts", async () 
           const copy = thread.querySelector<HTMLElement>(".acpmux-row--fold-ghost");
           const b = thread.querySelector<HTMLElement>('[data-row-id="b"]')!;
           const c = thread.querySelector<HTMLElement>('[data-row-id="c"]')!;
-          const samples: { t: number; b: number; ink: number }[] = [];
+          const samples: { t: number; b: number; c: number; ink: number }[] = [];
           const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
           for (let index = 0; index < 120; index++) {
             await frame();
             samples.push({
               t: performance.now(),
               b: b.getBoundingClientRect().top,
+              c: c.getBoundingClientRect().top,
               ink: copy ? Number.parseFloat(getComputedStyle(copy).opacity) : 0,
             });
             // Frames painted with the fold under way (b drawn part way up, the copies part faded), still
@@ -163,6 +172,14 @@ await requireBrowserLane("turn-end-fold-clock-growth-browser.test.ts", async () 
         .map((sample, index) => ({ index, step: index ? sample.ink - samples[index - 1]!.ink : 0 }))
         .filter(({ step }) => step > 0.005);
       expect(brightened).toEqual([]);
+      // c, placed 274 px lower after frame 2, slides there on the grown clock: from the first frame after
+      // the growth on, no frame moves it more than the bound.
+      const cSteps = samples
+        .map((sample, index) => ({ index, step: index >= 3 ? Math.abs(sample.c - samples[index - 1]!.c) : 0 }))
+        .filter(({ step }) => step > MAX_TRANSITION_PX);
+      console.log(`turn-end clock growth: c ${samples.map((s) => s.c.toFixed(2)).join(" ")}`);
+      expect(cSteps).toEqual([]);
+      expect(samples.at(-1)!.c).toBeCloseTo(344, 1);
     } finally {
       await frames.close();
     }

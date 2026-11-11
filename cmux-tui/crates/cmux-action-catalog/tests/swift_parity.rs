@@ -198,7 +198,7 @@ fn debug_build_only_entries_exist() {
     for id in cmux_action_catalog::tables::DEBUG_BUILD_ONLY_ACTIONS {
         let action =
             cmux_action_catalog::find(id).unwrap_or_else(|| panic!("{id} is not an action"));
-        assert!(action.is_debug_only, "{id} is Debug-build only but not in the Debug menu");
+        assert!(action.is_debug_only, "{id} is Debug-build only but not debug-only");
     }
     for (id, name, value) in cmux_action_catalog::tables::DEBUG_BUILD_ONLY_CASES {
         let action =
