@@ -79,6 +79,7 @@
     "frontend-browser-tab-profile-v1",
     "frontend-browser-tab-split-v1",
     "frontend-browser-tabs-v1",
+    "history-agent-sessions-v1",
     "history-clear-until-v1",
     "history-v1",
     "home-inbox-v1",
