@@ -50,5 +50,39 @@ class GateWatchdogTest(unittest.TestCase):
         self.assertIn("Thread", err, "the stacks of every thread name where it hung")
 
 
+class GateLimitUnderLoadTest(unittest.TestCase):
+    """2026-11-10: at load average 300-770 on 18 cores every gate ran to its 600 s and was refused, with nothing
+    wrong in the push. The limit refuses a hang; a gate that shares each core with many others gets longer."""
+
+    def setUp(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("prepush_gate_under_test", GATE)
+        self.gate = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = self.gate  # dataclasses look their module up by name
+        self.addCleanup(sys.modules.pop, spec.name, None)
+        spec.loader.exec_module(self.gate)
+
+    def test_an_idle_mac_keeps_the_limit(self):
+        self.assertEqual(self.gate.loaded_limit(600.0, 4.0, 18), 600.0)
+        self.assertEqual(self.gate.loaded_limit(600.0, 18.0, 18), 600.0)
+
+    def test_a_loaded_mac_gets_the_limit_times_its_load_per_core(self):
+        self.assertEqual(self.gate.loaded_limit(600.0, 54.0, 18), 1800.0)
+
+    def test_the_limit_never_passes_its_ceiling(self):
+        self.assertEqual(self.gate.loaded_limit(600.0, 770.0, 18), self.gate.GATE_LIMIT_MAX_SECONDS)
+
+    def test_a_set_limit_is_used_as_given(self):
+        old = os.environ.get("CMUX_NEXT_GATE_LIMIT_SECONDS")
+        os.environ["CMUX_NEXT_GATE_LIMIT_SECONDS"] = "2"
+        try:
+            self.assertEqual(self.gate.gate_limit(), 2.0)
+        finally:
+            if old is None:
+                del os.environ["CMUX_NEXT_GATE_LIMIT_SECONDS"]
+            else:
+                os.environ["CMUX_NEXT_GATE_LIMIT_SECONDS"] = old
+
+
 if __name__ == "__main__":
     unittest.main()

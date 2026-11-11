@@ -7637,6 +7637,42 @@
           "aliases": []
         },
         {
+          "id": "sidebar.custom.toggle",
+          "title": {
+            "en": "Toggle Custom Sidebar",
+            "ar": "تبديل الشريط الجانبي المخصص",
+            "bs": "Uključi/isključi prilagođenu bočnu traku",
+            "da": "Slå tilpasset sidepanel til/fra",
+            "de": "Eigene Seitenleiste ein-/ausblenden",
+            "es": "Mostrar u ocultar barra lateral personalizada",
+            "fr": "Afficher ou masquer la barre latérale personnalisée",
+            "it": "Mostra/nascondi barra laterale personalizzata",
+            "ja": "カスタムサイドバーを切り替え",
+            "km": "បិទ/បើករបារចំហៀងផ្ទាល់ខ្លួន",
+            "ko": "사용자 지정 사이드바 전환",
+            "no": "Slå egendefinert sidepanel av/på",
+            "pl": "Przełącz własny pasek boczny",
+            "pt-BR": "Alternar barra lateral personalizada",
+            "ru": "Показать или скрыть свою боковую панель",
+            "th": "สลับแถบด้านข้างแบบกำหนดเอง",
+            "tr": "Özel kenar çubuğunu aç/kapat",
+            "uk": "Показати або сховати власну бічну панель",
+            "vi": "Bật/tắt thanh bên tùy chỉnh",
+            "zh-CN": "切换自定义边栏",
+            "zh-TW": "切換自訂側邊欄"
+          },
+          "shortcut": {
+            "key": "b",
+            "modifiers": [
+              "ctrl",
+              "opt",
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
           "id": "sidebar.priorityView.toggle",
           "title": {
             "en": "Toggle Priority View",

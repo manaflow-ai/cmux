@@ -245,6 +245,26 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     const cpu = engine === "chromium" ? await openCpuSession(context, page) : undefined;
     const cpuReady = cpu ? await Promise.resolve().then(() => cpu.send("Performance.enable")).then(() => true, () => false) : false;
     if (engine === "chromium" && !cpuReady) console.warn(`gallery matrix: ${item.id}: no renderer CPU reading; its ready budget uses wall time`);
+    /** The renderer main thread's CPU seconds so far, or undefined without a reading. */
+    const cpuNow = async (): Promise<number | undefined> =>
+      cpuReady
+        ? Promise.resolve()
+            .then(() => cpu!.send("Performance.getMetrics"))
+            .then(({ metrics }) => metrics.find((metric) => metric.name === "ThreadTime")?.value, () => undefined)
+        : undefined;
+    // The CPU the runner's own captures cost the renderer during the play (a step's still, its
+    // clip, the workflow's accessibility snapshots): taken out of `readyCpuMs` as their wall time
+    // is taken out of `readyMs`, so a state's budget does not grow with the stills it takes.
+    let captureCpuS = 0;
+    let captureCpuKnown = true;
+    const captured = async (capture: () => Promise<void>) => {
+      const before = await cpuNow();
+      try { await capture(); } finally {
+        const after = await cpuNow();
+        if (typeof before === "number" && typeof after === "number") captureCpuS += Math.max(0, after - before);
+        else captureCpuKnown = false;
+      }
+    };
     // Workflow receipts reuse the matrix's synthetic captures. Keep only an AX digest/count,
     // never accessibility text, and leave ordinary matrix timing/capture costs unchanged.
     const workflow = process.env.CMUX_GALLERY_WORKFLOW_EVIDENCE === "1";
@@ -258,11 +278,13 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     if (workflow) {
       await page.exposeFunction("cmuxGalleryBeforeStep", async () => {
         const started = Date.now();
-        const index = beforeSteps.length;
-        const screenshot = `${safeFilePart(item.id)}-${engine}--step-${String(index + 1).padStart(2, "0")}-before.png`;
-        const clip = await captureClip(page);
-        await page.screenshot({ path: join(outputDir, screenshot), ...(clip ? { clip } : { fullPage: true }) });
-        beforeSteps.push({ index, screenshot, axDigest: await axDigest() });
+        await captured(async () => {
+          const index = beforeSteps.length;
+          const screenshot = `${safeFilePart(item.id)}-${engine}--step-${String(index + 1).padStart(2, "0")}-before.png`;
+          const clip = await captureClip(page);
+          await page.screenshot({ path: join(outputDir, screenshot), ...(clip ? { clip } : { fullPage: true }) });
+          beforeSteps.push({ index, screenshot, axDigest: await axDigest() });
+        });
         beforeEvidenceMs += Date.now() - started;
       });
     }
@@ -284,11 +306,13 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     let stillsMs = 0;
     await page.exposeFunction("cmuxGalleryStep", async (step: { index: number; step: string }) => {
       const started = Date.now();
-      const name = `${safeFilePart(item.id)}-${engine}--step-${String(step.index + 1).padStart(2, "0")}.png`;
-      const clip = await captureClip(page);
-      await page.screenshot({ path: join(outputDir, name), ...(clip ? { clip } : { fullPage: true }) });
-      stills.push({ index: step.index, step: String(step.step).slice(0, 200), screenshot: name });
-      if (workflow) afterSteps.push({ index: step.index, screenshot: name, axDigest: await axDigest() });
+      await captured(async () => {
+        const name = `${safeFilePart(item.id)}-${engine}--step-${String(step.index + 1).padStart(2, "0")}.png`;
+        const clip = await captureClip(page);
+        await page.screenshot({ path: join(outputDir, name), ...(clip ? { clip } : { fullPage: true }) });
+        stills.push({ index: step.index, step: String(step.step).slice(0, 200), screenshot: name });
+        if (workflow) afterSteps.push({ index: step.index, screenshot: name, axDigest: await axDigest() });
+      });
       stillsMs += Date.now() - started;
     });
     // When the stage first says it is ready, from navigation start (mount, play and settle; the play
@@ -310,17 +334,20 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     await page.goto(url, { waitUntil: "domcontentloaded" });
     // A gallery stage says when it has painted and gone still (frame/main.ts `data-gallery-ready`).
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady !== undefined || !document.querySelector("script[src*='gallery-frame']"), null, { timeout: 20_000 }).catch(() => undefined);
-    const threadTime = cpuReady
-      ? await Promise.resolve().then(() => cpu!.send("Performance.getMetrics")).then(({ metrics }) => metrics.find((metric) => metric.name === "ThreadTime")?.value, () => undefined)
-      : undefined;
+    const threadTime = await cpuNow();
     const ready = await page.evaluate(() => document.documentElement.dataset.galleryReady ?? null);
     const stamped = await page.evaluate(() => (window as unknown as { cmuxGalleryReadyMs?: number }).cmuxGalleryReadyMs ?? null);
     const readyMs = stamped === null ? null : Math.max(0, stamped - stillsMs - beforeEvidenceMs);
     // The CPU the stage spent until ready (mount, play and settle), read once it said so: gallery
     // health holds each state's budget to this, not to wall time (ready-budgets.ts). A play's own
     // waits (a scripted turn's quiet windows, a timer it lets run) cost no CPU, and a runner busy
-    // with other shards delays the stage without adding to it. Wall time stays as `readyMs`.
-    const readyCpuMs = stamped === null || typeof threadTime !== "number" ? null : Math.round(threadTime * 1000);
+    // with other shards delays the stage without adding to it. Wall time stays as `readyMs`. The
+    // play's captures are taken out (`captured` above); the final screenshot, geometry and
+    // invariants run after this reading. A capture that lost its reading leaves wall time in charge.
+    const readyCpuMs =
+      stamped === null || typeof threadTime !== "number" || !captureCpuKnown
+        ? null
+        : Math.max(0, Math.round((threadTime - captureCpuS) * 1000));
     const revision = await page.evaluate(() => {
       const root = document.documentElement;
       return {
@@ -350,7 +377,7 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     // The design specs' geometry rules, read from the stage as screenshotted (webviews/src/gallery/invariants.ts): gallery health's geometry gate.
     const invariants = await page.evaluate(() => (window as unknown as { cmuxGalleryInvariants?: () => unknown }).cmuxGalleryInvariants?.() ?? null).catch(() => null);
     const screenshotPath = join(outputDir, screenshotName);
-    const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, readyMs, readyCpuMs, revision, play, load, invariants, ...(experiment ? { experiment } : {}) };
+    const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, readyMs, readyCpuMs, readyCaptureCpuMs: cpuReady && captureCpuKnown ? Math.round(captureCpuS * 1000) : null, revision, play, load, invariants, ...(experiment ? { experiment } : {}) };
     if (workflow) result.workflowEvidence = { beforeSteps, afterSteps, final: { screenshot: screenshotName, axDigest: await axDigest() }, timingIncludesEvidenceCapture: false };
     if (geometrySelections) result.geometry = await collectGeometry(page, geometrySelections, { schemaVersion: 1, revision, capture: { caseId: item.id, engine, theme: String(params.colorScheme), viewport: { width, height }, deviceScaleFactor: DEFAULT_DEVICE_SCALE, screenshot: screenshotName, screenshotSha256: "", coordinateSpace: "css-px" } }, outputDir);
     if (stills.length) result.steps = stills.sort((a, b) => a.index - b.index);
