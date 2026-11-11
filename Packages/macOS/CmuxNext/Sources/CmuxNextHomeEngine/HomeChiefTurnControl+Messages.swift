@@ -25,4 +25,10 @@ extension HomeChiefTurnControl: HomeMessagesChiefControl {
     public func startQueuedAgent(_ name: String) async -> HomeMessagesChiefRefusal? {
         await startNow(name).map { HomeMessagesChiefRefusal($0.text) }
     }
+
+    public func slashSkills() async -> Result<[HomeChiefSlashSkill], HomeMessagesChiefRefusal> {
+        await offeredSkills()
+            .map { $0.map { HomeChiefSlashSkill(name: $0.name, description: $0.description, source: $0.source) } }
+            .mapError { HomeMessagesChiefRefusal($0.text) }
+    }
 }

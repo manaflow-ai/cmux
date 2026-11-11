@@ -4,6 +4,7 @@ import { useEffect, useMemo, useSyncExternalStore, type ReactNode } from "react"
 import type { Strings } from "../../shared/i18n";
 import type { PageClient } from "../../shared/pageClient";
 import { Notice } from "../../../ui/Notice";
+import { ChiefSkills } from "./chiefSkills";
 import { ChiefTurn } from "./chiefTurn";
 import type { ComposerChief } from "./MessageComposer";
 
@@ -27,6 +28,9 @@ export function useChiefTurn(
 ): ChiefTurnProps {
   const turn = useMemo(() => new ChiefTurn(host, conversation, words), [host, conversation, words]);
   useEffect(() => () => turn.dispose(), [turn]);
+  // `/` in the message box lists the Chief's skills (chiefSkills.ts), read on the first `/`.
+  const skills = useMemo(() => (host && isChief ? new ChiefSkills(host, conversation) : undefined), [host, conversation, isChief]);
+  useEffect(() => () => skills?.dispose(), [skills]);
   useEffect(() => turn.update(isChief && working, sequence), [turn, isChief, working, sequence]);
   const view = useSyncExternalStore(turn.subscribe, turn.getSnapshot);
   const startAgent = useMemo(() => (host ? (agent: string) => turn.startAgent(agent) : undefined), [host, turn]);
@@ -38,6 +42,7 @@ export function useChiefTurn(
       continueAvailable: view.continueAvailable,
       onStop: (all) => turn.stop(all),
       onContinue: () => turn.continueTurn(),
+      ...(skills ? { skills } : {}),
     },
     ...(startAgent ? { startAgent } : {}),
     ...(toast

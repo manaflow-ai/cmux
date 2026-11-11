@@ -111,4 +111,16 @@ public struct HomeChiefTurnControl {
             return HomeChiefEngineError(error)
         }
     }
+
+    /// `chief.engine.get` `offered.skills`: what `/` lists in this Chief's composer (its host reads
+    /// the skill folders, optchat-chief slash_skills.rs), local and paired-server Chiefs alike.
+    public func offeredSkills() async -> Result<[ChiefEngineReport.Offered.Skill], HomeChiefEngineError> {
+        if isHosted { return .failure(.cloudStopUnsupported) }
+        guard let connection else { return .failure(.unreachable) }
+        do throws(ChiefControlError) {
+            return .success(try await ChiefControlClient(connection).chiefEngine(chief: named).offered.skills)
+        } catch {
+            return .failure(HomeChiefEngineError(error))
+        }
+    }
 }

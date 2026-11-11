@@ -845,3 +845,63 @@
 .mt-turn-row.running .mt-turn-time {
   color: var(--page-text);
 }
+
+/* The `/` list over a Chief chat's message box (MessageComposer SkillMenu, chiefSkills.ts): one row a
+   skill, the name, where it comes from, the description; or one status row (loading, failed, none). */
+.mt-slash-menu {
+  position: absolute;
+  right: var(--ds-space-3);
+  bottom: calc(100% - var(--ds-space-1));
+  left: var(--ds-space-3);
+  z-index: 3;
+  max-height: min(296px, 50vh);
+  overflow: auto;
+  box-sizing: border-box;
+  padding: var(--ui-popup-padding, 4px);
+  border-radius: var(--ui-popup-radius, 10px);
+  font: var(--text-body);
+}
+
+.mt-slash-row {
+  display: flex;
+  min-height: var(--ui-row-height, 28px);
+  align-items: center;
+  gap: var(--ds-space-2);
+  padding: 0 var(--ui-row-padding-inline, 8px);
+  border-radius: var(--ui-row-radius, 6px);
+  white-space: nowrap;
+  cursor: default;
+}
+
+.mt-slash-menu .ui-listbox-row[aria-selected="true"] {
+  background: color-mix(in srgb, var(--page-text) 10%, transparent);
+}
+
+.mt-slash-name {
+  flex: none;
+  color: var(--page-text);
+}
+
+.mt-slash-name mark {
+  background: none;
+  color: inherit;
+  font-weight: 600;
+}
+
+.mt-slash-source {
+  flex: none;
+  color: var(--mt-caption);
+  font: var(--text-caption);
+}
+
+.mt-slash-description {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mt-caption);
+  text-overflow: ellipsis;
+}
+
+.mt-slash-status {
+  padding: var(--ds-space-2) var(--ds-space-3);
+  color: var(--mt-caption);
+}

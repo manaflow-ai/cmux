@@ -15,12 +15,17 @@
 // - While the Chief answers (`chief.working`), the emoji button is Stop (ChatController+Stop.swift): a
 //   click stops the Chief's turn, Option-click stops all its agents. After a Stop, while nothing
 //   runs, it is Continue (`chief.continueAvailable`): a click asks the Chief to go on with the turn.
+// - In a Chief chat, `/` at the message's start lists the Chief's skills (chiefSkills.ts, the native
+//   SlashSkillMenu): typing filters them, Up and Down choose, Tab or Return (slashCommands.ts
+//   returnPicks) or a click writes `/name ` over the word, Escape closes the list for that text.
+//   While the list is on its way it says so, and a failed read says that, never an empty list.
 // - The files are the conversation's (attachmentDrafts.ts, kept by the page): another conversation
 //   showing leaves them, uploads and all, and coming back finds them in the tray.
 import type { PrepareFile } from "./prepareAttachment";
 import {
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -28,6 +33,15 @@ import {
   type Ref,
 } from "react";
 import { PromptEditor, type PromptEditorHandle } from "../../../agent-session/acpmux/composer/PromptEditor";
+import {
+  returnPicks,
+  shownName,
+  useSlashNames,
+  type SlashCommand,
+  type SlashMatch,
+  type SlashTrigger,
+} from "../../../agent-session/acpmux/slashCommands";
+import { Listbox } from "../../../ui/Listbox";
 import { elementBox, type ToastAvoidanceReports } from "../../../agent-session/acpmux/toastAvoidance";
 import { DictationButton } from "../../../agent-session/acpmux/DictationButton";
 import { DictationNotice } from "../../../agent-session/acpmux/DictationNotice";
@@ -44,6 +58,7 @@ import { useWebSwapHold } from "../../shared/useWebSwapHold";
 import { quoteMarkdown } from "../../home-channels/quoteSelection";
 import type { ComposerTarget } from "../composerHandoff";
 import { AttachmentDrafts } from "./attachmentDrafts";
+import { chiefSkillMatches, skillCommand, type ChiefSkillList, type ChiefSkills } from "./chiefSkills";
 import { ComposerHistory, historyTakesArrow } from "./history";
 import { excerpt } from "./replyQuote";
 import { intakeProblem, textBeside, transferFiles, type TransferLike } from "./intake";
@@ -103,7 +118,13 @@ export interface ComposerChief {
   /** Stop the Chief's turn; `all`: Stop all agents (Option-click). */
   onStop(all: boolean): void;
   onContinue(): void;
+  /** What `/` lists (chiefSkills.ts); absent: no list. */
+  skills?: ChiefSkills;
 }
+
+const NO_SKILLS: ChiefSkillList = { kind: "none" };
+const noSkills = () => NO_SKILLS;
+const noSubscribe = () => () => {};
 
 type Notice = { text: string; alert: boolean };
 
@@ -159,6 +180,78 @@ export function MessageComposer({
   // sent or be removed (pages/shared/webSwap.ts, attachmentDrafts.ts `holdReason`).
   useWebSwapHold(hold);
   const canSend = sendEnabled && !empty && !uploading;
+
+  // The `/` list: the `/word` the caret ends (MarkdownField `onSlash`), the Chief's skills for it.
+  const skillStore = chief?.skills;
+  const skillList = useSyncExternalStore(skillStore?.subscribe ?? noSubscribe, skillStore?.getSnapshot ?? noSkills);
+  const [slash, setSlashState] = useState<SlashTrigger | undefined>();
+  const slashShown = useRef(false);
+  const lastSlash = useRef<SlashTrigger | undefined>(undefined);
+  const [slashActive, setSlashActive] = useState(0);
+  const [arrowed, setArrowed] = useState(false);
+  /** The text Escape closed the list on: it stays closed until the text changes. */
+  const [dismissed, setDismissed] = useState<string | undefined>();
+  const setSlash = (trigger: SlashTrigger | undefined) => {
+    // A fresh `/` (none showed) reads the list; typing more never does.
+    if (trigger?.leading && !slashShown.current) skillStore?.load();
+    slashShown.current = Boolean(trigger?.leading);
+    // A new word forgets the row the arrows chose: the same word typed again picks by its spelling.
+    if (lastSlash.current?.query !== trigger?.query || lastSlash.current?.leading !== trigger?.leading) {
+      setSlashActive(0);
+      setArrowed(false);
+    }
+    lastSlash.current = trigger;
+    setSlashState(trigger);
+  };
+  const loadedSkills = skillList.kind === "loaded" ? skillList.skills : undefined;
+  const skillCommands = useMemo(() => loadedSkills?.map(skillCommand), [loadedSkills]);
+  const slashNames = useSlashNames(skillCommands);
+  const typedSlash = skillStore && slash?.leading && dismissed !== value ? slash : undefined;
+  const slashRows = useMemo(
+    () => (typedSlash && loadedSkills ? chiefSkillMatches(loadedSkills, typedSlash) : []),
+    [typedSlash, loadedSkills],
+  );
+  const slashStatus =
+    !typedSlash || skillList.kind === "none"
+      ? undefined
+      : skillList.kind === "loading"
+        ? t("home.compose.slash.loading")
+        : skillList.kind === "failed"
+          ? t("home.compose.slash.failed")
+          : skillList.skills.length === 0
+            ? t("home.compose.slash.none")
+            : undefined;
+  // A `/word` no skill names is the person's text (`/tmp/x is broken`): no list.
+  const slashOpen = typedSlash !== undefined && (slashRows.length > 0 || slashStatus !== undefined);
+  const slashSelected = Math.min(slashActive, Math.max(0, slashRows.length - 1));
+  const pickSkill = (command: SlashCommand) => {
+    const name = shownName(command);
+    if (!editor.current?.insertCommand(name)) {
+      const next = `/${name} `;
+      setText(next);
+      editor.current?.writeText(next, next.length, next.length);
+    }
+    setSlashState(undefined);
+    lastSlash.current = undefined;
+    slashShown.current = false;
+    editor.current?.focus();
+  };
+  /** The list's keys, before the field's own: true when the list took the key. */
+  const slashKey = (event: KeyboardEvent): boolean => {
+    if (!slashOpen || event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return false;
+    const row = slashRows[slashSelected];
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (slashRows.length === 0) return false;
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      setSlashActive((slashSelected + step + slashRows.length) % slashRows.length);
+      setArrowed(true);
+    } else if (event.key === "Tab" && row) pickSkill(row.command);
+    else if (event.key === "Enter" && returnPicks(row, typedSlash?.query ?? "", arrowed) && row) pickSkill(row.command);
+    else if (event.key === "Escape") setDismissed(value);
+    else return false;
+    event.preventDefault();
+    return true;
+  };
 
   const addFiles = (list: Iterable<File>, group?: string) => {
     if (!attachments) return;
@@ -306,6 +399,18 @@ export function MessageComposer({
         />
       )}
       <AttachmentTray items={files} strings={strings} onRemove={removeFile} />
+      {slashOpen && (
+        <SkillMenu
+          rows={slashRows}
+          active={slashSelected}
+          status={slashStatus}
+          loading={skillList.kind === "loading"}
+          strings={strings}
+          onHover={setSlashActive}
+          onPick={pickSkill}
+          sourceOf={(name) => loadedSkills?.find((skill) => skill.name === name)?.source}
+        />
+      )}
       <div className="mt-compose-bar">
         {attachments && (
           <>
@@ -347,7 +452,12 @@ export function MessageComposer({
               setText(markdown);
               if (notice && !notice.alert) setNotice(undefined);
             }}
+            slashNames={slashNames}
+            onSlash={setSlash}
             onKeyDown={(event) => {
+              if (event.isComposing || event.keyCode === 229) return;
+              // The `/` list takes its keys first (Escape closes it before it stops the Chief).
+              if (slashKey(event)) return;
               // Escape and Cmd-. stop a working Chief (AppKit's cancelOperation), after the emoji
               // picker and dictation, which Escape ends first.
               const cancel =
@@ -364,7 +474,20 @@ export function MessageComposer({
             }}
             onSubmit={(markdown, { cmd }) => (cmd ? undefined : submit(markdown))}
             placeholder={prompt}
-            attributes={{ "aria-label": prompt, spellcheck: String(spellChecking) }}
+            attributes={{
+              "aria-label": prompt,
+              spellcheck: String(spellChecking),
+              ...(skillStore
+                ? {
+                    role: "combobox",
+                    "aria-autocomplete": "list",
+                    "aria-expanded": String(slashOpen),
+                    "aria-controls": slashOpen ? "mt-slash-menu" : undefined,
+                    "aria-activedescendant":
+                      slashOpen && slashRows.length > 0 ? `mt-slash-${slashSelected}` : undefined,
+                  }
+                : {}),
+            }}
             features={{ multiline: true }}
             className="mt-field-editor"
           />
@@ -442,6 +565,79 @@ export function MessageComposer({
       )}
     </div>
   );
+}
+
+/** The `/` list over the message box: `/name` with the typed letters marked, where the skill comes
+ * from, its description; or one status row while the list loads, failed, or the Chief has none. */
+function SkillMenu({
+  rows,
+  active,
+  status,
+  loading,
+  strings,
+  onHover,
+  onPick,
+  sourceOf,
+}: {
+  rows: SlashMatch[];
+  active: number;
+  status: string | undefined;
+  loading: boolean;
+  strings: Strings;
+  onHover(index: number): void;
+  onPick(command: SlashCommand): void;
+  sourceOf(name: string): string | undefined;
+}) {
+  const { t } = strings;
+  const sourceLabel = (source: string | undefined) =>
+    source === "claude"
+      ? t("home.compose.slash.source.claude")
+      : source?.startsWith("plugin:")
+        ? source.slice("plugin:".length)
+        : t("home.compose.slash.source.chief");
+  if (rows.length === 0)
+    return (
+      <div className="ui-popup ui-glass mt-slash-menu mt-slash-status" role="status" aria-busy={loading}>
+        {status}
+      </div>
+    );
+  return (
+    <Listbox
+      items={rows}
+      getKey={(row) => row.command.name}
+      textValue={(row) => shownName(row.command)}
+      label={t("home.compose.slash.label")}
+      autoFocus={false}
+      activeIndex={active}
+      onActiveIndexChange={onHover}
+      onOpen={(row) => onPick(row.command)}
+      getItemId={(_, index) => `mt-slash-${index}`}
+      className="ui-popup ui-glass mt-slash-menu"
+      id="mt-slash-menu"
+      rowClassName="mt-slash-row"
+      renderItem={(row) => (
+        <>
+          <span className="mt-slash-name">
+            /<Marked name={shownName(row.command)} ranges={row.ranges} />
+          </span>
+          <span className="mt-slash-source">{sourceLabel(sourceOf(row.command.name))}</span>
+          <span className="mt-slash-description">{row.command.description}</span>
+        </>
+      )}
+    />
+  );
+}
+
+function Marked({ name, ranges }: { name: string; ranges: [number, number][] }) {
+  const parts: ReactNode[] = [];
+  let at = 0;
+  for (const [start, end] of ranges) {
+    if (start > at) parts.push(name.slice(at, start));
+    parts.push(<mark key={start}>{name.slice(start, end)}</mark>);
+    at = end;
+  }
+  if (at < name.length) parts.push(name.slice(at));
+  return <>{parts}</>;
 }
 
 /** The quote a reply answers, on the message box (ReplyQuoteCardView): whose words, the words in
