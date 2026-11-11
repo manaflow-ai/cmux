@@ -25,8 +25,9 @@
 //! - when the chat may be lent at all (`SessionMeta::github_lendable`, Codex review round 5, F2):
 //!   - set only when the person's own client started it (`session/new` from a connection
 //!     `vm_boundary::owner` says is the person's);
-//!   - cleared for good, and saved, when a Web client or a paired device (`via: device`) sends
-//!     it anything but a read (`Hub::refuse_at_vm_boundary`);
+//!   - cleared for good when a Web client or a paired device (`via: device`) sends it anything
+//!     but a read (`Hub::refuse_at_vm_boundary`): durably saved before that request is served,
+//!     or the request is refused, so a crash loses at most the request, never the mark;
 //!   - a fork carries its chat's value read when the fork is made (so a fork of a withheld chat
 //!     is withheld from its first turn), a side chat (`btw.rs`), a sub-session, a trigger's chat
 //!     and any other session the daemon makes itself start with it off, and a chat a move brings
@@ -87,14 +88,23 @@ impl Hub {
         meta.remote_origin && meta.github_lendable && self.github_owner_link().is_some()
     }
 
-    /// Ends `session`'s GitHub lending for good (module docs): its meta, saved.
-    pub(super) fn withhold_github(&self, session: &Session) {
-        let changed = {
+    /// Ends `session`'s GitHub lending for good (module docs), before the request that ends it
+    /// is served: the cleared mark is durably in the store when this returns, or the request is
+    /// refused (`store.save_failed`). So a crash loses at most that request, never the mark. A
+    /// chat already withheld waits for that change to be durable too, which retries a clear an
+    /// earlier request could not save.
+    pub(super) fn withhold_github(&self, session: &Session) -> Result<(), crate::rpc::RpcError> {
+        let (remote, changed) = {
             let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            std::mem::replace(&mut meta.github_lendable, false)
+            (meta.remote_origin, std::mem::replace(&mut meta.github_lendable, false))
         };
         if changed {
-            self.save_meta(session);
+            self.save_meta_answered(session)
+        } else if remote {
+            self.meta_barrier(session)
+        } else {
+            // A chat that is not a remote chain is never lent: nothing to keep.
+            Ok(())
         }
     }
 
