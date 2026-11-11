@@ -7779,7 +7779,7 @@ class FailingStepLogOnly(unittest.TestCase):
     # Each copy keeps STEP_NAMES_UNKNOWN too: step_owners requires a caller to pass it when it reads no workflow.
     # Its helpers are copied with it (_aligned_starts reads a StepNames' headers alone, so with STEP_NAMES_UNKNOWN a
     # copy places exactly what it placed before).
-    VENDORED_FINGERPRINT = "c1f7aa56c1f3ddba55d0abe35e461b1148203468cfdd350965d8b2775fca771b"
+    VENDORED_FINGERPRINT = "01f6a87409fcacc05dc661db008c33ed272825f36c4921bca3daeb816fd37280"
 
     def test_the_code_vendored_into_base_red_watch_is_pinned(self):
         import hashlib
@@ -11774,8 +11774,6 @@ def module_patterns():
 # F1's class): each reads to the line's end from every opener on it. A ratchet: a new one fails the sweep, and one
 # made linear fails it until it leaves this list. The follow-up that makes them linear is cmux#41374.
 KNOWN_SUPERLINEAR = {
-    "base_red_excuse.ANSI": "an OSC escape (`\\x1b]`) never closed by BEL or ESC \\\\ reads to the end",
-    "test_reds.ANSI": "base_red_excuse.ANSI's pattern, test_reds' copy since #41382 (its plain()): the same OSC read",
     "base_red_excuse.TEST_RUN_SUMMARY": "`^=+ .*\\bin [\\d.]+s\\b.*=+$`: two `.*` around a literal",
     "test_reds.BUN_ABSOLUTE": "`/[^\\s'\"()]*?/(?:webviews|web)/` from every slash",
     "test_reds.BUN_PACKAGE": "`(?:\\./)*(?:\\S*?/)?`: two repeats that read the same `./`",

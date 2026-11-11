@@ -2,6 +2,8 @@
 crash or a cut-short run is never the base's."""
 import importlib.util
 import json
+import os
+import random
 import subprocess
 import sys
 import tempfile
@@ -1778,6 +1780,265 @@ class LostRunner(unittest.TestCase):
                                   capture_output=True, text=True)
         self.assertEqual(done.returncode, 1, done.stderr)
         self.assertIn("a verdict", done.stdout)
+
+
+class EscapesEndAtTheirFirstTerminator(unittest.TestCase):
+    r"""cmux#41382's review F1 (test_reds.py:64): "The OSC pattern is greedy and runs to the last ESC \ in the log, so
+    plain() deletes every line between two title sequences. Reproduced through cargo_test_verdict.read_text: a head
+    with one new and one existing failure loses the new one, and judge() excuses it. Stop at the first terminator (BEL
+    or ST), handle multiline sequences, and never let one escape span a newline-separated failure line.\""""
+
+    TITLE_ST = "\x1b]0;cargo test\x1b\\"
+    TITLE_BEL = "\x1b]2;cargo test\x07"
+
+    def test_two_titles_keep_every_line_between_them(self):
+        text = "\n".join([self.TITLE_ST + "running 1 test", "test a::new ... FAILED", "test result: FAILED. 0 passed; "
+                          "1 failed; 0 ignored; 0 measured; 0 filtered out", self.TITLE_ST + "done"])
+        self.assertEqual(reds.plain(text).splitlines(),
+                         ["running 1 test", "test a::new ... FAILED", "test result: FAILED. 0 passed; 1 failed; "
+                          "0 ignored; 0 measured; 0 filtered out", "done"])
+
+    def test_a_bel_title_ends_at_its_bel_and_an_st_one_at_its_st(self):
+        self.assertEqual(reds.plain(f"{self.TITLE_BEL}a{self.TITLE_ST}b{self.TITLE_BEL}c"), "abc")
+        link = "\x1b]8;;https://example.invalid/x\x1b\\x.rs\x1b]8;;\x1b\\"
+        self.assertEqual(reds.plain(f"test {link} ... FAILED"), "test x.rs ... FAILED")
+
+    def test_an_unterminated_or_multiline_escape_never_spans_a_failure_line(self):
+        # A title opened on one line and closed lines later: each line between is the log's, never the title's.
+        text = "\n".join(["\x1b]0;opening", "test a::new ... FAILED", "closing\x07", "\x1b]0;never closed",
+                          "test a::old ... FAILED", "\x1b\\"])
+        self.assertEqual(reds.plain(text).splitlines(),
+                         ["", "test a::new ... FAILED", "closing", "", "test a::old ... FAILED"])
+        self.assertEqual(reds.read(text).failed, {"a::new", "a::old"})
+
+
+class BunFileOwnershipStaysInItsStep(unittest.TestCase):
+    """cmux#41382's review F2 (test_reds.py:806): "The fallback takes file ownership from earlier steps. A passing
+    a.test.ts in step 1 plus a headerless failure and FAIL a.test.ts in step 2 creates a spurious unnamed failure, so
+    identical head and base logs are refused. The reverse can hide a later unnamed marker. Resolve ownership within the
+    current step only.\""""
+
+    PASSING_RUN = ["bun test v1.3.0", "test/a.test.ts:", "(pass) a > ok [1.00ms]", " 1 pass", " 0 fail"]
+    NAMED_RUN = ["bun test v1.3.0", "test/a.test.ts:", "error: boom", "(fail) a > bad [1.00ms]", " 0 pass", " 1 fail"]
+    HEADERLESS = ["bun test v1.3.0", "error: boom", "(fail) a > bad [1.00ms]", " 0 pass", " 1 fail",
+                  "FAIL test/a.test.ts (exit 1)"]
+    SILENT = ["bun test v1.3.0", "error: Cannot find module './gone'", " 0 pass", " 0 fail",
+              "FAIL test/a.test.ts (exit 1)"]
+    ERROR = "##[error]Process completed with exit code 1."
+
+    def test_an_earlier_steps_passing_run_never_unnames_a_later_steps_named_failure(self):
+        job = log(*step("bun one"), *self.PASSING_RUN, self.ERROR, *step("bun two"), *self.HEADERLESS, self.ERROR)
+        found = reds.read(job)
+        self.assertEqual((found.failed, found.unnamed, found.truncated), ({"a > bad"}, [], []))
+        verdict = reds.classify(job, job, "web / tests")
+        self.assertFalse(verdict.own, verdict.reasons)
+
+    def test_an_earlier_steps_named_failure_never_hides_a_later_steps_unnamed_one(self):
+        job = log(*step("bun one"), *self.NAMED_RUN, self.ERROR, *step("bun two"), *self.SILENT, self.ERROR)
+        found = reds.read(job)
+        self.assertEqual(found.unnamed, ["FAIL test/a.test.ts (exit 1)"])
+        self.assertEqual([r for r in found.records if r[2] == "unnamed"], [(2, 1, "unnamed", "FAIL test/a.test.ts (exit 1)")])
+
+
+def growth(call, small, large, repeats=3, min_seconds=0.005):
+    """CALL(LARGE)'s best CPU time over CALL(SMALL)'s, each sample repeating the call until it takes MIN_SECONDS (the
+    same count at both sizes), best of REPEATS each, in turn: about LARGE/SMALL when linear."""
+    import math
+    import time
+
+    def sample(size, loops):
+        began = time.process_time()
+        for _ in range(loops):
+            call(size)
+        return (time.process_time() - began) / loops
+    loops = max(1, math.ceil(min_seconds / max(sample(small, 1), 1e-9)))
+    best = {small: float("inf"), large: float("inf")}
+    for _ in range(repeats):
+        for size in (small, large):
+            best[size] = min(best[size], sample(size, loops))
+    return best[large] / max(best[small], 1e-9), best
+
+
+class PlainCostsLinearInItsInput(unittest.TestCase):
+    """The same greed as F1, as cost: an OSC body that ran to the next BEL or ST read the rest of the log from every
+    `ESC ]` with no terminator, so a log of N unterminated openers cost N^2 (20,000 took 3 to 9 CPU s at cmux#41382's
+    head; a PR's test output can print them). Each opener now reads to the next escape or line end. Linear is about
+    10x for 10x the input and quadratic 100x; the bound is 30x, never seconds."""
+
+    SHAPES = {"openers": "\x1b]x", "openers per line": "\x1b]xxxxx\n", "openers before an ST": "\x1b]0;t",
+              "CSI introducers": "\x1b[", "stray terminators": "\x1b\\\x07"}
+
+    def test_plain_is_linear_in_hostile_escapes(self):
+        for name, shape in self.SHAPES.items():
+            with self.subTest(shape=name):
+                text = {n: shape * n for n in (2_000, 20_000)}
+                ratio, best = growth(lambda n: reds.plain(text[n]), 2_000, 20_000)
+                self.assertLess(ratio, 30, f"{name}: 10x the input took {ratio:.0f}x ({best})")
+
+
+# --- the log-rewrite property test (cmux#41382's review: "a parser that over-reaches hides a new failure") ----------
+# Escapes a terminal writes: CSI colours and cursor moves, OSC titles ended by BEL or by ST, OSC 8 hyperlinks.
+INLINE_NOISE = ("\x1b[0m", "\x1b[31m", "\x1b[1;32m", "\x1b[38;5;208m", "\x1b[2K", "\x1b[1G", "\x1b]0;cargo test\x07",
+                "\x1b]2;bun test\x1b\\", "\x1b]8;;https://example.invalid/x\x1b\\", "\x1b]8;;\x1b\\",
+                "\x1b]8;id=1;file:///w/a.rs\x07")
+
+
+def rewrite_case(seed: int) -> dict:
+    """One job log of random steps (failed ones, and passing ones that print failure-shaped lines), each failure line
+    known, with OSC/CSI noise inside lines, on lines of its own, unterminated, and opened before a failure line and
+    closed after it (multiline), around every step boundary. Returns {"raw", "failed": [step's names], "unnamed":
+    [step's unnamed lines], "lines": every failure line as printed, "never": names a passing step printed}."""
+    rng = random.Random(seed)
+    steps = [rng.random() < 0.75 for _ in range(rng.randint(1, 4))]
+    steps[-1] = True  # the last step never passed (passed_steps)
+    out: list[str] = []
+    expected_failed: list[set] = []
+    expected_unnamed: list[list] = []
+    failure_lines: list[str] = []
+    never: set = set()
+    ERROR = "##[error]Process completed with exit code 1."
+
+    def noisy(text: str) -> str:
+        # Each escape between two characters of the line as printed, never inside another escape.
+        cuts = sorted(rng.randint(0, len(text)) for _ in range(rng.choice((0, 0, 1, 2, 3))))
+        pieces, last = [], 0
+        for at in cuts:
+            pieces += [text[last:at], rng.choice(INLINE_NOISE)]
+            last = at
+        return "".join(pieces) + text[last:]
+
+    def noise_lines() -> list[str]:
+        return [rng.choice(("\x1b]0;title only\x07", "\x1b]0;title only\x1b\\", "\x1b[0m", "\x1b]0;never closed",
+                            "\x1b]8;;https://example.invalid\x1b\\link\x1b]8;;\x1b\\"))
+                for _ in range(rng.choice((0, 0, 1, 2)))]
+
+    def output(lines: list[str]) -> list[str]:
+        """LINES with noise between them, and a multiline title opened before a line and closed lines later."""
+        made: list[str] = []
+        closing = None
+        for text in lines:
+            made += noise_lines()
+            if closing is None and rng.random() < 0.15:
+                made.append("\x1b]0;opening title")
+                closing = rng.randint(1, 3)
+            made.append(noisy(text))
+            if closing is not None:
+                closing -= 1
+                if closing == 0:
+                    made.append("closing title" + rng.choice(("\x07", "\x1b\\")))
+                    closing = None
+        if closing is not None:
+            made.append("closing title\x07")
+        return made + noise_lines()
+
+    for number, failed in enumerate(steps):
+        out += noise_lines() + step(f"fixture-step-{number}")
+        lines: list[str] = []
+        names: set = set()
+        unnamed: list = []
+        tag = f"s{number}"
+        if not failed:
+            # A passing step's negative cases: failure-shaped, and no reader's.
+            lines += ["running 1 test", f"test tests::passing_{tag} ... FAILED",
+                      "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+                      "bun test v1.3.0", "test/a.test.ts:", "error: boom", f"(fail) a > passing_{tag} [1.00ms]",
+                      " 0 pass", " 2 fail"]
+            never |= {f"tests::passing_{tag}", f"test/a.test.ts > a > passing_{tag}"}
+            out += output(lines)
+            continue
+        for block in range(rng.randint(1, 3)):
+            runner = rng.choice(("cargo", "pytest", "swift"))
+            name = f"{tag}_{runner}_{block}"
+            if runner == "cargo":
+                shown = f"test tests::{name} ... FAILED"
+                lines += ["running 2 tests", "test tests::ok ... ok", shown, "test result: FAILED. 1 passed; 1 failed; "
+                          "0 ignored; 0 measured; 0 filtered out; finished in 0.01s"]
+                names.add(f"tests::{name}")
+            elif runner == "pytest":
+                shown = f"FAILED tests/test_mod.py::test_{name} - assert 1 == 2"
+                lines += ["============================= test session starts ==============================", shown,
+                          "========================= 1 failed, 1 passed in 0.12s ========================="]
+                names.add(f"tests/test_mod.py::test_{name}")
+            else:
+                shown = f"✘ Test {name}() recorded an issue at KitTests.swift:3:5: Expectation failed"
+                lines += ["◇ Test run started.", shown, f"✘ Test {name}() failed after 0.010 seconds with 1 issue.",
+                          "✘ Test run with 1 test in 1 suite failed after 0.100 seconds with 1 issue."]
+                names.add(f"{name}()")
+            failure_lines.append(shown)
+        # One kind of bun run per step, so which file a `FAIL file` line closes is never ambiguous within the step.
+        kind = rng.choice(("none", "named", "named", "pass", "silent"))
+        if kind == "named":
+            for run in range(rng.randint(1, 2)):
+                title = f"a > {tag}_bun_{run}"
+                headed = rng.random() < 0.5
+                shown = f"(fail) {title} [1.00ms]"
+                lines += ["bun test v1.3.0", *(["test/a.test.ts:"] if headed else []), "error: boom", shown,
+                          " 0 pass", " 1 fail", *([] if headed else ["FAIL test/a.test.ts (exit 1)"])]
+                names.add(f"test/a.test.ts > {title}" if headed else title)
+                failure_lines.append(shown)
+        elif kind == "pass":
+            lines += ["bun test v1.3.0", "test/a.test.ts:", "(pass) a > ok [1.00ms]", " 1 pass", " 0 fail"]
+        elif kind == "silent":
+            marker = "FAIL test/a.test.ts (exit 1)"
+            lines += ["bun test v1.3.0", "error: Cannot find module './gone'", " 0 pass", " 0 fail", marker]
+            unnamed.append(marker)
+            failure_lines.append(marker)
+        out += output(lines + [ERROR])
+        expected_failed.append(names)
+        expected_unnamed.append(unnamed)
+    return {"raw": log(*out), "failed": expected_failed, "unnamed": expected_unnamed, "lines": failure_lines,
+            "never": never}
+
+
+def rewrite_violations(seed: int) -> list[str]:
+    case = rewrite_case(seed)
+    text = reds.plain(case["raw"])
+    found: list[str] = []
+    kept = reds.log_lines(text)
+    found += [f"seed {seed}: plain() dropped the failure line {line!r}" for line in case["lines"] if line not in kept]
+    # Each failed step's section (red_steps, past the lines before the first step) holds its own failures, no other's.
+    sections = reds.red_steps(text)[1:]
+    if len(sections) != len(case["failed"]):
+        return found + [f"seed {seed}: {len(sections)} failed steps read, {len(case['failed'])} printed"]
+    result = reds.read(text)
+    bun = {(step - 1, name) for step, _, what, name in result.records if what == "failed"}
+    marks = [(step - 1, line) for step, _, what, line in result.records if what == "unnamed"]
+    for number, (names, unnamed, section) in enumerate(zip(case["failed"], case["unnamed"], sections)):
+        read_here = reds.failed_names(section) | {name for at, name in bun if at == number}
+        if read_here != names:
+            found.append(f"seed {seed}: failed step {number} read {sorted(read_here)}, printed {sorted(names)}")
+        if [line for at, line in marks if at == number] != unnamed:
+            found.append(f"seed {seed}: failed step {number} read unnamed {[l for at, l in marks if at == number]}, "
+                         f"printed {unnamed}")
+    every = set().union(*case["failed"])
+    if result.failed != every:
+        found.append(f"seed {seed}: read() named {sorted(result.failed)}, the log printed {sorted(every)}")
+    if leaked := result.failed & case["never"]:
+        found.append(f"seed {seed}: a passing step's lines were read: {sorted(leaked)}")
+    if sorted(result.unnamed) != sorted(line for lines in case["unnamed"] for line in lines):
+        found.append(f"seed {seed}: unnamed {result.unnamed}, printed {case['unnamed']}")
+    return found
+
+
+class LogRewritesKeepEveryFailure(unittest.TestCase):
+    """The detector for "a parser that over-reaches hides a new failure" (cmux#41382's review: "any rewrite of log text
+    before judging must be checked for never dropping a failure line"): random OSC/CSI noise and step boundaries
+    around known failure lines; every failure survives plain() and is read in its own step, and only there.
+    TEST_REDS_REWRITE_SEEDS (default 400) sets how many seeds run, TEST_REDS_REWRITE_START the first; replay one with
+    TEST_REDS_REWRITE_START=SEED TEST_REDS_REWRITE_SEEDS=1."""
+
+    def test_every_failure_survives_plain_and_is_read_in_its_own_step(self):
+        start = int(os.environ.get("TEST_REDS_REWRITE_START", "0"))
+        count = int(os.environ.get("TEST_REDS_REWRITE_SEEDS", "400"))
+        found = [v for seed in range(start, start + count) for v in rewrite_violations(seed)]
+        self.assertEqual(found[:10], [], f"{len(found)} violations over {count} seeds")
+
+    def test_the_generator_prints_what_it_says(self):
+        # Non-vacuity: the cases hold each kind of noise, multiline titles, passing steps, and both bun ownerships.
+        raw = "".join(rewrite_case(seed)["raw"] for seed in range(200))
+        for piece in ("\x1b]0;opening title", "\x1b]0;never closed", "\x1b\\", "\x07", "\x1b[31m",
+                      "passing_", "FAIL test/a.test.ts", "(pass) a > ok"):
+            self.assertIn(piece, raw)
 
 
 class ReadOncePerLog(unittest.TestCase):
