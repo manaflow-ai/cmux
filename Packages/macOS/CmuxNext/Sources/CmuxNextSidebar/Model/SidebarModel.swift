@@ -708,6 +708,7 @@ public final class SidebarModel {
             }
         }
         let listed = sections.compactMap(\.machine)
+        o.cloudMachines = Set(listed.filter { $0.kind == .cloud }.map(\.id))
         if Set(listed.map(\.id)).count > 1 {
             o.machines = Dictionary(listed.filter { $0.kind != .local || showsLocalMachine }.map { ($0.id, $0) },
                                     uniquingKeysWith: { first, _ in first })
