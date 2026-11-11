@@ -83,9 +83,17 @@ Detectors (all line/regex heuristics, never an AST):
   sys.path). Each changed test file, and each that loads git_fixture_env, is
   loaded with `python3 -I` without running its tests.
 
+Allowlist (.github/test-determinism-allowlist.txt): one entry per (file, function, rule) with a reason. The
+function is the one the finding sits in, as each finding line prints it after "in" (Python `Class.method`,
+Swift `Type.method`, a JS test's title path, or <module>), so an entry never hides a new finding in another
+function of the same file. --strict fails on an entry no finding matches ("stale entry"). An entry whose reason
+starts "hang guard:" is a deadline-only bound, well above any normal run, that turns a hang into a failure, and
+says what would hang; every other entry is old debt that tests/test_determinism_allowlist_ratchet.py lets only
+shrink.
+
 Usage:
     check-test-determinism.py                 # scan, print findings, exit 0
-    check-test-determinism.py --strict        # exit 1 on any non-allowlisted finding
+    check-test-determinism.py --strict        # exit 1 on any non-allowlisted finding or stale entry
     check-test-determinism.py --write-allowlist
     check-test-determinism.py --roots ...     # override scan roots
     check-test-determinism.py --json
@@ -99,7 +107,8 @@ import json
 import pathlib
 import re
 import sys
-from dataclasses import dataclass
+import unicodedata
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from typing import Iterable, Optional
 
@@ -185,18 +194,22 @@ class Finding:
     line: int  # 1-based
     rule: str
     snippet: str
+    # The qualified name of the function the line sits in (`TestX.test_y`, `SuiteTests.testZ`, a JS test's
+    # title path), or MODULE_SCOPE outside any. The allowlist keys an entry by (path, function, rule).
+    function: str = ""
 
-    def key(self) -> tuple[str, str]:
-        return (self.path, self.rule)
+    def key(self) -> tuple[str, str, str]:
+        return (self.path, self.function or MODULE_SCOPE, self.rule)
 
     def format(self) -> str:
-        return f"{self.path}:{self.line}: {self.rule}: {self.snippet}"
+        return f"{self.path}:{self.line}: {self.rule} in {self.function or MODULE_SCOPE}: {self.snippet}"
 
     def to_dict(self) -> dict[str, object]:
         return {
             "path": self.path,
             "line": self.line,
             "rule": self.rule,
+            "function": self.function or MODULE_SCOPE,
             "snippet": self.snippet,
         }
 
@@ -607,18 +620,46 @@ _HOST_PORT_TUPLE = re.compile(
 
 
 def _strip_comment(line: str, path_suffix: str) -> str:
-    """Best-effort removal of trailing comments for non-network detectors."""
-    markers = ["#"] if path_suffix in (".py", ".sh") else ["//"]
-    out = line
-    for marker in markers:
-        idx = out.find(marker)
-        while idx != -1:
-            prefix = out[:idx]
-            if prefix.count('"') % 2 == 0 and prefix.count("'") % 2 == 0:
-                out = prefix
-                break
-            idx = out.find(marker, idx + len(marker))
-    return out
+    """LINE without its comments, as the lexer reads the line on its own (`_code_lines` reads a whole file)."""
+    if "#" not in line and "/" not in line:
+        return line
+    comments = _source_lexical_positions(line, path_suffix)[1]
+    if not any(comments):
+        return line
+    return "".join(character for character, comment in zip(line, comments) if not comment)
+
+
+# The last whole file the lexer read: scan_text's passes (comments, blocks, function names) share one lexing.
+_LAST_WHOLE_TEXT: list[tuple[str, str, tuple[bytes, bytes, tuple[int, ...]]]] = []
+
+
+def _whole_text_positions(text: str, path_suffix: str) -> tuple[bytes, bytes, tuple[int, ...]]:
+    """`_lexical_positions_and_unresolved` over a whole file, shared by the passes over that file."""
+    if _LAST_WHOLE_TEXT and _LAST_WHOLE_TEXT[0][0] is text and _LAST_WHOLE_TEXT[0][1] == path_suffix:
+        return _LAST_WHOLE_TEXT[0][2]
+    positions = _lexical_positions_and_unresolved(text, path_suffix)
+    _LAST_WHOLE_TEXT[:] = [(text, path_suffix, positions)]
+    return positions
+
+
+def _code_lines(text: str, path_suffix: str) -> list[str]:
+    """TEXT's lines (`str.splitlines`) without comments, by the lexer over the whole text: a block comment is
+    gone from every line it spans, and a comment marker inside a string (one-line or multi-line) stays."""
+    comments = _whole_text_positions(text, path_suffix)[1]
+    lines = text.splitlines()
+    if not any(comments):
+        return lines
+    code: list[str] = []
+    offset = 0
+    for line, with_end in zip(lines, text.splitlines(keepends=True)):
+        line_comments = comments[offset : offset + len(line)]
+        code.append(
+            line
+            if not any(line_comments)
+            else "".join(character for character, comment in zip(line, line_comments) if not comment)
+        )
+        offset += len(with_end)
+    return code
 
 
 def _is_assertion_line(line: str) -> bool:
@@ -673,13 +714,285 @@ def _line_comment_marker_length(
     return 2 if source.startswith("//", index) else 0
 
 
+_JAVASCRIPT_CONTROL_HEAD_KEYWORDS = frozenset({"if", "while", "for", "with"})
+# A `{` after one of these opens an expression (an object literal or a function body's value), so a slash after its
+# `}` divides; after a block keyword it opens a block, so a slash after its `}` starts a regex literal.
+_JAVASCRIPT_EXPRESSION_KEYWORDS = frozenset(
+    {"await", "delete", "in", "instanceof", "new", "of", "return", "throw", "typeof", "void", "yield"}
+)
+_JAVASCRIPT_BLOCK_KEYWORDS = frozenset({"do", "else", "finally", "try"})
+# Restricted productions: a line terminator after these ends the statement (automatic semicolon insertion).
+_JAVASCRIPT_ASI_KEYWORDS = frozenset({"return", "yield"})
+_JAVASCRIPT_LINE_TERMINATOR = re.compile("[\n\r\u2028\u2029]")
+# Heads after whose `)` a `{` opens a block (a statement's body): the control heads, `switch` and `catch`.
+_JAVASCRIPT_BLOCK_HEAD_KEYWORDS = _JAVASCRIPT_CONTROL_HEAD_KEYWORDS | {"switch", "catch"}
+
+
+# ECMAScript IdentifierStart is Unicode ID_Start, `$` and `_`; IdentifierPart adds ID_Continue, U+200C (ZWNJ) and
+# U+200D (ZWJ). Python's own rule (XID, and no ZWNJ or ZWJ) differs, so these follow Unicode's definitions: ID_Start
+# is the letter categories, Nl and Other_ID_Start; ID_Continue adds Mn, Mc, Nd, Pc and Other_ID_Continue.
+_UNICODE_ID_START_CATEGORIES = frozenset({"Lu", "Ll", "Lt", "Lm", "Lo", "Nl"})
+_UNICODE_ID_CONTINUE_CATEGORIES = _UNICODE_ID_START_CATEGORIES | {"Mn", "Mc", "Nd", "Pc"}
+_UNICODE_OTHER_ID_START = frozenset("\u1885\u1886\u2118\u212e\u309b\u309c")
+_UNICODE_OTHER_ID_CONTINUE = frozenset("\u00b7\u0387\u1369\u136a\u136b\u136c\u136d\u136e\u136f\u1370\u1371\u19da")
+_UNICODE_PATTERN_SYNTAX_IN_ID = frozenset("\u2e2f")  # Lm, but Pattern_Syntax: never in an identifier
+
+
+def _javascript_identifier_start(character: str) -> bool:
+    """Whether CHARACTER starts a JavaScript identifier (ECMAScript IdentifierStart: ID_Start, `$` or `_`)."""
+    if character.isascii():
+        return character.isalpha() or character in "_$"
+    if character in _UNICODE_PATTERN_SYNTAX_IN_ID:
+        return False
+    return unicodedata.category(character) in _UNICODE_ID_START_CATEGORIES or character in _UNICODE_OTHER_ID_START
+
+
+def _javascript_identifier_character(character: str) -> bool:
+    """Whether CHARACTER continues a JavaScript identifier (ECMAScript IdentifierPart: ID_Continue, `$`, `_`,
+    U+200C or U+200D): `πif` and `x\u200cif` are one name each, not a name and the keyword `if`."""
+    if character.isascii():
+        return character.isalnum() or character in "_$"
+    if character in "\u200c\u200d" or character in _UNICODE_OTHER_ID_START or character in _UNICODE_OTHER_ID_CONTINUE:
+        return True
+    if character in _UNICODE_PATTERN_SYNTAX_IN_ID:
+        return False
+    return unicodedata.category(character) in _UNICODE_ID_CONTINUE_CATEGORIES
+
+
+# ECMAScript WhiteSpace (tab, VT, FF, space, U+00A0, U+FEFF and every Zs) and LineTerminator.
+def _javascript_is_blank(character: str) -> bool:
+    return character in "\t\v\f \u00a0\ufeff\n\r\u2028\u2029" or (
+        not character.isascii() and unicodedata.category(character) == "Zs"
+    )
+
+
+def _javascript_skip_blanks(source: str, index: int) -> int:
+    while index < len(source) and _javascript_is_blank(source[index]):
+        index += 1
+    return index
+
+
+_JAVASCRIPT_TYPE_LOOKAHEAD = 2000
+_JAVASCRIPT_CLOSERS = {"(": ")", "[": "]", "{": "}", "<": ">"}
+
+
+def _javascript_balanced_end(source: str, index: int) -> int:
+    """The offset just past the bracket that closes the one at INDEX (`(`, `[`, `{` or `<`), skipping nested brackets
+    and quoted strings, or -1 when it is not within reach."""
+    stack = [_JAVASCRIPT_CLOSERS[source[index]]]
+    position = index + 1
+    limit = min(len(source), index + _JAVASCRIPT_TYPE_LOOKAHEAD)
+    while position < limit:
+        character = source[position]
+        if source.startswith("=>", position):
+            position += 2  # a function type's arrow closes no `<`
+            continue
+        if character in "'\"`":
+            close = source.find(character, position + 1, limit)
+            if close < 0:
+                return -1
+            position = close + 1
+            continue
+        if character in _JAVASCRIPT_CLOSERS:
+            stack.append(_JAVASCRIPT_CLOSERS[character])
+        elif character == stack[-1]:
+            stack.pop()
+            if not stack:
+                return position + 1
+        position += 1
+    return -1
+
+
+def _javascript_angle_is_type_parameters(source: str, index: int) -> bool:
+    """Whether the `<` at INDEX opens a generic arrow's type parameters, the way TypeScript reads a .tsx file: the
+    list closes with `>`, then a parenthesized parameter list, then `=>` or a `:` return type."""
+    close = _javascript_balanced_end(source, index)
+    if close < 0:
+        return False
+    params = _javascript_skip_blanks(source, close)
+    if not source.startswith("(", params):
+        return False
+    params_end = _javascript_balanced_end(source, params)
+    if params_end < 0:
+        return False
+    after = _javascript_skip_blanks(source, params_end)
+    return source.startswith(("=>", ":"), after)
+
+
+def _javascript_jsx_tag_opens_at(source: str, index: int) -> bool:
+    """Whether the `<` at INDEX reads as a JSX open tag or fragment where an expression may start: `<>` or `<Name`,
+    unless the name is followed by `=` or `,` (`<T = V>`, `<T,>`: type parameters), or by `extends` that opens a
+    generic arrow's type parameters (`<T extends U>(x) => x`). An attribute named `extends`, bare or with a value
+    (`<Tile extends {...p} />`, `<div extends="x">`), keeps the tag. Blanks are ECMAScript's (U+00A0 included)."""
+    after = index + 1
+    if after >= len(source):
+        return False
+    if source[after] == ">":
+        return True
+    if not _javascript_identifier_start(source[after]):
+        return False
+    end = after + 1
+    while end < len(source) and _javascript_identifier_character(source[end]):
+        end += 1
+    end = _javascript_skip_blanks(source, end)
+    if source.startswith(("=", ","), end):
+        return False
+    if source.startswith("extends", end) and not (
+        end + 7 < len(source) and _javascript_identifier_character(source[end + 7])
+    ):
+        rest = _javascript_skip_blanks(source, end + 7)
+        if source.startswith("=", rest) and not source.startswith(("==", "=>"), rest):
+            return True  # `extends="x"`: an attribute
+        return not _javascript_angle_is_type_parameters(source, index)
+    return True
+
+
+def _javascript_word_before(source: str, end: int, comments: bytearray) -> tuple[str, int]:
+    """The identifier or keyword that ends just before END (skipping blanks and comments), and where it starts;
+    ("", END) when there is none."""
+    previous = end - 1
+    while previous >= 0 and (source[previous].isspace() or comments[previous]):
+        previous -= 1
+    start = previous + 1
+    while start > 0 and _javascript_identifier_character(source[start - 1]):
+        start -= 1
+    return source[start : previous + 1], start
+
+
+def _javascript_is_keyword_at(source: str, start: int, comments: bytearray) -> bool:
+    """Whether the word starting at START is a keyword by position: not a private name (`#if`) and not a member
+    name after `.` or `?.` (`x.if`, `x?.return`)."""
+    if start > 0 and source[start - 1] == "#":
+        return False
+    before = start - 1
+    while before >= 0 and (source[before].isspace() or comments[before]):
+        before -= 1
+    return not (before >= 0 and source[before] == ".")
+
+
+def _javascript_paren_closes_control_head(
+    source: str,
+    close: int,
+    executable: bytearray,
+    comments: bytearray,
+) -> Optional[bool]:
+    """Whether the `)` at CLOSE ends the head of an `if`, `while`, `for` (also `for await`) or `with`, after which a
+    statement (and so a regex literal) starts. None when its `(` is not in SOURCE (the text starts inside the
+    parentheses): undecidable."""
+    depth = 0
+    index = close
+    while index >= 0:
+        if executable[index]:
+            character = source[index]
+            if character == ")":
+                depth += 1
+            elif character == "(":
+                depth -= 1
+                if depth == 0:
+                    break
+        index -= 1
+    if index < 0:
+        return None
+    return _javascript_paren_head_keyword(source, index, comments) in _JAVASCRIPT_CONTROL_HEAD_KEYWORDS
+
+
+def _javascript_paren_head_keyword(source: str, open_paren: int, comments: bytearray) -> str:
+    """The statement keyword whose head the `(` at OPEN_PAREN opens (`if`, `for` also as `for await`, `switch`, ...),
+    or "" when that `(` follows no keyword: a call (`f(`, `πif(`, `this.#if(`, `x.if(`) or a group."""
+    word, start = _javascript_word_before(source, open_paren, comments)
+    if word == "await":
+        word, start = _javascript_word_before(source, start, comments)
+        if word != "for":
+            return ""
+    if not word or not _javascript_is_keyword_at(source, start, comments):
+        return ""
+    return word
+
+
+def _javascript_matching_open(
+    source: str, close: int, opening: str, closing: str, executable: bytearray
+) -> int:
+    """The offset of the executable OPENING that the executable CLOSING at CLOSE ends, or -1 when it is not in
+    SOURCE."""
+    depth = 0
+    index = close
+    while index >= 0:
+        if executable[index]:
+            character = source[index]
+            if character == closing:
+                depth += 1
+            elif character == opening:
+                depth -= 1
+                if depth == 0:
+                    return index
+        index -= 1
+    return -1
+
+
+def _javascript_brace_closes_block(
+    source: str, close: int, executable: bytearray, comments: bytearray
+) -> Optional[bool]:
+    """Whether the `}` at CLOSE ends a block (a slash after it starts a regex literal), not an object literal or
+    another expression (a slash after it divides), by the token before its `{`. None when the text cannot tell:
+    its `{` is not in SOURCE, or follows a `:` (a label's or a case's block, or an object's value), a `)` other than
+    a statement head's, a word, a string, or anything else not listed here."""
+    open_brace = _javascript_matching_open(source, close, "{", "}", executable)
+    if open_brace < 0:
+        return None
+    previous = open_brace - 1
+    while previous >= 0 and (source[previous].isspace() or comments[previous]):
+        previous -= 1
+    if previous < 0:
+        return True
+    character = source[previous]
+    if not executable[previous]:
+        # `${ {} / 2 }`: the `{` of a template's field opens an expression.
+        if character == "{" and previous > 0 and source[previous - 1] == "$":
+            return False
+        return None
+    if character in "{};":
+        return True
+    if character == ">" and previous > 0 and source[previous - 1] == "=" and executable[previous - 1]:
+        return True
+    if character == ")":
+        head_open = _javascript_matching_open(source, previous, "(", ")", executable)
+        if head_open < 0:
+            return None
+        if _javascript_paren_head_keyword(source, head_open, comments) in _JAVASCRIPT_BLOCK_HEAD_KEYWORDS:
+            return True
+        return None
+    if _javascript_identifier_character(character):
+        word, start = _javascript_word_before(source, previous + 1, comments)
+        if not _javascript_is_keyword_at(source, start, comments):
+            return None
+        if word in _JAVASCRIPT_ASI_KEYWORDS and _JAVASCRIPT_LINE_TERMINATOR.search(source, start + len(word), open_brace):
+            # `return` and `yield` take no line terminator before their operand: a semicolon is inserted, and the
+            # `{` on the next line opens a block (a terminator inside a comment between counts too).
+            return True
+        if word in _JAVASCRIPT_EXPRESSION_KEYWORDS:
+            return False
+        if word in _JAVASCRIPT_BLOCK_KEYWORDS:
+            return True
+        return None
+    if character in "=([,?+-*/%<>&|^!~":
+        return False
+    return None
+
+
 def _javascript_regex_literal_starts_at(
     source: str,
     index: int,
     executable: bytearray,
     comments: bytearray,
-) -> bool:
-    """Return whether a slash starts a JavaScript regex literal."""
+) -> Optional[bool]:
+    """Return whether a slash starts a JavaScript regex literal, or None when the text cannot tell.
+
+    A slash after a `}` starts a regex literal when the `}` ends a block (`if (a) {} /x/.test(s)`) and divides when
+    it ends an object (`a = {} / 2`), by the token before its `{` (`_javascript_brace_closes_block`). Undecidable:
+    a `}` whose `{` follows a `:` (a label's block or an object's value), a word or a `)` other than a statement
+    head's, and a `)` or `}` whose opener the text does not hold. The lexer never guesses there: it records the
+    slash as unresolved (see `_lexical_positions_and_unresolved`).
+    """
     previous = index - 1
     while previous >= 0 and (
         source[previous].isspace() or comments[previous]
@@ -699,27 +1012,19 @@ def _javascript_regex_literal_starts_at(
             and source[previous - 1] == "$"
         )
 
-    if character.isascii() and (character.isalnum() or character in "_$"):
-        token_start = previous
-        while token_start > 0:
-            candidate = source[token_start - 1]
-            if not (
-                candidate.isascii()
-                and (candidate.isalnum() or candidate in "_$")
-            ):
-                break
-            token_start -= 1
-        token = source[token_start : previous + 1]
-        before_token = token_start - 1
-        while before_token >= 0 and (
-            source[before_token].isspace() or comments[before_token]
-        ):
-            before_token -= 1
-        if before_token >= 0 and source[before_token] == ".":
+    if _javascript_identifier_character(character):
+        token, token_start = _javascript_word_before(source, previous + 1, comments)
+        if not _javascript_is_keyword_at(source, token_start, comments):
             return False
         return token in _JAVASCRIPT_REGEX_PREFIX_KEYWORDS
 
-    if character in ")]}'\"`.":
+    if character == ")":
+        return _javascript_paren_closes_control_head(source, previous, executable, comments)
+    if character == "}":
+        # A JSX tag's `/>` and `</` never get here: the lexer reads a JSX element (in .js, .jsx and .tsx) as its own
+        # context, so a slash after a `}` or a `<` is a regex literal or a division.
+        return _javascript_brace_closes_block(source, previous, executable, comments)
+    if character in "]'\"`.":
         return False
     if (
         character in "+-"
@@ -728,14 +1033,66 @@ def _javascript_regex_literal_starts_at(
         and executable[previous - 1]
     ):
         return False
+    if character == "!" and previous > 0 and executable[previous - 1]:
+        # A `!` right after a name, `)` or `]` is TypeScript's postfix non-null assertion (`value!`): the expression
+        # is complete. After a keyword (`return!x`) it is the prefix not.
+        before = source[previous - 1]
+        if before in ")]":
+            return False
+        if _javascript_identifier_character(before):
+            word, start = _javascript_word_before(source, previous, comments)
+            return _javascript_is_keyword_at(source, start, comments) and word in _JAVASCRIPT_REGEX_PREFIX_KEYWORDS
     return True
+
+
+# Where each lexer context can next do anything but carry on: the run up to it is all one kind (code, literal
+# text or comment), marked in one step. Without these the lexer is a Python loop over every character.
+_LEXER_CODE_STOP = re.compile(r"[/#'\"`\\$]")
+_LEXER_EXPRESSION_STOP = re.compile(r"[/#'\"`\\$(){}]")
+# In a .js, .jsx or .tsx file a `<` may open a JSX element, so code also stops there.
+_LEXER_JSX_CODE_STOP = re.compile(r"[/#'\"`\\$<]")
+_LEXER_JSX_EXPRESSION_STOP = re.compile(r"[/#'\"`\\$(){}<]")
+# A JSX element's children are text up to a `{` hole of code or a `<` (a nested element or the closing tag).
+_LEXER_JSX_CHILDREN_STOP = re.compile(r"[{<]")
+# Inside a JSX open tag: names, `=`, `.`, `:`, `-` and blanks carry on; anything else is decided one at a time.
+_LEXER_JSX_TAG_STOP = re.compile(r"[^A-Za-z0-9_$\s=.:\-]")
+# The files that may hold JSX. A .ts, .mts or .cts file holds none (`<T,>(x) => x`, `a < b > c` are TypeScript);
+# in plain JavaScript a `<` where an expression starts can only open JSX.
+_JSX_SUFFIXES = frozenset({".js", ".jsx", ".tsx"})
+_LEXER_TEMPLATE_STOP = re.compile(r"[\\`$]")
+_LEXER_SHELL_DOUBLE_STOP = re.compile(r'[\\"$`]')
+_LEXER_REGEX_STOP = re.compile(r"[\\\r\n\[\]/]")
+_LEXER_BLOCK_COMMENT_STOP = re.compile(r"[/*\n]")
+_LEXER_STRING_STOPS: dict[tuple[str, str], "re.Pattern[str]"] = {}
+
+
+def _lexer_string_stop(kind: str, delimiter: str) -> "re.Pattern[str]":
+    key = (kind, delimiter[:1])
+    pattern = _LEXER_STRING_STOPS.get(key)
+    if pattern is None:
+        braces = "{}" if kind == "f-string-text" else ""
+        pattern = re.compile("[\\\\\n" + re.escape(delimiter[:1]) + braces + "]")
+        _LEXER_STRING_STOPS[key] = pattern
+    return pattern
 
 
 def _lexical_positions(
     line: str,
     path_suffix: str = "",
 ) -> tuple[bytes, bytes]:
-    """Return compact executable-code and line-comment masks for source text.
+    """Return compact executable-code and line-comment masks for source text (`_lexical_positions_and_unresolved`
+    without the unresolved slashes)."""
+    executable, comments, _ = _lexical_positions_and_unresolved(line, path_suffix)
+    return executable, comments
+
+
+def _lexical_positions_and_unresolved(
+    line: str,
+    path_suffix: str = "",
+) -> tuple[bytes, bytes, tuple[int, ...]]:
+    """Return compact executable-code and line-comment masks for source text, and the offsets of each JavaScript
+    slash the lexer could not tell a regex literal from a division (read as a division, but unresolved), and of each
+    `<` in a JSX file it could not tell a JSX tag from a comparison (read as a comparison, but unresolved).
 
     The network detector intentionally accepts URLs in string arguments to real
     clients (for example, ``fetch("https://...")``), so stripping every string
@@ -752,15 +1109,93 @@ def _lexical_positions(
     """
     executable = bytearray(len(line))
     comments = bytearray(len(line))
+    unresolved: list[int] = []
     # Contexts are (kind, nesting, closing_delimiter). Interpolation contexts
     # use nesting as their delimiter depth; Swift raw string text stores its
     # opening hash count there. Nested quote/template contexts sit above them.
     contexts: list[tuple[str, int, str]] = [("code", 0, "")]
     is_shell = path_suffix == ".sh"
+    # Only a .js, .jsx or .tsx file holds JSX: in a .ts file `<T,>(x) => x / 2` and `a < b > c` are generics and
+    # comparisons.
+    is_jsx = path_suffix in _JSX_SUFFIXES
+    code_stop = _LEXER_JSX_CODE_STOP if is_jsx else _LEXER_CODE_STOP
+    expression_stop = _LEXER_JSX_EXPRESSION_STOP if is_jsx else _LEXER_EXPRESSION_STOP
     index = 0
-    while index < len(line):
+    length = len(line)
+    while index < length:
         kind, brace_depth, delimiter = contexts[-1]
+        if kind == "code":
+            stop = code_stop.search(line, index)
+        elif kind == "jsx-children-text":
+            stop = _LEXER_JSX_CHILDREN_STOP.search(line, index)
+        elif kind == "jsx-tag":
+            stop = _LEXER_JSX_TAG_STOP.search(line, index)
+        elif kind in ("string-text", "f-string-text"):
+            stop = _lexer_string_stop(kind, delimiter).search(line, index)
+        elif kind == "template-text":
+            stop = _LEXER_TEMPLATE_STOP.search(line, index)
+        elif kind == "shell-double-text":
+            stop = _LEXER_SHELL_DOUBLE_STOP.search(line, index)
+        elif kind == "regex-text":
+            stop = _LEXER_REGEX_STOP.search(line, index)
+        elif kind == "block-comment":
+            stop = _LEXER_BLOCK_COMMENT_STOP.search(line, index)
+        else:
+            stop = expression_stop.search(line, index)
+        run_end = stop.start() if stop else length
+        if run_end > index:
+            if kind == "block-comment":
+                comments[index:run_end] = b"\x01" * (run_end - index)
+            elif not kind.endswith("-text"):
+                executable[index:run_end] = b"\x01" * (run_end - index)
+            index = run_end
+            continue
         character = line[index]
+
+        if kind == "jsx-children-text":
+            # A JSX element's children: text (a `//`, `/*` or quote in it is text), `{ }` holes of code, nested
+            # elements, and the closing tag (`</name>` or `</>`), after which the element is a complete expression.
+            if character == "{":
+                executable[index] = True
+                contexts.append(("jsx-expression", 1, ""))
+                index += 1
+            elif line.startswith("</", index):
+                close = line.find(">", index)
+                close = length - 1 if close == -1 else close
+                executable[index:close] = b"\x01" * (close - index)
+                # The closing `>` is no operator: like a string's end, a slash after it divides.
+                contexts.pop()
+                index = close + 1
+            elif _javascript_jsx_tag_opens_at(line, index):
+                executable[index] = True
+                contexts.append(("jsx-tag", 0, ""))
+                index += 1
+            else:
+                index += 1
+            continue
+
+        if kind == "jsx-tag":
+            # Inside `<Name ...`, up to its `>` (its children follow) or `/>` (it is complete).
+            if line.startswith("/>", index):
+                contexts.pop()
+                index += 2
+            elif character == ">":
+                contexts[-1] = ("jsx-children-text", 0, "")
+                index += 1
+            elif character in ("'", '"'):
+                contexts.append(("string-text", 0, character))
+                index += 1
+            elif character == "{":
+                executable[index] = True
+                contexts.append(("jsx-expression", 1, ""))
+                index += 1
+            elif _javascript_identifier_character(character):
+                executable[index] = True
+                index += 1
+            else:
+                # Not a JSX tag after all (`<T,>(x) => x`): the rest is read as code.
+                contexts.pop()
+            continue
 
         if kind == "block-comment":
             if path_suffix == ".swift" and line.startswith("/*", index):
@@ -804,6 +1239,11 @@ def _lexical_positions(
             if line.startswith(delimiter, index):
                 contexts.pop()
                 index += len(delimiter)
+                continue
+            if character == "\n" and not is_shell and not delimiter.startswith(delimiter[0] * 3):
+                # A one-line string never spans lines (Swift, JavaScript, Python): an unterminated one ends
+                # with its line instead of hiding the rest of the file.
+                contexts.pop()
                 continue
             index += 1
             continue
@@ -853,12 +1293,17 @@ def _lexical_positions(
             continue
 
         if kind == "f-string-text":
-            if character == "\\":
+            # A backslash escapes the next character, but never a brace: `rf"\{{?{name}"` is a backslash, a
+            # literal `{`, then the `{name}` field (cmux test_ci_cmux_next_compile_status.py's own-host regex).
+            if character == "\\" and line[index + 1:index + 2] not in ("{", "}"):
                 index += 2
                 continue
             if line.startswith(delimiter, index):
                 contexts.pop()
                 index += len(delimiter)
+                continue
+            if character == "\n" and not delimiter.startswith(delimiter[0] * 3):
+                contexts.pop()
                 continue
             if character == "{" and index + 1 < len(line) and line[index + 1] == "{":
                 index += 2
@@ -914,19 +1359,31 @@ def _lexical_positions(
             index = comment_end
             continue
 
-        if (
-            path_suffix in _JAVASCRIPT_SUFFIXES
-            and character == "/"
-            and _javascript_regex_literal_starts_at(
+        if is_jsx and character == "<" and _javascript_jsx_tag_opens_at(line, index):
+            # Where an expression starts, `<Name` or `<>` opens a JSX element; after a name or a value it is a
+            # comparison. Where the text cannot tell (after a `)` or `}` it cannot classify), it is unresolved.
+            expression_starts = _javascript_regex_literal_starts_at(line, index, executable, comments)
+            if expression_starts is None:
+                unresolved.append(index)
+            elif expression_starts:
+                executable[index] = True
+                contexts.append(("jsx-tag", 0, ""))
+                index += 1
+                continue
+
+        if path_suffix in _JAVASCRIPT_SUFFIXES and character == "/":
+            starts_regex = _javascript_regex_literal_starts_at(
                 line,
                 index,
                 executable,
                 comments,
             )
-        ):
-            contexts.append(("regex-text", 0, "/"))
-            index += 1
-            continue
+            if starts_regex is None:
+                unresolved.append(index)
+            elif starts_regex:
+                contexts.append(("regex-text", 0, "/"))
+                index += 1
+                continue
 
         executable[index] = True
         if character == "\\" and index + 1 < len(line):
@@ -940,6 +1397,16 @@ def _lexical_positions(
             executable[index + 1] = True
             contexts.append(("shell-command-substitution", 1, ""))
             index += 2
+            continue
+        if (
+            character in ("'", '"')
+            and path_suffix in _JAVASCRIPT_SUFFIXES
+            and index > 0
+            and line[index - 1].isascii()
+            and (line[index - 1].isalnum() or line[index - 1] in "_$")
+        ):
+            # No JavaScript string starts right after a word character: this is JSX text (`<p>Don't</p>`).
+            index += 1
             continue
         if character in ("'", '"'):
             opening_delimiter = (
@@ -996,16 +1463,27 @@ def _lexical_positions(
                 contexts.pop()
             else:
                 contexts[-1] = (kind, brace_depth - 1, delimiter)
+        elif kind == "jsx-expression" and character == "{":
+            contexts[-1] = (kind, brace_depth + 1, delimiter)
+        elif kind == "jsx-expression" and character == "}":
+            # A JSX hole's `{` and `}` are both code, so a brace count over the executable code stays balanced.
+            if brace_depth == 1:
+                contexts.pop()
+            else:
+                contexts[-1] = (kind, brace_depth - 1, delimiter)
         elif kind in ("template-expression", "f-string-expression") and character == "{":
             contexts[-1] = (kind, brace_depth + 1, delimiter)
         elif kind in ("template-expression", "f-string-expression") and character == "}":
             if brace_depth == 1:
+                # The `}` that ends `${...}` or `{...}` belongs to the literal, as its `${` or `{` does: a
+                # brace count over the executable code stays balanced.
+                executable[index] = False
                 contexts.pop()
             else:
                 contexts[-1] = (kind, brace_depth - 1, delimiter)
         index += 1
 
-    return bytes(executable), bytes(comments)
+    return bytes(executable), bytes(comments), tuple(unresolved)
 
 
 @lru_cache(maxsize=128)
@@ -1049,6 +1527,73 @@ def _is_inside_string_literal(
 ) -> bool:
     positions = _executable_code_positions(line, path_suffix)
     return 0 <= offset < len(positions) and not positions[offset]
+
+
+_CODE_MARK = re.compile(r"[{};]")
+
+
+@dataclass(frozen=True)
+class _MaskedLine:
+    """One line of a source (`str.splitlines`) as the lexer sees it.
+
+    `masked` is the line with comments blanked and each literal's text (a string, a template, a regex literal)
+    blanked between its first and last character, so positions line up with the line and a quote still marks
+    where a literal starts. `marks` are the `{`, `}` and `;` of executable code, by column. `in_literal`: the
+    line starts inside a string or block comment that an earlier line opened (its indentation is text).
+    """
+
+    text: str
+    masked: str
+    marks: tuple[tuple[int, str], ...]
+    in_literal: bool = False
+
+
+_LEXER_LITERAL_RUN = re.compile(r"\x00+")
+_LEXER_COMMENT_RUN = re.compile(r"\x02+")
+_LINE_TEXT = re.compile(r"[^\r\n]")
+
+
+def _masked_lines(text: str, path_suffix: str, *, with_masked: bool = True) -> list[_MaskedLine]:
+    """TEXT's lines with strings, templates, regex literals and comments masked by the one lexer.
+
+    The lexer runs over the whole text, so a multi-line string (Swift `\"\"\"`, a JavaScript template, a Python
+    triple-quoted string) or block comment masks every line it spans. Without WITH_MASKED each line's `masked`
+    is its text (for a caller that reads only the marks).
+    """
+    executable, comments, _ = _whole_text_positions(text, path_suffix)
+    masked = text
+    if with_masked:
+        # One character per position: 1 code, 2 comment, 0 literal text (a string, template or regex literal).
+        kinds = bytes(code | (comment << 1) for code, comment in zip(executable, comments)).decode("latin-1")
+        characters = list(text)
+        for run in _LEXER_COMMENT_RUN.finditer(kinds):
+            characters[run.start():run.end()] = " " * (run.end() - run.start())
+        for run in _LEXER_LITERAL_RUN.finditer(kinds):
+            # Keep a literal's first and last character (its quotes); blank what is between, but its line breaks.
+            inner_start, inner_end = run.start() + 1, run.end() - 1
+            if inner_end > inner_start:
+                characters[inner_start:inner_end] = _LINE_TEXT.sub(" ", text[inner_start:inner_end])
+        masked = "".join(characters)
+    lines: list[_MaskedLine] = []
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        stripped = line.rstrip("\r\n\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029")
+        end = offset + len(stripped)
+        marks = tuple(
+            (match.start() - offset, match.group())
+            for match in _CODE_MARK.finditer(text, offset, end)
+            if executable[match.start()]
+        )
+        lines.append(
+            _MaskedLine(
+                stripped,
+                masked[offset:end],
+                marks,
+                offset > 0 and not executable[offset - 1] and not comments[offset - 1],
+            )
+        )
+        offset += len(line)
+    return lines
 
 
 def _call_end(
@@ -3607,10 +4152,11 @@ def detect_assert_on_duration(line: str, path_suffix: str = "") -> bool:
         return False
     # A duration word in the assertion's message (`#expect(..., "duration \(t) s")`) measures nothing: a token
     # there does not count. A token in code, or in a string the code reads (`stats["elapsed_ms"]`), does.
-    executable = _executable_code_positions(line, path_suffix)
-    if all(_in_assertion_message(line, match.start(), executable) for match in _DURATION_TOKEN.finditer(line)):
+    tokens = list(_DURATION_TOKEN.finditer(line))
+    if not tokens or not _NUMERIC_LITERAL.search(line):
         return False
-    if not _NUMERIC_LITERAL.search(line):
+    executable = _executable_code_positions(line, path_suffix)
+    if all(_in_assertion_message(line, match.start(), executable) for match in tokens):
         return False
     # A latency assertion is a ONE-SIDED bound on a measured clock value: a
     # threshold comparison (`elapsed < 5`, `t > 0.18`) or a Less/Greater assert
@@ -3671,8 +4217,7 @@ _CLOCK_KEYS = (
 )
 _PY_ASSIGNMENT = re.compile(r"^\s*([A-Za-z_]\w*)\s*(?::\s*[\w\[\]., |]+)?=(?!=)\s*(\S.*)$")
 _BRACE_ASSIGNMENT = re.compile(r"^\s*(?:(?:let|var|const)\s+)?([A-Za-z_]\w*)\s*(?::\s*[^=]+)?=(?![=>])\s*(\S.*)$")
-_ONE_LINE_STRING = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`(?:\\.|[^`\\])*`')
-_BRACES = re.compile(r"[{}]")
+_DECLARATION = re.compile(r"^\s*(?:let|var|const)\s")
 _PY_DEF = re.compile(r"^(\s*)(?:async\s+)?def\s")
 _RELATIONAL_HELPER = re.compile(
     r"\b(?:XCTAssert(?:LessThan|GreaterThan)\w*|assert(?:Less|Greater)\w*|toBe(?:LessThan|GreaterThan)\w*)\s*\("
@@ -3787,7 +4332,16 @@ def _classify_assignment(value: str, timings: set[str], readings: set[str]) -> O
     if _is_timing_ratio(value, timings | readings):
         return None
     if _CLOCK_DIFFERENCE_CALL.search(value):
-        return "timing"
+        # A difference is a duration only when one side is a clock reading: `Date().timeIntervalSince(t0)`,
+        # `t0.timeIntervalSinceNow`, `start.duration(to: .now)`, `end.timeIntervalSince(start)` of two readings.
+        # Two fixed instants (`Date(timeIntervalSince1970: 10).timeIntervalSince(epoch)`) measure nothing.
+        if (
+            _CLOCK_READ.search(value)
+            or re.search(r"\.timeIntervalSinceNow\b|\bprocess\.hrtime\s*\(|\bto\s*:\s*\.now\b", value)
+            or _names_in(value, readings | timings)
+        ):
+            return "timing"
+        return None
     minus = re.search(r"(?<![-=<>*/+eE])-(?![->=])", value)
     if minus:
         left = value[: minus.start()]
@@ -3807,7 +4361,9 @@ def _classify_assignment(value: str, timings: set[str], readings: set[str]) -> O
     return None
 
 
-def detect_assert_on_duration_through_name(code_lines: list[str], path_suffix: str) -> list[int]:
+def detect_assert_on_duration_through_name(
+    code_lines: list[str], path_suffix: str, text: Optional[str] = None
+) -> list[int]:
     """Lines bounding a name that holds a clock difference assigned earlier in the same function.
 
     `took = time.perf_counter() - started` then `self.assertLess(took, 0.5)`: the line-at-a-time check sees
@@ -3823,12 +4379,22 @@ def detect_assert_on_duration_through_name(code_lines: list[str], path_suffix: s
     if not any(key in source for key in _CLOCK_KEYS):
         return []
     python = path_suffix == ".py"
-    # Each scope is (opening indent or brace depth, timings, readings); module level is the outermost.
-    scopes: list[tuple[int, set[str], set[str]]] = [(-1, set(), set())]
+    # Blocks and Python scopes come from the lexer over the raw text (TEXT, else the lines): a brace in a string,
+    # a template, a regex literal or a comment opens nothing, and a line that starts inside a Python string ends
+    # no scope.
+    masked_lines = _masked_lines(text if text is not None else source, path_suffix, with_masked=False)
+    # Each scope is (opening indent or brace depth, {name: kind}); module level is the outermost. A kind is
+    # "timing", "reading" or None (a name bound to anything else, which shadows an outer timing of that name).
+    # A name resolves through every visible scope, innermost first: a block nested in a test still sees the
+    # test's `took_n`, and its own `let took` hides the outer one only until the block ends.
+    scopes: list[tuple[int, dict[str, Optional[str]]]] = [(-1, {})]
     depth = 0
     flagged: list[int] = []
     for index, line in enumerate(code_lines):
         if not line.strip():
+            continue
+        lexed = masked_lines[index] if index < len(masked_lines) else _MaskedLine(line, line, ())
+        if python and lexed.in_literal:
             continue
         if python:
             indent = len(line) - len(line.lstrip())
@@ -3836,27 +4402,29 @@ def detect_assert_on_duration_through_name(code_lines: list[str], path_suffix: s
                 scopes.pop()
             definition = _PY_DEF.match(line)
             if definition:
-                scopes.append((indent, set(), set()))
+                scopes.append((indent, {}))
                 continue
-        _, timings, readings = scopes[-1]
+        visible: dict[str, Optional[str]] = {}
+        for _, bindings in scopes:
+            visible.update(bindings)
+        timings = {name for name, kind in visible.items() if kind == "timing"}
+        readings = {name for name, kind in visible.items() if kind == "reading"}
         if _asserts_absolute_bound_on(line, timings):
             flagged.append(index)
         assignment = (_PY_ASSIGNMENT if python else _BRACE_ASSIGNMENT).match(line)
         if assignment:
             name, value = assignment.group(1), assignment.group(2)
             kind = _classify_assignment(value, timings, readings)
-            timings.discard(name)
-            readings.discard(name)
-            if kind == "timing":
-                timings.add(name)
-            elif kind == "reading":
-                readings.add(name)
-        if not python and ("{" in line or "}" in line):
-            # A brace in a one-line string literal does not open a block (comments are already stripped).
-            for character in _BRACES.findall(_ONE_LINE_STRING.sub("", line)):
+            target = scopes[-1][1]
+            if not python and not _DECLARATION.match(line):
+                # `took = ...` with no let/var/const rebinds the innermost scope that declared it.
+                target = next((bindings for _, bindings in reversed(scopes) if name in bindings), target)
+            target[name] = kind
+        if not python:
+            for _, character in lexed.marks:
                 if character == "{":
                     depth += 1
-                    scopes.append((depth, set(), set()))
+                    scopes.append((depth, {}))
                 elif character == "}":
                     if len(scopes) > 1 and scopes[-1][0] == depth:
                         scopes.pop()
@@ -4014,7 +4582,12 @@ def _sleep_in_loop(lines: list[str], idx: int) -> bool:
 def detect_sleep_then_assert(lines: list[str], idx: int, path_suffix: str) -> bool:
     """Sleep on lines[idx] followed by an assertion within 3 non-blank lines."""
     line = lines[idx]
-    is_sleep = bool(_SLEEP_CALL.search(line))
+    is_sleep = False
+    matches = list(_SLEEP_CALL.finditer(line))
+    if matches:
+        # A sleep inside a string or a regex literal (`expect(wait).not.toMatch(/sleep (?!1;)\d/)`) sleeps nothing.
+        executable = _executable_code_positions(line, path_suffix)
+        is_sleep = any(match.start() >= len(executable) or executable[match.start()] for match in matches)
     if not is_sleep and path_suffix == ".sh":
         is_sleep = bool(_SHELL_BARE_SLEEP.search(line))
     if not is_sleep:
@@ -4465,10 +5038,193 @@ def _logical_network_chunks(
     return chunks
 
 
+# ---------------------------------------------------------------------------
+# The function a finding sits in (the allowlist's key)
+# ---------------------------------------------------------------------------
+
+MODULE_SCOPE = "<module>"
+# The name of every line from a slash the lexer could not read as a regex literal or a division to the file's end:
+# the braces after it may be miscounted, so no function is named (the finding fails --strict as unresolved).
+UNRESOLVED_SCOPE_PREFIX = "<unresolved"
+
+_PY_SCOPE = re.compile(r"^(\s*)(?:async\s+def|def|class)\s+(\w+)")
+_SWIFT_DECLARATION = re.compile(
+    r"\bfunc\s+([^\s(<]+)"
+    r"|(?<![.\w])(init|deinit)\b"
+    r"|\b(?:class|struct|enum|extension|actor|protocol)\s+([\w.]+)"
+    r"|\b(?:static\s+)?var\s+(\w+)\s*:[^=]*$"
+)
+_JS_DECLARATION = re.compile(
+    r"\bfunction\s*\*?\s*([\w$]+)"
+    r"|\bclass\s+([\w$]+)"
+    r"|\b(?:const|let|var)\s+([\w$]+)\s*(?::[^=]+)?=\s*(?:async\s+)?(?:function\b|\([^;]*?\)\s*(?::[^=;]+)?=>|[\w$]+\s*=>)"
+    r"|(?:^|\n)\s*(?:(?:public|private|protected|static|async|override|readonly|get|set)\s+)*"
+    r"(?!(?:if|for|while|switch|catch|function|return|with|else|do|try|finally)\b)([\w$]+)\s*\([^;]*\)\s*(?::[^{;=]+)?\s*$"
+)
+_JS_TEST_CALL = re.compile(
+    r"\b(?:it|test|describe|suite|bench)(?:\.(?:only|skip|todo|concurrent|serial|sequential|fails))*\s*\(\s*(?=[\"'`])"
+)
+_SHELL_DECLARATION = re.compile(r"^\s*(?:function\s+)?([\w.:-]+)\s*\(\)\s*$|^\s*function\s+([\w.:-]+)\s*$")
+_HEADER_LIMIT = 2000
+
+
+def _block_name(header: str, masked: str, path_suffix: str) -> Optional[str]:
+    """The name a block opened after HEADER declares (a function, a type, a JS test's title), or None."""
+    if path_suffix == ".swift":
+        pattern = _SWIFT_DECLARATION
+    elif path_suffix in _JAVASCRIPT_SUFFIXES:
+        pattern = _JS_DECLARATION
+    else:
+        pattern = _SHELL_DECLARATION
+    best: Optional[tuple[int, str]] = None
+    for match in pattern.finditer(masked.rstrip()):
+        name = next((group for group in match.groups() if group), None)
+        if name:
+            best = (match.start(), name)
+    if path_suffix in _JAVASCRIPT_SUFFIXES:
+        for match in _JS_TEST_CALL.finditer(masked):
+            if best is None or match.start() >= best[0]:
+                quote_at = match.end()
+                quote = header[quote_at]
+                close = quote_at + 1
+                while close < len(header) and header[close] != quote:
+                    close += 2 if header[close] == "\\" else 1
+                title = " ".join(header[quote_at + 1:close].split())
+                best = (match.start(), title)
+    if best is None:
+        return None
+    return best[1].replace("\t", " ") or None
+
+
+def _python_line_functions(text: str) -> list[str]:
+    """Python by its syntax tree when it parses, else by indentation over the lexer's lines: a line that starts
+    inside a string ends no scope, and a `def` in a string or a comment opens none."""
+    import ast
+
+    line_count = len(text.splitlines())
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        tree = None
+    if tree is not None:
+        names = [MODULE_SCOPE] * line_count
+
+        def visit(node: "ast.AST", prefix: str) -> None:
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    qualified = f"{prefix}.{child.name}" if prefix else child.name
+                    first = min([child.lineno, *(d.lineno for d in child.decorator_list)])
+                    for line in range(first, (child.end_lineno or child.lineno) + 1):
+                        if line <= len(names):
+                            names[line - 1] = qualified
+                    visit(child, qualified)
+                else:
+                    visit(child, prefix)
+
+        visit(tree, "")
+        return names
+    names = []
+    stack: list[tuple[int, str]] = []
+    for lexed in _masked_lines(text, ".py"):
+        if lexed.masked.strip() and not lexed.in_literal:
+            indent = len(lexed.text) - len(lexed.text.lstrip())
+            while stack and indent <= stack[-1][0]:
+                stack.pop()
+            scope = _PY_SCOPE.match(lexed.masked)
+            if scope:
+                stack.append((indent, scope.group(2)))
+        names.append(".".join(name for _, name in stack) or MODULE_SCOPE)
+    return names
+
+
+def _brace_line_functions(text: str, path_suffix: str) -> list[str]:
+    """Swift, JavaScript/TypeScript and shell by the braces of executable code (the lexer's marks): a brace in a
+    string, a template, a regex literal or a comment opens and closes nothing."""
+    names: list[str] = []
+    stack: list[Optional[str]] = []
+    header = ""
+    masked_header = ""
+
+    def qualified() -> str:
+        return ".".join(name for name in stack if name) or MODULE_SCOPE
+
+    unresolved = _whole_text_positions(text, path_suffix)[2]
+    unresolved_line = unresolved_name = None
+    if unresolved:
+        before = text[: unresolved[0]].splitlines(keepends=True)
+        partial = bool(before) and before[-1] == before[-1].rstrip("\r\n\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029")
+        unresolved_line = len(before) if partial else len(before) + 1
+        column = len(before[-1]) + 1 if partial else 1
+        unresolved_name = (
+            f"{UNRESOLVED_SCOPE_PREFIX}: "
+            f"{'JSX tag or comparison' if text[unresolved[0]] == '<' else 'regex literal or division'} "
+            f"at {unresolved_line}:{column}>"
+        )
+
+    for line_number, lexed in enumerate(_masked_lines(text, path_suffix), start=1):
+        if unresolved_name is not None and line_number >= unresolved_line:
+            names.append(unresolved_name)
+            continue
+        line, masked = lexed.text, lexed.masked
+        deepest = qualified()
+        deepest_depth = len(stack)
+        start = 0
+        for index, character in lexed.marks:
+            header += line[start:index]
+            masked_header += masked[start:index]
+            start = index + 1
+            if character == "{":
+                stack.append(_block_name(header, masked_header, path_suffix))
+                if len(stack) > deepest_depth:
+                    deepest, deepest_depth = qualified(), len(stack)
+            elif character == "}" and stack:
+                stack.pop()
+            header = masked_header = ""
+        header = (header + line[start:] + "\n")[-_HEADER_LIMIT:]
+        masked_header = (masked_header + masked[start:] + "\n")[-_HEADER_LIMIT:]
+        names.append(deepest)
+    return names
+
+
+def line_functions(text: str, path_suffix: str) -> list[str]:
+    """For each line of TEXT (`str.splitlines`), the qualified name of the innermost function (or type, or JS
+    test) holding it.
+
+    Python by its syntax tree (`TestX.test_y`); Swift, JavaScript/TypeScript and shell by the braces of executable
+    code, each named block joining the path (`FooTests.testBar`, `describe title.test title`). One lexer
+    (`_lexical_positions`) masks strings, templates, regex literals and comments for both. An unnamed block (a
+    closure, an `if`) adds nothing. Outside every named block: MODULE_SCOPE.
+    """
+    if path_suffix == ".py":
+        return _python_line_functions(text)
+    return _brace_line_functions(text, path_suffix)
+
+
+def file_functions(text: str, path_suffix: str) -> set[str]:
+    """Every function (or type, or JS test) name TEXT declares, qualified, with each enclosing name on its own."""
+    found = {MODULE_SCOPE}
+    for name in line_functions(text, path_suffix):
+        if name.startswith(UNRESOLVED_SCOPE_PREFIX):
+            continue
+        parts = name.split(".")
+        found.update(".".join(parts[: count + 1]) for count in range(len(parts)))
+    return found
+
+
+def _with_functions(findings: list[Finding], path_suffix: str, text: str) -> list[Finding]:
+    if not findings:
+        return findings
+    names = line_functions(text, path_suffix)
+    return [
+        replace(finding, function=names[finding.line - 1] if 0 < finding.line <= len(names) else MODULE_SCOPE)
+        for finding in findings
+    ]
+
+
 def scan_text(rel_posix: str, text: str) -> list[Finding]:
     suffix = pathlib.PurePosixPath(rel_posix).suffix
     raw_lines = text.splitlines()
-    code_lines = [_strip_comment(line, suffix) for line in raw_lines]
+    code_lines = _code_lines(text, suffix)
     findings: list[Finding] = []
     if _NETWORK_VERB.search(text) and _contains_public_network_url(text):
         network_source = _strip_comments(text, suffix)
@@ -4511,7 +5267,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
             findings.append(Finding(rel_posix, line_no, RULE_WALL_CLOCK_WINDOW, snippet))
 
     duration_lines = {f.line for f in findings if f.rule == RULE_ASSERT_ON_DURATION}
-    for duration_line in detect_assert_on_duration_through_name(code_lines, suffix):
+    for duration_line in detect_assert_on_duration_through_name(code_lines, suffix, text):
         if duration_line + 1 not in duration_lines:
             findings.append(
                 Finding(rel_posix, duration_line + 1, RULE_ASSERT_ON_DURATION, raw_lines[duration_line].strip())
@@ -4529,7 +5285,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
     for tmp_line in detect_predictable_tmp_path(raw_lines, rel_posix):
         findings.append(Finding(rel_posix, tmp_line + 1, RULE_PREDICTABLE_TMP_PATH, raw_lines[tmp_line].strip()))
     findings.sort(key=lambda f: (f.line, f.rule))
-    return findings
+    return _with_functions(findings, suffix, text)
 
 
 def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Finding]:
@@ -4565,41 +5321,89 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
 # ---------------------------------------------------------------------------
 
 
-def load_allowlist(path: pathlib.Path) -> set[tuple[str, str]]:
-    allow: set[tuple[str, str]] = set()
+ALLOWLIST_HEADER = (
+    "# Test-determinism gate allowlist, one entry per function.\n"
+    "# Format: relpath<TAB>function<TAB>rule<TAB>reason\n"
+    "# An entry suppresses the findings of RULE inside FUNCTION of RELPATH only: a new finding in another\n"
+    "# function of the same file still fails. `function` is what --json and each finding line print after\n"
+    "# 'in' (Python `Class.method`, Swift `Type.method`, a JS test's title path, or <module>).\n"
+    "# --strict fails on an entry that no longer matches any finding (\"stale entry\"): delete it; and on one\n"
+    "# whose function its file does not declare (\"missing function\"): rename or delete it.\n"
+    "# A reason that starts with 'hang guard:' marks a deadline-only bound, well above any normal run, that\n"
+    "# exists so a hang fails instead of stalling CI; it says what would hang. Every other entry is old debt:\n"
+    "# tests/test_determinism_allowlist_ratchet.py lets that debt only shrink. Fix a new finding (a recorded\n"
+    "# clock, a real completion signal, or the n-vs-4n scaling ratio) instead of listing it.\n"
+)
+HANG_GUARD_PREFIX = "hang guard:"
+
+
+@dataclass(frozen=True)
+class AllowlistEntry:
+    path: str
+    function: str
+    rule: str
+    reason: str
+    line: int  # 1-based line in the allowlist file
+
+    def key(self) -> tuple[str, str, str]:
+        return (self.path, self.function, self.rule)
+
+    @property
+    def is_hang_guard(self) -> bool:
+        return self.reason.lower().startswith(HANG_GUARD_PREFIX)
+
+
+def load_allowlist_entries(path: pathlib.Path) -> list[AllowlistEntry]:
+    entries: list[AllowlistEntry] = []
     if not path.exists():
-        return allow
+        return entries
+    seen: dict[tuple[str, str, str], int] = {}
     with path.open("r", encoding="utf-8") as handle:
         for line_number, raw in enumerate(handle, start=1):
             line = raw.rstrip("\n")
             if not line.strip() or line.lstrip().startswith("#"):
                 continue
-            parts = line.split("\t")
-            if len(parts) < 2:
-                raise ValueError(
-                    f"{path}:{line_number}: expected 'relpath<TAB>rule[<TAB>reason]'"
-                )
-            rel_path, rule = parts[0].strip(), parts[1].strip()
+            parts = [part.strip() for part in line.split("\t")]
+            if len(parts) != 4 or not all(parts):
+                hint = ""
+                if len(parts) in (2, 3) and parts[1] in ALL_RULES:
+                    hint = " (a per-file entry: name the function its findings sit in)"
+                raise ValueError(f"{path}:{line_number}: expected 'relpath<TAB>function<TAB>rule<TAB>reason'{hint}")
+            rel_path, function, rule, reason = parts
             if rule not in ALL_RULES:
                 raise ValueError(f"{path}:{line_number}: unknown rule {rule!r}")
-            allow.add((rel_path, rule))
-    return allow
+            if function.startswith(UNRESOLVED_SCOPE_PREFIX):
+                raise ValueError(
+                    f"{path}:{line_number}: {function} is no function: a finding after a slash the lexer cannot "
+                    "read is never allowlisted; make that token unambiguous and delete the entry"
+                )
+            entry = AllowlistEntry(rel_path, function, rule, reason, line_number)
+            if entry.key() in seen:
+                raise ValueError(f"{path}:{line_number}: duplicate of line {seen[entry.key()]}")
+            seen[entry.key()] = line_number
+            entries.append(entry)
+    return entries
 
 
-def write_allowlist(path: pathlib.Path, findings: list[Finding]) -> None:
+def load_allowlist(path: pathlib.Path) -> set[tuple[str, str, str]]:
+    return {entry.key() for entry in load_allowlist_entries(path)}
+
+
+def write_allowlist(
+    path: pathlib.Path, findings: list[Finding], reasons: Optional[dict[tuple[str, str, str], str]] = None
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    keys = sorted({f.key() for f in findings})
+    keys = sorted({f.key() for f in findings if not f.function.startswith(UNRESOLVED_SCOPE_PREFIX)})
     with path.open("w", encoding="utf-8") as handle:
-        handle.write("# Test-determinism gate allowlist (grandfathered legacy debt).\n")
-        handle.write("# Format: relpath<TAB>rule<TAB>short reason\n")
-        handle.write("# A finding whose (path, rule) appears here is suppressed.\n")
-        handle.write("# Remove a line once the underlying test is determinized.\n")
-        for rel_path, rule in keys:
-            handle.write(f"{rel_path}\t{rule}\tgrandfathered\n")
+        handle.write(ALLOWLIST_HEADER)
+        for key in keys:
+            rel_path, function, rule = key
+            reason = (reasons or {}).get(key, "grandfathered")
+            handle.write(f"{rel_path}\t{function}\t{rule}\t{reason}\n")
 
 
 def filter_allowlisted(
-    findings: list[Finding], allow: set[tuple[str, str]]
+    findings: list[Finding], allow: set[tuple[str, str, str]]
 ) -> tuple[list[Finding], list[Finding]]:
     active: list[Finding] = []
     suppressed: list[Finding] = []
@@ -4609,6 +5413,55 @@ def filter_allowlisted(
         else:
             active.append(finding)
     return active, suppressed
+
+
+def _tracked_but_absent(repo_root: pathlib.Path, paths: list[str]) -> set[str]:
+    """Of PATHS (missing on disk), those git still tracks: a sparse checkout left them out, they are not gone."""
+    if not paths:
+        return set()
+    import subprocess
+
+    try:
+        listed = subprocess.run(
+            ["git", "-C", str(repo_root), "ls-files", "-z", "--", *paths],
+            capture_output=True, check=True, timeout=60,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return set(paths)  # no git to ask: judge none of them stale
+    return {item.decode("utf-8", "replace") for item in listed.split(b"\0") if item}
+
+
+def missing_function_entries(entries: list[AllowlistEntry], repo_root: pathlib.Path) -> list[AllowlistEntry]:
+    """Entries whose function their file does not declare (renamed, moved or misspelt): such an entry can never
+    match a finding. A file missing from the checkout is left to `stale_entries`."""
+    declared: dict[str, set[str]] = {}
+    missing: list[AllowlistEntry] = []
+    for entry in entries:
+        if entry.function == MODULE_SCOPE:
+            continue
+        if entry.path not in declared:
+            path = repo_root / entry.path
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            declared[entry.path] = file_functions(text, pathlib.PurePosixPath(entry.path).suffix)
+        if entry.function not in declared[entry.path]:
+            missing.append(entry)
+    return missing
+
+
+def stale_entries(
+    entries: list[AllowlistEntry], findings: list[Finding], repo_root: Optional[pathlib.Path] = None
+) -> list[AllowlistEntry]:
+    """Entries no finding matches. A file a sparse checkout left out is not judged (its findings were not seen)."""
+    found = {finding.key() for finding in findings}
+    stale = [entry for entry in entries if entry.key() not in found]
+    if repo_root is None:
+        return stale
+    absent = [entry.path for entry in stale if not (repo_root / entry.path).exists()]
+    unseen = _tracked_but_absent(repo_root, sorted(set(absent)))
+    return [entry for entry in stale if entry.path not in unseen]
 
 
 # ---------------------------------------------------------------------------
@@ -4651,6 +5504,540 @@ def _isolated_import_self_test() -> list[str]:
                 failures.append(f"ISOLATED {rel}: expected {RULE_ISOLATED_IMPORT}")
             if not flagged and finding is not None:
                 failures.append(f"ISOLATED {rel}: unexpected {finding.format()}")
+    return failures
+
+
+# One source per construct the lexer masks. Each holds a finding after the construct, in a function the
+# construct must not end or open: a brace (or, for Python, a line) inside it once moved the finding into the
+# wrong function, or hid it. (label, path, source, rule, {line: function}).
+_JS_SLEEP = "    await new Promise((r) => setTimeout(r, 200));\n    expect(drawn).toBe(true);\n"
+_SWIFT_SLEEP = "        try await Task.sleep(for: .milliseconds(5))\n        XCTAssertTrue(done)\n"
+
+
+def _js_attribution_fixture(construct: str) -> str:
+    """A describe with test `a` holding CONSTRUCT, then test `b` sleeping: the sleep belongs to `pane.b`."""
+    return (
+        "describe('pane', () => {\n"
+        "  it('a', () => {\n"
+        f"{construct}"
+        "  });\n"
+        "  it('b', async () => {\n"
+        f"{_JS_SLEEP}"
+        "  });\n"
+        "});\n"
+    )
+
+
+def _swift_attribution_fixture(construct: str) -> str:
+    """A type with func `a` holding CONSTRUCT, then func `b` sleeping: the sleep belongs to `PaneTests.b`."""
+    return (
+        "final class PaneTests: XCTestCase {\n"
+        "    func a() {\n"
+        f"{construct}"
+        "    }\n"
+        "    func b() async throws {\n"
+        f"{_SWIFT_SLEEP}"
+        "    }\n"
+        "}\n"
+    )
+
+
+def _sleep_line(source: str) -> int:
+    return next(i + 1 for i, line in enumerate(source.splitlines()) if "sleep" in line or "setTimeout" in line)
+
+
+_ATTRIBUTION_CONSTRUCTS: list[tuple[str, str, str]] = [
+    # (label, path, the construct inside the first function)
+    ("js regex literal with {", "web/tests/a1.test.ts", "    const re = /foo\\{bar/;\n"),
+    ("js regex literal with }, after a division", "web/tests/a2.test.ts",
+     "    const half = { w: total / 2 }; const re = /\\}+/g;\n"),
+    ("js regex literal with a class and a slash", "web/tests/a3.test.ts", "    const re = /[/{]x/;\n"),
+    ("js multi-line template literal", "web/tests/a4.test.ts", "    const css = `\n      .a {\n    `;\n"),
+    ("js template literal with nested ${} and a template in it", "web/tests/a5.test.tsx",
+     "    const s = `x ${y ? `{` : \"}\"} z`;\n"),
+    ("js block comment over lines", "web/tests/a6.test.mjs", "    /* a brace\n       } in a comment */\n"),
+    ("js one-line block comment", "web/tests/a7.test.js", "    f(/* { */ 1);\n"),
+    ("js line comment after a string with an apostrophe", "web/tests/a8.test.ts",
+     "    const a = \"it's\"; // {\n"),
+    # A `)` that ends an if, while, for or with head starts a statement: the slash after it opens a regex literal.
+    ("js regex literal after an if head", "web/tests/b1.test.ts", "    if (ok) /foo{bar/.test(value);\n"),
+    ("js regex literal after a while head", "web/tests/b2.test.ts", "    while (ok) /a{/.exec(s);\n"),
+    ("js regex literal after a for head", "web/tests/b3.test.ts", "    for (const x of xs) /a{/.test(x);\n"),
+    ("js regex literal after a for await head", "web/tests/b4.test.ts",
+     "    for await (const x of xs) /a{/.test(x);\n"),
+    ("js regex literal after a with head", "web/tests/b5.test.js", "    with (o) /a{/.test(s);\n"),
+    # The `)` of a call is an expression's end: the slash after it divides (inside the head), and the head's own
+    # `)` still starts a regex literal.
+    ("js division after a call's ) in an if head", "web/tests/b6.test.ts", "    if (f(x) / 2) /a{/.test(s);\n"),
+    # A keyword is a keyword only as a whole name (not the end of `πif`, not the private `#if`): a slash after
+    # the call `πif(x)` divides (review of #41341, F1).
+    ("js division after a call to a name ending in if", "web/tests/b8.test.ts", "    const r = { w: πif(x) / 2 };\n"),
+    ("js division after a call to a private #if", "web/tests/b9.test.ts",
+     "    const r = { w: this.#if(x) / 2 };\n"),
+    ("js division after a name ending in return", "web/tests/b10.test.ts",
+     "    const r = { w: πreturn / 2 }; const re = /\\}/;\n"),
+    # `/>` is a self-closing tag's only inside a JSX open tag; after a block's `}` it opens a regex literal (F3).
+    ("js regex literal starting /> after a block's }", "web/tests/b11.test.ts", "    if (ok) {} />foo{/.test(s);\n"),
+    # A `}` is a block's or an object's by the token before its `{`: after a block a slash starts a regex literal,
+    # after an object it divides.
+    ("js regex literal after an if block's }", "web/tests/b12.test.ts", "    if (ok) {} /a{/.test(s);\n"),
+    ("js regex literal after a switch block's }", "web/tests/b13.test.ts", "    switch (k) {} /a{/.test(s);\n"),
+    ("js regex literal after a finally block's }", "web/tests/b14.test.ts",
+     "    try {} finally {} /a{/.test(s);\n"),
+    ("js division after an assigned object's }", "web/tests/b15.test.ts",
+     "    const a = {} / 2; const re = /\\}/;\n"),
+    ("js division after a returned object's }", "web/tests/b16.test.ts",
+     "    const f = () => { return {} / 2; };\n"),
+    ("js division after an object's } in a template field", "web/tests/b17.test.ts",
+     "    const t = `${ {} / 2 }`; const re = /\\}/;\n"),
+    # A JSX element's children are text: a `//` in them is no comment, and the code after the element is code.
+    ("jsx text holding //", "web/tests/b18.test.tsx", "    const el = <a>http://x</a>; const o = {\n      a: 1 };\n"),
+    ("jsx text holding // and a hole", "web/tests/b19.test.tsx",
+     "    const el = <p>see http://x {name}</p>; const o = {\n      a: 1 };\n"),
+    # A line terminator after `return` or `yield` ends the statement (ASI), also inside a comment: the `{}` on the next
+    # line is a block, and the slash after it starts a regex literal (review of #41357, F1).
+    ("js regex literal after a block on the line after return", "web/tests/b20.test.ts",
+     "    return\n    {} /a{/.test(s);\n"),
+    ("js regex literal after return, a comment over lines and a block", "web/tests/b21.test.ts",
+     "    return /*\n    */ {} /a{/.test(s);\n"),
+    ("js regex literal after return, a line comment and a block", "web/tests/b22.test.ts",
+     "    return // why\n    {} /a{/.test(s);\n"),
+    ("js regex literal after a block on the line after yield", "web/tests/b23.test.ts", "    yield\n    {} /a{/.test(s);\n"),
+    # ECMAScript identifiers continue with U+200C and U+200D: `x\u200cif` is one name, not `x` and `if` (F2).
+    ("js division after a call to a name joined by ZWNJ", "web/tests/b24.test.ts",
+     "    const r = { w: x\u200cif(y) / 2 };\n"),
+    ("js division after a name joined by ZWJ", "web/tests/b25.test.ts",
+     "    const r = { w: x\u200dreturn / 2 }; const re = /\\}/;\n"),
+    ("jsx text holding // in a .js file", "web/tests/b26.test.js",
+     "    const el = <a>http://x</a>; const o = {\n      a: 1 };\n"),
+    # A bare attribute named extends keeps a JSX tag: only a generic arrow's `<T extends U>(x) =>` is type
+    # parameters (review of #41377, F1).
+    ("jsx bare attribute named extends before a spread", "web/tests/b29.test.tsx",
+     "    const el = <Tile extends {...props} />; const re = /\\}/;\n"),
+    ("jsx bare attribute named extends before children", "web/tests/b30.test.tsx",
+     "    const el = <Tile extends>//x</Tile>; const o = {\n      a: 1 };\n"),
+    # Blanks are ECMAScript's: U+00A0 after a type parameter's name still makes `<T = string>` type parameters (F2).
+    ("tsx defaulted type parameter after U+00A0", "web/tests/b31.test.tsx",
+     "    const f = <T\u00a0= string>(x: T) => x / 2; const re = /\\}/;\n"),
+    # A `!` right after a name is TypeScript's postfix non-null assertion: the `<` after it compares (F3).
+    ("tsx comparison after a non-null assertion", "web/tests/b32.test.tsx",
+     "    const n = value! <limit > floor; const o = {\n      a: 1 };\n"),
+    ("swift multi-line string", "cmuxTests/A1Tests.swift", "        let json = \"\"\"\n        {\"a\": 1\n        \"\"\"\n"),
+    ("swift raw string with quotes", "cmuxTests/A2Tests.swift", "        let s = #\"a \"{\" b\"#\n"),
+    ("swift multi-line raw string", "cmuxTests/A3Tests.swift",
+     "        let t = #\"\"\"\n        } \"\\(not interpolated)\n        \"\"\"#\n"),
+    ("swift nested block comment", "cmuxTests/A4Tests.swift", "        /* outer /* { */ still a comment */\n"),
+    ("swift interpolation holding a string", "cmuxTests/A5Tests.swift",
+     "        let u = \"\\(flag ? \"}\" : \"\")\"\n"),
+]
+
+ATTRIBUTION_FIXTURES: list[tuple[str, str, str, str, dict[int, str]]] = []
+for _label, _path, _construct in _ATTRIBUTION_CONSTRUCTS:
+    if _path.endswith(".swift"):
+        _source, _want = _swift_attribution_fixture(_construct), "PaneTests.b"
+    else:
+        _source, _want = _js_attribution_fixture(_construct), "pane.b"
+    ATTRIBUTION_FIXTURES.append((_label, _path, _source, RULE_SLEEP_THEN_ASSERT, {_sleep_line(_source): _want}))
+ATTRIBUTION_FIXTURES += [
+    # Python that does not parse goes by indentation: the lines of a triple-quoted string are text.
+    (
+        "python triple-quoted string at column 0 (indentation fallback)",
+        "tests/test_a1.py",
+        "print 'legacy'\n"
+        "class Waits(unittest.TestCase):\n"
+        "    def test_a(self):\n"
+        "        doc = \"\"\"\n"
+        "def fake():\n"
+        "class Fake:\n"
+        "\"\"\"\n"
+        "        time.sleep(0.5)\n"
+        "        self.assertTrue(done())\n",
+        RULE_SLEEP_THEN_ASSERT,
+        {8: "Waits.test_a"},
+    ),
+    # A timing name lives until its block ends: a brace in a regex literal ends nothing.
+    (
+        "js regex literal with } inside a timed test",
+        "web/tests/a9.test.ts",
+        "it('times', () => {\n"
+        "  const started = performance.now();\n"
+        "  const took = performance.now() - started;\n"
+        "  const re = /\\}/;\n"
+        "  expect(took).toBeLessThan(100);\n"
+        "});\n",
+        RULE_ASSERT_ON_DURATION,
+        {5: "times"},
+    ),
+    (
+        "swift multi-line string with } inside a timed test",
+        "cmuxTests/A6Tests.swift",
+        "final class TimeTests: XCTestCase {\n"
+        "    func testTook() {\n"
+        "        let start = ContinuousClock.now\n"
+        "        let took = ContinuousClock.now - start\n"
+        "        let text = \"\"\"\n"
+        "        }\n"
+        "        \"\"\"\n"
+        "        XCTAssertLessThan(took, .seconds(1))\n"
+        "    }\n"
+        "}\n",
+        RULE_ASSERT_ON_DURATION,
+        {8: "TimeTests.testTook"},
+    ),
+    # Python's timing scope is its function by indentation: a triple-quoted string's column-0 line ends nothing.
+    (
+        "python triple-quoted string at column 0 inside a timed test",
+        "tests/test_a2.py",
+        "import time\n"
+        "def test_t():\n"
+        "    started = time.perf_counter()\n"
+        "    took = time.perf_counter() - started\n"
+        "    doc = \"\"\"\n"
+        "x\n"
+        "\"\"\"\n"
+        "    assert took < 0.5\n",
+        RULE_ASSERT_ON_DURATION,
+        {8: "test_t"},
+    ),
+]
+
+# A slash after a `}` whose `{` follows a `:` may start a regex literal (a label's or a case's block) or divide (an
+# object's value): the lexer does not guess, and every line from there on names no function.
+ATTRIBUTION_FIXTURES.append(
+    (
+        "js slash after a label's } is unresolved",
+        "web/tests/b7.test.ts",
+        _js_attribution_fixture("    label: { run(); }\n    /a{/.test(s);\n"),
+        RULE_SLEEP_THEN_ASSERT,
+        {7: f"{UNRESOLVED_SCOPE_PREFIX}: regex literal or division at 4:5>"},
+    )
+)
+
+# `a <b` is a comparison, not a JSX tag: the `{}` after it (a block, by ASI) is no attribute, and the slash after
+# that is not a tag's `/>`. The lexer cannot tell the block from an object there, so it does not guess (F3).
+for _suffix in (".ts", ".tsx", ".js"):
+    ATTRIBUTION_FIXTURES.append(
+        (
+            f"js comparison then a block's }} and a slash ({_suffix})",
+            f"web/tests/b27.test{_suffix}",
+            _js_attribution_fixture("    a <b\n    {} />foo{/.test(s);\n"),
+            RULE_SLEEP_THEN_ASSERT,
+            {7: f"{UNRESOLVED_SCOPE_PREFIX}: regex literal or division at 4:8>"},
+        )
+    )
+
+# After a `}` the lexer cannot classify (a label's block or an object's value), `<a>` may open a JSX element or
+# compare: unresolved, never a guess.
+ATTRIBUTION_FIXTURES.append(
+    (
+        "jsx tag or comparison after a label's } is unresolved",
+        "web/tests/b28.test.tsx",
+        _js_attribution_fixture("    label: {} <a>http://x</a>; const o = {\n      a: 1 };\n"),
+        RULE_SLEEP_THEN_ASSERT,
+        {7: f"{UNRESOLVED_SCOPE_PREFIX}: JSX tag or comparison at 3:15>"},
+    )
+)
+
+# Guards: what the lexer must still read as code (each passed before the lexer too).
+ATTRIBUTION_GUARDS: list[tuple[str, str, str, str, dict[int, str]]] = [
+    ("js division is no regex literal", "web/tests/g1.test.ts",
+     _js_attribution_fixture("    const r = { a: x / 2, b: y / 3 };\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
+    ("js division after a call's )", "web/tests/g4.test.ts",
+     _js_attribution_fixture("    const r = { w: f(x) / 2, h: g(y) / 3 };\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
+    ("jsx self-closing tag after an attribute's }", "web/tests/g5.test.tsx",
+     _js_attribution_fixture("    const el = <Tile size={2} />;\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
+    ("jsx self-closing tag after a spread's }", "web/tests/g6.test.tsx",
+     _js_attribution_fixture("    const el = <Tile a=\"x\" b={c} {...props} />;\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
+    ("js division after an optional member call named if", "web/tests/g7.test.ts",
+     _js_attribution_fixture("    const r = { w: x?.if(y) / 2 };\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
+    # Only a .tsx or .jsx file holds JSX; a generic arrow's type parameters are no tag in either.
+    ("ts generic arrow is no JSX", "web/tests/g8.test.ts",
+     _js_attribution_fixture("    const f = <T,>(x: T) => x / 2; const re = /\\}/;\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
+    ("ts comparisons are no JSX", "web/tests/g9.test.ts",
+     _js_attribution_fixture("    const c = a < b > c; const re = /\\}/;\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
+    ("tsx generic arrow is no JSX", "web/tests/g10.test.tsx",
+     _js_attribution_fixture("    const f = <T,>(x: T) => x / 2; const re = /\\}/;\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
+    ("tsx generic arrow with extends is no JSX", "web/tests/g11.test.tsx",
+     _js_attribution_fixture("    const g = <T extends U>(x: T) => x / 2; const re = /\\}/;\n"), RULE_SLEEP_THEN_ASSERT,
+     {6: "pane.b"}),
+    ("jsx nested elements in a hole", "web/tests/g12.test.tsx",
+     _js_attribution_fixture("    const el = <ul>{items.map((i) => <li key={i}>{i}</li>)}</ul>;\n"), RULE_SLEEP_THEN_ASSERT,
+     {6: "pane.b"}),
+    ("js division after a returned object on the same line", "web/tests/g13.test.ts",
+     _js_attribution_fixture("    return {} / 2; const re = /\\}/;\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
+    ("jsx self-closing tag after an attribute's } in a .js file", "web/tests/g14.test.js",
+     _js_attribution_fixture("    const el = <Tile size={2} />;\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
+    ("jsx attributes named extends", "web/tests/g15.test.tsx",
+     _js_attribution_fixture("    const el = <div extends=\"x\" data-extends=\"y\">a // b</div>; const o = {\n      a: 1 };\n"),
+     RULE_SLEEP_THEN_ASSERT, {7: "pane.b"}),
+    ("tsx defaulted type parameters are no JSX", "web/tests/g16.test.tsx",
+     _js_attribution_fixture("    const f = <T = string>(x: T) => x / 2; const re = /\\}/;\n"), RULE_SLEEP_THEN_ASSERT,
+     {6: "pane.b"}),
+    ("tsx constrained type parameter after U+00A0", "web/tests/g17.test.tsx",
+     _js_attribution_fixture("    const f = <T extends\u00a0U = V>(x: T) => x / 2; const re = /\\}/;\n"),
+     RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
+    ("tsx type parameter constrained by a function type", "web/tests/g18.test.tsx",
+     _js_attribution_fixture("    const g = <T extends (x: number) => void>(f: T) => f / 2; const re = /\\}/;\n"),
+     RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
+    ("tsx type parameter constrained by an object type, with a return type", "web/tests/g19.test.tsx",
+     _js_attribution_fixture("    const g = <T extends { a: string }>(x: T): T => x / 2; const re = /\\}/;\n"),
+     RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
+    ("jsx after a prefix not", "web/tests/g20.test.tsx",
+     _js_attribution_fixture("    const ok = !<b>x</b>; const re = /\\}/;\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
+    ("js regex literal after return!", "web/tests/g21.test.ts",
+     _js_attribution_fixture("    return!/a{/.test(s);\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
+    ("jsx text: an apostrophe and a closing tag", "web/tests/g2.test.tsx",
+     _js_attribution_fixture("    const el = cond && <p>Don't {name}</p>;\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
+    ("python comment holding a triple quote", "tests/test_g3.py",
+     "print 'legacy'\n"
+     "class Waits(unittest.TestCase):\n"
+     "    def test_a(self):\n"
+     "        # \"\"\" not a string\n"
+     "        marker = '\"\"\"'\n"
+     "        time.sleep(0.5)\n"
+     "        self.assertTrue(done())\n",
+     RULE_SLEEP_THEN_ASSERT, {6: "Waits.test_a"}),
+]
+
+
+def _attribution_self_test() -> list[str]:
+    import contextlib
+    import io
+    import tempfile
+
+    failures: list[str] = []
+    for label, rel, source, rule, want in ATTRIBUTION_FIXTURES + ATTRIBUTION_GUARDS:
+        got = {f.line: f.function for f in scan_text(rel, source) if f.rule == rule}
+        if got != want:
+            failures.append(f"ATTRIBUTION {label} ({rel}): expected {want}, got {got}")
+    # An unresolved finding fails --strict with its own message, and no allowlist entry hides it.
+    unresolved_source = _js_attribution_fixture("    label: { run(); }\n    /a{/.test(s);\n")
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        (root / "web/tests").mkdir(parents=True)
+        (root / "web/tests/b7.test.ts").write_text(unresolved_source)
+        (root / "allow.txt").write_text(
+            f"web/tests/b7.test.ts\tpane.b\t{RULE_SLEEP_THEN_ASSERT}\told debt\n"
+        )
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            code = main(["--repo-root", tmp, "--allowlist", "allow.txt", "--strict"])
+        output = out.getvalue()
+    if (
+        code != 1
+        or "web/tests/b7.test.ts:7: sleep-then-assert unresolved: the lexer cannot tell whether the slash at 4:5"
+        not in output
+        or "1 unresolved" not in output
+    ):
+        failures.append(f"ATTRIBUTION unresolved --strict: expected an 'unresolved' failure, got {code}: {output!r}")
+
+    # A scoped run (--roots, which judges no entry stale or missing) still fails an unresolved finding:
+    # --write-allowlist leaves it out, and an entry naming it is refused.
+    def scoped(allowlist: Optional[str], *flags: str) -> tuple[int, str, str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "web/tests").mkdir(parents=True)
+            (root / "web/tests/b7.test.ts").write_text(unresolved_source)
+            if allowlist is not None:
+                (root / "allow.txt").write_text(allowlist)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+                code = main(["--repo-root", tmp, "--allowlist", "allow.txt", "--roots", "web/tests", *flags])
+            written = (root / "allow.txt").read_text() if (root / "allow.txt").exists() else ""
+        return code, out.getvalue(), written
+
+    unresolved_function = f"{UNRESOLVED_SCOPE_PREFIX}: regex literal or division at 4:5>"
+    code, output, written = scoped(None, "--write-allowlist")
+    if code != 0 or UNRESOLVED_SCOPE_PREFIX in written or "1 unresolved finding(s) not written" not in output:
+        failures.append(
+            f"ATTRIBUTION unresolved --write-allowlist: expected no entry for it, got {code}: {output!r} {written!r}"
+        )
+    code, output, _ = scoped(written, "--strict")
+    if code != 1 or "1 unresolved" not in output:
+        failures.append(
+            f"ATTRIBUTION unresolved --strict --roots after --write-allowlist: expected exit 1, got {code}: {output!r}"
+        )
+    code, output, _ = scoped(
+        f"web/tests/b7.test.ts\t{unresolved_function}\t{RULE_SLEEP_THEN_ASSERT}\told debt\n", "--strict"
+    )
+    if code != 2 or "is no function" not in output:
+        failures.append(
+            f"ATTRIBUTION unresolved allowlist entry --strict --roots: expected it refused (exit 2), got {code}: "
+            f"{output!r}"
+        )
+    return failures
+
+
+# The regex-after-token table shared with manaflow-ai/cmux-platform#1271's JS tokenizer: each case is a source
+# and whether the text `echo` after its slash is code (a hit) or a comment. regex-after-token.json is a pinned
+# byte copy (its .pin sidecar names the commit and sha256). cmux-rows.json holds the rows cmux has sent to #1271's
+# table and that are not in the pinned copy yet; a row there with "unresolved": true is one a strict lexer cannot
+# decide, so its expected answer is "unresolved" (a tokenizer that scans both readings reads it as a hit).
+REGEX_AFTER_TOKEN_DIR = pathlib.Path(__file__).resolve().parent / "fixtures" / "regex-after-token"
+
+
+def _regex_after_token_cases(table: dict) -> list[tuple[str, bool, bool]]:
+    """(source, hit, forks) for every row and generated case of TABLE; FORKS where the slash cannot be decided (the
+    row says "unresolved", or starts with an `undecided_before` token): a strict lexer must report it unresolved,
+    and the shared tokenizer keeps the union of both readings."""
+    generate = table.get("generate", {})
+    undecided = generate.get("undecided_before", [])
+    cases = [
+        (
+            row["source"],
+            row["hit"],
+            bool(row.get("unresolved")) or any(row["source"].startswith(f"{before} /") for before in undecided),
+        )
+        for row in table["rows"]
+    ]
+    for befores, line, hit, forks in (
+        (generate.get("regex_before", []), "regex_line", True, False),
+        (undecided, "regex_line", True, True),
+        (generate.get("division_before", []), "division_line", False, False),
+        (undecided, "division_line", True, True),
+    ):
+        bodies = generate.get("bodies", []) if line == "regex_line" else [""]
+        for before in befores:
+            for body in bodies:
+                cases.append((generate[line].format(before=before, body=body), hit, forks))
+    return cases
+
+
+def _regex_after_token_self_test() -> tuple[list[str], int]:
+    """Run the lexer over the shared table and cmux's rows, strictly: each case the table decides gives its answer,
+    and each it cannot decide is unresolved (fails --strict), never a guess. Returns the failures and the count."""
+    import hashlib
+
+    failures: list[str] = []
+    shared = REGEX_AFTER_TOKEN_DIR / "regex-after-token.json"
+    pin = dict(
+        line.split(": ", 1)
+        for line in (REGEX_AFTER_TOKEN_DIR / "regex-after-token.json.pin").read_text().splitlines()
+        if line and not line.startswith("#")
+    )
+    digest = hashlib.sha256(shared.read_bytes()).hexdigest()
+    if digest != pin.get("sha256"):
+        failures.append(
+            f"REGEX-AFTER-TOKEN {shared.name}: sha256 {digest} is not the pinned {pin.get('sha256')} "
+            f"({pin.get('repo')}@{pin.get('commit')}:{pin.get('path')}); copy that file unchanged or re-pin it"
+        )
+    cases = 0
+    # cmux-rows.json exists only while cmux has rows the pinned copy does not hold yet.
+    for path in (path for path in (shared, REGEX_AFTER_TOKEN_DIR / "cmux-rows.json") if path.exists()):
+        for source, hit, forks in _regex_after_token_cases(json.loads(path.read_text(encoding="utf-8"))):
+            cases += 1
+            target = source.index("echo")
+            _, comments, unresolved = _lexical_positions_and_unresolved(source, ".tsx")
+            if any(offset < target for offset in unresolved):
+                if not forks:
+                    failures.append(f"REGEX-AFTER-TOKEN {path.name}: unresolved where the table decides: {source!r}")
+                continue
+            if forks:
+                failures.append(f"REGEX-AFTER-TOKEN {path.name}: decided where it cannot be sure: {source!r}")
+            elif (not comments[target]) != hit:
+                failures.append(
+                    f"REGEX-AFTER-TOKEN {path.name}: the text after the slash reads as "
+                    f"{'a comment' if hit else 'code'}, the table says {'code' if hit else 'a comment'}: {source!r}"
+                )
+    return failures, cases
+
+
+def _allowlist_self_test() -> list[str]:
+    """The per-function allowlist: an entry hides its own function's findings only, and a stale one fails."""
+    import contextlib
+    import io
+    import tempfile
+
+    failures: list[str] = []
+    source = (
+        "import time\n"
+        "import unittest\n"
+        "class Waits(unittest.TestCase):\n"
+        "    def test_listed(self):\n"
+        "        time.sleep(0.5)\n"
+        "        self.assertTrue(done())\n"
+        "    def test_new(self):\n"
+        "        time.sleep(0.5)\n"
+        "        self.assertTrue(done())\n"
+        "    def test_fixed(self):\n"
+        "        self.assertTrue(done())\n"
+    )
+    swift = (
+        "final class PaneTests: XCTestCase {\n"
+        "    func testA() async throws {\n"
+        "        Task {\n"
+        "            try await Task.sleep(for: .milliseconds(5))\n"
+        "            XCTAssertTrue(done)\n"
+        "        }\n"
+        "    }\n"
+        "}\n"
+    )
+    script = (
+        "describe('pane', () => {\n"
+        "  it('draws', async () => {\n"
+        "    await new Promise((r) => setTimeout(r, 200));\n"
+        "    expect(drawn).toBe(true);\n"
+        "  });\n"
+        "});\n"
+    )
+    names = {
+        ("tests/test_waits.py", source): {5: "Waits.test_listed", 8: "Waits.test_new"},
+        ("cmuxTests/PaneTests.swift", swift): {4: "PaneTests.testA"},
+        ("web/tests/pane.test.ts", script): {3: "pane.draws"},
+    }
+    for (rel, text), want in names.items():
+        got = {f.line: f.function for f in scan_text(rel, text) if f.rule == RULE_SLEEP_THEN_ASSERT}
+        if got != want:
+            failures.append(f"ALLOWLIST naming {rel}: expected {want}, got {got}")
+
+    def run(allowlist: str, *flags: str) -> tuple[int, str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "tests").mkdir()
+            (root / "tests/test_waits.py").write_text(source)
+            (root / "allow.txt").write_text(allowlist)
+            out, err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                code = main(["--repo-root", tmp, "--allowlist", "allow.txt", "--strict", *flags])
+            return code, out.getvalue() + err.getvalue()
+
+    listed = f"tests/test_waits.py\tWaits.test_listed\t{RULE_SLEEP_THEN_ASSERT}\told debt\n"
+    new = f"tests/test_waits.py\tWaits.test_new\t{RULE_SLEEP_THEN_ASSERT}\told debt\n"
+    # 1. A per-function entry hides its function's finding only.
+    code, output = run(listed)
+    if code != 1 or "in Waits.test_listed" in output or "1 active finding(s), 1 allowlisted" not in output:
+        failures.append(f"ALLOWLIST per-function: expected test_new active and test_listed allowlisted, got {output!r}")
+    # 2. A second function of the same file is not hidden by the first one's entry (the per-file gap).
+    if "tests/test_waits.py:8: sleep-then-assert in Waits.test_new" not in output:
+        failures.append(f"ALLOWLIST second function: test_new's finding was hidden: {output!r}")
+    code, output = run(listed + new)
+    if code != 0 or "0 active finding(s), 2 allowlisted" not in output:
+        failures.append(f"ALLOWLIST both listed: expected exit 0, got {code}: {output!r}")
+    # 3. An entry no finding matches fails --strict as a stale entry.
+    gone = f"tests/test_waits.py\tWaits.test_fixed\t{RULE_SLEEP_THEN_ASSERT}\told debt\n"
+    code, output = run(listed + new + gone)
+    if code != 1 or "stale entry: tests/test_waits.py Waits.test_fixed sleep-then-assert" not in output:
+        failures.append(f"ALLOWLIST stale entry: expected a 'stale entry' failure, got {code}: {output!r}")
+    # 4. An entry whose function the file does not declare (renamed, or a name the lexer once got wrong) fails
+    # --strict as a missing function, not as a stale entry.
+    renamed = f"tests/test_waits.py\tWaits.test_renamed\t{RULE_SLEEP_THEN_ASSERT}\told debt\n"
+    code, output = run(listed + new + renamed)
+    if (
+        code != 1
+        or "missing function: tests/test_waits.py declares no Waits.test_renamed" not in output
+        or "stale entry" in output
+    ):
+        failures.append(f"ALLOWLIST missing function: expected a 'missing function' failure, got {code}: {output!r}")
+    # A class the file declares is a function name an entry may use; <module> always is.
+    for declared in ("Waits", MODULE_SCOPE):
+        entry = f"tests/test_waits.py\t{declared}\t{RULE_SLEEP_THEN_ASSERT}\told debt\n"
+        code, output = run(listed + new + entry)
+        if "missing function:" in output or "stale entry:" not in output:
+            failures.append(f"ALLOWLIST declared {declared}: expected only a stale entry, got {code}: {output!r}")
+    # 5. An old per-file entry is refused, so no entry hides a whole file again.
+    code, output = run(f"tests/test_waits.py\t{RULE_SLEEP_THEN_ASSERT}\told debt\n")
+    if code != 2 or "per-file entry" not in output:
+        failures.append(f"ALLOWLIST per-file entry: expected it refused, got {code}: {output!r}")
     return failures
 
 
@@ -4817,6 +6204,36 @@ def _self_test() -> int:
                 "        model.load()\n"
                 "        let spent = Date().timeIntervalSince(t0)\n"
                 "        XCTAssertLessThan(spent, 0.25)\n"
+                "    }\n"
+            ),
+            {RULE_ASSERT_ON_DURATION},
+        ),
+        # An absolute bound on a timing taken in an enclosing block, asserted in a nested one (a closure, an `if`,
+        # a `for`): the name resolves through every visible scope, not only the innermost.
+        (
+            "web/tests/duration_outer_timing_nested_block.test.ts",
+            (
+                "it('loads fast', async () => {\n"
+                "  const started = performance.now();\n"
+                "  await load();\n"
+                "  const took = performance.now() - started;\n"
+                "  for (const row of rows) {\n"
+                "    expect(took).toBeLessThan(500);\n"
+                "  }\n"
+                "});\n"
+            ),
+            {RULE_ASSERT_ON_DURATION},
+        ),
+        (
+            "cmuxTests/duration_outer_timing_nested_block.swift",
+            (
+                "    func testFast() async {\n"
+                "        let start = ContinuousClock.now\n"
+                "        await model.load()\n"
+                "        let took = ContinuousClock.now - start\n"
+                "        if model.isReady {\n"
+                "            XCTAssertLessThan(took, .seconds(1))\n"
+                "        }\n"
                 "    }\n"
             ),
             {RULE_ASSERT_ON_DURATION},
@@ -6676,6 +8093,90 @@ def _self_test() -> int:
                 "expect(stored).toBeGreaterThan(cutoff);\n"
             ),
         ),
+        # The scaling ratio with its first timing in an enclosing block and the second in a nested one: both names
+        # resolve, so the ratio and the relative bound are still a ratio (not two absolute bounds).
+        (
+            "web/tests/n39.test.ts",
+            (
+                "it('scales linearly', () => {\n"
+                "  let began = performance.now();\n"
+                "  run(n);\n"
+                "  const took_n = performance.now() - began;\n"
+                "  for (const attempt of [1]) {\n"
+                "    const start = performance.now();\n"
+                "    run(4 * n);\n"
+                "    const took_4n = performance.now() - start;\n"
+                "    expect(took_4n / took_n).toBeLessThan(8);\n"
+                "    expect(took_4n).toBeLessThan(8 * took_n);\n"
+                "  }\n"
+                "});\n"
+            ),
+        ),
+        (
+            "cmuxTests/n40.swift",
+            (
+                "    func testScales() {\n"
+                "        let clock = ContinuousClock()\n"
+                "        let first = clock.now\n"
+                "        run(n)\n"
+                "        let tookN = clock.now - first\n"
+                "        do {\n"
+                "            let begin = clock.now\n"
+                "            run(4 * n)\n"
+                "            let took4N = clock.now - begin\n"
+                "            XCTAssertLessThan(took4N, tookN * 8)\n"
+                "        }\n"
+                "    }\n"
+            ),
+        ),
+        # A nested `let took` hides the outer timing only inside its block: after the block the outer name is the
+        # one in scope again, and inside it the shadowing count is no duration.
+        (
+            "web/tests/n41.test.ts",
+            (
+                "it('counts', () => {\n"
+                "  const took = performance.now() - began;\n"
+                "  {\n"
+                "    const took = rows.length;\n"
+                "    expect(took).toBeLessThan(5);\n"
+                "  }\n"
+                "});\n"
+            ),
+        ),
+        # Two fixed instants: their difference is a configured span, not a measured one.
+        (
+            "cmuxTests/n42.swift",
+            (
+                "    func testSpan() {\n"
+                "        let epoch = Date(timeIntervalSince1970: 0)\n"
+                "        let later = Date(timeIntervalSince1970: 10)\n"
+                "        let span = later.timeIntervalSince(epoch)\n"
+                "        XCTAssertLessThan(span, 11)\n"
+                "        let span2 = Date(timeIntervalSince1970: 5).timeIntervalSince(Date(timeIntervalSince1970: 0))\n"
+                "        XCTAssertLessThan(span2, 6)\n"
+                "    }\n"
+            ),
+        ),
+        # "sleep" in a regex literal or a string the test reads is no sleep (vm-image-cmux-vm-commands.test.ts).
+        (
+            "web/tests/n43.test.ts",
+            (
+                "  const wait = bake.acpmuxHarnessChecksDoneCommand();\n"
+                "  expect(wait).not.toMatch(/sleep (?!1;)\\d/);\n"
+                "  expect(wait).toContain(\"sleep(1)\");\n"
+            ),
+        ),
+        # A backslash before an f-string's doubled brace escapes nothing (`rf"\\{{?{name}"`): the line's parentheses
+        # close on it, so a docstring and a curl fixture string below are not read as one network call.
+        (
+            "tests/n44.py",
+            (
+                "    own = any(re.search(rf\"\\$\\{{?{name}\\b\", command) for name in own_vars)\n"
+                "    \"\"\"A `curl --retry-all-errors` against our own endpoint retries until its\n"
+                "    caller's deadline.\"\"\"\n"
+                "        ('curl --retry 3 --retry-all-errors https://gh-events.cmux.com/a\\n', False),\n"
+            ),
+        ),
         # A timing checked only to be positive: no bound on how long it took.
         (
             "web/tests/n38.test.ts",
@@ -6713,6 +8214,10 @@ def _self_test() -> int:
             failures.append(f"NEGATIVE {name}: unexpected {sorted(rules)}")
 
     failures += _isolated_import_self_test()
+    failures += _allowlist_self_test()
+    failures += _attribution_self_test()
+    regex_failures, regex_cases = _regex_after_token_self_test()
+    failures += regex_failures
     isolated_fixtures = 6
 
     if failures:
@@ -6721,9 +8226,11 @@ def _self_test() -> int:
             print(f"  - {failure}")
         return 1
 
-    total = len(positives) + len(negatives) + isolated_fixtures
-    print(f"self-test OK: {len(positives)} positive + {len(negatives)} negative fixtures and "
-          f"{isolated_fixtures} isolated-import fixtures passed ({total} total)")
+    attribution = len(ATTRIBUTION_FIXTURES) + len(ATTRIBUTION_GUARDS)
+    total = len(positives) + len(negatives) + isolated_fixtures + attribution + regex_cases
+    print(f"self-test OK: {len(positives)} positive + {len(negatives)} negative fixtures, "
+          f"{isolated_fixtures} isolated-import fixtures, {attribution} function-attribution fixtures, "
+          f"{regex_cases} regex-after-token cases and the per-function allowlist cases passed ({total} total)")
     return 0
 
 
@@ -6748,7 +8255,7 @@ def main(argv: list[str]) -> int:
         "--allowlist",
         default=pathlib.Path(DEFAULT_ALLOWLIST),
         type=pathlib.Path,
-        help="allowlist file of grandfathered (path, rule) findings",
+        help="allowlist file of (path, function, rule) entries",
     )
     parser.add_argument(
         "--roots",
@@ -6798,26 +8305,56 @@ def main(argv: list[str]) -> int:
         if args.strict:
             findings += collect_isolated_import_findings(repo_root, ("tests", *GIT_FIXTURE_ONLY_ROOTS))
 
-    if args.write_allowlist:
-        write_allowlist(allowlist_path, findings)
-        print(f"Wrote {allowlist_path} with {len({f.key() for f in findings})} entr(ies)")
-        return 0
-
     try:
-        allow = load_allowlist(allowlist_path)
+        entries = load_allowlist_entries(allowlist_path)
     except ValueError as exc:
         print(f"Error reading allowlist: {exc}", file=sys.stderr)
         return 2
 
-    active, suppressed = filter_allowlisted(findings, allow)
+    # A finding after a slash the lexer could not read names no function: it fails on its own, before any allowlist
+    # filtering, and is never written to the allowlist (load_allowlist_entries refuses an entry naming one).
+    unresolved = [finding for finding in findings if finding.function.startswith(UNRESOLVED_SCOPE_PREFIX)]
+    resolved = [finding for finding in findings if not finding.function.startswith(UNRESOLVED_SCOPE_PREFIX)]
+
+    if args.write_allowlist:
+        write_allowlist(allowlist_path, resolved, {entry.key(): entry.reason for entry in entries})
+        print(f"Wrote {allowlist_path} with {len({f.key() for f in resolved})} entr(ies)")
+        if unresolved:
+            print(f"{len(unresolved)} unresolved finding(s) not written: make each slash unambiguous")
+        return 0
+
+    allow = {entry.key() for entry in entries}
+    active, suppressed = filter_allowlisted(resolved, allow)
+    # Only a full scan sees every finding an entry could match (--roots narrows it; isolated-import runs with
+    # --strict only), so only a full scan judges an entry stale.
+    stale: list[AllowlistEntry] = []
+    missing: list[AllowlistEntry] = []
+    if args.roots is None:
+        missing = missing_function_entries(entries, repo_root)
+        judged = [
+            entry
+            for entry in entries
+            if (args.strict or entry.rule != RULE_ISOLATED_IMPORT) and entry not in missing
+        ]
+        stale = stale_entries(judged, findings, repo_root)
 
     if args.json:
         payload = {
             "active": [f.to_dict() for f in active],
             "suppressed": [f.to_dict() for f in suppressed],
+            "stale": [
+                {"path": e.path, "function": e.function, "rule": e.rule, "allowlist_line": e.line} for e in stale
+            ],
+            "missing_function": [
+                {"path": e.path, "function": e.function, "rule": e.rule, "allowlist_line": e.line} for e in missing
+            ],
+            "unresolved": [f.to_dict() for f in unresolved],
             "counts": {
                 "active": len(active),
                 "suppressed": len(suppressed),
+                "stale": len(stale),
+                "missing_function": len(missing),
+                "unresolved": len(unresolved),
                 "total": len(findings),
             },
         }
@@ -6825,15 +8362,39 @@ def main(argv: list[str]) -> int:
     else:
         for finding in active:
             print(finding.format())
+        for finding in unresolved:
+            where = finding.function[len(UNRESOLVED_SCOPE_PREFIX) + 2 : -1]
+            reading, at = where.rsplit(" at ", 1)
+            token, fix = (
+                ("<", "parenthesize the JSX element or the comparison")
+                if reading.startswith("JSX")
+                else ("slash", "parenthesize the regex or the division")
+            )
+            print(
+                f"{finding.path}:{finding.line}: {finding.rule} unresolved: the lexer cannot tell whether the {token} "
+                f"at {at} starts a {reading}, so the function this finding sits in is unknown; make that {token} "
+                f"unambiguous ({fix}): {finding.snippet}"
+            )
+        for entry in stale:
+            print(
+                f"{allowlist_path.name}:{entry.line}: stale entry: {entry.path} {entry.function} {entry.rule} "
+                "matches no finding; delete it"
+            )
+        for entry in missing:
+            print(
+                f"{allowlist_path.name}:{entry.line}: missing function: {entry.path} declares no {entry.function} "
+                f"({entry.rule}); name the function its findings sit in, or delete the entry"
+            )
         print("")
         print(
             f"test-determinism: {len(active)} active finding(s), "
-            f"{len(suppressed)} allowlisted, {len(findings)} total"
+            f"{len(suppressed)} allowlisted, {len(findings)} total, {len(stale)} stale allowlist entr(ies), "
+            f"{len(missing)} naming a missing function, {len(unresolved)} unresolved"
         )
-        if active and not args.strict:
+        if (active or stale or missing or unresolved) and not args.strict:
             print("(non-strict mode: not failing. Run with --strict to enforce.)")
 
-    if args.strict and active:
+    if args.strict and (active or stale or missing or unresolved):
         return 1
     return 0
 

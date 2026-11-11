@@ -210,7 +210,10 @@ struct AgentPaneChromiumMoveTests {
         let deadline = Date().addingTimeInterval(5)
         while asked == 0, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
         try #require(asked > 0, "no size wait was asked of the page")
-        try await Task.sleep(for: .milliseconds(500)) // the fake's answer comes back in a later turn
+        // The fake's answer comes back in a later turn: the wait then records that the page drew at the rest size
+        // and, its pane still on the spring, keeps holding it.
+        while view.chromiumMoveWait?.drewAtRest != true, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        try #require(view.chromiumMoveWait?.drewAtRest == true, "the page's answer to its size wait never reached the wait")
         let atRest = pagePlace(view, in: NSRect(origin: .zero, size: rest)).size
         #expect(view.holdsPageAway, "the page came in while its pane is on its spring, at \(view.pageContent.frame.size)")
         #expect(view.pageContent.frame.size == atRest)
@@ -242,8 +245,14 @@ struct AgentPaneChromiumMoveTests {
         let atRest = pagePlace(view, in: NSRect(origin: .zero, size: rest)).size
         #expect(view.holdsPageAway, "the page shows in a pane on its spring: it gets a size in each spring frame")
         #expect(view.pageContent.frame.size == atRest, "the held page is at \(view.pageContent.frame.size), not at its pane's rest size \(atRest)")
-        try await Task.sleep(for: .milliseconds(200))
-        #expect(sizeWaits(page) == 0, "a page already drawn at the rest size was asked to wait for a size")
+        // A frame wait of the test's own, through the same path (a main-actor task, then the page): a size wait the
+        // layout above asked would have reached the page before this one is answered.
+        var probed = false
+        try #require(view.page).afterFrame(at: rest) { probed = true }
+        let deadline = Date().addingTimeInterval(5)
+        while !probed, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        try #require(probed, "the page never answered the test's own frame wait")
+        #expect(sizeWaits(page) == 1, "a page already drawn at the rest size was asked to wait for a size (\(sizeWaits(page) - 1) besides the test's own)")
         #expect(view.holdsPageAway, "the page came in while its pane is on its spring")
 
         springing.frame.size.height = rest.height

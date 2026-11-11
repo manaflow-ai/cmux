@@ -429,15 +429,25 @@ class PrePushGateTests(unittest.TestCase):
         shutil.copytree(SOURCE / "scripts/cmux-next/arch_rules", self.repo / "scripts/cmux-next/arch_rules",
                         dirs_exist_ok=True)
 
+    def kill_stalled_group(self, mark):
+        """Kill the stalled check's process group, which this test started, if a broken gate left it running."""
+        if not mark.exists():
+            return
+        pgid = int(mark.read_text())
+        if pgid != os.getpgrp():  # never this test's own group
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(pgid, signal.SIGKILL)
+
     def advisory_run(self, deadline=None):
         summary = self.root / "step-summary.md"
         env = {**self.env, "GITHUB_ACTIONS": "true", "GITHUB_STEP_SUMMARY": str(summary)}
         if deadline is not None:
             env["CMUX_PREPUSH_ADVISORY_SECONDS"] = str(deadline)
-        started = time.monotonic()
+        # hang guard: a gate that waits on a stalled check instead of killing it at its deadline runs into this
+        # timeout (the stalled check below sleeps an hour), failing the test instead of stalling CI.
         result = subprocess.run(["python3", "-I", GATE, "--base", "origin/feat-cmux-next", "--head", "HEAD", "--advisory"],
                                 cwd=self.repo, env=env, text=True, capture_output=True, timeout=300)
-        return result, time.monotonic() - started, (summary.read_text() if summary.exists() else "")
+        return result, (summary.read_text() if summary.exists() else "")
 
     def test_ci_advisory_that_stalls_is_killed_at_its_deadline_with_its_process_group_and_the_gate_passes(self):
         # Codex review of #40811 (F1): the advisory ran on a daemon thread, but a stalled check's executor workers are
@@ -448,16 +458,18 @@ class PrePushGateTests(unittest.TestCase):
                    "import concurrent.futures, os, subprocess\n"
                    "def push_refusals(repo, ranges, upstream_ref=None):\n"
                    "    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)\n"
-                   "    pool.submit(subprocess.run, ['sleep', '300'])\n"
+                   "    pool.submit(subprocess.run, ['sleep', '3600'])\n"
                    f"    open({str(mark)!r}, 'w').write(str(os.getpgrp()))\n"
-                   "    subprocess.run(['sleep', '300'])\n"
+                   "    subprocess.run(['sleep', '3600'])\n"
                    "    return [], []\n")
+        self.addCleanup(self.kill_stalled_group, mark)
         self.kit("Fresh", NEW_CLEAN)
         self.commit("clean")
-        result, elapsed, table = self.advisory_run(deadline=3)
+        # The stalled check sleeps an hour: a gate that waited on it, not killing it at its 3 s deadline, would run
+        # into advisory_run's timeout. Returning at all, with the 3 s deadline reported below, is the kill.
+        result, table = self.advisory_run(deadline=3)
         output = result.stdout + result.stderr
         self.assertEqual(result.returncode, 0, output)
-        self.assertLess(elapsed, 3 + 60, output)
         self.assertIn("::warning title=prepush advisory timed out::", result.stdout, output)
         self.assertIn("| arch ratchet | incomplete: timed out after 3s |", table)
         pgid = int(mark.read_text())
@@ -471,7 +483,7 @@ class PrePushGateTests(unittest.TestCase):
                    "def check(base, head, changes):\n    raise RuntimeError('fixture boom')\n")
         self.kit("Fresh", NEW_CLEAN)
         self.commit("clean")
-        result, _, table = self.advisory_run()
+        result, table = self.advisory_run()
         output = result.stdout + result.stderr
         self.assertEqual(result.returncode, 0, output)
         self.assertRegex(table, r"\| arch ratchet \| incomplete: 0 finding\(s\), 1 check\(s\) did not run", output)

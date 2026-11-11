@@ -192,6 +192,12 @@ struct AgentSessionOpenLateDaemonTests {
     /// A tab a person opens (Cmd-T, a split, an import: no control run's scope) on a stopped daemon gives up
     /// within the short late-reply budget, as Cmd-N's workspace does, instead of holding its provisional tab
     /// for the two minutes a scripted open waits.
+    ///
+    /// The open itself ends the wait: it is awaited, not timed. The budget the code gives a person's tab is
+    /// ``NewFrontendBrowserTabRequest/lateReplyBudget`` re-sends after at most one request deadline
+    /// (``DaemonConnection/defaultRequestTimeout``), the same bound as a keyed create; a scripted open's is
+    /// ``AgentSessionWorkspace/firstTabBudget``. The wait allows the person's budget and its deadline twice over,
+    /// still well short of the scripted budget, so only an open that took the scripted budget runs past it.
     @Test func aPersonsTabGivesUpWithinTheShortBudget() async throws {
         let launched = try await RapidWorkspaceCreateTests.launch()
         let services = launched.services
@@ -204,15 +210,17 @@ struct AgentSessionOpenLateDaemonTests {
         #expect(DaemonCommandScope.current == nil)
         #expect(kill(pid, SIGSTOP) == 0)
         defer { kill(pid, SIGCONT) } // a throw before the SIGCONT below never leaves the daemon stopped
-        let started = ContinuousClock.now
         let pending = try tabs.open(in: pane.handle, of: services.daemon)
-        var failed = false
-        do { _ = try await pending.value() } catch { failed = true }
-        let waited = ContinuousClock.now - started
+        let failed = Ended()
+        let personsBudget = NewFrontendBrowserTabRequest.lateReplyBudget + DaemonConnection.defaultRequestTimeout
+        try #require(personsBudget * 2 < AgentSessionWorkspace.firstTabBudget, "the harness: a person's budget is not short of a scripted open's")
+        let ended = await Self.ends(within: personsBudget * 2) {
+            do { _ = try await pending.value() } catch { failed.value = true }
+        }
         #expect(kill(pid, SIGCONT) == 0)
         await launched.stop()
 
-        #expect(failed, "a person's tab on a stopped daemon never gave up")
-        #expect(waited < .seconds(20), "a person's tab waited \(waited) on a stopped daemon")
+        #expect(ended, "a person's tab held on a stopped daemon past its short budget, as a scripted open waits")
+        #expect(failed.value, "a person's tab on a stopped daemon never gave up")
     }
 }

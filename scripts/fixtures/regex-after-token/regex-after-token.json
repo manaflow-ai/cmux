@@ -1,0 +1,347 @@
+{
+  "about": [
+    "A / in JS or TS starts a regex literal or divides, by the token before it. A tokenizer that guesses division where a regex starts reads a regex's \\/ and closing / as //, takes the rest of the line for a comment, and a lint reading the code drops what is written there. The rule: after the ) of an if, while, for or with head, a / starts a regex; after any other ), after ], ++, --, a word, a number, a string, a template or a regex, it divides (after a postfix ++ or -- the expression is complete, and a prefix one cannot take a regex); after (, [, a comma, an operator, ;, :, {, the } of a block, or a keyword such as return or typeof, it starts a regex. Where the tokenizer cannot decide (a ) or } whose opener it has not seen or cannot classify), it scans both readings and keeps the union of what each reads as code, so it fails closed.",
+    "rows: each source, as a whole file read as TSX (a .tsx file: TypeScript with JSX), and whether the unsafe text after the slash is code (hit) or a comment.",
+    "unresolved: a row with \"unresolved\": true has a token one lookahead cannot classify (a / or a < after a ) or } whose opener is unseen: a regex or a division, a JSX tag or a comparison). A lexer must not guess there: it scans both readings and reports their union (hit is that union), or reports the case as unresolved, which fails closed. Generated cases over undecided_before follow the same convention. A < starts a JSX tag only where an expression can start and the name after it is not followed by extends, = or , (those are type parameters: <T extends U>, <T = V>, <T,>).",
+    "generate: regex_line over regex_before and undecided_before x bodies is always a hit; division_line over division_before is never one, and over undecided_before always one (the union). Run by manaflow-ai/cmux-platform test/node/no-guessable-temp-names.test.ts; written so any other hand-rolled JS tokenizer (manaflow-ai/cmux scripts/check-test-determinism.py) can run it as is, where a case its lexer reports as unresolved counts as failing closed.",
+    "This file is shared by byte (other repos pin its sha256): after an edit, run `vp fmt test/node/fixtures/regex-after-token.json` in manaflow-ai/cmux-platform; a test fails a table written any other way."
+  ],
+  "rows": [
+    {
+      "source": "if (ok) /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "review of manaflow-ai/cmux-platform#1271 at ba395d25, F1: after the ) of an if head a / starts a regex; its \\/ and closing / are no // comment"
+    },
+    {
+      "source": "while (s) /\\/\\//.exec(s); run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "the ) of a while head"
+    },
+    {
+      "source": "for (const s of xs) /\\/\\//.test(s) && run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "the ) of a for head"
+    },
+    {
+      "source": "for await (const s of xs) /\\/\\//.test(s) && run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "the ) of a for await head"
+    },
+    {
+      "source": "if (f(a, (b))) /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "the outer ) is the if head's, past nested calls"
+    },
+    {
+      "source": "const t = [/\\/\\//, run(\"echo > /tmp/out.$$\")]",
+      "hit": true,
+      "why": "after ["
+    },
+    {
+      "source": "f(/\\/\\//); run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "after ("
+    },
+    {
+      "source": "x = a ? /\\/\\// : b; run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "after ?"
+    },
+    {
+      "source": "return /\\/\\//.test(s) || run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "after return"
+    },
+    {
+      "source": "if (ok) {} /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "after the } of a block"
+    },
+    {
+      "source": "x) /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "a ) that closes nothing seen: both readings are scanned and their union reported"
+    },
+    {
+      "source": "label: {} /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "a } whose { followed a colon (a label's block or an object literal's value): both readings"
+    },
+    {
+      "source": "const a = n++ / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "after a postfix ++ the expression is complete: a / divides"
+    },
+    {
+      "source": "const a = n-- / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "after a postfix --, a / divides"
+    },
+    {
+      "source": "x) / 2 // echo > /tmp/out.$$",
+      "hit": true,
+      "why": "fails closed: where the reading is undecided, the regex reading keeps the text a division reading would drop"
+    },
+    {
+      "source": "const a = f(x) / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "after the ) of a call, a / divides and // is a comment"
+    },
+    {
+      "source": "const a = b[0] / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "after ], a / divides"
+    },
+    {
+      "source": "const a = {} / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "after the } of an object literal, a / divides"
+    },
+    {
+      "source": "const a = x.return / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "a keyword after . is a property name"
+    },
+    {
+      "source": "const a = (b + c) / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "after the ) of a group"
+    },
+    {
+      "source": "const a = πif(x) / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "review of manaflow-ai/cmux#41341, F1: πif is one name, not the keyword if after π; after the ) of its call, a / divides"
+    },
+    {
+      "source": "const a = this.#if(x) / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "#if is a private name, not the keyword if: after the ) of its call, a / divides"
+    },
+    {
+      "source": "const a = x?.if(y) / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "a keyword after ?. is a property name"
+    },
+    {
+      "source": "const a = πreturn / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "πreturn is one name, not the keyword return: a / divides"
+    },
+    {
+      "source": "if (ok) {} />[//]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "review of manaflow-ai/cmux#41341, F3: /> is a self-closing JSX tag only inside a JSX open tag; after the } of a block it starts a regex"
+    },
+    {
+      "source": "const el = <Tile a=\"x\" b={c} {...p} />; // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "inside a JSX open tag, the / after an attribute's or a spread's } closes the tag"
+    },
+    {
+      "source": "switch (k) {} /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "after the } of a switch block, a / starts a regex"
+    },
+    {
+      "source": "try {} finally {} /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "after the } of a finally block, a / starts a regex"
+    },
+    {
+      "source": "if (ok) {} else {} /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "after the } of an else block, a / starts a regex"
+    },
+    {
+      "source": "x = { a: 1 } / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "after the } of an object literal that follows =, a / divides"
+    },
+    {
+      "source": "return {} / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "after the } of an object literal that follows return, a / divides"
+    },
+    {
+      "source": "f({} / 2) // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "after the } of an object literal that follows (, a / divides"
+    },
+    {
+      "source": "run(`echo ${/[//]/.source} > /tmp/out.$$`)",
+      "hit": true,
+      "why": "review of manaflow-ai/cmux-platform#1271 follow-up, F1: ${ starts an expression, so a / right after it starts a regex; its // is no comment"
+    },
+    {
+      "source": "run(`echo ${a} ${/[//]/.source} > /tmp/out.$$`)",
+      "hit": true,
+      "why": "the same after the } ... ${ of a later substitution"
+    },
+    {
+      "source": "run(`echo ${`x${/[//]/.source}`} > /tmp/out.$$`)",
+      "hit": true,
+      "why": "the same in a template nested in a substitution"
+    },
+    {
+      "source": "const s = `${a / 2}` // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "inside ${ }, a / after a name still divides"
+    },
+    {
+      "source": "const el = <div></div>; // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "review of manaflow-ai/cmux-platform#1271 follow-up, F2: </div> is a JSX closing tag, not < then a regex; the // after it is a comment"
+    },
+    {
+      "source": "const el = <></>; // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "a fragment's closing tag </>"
+    },
+    {
+      "source": "const el = <div><span a=\"x\">t</span><b /></div>; // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "nested elements: the element ends at its own closing tag"
+    },
+    {
+      "source": "const el = <a>http://x</a>; run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "JSX text is no comment: a // in it is text, and what follows the element is code"
+    },
+    {
+      "source": "const f = <T extends U>(x: T) => x / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "<T extends U>( is a generic arrow's type parameters, not a JSX tag: the arrow's body is code and its // a comment"
+    },
+    {
+      "source": "const el = <div data-extends=\"x\">//x</div>; run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "review of manaflow-ai/cmux-platform#1275, F1: an attribute named data-extends is no type parameter; the element's text //x is text, and what follows the element is code"
+    },
+    {
+      "source": "const el = <div extends=\"x\">//x</div>; run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "an attribute named extends (followed by =) is an attribute, not a type parameter's constraint"
+    },
+    {
+      "source": "const f = <T = string>(x: T) => x // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "review of manaflow-ai/cmux-platform#1275, F2: <T = string> is a defaulted type parameter, not a JSX tag; the // after the arrow is a comment"
+    },
+    {
+      "source": "const f = <T extends U = V>(x: T) => x // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "a constrained type parameter with a default"
+    },
+    {
+      "source": "const f = <T,>(x: T) => x // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "<T,> is a type parameter list"
+    },
+    {
+      "source": "x) <a>http://x</a>; run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "unresolved": true,
+      "why": "after a ) whose ( is unseen, < may be a comparison (then //x</a>; ... is a comment) or a JSX tag (then run(...) is code): the < is undecided, and the union of both readings is a hit"
+    },
+    {
+      "source": "return\n{} /[//]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "review of manaflow-ai/cmux#41357, F1: a line terminator after return inserts a semicolon, so the {} on the next line is a block and a / after it starts a regex (a terminator inside a comment counts too)"
+    },
+    {
+      "source": "const a = x‌if(y) / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "F2: an ECMAScript identifier continues with U+200C (ZWNJ) and U+200D (ZWJ): x<ZWNJ>if is one name, not the keyword if; after the ) of its call, a / divides"
+    },
+    {
+      "source": "a <b\n{} />[//]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "unresolved": true,
+      "why": "F3: <b after a name is a comparison, not a JSX tag, so the / after the {} is no />; by ASI the {} is a block and the / starts a regex, but a tokenizer that does not apply ASI to a name cannot tell the block from an object: unresolved (the union reads it as a hit)"
+    },
+    {
+      "source": "return /* a\n */ {} /[//]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "a line terminator inside a comment after return inserts the semicolon too: the {} is a block"
+    },
+    {
+      "source": "run(`echo ${{} / /[//]/.source} > /tmp/out.$$`)",
+      "hit": true,
+      "why": "review of manaflow-ai/cmux-platform#1275, F1: a { right after ${ starts an object literal (an expression), never a block, so the / after its } divides and the next / starts a regex whose // is no comment"
+    },
+    {
+      "source": "const f = <T = string>(x: T) => \"{http://x}\"; run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "review of manaflow-ai/cmux-platform#1275, F2: after defaulted type parameters no JSX tag is open, so the { in the string is text and its // no comment; run(...) is code"
+    }
+  ],
+  "generate": {
+    "regex_before": [
+      "",
+      "if (ok)",
+      "while (x)",
+      "for (;;)",
+      "with (o)",
+      "for await (const s of xs)",
+      "if (f(a, (b)))",
+      "x = [",
+      "f(",
+      "a,",
+      "a =",
+      "a :",
+      ";",
+      "!",
+      "a &",
+      "a |",
+      "a ?",
+      "{",
+      "if (ok) {}",
+      "a +",
+      "a -",
+      "a *",
+      "a %",
+      "a <",
+      "a >",
+      "~",
+      "a ^",
+      "x => ",
+      "a / ",
+      "return",
+      "typeof",
+      "case",
+      "do",
+      "else",
+      "in",
+      "of",
+      "void",
+      "yield",
+      "await",
+      "throw",
+      "delete",
+      "new",
+      "instanceof"
+    ],
+    "division_before": [
+      "a",
+      "f(x)",
+      "(b + c)",
+      "a[0]",
+      "2",
+      "'s'",
+      "\"s\"",
+      "`t`",
+      "/re/",
+      "x.y",
+      "this",
+      "x.return",
+      "o = {}",
+      "({})",
+      "n++",
+      "n--"
+    ],
+    "undecided_before": ["x)", "label: {}"],
+    "bodies": ["\\/\\/", "[/]\\/", "a\\/\\/b", "\\\\\\/\\/", "\\/[/]", "[\\]/]\\/"],
+    "regex_line": "{before} /{body}/.test(s); run(\"echo > /tmp/out.$$\")",
+    "division_line": "{before} / 2 // echo > /tmp/out.$$"
+  }
+}

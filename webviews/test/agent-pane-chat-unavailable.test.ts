@@ -294,10 +294,13 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     await page.goto(
       `http://127.0.0.1:${port}/#${new URLSearchParams({ endpoint, token: "t", session: "chat-on-box", must: "" })}`,
     );
-    await page.getByText("Opened chat-on-box", { exact: true }).waitFor({ timeout: 25_000 });
-    const drawnMs = Date.now() - started;
-    console.log(`chat-unavailable: kept rows of a chat whose machine is connecting drawn ${drawnMs} ms after open`);
-    expect(drawnMs).toBeLessThan(3_000);
+    // The machine stays connecting through this wait, so the rows can only come from what the host kept. Before the
+    // fix they waited for the 30 s grace: a deadline well short of it (and far above a normal open, under a second)
+    // tells the two apart without bounding how long a busy host takes to draw.
+    await page.getByText("Opened chat-on-box", { exact: true }).waitFor({ timeout: 20_000 });
+    console.log(
+      `chat-unavailable: kept rows of a chat whose machine is connecting drawn ${Date.now() - started} ms after open`,
+    );
     // Still loading: no line over the rows, and no centered state in their place. Nothing runs.
     expect(await page.locator("[data-unavailable]").count()).toBe(0);
     expect((await state(page)).isWorking).toBe(false);

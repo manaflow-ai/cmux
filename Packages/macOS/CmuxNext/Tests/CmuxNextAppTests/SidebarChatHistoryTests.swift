@@ -287,6 +287,12 @@ import WebKit
                 "window.webkit.messageHandlers.\(PageAccessibilityPress.handlerName).postMessage(1); return true;",
                 arguments: [:], in: nil, contentWorld: PageAccessibilityPress.world)
         }
+        /// Waits until the uptime clock reads past the last press's: a gesture is spent by its uptime, so two presses
+        /// in a row may tie at the clock's grain, and each press must be its own moment.
+        func pastLastPress() async {
+            guard let last = page.webView.lastUserEventUptime else { return }
+            while ProcessInfo.processInfo.systemUptime <= last { await Task.yield() }
+        }
         /// Page script's own click (untrusted), then a round trip in the press world so any post it made has arrived.
         func scriptClick() async throws {
             _ = try await page.webView.callAsyncJavaScript("document.getElementById('b').click(); return true;",
@@ -302,18 +308,17 @@ import WebKit
         #expect(opened == ["c0"])
         #expect(await call("open", ["chat": .string("c1")])["t"] == "err", "one press, one action")
 
-        // Uptimes of two presses in a row may tie at the clock's grain; each press is its own moment.
-        try await Task.sleep(for: .milliseconds(5))
+        await pastLastPress()
         try await press()
         #expect(await call("more")["t"] == "ok")
         #expect(history.limit == 2 * SidebarChatHistory.pageSize)
 
-        try await Task.sleep(for: .milliseconds(5))
+        await pastLastPress()
         try await press()
         #expect(await call("fold")["t"] == "ok")
         #expect(history.earlierFolded)
 
-        try await Task.sleep(for: .milliseconds(5))
+        await pastLastPress()
         try await scriptClick()
         #expect(await call("fold")["t"] == "err", "a script click folds nothing")
         #expect(history.earlierFolded)

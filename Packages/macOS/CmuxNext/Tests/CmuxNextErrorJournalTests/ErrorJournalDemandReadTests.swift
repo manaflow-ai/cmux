@@ -47,29 +47,39 @@ import Testing
         FileManager.default.temporaryDirectory.appendingPathComponent("error-journal-demand-\(UUID().uuidString)")
     }
 
+    /// A fixed instant for the source's injected clock (whole seconds, so the cursor's milliseconds are exact).
+    private static let asked = Date(timeIntervalSince1970: 1_800_000_000)
+
     @Test func aDemandReadsTheLastThreeDaysOfTheLogAtMost() async throws {
         let log = RecordingLog()
+        let asked = Self.asked
         // Copy Logs shows the problems of the last 3 days: no demand needs more of the log.
-        let source = OSLogErrorSource(processID: 7, launchDate: Date().addingTimeInterval(-30 * 86_400), reader: log)
+        let source = OSLogErrorSource(processID: 7, launchDate: asked.addingTimeInterval(-30 * 86_400), reader: log,
+                                      now: { asked })
 
         _ = try await source.collect(after: nil)
 
+        // The window the source chose, against the instant its clock gave: exactly 3 days back, not to the launch.
         let start = try #require(log.windows.first)
-        let age = Date().timeIntervalSince(start)
-        #expect(age <= 3 * 86_400 + 60, "the first demand of an app that is 30 days old asked for \(Int(age)) s of the log")
+        #expect(start == asked.addingTimeInterval(-3 * 86_400),
+                "the first demand of an app that is 30 days old asked for the log since \(start), asked at \(asked)")
     }
 
     @Test func theNextDemandStartsWhereTheLastOneEnded() async throws {
         let log = RecordingLog()
+        let first = Self.asked
+        let clock = OSAllocatedUnfairLock(initialState: first)
         // An app that is one hour old and wrote no error: the first demand finds nothing.
-        let source = OSLogErrorSource(processID: 7, launchDate: Date().addingTimeInterval(-3_600), reader: log)
+        let source = OSLogErrorSource(processID: 7, launchDate: first.addingTimeInterval(-3_600), reader: log,
+                                      now: { clock.withLock { $0 } })
 
-        let first = try await source.collect(after: nil)
-        _ = try await source.collect(after: first.cursor)
+        let firstHarvest = try await source.collect(after: nil)
+        clock.withLock { $0 = first.addingTimeInterval(600) } // the next demand, ten minutes later
+        _ = try await source.collect(after: firstHarvest.cursor)
 
-        #expect(log.windows.count == 2)
-        let again = Date().timeIntervalSince(try #require(log.windows.last))
-        #expect(again <= 60, "the second demand asked again for \(Int(again)) s of the log that the first one had read")
+        // The second window starts where the first ended (its ask less the store lag), not at the launch again.
+        #expect(log.windows == [first.addingTimeInterval(-3_600), first.addingTimeInterval(-OSLogErrorSource.storeLag)],
+                "the demands asked for the log since \(log.windows); the first was asked at \(first)")
     }
 
     @Test func aDemandAfterALongRestReadsTheNewestPartOfALogFile() async throws {

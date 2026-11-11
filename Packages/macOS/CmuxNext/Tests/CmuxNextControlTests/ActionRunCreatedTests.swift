@@ -55,21 +55,19 @@ final class LaggingCreateExecutor: ControlActionExecutor {
     /// The wait takes at most half of what is left of the request's own
     /// deadline (2 s by default), so the reply has the rest to go out on a
     /// loaded machine (cx-6ynqg): a created tab that never shows is left out,
-    /// and the run still reports it ran before the deadline. The run's own
-    /// settling counts against that half, so a loaded host can answer past
-    /// 1.5 s (1.66 s on the macOS 27 lane with the package running in
-    /// parallel, cx-7l2nc); the contract is the deadline itself. Waiting the
-    /// whole `createdLimit`, as before cx-6ynqg, answers after it.
+    /// and the run still reports it ran before the deadline. The router keeps
+    /// that deadline itself (`ControlDeadline` answers `timeout` once it
+    /// passes), so a `ran` reply is one that beat it, judged by the router's
+    /// own clock rather than a stopwatch in the test. Waiting the whole
+    /// `createdLimit` (also 2 s), as before cx-6ynqg, answers after the
+    /// deadline: `handle` returns the timeout and `get()` throws it.
     @Test func aCreatedTabThatNeverShowsStillAnswersRanBeforeTheDeadline() async throws {
         let executor = LaggingCreateExecutor(appears: false)
         let router = ControlRouter(identity: testIdentity(), executor: executor)
         router.snapshots.publish { $0 = BrowserOpenSplitTests.snapshot() }
         executor.router.withLock { $0 = router }
-        let started = ContinuousClock.now
         let reply = try await router.handle(ControlRequest(id: "1", method: "action.run", params: ["action": "openBrowser"])).get()
-        let took = ContinuousClock.now - started
         #expect(reply["ran"] == true)
         #expect(reply["created"] == [], "\(reply)")
-        #expect(took < .seconds(2), "the reply took \(took), past its 2 s deadline")
     }
 }
