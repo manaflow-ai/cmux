@@ -53,11 +53,25 @@ where
         return None;
     }
     let var = |k: &str| (inputs.var)(k).filter(|v| !v.is_empty());
-    // The flag settings' env, which Claude applies over the process env.
+    // The flag settings' env, which Claude applies over the process env. A JSON `true` or number
+    // (`"CLAUDE_CODE_USE_BEDROCK": true`) is the value Claude reads, as the launcher's check
+    // (`agent-auth.sh` `cmux_claude_settings_has`) counts it.
     let flag_env: BTreeMap<String, String> = flag
         .and_then(|s| s.get("env"))
         .and_then(Value::as_object)
-        .map(|e| e.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned()))).collect())
+        .map(|e| {
+            e.iter()
+                .filter_map(|(k, v)| {
+                    let v = match v {
+                        Value::String(s) => s.clone(),
+                        Value::Bool(b) => b.to_string(),
+                        Value::Number(n) => n.to_string(),
+                        _ => return None,
+                    };
+                    Some((k.clone(), v))
+                })
+                .collect()
+        })
         .unwrap_or_default();
     let set = |k: &str| var(k).is_some() || flag_env.get(k).is_some_and(|v| !v.is_empty());
     // A pair in the launch already (the person's, or a route's) wins, as in the launcher.
@@ -477,6 +491,13 @@ mod tests {
         assert_eq!(pair(helper).await, None);
         let endpoint = flag(serde_json::json!({"env": {"ANTHROPIC_BASE_URL": "https://x.test"}}));
         assert_eq!(pair(endpoint).await, None);
+        // A provider switch as a JSON boolean or number is the person's provider too.
+        let bedrock = flag(serde_json::json!({"env": {"CLAUDE_CODE_USE_BEDROCK": true}}));
+        assert_eq!(pair(bedrock).await, None);
+        let vertex = flag(serde_json::json!({"env": {"CLAUDE_CODE_USE_VERTEX": 1}}));
+        assert_eq!(pair(vertex).await, None);
+        let off = flag(serde_json::json!({"env": {"CLAUDE_CODE_USE_BEDROCK": false}}));
+        assert!(pair(off).await.is_some());
         // Settings with no credential stay team.
         assert!(pair(flag(serde_json::json!({"model": "opus"}))).await.is_some());
     }

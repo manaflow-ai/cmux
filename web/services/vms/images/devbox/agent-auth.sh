@@ -70,8 +70,10 @@ sys.exit(0 if isinstance(token, str) and token.strip() else 1)
 }
 
 # 0 when <agent> has its own sign-in on this machine.
-#   claude    a /login session in its credentials file, or a long-lived
-#             token from `claude setup-token`
+#   claude    a /login session in its credentials file, a long-lived
+#             token from `claude setup-token`, a token or an enabled
+#             provider switch (Bedrock, Vertex, Foundry) in the env, or one
+#             in Claude's settings (cmux_claude_settings_has login)
 #   codex     `codex login` (ChatGPT tokens or an API key) in auth.json, or
 #             CODEX_API_KEY
 #   opencode  any provider credential from `opencode auth login`
@@ -79,6 +81,13 @@ cmux_agent_has_own_login() {
   case "$1" in
     claude)
       [ -n "${CLAUDE_CODE_OAUTH_TOKEN-}" ] && return 0
+      [ -n "${ANTHROPIC_AUTH_TOKEN-}" ] && return 0
+      # An enabled provider switch in the env is the user's choice of
+      # provider, as one in their settings is: team mode would clear it.
+      for cmux_aa_switch in "${CLAUDE_CODE_USE_BEDROCK-}" "${CLAUDE_CODE_USE_VERTEX-}" "${CLAUDE_CODE_USE_FOUNDRY-}"; do
+        cmux_aa_switch=$(printf '%s' "$cmux_aa_switch" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+        case "$cmux_aa_switch" in ''|0|false) ;; *) return 0 ;; esac
+      done
       cmux_aa_login="${CLAUDE_CONFIG_DIR:-${HOME:-/root}/.claude}/.credentials.json"
       [ -f "$cmux_aa_login" ] && grep -q '"claudeAiOauth"' "$cmux_aa_login" 2>/dev/null && return 0
       cmux_claude_settings_has login
