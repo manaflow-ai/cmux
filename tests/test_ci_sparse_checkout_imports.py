@@ -2223,11 +2223,93 @@ def run_bash_oracle(cases) -> tuple[Counter, list[str]]:
     workers = max(1, os.cpu_count() or 1)
     with ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context("fork")) as pool:
         for results in pool.map(bash_oracle_case, cases, chunksize=4):
+            if not results:
+                counts["unreached"] += 1  # bash never ran python on any path
             for outcome, detail in results:
                 counts[outcome] += 1
                 if outcome == "disagree":
                     disagreements.append(detail)
     return counts, disagreements
+
+
+# --- generated shell programs -------------------------------------------------------------------
+#
+# Review of #41068, round five of review-found bash disagreements: random programs from a small
+# grammar go through the bash oracle, so a gap shows up here before a review finds it. The grammar
+# composes cd (to folders that exist, do not exist, or lie outside the repo), !, { } groups,
+# ( ) subshells, &&, ||, ;, if / else, a redirect that always fails (> /), set -e / set +e and the
+# builtins true, false and :, nested up to depth 3, one python3 call somewhere in it, under bash
+# with and without -e. Every command but python is a builtin, so bash takes one path per python
+# status. Seeds are fixed, so a disagreement reproduces from its seed.
+
+GENERATED_SHELL_SEEDS = int(os.environ.get("SPARSE_SHELL_SEEDS", "5000"))
+_GEN_TARGETS = ("scripts/ci", "scripts", "ci", "lib", "missing", "..", "scripts/a")
+_GEN_SIMPLE = (
+    "true", "false", ":", "cd {d}", "cd {d}", "cd {d}", "cd {d} > /", ": > /", "set -e", "set +e",
+)
+
+
+def _generated_shell(seed: int) -> tuple[str, bool]:
+    """(run script, errexit) for one seed: one python3 call in a random program of the grammar."""
+    import random
+
+    rng = random.Random(seed)
+
+    def sep(newline_ok: bool = True) -> str:
+        return "\n" if newline_ok and rng.random() < 0.3 else "; "
+
+    def command(depth: int) -> str:
+        r = rng.random()
+        if depth < 3 and r < 0.15:
+            return "{ " + and_or_list(depth + 1, 3) + sep() + "}"
+        if depth < 3 and r < 0.27:
+            return "( " + and_or_list(depth + 1, 3) + " )"
+        if depth < 3 and r < 0.35:
+            text = "if " + and_or_list(depth + 1, 2) + sep() + "then " + and_or_list(depth + 1, 3)
+            if rng.random() < 0.4:
+                text += sep() + "else " + and_or_list(depth + 1, 3)
+            return text + sep() + "fi"
+        return "\0"
+
+    def pipeline(depth: int) -> str:
+        text = command(depth)
+        return ("! " + text) if rng.random() < 0.15 else text
+
+    def and_or_list(depth: int, most: int) -> str:
+        parts = [pipeline(depth)]
+        for _ in range(rng.randint(0, most - 1)):
+            parts += [rng.choice(("&&", "||", "&&", "||", ";")), pipeline(depth)]
+        return " ".join(parts)
+
+    lines = [and_or_list(0, 3) for _ in range(rng.randint(1, 4))]
+    text = "\n".join(lines)
+    slots = text.count("\0")
+    # Half the time python runs on a line of its own at the end, where everything before it counts.
+    python = rng.randrange(slots) if rng.random() < 0.5 else -1
+    out, index = [], 0
+    for chunk in text.split("\0")[:-1]:
+        out.append(chunk)
+        if index == python:
+            out.append("python3 x")
+        else:
+            out.append(rng.choice(_GEN_SIMPLE).format(d=rng.choice(_GEN_TARGETS)))
+        index += 1
+    out.append(text.split("\0")[-1])
+    run = "".join(out)
+    if python == -1:
+        run += "\npython3 x"
+    if not run.endswith("\n"):
+        run += "\n"
+    return run, rng.random() < 0.75
+
+
+def generated_shell_cases(seeds: int, start: int = 0) -> list[tuple[str, str, bool, frozenset[str], str]]:
+    folders = frozenset(_SHELL_FOLDERS)
+    cases = []
+    for seed in range(start, start + seeds):
+        run, errexit = _generated_shell(seed)
+        cases.append((f"seed {seed} (errexit {'on' if errexit else 'off'}) {run!r}", run, errexit, folders, ""))
+    return cases
 
 
 # --- tests ------------------------------------------------------------------------------------
@@ -3519,6 +3601,20 @@ class SparseCheckoutOracleTests(unittest.TestCase):
         print(f"bash oracle: {dict(counts)} in {time.monotonic() - started:.1f}s", file=sys.stderr)
         self.assertFalse(disagreements, f"{len(disagreements)} disagreements:\n" + "\n".join(disagreements))
         self.assertGreater(counts["agree"], 0, dict(counts))
+
+    def test_generated_shell_programs_agree_with_bash(self) -> None:
+        # GENERATED_SHELL_SEEDS random programs of the grammar above (5000 by default), each through
+        # bash: wherever this check gives a known directory for the python call, bash ran it there.
+        import time
+
+        started = time.monotonic()
+        counts, disagreements = run_bash_oracle(generated_shell_cases(GENERATED_SHELL_SEEDS))
+        print(
+            f"generated shell oracle: {GENERATED_SHELL_SEEDS} seeds, {dict(counts)} in {time.monotonic() - started:.1f}s",
+            file=sys.stderr,
+        )
+        self.assertFalse(disagreements, f"{len(disagreements)} disagreements:\n" + "\n".join(disagreements[:40]))
+        self.assertGreater(counts["agree"], GENERATED_SHELL_SEEDS // 10, dict(counts))
 
     def test_fixture_bash_oracle_catches_a_wrong_known_directory(self) -> None:
         # A checker that names a wrong known directory fails the oracle: bash ran `python3 x` in
