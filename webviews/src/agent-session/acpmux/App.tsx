@@ -4580,10 +4580,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// picking Cloud never races the grant into path_outside_roots and a grant that never answers
   /// never holds the composer.
   const [cloudFolderGrant] = useState(() => cloudFolderGrants());
-  cloudReserveContext.current = () => {
-    const folder = cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd);
-    return { ...("cwd" in folder ? { cwd: folder.cwd } : {}), ...heldPick(composerSnapshot) };
-  };
+  useLayoutEffect(() => {
+    cloudReserveContext.current = () => {
+      const folder = cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd);
+      return { ...("cwd" in folder ? { cwd: folder.cwd } : {}), ...heldPick(composerSnapshot) };
+    };
+  });
   const pickComposerMode = (mode: RunMode) => {
     if (mode === "cloud") {
       const folder = cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd);
