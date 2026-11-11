@@ -104,15 +104,37 @@ Prevention, in the desktop (macOS):
 
 - Input is window-scoped: AX actions first, then events posted to the target
   process (`CGEventPostToPid`) with the window's number; no activation, no raise.
-- Anything that opens a menu is refused, because an open menu tracks the real
-  pointer and the window server moves key focus to it until it closes:
-  `AXShowMenu`, a right click or control-click, a press or pixel click on a
-  pop-up button, menu button, combo box, menu bar item or menu extra (the app's
-  own hit test decides for a pixel click), Space, Return or an arrow key into a
-  focused pop-up, and `expand` on one. In web content only an HTML `<select>`
-  counts (an ARIA menu button opens page content). Each refusal says what works:
-  `set_value` with an item title picks a pop-up's item by pressing that item's
-  accessibility element, without opening the menu.
+- Menus of background apps (`computerUse.menus`, `open` by default, as Codex
+  Computer Use does; `refuse` keeps every menu closed). A pop-up that lists its
+  items while closed is set by pressing the item's accessibility element, so
+  no menu shows. Otherwise `set_value` with an item title opens the menu
+  (`AXPress`), presses the item (exact title, any case, or a unique prefix) and
+  waits for the menu to close, in one call: the result's `menu.open_ms` is
+  about 0.4 s in a System Settings pane. A title that is not there closes the
+  menu again (`AXCancel`, then Escape while it still shows) and lists the
+  items. A click or `press` on a pop-up, menu button or combo box, a right click
+  or control-click, or `show_menu` opens the menu and leaves it open with its
+  items in `menu.items`; the window's tree shows it (only that window's), the
+  next call presses an item, and `press_key Escape` closes it. A menu's
+  window may belong to another process (a System Settings pane's extension):
+  the engine follows the new menu window, not the target's pid.
+- An open menu takes key focus: the window server routes the keyboard to it
+  without activating its app (measured: a key typed into the frontmost
+  TextEdit while a background System Settings pop-up was open never arrived).
+  While a call opens a menu of an app other than the person's, a per-process
+  event tap on the person's app drops the "lost key focus" notice and, once
+  the menu shows, the theft is released with SkyLight's private
+  `SLPSStealKeyFocusReturningID` / `SLPSReleaseKeyFocusWithID`
+  (`platform/macos/key_focus.rs`, cua-driver's technique). The menu stays open
+  and operable through accessibility; the person's typing stays in their app
+  (10 of 10 in a guest; Codex Computer Use keeps it there too). The result
+  says which: `menu.keyboard` is `person` or `menu`. A menu in the person's own
+  app holds their keyboard inside that app while it is open.
+- Menu bar menus (`AXMenuBarItem`, menu extras) never open in the background:
+  the menu bar is the frontmost app's.
+- The deny list holds inside menus: an item whose title or submenu path names
+  a denied or protected app (Open With, Services, Recent Items) is hidden from
+  every tree and refused on press, the same as that app's windows.
 - Focusing an element in the app the person is using (`type_text` that needs
   keys, `perform_action focus`) is refused: it would move their caret.
 - `launch_app` opens with `activates` and `promptsUserIfNeeded` off, and returns

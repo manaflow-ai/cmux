@@ -234,6 +234,9 @@ pub struct ActionOutcome {
     pub cursor_at: Option<Point>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub note: String,
+    /// The menu the action opened, picked from or cancelled ([`crate::menus`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub menu: Option<crate::menus::MenuReport>,
 }
 
 impl ActionOutcome {
@@ -426,6 +429,9 @@ pub trait Desktop: Send + Sync {
     fn restore_focus(&self, _prior: &FocusSnapshot) -> DResult<bool> {
         Ok(false)
     }
+    /// The menu setting and the deny list's app names, before every acting
+    /// call ([`crate::menus`]). A desktop that opens no menus ignores it.
+    fn set_menu_policy(&self, _policy: crate::menus::MenuPolicy) {}
 }
 
 pub mod fake;

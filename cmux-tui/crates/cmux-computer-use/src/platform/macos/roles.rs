@@ -97,11 +97,22 @@ pub fn is_secure(role: &str, subrole: Option<&str>) -> bool {
 }
 
 /// AX actions never offered to agents in the background: `AXRaise` brings a
-/// window in front of the person's work; `AXShowMenu` opens a menu, and an
-/// open menu tracks the person's real pointer and takes their keyboard (the
-/// window server moves key focus to it) until it closes.
+/// window in front of the person's work. (`AXShowMenu` opens a context menu,
+/// which `computerUse.menus` decides; see [`crate::menus`].)
 pub fn is_foreground_action(ax: &str) -> bool {
-    matches!(ax, "AXRaise" | "AXShowMenu")
+    ax == "AXRaise"
+}
+
+/// Menu bar items and menu extras: their menus are the frontmost app's menu
+/// bar, never opened in the background in any `computerUse.menus` mode.
+pub fn is_menu_bar(role: &str) -> bool {
+    matches!(role, "AXMenuBarItem" | "AXMenuExtra")
+}
+
+/// The AX action that opens an element's menu: its press, else its
+/// show-menu action.
+pub fn open_action(available: &[String]) -> Option<&'static str> {
+    ["AXPress", "AXShowMenu"].into_iter().find(|a| available.iter().any(|x| x == a))
 }
 
 /// Whether pressing, clicking or keyboard-activating an element of `role`
@@ -137,18 +148,18 @@ pub fn menu_refusal(role: &str) -> String {
     let name = role_name(role, None);
     let instead = match role {
         "AXPopUpButton" | "AXMenuButton" => {
-            "use set_value with the title of the item to choose (it picks the item without opening the menu)"
+            "use set_value with the title of the item to choose (a pop-up that lists its items while closed is set without opening the menu)"
         }
         "AXComboBox" => "use set_value or type_text with element_id to change its text",
         _ => "use perform_action on the item you want if the tree shows it",
     };
     format!(
-        "this {name} opens a menu, and an open menu takes the person's pointer and keyboard until it closes, so it is not opened in the background; {instead}, or click it with delivery foreground"
+        "this {name} opens a menu, and Computer Use is set not to open menus in the background (Settings > Computer Use > Menus, computerUse.menus is \"refuse\"); {instead}, or click it with delivery foreground"
     )
 }
 
 /// Why a context menu (right click, control-click) is refused in the background.
-pub const CONTEXT_MENU_REFUSAL: &str = "a right click or control-click opens a context menu, and an open menu takes the person's pointer and keyboard until it closes, so it is not done in the background; use perform_action with the element's own actions (get_ui_tree lists them), or click with delivery foreground";
+pub const CONTEXT_MENU_REFUSAL: &str = "a right click, control-click or show_menu opens a context menu, and Computer Use is set not to open menus in the background (computerUse.menus is \"refuse\"); use perform_action with the element's own actions (get_ui_tree lists them), or click with delivery foreground";
 
 /// Whether the case-insensitive, trimmed titles match (a menu item for a
 /// `set_value` on a pop-up).

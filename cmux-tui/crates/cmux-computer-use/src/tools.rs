@@ -117,7 +117,7 @@ pub static TOOLS: &[Tool] = &[
     Tool {
         name: "click",
         access: Access::Act,
-        description: "Click an element (element_id) or a point (x, y in screenshot pixels) in a window, in the background. With no window_id, x and y are pixels of your latest display screenshot. In the background, clicks that would open a menu (a pop-up button, a menu button, a combo box, a right click or control-click) are refused, because an open menu takes the person's pointer and keyboard: choose a pop-up item with set_value instead.",
+        description: "Click an element (element_id) or a point (x, y in screenshot pixels) in a window, in the background. With no window_id, x and y are pixels of your latest display screenshot. A click on a pop-up or menu button, or a right click or control-click, opens its menu and leaves it open: the result's menu lists the items, and the next call presses one (perform_action press or click on its element in get_ui_tree). To choose a pop-up item in one call, use set_value instead. Menu bar menus are not opened in the background.",
         schema: || {
             obj(
                 json!({
@@ -190,7 +190,7 @@ pub static TOOLS: &[Tool] = &[
     Tool {
         name: "set_value",
         access: Access::Act,
-        description: "Set an element's value directly (text fields, sliders, checkboxes), with no typing. On a pop-up or menu button, the value is the title of the item to choose; it is picked without opening the menu.",
+        description: "Set an element's value directly (text fields, sliders, checkboxes), with no typing. On a pop-up or menu button, the value is the title of the item to choose (exact, any case, or a unique prefix): it is picked without opening the menu when the pop-up lists its items while closed, else its menu opens, the item is pressed and the menu closes in this one call. An item that is not there closes the menu again and the error lists the items.",
         schema: || {
             obj(
                 json!({"window_id": window_id(), "element_id": {"type": "string"}, "value": {"type": "string"}}),
@@ -201,7 +201,7 @@ pub static TOOLS: &[Tool] = &[
     Tool {
         name: "perform_action",
         access: Access::Act,
-        description: "Perform one of an element's accessibility actions (from get_ui_tree): press, confirm, increment, decrement, expand, collapse, select, focus. Actions that open a menu (show_menu, or press on a pop-up) are refused in the background; use set_value with an item title.",
+        description: "Perform one of an element's accessibility actions (from get_ui_tree): press, confirm, increment, decrement, expand, collapse, select, focus. show_menu (a context menu) or press on a pop-up opens the menu and leaves it open with its items in the result; set_value with an item title picks and closes in one call.",
         schema: || {
             obj(
                 json!({"window_id": window_id(), "element_id": {"type": "string"}, "action": {"type": "string"}}),

@@ -12,7 +12,9 @@ mod ax;
 mod capture;
 mod cgwindows;
 mod input;
+mod key_focus;
 mod keymap;
+mod menus;
 mod roles;
 mod sys;
 #[cfg(test)]
@@ -20,7 +22,7 @@ mod tests;
 mod workspace;
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::desktop::*;
 use crate::keys::KeyCombo;
@@ -30,11 +32,24 @@ use cgwindows::CgWindow;
 pub struct MacDesktop {
     host: Option<Arc<dyn HostServices>>,
     elements: ElementCache,
+    /// The engine's menu policy for the current call ([`crate::menus`]).
+    menu_policy: Mutex<crate::menus::MenuPolicy>,
+    /// The menu a call opened and left open, and its window.
+    opened: Mutex<Option<menus::Opened>>,
 }
 
 impl MacDesktop {
     pub fn new(host: Option<Arc<dyn HostServices>>) -> Self {
-        Self { host, elements: ElementCache::default() }
+        Self {
+            host,
+            elements: ElementCache::default(),
+            menu_policy: Mutex::new(crate::menus::MenuPolicy::default()),
+            opened: Mutex::new(None),
+        }
+    }
+
+    fn menu_policy(&self) -> crate::menus::MenuPolicy {
+        self.menu_policy.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 }
 
@@ -314,7 +329,8 @@ impl Desktop for MacDesktop {
     fn ui_tree(&self, window_id: &str, options: TreeOptions) -> DResult<UiTree> {
         let t = self.target(window_id)?;
         let (_, window) = self.ax_window(&t)?;
-        self.elements.tree(&t.id(), window, options)
+        let extra = self.opened_menu_for(&t.id()).into_iter().collect();
+        self.elements.tree(&t.id(), window, extra, options)
     }
 
     fn click(&self, target: &PointerTarget, spec: &ClickSpec) -> DResult<ActionOutcome> {
@@ -418,6 +434,10 @@ impl Desktop for MacDesktop {
             accepted &= window.perform("AXRaise").is_ok();
         }
         Ok(accepted)
+    }
+
+    fn set_menu_policy(&self, policy: crate::menus::MenuPolicy) {
+        *self.menu_policy.lock().unwrap_or_else(|e| e.into_inner()) = policy;
     }
 
     fn request_permission(&self, which: &str) -> DResult<()> {
