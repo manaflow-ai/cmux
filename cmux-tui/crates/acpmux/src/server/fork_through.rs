@@ -61,6 +61,15 @@ pub(super) fn retarget(params: &Value) -> Result<Option<crate::hub::Retarget>, R
         }
     };
     let model = text("model")?;
+    // A model is a spawn parameter (`--model`, `${model}` in a launch command): one model id, never
+    // a flag or anything else, as a start's (`cmux-agent-pane-policy` `is_model_id`).
+    if let Some(m) = &model
+        && !cmux_agent_pane_policy::params::is_model_id(&Value::String(m.clone()))
+    {
+        return Err(RpcError::invalid_params(
+            "_meta.acpmux.model must be one model id: ASCII letters, digits and ._-/:@[]+, not starting with -",
+        ));
+    }
     Ok(match text("harness")? {
         Some(harness) => Some(crate::hub::Retarget { harness, model }),
         None if model.is_some() => {
@@ -390,5 +399,17 @@ mod tests {
         )
         .await;
         assert!(refused.is_err());
+    }
+
+    /// A switch's model is one model id: a flag or shell text is refused before it reaches a
+    /// launch command's `${model}`.
+    #[test]
+    fn a_switch_model_is_one_model_id() {
+        let with = |model: &str| json!({"_meta": {"acpmux": {"harness": "codex", "model": model}}});
+        assert!(retarget(&with("claude-opus-5-5[1m]")).is_ok());
+        assert!(retarget(&with("provider/model:tag")).is_ok());
+        for bad in ["m;id", "--dangerously-skip-permissions", "a b", "$(x)", "m`x`"] {
+            assert!(retarget(&with(bad)).is_err(), "{bad}");
+        }
     }
 }

@@ -1007,7 +1007,12 @@ impl Hub {
                 json!({"model": model, "error": e.message}),
             );
         }
-        if let Some(mode) = Box::pin(self.start_mode(fork)).await
+        // The start mode only where `session/new` would set one (`start_mode::mode_eligible`): never
+        // over a profile that pins its mode (`--permission-mode default`), nor on a remote chain,
+        // whose mode the remote guard settles.
+        let remote = fork.meta().remote_origin;
+        if super::start_mode::mode_eligible(true, remote, false, &target.profile)
+            && let Some(mode) = Box::pin(self.start_mode(fork)).await
             && let Err(e) = Box::pin(self.set_mode(fork, &mode)).await
         {
             tracing::warn!(session = %fork.id, mode = %mode, "fork mode skipped: {}", e.message);
