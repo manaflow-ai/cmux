@@ -482,7 +482,16 @@ await requireBrowserLane("agent-pane-composer-dock-motion.test.ts", async () => 
                 const before = last.rows.get(row);
                 if (before !== undefined && Math.abs(top - before) > Math.abs(rowDy)) rowDy = top - before;
               }
-              w.__after.push({ rowDy, dScroll: scroll - last.scroll });
+              w.__after.push({
+                rowDy,
+                dScroll: scroll - last.scroll,
+                // DIAG
+                inline: thread.style.translate,
+                drawn: getComputedStyle(thread).translate,
+                anims: thread.getAnimations().length,
+                pad: getComputedStyle(thread).paddingBottom,
+                sh: scroller.scrollHeight,
+              } as never);
             }
             last = { scroll, rows };
           });
@@ -515,6 +524,7 @@ await requireBrowserLane("agent-pane-composer-dock-motion.test.ts", async () => 
             frames: w.__after.length,
             rowMovedFrames,
             maxOwnStep: Math.round(maxOwnStep * 10) / 10,
+            diag: w.__after.slice(0, 14),
           };
         });
         const scrolled = await scroller.evaluate((node) => node.scrollHeight - node.clientHeight - node.scrollTop);
