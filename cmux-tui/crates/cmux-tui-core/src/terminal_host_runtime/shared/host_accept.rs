@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use super::super::sys::HostStream;
+use super::super::sys::{self, HostStream};
 use super::host_serve::serve_client;
 use super::host_shared::HostShared;
 
@@ -77,6 +77,7 @@ pub(crate) fn serve_accepted(shared: &Arc<HostShared>, stream: HostStream) -> st
     // Accepted sockets inherit O_NONBLOCK from the listener on macOS. Client
     // protocol threads use blocking framed reads, so normalize it here.
     stream.set_nonblocking(false)?;
+    sys::size_client_send_buffer(&stream);
     let host = shared.clone();
     thread::Builder::new().name("terminal-host-client".into()).spawn(move || {
         let _ = serve_client(host, stream);

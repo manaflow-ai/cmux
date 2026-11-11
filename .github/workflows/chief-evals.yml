@@ -86,7 +86,7 @@ jobs:
         if: steps.tailnet.outcome == 'success'
         working-directory: Native/OptChat/optchat-chief
         env:
-          OPTCHAT_ANTHROPIC_BASE_URL: ${{ vars.CHIEF_EVAL_BASE_URL || 'http://100.89.225.106:31415' }}
+          OPTCHAT_ANTHROPIC_BASE_URL: ${{ vars.CHIEF_EVAL_BASE_URL || 'http://100.120.48.119:4016' }}
           REPEAT: ${{ inputs.repeat || '1' }}
           BASELINE_RUN: ${{ inputs.baseline_run }}
           GH_TOKEN: ${{ github.token }}

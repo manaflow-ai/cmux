@@ -602,6 +602,12 @@ pub const PROFILES_CAPABILITY: &str = "profiles-v1";
 /// `placement-shift-v1`: an echoing connection gets no `workspace_placement`
 /// restatement on `session.events` (state/placement_shift.rs).
 pub use crate::state::placement_shift::CAPABILITY as PLACEMENT_SHIFT_CAPABILITY;
+/// `session-live-cursor-v1`: a connection that sends it in `set-client-info`
+/// gets `live` in each `session.events` cursor, the position of the live
+/// terminal facts it has. A resume from such a cursor sends only the
+/// terminals whose live facts changed after it
+/// (server/session_event_stream.rs).
+pub const SESSION_LIVE_CURSOR_CAPABILITY: &str = "session-live-cursor-v1";
 /// Per-terminal themes in the home session's personal state:
 /// `set-personal-terminal` and `list-personal.terminals`.
 pub const PERSONAL_TERMINALS_CAPABILITY: &str = "personal-terminals-v1";
@@ -2763,6 +2769,10 @@ const RESOURCE_STREAMS_PER_CLIENT_CAPACITY: usize = 64;
 const RESOURCE_STREAMS_SERVER_CAPACITY: usize = 256;
 const RESOURCE_WAITS_PER_CLIENT_CAPACITY: usize = 8;
 const RESOURCE_WAITS_SERVER_CAPACITY: usize = 64;
+/// v1 `subscribe` event streams: each is a `mux-events-out` thread and an
+/// event mailbox that live until the connection closes (server/cmd_subscribe.rs).
+const EVENT_SUBSCRIPTIONS_PER_CLIENT_CAPACITY: usize = 32;
+const EVENT_SUBSCRIPTIONS_SERVER_CAPACITY: usize = 1024;
 
 mod worker_admission;
 pub(crate) use worker_admission::ServerSurfaceOperationAdmission;
@@ -2961,15 +2971,15 @@ fn layout_request_to_spec(layout: LayoutRequest) -> anyhow::Result<LayoutSpec> {
 }
 
 mod tree_json;
-#[cfg(test)]
-pub(crate) use tree_json::panes_built_for_test;
 pub(crate) use tree_json::selection_changed_json;
-#[cfg(test)]
-pub(crate) use tree_json::set_entity_check_hook_for_test;
+#[cfg(all(test, unix))]
+pub(crate) use tree_json::skip_entity_check_on_this_thread_for_bench as skip_tree_entity_check;
 pub(crate) use tree_json::tree_entity_json;
 pub(crate) use tree_json::workspace_presentation_changed_json;
 pub(crate) use tree_json::workspaces_json;
 use tree_json::{ShortIds, pane_json, tree_delta_json};
+#[cfg(test)]
+pub(crate) use tree_json::{panes_built_for_test, set_entity_check_hook_for_test};
 
 fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> {
     mux.surface(id)

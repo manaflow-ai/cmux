@@ -227,23 +227,15 @@ fn header_extent(file: &Path) -> Option<(String, u64, u64)> {
     Some((generation, base, end))
 }
 
-/// The snapshot `snapshot` (stream offset `snapshot_end`) with the tail
-/// bytes after it: the screen the terminal had at the end of its tail, as a
-/// bounded replay that fits a respawn seed. The snapshot alone when no tail
+/// The snapshot `snapshot` with `tail`, the tail bytes after its end
+/// ([`bytes_after`]): the screen the terminal had at the end of its tail, as
+/// a bounded replay that fits a respawn seed. The snapshot alone when no tail
 /// continues it.
-pub(super) fn restore(
-    directory: &Path,
-    terminal_id: &TerminalPublicId,
-    generation: &str,
-    snapshot_end: Option<u64>,
-    snapshot: TerminalReplay,
-) -> TerminalReplay {
-    let Some(snapshot_end) = snapshot_end else { return snapshot };
-    let tail = bytes_after(directory, terminal_id, generation, snapshot_end);
+pub(super) fn restore(snapshot: TerminalReplay, tail: &[u8]) -> TerminalReplay {
     if tail.is_empty() {
         return snapshot;
     }
-    rebuild(&snapshot, &tail).unwrap_or(snapshot)
+    rebuild(&snapshot, tail).unwrap_or(snapshot)
 }
 
 fn rebuild(snapshot: &TerminalReplay, tail: &[u8]) -> Option<TerminalReplay> {
@@ -328,7 +320,7 @@ mod tests {
         let tail = b"third\r\nfourth\r\nfifth\r\nsixth\r\n";
         append(&directory, &id, "g", 15, 15, tail, false).unwrap();
         source.vt_write(tail);
-        let restored = restore(&directory, &id, "g", Some(15), snapshot);
+        let restored = restore(snapshot, &bytes_after(&directory, &id, "g", 15));
         let mut rebuilt = ghostty_vt::Terminal::new(40, 5, 1_000_000, Default::default()).unwrap();
         rebuilt.vt_write(&restored.bytes);
         assert_eq!(rebuilt.plain_text().unwrap(), source.plain_text().unwrap());
@@ -357,7 +349,7 @@ mod tests {
             tail.extend_from_slice(b"\x1b\\");
         }
         append(&directory, &id, "g", 7, 7, &tail, false).unwrap();
-        let restored = restore(&directory, &id, "g", Some(7), snapshot);
+        let restored = restore(snapshot, &bytes_after(&directory, &id, "g", 7));
         let mut rebuilt = ghostty_vt::Terminal::new(40, 5, 1_000_000, Default::default()).unwrap();
         rebuilt.vt_write(&restored.bytes);
         let text = rebuilt.plain_text().unwrap();

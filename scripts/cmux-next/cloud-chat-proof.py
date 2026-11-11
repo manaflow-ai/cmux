@@ -30,6 +30,14 @@ one file), as a person who picks any folder in a new workspace does (Leo, 2026-1
 some random folder"): `cloud start-chat --from-folder` copies it the composer's way, and the reply must
 carry the one word that only that file holds, so the agent read it on the machine.
 
+An unattended run has no person to answer the Claude login question (harness_login.rs `step_and_reason`), so a
+headless claude start-chat refuses unless the run decides it. `--grant-claude-login` gives the launched app its
+own scratch cmux.json holding the one-time Use My Claude Login consent, as cloud-chat-matrix.py does: what a
+Release-rules build (the published NEXT DEV app) waits for (`consent-first`). `--login none` is the start-chat's
+own choice: it copies no login, so Claude runs on the machine's team mode (the SR2/CodeRouter gateway), and it is
+decided before the consent and before a DEV build's `needs-login-choice` (a CLI's `--login pass` is not the
+person's, so it never stands in there, and CI holds no Claude login to copy anyway). Both go to a Claude chat only.
+
 Each step's exit code and the CLI's own message go to the evidence JSON and the job summary, with
 the reply text. The chat prompt always includes a browser proof against example.com, so a passing
 run demonstrates that the agent on the Cloud machine drove its browser and read the page back.
@@ -69,6 +77,12 @@ parser.add_argument("--cleanup-tag", action="store_true",
 parser.add_argument("--paused-capture", default="",
                     help="DIR: no chat; make one machine, pause it, open the Cloud page and write its image of the "
                          "machine's paused price to DIR (the line must say 'a month while paused'), then kill it")
+parser.add_argument("--grant-claude-login", action="store_true",
+                    help="the app this run launches gets its own scratch cmux.json that says yes to Use My Claude Login "
+                         "on My Own Cloud Machines (a Release build's headless claude chat refuses without it)")
+parser.add_argument("--login", choices=("", "none", "machine", "pass"), default="",
+                    help="a Claude chat's `start-chat --login` (default: none given). `none` copies no login: Claude runs "
+                         "on the machine's team mode, the SR2/CodeRouter gateway, on any build with no one to ask")
 args = parser.parse_args()
 if args.paused_capture and (args.cleanup_machine or args.from_folder):
     parser.error("--paused-capture takes no --cleanup-machine or --from-folder")
@@ -89,6 +103,31 @@ ENV = {
     "CMUX_SOCKET_PATH": SOCKET_PATH,
     "CMUX_NEXT_SOCKET_PATH": SOCKET_PATH,
 }
+
+
+def claude_chat(agent: str) -> bool:
+    """Whether AGENT is a Claude harness by the start's own rule (harness_login.rs `login_provider`): the last `/`
+    segment, up to its first `-`, `_` or space, any case; none named is Claude."""
+    name = (agent or "").rsplit("/", 1)[-1]
+    family = next((part for part in re.split(r"[-_\s]", name) if part), "")
+    return not agent or family.lower() == "claude"
+
+
+# A Claude chat's `--login` only: Codex never takes it (`none` would leave it signed out; its login is the Mac's broker).
+START_LOGIN = ("--login", args.login) if args.login and claude_chat(args.agent) else ()
+# --grant-claude-login: the launched app's own cmux.json (0600), removed with its folder when the run ends. It holds
+# the consent a Release build's claude chat on the account's own machine waits for (CloudLoginCopyConsentSetting:
+# only the file can say yes; `settings set` asks a person on screen, which CI has not). Never the shared
+# ~/.config/cmux/cmux-next.json a person's other apps read.
+CLAUDE_LOGIN_SETTING = ("cloud", "useMyClaudeLoginOnMyCloudMachines")
+CONFIG_DIR = None
+CONFIG_FILE = None
+if args.grant_claude_login:
+    CONFIG_DIR = os.path.realpath(tempfile.mkdtemp(prefix="cmux-proof-config-"))
+    CONFIG_FILE = Path(CONFIG_DIR, "cmux-next.json")
+    CONFIG_FILE.touch(mode=0o600)
+    CONFIG_FILE.write_text(json.dumps({CLAUDE_LOGIN_SETTING[0]: {CLAUDE_LOGIN_SETTING[1]: True}}, indent=2) + "\n")
+    ENV["CMUX_NEXT_CONFIG_FILE"] = str(CONFIG_FILE)
 BROWSER_PROOF_NONCE = secrets.token_hex(8)
 BROWSER_PROOF_URL = f"https://example.com/?cmux_browser_proof={BROWSER_PROOF_NONCE}"
 BROWSER_PROOF_MARKER = "CLOUD_BROWSER_PROOF_OK"
@@ -125,6 +164,7 @@ evidence = {
     "tag": None,
     "agent": args.agent,
     "from_folder": bool(FOLDER_PROOF_DIR),
+    "claude_login": {"consent_granted": bool(CONFIG_FILE), "login": START_LOGIN[1] if START_LOGIN else None},
     "prompt_sha256": hashlib.sha256(args.prompt.encode("utf-8")).hexdigest(),
     "prompt_bytes": len(args.prompt.encode("utf-8")),
     "steps": [],
@@ -197,6 +237,8 @@ def finish(result: str) -> None:
                 result = "fail: the launched app did not exit"
     if FOLDER_PROOF_DIR:
         shutil.rmtree(FOLDER_PROOF_DIR, ignore_errors=True)
+    if CONFIG_DIR:
+        shutil.rmtree(CONFIG_DIR, ignore_errors=True)
     evidence["result"] = result
     Path(args.evidence).parent.mkdir(parents=True, exist_ok=True)
     Path(args.evidence).write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
@@ -543,6 +585,9 @@ launch = [open_tool, "-W", "-g", "-n"]
 # must travel as --env, and only as CMUX_NEXT_SOCKET_PATH: CMUX_SOCKET_PATH is a marker of another cmux,
 # and the app then strips the CMUX_NEXT_* state-root knobs (LaunchIdentity.inheritedKeys), the socket one included.
 launch.extend(["--env", f"CMUX_NEXT_SOCKET_PATH={SOCKET_PATH}"])
+if CONFIG_FILE:
+    # Its own cmux.json, as the socket: LaunchServices passes the app only what --env names.
+    launch.extend(["--env", f"CMUX_NEXT_CONFIG_FILE={CONFIG_FILE}"])
 if args.credentials_file:
     try:
         credentials_file = validate_credentials_file(args.credentials_file)
@@ -788,7 +833,7 @@ chat_started = time.monotonic()
 chat_deadline = chat_started + 600
 while True:  # bounded: the same start-chat again while its machine is still being made
     code, out, err = cmux("cloud", "start-chat", "--prompt", BROWSER_PROOF_PROMPT, "--agent", args.agent,
-                          *(("--from-folder", FOLDER_PROOF_DIR) if FOLDER_PROOF_DIR else ()),
+                          *(("--from-folder", FOLDER_PROOF_DIR) if FOLDER_PROOF_DIR else ()), *START_LOGIN,
                           "--name", args.tag, "--wait", "--timeout", "600", "--json", timeout=660)
     if code != 75 or time.monotonic() > chat_deadline:
         break

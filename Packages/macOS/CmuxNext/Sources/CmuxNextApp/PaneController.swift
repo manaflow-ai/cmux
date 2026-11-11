@@ -56,9 +56,13 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// no content is shown; `resume` maps the strip once and shows the selection then (PL-script A2).
     private(set) var isSuspended = false
     /// The window gives this pane's fullscreen page the whole screen (`WindowController+FullScreen`):
-    /// the strip hides with the rest of the window's chrome.
+    /// the strip hides with the rest of the window's chrome, and the panes beside it hide.
     var presentsPage = false {
-        didSet { if presentsPage != oldValue { view.hidesStrip = snapshotHidesStrip || presentsPage } }
+        didSet {
+            guard presentsPage != oldValue else { return }
+            view.hidesStrip = snapshotHidesStrip || presentsPage
+            if presentsPage { workspace?.presentedPane = layoutPaneID } else if workspace?.presentedPane == layoutPaneID { workspace?.presentedPane = nil }
+        }
     }
     private var snapshotHidesStrip = false // the last snapshot's own choice, kept under `presentsPage`
     private var windowController: WindowController? { view.window?.delegate as? WindowController }
