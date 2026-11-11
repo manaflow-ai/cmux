@@ -43,6 +43,7 @@ Usage: scripts/cmux-next/check-no-raw-spawn.py [repo-root] [--list]
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import re
 import sys
@@ -85,20 +86,32 @@ def matching_lines(text: str) -> list[tuple[int, str]]:
     return [(n, lines[n - 1].rstrip()) for n in numbers if not COMMENT.match(lines[n - 1])]
 
 
+def load_test_modules():
+    """rust_test_modules.py beside this file (a checkout's, or the installed copy's): `-I` puts no
+    folder on sys.path. It names the files a `#[cfg(test)] mod name;` makes test code."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    spec = importlib.util.spec_from_file_location("rust_test_modules", os.path.join(here, "rust_test_modules.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def scan(root: str) -> dict[str, list[tuple[int, str]]]:
     hits: dict[str, list[tuple[int, str]]] = {}
+    rust_test_modules = load_test_modules()
     for crate in CRATES:
         base = os.path.join(root, "cmux-tui", "crates", crate, "src")
         if not os.path.isdir(base):
             continue
+        test_modules = rust_test_modules.scan(base)
         for dirpath, dirnames, filenames in os.walk(base):
             dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
             for name in sorted(filenames):
                 if not name.endswith(".rs"):
                     continue
-                if name == "tests.rs" or name.endswith(("_tests.rs", "_test.rs")):
-                    continue
                 path = os.path.join(dirpath, name)
+                if test_modules.contains(path):  # tests.rs, *_tests.rs, or a `#[cfg(test)] mod name;`
+                    continue
                 rel = os.path.relpath(path, root).replace(os.sep, "/")
                 try:
                     with open(path, "rb") as f:

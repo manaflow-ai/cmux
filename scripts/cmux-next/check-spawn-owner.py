@@ -8,9 +8,9 @@ orphan processes and busy loops that way. The owners are `cmux_scope::Scope` (`s
 reaped, unless `Child::detach(reason)` says why it outlives its handle).
 
 This guard counts, per file of the Rust crates under cmux-tui/crates (product code: no `tests/`,
-`benches/`, `examples/`, `*_tests.rs` or `tests.rs` file, no file of a module its parent declares
-`#[cfg(test)] mod name;` whatever its name, and nothing after a trailing `#[cfg(test)] mod ... {`),
-the lines that start one with no owner:
+`benches/`, `examples/`, `*_tests.rs` or `tests.rs` file, no file a `#[cfg(test)] mod name;` declares
+(`name.rs`, `name/mod.rs` or its `#[path]`) nor any file below that module: rust_test_modules.py, and nothing
+after a trailing `#[cfg(test)] mod ... {`), the lines that start one with no owner:
   - `tokio::spawn(`, `tokio::task::spawn(`, `task::spawn(`;
   - `std::thread::spawn(`, `thread::spawn(`;
   - a bare `spawn(` in a file that imports one of those by name;
@@ -37,6 +37,7 @@ Usage: scripts/cmux-next/check-spawn-owner.py [repo-root] [--list] [--update] [-
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
@@ -64,10 +65,16 @@ COMMENT = re.compile(r"^\s*(//|/\*|\*(\s|/|$))")
 TEST_TAIL = re.compile(r"^#\[cfg\(test\)\]\s*\n(?:#\[[^\n]*\]\s*\n)*(?:pub(?:\([^)]*\))?\s+)?mod\s+\w+\s*\{",
                        re.MULTILINE)
 TRIGGER = b"spawn"
-# `#[cfg(test)]` (other attributes may follow it) on an out-of-line `mod name;`: that file is test code.
-TEST_MODULE = re.compile(r"^[ \t]*#\[cfg\(test\)\]\s*(?:#\[[^\n]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?mod\s+(\w+)\s*;",
-                         re.MULTILINE)
-TEST_TRIGGER = b"cfg(test)"
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def load_test_modules():
+    """rust_test_modules.py beside this file (a checkout's, or the installed copy's): `-I` puts no
+    folder on sys.path."""
+    spec = importlib.util.spec_from_file_location("rust_test_modules", os.path.join(HERE, "rust_test_modules.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def product_text(text: str) -> str:
@@ -93,52 +100,41 @@ def matching_lines(text: str) -> list[tuple[int, str]]:
     return found
 
 
-def test_module_paths(path: str, text: str) -> list[str]:
-    """The files of the modules PATH declares under `#[cfg(test)]` (`#[cfg(test)] mod name;`): test
-    code whatever the file is called, e.g. hub/mod.rs's `#[cfg(test)] mod remote_table_bench;`.
-    Each is NAME.rs, or the folder NAME (its mod.rs and everything under it)."""
-    folder, name = os.path.split(path)
-    if name not in ("mod.rs", "lib.rs", "main.rs"):
-        folder = os.path.join(folder, name[: -len(".rs")])
-    paths = []
-    for module in TEST_MODULE.findall(text):
-        paths += [os.path.join(folder, module + ".rs"), os.path.join(folder, module) + os.sep]
-    return paths
-
-
 def scan(root: str) -> dict[str, list[tuple[int, str]]]:
     hits: dict[str, list[tuple[int, str]]] = {}
     base = os.path.join(root, CRATES_DIR)
     if not os.path.isdir(base):
         return hits
+    # One read per file: the files that name a spawn wait until every `#[cfg(test)] mod name;` is known.
+    test_modules = load_test_modules().TestModules()
+    candidates: list[tuple[str, bytes]] = []
     for crate in sorted(os.listdir(base)):
         if crate in OWNERS:
             continue
         top = os.path.join(base, crate)
-        texts: dict[str, bytes] = {}
-        test_only: list[str] = []
         for dirpath, dirnames, filenames in os.walk(top):
             dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS and not d.startswith("."))
             for name in sorted(filenames):
-                if not name.endswith(".rs") or name == "tests.rs" or name.endswith(("_tests.rs", "_test.rs")):
+                if not name.endswith(".rs"):
                     continue
                 path = os.path.join(dirpath, name)
-                try:
-                    with open(path, "rb") as f:
-                        raw = f.read()
-                except OSError:
-                    continue
-                if TEST_TRIGGER in raw:
-                    test_only += test_module_paths(path, raw.decode("utf-8", errors="replace"))
+                raw = b""
+                if not test_modules.contains(path):
+                    try:
+                        with open(path, "rb") as f:
+                            raw = f.read()
+                    except OSError:
+                        continue
+                test_modules.add_file(path, raw)
                 if TRIGGER in raw:
-                    texts[path] = raw
-        for path, raw in texts.items():
-            if path in test_only or any(p.endswith(os.sep) and path.startswith(p) for p in test_only):
-                continue
-            found = matching_lines(raw.decode("utf-8", errors="replace"))
-            if found:
-                hits[os.path.relpath(path, root).replace(os.sep, "/")] = found
-    return dict(sorted(hits.items()))
+                    candidates.append((path, raw))
+    for path, raw in candidates:
+        if test_modules.contains(path):
+            continue
+        found = matching_lines(raw.decode("utf-8", errors="replace"))
+        if found:
+            hits[os.path.relpath(path, root).replace(os.sep, "/")] = found
+    return hits
 
 
 def parse_baseline(text: str) -> dict[str, int]:
