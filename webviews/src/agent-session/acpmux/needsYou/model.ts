@@ -221,7 +221,7 @@ function permissionAnswers(permission: AcpmuxPermission): NeedsYouAnswer[] {
   ];
 }
 
-function questionAnswers(question: AgentQuestion): NeedsYouAnswer[] {
+export function questionAnswers(question: AgentQuestion): NeedsYouAnswer[] {
   const [item, ...more] = question.items;
   if (!item || more.length > 0 || item.multiSelect || item.options.length > QUICK_CHOICES) return [];
   return item.options.map((option) => ({ id: option.id, label: option.label, tone: "choice" as const }));
