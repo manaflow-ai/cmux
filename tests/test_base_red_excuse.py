@@ -9505,7 +9505,7 @@ class FixedOnBaseByStep(StepFixture, unittest.TestCase):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], unpaged, **self.PURPOSE)
 
     def test_a_step_absent_at_the_merge_base_and_green_on_base_is_fixed_on_base_for_update_branch_alone(self):
-        # hq#9137 at e34418c5 (glaeda-rest-drain): Skill documentation tests failed in "The deleted-or-weakened-tests
+        # hq#9137 at e34418c5: Skill documentation tests failed in "The deleted-or-weakened-tests
         # guard ...", a step the base added after the merge-base (absent from merge-base job 130336035846) and green
         # on main run 42975394561. The merge-base job read its steps, and the step is not one of them.
         guard = "The deleted-or-weakened-tests guard judges tests by what they do and what runs them"

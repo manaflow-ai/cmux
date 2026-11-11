@@ -3425,7 +3425,7 @@ def fixed_on_base(repo: str, base: str, sha: str, name: str, head: "FailedView |
 #       nothing, so no continue-on-error check is green under it;
 #   (c) each of them was red in the base's verdict for the job at the merge-base (its own run first, else the newest
 #       before it): the red is the base's, which the PR inherited, never the PR's own (a step the base passed there).
-#       Or the step is absent from that job, which read its steps, every one named (glaeda-rest-drain's rule, hq#9137:
+#       Or the step is absent from that job, which read its steps, every one named (hq#9137:
 #       a guard step the base added after the merge-base runs on the PR's merge ref against code that predates it):
 #       the PR never had the code it judges, and (b) already says the base passes it;
 #   (d) its failures are that run's: each step's failing test ids and `file:line` compiler errors are among that
@@ -3692,7 +3692,7 @@ def fixed_on_base_by_step(repo: str, base: str, sha: str, name: str, job: dict, 
     own, absent = [], []
     prior_steps = prior_job.get("steps") or []
     for step_name, quiet in sorted(failing.items()):
-        # Absent at the merge-base (glaeda-rest-drain on hq#9137): the step came to the base after it, so the PR's
+        # Absent at the merge-base (hq#9137): the step came to the base after it, so the PR's
         # code never ran it there, and it passes on the base's newest run (checked above). A merge of the base brings
         # the change that makes it pass. Only when the merge-base job read its steps, every one named, and none is
         # this one; a step that is there must be red, as before.
