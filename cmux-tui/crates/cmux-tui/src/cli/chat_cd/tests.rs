@@ -273,10 +273,8 @@ fn a_pretty_printed_fork_answer_is_the_new_session() {
     .expect("json");
     assert!(pretty.lines().count() > 3, "{pretty}");
     for section in [pretty.clone(), format!("warning: the hub is busy\n{pretty}")] {
-        let mut fake = Fake::new(vec![
-            out("@@folder\n/w\n"),
-            out(&format!("@@fork\n{section}\n@@exit 0")),
-        ]);
+        let mut fake =
+            Fake::new(vec![out("@@folder\n/w\n"), out(&format!("@@fork\n{section}\n@@exit 0"))]);
         let answer = run(&mut fake, &cd(&["s-1", "/w"]), "vm-1").expect("forked");
         assert_eq!(answer["session_id"], "s-2", "{answer}");
     }

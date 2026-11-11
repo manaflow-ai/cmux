@@ -20,7 +20,9 @@ fn link(machine: &str) -> Result<String, Value> {
 /// the request to that VM's link socket, with the id verbatim.
 #[test]
 fn a_cloud_vm_by_any_name_goes_to_its_link_socket() {
-    for selector in ["vm:vm_a7b3c9", "vm_a7b3c9", "machine:vm_a7b3c9", "build-box", "name:build-box"] {
+    for selector in
+        ["vm:vm_a7b3c9", "vm_a7b3c9", "machine:vm_a7b3c9", "build-box", "name:build-box"]
+    {
         assert_eq!(
             decide(selector, machines, link),
             Route::Link {
@@ -68,7 +70,8 @@ fn without_the_app_a_vm_needs_it() {
 fn an_ambiguous_title_and_a_missing_link_are_refusals() {
     let Route::Refused(error) = decide("twin", machines, link) else { panic!() };
     assert_eq!(error["code"], "selector.ambiguous");
-    let no_link = |_: &str| Err(json!({"code": "machine_stream.unavailable", "message": "no link"}));
+    let no_link =
+        |_: &str| Err(json!({"code": "machine_stream.unavailable", "message": "no link"}));
     let Route::Refused(error) = decide("build-box", machines, no_link) else { panic!() };
     assert_eq!(error["code"], "machine.unreachable");
     assert!(error["message"].as_str().unwrap_or_default().contains("vm:vm_a7b3c9"), "{error}");

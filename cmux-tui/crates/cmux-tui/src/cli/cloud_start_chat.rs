@@ -238,7 +238,9 @@ pub(super) fn read_existing(
     let mut runner = SelfRunner { globals: forwarded_globals(global), global: global.clone() };
     match read_on(&mut runner, machine_id, session, after, limit) {
         Outcome::Done(page) => super::wire::print_local_success(&page, global.output),
-        Outcome::Failed { error, exit } => super::wire::print_local_error(&error, global.output, exit),
+        Outcome::Failed { error, exit } => {
+            super::wire::print_local_error(&error, global.output, exit)
+        }
     }
 }
 
@@ -1861,11 +1863,13 @@ impl PushedTurn {
 /// object's `message`), else its status (`the turn ended failed`).
 fn turn_failure_message(turn: &Turn) -> String {
     let error = turn.value.get("error");
-    let said = error.and_then(Value::as_str).or_else(|| {
-        error.and_then(|error| error.get("message")).and_then(Value::as_str)
-    });
+    let said = error
+        .and_then(Value::as_str)
+        .or_else(|| error.and_then(|error| error.get("message")).and_then(Value::as_str));
     match said.map(str::trim).filter(|said| !said.is_empty()) {
-        Some(said) => format!("the turn ended {}: {}", turn.status, super::wire::sanitize_remote_text(said)),
+        Some(said) => {
+            format!("the turn ended {}: {}", turn.status, super::wire::sanitize_remote_text(said))
+        }
         None => format!("the turn ended {}", turn.status),
     }
 }

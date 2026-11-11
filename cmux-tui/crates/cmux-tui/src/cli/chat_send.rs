@@ -227,12 +227,8 @@ fn read_or_wait(global: &mut GlobalArgs, verb: &str, words: &[String]) -> i32 {
     );
     // A chat a Cloud VM's workspace shows is read and waited on there, as `chat send` sends there.
     if let Some(session) = words.first().filter(|word| is_session_id(word))
-        && let Ok(Place::Vm(vm)) = locate(
-            session,
-            None,
-            || topology(global),
-            || cloud_start_chat::app_machines(global),
-        )
+        && let Ok(Place::Vm(vm)) =
+            locate(session, None, || topology(global), || cloud_start_chat::app_machines(global))
     {
         return on_vm(global, verb, &vm, &words);
     }
@@ -277,7 +273,9 @@ fn on_vm(global: &GlobalArgs, verb: &str, vm: &str, words: &[String]) -> i32 {
         };
     }
     match parse_wait(words) {
-        Ok(Some((session, timeout))) => cloud_start_chat::wait_existing(global, vm, &session, timeout),
+        Ok(Some((session, timeout))) => {
+            cloud_start_chat::wait_existing(global, vm, &session, timeout)
+        }
         Ok(None) => {
             print!("{WAIT_USAGE}");
             0

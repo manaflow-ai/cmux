@@ -106,7 +106,10 @@ fn error(code: &str, message: String, details: Value) -> Value {
 /// routed (no `--machine`, or an explicit `--socket`, which names the daemon itself). A VM the app
 /// has no link to still lists its workspaces from the app's rows (cloud_workspaces.rs), so its
 /// `workspace list` goes on to that fallback instead of the refusal.
-pub(super) fn route(global: &super::GlobalArgs, plan: &super::command::RequestPlan) -> Option<Route> {
+pub(super) fn route(
+    global: &super::GlobalArgs,
+    plan: &super::command::RequestPlan,
+) -> Option<Route> {
     use super::command::WireOperation;
     use cmux_tui_core::resource::ResourceOperation;
     let lists_workspaces =

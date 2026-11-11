@@ -2697,7 +2697,8 @@ fn a_vm_chats_read_is_its_transcript_from_the_machine() {
         json!({"seq": 3, "at": 1_200, "dir": "mux", "kind": "turn_result", "msg": {"status": "completed"}}),
     ];
     let lines: Vec<String> = records.iter().map(Value::to_string).collect();
-    let mut fake = Fake::new(vec![exec_out(&format!("@@events\n{}\n@@exit 0\n", lines.join("\n")))]);
+    let mut fake =
+        Fake::new(vec![exec_out(&format!("@@events\n{}\n@@exit 0\n", lines.join("\n")))]);
     let Outcome::Done(page) = read_on(&mut fake, "vm-1", "s-1", 0, 50) else {
         panic!("{:?}", fake.ran)
     };
@@ -2715,7 +2716,9 @@ fn a_vm_chats_read_is_its_transcript_from_the_machine() {
 #[test]
 fn a_vm_chat_the_machine_cannot_read_is_an_error() {
     let mut fake = Fake::new(vec![exec_out("@@events\nno session s-9\n@@exit 1\n")]);
-    let Outcome::Failed { error, exit } = read_on(&mut fake, "vm-1", "s-9", 0, 50) else { panic!() };
+    let Outcome::Failed { error, exit } = read_on(&mut fake, "vm-1", "s-9", 0, 50) else {
+        panic!()
+    };
     assert_eq!(exit, 1);
     assert_eq!(error["code"], "chat.read_failed");
     assert!(error["message"].as_str().unwrap_or_default().contains("vm:vm-1"), "{error}");
