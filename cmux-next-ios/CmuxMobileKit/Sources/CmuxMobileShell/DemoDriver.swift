@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "feed-connecting", "feed-connecting-late", "feed-empty", "retry-terminal", "retry-home-offline", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -79,6 +79,32 @@ struct DemoDriver {
             shell.store.tracksMacData = true
             shell.store.macConnection["mac-studio"] = .failed("The Mac didn't answer.")
             shell.tab = .home
+        case "feed-connecting":
+            // ui-state-fixes I2 capture: no Mac and nothing kept. The Feed waits at
+            // "Connecting to your Mac…" and, after FeedStore.connectDeadline, says the
+            // Macs are offline (Retry). No private connection is used.
+            shell.tab = .feed
+            FeedStore.shared.actions = nil
+            FeedStore.shared.replaceAll([])
+            FeedStore.shared.syncState = .connecting
+        case "feed-connecting-late":
+            // ui-state-fixes capture: as feed-connecting, and the Mac's events arrive 25 s in, past
+            // FeedStore.connectDeadline (15 s): they replace "Your Macs are offline". A scripted
+            // demo timeline (the late delivery is the fixture), not synchronization.
+            shell.tab = .feed
+            FeedStore.shared.actions = nil
+            FeedStore.shared.replaceAll([])
+            FeedStore.shared.syncState = .connecting
+            try? await Task.sleep(for: .seconds(25))
+            FeedStore.shared.replaceAll(FeedStore.mockItems(now: Date()))
+            FeedStore.shared.syncState = .live
+        case "feed-empty":
+            // ui-state-fixes capture: the Mac's events were read and there are none: the empty copy,
+            // never a spinner.
+            shell.tab = .feed
+            FeedStore.shared.actions = nil
+            FeedStore.shared.replaceAll([])
+            FeedStore.shared.syncState = .live
         case "retry-terminal":
             shell.terminalTabs.mockDataEnabled = false
             shell.store.noteOpened(tabID: "t-zsh", in: "ws-cmux")

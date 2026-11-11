@@ -23,7 +23,12 @@ public final class HomeNativeFixture {
     public static var title: String { HomeStrings.conversations }
     /// No latency; the Chief types for 1.5 s before it answers (the typing
     /// indicator shows, as in MessagesLab's script).
-    private let source = MockHomeSource(options: .init(chiefHistory: 300, latency: .zero, replyDelay: .milliseconds(1500)))
+    /// With `newChief` (captures of ui-state-fixes M1), a Chief with no history: one seeded message the
+    /// store's source hides, so the inbox names no newest message and the first page reads empty.
+    private let source: MockHomeSource
+    /// The mock behind a gate (capture only): with ``TranscriptLoad`` the first transcript read is
+    /// held or fails, so the real view shows its load state (ui-state-fixes M1).
+    private let gate: GatedHomeSource
     private let store: HomeStore
     private var view: HomeNativeTranscriptView?
     /// Each transcript this fixture shows (the one shown now too), once its `onStartAgent` is set: the fixture page and
@@ -68,11 +73,29 @@ public final class HomeNativeFixture {
 
     /// With `compose`, the transcript sits in the Home split's chat column (`HomeChatColumnView`) under its
     /// round compose button, as in the real Home tab (captures of what floats over the chat's top-left).
-    public init(attachments: Bool = false, openPanel: MadeAheadOpenPanel? = nil, compose: Bool = false) {
+    /// The Chief's first transcript read for a capture of its load state: held (loading) or failing.
+    public enum TranscriptLoad: String, Sendable {
+        case loading, failed
+    }
+
+    /// With `transcriptLoad`, the Chief's transcript reads are held (`.loading`) or fail (`.failed`).
+    /// With `cacheURL` (captures of ui-state-fixes M2), the store keeps a client cache there
+    /// (`HomeCache`, its `home.json`), so a later fixture after a relaunch draws what it holds.
+    public init(attachments: Bool = false, openPanel: MadeAheadOpenPanel? = nil, compose: Bool = false,
+                transcriptLoad: TranscriptLoad? = nil, cacheURL: URL? = nil, newChief: Bool = false, holdReads: Bool = false) {
+        source = MockHomeSource(options: .init(chiefHistory: newChief ? 1 : 300, latency: .zero, replyDelay: .milliseconds(1500)))
         column = compose ? HomeChatColumnView(content: NSView(), compose: HomeChatComposeButton(label: HomeConversationStrings.newMessage)) : nil
         self.attachments = attachments
         self.openPanel = openPanel
-        store = HomeStore(source: source)
+        gate = GatedHomeSource(newChief ? HomeFixtureNewChiefSource(base: source) : source)
+        // `holdReads` with `.failed`: the read stays out (loading) until released, then fails.
+        if holdReads { gate.hold() }
+        switch transcriptLoad {
+        case .loading: gate.hold()
+        case .failed: gate.failReads(true)
+        case nil: break
+        }
+        store = HomeStore(source: gate, cache: cacheURL.map { HomeCache(url: $0) })
         if let column {
             column.autoresizingMask = [.width, .height]
             column.showsCompose = true
@@ -88,6 +111,7 @@ public final class HomeNativeFixture {
         approvalPost?.cancel()
         view?.stop()
         store.stop()
+        gate.release()
     }
 
     private func load() async {
@@ -132,6 +156,50 @@ public final class HomeNativeFixture {
         else { return nil }
         if chat.id != shown.conversation { await show(chat.id, chief: shown.chief, me: inbox.me.id) }
         return self.shown
+    }
+
+    // MARK: Captures of the transcript load states (ui-state-fixes M1, M2)
+
+    /// Lets the held transcript reads go (a late first page lands, after its deadline too).
+    public func debugReleaseReads() {
+        gate.release()
+    }
+
+    /// Shows the mock's team chat in place of the one shown, so the shown one closes (it stays a
+    /// kept transcript, and the client cache keeps it as a closed chat). False when none shows.
+    public func debugShowTeam() async -> Bool {
+        await showChat(team: true) != nil
+    }
+
+    /// Try Again on the shown transcript's load-state panel, with reads answering again (the owner is back).
+    public func debugRetry() -> Bool {
+        guard let view, !view.loadState.retry.isHidden else { return false }
+        gate.failReads(false)
+        gate.release()
+        view.loadState.retry.performClick(nil)
+        return true
+    }
+
+    /// Writes the store's client cache now and waits for the disk.
+    public func debugFlushCache() async {
+        await store.flushCache()
+    }
+
+    /// The shown conversation, its first page's state, the transcript items it draws now and the
+    /// transcript reads held by the gate.
+    public func debugLoadState() -> [String: Any] {
+        guard let shown else { return ["shown": false, "held_reads": gate.waiting] }
+        let page: String
+        switch store.transcriptFirstPage(shown.conversation) {
+        case .loaded: page = "loaded"
+        case .loading: page = "loading"
+        case .failed: page = "failed"
+        }
+        return ["shown": true, "conversation": shown.conversation.rawValue, "first_page": page,
+                "items": store.transcript(for: shown.conversation).count, "held_reads": gate.waiting,
+                "reads": gate.snapshots.count, "panel": view?.debugTranscriptLoadState ?? "none",
+                "first_run_shown": view.map { !$0.firstRun.isHidden } ?? false,
+                "retry_shown": view.map { !$0.loadState.isHidden && !$0.loadState.retry.isHidden } ?? false]
     }
 
     /// True when `view` is this fixture's transcript.
@@ -425,5 +493,41 @@ public final class HomeNativeFixture {
         if decision == .answered, !gate({}) { return .refused }
         return decision
     }
+}
+/// DEBUG ONLY (captures of ui-state-fixes M1). A new Chief over the mock owner: the Chief's one seeded
+/// message is hidden, so the inbox names no newest message and its first page reads empty (as the
+/// tests' `EmptyChiefSource`).
+struct HomeFixtureNewChiefSource: HomeSource {
+    let base: MockHomeSource
+    private static let chief = ConversationID("conv_chief")
+    func events() async -> AsyncStream<HomeEvent> {
+        let snapshot = try? await inbox()
+        return AsyncStream { stream in
+            stream.yield(.connection(.online))
+            if let snapshot { stream.yield(.inbox(snapshot)) }
+            stream.finish()
+        }
+    }
+    func inbox() async throws -> InboxSnapshot {
+        var inbox = try await base.inbox()
+        for index in inbox.conversations.indices where inbox.conversations[index].id == Self.chief {
+            inbox.conversations[index].lastSeq = 0
+            inbox.conversations[index].lastMessage = nil
+        }
+        return inbox
+    }
+    func snapshot(of id: ConversationID, tail: Int) async throws -> ConversationPage {
+        var page = try await base.snapshot(of: id, tail: tail)
+        if id == Self.chief {
+            page.conversation.lastSeq = 0
+            page.conversation.lastMessage = nil
+            page.messages = []
+        }
+        return page
+    }
+    func history(of id: ConversationID, before seq: Seq, limit: Int) async throws -> [CmuxHomeCore.Message] { [] }
+    func submit(_ intent: HomeIntent) async throws -> HomeOpResult { try await base.submit(intent) }
+    func search(_ query: String, limit: Int) async throws -> [HomeSearchHit] { [] }
+    func resolve(_ contact: ContactAddress) async throws -> ContactResolution { try await base.resolve(contact) }
 }
 #endif

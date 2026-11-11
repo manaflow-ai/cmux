@@ -1,0 +1,59 @@
+{
+  "title": "Home: a new Chief (no newest message) whose first read fails: Loading messages…, then Couldn't load messages. with Try Again, no first-run panel (ui-state-fixes M1, no-newest case)",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "The new Chief's first read held (loading)",
+      "rpc": {
+        "method": "debug.home_native_fixture.open",
+        "params": {
+          "transcript": "failed",
+          "chief": "new",
+          "hold": true
+        }
+      },
+      "wait": 2,
+      "record": true
+    },
+    {
+      "title": "Before it answers: loading",
+      "rpc": {
+        "method": "debug.home_native_fixture.capture",
+        "params": {
+          "action": "state"
+        }
+      },
+      "wait": 0.5,
+      "record": true,
+      "shot": false
+    },
+    {
+      "title": "The held read answers with a failure",
+      "rpc": {
+        "method": "debug.home_native_fixture.capture",
+        "params": {
+          "action": "release"
+        }
+      },
+      "wait": 2,
+      "record": true,
+      "shot": false
+    },
+    {
+      "title": "First page failed: the error with Try Again, no first-run panel",
+      "rpc": {
+        "method": "debug.home_native_fixture.capture",
+        "params": {
+          "action": "state"
+        }
+      },
+      "wait": 0.5,
+      "record": true,
+      "shot": false
+    }
+  ]
+}
