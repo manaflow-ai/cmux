@@ -439,3 +439,28 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
         )
     }
 }
+
+@MainActor
+@Suite(.serialized)
+struct OwnedProcessTests {
+    @Test func childExitPreservesWorkspaceDock() throws {
+        let app = try #require(AppDelegate.shared)
+        let windowID = app.createMainWindow()
+        defer {
+            if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "cmux.main.\(windowID.uuidString)" }) {
+                window.performClose(nil)
+            }
+        }
+        let manager = try #require(app.tabManagerFor(windowId: windowID))
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminalID = try #require(workspace.focusedPanelId)
+        let dock = try #require(workspace.dockSplit)
+        let pane = try #require(dock.bonsplitController.allPaneIds.first)
+        let browserID = try #require(dock.newSurface(kind: .browser, inPane: pane, focus: false))
+        _ = manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: terminalID)
+        #expect(workspace.panels[terminalID] == nil)
+        #expect(manager.tabs.contains { $0.id == workspace.id })
+        #expect(dock.panels[browserID] != nil)
+    }
+}
