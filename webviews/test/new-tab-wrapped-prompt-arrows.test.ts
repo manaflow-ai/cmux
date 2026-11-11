@@ -26,7 +26,9 @@ await requireBrowserLane("new-tab-wrapped-prompt-arrows.test.ts", async () => {
       await (await engine[1].launch({ headless: true })).close();
       engines.push(engine);
     } catch {
-      console.warn(`new-tab-wrapped-prompt-arrows: skipping ${engine[0]} (run \`bunx playwright install ${engine[0]}\`)`);
+      console.warn(
+        `new-tab-wrapped-prompt-arrows: skipping ${engine[0]} (run \`bunx playwright install ${engine[0]}\`)`,
+      );
     }
   }
   if (engines.length === 0) {
@@ -62,9 +64,7 @@ await requireBrowserLane("new-tab-wrapped-prompt-arrows.test.ts", async () => {
   // The highlighted suggestion (-1: none) and the caret's offset in the prompt.
   const state = (page: Page) =>
     page.evaluate(() => {
-      const rows = [...document.querySelectorAll('[aria-selected]')].filter((row) =>
-        row.closest("#nt-rows"),
-      );
+      const rows = [...document.querySelectorAll("[aria-selected]")].filter((row) => row.closest("#nt-rows"));
       const handle = (
         document.querySelector(".nt-field") as HTMLElement & {
           acpmuxMarkdownField?: { text(): { value: string; selectionStart: number } };
@@ -104,7 +104,9 @@ await requireBrowserLane("new-tab-wrapped-prompt-arrows.test.ts", async () => {
       return range ? Math.round(range.getClientRects()[0]?.top ?? range.getBoundingClientRect().top) : undefined;
     });
     const after = await state(page);
-    console.log(`new-tab-wrapped-prompt-arrows: ${key} caret ${before} -> ${after.caret}, top ${top}, row ${after.highlighted}`);
+    console.log(
+      `new-tab-wrapped-prompt-arrows: ${key} caret ${before} -> ${after.caret}, top ${top}, row ${after.highlighted}`,
+    );
     return after;
   };
   const lineCount = (page: Page) =>
