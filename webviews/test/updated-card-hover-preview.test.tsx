@@ -19,7 +19,7 @@ import type { PageClient } from "../src/pages/shared/pageClient";
 import type { ReleaseNotes } from "../src/pages/changelog/types";
 import type { UpdateHighlights } from "../src/pages/changelog/updateHighlights";
 import { PreviewIntent, previewEntries, type IntentTimers } from "../src/pages/changelog/updatedPreview";
-import { teardownDom } from "./support/domTeardown";
+import { settleReact, teardownDom } from "./support/domTeardown";
 
 /** Yields macrotasks until `done` holds, at most `capMs`. */
 async function until(done: () => boolean, capMs = 2000) {
@@ -809,6 +809,7 @@ async function withSurface(
     const state = () => host.querySelector(".wn-card")?.getAttribute("data-preview");
     await body({ dom, host, sizes, ops, pointer: (event) => pointer!(event), state });
   } finally {
+    await settleReact();
     dom.window.close();
     for (const [key, had, value] of saved) {
       if (had) scope[key] = value;
