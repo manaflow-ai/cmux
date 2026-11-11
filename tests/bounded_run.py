@@ -297,6 +297,9 @@ def default_signals() -> None:
 class _Reaper:
     def __init__(self, status: str, timeout: float, mode: str, kill_grace: float, argv: list[str],
                  token: str | None = None):
+        # Before anything else, as in the guardian (LW#4532 review, F1): whatever the caller ignored or blocked
+        # (SIGCHLD=SIG_IGN would auto-reap the run's processes), this process and the command start at the defaults.
+        default_signals()
         self.status_path, self.argv, self.kill_grace = status, argv, kill_grace
         self.deadline = time.monotonic() + timeout
         self.asked = mode
@@ -320,7 +323,6 @@ class _Reaper:
         os.set_blocking(r, False)
         os.set_blocking(w, False)
         self.wake = r
-        default_signals()  # whatever the caller ignored or blocked, the reaper and the command start clean
         signal.signal(signal.SIGCHLD, lambda *_: None)
         signal.set_wakeup_fd(w)
 
@@ -723,6 +725,10 @@ def _guard(status: str, reap: list[str], grace: float) -> None:
     reaper dies with it, so a reaper that dies leaves every process of the run to this one: it kills each child it
     has until waitpid says none is left, and only then calls the run's processes gone. Whatever the reaper's final
     status, a child still here afterwards is a process the reaper missed: killed, and the run is unknown."""
+    # Before anything else: a caller's SIGCHLD=SIG_IGN would have the kernel reap this process's children, so waitpid
+    # would block on every adopted one and the reaper's status would be lost; a blocked or ignored signal would reach
+    # the reaper too (LW#4532 review, F1).
+    default_signals()
     contained = not set_subreaper()
     me = os.getpid()
 
@@ -753,12 +759,14 @@ def _guard(status: str, reap: list[str], grace: float) -> None:
         os._exit(0)  # run() cleans up after a reaper with no final status, and says what it cannot account for
     got = _read_status(status)
     killed, left = _kill_children(grace)
-    if "state" in got and not killed:
-        os._exit(0)
+    if "state" in got and not killed and not left:
+        os._exit(0)  # the reaper's final status stands: nothing of the run reached this process
+    # Any process left, or 0 for one the process list could not show, is unknown, whatever the reaper said (LW#4532
+    # review, F2: a list that could not be read returned ([], [0]) and the reaper's "exited" went through).
     reason = (got.get("reason") if "state" in got else "") or ""
     if "state" in got:
-        reason = (f"the reaper said {got['state']} with {len(killed)} processes of the run still alive below the "
-                  f"guardian: {killed}" + (f"; {reason}" if reason else ""))
+        reason = (f"the reaper said {got['state']}, but {len(killed) or 'some'} processes of the run were still below "
+                  f"the guardian: {killed or left}" + (f"; {reason}" if reason else ""))
     else:
         reason = f"the reaper exited {code} with no final status"
     reason += (f"; still alive below the guardian after {grace:g} s: {left}" if left else
@@ -785,9 +793,11 @@ def _kill_children(grace: float) -> tuple[list[int], list[int]]:
                 break
         try:
             kids = [pid for pid, p in processes().items() if p.ppid == me and not p.zombie]
-        except Exception:  # noqa: BLE001 - the list cannot be read: kill what waitpid shows when it can
-            kids = []
+        except Exception:  # noqa: BLE001 - the list cannot be read: waitpid says a child lives, so 0 stands for it
+            kids = [0]
         for pid in kids:
+            if pid <= 0:
+                continue
             try:
                 os.kill(pid, signal.SIGKILL)
             except OSError:
