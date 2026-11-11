@@ -107,6 +107,9 @@ def parse_args(argv=None):
     parser.add_argument("--credentials-file")
     parser.add_argument("--grant-claude-login", action="store_true",
                         help="with --app: the launched app's scratch cmux.json says yes to the Claude login copy")
+    parser.add_argument("--sweep-vm-ids", default="",
+                        help="comma list of machine ids an earlier run left on this account: delete them (signed in "
+                             "as the run's agent account) and run no cells")
     parser.add_argument("--untrusted-cell", action="store_true",
                         help="also run one cell (untrusted/personal/default) on a small repo this Mac does not trust, "
                              "skipping the trust step; it passes on a refusal before any lease that names this Mac "
@@ -654,6 +657,19 @@ def main(argv=None) -> int:
                 report["result"] = f"fail: the app has no debug.agent_pane ({probe.get('error')})"
                 return finish(report, out, 1)
         untrusted = args.untrusted_cell or UNTRUSTED in [w for w in args.only.split(",") if w]
+        named = [m.strip() for m in args.sweep_vm_ids.split(",") if m.strip()]
+        if named:
+            # Only ids named here: machines an earlier run of this journey left (its report's machines_left).
+            bad = [m for m in named if not re.fullmatch(r"vm_[0-9a-f]{20}", m)]
+            if bad:
+                report["result"] = f"fail: not machine ids: {', '.join(bad)}"
+                return finish(report, out, 1)
+            gone = [m for m in named if journey.kill(m)]
+            report["swept"] = gone
+            report["machines_left"] = [m for m in named if m not in gone]
+            report["result"] = "pass: swept" if not report["machines_left"] else (
+                f"fail: could not delete {', '.join(report['machines_left'])}")
+            return finish(report, out, 0 if not report["machines_left"] else 1)
         fixtures = {kind: fixture(kind, root) for kind in FOLDERS + ((UNTRUSTED,) if untrusted else ())}
         personal = journey.team_id()
         report["teams"] = {"personal": personal, "team": args.team, "removed": args.removed_team}

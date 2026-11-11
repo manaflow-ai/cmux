@@ -35,6 +35,11 @@ on:
         required: false
         default: ""
         type: string
+      sweep_vm_ids:
+        description: "Comma list of machine ids an earlier run left (its machines_left): delete them as the agent account; no cells run"
+        required: false
+        default: ""
+        type: string
       backend:
         description: The Cloud backend the app signs in to
         required: false
@@ -266,6 +271,7 @@ jobs:
         timeout-minutes: 220
         env:
           ONLY: ${{ inputs.only }}
+          SWEEP_VM_IDS: ${{ inputs.sweep_vm_ids }}
           CMUX_JOURNEY_PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
         run: |
           set -euo pipefail
@@ -279,9 +285,44 @@ jobs:
           python3 -I harness/scripts/cmux-next/cloud-composer-journey.py --app "$CMUX_JOURNEY_APP" \
             --tag "$CMUX_JOURNEY_TAG" --cloud-backend "$BACKEND" --expected-api-origin "$origin" \
             --credentials-file "$CMUX_JOURNEY_CREDENTIALS" --grant-claude-login --only "$ONLY" \
+            --sweep-vm-ids "$SWEEP_VM_IDS" \
             --nightly "$NIGHTLY_BUILD ($NIGHTLY_COMMIT)" --out "$out" || status=$?
           [ -s "$out/journey.md" ] && cat "$out/journey.md" >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
+
+      - name: Delete the machines this run made
+        # The harness deletes its machines itself, also on SIGTERM; this catches a step it could not finish (a
+        # runner kill, a crash before its last sweep). It reads only this run's report: the machines its cells
+        # recorded as made (machines_made), never other machines on the account, and signs in as the same agent
+        # account (run 43021965230 left five).
+        if: always() && steps.journey.outcome != 'skipped' && inputs.sweep_vm_ids == ''
+        timeout-minutes: 20
+        run: |
+          set -uo pipefail
+          report="$RUNNER_TEMP/composer-journey/out/journey.json"
+          [ -s "$report" ] || exit 0
+          ids="$(python3 -I - "$report" <<'PY'
+          import json, re, sys
+          report = json.load(open(sys.argv[1]))
+          made = {m for cell in report.get("cells") or [] for m in (cell.get("machines_made") or [])}
+          left = set(report.get("machines_left") or [])
+          # A finished run already swept: only what its own report says is still up. An unfinished one: all it made.
+          keep = left if str(report.get("result", "")).startswith(("pass", "fail")) else made | left
+          print(",".join(sorted(m for m in keep if re.fullmatch(r"vm_[0-9a-f]{20}", m))))
+          PY
+          )"
+          [ -n "$ids" ] || { echo "nothing left to delete"; exit 0; }
+          echo "deleting: $ids"
+          case "$BACKEND" in
+            prod) origin=https://cloud-api.cmux.dev ;;
+            *) origin=https://cloud-api-staging.cmux.dev ;;
+          esac
+          python3 -I harness/scripts/cmux-next/cloud-composer-journey.py --app "$CMUX_JOURNEY_APP" \
+            --tag "$CMUX_JOURNEY_TAG" --cloud-backend "$BACKEND" --expected-api-origin "$origin" \
+            --credentials-file "$CMUX_JOURNEY_CREDENTIALS" --sweep-vm-ids "$ids" \
+            --out "$RUNNER_TEMP/composer-journey/sweep" || echo "::warning::could not delete every machine: $ids"
+          [ -s "$RUNNER_TEMP/composer-journey/sweep/journey.md" ] && cat "$RUNNER_TEMP/composer-journey/sweep/journey.md" >> "$GITHUB_STEP_SUMMARY"
+          exit 0
 
       - name: Upload the journey
         if: always()
