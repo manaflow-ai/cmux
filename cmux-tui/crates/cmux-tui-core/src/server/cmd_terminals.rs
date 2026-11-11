@@ -581,3 +581,7 @@ pub(super) fn keep_created_terminal(mux: &Mux, terminal_id: Option<&str>) -> any
         None => Ok(()),
     }
 }
+
+#[cfg(test)]
+#[path = "create_terminal_workspace_tests.rs"]
+mod create_terminal_workspace_tests;
