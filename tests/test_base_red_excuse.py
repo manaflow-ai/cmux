@@ -5660,14 +5660,30 @@ class WsCheckPerTest(unittest.TestCase):
         self.gh.verdict(self.gh.TIP, 2, red, seconds=", cpu 15.0 s, 17.9 s")
         audit = self.judge()
         self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", audit[0])
-        for test in ("test_old_releases_are_pruned", "test_place"):
-            self.assertIn(f"excused 'ws-check' test '{other} :: {test} (__main__.FastForward.{test})': red on main "
-                          f"{self.gh.TIP[:12]} too (https://github.com/{self.gh.HOST}/actions/runs/2)", audit)
+        for suite, test in (("test_ws_deploy_swap.py", "test_old_releases_are_pruned"),
+                            ("test_lane_place.py", "test_place")):
+            self.assertIn(f"excused 'ws-check' test '{other} :: [{suite}] {test} (__main__.FastForward.{test})': "
+                          f"red on main {self.gh.TIP[:12]} too (https://github.com/{self.gh.HOST}/actions/runs/2)",
+                          audit)
         # A test of one unit that main does not fail is still the head's own, whatever unit main's red is in.
         self.gh.verdict(self.gh.TIP, 2, {other: {"test_ws_deploy_swap.py": self.ws_deploy("test_old_releases_are_pruned")}},
                         seconds=", cpu 15.0 s, 17.9 s")
         with self.assertRaisesRegex(excuse.Refused, r"1 failure\(s\) not on main: .*test_place"):
             self.judge()
+
+    def test_a_same_named_test_in_another_suite_does_not_excuse_it(self):
+        # cmux#41298 F1: every suite runs as __main__, so test_new.py's and test_old.py's test_check both print
+        # "test_check (__main__.FastForward.test_check)". Read by name alone, main's red in test_old.py excused the
+        # head's new red in test_new.py. A test is named with its suite; only a shard number may differ.
+        other = ".github/workflows/tools-tests.yml test: every other tools/test_*.py (a new suite runs without a step)"
+        self.gh.verdict(HEAD, 1, {other: {"test_new.py": self.ws_deploy("test_check")}})
+        self.gh.verdict(self.gh.TIP, 2, {other: {"test_old.py": self.ws_deploy("test_check")}})
+        with self.assertRaisesRegex(excuse.Refused, r"1 failure\(s\) not on main: .*\[test_new\.py\] test_check"):
+            self.judge()
+        # The same suite in another shard is the same test.
+        self.gh.verdict(HEAD, 1, {other: {"test_lane_place.py 2/4": self.ws_deploy("test_check")}})
+        self.gh.verdict(self.gh.TIP, 2, {other: {"test_lane_place.py 3/4": self.ws_deploy("test_check")}})
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", self.judge()[0])
 
     def test_a_test_failing_on_main_too_is_excused_by_name(self):
         red = {self.RELAY: self.relay_lint(), self.DEPLOY: self.ws_deploy("test_units_that_never_let_go")}

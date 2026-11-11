@@ -4396,6 +4396,7 @@ WS_CHECK_STEP_EXIT = re.compile(r" \(exit (-?\d+), ran \d+, skipped \d+, gh call
 # units was refused "has no 'ws-check step FAILED: STEP' line" though the log held it (leo-workspace#4322 at aa928f1c,
 # run 43011639090: `every other tools/test_*.py ... [test_ws_deploy_swap.py]`; #4297 at 7c9ae719, run 42997255537).
 WS_CHECK_UNIT = r"(?: \[[^\]\n]+\])?"
+WS_CHECK_SHARD = re.compile(r" \d+/\d+$")  # "[test_lane_place.py 2/4]": a big suite's shard
 # The checkout root a ws-check run's paths start with: fast-checks.yml's workspace, or ws-check-heads.yml's clone.
 WS_CHECK_ROOT = re.compile(r"(?:/[\w.-]+)*/_work/(?:cmuxterm-hq/cmuxterm-hq|_temp/lw)/")
 
@@ -4511,7 +4512,11 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
         try:
             for end, unit in ends:
                 red = ws_check_step(lines, end, step + unit)
-                tests |= red["tests"]
+                # A test is named with its unit's suite ("[test_new.py] test_check (__main__.FastForward.test_check)"):
+                # every suite runs as __main__, so two suites' same-named tests read alike and one's red on the base
+                # excused the other's on the head (cmux#41298 F1). A shard number ("2/4") is dropped, since shards move.
+                suite = WS_CHECK_SHARD.sub("", unit.strip()[1:-1]) if unit else ""
+                tests |= {f"[{suite}] {test}" if suite else test for test in red["tests"]}
                 printed |= red["lines"]
         except Refused as error:
             raise Refused(f"{where}: run {link[1]}: {error}") from None
