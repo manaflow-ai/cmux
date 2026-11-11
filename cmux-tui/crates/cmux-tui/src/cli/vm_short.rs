@@ -108,6 +108,8 @@ pub(super) fn parse(command: &[String]) -> Option<Short> {
     let mut command = Vec::new();
     let mut value_next = false;
     let mut passthrough = false;
+    // `--name` given (as a flag or as rename's second word): a third word is no rename.
+    let mut renamed = rest.iter().any(|word| word == "--name" || word.starts_with("--name="));
     for word in rest {
         if passthrough && exec {
             command.push(word.clone());
@@ -136,6 +138,14 @@ pub(super) fn parse(command: &[String]) -> Option<Short> {
                 if exec {
                     command.push(word.clone());
                     passthrough = true;
+                    continue;
+                }
+                // `vm rename OLD NEW`: the new name after the VM's, as `--name NEW`. Before, the
+                // second word sent the whole line to the app as an unknown action, which printed
+                // only `usage: cmux cloud <action>`.
+                if cloud_verb == "rename-machine" && !renamed {
+                    tail.extend(["--name".to_owned(), word.clone()]);
+                    renamed = true;
                     continue;
                 }
                 return None;
@@ -424,9 +434,30 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             }
             Some(run(&global, &action, &cloud_words(&short, Some(&id))))
         }
-        Resolved::VmApi => None,
+        // Only a verb the VM API has goes there; any other (`status`, `rename`, `resize`) names a
+        // VM the app does not list, so it says that, with the id as typed.
+        Resolved::VmApi if short.api_verb => None,
+        Resolved::VmApi => Some(super::wire::print_local_error(
+            &not_listed(short.named.as_deref().unwrap_or_default()),
+            global.output,
+            1,
+        )),
         Resolved::Refused(error) => Some(super::wire::print_local_error(&error, global.output, 1)),
     }
+}
+
+/// A `vm_…` id the app does not list, for a verb only the app runs: deleted, another team's or
+/// mistyped. The id stays verbatim.
+pub(super) fn not_listed(named: &str) -> Value {
+    refusal(
+        "cloud.unknown_machine",
+        &format!(
+            "no Cloud VM of yours has the id {named} (it may have been deleted, or be another \
+             team's)"
+        ),
+        LIST,
+        json!({"name": named}),
+    )
 }
 
 /// `vm rm NAME` without `--yes`: ask at a terminal (`None` on yes: the delete runs); with no
@@ -468,7 +499,7 @@ fn ask_delete(global: &GlobalArgs, short: &Short, id: &str, listed: &Value) -> O
 /// `vm exec dev -- CMD` for a person: the command's stdout and stderr as it printed them, and its
 /// exit code as this command's, as `ssh HOST CMD` does (`--json` keeps the app's
 /// answer with `exit_code`, `stdout` and `stderr`).
-fn exec_here(global: &GlobalArgs, action: &str, words: &[String]) -> i32 {
+pub(super) fn exec_here(global: &GlobalArgs, action: &str, words: &[String]) -> i32 {
     use std::io::Write as _;
     let mut args: Vec<String> = action.split(' ').map(str::to_owned).collect();
     args.extend(words.iter().cloned());

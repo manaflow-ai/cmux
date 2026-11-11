@@ -74029,7 +74029,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
-      "description" : "Forks the machine (--target machine:<id>) into a new machine. Answers at once with no id; the new machine shows in `cmux cloud list-machines` when the fork is done.",
+      "description" : "Forks the machine (--target machine:<id>) into a new machine: a snapshot, then a machine started from it. Returns the new machine_id and its target, with source_machine_id and snapshot_id. From an agent or a script it first asks the person in the cmux window (Allow or Don't Allow): the CLI says so at once with the dialog_id, waits, and exits non-zero if they chose Don't Allow or nobody answered in 10 minutes.",
       "focuses" : false,
       "group" : "CloudActionCatalog",
       "hint" : null,
@@ -74098,7 +74098,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
-      "description" : "Takes a snapshot of the machine (--target machine:<id>) and returns machine_id and snapshot_id. A snapshot that takes longer than 30 s answers pending: true and finishes on its own.",
+      "description" : "Takes a snapshot of the machine (--target machine:<id>) and returns machine_id and snapshot_id. From an agent or a script it first asks the person in the cmux window (Allow or Don't Allow): the CLI says so at once with the dialog_id, waits, and exits non-zero if they chose Don't Allow or nobody answered in 10 minutes.",
       "focuses" : false,
       "group" : "CloudActionCatalog",
       "hint" : null,
@@ -74177,7 +74177,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
-      "description" : "Starts a new machine from a snapshot: --snapshot <snapshot id>, from `cmux cloud snapshot-machine --target machine:<id>`. With no Cloud workspace focused, also pass --target machine:<id> of any machine; the new machine does not depend on it. Answers at once with no id; the machine shows in `cmux cloud list-machines` when it is up.",
+      "description" : "Starts a new machine from a snapshot: --snapshot <snapshot id>, from `cmux cloud snapshot-machine --target machine:<id>`. With no Cloud workspace focused, also pass --target machine:<id> of any machine; the new machine does not depend on it. Returns the new machine_id and its target, with snapshot_id. From an agent or a script it first asks the person in the cmux window (Allow or Don't Allow): the CLI says so at once with the dialog_id, waits, and exits non-zero if they chose Don't Allow or nobody answered in 10 minutes.",
       "focuses" : false,
       "group" : "CloudActionCatalog",
       "hint" : null,
@@ -74246,7 +74246,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
-      "description" : "Saves the machine (--target machine:<id>) as a template: a snapshot named template-<first 12 characters of the machine id>-<Unix seconds>, which `cmux cloud restore-machine --target machine:<id> --snapshot <snapshot id>` starts new machines from. Returns machine_id and snapshot_id; after 30 s it answers pending: true and finishes on its own.",
+      "description" : "Saves the machine (--target machine:<id>) as a template: a snapshot named template-<first 12 characters of the machine id>-<Unix seconds>, which `cmux cloud restore-machine --target machine:<id> --snapshot <snapshot id>` starts new machines from. Returns machine_id and snapshot_id. From an agent or a script it first asks the person in the cmux window (Allow or Don't Allow): the CLI says so at once with the dialog_id, waits, and exits non-zero if they chose Don't Allow or nobody answered in 10 minutes.",
       "focuses" : false,
       "group" : "CloudActionCatalog",
       "hint" : null,
@@ -77252,7 +77252,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
-      "description" : "Pauses the machine (--target machine:<id>); the run ends when the server has paused it. Returns no fields. `cmux cloud resume-machine --target machine:<id>` starts it again.",
+      "description" : "Pauses the machine (--target machine:<id>); the run answers machine_id, target and status once the server has paused it, or pending: true past 30 s while the pause goes on. `cmux cloud resume-machine --target machine:<id>` starts it again.",
       "focuses" : false,
       "group" : "CloudActionCatalog",
       "hint" : null,
@@ -77303,7 +77303,7 @@
       "title" : "Pause Machine",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
-      "waitsForResult" : false
+      "waitsForResult" : true
     },
     {
       "arguments" : [
@@ -77324,7 +77324,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
-      "description" : "Resumes a paused machine (--target machine:<id>); the run ends when the server has resumed it. Returns no fields.",
+      "description" : "Resumes a paused machine (--target machine:<id>); the run answers machine_id, target and status once the server has resumed it, or pending: true past 30 s while the resume goes on.",
       "focuses" : false,
       "group" : "CloudActionCatalog",
       "hint" : null,
@@ -77376,7 +77376,7 @@
       "title" : "Resume Machine",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
-      "waitsForResult" : false
+      "waitsForResult" : true
     },
     {
       "arguments" : [
@@ -77685,7 +77685,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
-      "description" : "Resizes the machine (--target machine:<id>): --size small, medium, large or xlarge (2 vCPU and 4 GB, 4 and 8, 8 and 16, or 16 and 24), --disk GIB (the disk's new size in whole GiB: 4 GiB steps, up to 256, grow-only), or both in one call; at least one. Returns machine_id, target, and size and disk_gib as given. Answers pending after 30 s; the resize goes on.",
+      "description" : "Resizes the machine (--target machine:<id>): --size small, medium, large or xlarge (2 vCPU and 4 GB, 4 and 8, 8 and 16, or 16 and 24), --disk GIB (the disk's new size in whole GiB: 4 GiB steps, up to 256, grow-only), or both in one call; at least one. Returns machine_id, target, and size and disk_gib as given once Cloud has resized it. From an agent or a script it first asks the person in the cmux window (Allow or Don't Allow): the CLI says so at once with the dialog_id, waits, and exits non-zero if they chose Don't Allow or nobody answered in 10 minutes.",
       "focuses" : false,
       "group" : "CloudActionCatalog",
       "hint" : null,
