@@ -217,7 +217,8 @@ public actor CloudCarrierServe {
             previous.closeInput()
             if await !Self.exits(previous, within: Self.exitGrace) {
                 previous.terminate()
-                _ = await Self.exits(previous, within: Self.exitGrace)
+                // Never a second child on a socket the first still holds.
+                guard await Self.exits(previous, within: Self.exitGrace) else { throw CloudLinkError.disconnected(reason: "the previous cmux carrier serve did not exit") }
             }
         }
         guard mine == generation else { throw Self.stopped }

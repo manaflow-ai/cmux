@@ -482,7 +482,7 @@ import Testing
     /// A closed child that ignores its stdin closing gets SIGTERM after the grace, so the next launch
     /// (every resume after a pause) is not held forever.
     @Test func aChildThatIgnoresItsClosedStdinIsTerminatedBeforeTheNextLaunch() async throws {
-        let cli = try Self.standIn("d=$(dirname \"$0\")\necho launched >> \"$d/launches\"\nprintf '{\"ok\":true,\"socket\":\"%s\",\"route\":\"carrier\"}\\n' \"$6\" >&2\nwhile :; do sleep 0.05; done\n")
+        let cli = try Self.standIn("d=$(dirname \"$0\")\necho launched >> \"$d/launches\"\nprintf '{\"ok\":true,\"socket\":\"%s\",\"route\":\"carrier\"}\\n' \"$6\" >&2\nwhile [ ! -f \"$d/go\" ]; do sleep 0.05; done\necho exited >> \"$d/launches\"\n")
         let folder = cli.deletingLastPathComponent()
         defer { try? FileManager.default.removeItem(at: folder) }
         let socket = "/tmp/cmux-link-0123456789ab.sock"
@@ -492,9 +492,16 @@ import Testing
         await serve.stop()
         let next = try await withDeadline(CloudCarrierServe.exitGrace * 3, label: "relaunch past a stuck child") { try await serve.socketPath() }
         #expect(next == socket)
-        #expect(try String(contentsOf: folder.appendingPathComponent("launches"), encoding: .utf8) == "launched\nlaunched\n")
+        #expect(try String(contentsOf: folder.appendingPathComponent("launches"), encoding: .utf8) == "launched\nlaunched\n", "the stuck first child was terminated, never let exit on its own")
+        // The second child ignores its stdin too: `go` ends it, so no stand-in outlives the test (the first
+        // died of the SIGTERM and wrote no `exited`).
+        try Data().write(to: folder.appendingPathComponent("go"))
         await serve.stop()
-        await serve.stop()
+        let launches = folder.appendingPathComponent("launches")
+        let deadline = ContinuousClock.now + .seconds(5)
+        while (try? String(contentsOf: launches, encoding: .utf8)) != "launched\nlaunched\nexited\n", ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
     }
 
     private actor Gate {
