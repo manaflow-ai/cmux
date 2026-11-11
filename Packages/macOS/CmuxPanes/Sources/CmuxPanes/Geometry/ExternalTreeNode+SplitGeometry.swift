@@ -102,54 +102,63 @@ extension ExternalTreeNode {
     }
 
     /// Post-order equalize over a same-orientation run: recurses only into
-    /// children that continue the run.
+    /// children that continue the run, and returns this subtree's spans so
+    /// each node is counted once.
+    @discardableResult
     private func appendRunEqualizeAdjustments(
         orientation: String,
         adjustments: inout [SplitDividerAdjustment],
         foundSplit: inout Bool,
         hadInvalidSplitIds: inout Bool
-    ) {
-        guard case .split(let splitNode) = self, splitNode.orientation == orientation else { return }
-        splitNode.first.appendRunEqualizeAdjustments(
+    ) -> SplitSpanCounts {
+        guard case .split(let splitNode) = self, splitNode.orientation == orientation else {
+            return spanCounts()
+        }
+        let firstSpans = splitNode.first.appendRunEqualizeAdjustments(
             orientation: orientation,
             adjustments: &adjustments,
             foundSplit: &foundSplit,
             hadInvalidSplitIds: &hadInvalidSplitIds
         )
-        splitNode.second.appendRunEqualizeAdjustments(
+        let secondSpans = splitNode.second.appendRunEqualizeAdjustments(
             orientation: orientation,
             adjustments: &adjustments,
             foundSplit: &foundSplit,
             hadInvalidSplitIds: &hadInvalidSplitIds
         )
         foundSplit = true
+        let spans = SplitSpanCounts(orientation: orientation, first: firstSpans, second: secondSpans)
         guard let splitId = UUID(uuidString: splitNode.id) else {
             hadInvalidSplitIds = true
-            return
+            return spans
         }
-        let firstSpanCount = splitNode.first.spanCount(along: orientation)
-        let secondSpanCount = splitNode.second.spanCount(along: orientation)
+        let firstSpanCount = firstSpans.along(orientation)
+        let secondSpanCount = secondSpans.along(orientation)
         let position = CGFloat(firstSpanCount) / CGFloat(firstSpanCount + secondSpanCount)
         adjustments.append(SplitDividerAdjustment(splitId: splitId, position: position))
+        return spans
     }
 
+    /// Post-order equalize over the whole tree; returns this subtree's spans
+    /// so each node is counted once.
+    @discardableResult
     private func appendEqualizeAdjustments(
         orientationFilter: String?,
         adjustments: inout [SplitDividerAdjustment],
         foundSplit: inout Bool,
         hadInvalidSplitIds: inout Bool
-    ) {
+    ) -> SplitSpanCounts {
         switch self {
         case .pane:
-            return
+            return .pane
         case .split(let splitNode):
-            splitNode.first.appendEqualizeAdjustments(
+            let firstSpans = splitNode.first.appendEqualizeAdjustments(
                 orientationFilter: orientationFilter,
                 adjustments: &adjustments,
                 foundSplit: &foundSplit,
                 hadInvalidSplitIds: &hadInvalidSplitIds
             )
-            splitNode.second.appendEqualizeAdjustments(
+            let secondSpans = splitNode.second.appendEqualizeAdjustments(
                 orientationFilter: orientationFilter,
                 adjustments: &adjustments,
                 foundSplit: &foundSplit,
@@ -159,8 +168,8 @@ extension ExternalTreeNode {
             if orientationFilter == nil || splitNode.orientation == orientationFilter {
                 foundSplit = true
                 if let splitId = UUID(uuidString: splitNode.id) {
-                    let firstSpanCount = splitNode.first.spanCount(along: splitNode.orientation)
-                    let secondSpanCount = splitNode.second.spanCount(along: splitNode.orientation)
+                    let firstSpanCount = firstSpans.along(splitNode.orientation)
+                    let secondSpanCount = secondSpans.along(splitNode.orientation)
                     let totalSpanCount = firstSpanCount + secondSpanCount
                     let position = CGFloat(firstSpanCount) / CGFloat(totalSpanCount)
                     adjustments.append(SplitDividerAdjustment(splitId: splitId, position: position))
@@ -168,22 +177,20 @@ extension ExternalTreeNode {
                     hadInvalidSplitIds = true
                 }
             }
+            return SplitSpanCounts(orientation: splitNode.orientation, first: firstSpans, second: secondSpans)
         }
     }
 
-    private func spanCount(along orientation: String) -> Int {
+    private func spanCounts() -> SplitSpanCounts {
         switch self {
         case .pane:
-            return 1
+            return .pane
         case .split(let splitNode):
-            let firstSpanCount = splitNode.first.spanCount(along: orientation)
-            let secondSpanCount = splitNode.second.spanCount(along: orientation)
-            // A cross-axis subtree stacks its children, so it is as wide as
-            // its widest child: a column holding two 2-pane rows spans 2.
-            guard splitNode.orientation == orientation else {
-                return max(firstSpanCount, secondSpanCount)
-            }
-            return firstSpanCount + secondSpanCount
+            return SplitSpanCounts(
+                orientation: splitNode.orientation,
+                first: splitNode.first.spanCounts(),
+                second: splitNode.second.spanCounts()
+            )
         }
     }
 
@@ -274,5 +281,35 @@ extension ExternalTreeNode {
 
             return ResizeSplitTrace(containsTarget: containsTarget, bounds: combinedBounds)
         }
+    }
+}
+
+/// Panes side by side along each axis: the weights equalize gives dividers.
+private struct SplitSpanCounts {
+    static let pane = SplitSpanCounts(horizontal: 1, vertical: 1)
+
+    let horizontal: Int
+    let vertical: Int
+
+    init(horizontal: Int, vertical: Int) {
+        self.horizontal = horizontal
+        self.vertical = vertical
+    }
+
+    /// A split adds its children along its own axis. Across it, the children
+    /// stack, so it is as wide as its widest child: a column holding two
+    /// 2-pane rows spans 2.
+    init(orientation: String, first: SplitSpanCounts, second: SplitSpanCounts) {
+        let isHorizontal = orientation == "horizontal"
+        horizontal = isHorizontal
+            ? first.horizontal + second.horizontal
+            : max(first.horizontal, second.horizontal)
+        vertical = isHorizontal
+            ? max(first.vertical, second.vertical)
+            : first.vertical + second.vertical
+    }
+
+    func along(_ orientation: String) -> Int {
+        orientation == "horizontal" ? horizontal : vertical
     }
 }
