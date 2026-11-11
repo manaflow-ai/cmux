@@ -1,13 +1,22 @@
 //! A started child: `std::process::Child`'s fields and methods, plus a
-//! bounded wait that needs no polling.
+//! bounded wait that needs no polling, and an owner: dropping a child that
+//! still runs ends it (and its process group, when it leads one) and reaps
+//! it, unless [`Child::detach`] said why it must outlive its handle.
 
 use std::io::{self, Read};
 use std::process::{ChildStderr, ChildStdin, ChildStdout, ExitStatus, Output};
 use std::time::Duration;
 
-/// A running or ended child, as `std::process::Child`.
+/// A running or ended child, as `std::process::Child`, except at drop.
 ///
-/// Dropping it neither kills nor waits for the child (as std).
+/// Dropping a child whose status was never read ends it: its pipes close,
+/// it gets SIGTERM (its whole process group, when it leads one: see
+/// [`crate::Command::spawn`]), then SIGKILL after [`DROP_GRACE`] if it still
+/// runs, and it is reaped. The drop itself only sends the first signal; the
+/// grace and the reap run on a short-lived thread, so a drop never blocks its
+/// caller. A child that must outlive its handle (a daemon, a hold that
+/// outlives the command that took it) says why with [`Child::detach`], and
+/// is then dropped as std drops one: neither signalled nor reaped.
 #[derive(Debug)]
 pub struct Child {
     /// The parent end of a piped stdin.
@@ -17,7 +26,18 @@ pub struct Child {
     /// The parent end of a piped stderr.
     pub stderr: Option<ChildStderr>,
     inner: Inner,
+    /// It leads its own process group (a new group or session): a drop
+    /// signals the group, so what it started ends with it.
+    leads_group: bool,
+    /// Its status was read (so it was reaped and its pid may name another
+    /// process now): a drop signals nothing.
+    ended: bool,
+    /// Why it outlives this handle ([`Child::detach`]).
+    detached: Option<&'static str>,
 }
+
+/// How long a dropped child has between SIGTERM and SIGKILL.
+pub const DROP_GRACE: Duration = Duration::from_millis(500);
 
 #[derive(Debug)]
 enum Inner {
@@ -37,7 +57,15 @@ impl Child {
         stdout: Option<ChildStdout>,
         stderr: Option<ChildStderr>,
     ) -> Self {
-        Self { stdin, stdout, stderr, inner: Inner::Pid { pid, status: None } }
+        Self {
+            stdin,
+            stdout,
+            stderr,
+            inner: Inner::Pid { pid, status: None },
+            leads_group: false,
+            ended: false,
+            detached: None,
+        }
     }
 
     #[cfg(not(target_vendor = "apple"))]
@@ -47,7 +75,36 @@ impl Child {
             stdout: child.stdout.take(),
             stderr: child.stderr.take(),
             inner: Inner::Std(child),
+            leads_group: false,
+            ended: false,
+            detached: None,
         }
+    }
+
+    /// [`crate::Command::spawn`] started it as the leader of its own process
+    /// group or session.
+    pub(crate) fn set_leads_group(&mut self, leads_group: bool) {
+        self.leads_group = leads_group;
+    }
+
+    /// Let the child outlive this handle: dropping it then neither signals
+    /// nor reaps the child, as std. `reason` says why it must outlive its
+    /// owner (the daemon it is, the lock it holds for a caller that exits);
+    /// [`Child::detached`] and `Debug` show it. Waiting on a detached child
+    /// still works.
+    pub fn detach(&mut self, reason: &'static str) -> &mut Self {
+        self.detached = Some(reason);
+        self
+    }
+
+    /// Why the child outlives this handle, when [`Child::detach`] said so.
+    pub fn detached(&self) -> Option<&'static str> {
+        self.detached
+    }
+
+    /// Whether the child leads its own process group (a drop ends the group).
+    pub fn leads_group(&self) -> bool {
+        self.leads_group
     }
 
     /// The child's process id.
@@ -84,6 +141,12 @@ impl Child {
     /// child to end.
     pub fn wait(&mut self) -> io::Result<ExitStatus> {
         drop(self.stdin.take());
+        let status = self.wait_inner()?;
+        self.ended = true;
+        Ok(status)
+    }
+
+    fn wait_inner(&mut self) -> io::Result<ExitStatus> {
         match &mut self.inner {
             #[cfg(target_vendor = "apple")]
             Inner::Pid { pid, status } => {
@@ -102,6 +165,12 @@ impl Child {
 
     /// The child's status if it ended, without waiting.
     pub fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
+        let status = self.try_wait_inner()?;
+        self.ended |= status.is_some();
+        Ok(status)
+    }
+
+    fn try_wait_inner(&mut self) -> io::Result<Option<ExitStatus>> {
         match &mut self.inner {
             #[cfg(target_vendor = "apple")]
             Inner::Pid { pid, status } => {
@@ -158,7 +227,9 @@ impl Child {
             }
             #[cfg(windows)]
             Inner::Std(child) => {
-                return wait_timeout::ChildExt::wait_timeout(child, limit);
+                let status = wait_timeout::ChildExt::wait_timeout(child, limit)?;
+                self.ended |= status.is_some();
+                return Ok(status);
             }
             #[cfg(all(not(target_vendor = "apple"), not(target_os = "linux"), not(windows)))]
             Inner::Std(_) => {
@@ -170,9 +241,83 @@ impl Child {
     }
 }
 
+impl Drop for Child {
+    /// A child whose status was never read and that was not detached ends
+    /// here (the type's docs say how); one already reaped or detached is
+    /// left as std leaves it.
+    fn drop(&mut self) {
+        if self.ended || self.detached.is_some() {
+            return;
+        }
+        // Its pipes close first: a child that reads stdin to its end, or
+        // writes to a reader that is gone, may end on that alone.
+        drop((self.stdin.take(), self.stdout.take(), self.stderr.take()));
+        #[cfg(unix)]
+        {
+            let Ok(pid) = libc::pid_t::try_from(self.id()) else { return };
+            if pid > 0 {
+                end_and_reap(pid, self.leads_group);
+            }
+        }
+        #[cfg(windows)]
+        {
+            // No groups and no zombies: terminating it is the whole end.
+            let Inner::Std(child) = &mut self.inner;
+            let _ = child.kill();
+        }
+    }
+}
+
+/// SIGTERM to `pid` (its group when `group`), then, on a thread of its own,
+/// SIGKILL once [`DROP_GRACE`] passes or the child exits, whichever is
+/// first, and the reap. The pid is unreaped until that last step, so
+/// neither it nor its group id can name another process before it.
+#[cfg(unix)]
+fn end_and_reap(pid: libc::pid_t, group: bool) {
+    let target = if group { -pid } else { pid };
+    // SAFETY: an unreaped child of this process (or the group it leads).
+    unsafe { libc::kill(target, libc::SIGTERM) };
+    let reap = move || {
+        let _ = exit_within(pid, DROP_GRACE);
+        // The group's members that ignored SIGTERM, or outlived their
+        // leader, end here too.
+        // SAFETY: still unreaped: the ids are still this child's.
+        unsafe { libc::kill(target, libc::SIGKILL) };
+        let _ = waitpid(pid, 0);
+    };
+    if std::thread::Builder::new().name("cmux-process-reap".into()).spawn(reap).is_err() {
+        // No thread to wait on: SIGKILL now and reap what already ended. A
+        // child that has not ended by the next line stays a zombie until
+        // this process exits, which is no worse than std.
+        // SAFETY: as above.
+        unsafe { libc::kill(target, libc::SIGKILL) };
+        let _ = waitpid(pid, libc::WNOHANG);
+    }
+}
+
+/// Block until `pid` exits or `limit` passes, without reaping it.
+#[cfg(unix)]
+fn exit_within(pid: libc::pid_t, limit: Duration) -> io::Result<()> {
+    #[cfg(target_vendor = "apple")]
+    {
+        exit_event_within(pid, limit)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        exit_event_within(u32::try_from(pid).unwrap_or(0), limit)
+    }
+    #[cfg(all(not(target_vendor = "apple"), not(target_os = "linux")))]
+    {
+        // No exit event here: the whole grace, then the SIGKILL.
+        let _ = pid;
+        std::thread::sleep(limit);
+        Ok(())
+    }
+}
+
 /// `waitpid(pid, flags)`, retried on EINTR: `None` when `WNOHANG` found the
 /// child still running.
-#[cfg(target_vendor = "apple")]
+#[cfg(unix)]
 fn waitpid(pid: libc::pid_t, flags: libc::c_int) -> io::Result<Option<ExitStatus>> {
     use std::os::unix::process::ExitStatusExt;
     loop {

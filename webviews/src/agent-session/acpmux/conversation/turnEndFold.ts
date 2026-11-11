@@ -23,7 +23,7 @@ import { bezierAt, cssBezier, parseBezier, type CubicBezier } from "../../../ui/
 import { currentChatMetrics } from "../chatDisplay";
 import { cssTimeMs, foldMs } from "./fold";
 import { ARRIVAL_FRAME_LINES } from "./followChase";
-import { ghostOf } from "./turnFold";
+import { clippedBottom, ghostOf } from "./turnFold";
 import { LIVE_THINKING } from "./turns";
 import { isLineRow, type AcpmuxRow } from "../model";
 
@@ -74,15 +74,8 @@ export function endsTurn(before: readonly AcpmuxRow[] | undefined, after: readon
 /// under it at that row's drawn top), with `shown`, the bottom of what it drew.
 type Drawn = { id: string; top: number; copy?: HTMLElement; clip?: number; shown?: number };
 
-/// How many px of `node`'s bottom its clip-path hides now (tailGlide.ts `clipBottom`), or 0.
-function clippedBottom(node: HTMLElement): number {
-  const clip = (node.ownerDocument.defaultView ?? window).getComputedStyle(node).clipPath;
-  const inset = clip && clip !== "none" ? /^inset\(([^)]*)\)/.exec(clip) : null;
-  if (!inset) return 0;
-  const sides = inset[1]!.split(/\s+/).map((side) => Number.parseFloat(side) || 0);
-  const bottom = sides[2] ?? sides[0] ?? 0;
-  return bottom > 0.5 ? bottom : 0;
-}
+/// How far into the fold (0 to 1, of its progress) a copy of a row that goes has faded out.
+const COPY_GONE_AT = 0.6;
 
 /// A clip that hides `bottom` px of a row's bottom and nothing past its other edges (tailGlide.ts's).
 const clipBottom = (bottom: number) => `inset(-4096px -4096px ${bottom}px -4096px)`;
@@ -132,7 +125,7 @@ export function captureTurnEnd(
     const id = node.dataset.rowId!;
     // A row clipped over the row gliding under it (tailGlide.ts) draws only down to that row's top:
     // the fold goes on from what it drew, never from its whole box (one read, only while clipped).
-    const clip = node.getAnimations?.().length ? clippedBottom(node) : 0;
+    const clip = clippedBottom(node);
     return {
       id,
       top: box.top,
@@ -522,10 +515,15 @@ export function playTurnEnd(
         timing.delay = (copies.length - 1 - order) * step;
         timing.duration = Math.max(ms / 2, ms - timing.delay);
       }
+      // The copy is gone by COPY_GONE_AT of the fold, while it still moves: the rows coming over its
+      // place draw over nothing. Faded on the whole clock, a copy still drew its text, faint, under a
+      // row arriving over it in the fold's last frames (agent-pane-stream-row-overlap, once a copy's
+      // text counted: 5.5 px under the reply at 94%, and the live line's copy 119 px at 87% under lag).
       const motion = play(
         copy,
         [
           { translate: `0 ${at}px`, opacity: ink },
+          { offset: COPY_GONE_AT, opacity: 0 },
           { translate: `0 ${end}px`, opacity: 0 },
         ],
         timing,

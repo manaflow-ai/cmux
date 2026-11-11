@@ -1479,3 +1479,27 @@ fn cmd_k_clears_multiline_prompt_that_starts_in_history() {
     assert!(text.starts_with('>'), "input line did not move to the top: {text:?}");
     assert_eq!(term.history_rows(), 0, "scrollback was not cleared");
 }
+
+/// `pwd_is` answers what comparing `pwd()` would, without building a
+/// `String`: before any OSC 7, after one, after a change, and for a pwd that
+/// is not valid UTF-8 (never equal; the caller then reads `pwd`).
+#[test]
+fn pwd_is_matches_pwd_without_allocating() {
+    let mut term = Terminal::new(40, 4, 100, Callbacks::default()).unwrap();
+    assert_eq!(term.pwd(), None);
+    assert!(term.pwd_is(None));
+    assert!(!term.pwd_is(Some("/tmp")));
+    for path in ["/tmp", "/Users/someone/src/project", "/tmp"] {
+        term.vt_write(format!("\x1b]7;file://host{path}\x07").as_bytes());
+        let pwd = term.pwd();
+        assert!(term.pwd_is(pwd.as_deref()), "pwd_is disagrees with pwd {pwd:?}");
+        assert!(!term.pwd_is(None));
+        assert!(!term.pwd_is(Some("/elsewhere")));
+    }
+    term.vt_write(b"\x1b]7;file://host/bad\xff\x07");
+    if let Some(pwd) = term.pwd()
+        && pwd.contains('\u{fffd}')
+    {
+        assert!(!term.pwd_is(Some(&pwd)));
+    }
+}

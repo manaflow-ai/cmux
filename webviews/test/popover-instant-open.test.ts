@@ -211,6 +211,10 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   "src/agent-session/acpmux/changes/treeTitles.ts": { count: 2, what: "a long tree title's marquee" },
   "src/agent-session/acpmux/conversation/PromptText.tsx": { count: 3, what: "a prompt bubble resizes" },
   "src/agent-session/acpmux/conversation/fold.ts": { count: 3, what: "a transcript block folds" },
+  "src/agent-session/acpmux/conversation/Thinking.tsx": {
+    count: 1,
+    what: "the live line's token count glides sideways when its words change width",
+  },
   "src/agent-session/acpmux/header/headerMotion.ts": {
     count: 3,
     what: "the chat header's icons (Debug agentChat.headerMotion): an arriving icon springs in, its neighbours glide, and an opening click's glyph travels to its pane's tab; buttons and a ghost, never a menu",
@@ -251,10 +255,6 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   "src/files-panel-motion.ts": { count: 2, what: "the files panel slides in from its edge" },
   "src/motion/SyncTitle.tsx": { count: 3, what: "a title's new text cross-fades" },
   "src/motion/useSyncListMotion.ts": { count: 3, what: "list rows arrive, move and leave" },
-  "src/pages/overlay/toasts/useToastMotion.ts": {
-    count: 4,
-    what: "a toast rises and fades in, slides to its new slot, and its copy fades out where it was",
-  },
   "src/ui/motion/SlidingIndicator.tsx": {
     count: 1,
     what: "a tab bar's or segmented control's highlight travels to the selected item",
