@@ -31,8 +31,9 @@ struct CloudStartSessionChatOnlyTests {
         _ = store.apply(.connected(DaemonIdentity(generation: "live"), generationChanged: false))
         store.apply(snapshot: DaemonTree(registryID: "s-vm", workspaces: [starter]))
         var made: [WorkspaceKey] = []
-        let (anchor, opened) = try await CloudStartSession.chatWorkspace("cloud-start-session-k1", on: f.session, notConnected: ActionFailure(message: "not connected"),
-                                                                         open: { _ in Issue.record("nothing to reopen"); return nil }) { key in
+        let (anchor, opened) = try await CloudMachineWorkspace.chatTab(tabKey: "cloud-start-session-k1", in: store, notConnected: ActionFailure(message: "not connected"),
+                                                                       anchor: { await CloudHandlers.mirroredAnchor(id: $0, on: f.session) },
+                                                                       open: { _ in Issue.record("nothing to reopen"); return nil }) { key in
             // The daemon makes the workspace with the chat as its first tab (createWithFirstTab) and lists it.
             made.append(key)
             store.apply(snapshot: DaemonTree(registryID: "s-vm", workspaces: [starter, workspace(2, key: key, tabs: [chat(20)])]))

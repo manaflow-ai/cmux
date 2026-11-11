@@ -52,6 +52,13 @@ public struct CloudChangeRequest {
         }
     }
 
+    /// The yes a change waits for: a person's own run (`person`) is theirs; an agent's or a script's asks in the window
+    /// `window` answers when it runs (``allowed(_:in:shown:)``, `shown` told the dialog's id; without it ``allowed(_:in:)``).
+    public func asking(_ title: String, person: Bool, in window: @escaping @MainActor () -> NSWindow?,
+                       shown: (@MainActor (Int) -> Void)? = nil) -> @MainActor () async -> Bool {
+        { person ? true : await shown.map { allowed(title, in: window(), shown: $0) } ?? allowed(title, in: window()) }
+    }
+
     /// What an agent's or a script's run answers when the person chose Don't Allow.
     public static var declined: String {
         String(localized: "cloud.changeRequest.declined", defaultValue: "Don't Allow was chosen in the cmux window; nothing changed.", table: "Cloud", bundle: .module)

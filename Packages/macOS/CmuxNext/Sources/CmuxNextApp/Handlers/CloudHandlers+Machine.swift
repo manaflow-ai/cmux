@@ -158,8 +158,6 @@ extension CloudHandlers {
                 return deletionPending(session.machineID)
             }
         }
-        // `waitsForResult` (the catalog): a CLI or agent run waits for the server inside `action.run`'s 40 s
-        // result deadline, not the 2 s default that answered `timeout` after a pause that went on to work.
         bind("cloudPauseMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             result("pause machine", context, pendingAfter: machineAnswerWait, pending: machineFields(session.machineID)) {
@@ -248,10 +246,7 @@ extension CloudHandlers {
         }
         bind("palette.cloud.ports", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
-            let connection = session.daemon.connection
-            // A person's run keeps the preview picker. A CLI or agent run whose preview read fails (a
-            // backend without previews answers "not configured") still answers the machine's listening
-            // ports from its connected daemon, instead of only the preview refusal.
+            let connection = session.daemon.connection // a CLI run whose preview read fails ("not configured") still lists the listening ports
             if cloud.previewAPI != nil, origin(of: invocation) == .user || connection == nil {
                 return livePreviewPorts(session, invocation, context)
             }
@@ -259,18 +254,12 @@ extension CloudHandlers {
             let names = CloudPortNames(session, port: nil), previews = cloud.previewAPI != nil
             answer("machine ports", invocation, context, pendingAfter: answerWithin) {
                 var previewFailure: String?
-                if previews {
-                    do { return previewAnswer(try await refreshPreviews(session, names, context)) } catch {
-                        previewFailure = (error as? ActionFailure)?.message ?? CloudStrings.errorText(error)
-                    }
-                }
+                if previews { do { return previewAnswer(try await refreshPreviews(session, names, context)) } catch { previewFailure = (error as? ActionFailure)?.message ?? CloudStrings.errorText(error) } }
                 let table = try await connection.request(MachineListeningTCPRequest()).stdout
                 let ports = MachineListeningTCPRequest.ports(in: table).map { Int($0) }
                 var listed = cloudAnswer(CloudStrings.portsTitle, rules.answer(["kind": "ports", "machineId": session.machineID, "ports": ports]),
                                          none: CloudStrings.noPorts)
-                listed.fields["source"] = .string("listening")
-                if let previewFailure { listed.fields["previews_unavailable"] = .string(previewFailure) }
-                return listed
+                listed.fields["source"] = .string("listening"); listed.fields["previews_unavailable"] = previewFailure.map { .string($0) }; return listed
             }
         }
         bind("palette.cloud.tools", registry, reason: reason) { invocation in
@@ -329,8 +318,7 @@ extension CloudHandlers {
             }
         }
         bind("palette.cloud.fork", registry, reason: reason) { invocation in // A snapshot, then a machine from it (restored once it is ready), so it needs both ops, not `.fork`.
-            let session = try machine(invocation, context); guard session.machine.allows(.snapshot), session.machine.allows(.restore) else { throw operationUnavailable }
-            change("fork machine", "palette.cloud.fork", invocation, registry, context, pending: ["source_machine_id": .string(session.machineID)]) { allow in
+            let session = try machine(invocation, context); guard session.machine.allows(.snapshot), session.machine.allows(.restore) else { throw operationUnavailable }; change("fork machine", "palette.cloud.fork", invocation, registry, context, pending: ["source_machine_id": .string(session.machineID)]) { allow in
                 let snapshot = try await cloud.machineChange("cloud.snapshot.create", ["machine": .string(session.machineID)], answers: "snapshot", allow: allow) ?? ""; let forked = try await cloud.machineChange("cloud.snapshot.restore", ["snapshot": .string(snapshot)], answers: "machine", allow: { true }) ?? ""
                 await cloud.refresh(); return CloudAnswer(title: "", text: "", fields: machineFields(forked, ["source_machine_id": .string(session.machineID), "snapshot_id": .string(snapshot)])) }
         }
@@ -510,63 +498,16 @@ extension CloudHandlers {
             defaultValue: "This action is unavailable for this Cloud machine.", bundle: .module))
     }
 
-    // MARK: Changes the person allows
-
-    /// A machine change (resize, snapshot, template, restore, fork). `work` gets the person's yes
-    /// (``allows(_:_:_:_:shown:)``) to pass on. A person's own run goes as before: `sheet` shows its
-    /// answer, else nothing, and past ``machineAnswerWait`` it answers `pending`. An agent's or a
-    /// script's run waits for the person's Allow in the CloudChangeRequest dialog, which stays: it
-    /// answers at once that it waits (`waiting_for: person`, the dialog's `dialog_id`, `ask_again_joins`),
-    /// and the same ask again joins that run, never a second change or dialog (the CLI asks again
-    /// until the end). The run ends with the change's own answer, or refused when the person chose
-    /// Don't Allow, so no caller reads a declined change as done.
-    static func change(_ label: String, _ id: ActionID, _ invocation: ActionInvocation, _ registry: ActionRegistry, _ context: AppActionContext,
-                       sheet: Bool = false, pending: [String: ActionResultValue],
-                       ask: (@MainActor (_ shown: @escaping @MainActor (Int) -> Void) -> @MainActor () async -> Bool)? = nil,
-                       _ work: @escaping @MainActor (_ allow: @escaping @MainActor () async -> Bool) async throws -> CloudAnswer) {
-        let wait = sheet ? snapshotAnswerWait : machineAnswerWait
-        let ask = ask ?? { shown in allows(id, invocation, registry, context, shown: shown) }
-        guard origin(of: invocation) != .user else {
-            let allow = allows(id, invocation, registry, context)
-            if sheet { return answer(label, invocation, context, pendingAfter: wait, pending: pending) { try await work(allow) } }
-            return result(label, context, pendingAfter: wait, pending: pending) { try await work(allow).fields }
-        }
-        let key = changeKey(id, invocation, context), changes = context.services.cloud.machineChanges, runs = changes.runs
-        let waiting = pending.merging(["pending": .bool(true), "ask_again_joins": .bool(true)]) { field, _ in field }
-        let asked = ask { dialog in
-            let asking = waiting.merging(["waiting_for": .string("person"), "dialog_id": .string(String(dialog)),
-                                          "dialog": .string(CloudChangeRequest.identifier)]) { field, _ in field }
-            changes.asks[key] = asking
-            runs.asking(key, asking)
-        }
-        // The dialog answered: a caller who joins now waits for the change, not the person.
-        let allow: @MainActor () async -> Bool = {
-            let allowed = await asked()
-            changes.asks[key] = nil
-            return allowed
-        }
-        let logger = context.services.cloud.logger
+    /// A machine change (resize, snapshot, template, restore, fork): an agent's or a script's run waits for the person's Allow (``CloudMachineChanges``), Don't Allow a refusal; a person's own run goes as before, `sheet` showing its answer.
+    static func change(_ label: String, _ id: ActionID, _ invocation: ActionInvocation, _ registry: ActionRegistry, _ context: AppActionContext, sheet: Bool = false, pending: [String: ActionResultValue],
+                       ask: CloudMachineChanges.Ask? = nil, _ work: @escaping @MainActor (_ allow: @escaping @MainActor () async -> Bool) async throws -> CloudAnswer) {
+        let wait = sheet ? snapshotAnswerWait : machineAnswerWait, allow = allows(id, invocation, registry, context)
+        if origin(of: invocation) == .user { if sheet { answer(label, invocation, context, pendingAfter: wait, pending: pending) { try await work(allow) } } else { result(label, context, pendingAfter: wait, pending: pending) { try await work(allow).fields } }; return }
+        let key = CloudMachineChanges.key(action: id.rawValue, machine: (try? machine(invocation, context))?.machineID ?? "", arguments: invocation.arguments, caller: invocation.callerAgentSession, account: context.services.cloud.account)
         result(label, context) {
-            do {
-                return try await runs.answer(key, within: wait, pending: changes.asks[key] ?? waiting, forgotten: CancellationError(), early: true) {
-                    defer { changes.asks[key] = nil }
-                    let answer = try await work(allow)
-                    if sheet { logger.info("\(label, privacy: .public): \(answer.text, privacy: .private)") }
-                    return sheet ? answer.fields.merging(["text": .string(answer.text)]) { field, _ in field } : answer.fields
-                }
-            } catch CloudMachineCreateFlow.Failure.declined {
-                throw ActionFailure(message: CloudChangeRequest.declined)
-            }
+            do { return try await context.services.cloud.machineChanges.run(key, within: wait, pending: pending, ask: ask ?? { allows(id, invocation, registry, context, shown: $0) }) { allow in
+                let answer = try await work(allow); return sheet ? answer.fields.merging(["text": .string(answer.text)]) { field, _ in field } : answer.fields } } catch CloudMachineCreateFlow.Failure.declined { throw ActionFailure(message: CloudChangeRequest.declined) }
         }
-    }
-
-    /// What makes two asks of a change the same run: the action, its machine, its arguments, the
-    /// asking agent chat and the account.
-    static func changeKey(_ id: ActionID, _ invocation: ActionInvocation, _ context: AppActionContext) -> CloudStartRunKey {
-        let machineID = (try? machine(invocation, context))?.machineID ?? ""
-        let asked = invocation.arguments.keys.sorted().map { "\($0)=\(String(describing: invocation.arguments[$0]))" }.joined(separator: "&")
-        return CloudStartRunKey(machine: "change:" + machineID, agent: id.rawValue, cwd: asked, caller: invocation.callerAgentSession,
-                                account: context.services.cloud.account)
     }
 
     /// A machine action's `action.run` result: the machine's id and the `--target` that names it

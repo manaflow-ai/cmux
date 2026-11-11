@@ -347,6 +347,19 @@ public struct CloudMachineWorkspace {
         return (key, try await create(key), true)
     }
 
+    /// ``chat(tabKey:in:within:notConnected:open:create:)`` once its workspace mirrors (`anchor`: its first pane, by
+    /// workspace id), with the chat's tab in it: a CLI or agent start's chat (`cloud start-session`), its workspace's only
+    /// tab. `open` and `create` answer the chat's surface. Throws `notConnected` when the tab never shows.
+    public static func chatTab(tabKey: String, in store: DaemonStore, notConnected: @autoclosure () -> any Error,
+                               anchor: (String) async -> (id: String, key: WorkspaceKey, pane: PaneModel)?,
+                               open: (WorkspaceHandle) async throws -> SurfaceID?, create: (WorkspaceKey) async throws -> SurfaceID?)
+        async throws -> (anchor: (id: String, key: WorkspaceKey, pane: PaneModel), tab: (key: String, surface: SurfaceID)) {
+        let made = try await chat(tabKey: tabKey, in: store, notConnected: notConnected(), open: open, create: create)
+        guard let surface = made.tab, let found = await anchor(made.key.rawValue),
+              let tab = found.pane.tabs.first(where: { $0.surface == surface }) else { throw notConnected() }
+        return (found, (tab.id, surface))
+    }
+
     /// The workspace key of the chat start `tabKey`: a UUID (version 5 layout) of its SHA-256, the same for every retry.
     public nonisolated static func chatKey(tabKey: String) -> WorkspaceKey {
         var bytes = Array(SHA256.hash(data: Data("cmux-cloud-chat-workspace\u{0}\(tabKey)".utf8)).prefix(16))
