@@ -74,6 +74,14 @@ Detectors (all line/regex heuristics, never an AST):
   sys.path). Each changed test file, and each that loads git_fixture_env, is
   loaded with `python3 -I` without running its tests.
 
+Allowlist (.github/test-determinism-allowlist.txt): one entry per (file, function, rule) with a reason. The
+function is the one the finding sits in, as each finding line prints it after "in" (Python `Class.method`,
+Swift `Type.method`, a JS test's title path, or <module>), so an entry never hides a new finding in another
+function of the same file. --strict fails on an entry no finding matches ("stale entry"). An entry whose reason
+starts "hang guard:" is a deadline-only bound, well above any normal run, that turns a hang into a failure, and
+says what would hang; every other entry is old debt that tests/test_determinism_allowlist_ratchet.py lets only
+shrink.
+
 Usage:
     check-test-determinism.py                 # scan, print findings, exit 0
     check-test-determinism.py --strict        # exit 1 on any non-allowlisted finding or stale entry
@@ -846,7 +854,9 @@ def _lexical_positions(
             continue
 
         if kind == "f-string-text":
-            if character == "\\":
+            # A backslash escapes the next character, but never a brace: `rf"\{{?{name}"` is a backslash, a
+            # literal `{`, then the `{name}` field (cmux test_ci_cmux_next_compile_status.py's own-host regex).
+            if character == "\\" and line[index + 1:index + 2] not in ("{", "}"):
                 index += 2
                 continue
             if line.startswith(delimiter, index):
@@ -7057,6 +7067,17 @@ def _self_test() -> int:
                 "  const wait = bake.acpmuxHarnessChecksDoneCommand();\n"
                 "  expect(wait).not.toMatch(/sleep (?!1;)\\d/);\n"
                 "  expect(wait).toContain(\"sleep(1)\");\n"
+            ),
+        ),
+        # A backslash before an f-string's doubled brace escapes nothing (`rf"\\{{?{name}"`): the line's parentheses
+        # close on it, so a docstring and a curl fixture string below are not read as one network call.
+        (
+            "tests/n44.py",
+            (
+                "    own = any(re.search(rf\"\\$\\{{?{name}\\b\", command) for name in own_vars)\n"
+                "    \"\"\"A `curl --retry-all-errors` against our own endpoint retries until its\n"
+                "    caller's deadline.\"\"\"\n"
+                "        ('curl --retry 3 --retry-all-errors https://gh-events.cmux.com/a\\n', False),\n"
             ),
         ),
         # A timing checked only to be positive: no bound on how long it took.
