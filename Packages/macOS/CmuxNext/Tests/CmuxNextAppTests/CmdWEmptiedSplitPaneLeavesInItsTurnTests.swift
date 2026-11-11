@@ -47,13 +47,36 @@ struct CmdWEmptiedSplitPaneLeavesInItsTurnTests {
             try await PinnedPageTests.until({ Self.question() != nil }, report: { "no close question" })
             #expect(Self.shown(s), "the pane is not back on screen while its question shows")
             #expect(s.pane.orderedIDs.map(\.rawValue).contains(s.tab.id), "the tab is not back in its strip while its question shows")
-            try await PinnedPageTests.until({ s.services.windows.active?.focusedPane === s.pane },
-                                            report: {
-                let workspace = s.pane.workspace
-                return "the focus did not come back to the pane the question asks about: focus \(workspace?.focus.state.pane ?? "nil"), pane \(s.pane.paneKey), "
-                    + "layout focus \(workspace?.layoutModel.focusedPane.map { "\($0)" } ?? "nil"), closing \(workspace?.layoutModel.isClosing(s.pane.layoutPaneID) == true), "
-                    + "topology has it \(workspace?.focus.currentState().topology.contains(pane: s.pane.paneKey) == true)"
-            })
+            try await PinnedPageTests.until({ Self.focusIsBack(s) }, report: { "the focus did not come back to the pane the question asks about: \(Self.focusReport(s))" })
+            _ = CmuxDialogCenter.shared.press(try #require(Self.question()).id, button: "cancel")
+            try await PinnedPageTests.until({ !TabCloseGuard.asking.contains(s.tab.id) }, report: { "the cancelled close still asks" })
+            try await Self.turns()
+            #expect(Self.shown(s), "Cancel did not keep the pane")
+            #expect(Self.inDaemon(s), "Cancel did not keep the pane in the daemon's tree")
+            try await Self.waitRunning("sleep", s)
+        }
+    }
+
+    /// The daemon's read answers after the closed pane's views left the window: a slow read that outlasts the close's
+    /// spring, and every close that does not spring (Reduce Motion, pane animations off, a close that moves no pane).
+    /// The layout view tears the hidden pane down when its close lands (`LayoutViewContext.releaseRetired`), so the
+    /// take-back shows the pane again from nothing. The running program still brings its pane back, with its focus,
+    /// before the question, and Cancel keeps it.
+    @Test func aProgramFoundAfterTheClosedPanesViewsLeftBringsThePaneBackWithItsFocus() async throws {
+        try await Self.withFocusedSplit { s in
+            _ = try await s.connection.request(SendInputRequest(surface: s.tab.surface, text: "sleep 600\r"))
+            try await Self.waitRunning("sleep", s)
+            let hold = s.services.daemon.closeReadHold
+            hold.arm()
+            defer { hold.release() }
+            #expect(s.services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user)))
+            #expect(!Self.shown(s), "the emptied pane stayed on screen while the daemon's read decided")
+            // The read answers only now: the close landed (or showed with no spring) and took the pane's views away.
+            try await PinnedPageTests.until({ s.pane.view.window == nil }, report: { "the closed pane's views never left the window during the read" })
+            hold.release()
+            try await PinnedPageTests.until({ Self.question() != nil }, report: { "no close question" })
+            #expect(Self.shown(s), "the pane is not back on screen while its question shows")
+            try await PinnedPageTests.until({ Self.focusIsBack(s) }, report: { "the focus did not come back to the pane the question asks about: \(Self.focusReport(s))" })
             _ = CmuxDialogCenter.shared.press(try #require(Self.question()).id, button: "cancel")
             try await PinnedPageTests.until({ !TabCloseGuard.asking.contains(s.tab.id) }, report: { "the cancelled close still asks" })
             try await Self.turns()
@@ -154,6 +177,15 @@ struct CmdWEmptiedSplitPaneLeavesInItsTurnTests {
             defer { if let record = question() { _ = CmuxDialogCenter.shared.press(record.id, button: "cancel") } }
             try await body(s)
         }
+    }
+
+    /// The focus is back on the split's pane.
+    private static func focusIsBack(_ s: Split) -> Bool { s.services.windows.active?.focusedPane === s.pane }
+
+    private static func focusReport(_ s: Split) -> String {
+        let workspace = s.pane.workspace
+        return "focus \(workspace?.focus.state.pane ?? "nil"), pane \(s.pane.paneKey), layout focus \(workspace?.layoutModel.focusedPane.map { "\($0)" } ?? "nil"), "
+            + "closing \(workspace?.layoutModel.isClosing(s.pane.layoutPaneID) == true), topology has it \(workspace?.focus.currentState().topology.contains(pane: s.pane.paneKey) == true)"
     }
 
     /// The pane is in its window's shown layout.
