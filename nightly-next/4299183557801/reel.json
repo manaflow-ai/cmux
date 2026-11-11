@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "build": "4299183557801",
+  "notes": "notes/4299183557801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 41123,
+      "title": "cmux-tui: a closed terminal has no agent record (the tombstone deletes it; the open prunes the old ones)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40852,
+      "title": "cmux-next-ios: App Store mode (com.cmux.app) and the classic app's leftovers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41108,
+      "title": "Agent chat: a tool call's output wraps down instead of scrolling right; a table keeps its rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40495,
+      "title": "carrier fault: probe accounts are the provisioner's accounts in no shared team",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41181,
+      "title": "BASE RED: composer-send-stop names what the play did wrong",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41020,
+      "title": "Going back to an earlier nightly: one signature check, no cold CLI starts, off main, and each step shown",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41158,
+      "title": "base_red_excuse: re-land the per-step fixed-on-base rule with its review fixes, update-branch alone",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41159,
+      "title": "BASE RED: New Tab's Add Widgets menu wears the agent pane's menu look",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41116,
+      "title": "Run on a bigger machine: no offer on background commands or after a host refusal; one plain line; design-system buttons",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41137,
+      "title": "Composer: the glass card casts a softer shadow, half the floating glass's reach and dark",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41182,
+      "title": "cmux-next daemon tests: the quit and teardown tests count terminals, not the spare host",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40934,
+      "title": "Agent chat: a tool call or group clicked while the app is slow opens in place",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40786,
+      "title": "perf(cmux-tui): a get of one tab, pane, screen or workspace reads its workspace, not the session",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41128,
+      "title": "cmux-tui tests: request_stack rows for project_new, cold_archive and register; the roster shape has hidden_ended",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41175,
+      "title": "tests: one module object per script, whichever test loads it first",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41144,
+      "title": "base red: the sidebar gallery's sticky-header veil is the chrome glass share, not 90%",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41142,
+      "title": "base red: the chat menu is counted where it is built (generated-files check, 14 rows after #40090)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40803,
+      "title": "acpmux: Claude Code's own messaging in acpmux agents goes through acpmux (W7-A)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
