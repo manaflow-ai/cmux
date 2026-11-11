@@ -26,7 +26,7 @@
 //! The answer, once the job is done (`git.seed.status`): `{head_ref, head,
 //! index, work, stash, unchanged, bundle_bytes, left_out}`.
 //!
-//! `{folder, bundle, move: "upstream" | "seed" | "since", since_work?, since_head?}` is a
+//! `{folder, bundle, move: "upstream" | "seed" | "since" | "check", since_work?, since_head?}` is a
 //! move's export (Move to another Cloud machine, VM to VM): the folder's state for a
 //! second machine, never for a Mac to merge back, so it leaves the folder's seed records
 //! (`refs/cmux-back`, `refs/cmux-base`, `refs/cmux-seed`) as they are and names its commits
@@ -39,6 +39,12 @@
 //! - `seed`: the folder's own seed (`refs/cmux-seed`), for a machine that still has the
 //!   folder as that seed left it (a chat moving back to the machine it came from).
 //! - `since`: `since_work` and `since_head`, the move's own last export (its frozen pass).
+//! - `check`: `since_work` and `since_head` of a record the folder keeps, only to ask whether
+//!   the folder is still as that record left it (a chat moving back when the machine it is on
+//!   has nothing to send): the answer's `unchanged`. Nothing is recorded and no bundle is
+//!   written.
+//!
+//! The URL is the remote the folder's branch tracks (`branch.<name>.remote`), else `origin`.
 //!
 //! A move's answer adds `since_head`, `since_work` (the base it used) and `url`, the
 //! remote's URL as configured (`remote.<name>.url`, no `insteadOf`).
@@ -85,6 +91,7 @@ pub enum MoveFrom {
     Upstream,
     Seed,
     Since,
+    Check,
 }
 
 /// A checked export request. A move's `since_*` are empty until [`Export::run`] finds
@@ -107,12 +114,13 @@ impl ExportParams {
             Some("upstream") => Some(MoveFrom::Upstream),
             Some("seed") => Some(MoveFrom::Seed),
             Some("since") => Some(MoveFrom::Since),
+            Some("check") => Some(MoveFrom::Check),
             Some(other) => {
                 return Err(SeedRefusal::bad_request(format!("unknown move base {other}")));
             }
         };
         // Only a move's own last export names its commits; the others find theirs.
-        let named = matches!(move_from, None | Some(MoveFrom::Since));
+        let named = matches!(move_from, None | Some(MoveFrom::Since | MoveFrom::Check));
         let (since_work, since_head) = match (wire.since_work, wire.since_head) {
             (Some(work), Some(head)) if named => {
                 check_sha("since_work", &work)?;
@@ -236,7 +244,8 @@ impl Export {
         let same_work = work == self.params.since_work;
         let mut unchanged = same_work && stash == recorded_stash;
         let mut bundle_bytes = 0;
-        if !unchanged {
+        let checking = self.params.move_from == Some(MoveFrom::Check);
+        if !unchanged && !checking {
             self.record(&head, &index, &work, stash.as_deref()).map_err(wrap)?;
             // Only the stash went: the record moved, but no object is new.
             if same_work && stash.is_none() {
@@ -274,14 +283,8 @@ impl Export {
         let none = |why: &str| failed("seed.no_upstream", why.to_owned());
         match from {
             MoveFrom::Upstream => {
-                let branch = self
-                    .read(&["symbolic-ref", "-q", "HEAD"])
-                    .and_then(|name| name.strip_prefix("refs/heads/").map(str::to_owned));
-                let tracked = branch.as_ref().and_then(|branch| {
-                    let remote =
-                        self.read(&["config", "--get", &format!("branch.{branch}.remote")])?;
-                    Some((commit("@{upstream}")?, remote))
-                });
+                let tracked =
+                    self.tracked_remote().and_then(|remote| Some((commit("@{upstream}")?, remote)));
                 let (tip, remote) = match tracked {
                     Some(tracked) => tracked,
                     None => (
@@ -300,14 +303,26 @@ impl Export {
                 else {
                     return Err(failed("seed.since_mismatch", "the folder is not a seed"));
                 };
-                Ok((head, work, "origin".to_owned()))
+                Ok((head, work, self.remote()))
             }
-            MoveFrom::Since => Ok((
-                self.params.since_head.clone(),
-                self.params.since_work.clone(),
-                "origin".to_owned(),
-            )),
+            MoveFrom::Since | MoveFrom::Check => {
+                Ok((self.params.since_head.clone(), self.params.since_work.clone(), self.remote()))
+            }
         }
+    }
+
+    /// The remote the checked-out branch tracks (`branch.<name>.remote`), if any.
+    fn tracked_remote(&self) -> Option<String> {
+        let branch = self
+            .read(&["symbolic-ref", "-q", "HEAD"])
+            .and_then(|name| name.strip_prefix("refs/heads/").map(str::to_owned))?;
+        self.read(&["config", "--get", &format!("branch.{branch}.remote")])
+            .filter(|remote| remote != ".")
+    }
+
+    /// The move's remote: the tracked one, else `origin` (module docs).
+    fn remote(&self) -> String {
+        self.tracked_remote().unwrap_or_else(|| "origin".to_owned())
     }
 
     /// `remote.<name>.url` as configured: never rewritten by `insteadOf`.

@@ -324,10 +324,15 @@ fn back(
         .map_err(|error| theirs(format!("the chat's folder did not come from it: {error:#}")))?;
     let (url, repo) = github(&base.url)?;
     if exported.unchanged {
-        // Nothing to send: the folder there must still be the one the chat left. Nothing is
-        // written either way.
-        if !holds_record(to, to_root, &base.work)? {
-            return Err(theirs("the chat's folder did not come from it".to_owned()));
+        // Nothing to send: the folder there must still be exactly as the chat left it (its
+        // record, and HEAD, the index, the files and the stash as that record has them).
+        // Nothing is written either way.
+        let as_left =
+            sync_cli::still_as_recorded(to, to_root, &base.head, &base.work).map_err(|error| {
+                theirs(format!("the chat's folder did not come from it: {error:#}"))
+            })?;
+        if !as_left {
+            return Err(theirs("it changed since the chat left it".to_owned()));
         }
         return Ok((url, hop_state(&exported, true)));
     }
@@ -342,26 +347,6 @@ fn back(
         _ => error.into(),
     })?;
     Ok((url, hop_state(&exported, true)))
-}
-
-/// Whether the second machine's folder at `to_root` keeps a seed or move record whose WORK is
-/// `work` (a loose ref, or one in `packed-refs`).
-fn holds_record(to: &Path, to_root: &str, work: &str) -> anyhow::Result<bool> {
-    let records = ["refs/cmux-move", "refs/cmux-back", "refs/cmux-base", "refs/cmux-seed"];
-    for record in records {
-        let loose = sync_cli::remote_read(to, &format!("{to_root}/.git/{record}/work"))?;
-        if loose.is_some_and(|sha| String::from_utf8_lossy(&sha).trim() == work) {
-            return Ok(true);
-        }
-    }
-    let packed = sync_cli::remote_read(to, &format!("{to_root}/.git/packed-refs"))?;
-    Ok(packed.is_some_and(|packed| {
-        String::from_utf8_lossy(&packed).lines().any(|line| {
-            line.split_once(' ').is_some_and(|(sha, name)| {
-                sha == work && records.iter().any(|record| name == format!("{record}/work"))
-            })
-        })
-    }))
 }
 
 /// A seed of `exported` on the second machine: whole from `base`, or a delta on `since`.
@@ -414,6 +399,15 @@ fn frozen(
         let (exported, _) =
             sync_cli::export_move_to(from, from_root, "since", since, &bundle.file)?;
         if exported.unchanged {
+            // A folder that was there before the move must still be as the bulk left it.
+            if hop.into_existing && !sync_cli::still_as_recorded(to, to_root, &hop.head, &hop.work)?
+            {
+                return Err(SeedError::new(
+                    TARGET_EXISTS,
+                    format!("{to_root} changed on the machine since the move began"),
+                )
+                .into());
+            }
             return Ok(());
         }
         as_seed(&bundle.file)?;

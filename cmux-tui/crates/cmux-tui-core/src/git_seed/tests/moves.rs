@@ -193,3 +193,66 @@ fn a_move_export_needs_its_base() {
         "seed.since_mismatch"
     );
 }
+
+#[test]
+fn a_move_back_never_writes_over_an_ignored_file_the_other_machine_now_tracks() {
+    let world = World::new("move-back-ignored");
+    let one = cloned(&world);
+    let two = world.home.join("two");
+    let bulk = export_move(&world, &one, "upstream", None, "bulk");
+    assert_eq!(seed_from(&world, &two, &bulk, "bulk", None)["state"], "done");
+    // The chat starts tracking a path the first machine ignores, and someone edits that
+    // ignored file on the first machine after the chat left.
+    write(&two.join("ignored/big"), "from two\n");
+    git(&two, &["add", "-f", "ignored/big"]);
+    write(&one.join("ignored/big"), "edited on one\n");
+    let before = state(&one);
+    let back = export_move(&world, &two, "seed", None, "back");
+    let status = seed_from(&world, &one, &back, "back", back["since_work"].as_str());
+    assert_eq!(status["error_code"], "seed.machine_changed", "{status}");
+    assert_eq!(std::fs::read_to_string(one.join("ignored/big")).unwrap(), "edited on one\n");
+    assert_eq!(state(&one), before);
+    // Without that file, the same move back goes through.
+    std::fs::remove_file(one.join("ignored/big")).unwrap();
+    let status = seed_from(&world, &one, &back, "back", back["since_work"].as_str());
+    assert_eq!(status["state"], "done", "{status}");
+    assert_eq!(std::fs::read_to_string(one.join("ignored/big")).unwrap(), "from two\n");
+}
+
+#[test]
+fn a_check_answers_whether_the_folder_is_as_its_record_left_it_and_writes_nothing() {
+    let world = World::new("move-check");
+    let one = cloned(&world);
+    let bulk = export_move(&world, &one, "upstream", None, "bulk");
+    let recorded = refs(&one, "refs/cmux-move");
+    let since = json!({ "head": bulk["head"], "work": bulk["work"] });
+    let check = export_move(&world, &one, "check", Some(&since), "check");
+    assert_eq!(check["unchanged"], true, "{check}");
+    write(&one.join("theirs"), "theirs\n");
+    let check = export_move(&world, &one, "check", Some(&since), "check-changed");
+    assert_eq!(check["unchanged"], false, "{check}");
+    assert_eq!(check["bundle_bytes"], 0);
+    assert_eq!(refs(&one, "refs/cmux-move"), recorded, "a check records nothing");
+    assert!(!world.home.join("check-changed.bundle").exists(), "nor writes a bundle");
+}
+
+#[test]
+fn a_github_repository_is_the_same_in_every_url_form() {
+    use super::super::run::same_github_repo;
+    let https = "https://github.com/Acme/App.git";
+    for other in [
+        "https://github.com/acme/app",
+        "git@github.com:acme/app.git",
+        "ssh://git@github.com/Acme/App.git",
+        "https://github.com/acme/app/",
+    ] {
+        assert!(same_github_repo(https, other), "{other}");
+    }
+    for other in [
+        "https://github.com/acme/other.git",
+        "https://example.com/acme/app.git",
+        "https://user:token@github.com/acme/app.git",
+    ] {
+        assert!(!same_github_repo(https, other), "{other}");
+    }
+}

@@ -120,8 +120,10 @@ pub(crate) struct Exported {
     pub(crate) moved: Option<MoveBase>,
 }
 
-/// The base a move's export used (its WORK), and the remote's URL as the folder configures it.
+/// The base a move's export used (its HEAD and WORK), and the remote's URL as the folder
+/// configures it.
 pub(crate) struct MoveBase {
+    pub(crate) head: String,
     pub(crate) work: String,
     pub(crate) url: String,
 }
@@ -430,6 +432,22 @@ pub(crate) fn export_move_to(
     Ok((exported, moved))
 }
 
+/// Whether the folder at `remote_root` is still as its record `head`/`work` left it (a move's
+/// `check`: nothing is recorded and no bundle is written there).
+pub(crate) fn still_as_recorded(
+    socket: &Path,
+    remote_root: &str,
+    head: &str,
+    work: &str,
+) -> anyhow::Result<bool> {
+    let mut remote = Remote::connect(socket)?;
+    let params = json!({ "move": "check", "since_head": head, "since_work": work });
+    // The daemon writes no bundle for a check; the name is never created.
+    let (parent, _) = super::remote::split(remote_root)?;
+    let unused = format!("{}/.cmux-seed-check.bundle", parent.trim_end_matches('/'));
+    Ok(export(&mut remote, remote_root, params, &unused)?.unchanged)
+}
+
 fn export_into(
     socket: &Path,
     remote_root: &str,
@@ -524,7 +542,11 @@ fn export(
         bundle_bytes: status.get("bundle_bytes").and_then(Value::as_u64).unwrap_or(0),
         left_out: status.get("left_out").cloned().unwrap_or_default(),
         moved: match text("url") {
-            Some(url) => Some(MoveBase { work: sha("since_work")?, url: url.to_string() }),
+            Some(url) => Some(MoveBase {
+                head: sha("since_head")?,
+                work: sha("since_work")?,
+                url: url.to_string(),
+            }),
             None => None,
         },
     })
