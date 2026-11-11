@@ -181,6 +181,44 @@ import Testing
         #expect(target.label.contains("10"))
         #expect(RevertTarget(build: "1", version: "1.0.1", date: nil, kept: true).label == "1.0.1")
     }
+
+    /// A refused quit terminates the relaunch helper: its waiter ends with it, and nothing opens
+    /// (cmux#41013 review: a lone `caffeinate -w` outlived the shell).
+    @Test func cancellingTheRelaunchHelperEndsItsWaiter() throws {
+        let root = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let waiter = root.appending(path: "waiter.sh"), opened = root.appending(path: "opened")
+        try Data("#!/bin/sh\necho $$\nexec /bin/sleep 600\n".utf8).write(to: waiter)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: waiter.path)
+        let command = RollbackSwap.relaunchCommand(pid: 1, app: opened, waiter: waiter.path, opener: "/usr/bin/touch")
+        let helper = Process(), out = Pipe()
+        helper.executableURL = URL(fileURLWithPath: command[0])
+        helper.arguments = Array(command.dropFirst())
+        helper.standardOutput = out
+        try helper.run()
+        var text = ""
+        while !text.contains("\n") {
+            let chunk = out.fileHandleForReading.availableData
+            if chunk.isEmpty { break }
+            text += String(decoding: chunk, as: UTF8.self)
+        }
+        let waiterPID = try #require(Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)))
+        helper.terminate()
+        helper.waitUntilExit()
+        #expect(kill(waiterPID, 0) == -1 && errno == ESRCH)
+        #expect(!FileManager.default.fileExists(atPath: opened.path))
+    }
+
+    /// Go back's feed window starts below the running build, so 30 newer builds still leave the
+    /// previous one in it (cmux#41013 review: a window of the newest 20 missed it).
+    @Test func goBacksWindowStartsBelowTheRunningBuild() {
+        let index = (1...40).reversed().map {
+            ReleaseNotesIndexEntry(build: "\($0)", shortVersion: "1.0.0-nightly.\($0)", date: "2026-11-01", highlights: 0)
+        }
+        let window = UpdaterService.older(index, than: "10")
+        #expect(window.map(\.build) == (1...9).reversed().map { "\($0)" })
+        #expect(UpdaterService.older(index, than: nil).count == 40)
+    }
 }
 
 nonisolated private final class Counter: @unchecked Sendable {

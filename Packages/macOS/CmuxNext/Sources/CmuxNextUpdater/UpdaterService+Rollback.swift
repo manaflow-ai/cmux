@@ -293,9 +293,13 @@ extension UpdaterService {
     /// by number: Go back's way when nothing is kept.
     func previousOfferedBuild() async -> String? {
         revert = RevertProgress(step: .finding)
-        let running = identity.build
-        return await recentBuilds(limit: 20)
-            .filter { $0.switchable && KeptVersionStore.isNewer(running, than: $0.build) }
+        let running = identity.build, switches = switchesBuilds
+        // The window starts below the running build, so any number of newer builds leaves it full.
+        let tracks = await channelTracks(limit: 20, before: running)
+        let builds = tracks.first(where: { $0.ring == .nightly && !$0.builds.isEmpty })?.builds
+            ?? tracks.first(where: { !$0.builds.isEmpty })?.builds ?? []
+        return builds
+            .filter { switches && !$0.isInstalled && $0.health != .pulled && KeptVersionStore.isNewer(running, than: $0.build) }
             .max { KeptVersionStore.isNewer($1.build, than: $0.build) }?.build
     }
 }
