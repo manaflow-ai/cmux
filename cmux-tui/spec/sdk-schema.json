@@ -6526,6 +6526,14 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "registry_reads": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsRegistryReads"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
@@ -6538,7 +6546,8 @@
     "locks is present only when the request names it in include.",
     "hook_queue is present only when the request names it in include and the session serves a socket.",
     "disk is present only when the request names it in include and the session keeps its registry on disk.",
-    "journal_followers is present only when the request names it in include."
+    "journal_followers is present only when the request names it in include.",
+    "registry_reads is present only when the request names it in include."
    ]
   },
   "ServerStatsHookQueue": {
@@ -7567,6 +7576,41 @@
     "keep_all_ms is what is left of the time after the daemon became ready in which every report is a row; 0 when it is over.",
     "journal_hook_keeps_rows: an enabled journal hook's kind filter matches a row the daemon leaves out at rest; null when the daemon has not read its hooks since it started or since they changed (the next report reads them).",
     "hook_rows_kept and report_rows_kept say whether a report that changes no durable state is appended now."
+   ]
+  },
+  "ServerStatsRegistryReads": {
+   "kind": "object",
+   "fields": {
+    "list_fallbacks": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "committed_read_failures": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "fallback_failures": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "list_fallbacks counts the terminal.list requests with no scope that read under the registry and state locks because their lock-free read gave no answer.",
+    "committed_read_failures counts the fallbacks whose lock-free read of the stored rows returned an error; the others had a terminal that ended between the two reads.",
+    "fallback_failures counts the fallbacks whose read under the locks failed too: the client got operation.failed."
    ]
   },
   "GuestUrlOpenResult": {
@@ -18466,7 +18510,7 @@
    "stream": null,
    "constraints": [
     "Owner-only diagnostics; never journaled and safe to poll.",
-    "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk, journal_followers); unknown names are ignored."
+    "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk, journal_followers, registry_reads); unknown names are ignored."
    ]
   },
   "paste-image": {

@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 8f7c38cfe306dacf10763a16c8b540a144ad4c48ef14d76c58f729ee5f0f8ee0. */
+/* cmux-tui mux protocol 12, IR c43ed04bc5cbbb628e624f0fcc9bf807fef69a243f4e9ed7ec67c718464a5382. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "8f7c38cfe306dacf10763a16c8b540a144ad4c48ef14d76c58f729ee5f0f8ee0" as const;
+export const SDK_IR_SHA256 = "c43ed04bc5cbbb628e624f0fcc9bf807fef69a243f4e9ed7ec67c718464a5382" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2786,7 +2786,7 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Owner-only diagnostics; never journaled and safe to poll.",
-      "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk, journal_followers); unknown names are ignored."
+      "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk, journal_followers, registry_reads); unknown names are ignored."
     ]
   },
   "set-attach-visibility": {
@@ -12022,6 +12022,41 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ServerStatsRegistryReads": {
+    "additional_properties": false,
+    "constraints": [
+      "list_fallbacks counts the terminal.list requests with no scope that read under the registry and state locks because their lock-free read gave no answer.",
+      "committed_read_failures counts the fallbacks whose lock-free read of the stored rows returned an error; the others had a terminal that ended between the two reads.",
+      "fallback_failures counts the fallbacks whose read under the locks failed too: the client got operation.failed."
+    ],
+    "fields": {
+      "committed_read_failures": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "fallback_failures": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "list_fallbacks": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ServerStatsResourceProjection": {
     "additional_properties": false,
     "constraints": [
@@ -12181,7 +12216,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "locks is present only when the request names it in include.",
       "hook_queue is present only when the request names it in include and the session serves a socket.",
       "disk is present only when the request names it in include and the session keeps its registry on disk.",
-      "journal_followers is present only when the request names it in include."
+      "journal_followers is present only when the request names it in include.",
+      "registry_reads is present only when the request names it in include."
     ],
     "fields": {
       "connections": {
@@ -12238,6 +12274,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "ServerStatsRegistryLock"
+        }
+      },
+      "registry_reads": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsRegistryReads"
         }
       },
       "resource_projection": {

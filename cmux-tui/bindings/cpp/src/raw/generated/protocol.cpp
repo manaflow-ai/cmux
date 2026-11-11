@@ -10920,6 +10920,55 @@ Result<ServerStatsRegistryLock> Codec<ServerStatsRegistryLock>::decode(const Jso
     return result;
 }
 
+Result<Json> Codec<ServerStatsRegistryReads>::encode(const ServerStatsRegistryReads& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_committed_read_failures = encode_value(value.committed_read_failures);
+    if (!encoded_committed_read_failures) return std::move(encoded_committed_read_failures).error();
+    object.emplace("committed_read_failures", std::move(encoded_committed_read_failures).value());
+    auto encoded_fallback_failures = encode_value(value.fallback_failures);
+    if (!encoded_fallback_failures) return std::move(encoded_fallback_failures).error();
+    object.emplace("fallback_failures", std::move(encoded_fallback_failures).value());
+    auto encoded_list_fallbacks = encode_value(value.list_fallbacks);
+    if (!encoded_list_fallbacks) return std::move(encoded_list_fallbacks).error();
+    object.emplace("list_fallbacks", std::move(encoded_list_fallbacks).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsRegistryReads> Codec<ServerStatsRegistryReads>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsRegistryReads result{};
+    const Json* field_committed_read_failures = value.find("committed_read_failures");
+    if (!field_committed_read_failures) {
+        return make_error(ErrorCode::decode, "missing required field 'committed_read_failures'");
+    }
+    if (field_committed_read_failures) {
+        auto decoded = decode_value<std::uint64_t>(*field_committed_read_failures);
+        if (!decoded) return std::move(decoded).error();
+        result.committed_read_failures = std::move(decoded).value();
+    }
+    const Json* field_fallback_failures = value.find("fallback_failures");
+    if (!field_fallback_failures) {
+        return make_error(ErrorCode::decode, "missing required field 'fallback_failures'");
+    }
+    if (field_fallback_failures) {
+        auto decoded = decode_value<std::uint64_t>(*field_fallback_failures);
+        if (!decoded) return std::move(decoded).error();
+        result.fallback_failures = std::move(decoded).value();
+    }
+    const Json* field_list_fallbacks = value.find("list_fallbacks");
+    if (!field_list_fallbacks) {
+        return make_error(ErrorCode::decode, "missing required field 'list_fallbacks'");
+    }
+    if (field_list_fallbacks) {
+        auto decoded = decode_value<std::uint64_t>(*field_list_fallbacks);
+        if (!decoded) return std::move(decoded).error();
+        result.list_fallbacks = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<ServerStatsResourceProjection>::encode(const ServerStatsResourceProjection& value) {
     (void)value;
     Json::Object object;
@@ -11173,6 +11222,11 @@ Result<Json> Codec<ServerStatsResult>::encode(const ServerStatsResult& value) {
     auto encoded_registry_lock = encode_value(value.registry_lock);
     if (!encoded_registry_lock) return std::move(encoded_registry_lock).error();
     object.emplace("registry_lock", std::move(encoded_registry_lock).value());
+    if (value.registry_reads) {
+        auto encoded = encode_value(*value.registry_reads);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("registry_reads", std::move(encoded).value());
+    }
     if (value.resource_projection) {
         auto encoded = encode_value(*value.resource_projection);
         if (!encoded) return std::move(encoded).error();
@@ -11250,6 +11304,12 @@ Result<ServerStatsResult> Codec<ServerStatsResult>::decode(const Json& value) {
         auto decoded = decode_value<ServerStatsRegistryLock>(*field_registry_lock);
         if (!decoded) return std::move(decoded).error();
         result.registry_lock = std::move(decoded).value();
+    }
+    const Json* field_registry_reads = value.find("registry_reads");
+    if (field_registry_reads) {
+        auto decoded = decode_value<ServerStatsRegistryReads>(*field_registry_reads);
+        if (!decoded) return std::move(decoded).error();
+        result.registry_reads = std::move(decoded).value();
     }
     const Json* field_resource_projection = value.find("resource_projection");
     if (field_resource_projection) {

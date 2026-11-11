@@ -270,6 +270,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ServerStatsResult, "hook_queue");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "journal_followers");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "locks");
+    try expectExplicitNullRejected(protocol.ServerStatsResult, "registry_reads");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "resource_projection");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "write_path");
     try expectExplicitNullRejected(protocol.ServerStatsWritePath, "registry_wal_file_bytes");

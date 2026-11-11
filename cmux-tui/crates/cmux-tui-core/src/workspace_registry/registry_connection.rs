@@ -70,6 +70,9 @@ pub(crate) struct RegistryConnection {
     connection: Arc<ReentrantMutex<Connection>>,
     /// Which thread commits durable writes (`server-stats` `write_path`).
     write_path_stats: crate::diagnostics::WritePathStats,
+    /// Lists that read under the locks because their lock-free read gave
+    /// no answer (`server-stats` `registry_reads`).
+    read_stats: crate::diagnostics::RegistryReadStats,
     /// The journal writer, once it runs (see `registry_intent`).
     pub(super) intent_sink: std::sync::OnceLock<Arc<dyn super::RegistryIntentSink>>,
     /// Indeterminate registry commits still owed to state (cx-g1fa.3).
@@ -206,6 +209,7 @@ impl RegistryConnection {
             connection: Arc::new(ReentrantMutex::new(connection)),
             reader,
             write_path_stats: crate::diagnostics::WritePathStats::default(),
+            read_stats: crate::diagnostics::RegistryReadStats::default(),
             intent_sink: std::sync::OnceLock::new(),
             unsettled: std::sync::Mutex::default(),
             durability,
@@ -291,6 +295,10 @@ impl RegistryConnection {
 
     pub(crate) fn write_path_stats(&self) -> &crate::diagnostics::WritePathStats {
         &self.write_path_stats
+    }
+
+    pub(crate) fn read_stats(&self) -> &crate::diagnostics::RegistryReadStats {
+        &self.read_stats
     }
 
     /// True while this thread holds the connection lock (a pin or a guard).

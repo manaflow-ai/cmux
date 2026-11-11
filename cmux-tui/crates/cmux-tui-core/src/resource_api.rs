@@ -14,6 +14,7 @@ use std::sync::Weak;
 
 mod machines;
 mod terminal_extra;
+mod terminal_list;
 
 pub(crate) const MACHINE_CATALOG_READ_CAPABILITY: &str = "machine-catalog-read-v1";
 
@@ -33,6 +34,10 @@ use crate::workspace_registry::{
     ResourceEffectPreparation, TerminalLifecycle,
 };
 use crate::{Mux, ResourceSelectors};
+
+pub(crate) use terminal_list::public_terminals;
+#[cfg(test)]
+pub(crate) use terminal_list::set_terminal_list_between_cuts_hook;
 
 #[cfg(test)]
 thread_local! {
@@ -870,60 +875,6 @@ fn load_terminal_list_rows(connection: &rusqlite::Connection) -> anyhow::Result<
         crate::workspace_registry::load_live_terminal_resource_ids(connection)?,
         crate::workspace_registry::load_terminal_tabs(connection)?,
     ))
-}
-
-/// The session snapshot's `terminals`, built alone (`terminal.list` with no
-/// scope): the same values in the same order. At 826 workspaces the whole
-/// snapshot held the registry lock and the state lock for each `terminal
-/// list` of a script or an agent. This reads the stored rows as one
-/// committed read (no registry lock on a file registry), takes the state
-/// lock one time to copy each terminal's live surface handle, and builds the
-/// values with no lock held. A surface that changes after the read gives its
-/// newer live fields (title, size, directory), as it does to a list that
-/// runs a moment later.
-pub(crate) fn public_terminals(mux: &Mux) -> Result<Vec<Value>, ResourceError> {
-    // Memory only, as in the snapshot: not under a session lock.
-    let last_sessions = mux.agent_last_sessions();
-    let (durable_terminals, terminal_resource_ids, tabs) =
-        read_committed_registry(mux, |connection, _| load_terminal_list_rows(connection))
-            .map_err(operation_failed)?;
-    let surfaces = mux.with_state(|state| {
-        terminal_resource_ids
-            .iter()
-            .filter_map(|(_, terminal_id)| {
-                let surface = state.terminal_catalog.get(terminal_id)?;
-                Some((terminal_id.clone(), surface.clone()))
-            })
-            .collect::<HashMap<_, _>>()
-    });
-    if let Ok(terminals) = public_terminal_values(
-        mux,
-        &durable_terminals,
-        terminal_resource_ids,
-        &tabs,
-        |terminal_id| surfaces.get(terminal_id).cloned(),
-        &last_sessions,
-    ) {
-        return Ok(terminals);
-    }
-    // The rows and the surfaces are two cuts. A terminal that ended between
-    // them (its runtime gave up its durable identity while this list held
-    // its handle) fails the identity checks of the builder. Read the two as
-    // one cut, under the registry and state locks, as the snapshot does: a
-    // real mismatch gives the snapshot's error.
-    mux.with_resource_projection(|registry, state| {
-        let (durable_terminals, terminal_resource_ids, tabs) =
-            registry.read_state(load_terminal_list_rows)?;
-        public_terminal_values(
-            mux,
-            &durable_terminals,
-            terminal_resource_ids,
-            &tabs,
-            |terminal_id| state.terminal_catalog.get(terminal_id).cloned(),
-            &last_sessions,
-        )
-    })
-    .map_err(operation_failed)
 }
 
 /// The session snapshot's `panes`, built alone (`pane.list` with no scope):

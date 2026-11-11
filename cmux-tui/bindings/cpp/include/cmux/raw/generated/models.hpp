@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "8f7c38cfe306dacf10763a16c8b540a144ad4c48ef14d76c58f729ee5f0f8ee0";
+inline constexpr std::string_view kProtocolIrSha256 = "c43ed04bc5cbbb628e624f0fcc9bf807fef69a243f4e9ed7ec67c718464a5382";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -185,6 +185,7 @@ struct ServerStatsLockSiteDetail;
 struct ServerStatsLockStall;
 struct ServerStatsLocks;
 struct ServerStatsRegistryLock;
+struct ServerStatsRegistryReads;
 struct ServerStatsResourceProjection;
 struct ServerStatsResult;
 struct ServerStatsWritePath;
@@ -5252,6 +5253,13 @@ struct ServerStatsRegistryLock {
     friend bool operator==(const ServerStatsRegistryLock&, const ServerStatsRegistryLock&) = default;
 };
 
+struct ServerStatsRegistryReads {
+    std::uint64_t committed_read_failures{};
+    std::uint64_t fallback_failures{};
+    std::uint64_t list_fallbacks{};
+    friend bool operator==(const ServerStatsRegistryReads&, const ServerStatsRegistryReads&) = default;
+};
+
 struct ServerStatsRequest {
     Field<std::vector<std::string>> include{};
     friend bool operator==(const ServerStatsRequest&, const ServerStatsRequest&) = default;
@@ -5300,6 +5308,7 @@ struct ServerStatsResult {
     std::optional<ServerStatsJournalWriter> journal_writer{};
     std::optional<ServerStatsLocks> locks{};
     ServerStatsRegistryLock registry_lock{};
+    std::optional<ServerStatsRegistryReads> registry_reads{};
     std::optional<ServerStatsResourceProjection> resource_projection{};
     std::uint32_t schema{};
     std::uint64_t uptime_ms{};
@@ -7486,6 +7495,12 @@ template <>
 struct Codec<ServerStatsRegistryLock> {
     static Result<Json> encode(const ServerStatsRegistryLock& value);
     static Result<ServerStatsRegistryLock> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsRegistryReads> {
+    static Result<Json> encode(const ServerStatsRegistryReads& value);
+    static Result<ServerStatsRegistryReads> decode(const Json& value);
 };
 
 template <>

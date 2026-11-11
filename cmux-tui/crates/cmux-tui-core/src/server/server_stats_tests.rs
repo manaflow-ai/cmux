@@ -181,3 +181,52 @@ fn server_stats_include_reports_disk_use_by_file_and_journal_kind() {
     mux.shutdown();
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// `registry_reads` counts the session-wide terminal lists that read under
+/// the registry and state locks because their lock-free read gave no answer
+/// (`resource_api/terminal_list.rs`). A daemon that never does reports
+/// zeros; here the registry's one connection refuses the terminal rows, so
+/// one list falls back and then fails.
+#[test]
+fn server_stats_include_reports_registry_read_fallbacks() {
+    use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
+
+    let mux = Mux::new_for_test("server-stats-registry-reads", crate::SurfaceOptions::default());
+    let client = mux.control_clients.register(ClientTransport::Unix, writer());
+    mux.new_workspace(None, Some((80, 24))).unwrap();
+    let list = |mux: &Arc<Mux>| {
+        let envelope = json!({"protocol":"cmux.protocol/2","type":"request","id":"terminal.list",
+            "operation":"terminal.list","params":{"machine":"current","session":"current"}});
+        crate::resource_router::handle_resource_message(mux, &envelope.to_string()).unwrap()
+    };
+    let answered = list(&mux);
+    assert_eq!(answered["ok"], true, "{answered}");
+
+    let plain = stats(&mux, client, json!({"cmd":"server-stats"}));
+    assert!(plain.get("registry_reads").is_none(), "{plain}");
+    let request = json!({"cmd":"server-stats","include":["registry_reads"]});
+    let quiet = stats(&mux, client, request.clone());
+    assert_eq!(
+        quiet["registry_reads"],
+        json!({"list_fallbacks":0,"committed_read_failures":0,"fallback_failures":0}),
+        "a list that answered from its lock-free read counts nothing: {quiet}"
+    );
+
+    mux.registry_connection
+        .get()
+        .authorizer(Some(|context: AuthContext<'_>| match context.action {
+            AuthAction::Read { table_name: "terminal_hosts", .. } => Authorization::Deny,
+            _ => Authorization::Allow,
+        }))
+        .unwrap();
+    let refused = list(&mux);
+    mux.registry_connection.get().authorizer(None::<fn(AuthContext<'_>) -> Authorization>).unwrap();
+    assert_eq!(refused["ok"], false, "{refused}");
+
+    let counted = stats(&mux, client, request);
+    assert_eq!(
+        counted["registry_reads"],
+        json!({"list_fallbacks":1,"committed_read_failures":1,"fallback_failures":1}),
+        "{counted}"
+    );
+}

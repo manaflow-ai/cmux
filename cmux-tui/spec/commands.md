@@ -594,8 +594,8 @@ section is the exception: it reads the registry on its own read-only
 connection, with a bounded cost (below).
 
 Params: `{include?: array<string>|null}`. `include` names optional result
-sections: `resource_projection`, `write_path`, `locks`, `hook_queue`, `disk` and
-`journal_followers`; unknown names are ignored.
+sections: `resource_projection`, `write_path`, `locks`, `hook_queue`, `disk`,
+`journal_followers` and `registry_reads`; unknown names are ignored.
 An optional section is absent unless requested, because SDK decoders refuse
 unknown result fields.
 
@@ -665,6 +665,9 @@ object{
       client:uint64, stream_id:string, remote:boolean, kinds:array<string>,
       max_sensitivity:string|null, connected_ms:uint64, left_ms:uint64|null,
       keeps_hook_rows:boolean, keeps_report_rows:boolean}>
+  },
+  registry_reads?:object{
+    list_fallbacks:uint64, committed_read_failures:uint64, fallback_failures:uint64
   }
 }
 histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99:uint64}
@@ -802,6 +805,21 @@ the report names none). The section reads memory only, never the registry.
 It takes the lock of the cached journal hook answer, so it can wait while a
 journal hook change commits or while the first report after a start reads
 the hooks.
+
+`registry_reads` counts the `terminal.list` requests with no scope that
+could not answer from their lock-free read. Such a list reads the stored
+rows on the registry's read-only connection and the live terminals under
+the state lock, and takes no registry lock. `list_fallbacks` counts the
+lists that then read the two as one cut under the registry and state
+locks, where they wait for each writer that holds the registry lock.
+`committed_read_failures` counts those whose lock-free read of the rows
+returned an error; the others had a terminal that ended between the two
+reads. `fallback_failures` counts the fallbacks whose read under the
+locks failed too: the client got `operation.failed`. A daemon that works
+as designed keeps all three near zero; a `list_fallbacks` that grows with
+each list says the lock-free read does not work on this registry. The
+daemon also writes one log line at the 1st, 2nd, 4th, 8th... fallback.
+The section reads memory only.
 
 `schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
 events. Percentiles are log-linear bucket upper bounds and overestimate by at

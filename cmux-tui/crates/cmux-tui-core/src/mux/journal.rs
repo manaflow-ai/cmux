@@ -311,6 +311,12 @@ impl Mux {
         snapshot
     }
 
+    /// Lists that read under the registry and state locks because their
+    /// lock-free read gave no answer (`server-stats` `registry_reads`).
+    pub fn registry_read_stats(&self) -> crate::diagnostics::RegistryReadsSnapshot {
+        self.registry_connection.read_stats().snapshot()
+    }
+
     pub(crate) fn connection_stats(&self) -> &Arc<crate::diagnostics::ConnectionStats> {
         &self.connection_stats
     }

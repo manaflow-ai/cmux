@@ -18,6 +18,7 @@ public final class ServerStatsResult implements WireValue {
     private final ServerStatsJournalWriter journalWriter;
     private final Field<ServerStatsLocks> locks;
     private final ServerStatsRegistryLock registryLock;
+    private final Field<ServerStatsRegistryReads> registryReads;
     private final Field<ServerStatsResourceProjection> resourceProjection;
     private final long schema;
     private final UInt64 uptimeMs;
@@ -34,6 +35,7 @@ public final class ServerStatsResult implements WireValue {
         this.locks = builder.locks;
         if (!builder.registryLockSet) throw new IllegalArgumentException("registry_lock is required");
         this.registryLock = Wire.nonNull(builder.registryLock, "registry_lock");
+        this.registryReads = builder.registryReads;
         this.resourceProjection = builder.resourceProjection;
         if (!builder.schemaSet) throw new IllegalArgumentException("schema is required");
         this.schema = builder.schema;
@@ -51,6 +53,7 @@ public final class ServerStatsResult implements WireValue {
     public ServerStatsJournalWriter journalWriter() { return journalWriter; }
     public Field<ServerStatsLocks> locks() { return locks; }
     public ServerStatsRegistryLock registryLock() { return registryLock; }
+    public Field<ServerStatsRegistryReads> registryReads() { return registryReads; }
     public Field<ServerStatsResourceProjection> resourceProjection() { return resourceProjection; }
     public long schema() { return schema; }
     public UInt64 uptimeMs() { return uptimeMs; }
@@ -81,6 +84,10 @@ public final class ServerStatsResult implements WireValue {
         }
         Object rawRegistryLock = Wire.required(object, "registry_lock");
         builder.registryLock(ServerStatsRegistryLock.fromWire(rawRegistryLock));
+        Object rawRegistryReads = Wire.optional(object, "registry_reads");
+        if (!Wire.isMissing(rawRegistryReads)) {
+            builder.registryReads(ServerStatsRegistryReads.fromWire(rawRegistryReads));
+        }
         Object rawResourceProjection = Wire.optional(object, "resource_projection");
         if (!Wire.isMissing(rawResourceProjection)) {
             builder.resourceProjection(ServerStatsResourceProjection.fromWire(rawResourceProjection));
@@ -106,6 +113,7 @@ public final class ServerStatsResult implements WireValue {
         Wire.put(object, "journal_writer", journalWriter);
         Wire.put(object, "locks", locks);
         Wire.put(object, "registry_lock", registryLock);
+        Wire.put(object, "registry_reads", registryReads);
         Wire.put(object, "resource_projection", resourceProjection);
         Wire.put(object, "schema", schema);
         Wire.put(object, "uptime_ms", uptimeMs);
@@ -116,11 +124,11 @@ public final class ServerStatsResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ServerStatsResult that)) return false;
-        return Objects.equals(connections, that.connections) && Objects.equals(disk, that.disk) && Objects.equals(hookQueue, that.hookQueue) && Objects.equals(journalFollowers, that.journalFollowers) && Objects.equals(journalWriter, that.journalWriter) && Objects.equals(locks, that.locks) && Objects.equals(registryLock, that.registryLock) && Objects.equals(resourceProjection, that.resourceProjection) && Objects.equals(schema, that.schema) && Objects.equals(uptimeMs, that.uptimeMs) && Objects.equals(writePath, that.writePath);
+        return Objects.equals(connections, that.connections) && Objects.equals(disk, that.disk) && Objects.equals(hookQueue, that.hookQueue) && Objects.equals(journalFollowers, that.journalFollowers) && Objects.equals(journalWriter, that.journalWriter) && Objects.equals(locks, that.locks) && Objects.equals(registryLock, that.registryLock) && Objects.equals(registryReads, that.registryReads) && Objects.equals(resourceProjection, that.resourceProjection) && Objects.equals(schema, that.schema) && Objects.equals(uptimeMs, that.uptimeMs) && Objects.equals(writePath, that.writePath);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(connections, disk, hookQueue, journalFollowers, journalWriter, locks, registryLock, resourceProjection, schema, uptimeMs, writePath); }
+    public int hashCode() { return Objects.hash(connections, disk, hookQueue, journalFollowers, journalWriter, locks, registryLock, registryReads, resourceProjection, schema, uptimeMs, writePath); }
 
     @Override
     public String toString() { return "ServerStatsResult" + toWire(); }
@@ -136,6 +144,7 @@ public final class ServerStatsResult implements WireValue {
         private Field<ServerStatsLocks> locks = Field.omitted();
         private ServerStatsRegistryLock registryLock;
         private boolean registryLockSet;
+        private Field<ServerStatsRegistryReads> registryReads = Field.omitted();
         private Field<ServerStatsResourceProjection> resourceProjection = Field.omitted();
         private Long schema;
         private boolean schemaSet;
@@ -172,6 +181,10 @@ public final class ServerStatsResult implements WireValue {
         public Builder registryLock(ServerStatsRegistryLock value) {
             this.registryLock = value;
             this.registryLockSet = true;
+            return this;
+        }
+        public Builder registryReads(ServerStatsRegistryReads value) {
+            this.registryReads = Field.of(value);
             return this;
         }
         public Builder resourceProjection(ServerStatsResourceProjection value) {

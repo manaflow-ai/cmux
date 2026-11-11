@@ -156,6 +156,7 @@ MODEL_BY_PATH = {
     'types/ServerStatsLockStall': models.ServerStatsLockStall,
     'types/ServerStatsLocks': models.ServerStatsLocks,
     'types/ServerStatsRegistryLock': models.ServerStatsRegistryLock,
+    'types/ServerStatsRegistryReads': models.ServerStatsRegistryReads,
     'types/ServerStatsResourceProjection': models.ServerStatsResourceProjection,
     'types/ServerStatsResult': models.ServerStatsResult,
     'types/ServerStatsWritePath': models.ServerStatsWritePath,

@@ -1778,6 +1778,14 @@ class ServerStatsRegistryLock:
 
 
 @dataclass(frozen=True)
+class ServerStatsRegistryReads:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsRegistryReads'
+    committed_read_failures: int
+    fallback_failures: int
+    list_fallbacks: int
+
+
+@dataclass(frozen=True)
 class ServerStatsResourceProjection:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsResourceProjection'
     commit_apply_us: ServerStatsHistogram
@@ -1811,6 +1819,7 @@ class ServerStatsResult:
     hook_queue: Union[ServerStatsHookQueue, MissingType] = field(default=MISSING)
     journal_followers: Union[ServerStatsJournalFollowers, MissingType] = field(default=MISSING)
     locks: Union[ServerStatsLocks, MissingType] = field(default=MISSING)
+    registry_reads: Union[ServerStatsRegistryReads, MissingType] = field(default=MISSING)
     resource_projection: Union[ServerStatsResourceProjection, MissingType] = field(default=MISSING)
     write_path: Union[ServerStatsWritePath, MissingType] = field(default=MISSING)
 
@@ -6610,6 +6619,7 @@ __all__ = [
     'ServerStatsLockStall',
     'ServerStatsLocks',
     'ServerStatsRegistryLock',
+    'ServerStatsRegistryReads',
     'ServerStatsResourceProjection',
     'ServerStatsResult',
     'ServerStatsWritePath',

@@ -21023,6 +21023,21 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/registry_reads": {
+        "ty": "object"
+      },
+      "/data/registry_reads/committed_read_failures": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/registry_reads/fallback_failures": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/registry_reads/list_fallbacks": {
+        "ty": "uint64",
+        "required": true
+      },
       "/data/resource_projection": {
         "ty": "object"
       },

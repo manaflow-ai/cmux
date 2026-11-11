@@ -32,6 +32,7 @@ pub use disk_usage::{
     REGISTRY_BYTES_PER_SESSION_PER_DAY, bytes_per_day, journal_kind_budget, read_disk_usage,
 };
 mod hook_queue;
+mod registry_reads;
 pub(crate) mod request_log;
 mod write_path;
 pub use hook_queue::{
@@ -39,6 +40,7 @@ pub use hook_queue::{
     JOURNAL_APPEND_LONGEST_WAIT, add_undeliverable_hook_events, drop_session_hook_queues,
     hook_spool_dir, names_this_file, open_spool_file, queue_prefix, spool_name_part,
 };
+pub use registry_reads::{RegistryReadStats, RegistryReadsSnapshot};
 pub(crate) use write_path::writer_took_registry_lock;
 pub use write_path::{WritePathSnapshot, WritePathStats};
 
@@ -884,6 +886,9 @@ pub struct ServerStatsSnapshot {
     /// Present only when the request names `journal_followers` in `include`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub journal_followers: Option<crate::mux::JournalFollowersSnapshot>,
+    /// Present only when the request names `registry_reads` in `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub registry_reads: Option<RegistryReadsSnapshot>,
 }
 
 pub const SERVER_STATS_SCHEMA: u32 = 1;
