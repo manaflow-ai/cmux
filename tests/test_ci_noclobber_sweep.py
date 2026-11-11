@@ -217,6 +217,19 @@ def scratch_hits(files) -> set[str]:
         return {h[0] for h in hits(Path(tmp))}
 
 
+def mktemp_names() -> set[str]:
+    """The names in /tmp (and $TMPDIR) owned by this user that mktemp's default template (tmp.XXXXXXXXXX) makes."""
+    out = set()
+    for folder in {"/tmp", os.environ.get("TMPDIR") or "/tmp"}:
+        try:
+            with os.scandir(folder) as entries:
+                out |= {e.path for e in entries if re.fullmatch(r"tmp\.[A-Za-z0-9]{10}", e.name)
+                        and e.stat(follow_symlinks=False).st_uid == os.getuid()}
+        except OSError:
+            continue
+    return out
+
+
 class NoclobberSweep(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -311,6 +324,7 @@ class NoclobberSweep(unittest.TestCase):
         and called unsafe by the corpus. The other way round is the sweep's design: it flags a guessable name outside a
         template even where bash never writes it (an echo, an array's words, a function never called)."""
         corpus = shell_tree.corpus()
+        before = mktemp_names()
         lines = [c for c, wrote in zip(corpus, shell_tree.bash_verdicts([line for line, _ in corpus])) if wrote]
         self.assertEqual([line for line, unsafe in lines if not (unsafe and flagged(code(line)))], [],
                          "lines bash writes a guessable name with, which the tree passes or the corpus calls safe")
@@ -320,21 +334,76 @@ class NoclobberSweep(unittest.TestCase):
         self.assertEqual([p for p, _, unsafe in files if not (unsafe and p in found)], [],
                          "files bash writes a guessable name with, which hits() passes or FILES calls safe")
         self.assertGreater(len(lines), 300)
+        # teamleaderleo/leo-workspace#4368 review at cfd7897e, F4: env -i mktemp found the real mktemp on the default
+        # PATH and made its name in the real temp folder. No fixture may reach it.
+        self.assertEqual(sorted(mktemp_names() - before), [], "a fixture's mktemp made a name in the real temp folder")
 
     def test_an_allowance_approves_only_its_own_hit(self):
         """Review of manaflow-ai/cmuxterm-hq#9370, F2: an allowance approved its whole line, so an unsafe name on the
         line of an approved one passed. Each hit is matched with its own entry, by its own text."""
         line = 'ssh host "mktemp -d /tmp/$NAME-XXXXXX" && printf s > /tmp/out.$$'
+        # manaflow-ai/cmux#41336 review at c1c62c86, F1: matched by text, the template's allowance also approved a
+        # second hit with the same text; an allowance approves only the hit at an offset inside its piece.
+        same = 'ssh host "mktemp -d /tmp/$NAME-XXXXXX" && printf secret > /tmp/$NAME-unsafe'
         allowlist = {("scripts/a.sh", '"mktemp -d /tmp/$NAME-XXXXXX"'): "made on the host by mktemp"}
         with tempfile.TemporaryDirectory() as tmp:
             env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
             subprocess.run(["git", "init", "-q", tmp], check=True, env=env)
             (Path(tmp) / "scripts").mkdir()
-            (Path(tmp) / "scripts/a.sh").write_text(line + "\n")
+            (Path(tmp) / "scripts/a.sh").write_text(line + "\n" + same + "\n")
             subprocess.run(["git", "-C", tmp, "add", "-A"], check=True, env=env)
             found = hits(Path(tmp))
-        self.assertEqual(len(unapproved(found, allowlist)), 1, found)
-        self.assertEqual(len(unapproved(found, {})), 2, found)
+        left = unapproved(found, allowlist)
+        self.assertEqual([h.split(":")[1] for h in left], ["1", "2"], found)
+        self.assertEqual(len(unapproved(found, {})), 4, found)
+
+    def test_bash_runs_within_a_fixed_process_count(self):
+        """Review of manaflow-ai/cmuxterm-hq#9395 at 064f2c7c: bash holds one live process per level of nested
+        substitutions, so _deep(200) wants 200 at once, and a host near its process limit makes bash's fork retry and
+        back off past the time budget. A fixture over MAX_BASH_PROCESSES is never run by bash (the tree alone reads
+        it); the rest run with each one's process count bounded, and the count grows by one per level."""
+        stats = {}
+        self.assertIsNone(shell_tree.bash_writes(shell_tree._deep(200), stats=stats))
+        self.assertEqual(stats, {"runs": 0, "peak": 0})
+        self.assertTrue(flagged(code(shell_tree._deep(200))), "the tree flags what bash is never asked about")
+        self.assertLessEqual(shell_tree.bash_processes(shell_tree._deep(shell_tree.MAX_DEPTH)),
+                             shell_tree.MAX_BASH_PROCESSES)
+        if not os.path.exists("/proc/self/stat"):
+            self.skipTest("counting a session's processes reads /proc")
+        peaks = {}
+        for depth in (8, shell_tree.MAX_DEPTH):
+            stats = {}
+            self.assertFalse(shell_tree.bash_writes(shell_tree._deep(depth), timeout=5, stats=stats))
+            self.assertEqual(stats["runs"], 1)
+            self.assertLessEqual(stats["peak"], shell_tree.bash_processes(shell_tree._deep(depth)))
+            peaks[depth] = stats["peak"]
+        self.assertEqual(peaks[shell_tree.MAX_DEPTH] - peaks[8], shell_tree.MAX_DEPTH - 8, peaks)
+
+    def test_a_bash_past_its_time_is_killed_with_its_group_and_named(self):
+        """Review of manaflow-ai/cmuxterm-hq#9395 at 064f2c7c: TimeoutExpired escaped bash_writes(). Past its time
+        the whole process group bash started is killed, and the error names the fixture."""
+        text = "(while :; do :; done) & while :; do :; done"
+        with self.assertRaises(shell_tree.BashTimeout) as raised:
+            shell_tree.bash_writes(text, timeout=0.5)
+        self.assertIn(text, str(raised.exception))
+        group = raised.exception.pgid
+        alive = []
+        for stat in Path("/proc").glob("[0-9]*/stat") if os.path.exists("/proc/self/stat") else ():
+            try:
+                fields = stat.read_text().rsplit(") ", 1)[1].split()
+            except (OSError, IndexError):
+                continue
+            if int(fields[2]) == group and fields[0] != "Z":
+                alive.append(stat.parent.name)
+        self.assertEqual(alive, [], "processes of the killed group still run")
+
+    def test_a_quoted_env_split_shebang_is_shell(self):
+        """Review of manaflow-ai/cmux#41336 at c1c62c86, F2: `#!/usr/bin/env -S 'bash' -e` read as another program,
+        so the here-document's substitution was missed. env's -S string is split as env splits it, quotes included."""
+        body = "\ncat <<EOF\n# $(printf s > /tmp/out.$$)\nEOF\n"
+        files = [("scripts/q", "#!/usr/bin/env -S 'bash' -e" + body, True),
+                 ("scripts/qq", '#!/usr/bin/env -S "bash" -e' + body, True)]
+        self.assertEqual(scratch_hits(files), {"scripts/q", "scripts/qq"})
 
     def test_shell_tree_is_the_shared_copy(self):
         """shell_tree.py is one file in four repos (its docstring); a change to it lands in all four, with this pin."""
