@@ -13,6 +13,7 @@ Behaviour per prompt text:
   "deaf-to-cancel" -> streams "running", ignores session/cancel, answers end_turn after 20 s
   "cancel-ends-turn" -> streams "running", then answers session/cancel with end_turn, not cancelled
   "cancel-errors" -> streams "running", then answers session/cancel with an error
+  "cancel-dies" -> streams "running", then dies by SIGKILL on session/cancel with no answer
   "works-through-cancel" -> a tool call every 100 ms, titled "step N pid P", through every
                  session/cancel; answers end_turn after 60 s
   "stuck-loop" -> three identical failed cargo test calls, then a ready marker while the
@@ -1470,6 +1471,17 @@ def handle_prompt(rid, params):
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         time.sleep(0.3)
         os._exit(0)
+    # "cancel-dies" streams "running" and, on session/cancel, dies by SIGKILL without answering:
+    # a harness ended by a signal right after Stop (manaflow-ai/cmux#40960, Claude Code inside a
+    # long foreground build). Bounded at 30 s.
+    if text == "cancel-dies":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "running"}})
+        for _ in range(600):
+            if sid in cancelled:
+                os.kill(os.getpid(), 9)
+            time.sleep(0.05)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "until-cancel-then-exit" is "until-cancel", then the agent exits between
     # turns: a chat whose process is gone with no answer.
     if text == "until-cancel-then-exit":

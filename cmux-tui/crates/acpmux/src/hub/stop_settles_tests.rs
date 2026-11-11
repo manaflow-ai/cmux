@@ -368,3 +368,72 @@ async fn a_failed_turn_holds_the_persons_prompt_for_resume_only_after_its_retrie
     assert_eq!(paused.msg["held"], json!(["p-mine"]), "{:?}", paused.msg);
     assert!(s.queue_paused());
 }
+
+/// manaflow-ai/cmux#40960: a Stop during a long foreground tool, and the agent's process dies by
+/// a signal right after the interrupt, before it answers. The process exit is the Stop's: the
+/// turn ends stopped (with Continue), not as a crash with "agent process closed" and a Retry; the
+/// queue is not held as after a failure; and the agent starts again on the same conversation,
+/// so the chat is ready, not disconnected, and the next prompt runs.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_stop_its_agent_dies_on_ends_the_turn_stopped_and_starts_the_agent_again() {
+    let (hub, s) = chat(false).await;
+    let run = prompt(&hub, &s, "cancel-dies");
+    record(&hub, &s, "", "agent_message_chunk", |m| {
+        m["params"]["update"]["content"]["text"] == "running"
+    })
+    .await;
+    let first_pid = s.child.lock().await.as_ref().and_then(|c| c.pid);
+    hub.cancel(&s).await.unwrap();
+    let answer = tokio::time::timeout(WAIT, run).await.expect("the prompt answers").unwrap();
+    record(&hub, &s, "mux", "exited", |_| true).await;
+    let result = record(&hub, &s, "mux", "turn_result", |_| true).await;
+    assert_eq!(result.msg["status"], "cancelled", "{:?}", result.msg);
+    let events = hub.events(&s.id, 0, 100_000).unwrap();
+    assert!(
+        !events.iter().any(|e| e.kind == "turn_error"),
+        "the Stop's turn ended as a crash: {:?}",
+        events.iter().find(|e| e.kind == "turn_error").map(|e| &e.msg)
+    );
+    assert!(!events.iter().any(|e| e.kind == "queue_paused"), "the Stop's turn held the queue");
+    assert!(
+        !events.iter().any(|e| e.kind == "auto_resume_scheduled"),
+        "the Stop's turn was scheduled for a retry"
+    );
+    assert_eq!(s.meta().last_turn.as_ref().map(|t| t["status"].clone()), Some(json!("cancelled")));
+    // The caller still hears why the process ended, as for any stopped turn that failed.
+    let _ = answer;
+    // The agent the exit took starts again on the same conversation: the chat is not left
+    // disconnected waiting for a Retry.
+    record(&hub, &s, "mux", "stop_restarted", |_| true).await;
+    until("the agent runs again", || {
+        s.child.try_lock().ok().and_then(|c| c.as_ref().and_then(|c| c.pid)).is_some()
+    })
+    .await;
+    let second_pid = s.child.lock().await.as_ref().and_then(|c| c.pid);
+    assert_ne!(first_pid, second_pid, "the dead agent is still the chat's");
+    assert_ne!(state(&hub, &s), "disconnected");
+    let next = prompt(&hub, &s, "hello after the stop");
+    let next = tokio::time::timeout(WAIT, next).await.unwrap().unwrap().unwrap();
+    assert_eq!(next["stopReason"], "end_turn", "{next:?}");
+}
+
+/// The same exit when no Stop came is still a crash: the turn fails with the agent's exit, so
+/// the fix above does not hide a real crash.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_agent_that_dies_without_a_stop_still_fails_its_turn() {
+    let (hub, s) = chat(false).await;
+    let run = prompt(&hub, &s, "cancel-dies");
+    record(&hub, &s, "", "agent_message_chunk", |m| {
+        m["params"]["update"]["content"]["text"] == "running"
+    })
+    .await;
+    let pid = s.child.lock().await.as_ref().and_then(|c| c.pid).expect("the agent's pid");
+    // SAFETY: kill only sends a signal; the pid is this test's own stand-in agent.
+    unsafe { libc::kill(pid as i32, libc::SIGKILL) };
+    let answer = tokio::time::timeout(WAIT, run).await.expect("the prompt answers").unwrap();
+    assert!(answer.is_err(), "{answer:?}");
+    let result = record(&hub, &s, "mux", "turn_result", |_| true).await;
+    assert_eq!(result.msg["status"], "failed", "{:?}", result.msg);
+    record(&hub, &s, "mux", "turn_error", |_| true).await;
+}
