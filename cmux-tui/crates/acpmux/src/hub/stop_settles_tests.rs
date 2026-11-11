@@ -437,3 +437,27 @@ async fn an_agent_that_dies_without_a_stop_still_fails_its_turn() {
     assert_eq!(result.msg["status"], "failed", "{:?}", result.msg);
     record(&hub, &s, "mux", "turn_error", |_| true).await;
 }
+
+/// A chat closed while its turn runs (`session/close`, `kill`): acpmux sends the cancel and then
+/// ends the agent's process itself, so the turn ends stopped, not as "agent process closed" with a
+/// Retry (manaflow-ai/cmux#40960: the exit came 0.5 s after the interrupt, then the chat read
+/// closed).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_chat_closed_under_its_turn_ends_the_turn_stopped() {
+    let (hub, s) = chat(false).await;
+    let run = prompt(&hub, &s, "deaf-to-cancel");
+    record(&hub, &s, "", "agent_message_chunk", |m| {
+        m["params"]["update"]["content"]["text"] == "running"
+    })
+    .await;
+    hub.kill(&s, false).await.unwrap();
+    let _ = tokio::time::timeout(WAIT, run).await.expect("the prompt answers").unwrap();
+    let result = record(&hub, &s, "mux", "turn_result", |_| true).await;
+    assert_eq!(result.msg["status"], "cancelled", "{:?}", result.msg);
+    let events = hub.events(&s.id, 0, 100_000).unwrap();
+    assert!(
+        !events.iter().any(|e| e.kind == "turn_error"),
+        "the closed chat's turn ended as a crash: {:?}",
+        events.iter().find(|e| e.kind == "turn_error").map(|e| &e.msg)
+    );
+}
