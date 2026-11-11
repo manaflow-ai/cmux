@@ -2534,7 +2534,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // a still goes back to the composer as an image; a recording goes in here as a video link chip.
   // Either goes only to the chat the capture started in.
   const captureChat = useRef(snapshot.sessionId);
-  captureChat.current = snapshot.sessionId;
+  useLayoutEffect(() => {
+    captureChat.current = snapshot.sessionId;
+  }, [snapshot.sessionId]);
   const captureScreen = useCallback(async (mode: CaptureMode) => {
     const taken = await takeCapture(mode, callNative, () => captureChat.current);
     if (taken?.kind === "recording") composerHandle.current?.attach(taken.attachment);
@@ -11988,7 +11990,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             onPlusCommand={runPlusSearch}
             capture={captureScreen}
             // A recording goes by its path on this Mac: only a chat here can read it (as Sources' + below).
-            canRecord={localCwd !== undefined && !quick && !readOnlySubagent}
+            canRecord={
+              localCwd !== undefined &&
+              !quick &&
+              !readOnlySubagent &&
+              chatOnThisMac(snapshot.summary, snapshot.peerKinds, chatPlace(snapshot))
+            }
             upload={uploadFiles}
             // A chat on this Mac (as Sources' + below); the host refuses any other.
             localPaths={localCwd !== undefined && !quick && !readOnlySubagent ? localPaths : undefined}
