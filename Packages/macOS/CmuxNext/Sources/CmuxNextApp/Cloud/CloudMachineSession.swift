@@ -460,10 +460,10 @@ final class CloudMachineSession {
         daemon.shutdownConnection()
         let previous = linkTransition
         let appLink = appLink
-        // task-owner: reversible teardown; resume waits for this hop
+        // task-owner: reversible teardown (the serve stops, so nothing wakes the machine); resume waits for this hop
         linkTransition = Task {
             await previous?.value
-            await appLink.end(reason: "paused")
+            await appLink.park(reason: "paused")
         }
     }
 }

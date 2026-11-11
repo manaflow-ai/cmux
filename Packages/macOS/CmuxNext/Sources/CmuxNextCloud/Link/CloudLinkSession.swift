@@ -237,6 +237,15 @@ public actor CloudLinkSession {
         state = .ended(.disconnected(reason: reason))
     }
 
+    /// Ends the link and stops the machine's `carrier serve` child, keeping the link reusable (the machine
+    /// paused). A child left running keeps resuming its relay session on its cached ticket, which never asks
+    /// the platform, and that traffic wakes a VM its person paused. The next connect starts a fresh child,
+    /// whose first dial the platform judges (a person's pause refuses it).
+    public func park(reason: String) async {
+        end(reason: reason)
+        await resolver.close(key)
+    }
+
     /// Ends the link for good and asks the app server to close it.
     /// The machine's carrier socket for the Cloud app server (``CloudLinkResolver/carrierSocket(_:)``): it
     /// neither connects nor ends this link.
