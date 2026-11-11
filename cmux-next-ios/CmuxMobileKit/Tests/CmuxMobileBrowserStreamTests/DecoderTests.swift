@@ -130,4 +130,22 @@ import VideoToolbox
         #expect(shown == [0, 2])
         #expect(collected.lock.withLock { collected.keyframeRequests } == 1)
     }
+
+    /// The same crash end to end: a decoder whose clock went to 0 shows the
+    /// frame instead of trapping.
+    @Test(.timeLimit(.minutes(1))) func aFrameDecodedAfterTheClockIsGoneStillShows() async throws {
+        let units = try Self.encode(frames: 1, width: 320, height: 240)
+        try #require(units.count == 1)
+        let decoder = BrowserVideoDecoder()
+        decoder.now = { 0 }
+        let collected = Collected()
+        decoder.shown = { shown in collected.lock.withLock { collected.shown.append(shown) } }
+        decoder.submit(frame: 0, accessUnit: units[0], keyframe: true, receivedMicros: 9_000_000, ageMicros: 40_000)
+        for _ in 0..<200 where collected.lock.withLock({ collected.shown.count }) < 1 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let shown = collected.lock.withLock { collected.shown }
+        #expect(shown.map(\.frame) == [0])
+        #expect(shown.first?.latencyMicros == nil)
+    }
 }
