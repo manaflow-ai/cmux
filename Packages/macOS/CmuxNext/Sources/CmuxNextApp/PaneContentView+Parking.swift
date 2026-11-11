@@ -45,7 +45,6 @@ extension PaneContentView {
     /// Puts `view` on screen as the pane's content: unhides it when it is parked here, else adds it (also from another
     /// pane, a moved tab). `leaving`, retired right after, does not count as content above it.
     func install(_ view: NSView, replacing leaving: NSView? = nil) {
-        // In a key resize's hold too: what it shows takes the pane's size in each frame (`PaneContentAreaView`).
         guard view.superview === contentHost else {
             view.frame = contentHost.contentBounds(for: view)
             view.autoresizingMask = [.width, .height]
@@ -56,9 +55,10 @@ extension PaneContentView {
             return
         }
         parked.removeAll { $0.view == nil || $0.view === view }
-        if let frame = parkedFrame(of: view), view.frame == frame && frame != contentHost.bounds {
+        if let frame = parkedFrame(of: view), frame != contentHost.bounds, view.frame == frame || contentHost.isHolding {
             // A chat parked at the size it shows at (`layoutParked`) keeps it: the pane's next layout moves the host under the
             // tab row and puts the chat at its origin, same size (sized to the host first, its page jumped as it showed).
+            if view.frame != frame { view.frame = frame } // parked through a key hold (`layoutParked` waits for its end): one size, the one it shows at
             view.autoresizingMask = []
             needsLayout = true
         } else {

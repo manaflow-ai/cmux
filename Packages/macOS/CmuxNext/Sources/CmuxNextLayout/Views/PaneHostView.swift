@@ -144,8 +144,9 @@ final class PaneHostView: NSView, RestingPlacement {
         guard holdsUntilAfterLanding else { return }
         guard isOnLayoutSpring else { return releaseHeldContent() }
         (holdsUntilAfterLanding, heldPin) = (false, nil)
-        // The held size, not the content's frame: with only its area held (FRAME OWNER S1) the content is already at the pane's size.
-        heldContentSize = holdsContentInMotion() ? heldContentSize ?? content.frame.size : nil
+        // The content's size now: it followed its pane in each frame of the key hold (content held whole is still at the
+        // hold's size), so the takeover lays it out once, at the structural spring's rest, never first at the key hold's start.
+        heldContentSize = holdsContentInMotion() ? content.frame.size : nil
         // The structural spring starts here without a new spring flag: held content keeps the key hold's size until that
         // spring's rest reaches it (`announceRest`), then lays out at that rest, as any spring's start does.
         heldTakesNextRest = heldContentSize != nil

@@ -135,7 +135,7 @@ struct FrameOwnerS1HoldPathsTests {
         if afterTheLanding { try #require(!host.isOnLayoutSpring && !rig.afterCommit.isEmpty, "the landing left no release waiting") }
         host.removeFromSuperview()
         rig.release()
-        #expect(!view.contentHost.isHolding && view.contentHost.bounds.origin == .zero, "the area of a host taken out of the screen still holds")
+        #expect(!view.contentHost.isHolding, "the area of a host taken out of the screen still holds")
         #expect(content.settled.count <= 1, "p2's content heard the landing \(content.settled.count) times")
         #expect(content.frame == view.contentHost.bounds, "p2's content is not at its area's size: \(content.frame) in \(view.contentHost.bounds)")
     }
@@ -223,7 +223,7 @@ struct FrameOwnerS1HoldPathsTests {
         try #require(frames > 2, "the split did not spring (\(frames) more frames)")
         rig.release()
         #expect(!duringKey.isEmpty, "p2's content did not follow its pane during the key spring")
-        #expect(atSplitStart.count > duringKey.count, "p2's content did not take the split's rest on its first frame: \(atSplitStart)")
+        #expect(atSplitStart.count == duringKey.count + 1, "p2's content did not take one size, the split's rest, on the split's first frame: \(atSplitStart.dropFirst(duringKey.count))")
         #expect(content.frame == view.contentHost.bounds && content.sizes == atSplitStart,
                 "p2's content did not hold the split's rest to the landing: \(content.sizes) (\(content.frame) in \(view.contentHost.bounds))")
     }

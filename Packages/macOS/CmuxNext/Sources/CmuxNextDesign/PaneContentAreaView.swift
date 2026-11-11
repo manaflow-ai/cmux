@@ -66,9 +66,14 @@ public final class PaneContentAreaView: NSView {
         return CGRect(origin: .zero, size: heldSize)
     }
 
-    /// Whether the area gives `view` its frame in every frame of this hold (a container handed the hold): its owner
-    /// leaves that frame alone until the hold ends.
-    public func placesInHold(_ view: NSView) -> Bool { handed.contains(ObjectIdentifier(view)) }
+    /// Whether the area gives `view` its frame in every frame of this hold (a container handed the hold, or one shown
+    /// now that the area hands in this layout pass, ``followerDidShow()``): its owner leaves that frame alone until the
+    /// hold ends, so the container hears the hold before its first layout at the pane's size.
+    public func placesInHold(_ view: NSView) -> Bool {
+        if handed.contains(ObjectIdentifier(view)) { return true }
+        guard heldSize != nil, let follower = view as? any PaneMotionHoldFollowing else { return false }
+        return follows(follower)
+    }
 
     /// The containers handed this hold (``PaneMotionHoldFollowing``), which the area places until it ends: one shown or
     /// added during the hold hears it in its first frame; one whose producer stops holding (a page whose DevTools docked)
