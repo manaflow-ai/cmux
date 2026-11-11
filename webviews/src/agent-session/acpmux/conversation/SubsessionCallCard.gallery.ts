@@ -309,6 +309,9 @@ export default agentPaneEntry({
           user(prompt, 6),
           activity([started("tests", "sub-tests"), started("docs", "sub-docs"), started("lint", "sub-lint")], 5.8),
           assistant("Started three sub-sessions; I'll collect their reports.", 5.5),
+          // The stretch that started them ended while the chat works on: under the shipped
+          // live-turn-work `line` a stretch still running draws no call (turns.ts `codexRuns`).
+          summary(5.5, { status: "completed", toolCount: 3 }),
         ],
         { isWorking: true },
       ),

@@ -10,7 +10,7 @@
 // (transcript-interim-prose-gap.test.ts).
 import { agentPaneEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
-import { activity, chat, tool, user } from "../../../gallery/fixtures/acpmux";
+import { activity, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxActivity } from "../model";
 
 const command = (title: string, line: string) =>
@@ -34,6 +34,10 @@ const rows = [
     ],
     9.9,
   ),
+  // The run's stretch ended with its summary while the chat works on: under the shipped
+  // live-turn-work `line` a stretch still running draws none of its runs, only the live line, so the
+  // notes sit between drawn rows once their stretch ended (turns.ts `codexRuns`).
+  summary(9.8, { status: "completed", durationMs: 12_000, toolCount: 4 }),
 ];
 
 const snapshot = chat(rows, { title: "Retry fix", isWorking: true });

@@ -359,8 +359,10 @@ const SHELL_LONG_LOG = Array.from({ length: 6 }, (_, index) => shellLogLine(inde
 /// A log past the eight-line preview, every line wider than the column.
 const SHELL_LONG_LOG_CUT = Array.from({ length: 14 }, (_, index) => shellLogLine(index)).join("\n");
 
-/// A command still running, its output streaming in, in its own row: the turn went on past it
-/// (a lone running call reads only on the turn's live line).
+/// A command still running, its output streaming in, in its own row: its stretch ended with its
+/// summary while it ran on, and the turn went on past it (a lone running call reads only on the
+/// turn's live line, and under the shipped live-turn-work `line` the stretch still running draws no
+/// run, so the command is in sight only from a stretch that ended: turns.ts `codexRuns`).
 const liveShellRows = (id: string, output: string) => [
   user("Follow the retry log", 1, { id: `${id}-user` }),
   activity(
@@ -374,6 +376,7 @@ const liveShellRows = (id: string, output: string) => [
     0.8,
     { id: `${id}-activity` },
   ),
+  summary(0.7, { id: `${id}-summary`, status: "completed", durationMs: 6_000, toolCount: 1 }),
   activity([tool("Read retryPolicy.ts", "read", "in_progress")], 0.5, { id: `${id}-read` }),
 ];
 
@@ -600,8 +603,11 @@ const longChatRows = Array.from({ length: 24 }, (_, index) => {
   ];
 }).flat();
 
-/// A thought of a few lines, and a live turn whose step holds `items` and a call, then `after` and a
-/// second call (ThoughtRow.tsx, thoughts.ts).
+/// A thought of a few lines, and a step that holds `items` and a call, then `after` and a second
+/// call (ThoughtRow.tsx, thoughts.ts). The chat still works, but the step's stretch already ended
+/// with its summary: under the shipped live-turn-work `line` a running stretch draws none of its
+/// finished work, only the live line, so a finished thought's row shows once its stretch ended
+/// (turns.ts `codexRuns`, liveTurnWork.experiment.ts).
 const SHORT_THOUGHT =
   "Check how the helper parses errors first.\n\nThe retry wrapper in src/net/client.ts swallows the status code, so a 429 looks like a network failure.\n\nRetry only on 429 and 5xx, with jittered backoff capped at three attempts.";
 const thoughtChat = (items: AcpmuxActivity[], after: AcpmuxActivity[] = []) =>
@@ -619,6 +625,7 @@ const thoughtChat = (items: AcpmuxActivity[], after: AcpmuxActivity[] = []) =>
         ],
         1.5,
       ),
+      summary(1.4, { status: "completed", durationMs: 14_000, toolCount: after.length ? 2 : 1 }),
     ],
     { isWorking: true },
   );
@@ -1113,6 +1120,10 @@ const collapsedRunChat = (extra: AcpmuxActivity[] = []) =>
         "The helper is in and the client uses it. Next I check that nothing else in src/net already retries, so a failing request never backs off twice.",
         3,
       ),
+      // The stretch above ended with its summary: under the shipped live-turn-work `line` only an
+      // ended stretch draws its runs while the chat works (turns.ts `codexRuns`); the work after it
+      // is the live line's.
+      summary(2.9, { status: "completed", durationMs: 66_000, toolCount: 6 }),
       activity(
         [
           shellTool("rg -n retry src/net"),
@@ -2494,6 +2505,9 @@ export default agentPaneEntry({
             1.7,
           ),
           activity([shellTool("cd ~/wt/lanes/sidebar-drag && git status --short && git log --oneline -3")], 1.6),
+          // The stretch ended with its summary while the chat works on: under the shipped
+          // live-turn-work `line` only an ended stretch draws its calls (turns.ts `codexRuns`).
+          summary(1.5, { status: "completed", durationMs: 30_000, toolCount: 4 }),
         ],
         { isWorking: true },
       ),
@@ -2799,17 +2813,20 @@ export default agentPaneEntry({
       height: 1100,
       snapshot: chat(
         // The reply under the calls keeps every call a row: with nothing after it, the live line
-        // would hold the last finished call instead.
+        // would hold the last finished call instead. The stretch ended with its summary while the
+        // chat works on: under the shipped live-turn-work `line` only an ended stretch draws its
+        // calls (turns.ts `codexRuns`).
         [
           user("Stop the watcher, check the issues and run the tests.", 1),
           activity(ENVELOPE_TOOLS, 0.8),
           assistant("The watcher is stopped and the tests pass.", 0.5),
+          summary(0.5, { status: "completed", durationMs: 30_000, toolCount: ENVELOPE_TOOLS.length }),
         ],
         { isWorking: true },
       ),
       play: async (ctx) => {
-        // A running turn keeps its calls in sight (cmux#38339); a run folded to its line opens to
-        // them. Each call is then opened in turn.
+        // The ended stretch keeps its calls in sight while the chat works; a run folded to its line
+        // opens to them. Each call is then opened in turn.
         await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-tool.is-toggle")));
         const closed = '.cv-tool.is-toggle[aria-expanded="false"]';
         if (ctx.document.querySelectorAll(closed).length < ENVELOPE_TOOLS.length) await openFoldedRun(ctx);
