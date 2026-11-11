@@ -150,7 +150,7 @@ impl LocalStore {
             let tmp = write.then(|| path.with_extension("ndjson.compact"));
             let mut out = match &tmp {
                 Some(tmp) => {
-                    let _ = std::fs::remove_file(tmp);
+                    let _ = crate::home_fs::remove_file(tmp);
                     let file = open_private_append(tmp)?;
                     Some(std::io::BufWriter::with_capacity(256 * 1024, file))
                 }

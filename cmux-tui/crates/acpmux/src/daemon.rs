@@ -535,7 +535,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             for (from, to) in
                 [(journal, "outbox.journal.clone-boot"), (path, "outbox.json.clone-boot")]
             {
-                if let Err(e) = std::fs::rename(&from, home().join(to))
+                if let Err(e) = crate::home_fs::rename(&from, home().join(to))
                     && e.kind() != std::io::ErrorKind::NotFound
                 {
                     tracing::warn!("copied machine's outbox not set aside: {e}");
@@ -1052,7 +1052,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if bound_socket.as_ref().map_or(!cfg!(unix), |s| s.lost().is_none()) {
         // The home watch runs on through the shutdown: this removal is not a loss.
         home_watch::release_socket();
-        let _ = std::fs::remove_file(socket_path());
+        let _ = crate::home_fs::remove_file(socket_path());
     }
     // How many hosted agents this shutdown kept running for the next
     // daemon; unknown (a timeout) counts as kept.
@@ -1093,9 +1093,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     recheck_home();
     if !crate::config::home_lost() {
-        let _ = std::fs::remove_file(home().join("daemon.pid"));
+        let _ = crate::home_fs::remove_file(home().join("daemon.pid"));
         for file in [local_app_file, peer_file, carrier_file].into_iter().flatten() {
-            let _ = std::fs::remove_file(file);
+            let _ = crate::home_fs::remove_file(file);
         }
     }
     tracing::info!("stopped");
@@ -1106,7 +1106,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
 /// daemon bound: one replaced since is another daemon's. Off Unix there is no identity to read.
 fn remove_bound_socket(bound: Option<&home_watch::Owned>) {
     if bound.map_or(!cfg!(unix), |s| s.lost().is_none()) {
-        let _ = std::fs::remove_file(socket_path());
+        let _ = crate::home_fs::remove_file(socket_path());
     }
 }
 
@@ -1151,7 +1151,7 @@ fn narrow_to_owner(path: &std::path::Path) {
     let mode = meta.permissions().mode();
     if mode & 0o077 != 0
         && let Err(e) =
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode & 0o700))
+            crate::home_fs::set_permissions(path, std::fs::Permissions::from_mode(mode & 0o700))
     {
         tracing::warn!("could not make {} owner-only: {e}", path.display());
     }

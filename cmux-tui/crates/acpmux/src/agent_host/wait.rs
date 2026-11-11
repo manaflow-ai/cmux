@@ -194,7 +194,7 @@ fn dead_now_in(dirs: &[PathBuf], session_id: &str, start_nonce: &str) -> bool {
     use std::os::fd::AsRawFd;
     for dir in dirs {
         let path = live_path(dir, session_id, start_nonce);
-        let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(&path) else {
+        let Ok(file) = crate::home_fs::OpenOptions::new().read(true).write(true).open(&path) else {
             continue;
         };
         // SAFETY: a non-blocking lock on a descriptor this function owns.

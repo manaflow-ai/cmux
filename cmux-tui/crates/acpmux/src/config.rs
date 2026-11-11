@@ -2135,7 +2135,8 @@ fn write_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> Result<()> {
         // A file a crashed process left under a reused pid is stale.
         let mut f = match crate::owner_only::create_new(tmp) {
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                std::fs::remove_file(tmp).with_context(|| format!("remove {}", tmp.display()))?;
+                crate::home_fs::remove_file(tmp)
+                    .with_context(|| format!("remove {}", tmp.display()))?;
                 crate::owner_only::create_new(tmp)
             }
             other => other,
