@@ -91,7 +91,7 @@ import Testing
     static func hex(_ color: ThemeRGB) -> String { ChromeLayerHex.hex(color) }
 
     /// Lets the window follow its theme and tunables (the sidebar observes them asynchronously).
-    static func settle(_ root: WindowRootView, until stable: () -> Bool) async {
+    static func settle(_ root: WindowRootView, until stable: @MainActor () -> Bool) async {
         for step in 0..<150 {
             try? await Task.sleep(for: .milliseconds(10))
             root.layoutSubtreeIfNeeded()
@@ -100,7 +100,7 @@ import Testing
     }
 
     /// Runs `body` in the app theme `name`, put back after.
-    static func inTheme<T>(_ name: String, _ body: () async throws -> T) async throws -> T {
+    static func inTheme<T>(_ name: String, _ body: @MainActor () async throws -> T) async throws -> T {
         let original = ThemeScope.app.store.input
         defer { _ = ThemeScope.app.store.apply(original) }
         _ = ThemeScope.app.store.apply(try AANestedGroupsGalleryTests.input(name))
@@ -112,16 +112,16 @@ import Testing
         if let dim { TunableStore.shared.set(dimKey, .number(dim)) }
         defer { if dim != nil { TunableStore.shared.set(dimKey, nil) } }
         return try await inTheme(theme.name) {
-            let (window, root) = openRoot(dark: theme.dark)
+            let (window, root) = Self.openRoot(dark: theme.dark)
             defer { window.close() }
-            let points = points(root)
-            func sample() -> [String: String] {
+            let spots = Self.points(root)
+            @MainActor func sample() -> [String: String] {
                 var row = ["theme": theme.name, "isDark": String(theme.dark)]
-                for region in regions { row[region] = hex(painted(at: points[region]!, in: root)) }
+                for region in Self.regions { row[region] = Self.hex(Self.painted(at: spots[region]!, in: root)) }
                 return row
             }
             var last = sample()
-            await settle(root) {
+            await Self.settle(root) {
                 let now = sample()
                 defer { last = now }
                 return now == last
