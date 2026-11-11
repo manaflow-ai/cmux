@@ -56,7 +56,7 @@ import Testing
         before.installingBuild = "200"
         before.updaterWillRelaunchApplication()
         let record = try #require(defaults.data(forKey: UpdateInstallCheck.key).flatMap { try? JSONDecoder().decode(UpdateInstallCheck.self, from: $0) })
-        #expect(record == UpdateInstallCheck(fromBuild: "100", targetBuild: "200", recordedAt: Self.start))
+        #expect(record == UpdateInstallCheck(fromBuild: "100", targetBuild: "200", recordedAt: Self.start, clicks: 0))
 
         // Sparkle put the old build back: the relaunch is still 100.
         let after = Self.updater(defaults: defaults, at: Self.start.addingTimeInterval(20))

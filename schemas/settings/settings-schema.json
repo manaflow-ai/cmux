@@ -8874,7 +8874,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.updates",
@@ -9593,7 +9593,7 @@
       },
       "help" : {
         "key" : "settings.updates.liveWebReload.help",
-        "text" : "The switch that lets cmux live start and Edit cmux Live… show your own checkout's web UI in this app: each saved edit shows at once, with no build and no relaunch. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with. cmux live start --swift is the Swift path (Labs > Live Code)."
+        "text" : "Edits to cmux's web UI from your own checkout show up in this app as you save, with no build and no relaunch. Start it with scripts/cmux-next/web-overlay.sh server --local. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with."
       },
       "kept_on_reset_all" : false,
       "key" : "updates.liveWebReload",
@@ -9605,9 +9605,7 @@
         "dev server",
         "overlay",
         "edit",
-        "web-dev",
-        "cmux live",
-        "live web reload"
+        "web-dev"
       ],
       "kind" : "toggle",
       "page_hidden" : false,
@@ -9708,7 +9706,7 @@
       },
       "title" : {
         "key" : "settings.updates.liveWebReload",
-        "text" : "cmux Live"
+        "text" : "Live Web Reload"
       },
       "validation" : "portable"
     },
