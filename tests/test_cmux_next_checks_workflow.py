@@ -12,6 +12,7 @@ so it can never mask the Swift god-type check.
 from __future__ import annotations
 
 import fnmatch
+import importlib.util
 import json
 import os
 import re
@@ -327,11 +328,13 @@ class AppFfiPinStepJudgesWithTheBaseCopy(unittest.TestCase):
         self.git("init", "-q", "-b", "base")
         self.commit("sources")
         self.pinned = self.rev("HEAD")
+        # The pin: app-ffi-pin.json, and Package.swift holding its one loader block (scripts/ci/app_ffi_pin.py).
+        spec = importlib.util.spec_from_file_location("app_ffi_pin", ROOT / "scripts/ci/app_ffi_pin.py")
+        pin = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(pin)
         (self.repo / "Packages/macOS/CmuxNext/Package.swift").write_text(
-            "let appFFI: Target = .binaryTarget(\n    name: \"CCmuxAppFFI\",\n"
-            f"    url: \"https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-{self.pinned}/"
-            "CCmuxAppFFI.xcframework.zip\",\n"
-            f"    checksum: \"{self.ZEROS}\"\n)\n")
+            "import Foundation\nimport PackageDescription\n\n" + pin.loader(self.ZEROS))
+        (self.repo / "Packages/macOS/CmuxNext/app-ffi-pin.json").write_text(pin.render(self.pinned, self.ZEROS))
         self.commit("pin")
         # The pull request changes an FFI source and not the pin: its own stale pin, red on the base's check.
         self.git("checkout", "-q", "-b", "pr")
@@ -386,10 +389,10 @@ class AppFfiPinStepJudgesWithTheBaseCopy(unittest.TestCase):
 
     def test_ffi_inputs_rewritten_on_disk_do_not_count(self):
         # An earlier step's code deletes the FFI crate's Cargo.toml (no FFI inputs are left to compare) and repins
-        # Package.swift to the merge commit on disk. The pull request's commit still has both as they were.
+        # app-ffi-pin.json to the merge commit on disk. The pull request's commit still has both as they were.
         (self.repo / "cmux-tui/crates/cmux-app-ffi/Cargo.toml").unlink()
-        manifest = self.repo / "Packages/macOS/CmuxNext/Package.swift"
-        manifest.write_text(manifest.read_text().replace(self.pinned, self.merge))
+        pin_file = self.repo / "Packages/macOS/CmuxNext/app-ffi-pin.json"
+        pin_file.write_text(pin_file.read_text().replace(self.pinned, self.merge))
         self.assert_own_stale_pin(self.run_step())
 
     def planted_hook(self, directory: Path) -> None:

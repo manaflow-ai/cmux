@@ -464,11 +464,33 @@ class GitHub(_evidence.GitHub):
         """PATH's text in REPO at REF over GraphQL (`object(expression: "REF:PATH")`), never the contents API: an
         agent host's gh shim refuses `gh api repos/O/R/contents/...` as a source read that spends the shared REST
         quota (source_text). Refused when the object is missing, not a file, or binary."""
+        return self.blob_text(repo, ref, path, self.named_object(repo, f"{ref}:{path}"))
+
+    def blob_if_present(self, repo: str, ref: str, path: str) -> str | None:
+        """blob, or None only when GitHub answers that REF resolves in REPO and REF:PATH names nothing there. Every
+        other answer (a failed request, a ref GitHub does not resolve, a binary or truncated file) is Refused, never
+        taken for an absent file."""
+        found = self.named_object(repo, f"{ref}:{path}")
+        if found is None:
+            if self.named_object(repo, ref) is None:
+                raise Refused(f"{repo}@{ref}: GitHub resolves no such ref, so {path} is unread, not absent")
+            return None
+        return self.blob_text(repo, ref, path, found)
+
+    def named_object(self, repo: str, expression: str) -> dict | None:
+        """The object EXPRESSION names in REPO (BLOB_QUERY: a blob's fields, {} for a commit or tree), or None when
+        it names none. Refused when GitHub does not serve REPO or answers with errors."""
         owner, _, name = repo.partition("/")
         found = json.loads(self.run(["api", "graphql", "-f", f"query={BLOB_QUERY}", "-f", f"owner={owner}",
-                                     "-f", f"name={name}", "-f", f"expression={ref}:{path}"]))
+                                     "-f", f"name={name}", "-f", f"expression={expression}"]))
         repository = (found.get("data") or {}).get("repository") if isinstance(found, dict) else None
-        blob = repository.get("object") if isinstance(repository, dict) else None
+        if not isinstance(repository, dict) or found.get("errors"):
+            raise Refused(f"{repo}: GitHub did not serve {expression}")
+        named = repository.get("object")
+        return named if isinstance(named, dict) else None
+
+    @staticmethod
+    def blob_text(repo: str, ref: str, path: str, blob: dict | None) -> str:
         if not isinstance(blob, dict) or blob.get("isBinary") or not isinstance(blob.get("text"), str):
             raise Refused(f"{repo}@{ref}: {path} is not a text file GitHub served")
         if blob.get("isTruncated"):
@@ -569,8 +591,9 @@ def git_commit(repo: str, ref: str) -> str | None:
 
 
 @once_per_judgement("git")
-def git_text(repo: str, ref: str, path: str) -> str | None:
+def git_text(repo: str, ref: str, path: str, *, missing=None):
     """PATH's text in REPO at REF from git, or None when git cannot answer (no network, no credentials, no ref).
+    MISSING, when given, is returned instead when git fetched REF and its tree has no PATH: a definite absence.
 
     A bare repo per REPO (git_cache), fetched once per ref per judgement (git_commit), so a read costs one ref fetch
     and the one blob `git show` asks for, and no GitHub API quota at all."""
@@ -579,8 +602,16 @@ def git_text(repo: str, ref: str, path: str) -> str | None:
         return None
     try:
         git = git_cache(repo)
-        shown = git("show", f"{commit}:{path}") if git is not None else None
-        return shown.stdout.decode() if shown is not None and not shown.returncode else None
+        if git is None:
+            return None
+        shown = git("show", f"{commit}:{path}")
+        if shown.returncode:
+            if missing is not None:
+                listed = git("ls-tree", "--name-only", commit, "--", path)
+                if listed.returncode == 0 and not listed.stdout.strip():
+                    return missing
+            return None
+        return shown.stdout.decode()
     except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
         return None
 
@@ -596,9 +627,39 @@ def source_text(repo: str, ref: str, path: str, github) -> str:
     return github.blob(repo, ref, path)
 
 
+class _Absent:
+    """git_text's answer for a path its fetched tree definitely lacks. read_once hands each caller a deep copy, so the
+    marker copies to itself and stays comparable by identity."""
+
+    def __copy__(self):
+        return self
+
+    def __deepcopy__(self, memo):
+        return self
+
+
+ABSENT = _Absent()
+
+
+def source_text_if_present(repo: str, ref: str, path: str, github) -> str | None:
+    """source_text, or None only when PATH is definitely absent at REF: git fetched REF and its tree has no PATH, or
+    GitHub resolves REF and names nothing at PATH (GitHub.blob_if_present). Anything unread is Refused."""
+    text = git_text(repo, ref, path, missing=ABSENT)
+    if text is ABSENT:
+        return None
+    if text is not None:
+        return text
+    return github.blob_if_present(repo, ref, path)
+
+
 _spec = importlib.util.spec_from_file_location("test_reds", Path(__file__).with_name("test_reds.py"))
 test_reds = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(test_reds)
+# Which step of a job printed each line of its log (step_owners) and the log without its passing steps' lines
+# (failed_steps_log): one standard-library file, the source cmuxterm-hq and leo-workspace vendor whole.
+_spec = importlib.util.spec_from_file_location("failed_steps_log", Path(__file__).with_name("failed_steps_log.py"))
+steps_log = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(steps_log)
 
 SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
 # Rollups: jobs that only report other jobs' results, judged by those jobs, never by themselves. Only which
@@ -792,7 +853,7 @@ SUMMARY_FAILURE = re.compile(
     r"(?i)\b(?:changed|stale|missing|mismatch|not stamped|not found|out of date|invalid|unavailable|"
     r"cannot|could not|failure|failed|fail|does not match|not match)\b"
 )
-STAMP = re.compile(r"^\d{4}-\d\d-\d\dT[\d:.]+Z ?")
+STAMP = steps_log.STAMP
 # SwiftPM's line for a killed test helper, and the hang sampler's ::error lines for it.
 CRASH = re.compile(r"exited with unexpected signal code (\d+)|the test helper died on signal (\d+)")
 CRASH_LINE = re.compile(r"exited with unexpected signal code|the test helper died on signal|"
@@ -1165,311 +1226,15 @@ def normalise_error(text: str) -> str:
     return MARKER.sub(restore, said) if kept else said
 
 
-def lines_of(log: str) -> list[str]:
-    """The text of each `job<TAB>step<TAB>stamp text` line of `gh run view --log`."""
-    found = []
-    for line in log.replace("\ufeff", "").splitlines():  # a log section can open with a BOM; strip() keeps it
-        parts = line.split("\t", 2)
-        # `gh run view --log` prefixes each line with job and step columns.
-        # The job-log API does not; preserve tabs in raw command output.
-        text = parts[2] if len(parts) == 3 and STAMP.match(parts[2]) else line
-        found.append(ANSI.sub("", STAMP.sub("", text)).strip())
-    return found
-
-
-# The line the runner opens each step's section of a job log with, after "Set up job" (the log's first lines): `Run
-# <script's first line>` for a run: step, `Run owner/action@ref` for a uses: step (and a job hook's `Run '/setup.sh'`),
-# `Post job cleanup.` for a post step. "Complete job" opens with no such line.
-STEP_START = re.compile(r"^(?:##\[group\]Run |Post job cleanup\.$)")
-
-
-def _stamp_time(value) -> datetime | None:
-    try:
-        parsed = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
-    except (AttributeError, TypeError, ValueError):
-        return None
-    return parsed if parsed.tzinfo else None
-
-
-FAILED, ERRORED, PASSED, AMBIGUOUS = "failed", "errored", "passed", "ambiguous"
-# A live runner annotation: `##[error]` at the start of a line, outside the group in which the runner echoes the
-# step's script (the group its `##[group]Run ...` header opens, proven by step_owners; every other line is live). A
-# continue-on-error step that failed is a success to the jobs API, but its section still has its `##[error]` lines and
-# the runner's exit line, so it is ERRORED: shown, never base evidence. Text that only reads like one (`expected:
-# Process completed with exit code 1.` from a passing negative case) is not (#40542's fourth Codex BLOCK, F1).
-SECTION_RED = re.compile(r"^##\[error\]")
-# Past this many lines a log is not placed: every line is AMBIGUOUS (kept for a comment, never evidence for an excuse).
-STEP_OWNERS_MAX_LINES = 2_000_000
-
-
-class StepNamesUnknown:
-    """STEP_NAMES_UNKNOWN: what a caller of step_owners passes as STEP_NAMES when it cannot read which of the job's
-    steps its workflow names (workflow_step_names could not prove it). A choice made at the call site: step_owners and
-    every reader of it take STEP_NAMES as a required keyword, so no caller forgets the workflow (#40542's Codex F1 at
-    221c7e4d: next_batch's expand_job never read it, and a named "Run package tests (...)" step's red, the same on
-    the base, was keyed as new)."""
-    __slots__ = ()
-
-    def __repr__(self) -> str:
-        return "STEP_NAMES_UNKNOWN"
-
-
-STEP_NAMES_UNKNOWN = StepNamesUnknown()
-
-
-def step_owners(job: dict, log: str, *, step_names) -> list[tuple[str, int | None, str]]:
-    """Each line of LOG as (line, the index of the step of JOB that printed it or None, its status) when the log maps
-    one to one onto the steps that ran (the jobs API's steps[], by number, without skipped ones), AMBIGUOUS for every
-    line when it does not. The one owner of a line's step: failed_steps_log, signature, step_lines and every caller of
-    theirs read lines through it. A comment shows every line but PASSED ones; an excuse refuses a log with any
-    AMBIGUOUS line (judge, package_tests, quarantined_only) and takes a base's FAILED lines alone as evidence.
-
-    The runner opens every step's section with one STEP_START line ("Set up job", whose lines come first, and
-    "Complete job", which shares the last section, print none). A one-to-one mapping is never inferred from counts or
-    times alone: six reviews of cmux#40542, hq#8936 and LW#4177 found logs where they balance out (a composite action's
-    inner `Run` line or a step's own `::group::Run` line standing in for a silent step's missing one, and a
-    continue-on-error composite's diagnostic then dropped as a passing step's). The log is placed only when there is
-    exactly one STEP_START line per step and each one is that step's own header, by both of:
-    - its stamp falls within that step's [started_at, completed_at + 1s) and no other step's that can print one (the
-      metadata keeps whole seconds; "Set up job" and "Complete job" are the runner's and print none), so only that
-      step can have printed it;
-    - its text fits the step's name: an unnamed `run:` or `uses:` step's name is its header (`Run
-      actions/checkout@v6` opens with `##[group]Run actions/checkout@v6`), a post step (`Post ...`) opens with
-      `Post job cleanup.` and no other step does, and a named step's header (`Run <its script's first line>`) cannot
-      be read off its name. A name alone never proves a header is a step's: the workflow's author picks it, so a
-      silent step named like a composite's inner `Run` line would take that line (#40542's third Codex BLOCK).
-      Whether a step is unnamed is the workflow's to say, never its name's: STEP_NAMES (workflow_step_names, from the
-      workflow at the job's head) says True for a step with a `name:` (only its stamp places it, so "Run package
-      tests (...)" may open with `Run set -euo pipefail`, #40542's sixth Codex BLOCK) and False for one with none
-      (its header must be its name). A step it does not name is unproven: a name that starts with "Run " is then
-      taken for an unnamed step's, whose header must be it.
-    STEP_NAMES is workflow_step_names' answer, {step number: whether its workflow step has a `name:`}, or
-    STEP_NAMES_UNKNOWN; anything else is a TypeError.
-    Any composite action, silent step, extra header, mismatch or step with no times places nothing by that reading
-    (_one_to_one_starts). When STEP_NAMES carries the workflow's headers (StepNames), a log it does not place is read
-    a second way (_aligned_starts): every workflow step prints its own known header first, so a composite's inner
-    `Run` lines and steps sharing a second are placed when exactly one choice of own headers fits the headers and every
-    line's time; any other choice that fits places nothing. A placed section
-    is FAILED when the jobs API says its step did not succeed, ERRORED when its step succeeded but it has a live
-    SECTION_RED line outside its script's echo, else PASSED. The last section is "Complete job"'s too: when that failed
-    and the step before it succeeded, which of the two its lines belong to is not proven, so they are AMBIGUOUS
-    (#40542's fourth Codex BLOCK, F2)."""
-    if step_names is not STEP_NAMES_UNKNOWN and not isinstance(step_names, dict):
-        raise TypeError(f"step_names must be workflow_step_names' answer or STEP_NAMES_UNKNOWN, not {step_names!r}")
-    lines = log.splitlines()
-    unknown = [(line, None, AMBIGUOUS) for line in lines]
-    steps = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"]
-    if all(isinstance(step.get("number"), int) for step in steps):
-        steps.sort(key=lambda step: step["number"])
-    if len(steps) < 2 or len(lines) > STEP_OWNERS_MAX_LINES:
-        return unknown
-    texts = lines_of(log)
-    windows = []
-    for step in steps:
-        start, end = _stamp_time(step.get("started_at")), _stamp_time(step.get("completed_at"))
-        windows.append((start, end + timedelta(seconds=1)) if start is not None and end is not None and end >= start
-                       else None)
-    if None in windows:
-        return unknown
-    starts = _one_to_one_starts(steps, lines, texts, windows, step_names)
-    if starts is None:
-        starts = _aligned_starts(steps, lines, texts, windows, step_names)
-    if starts is None:
-        return unknown
-    bounds = [0, *starts, len(lines)]
-    found = []
-    for k in range(len(bounds) - 1):
-        section = range(bounds[k], bounds[k + 1])
-        if steps[k].get("conclusion") != "success":
-            status = FAILED
-        elif k == len(bounds) - 2 and steps[-1].get("conclusion") != "success":
-            status = AMBIGUOUS
-        else:
-            status = ERRORED if _live_red(texts, bounds[k], bounds[k + 1], opened=k > 0) else PASSED
-        found += [(lines[n], k, status) for n in section]
-    return found
-
-
-def _live_red(texts: list[str], low: int, high: int, *, opened: bool) -> bool:
-    """Whether the section TEXTS[LOW:HIGH] (OPENED: by its step's own header) has a live SECTION_RED line. Every line
-    is live but the runner's echo of the step's script and env: the group its own `##[group]Run ...` header opens, up
-    to its `##[endgroup]` with no other group opened before it. A post step's `Post job cleanup.`, a group that is not
-    the header's, or a header group with no end skips nothing (#40542's fifth Codex BLOCK: a post step's own
-    `##[group]` hid its `##[error]` line)."""
-    live = low
-    if opened and texts[low].startswith("##[group]Run "):
-        for n in range(low + 1, high):
-            if texts[n].startswith("##[group]"):
-                break
-            if texts[n] == "##[endgroup]":
-                live = n + 1
-                break
-    return any(SECTION_RED.match(texts[n]) for n in range(live, high))
-
-
-def _line_time(line: str) -> datetime | None:
-    """The runner's stamp on a raw log LINE (either log format), None when it has none."""
-    parts = line.replace("\ufeff", "").split("\t", 2)
-    stamp = STAMP.match(parts[2] if len(parts) == 3 and STAMP.match(parts[2]) else parts[0])
-    return _stamp_time(stamp.group()) if stamp else None
-
-
-def _one_to_one_starts(steps: list[dict], lines: list[str], texts: list[str], windows: list, step_names
-                       ) -> list[int] | None:
-    """step_owners' first reading (its docstring): the STEP_START line of each of STEPS[1:-1] when there is exactly
-    one per step, each in its own step's times alone and fitting its name; else None."""
-    proven = {} if step_names is STEP_NAMES_UNKNOWN else step_names
-    starts = [n for n, text in enumerate(texts) if STEP_START.match(text)]
-    if len(starts) != len(steps) - 2:
-        return None
-    opened, closed = sorted(start for start, _ in windows[1:-1]), sorted(end for _, end in windows[1:-1])
-    for k, n in enumerate(starts, 1):
-        name = str(steps[k].get("name") or "")  # step-name: validate
-        header = texts[n].removeprefix("##[group]")
-        # Whether the workflow gives this step a `name:`, as workflow_step_names proved it (absent: not proven).
-        named = proven.get(steps[k].get("number"))
-        if header == "Post job cleanup." or name.startswith("Post "):
-            if not (header == "Post job cleanup." and name.startswith("Post ")):
-                return None
-        elif (named is False or (named is not True and name.startswith("Run "))) and header != name:
-            return None
-        at = _line_time(lines[n])
-        if at is None or not windows[k][0] <= at < windows[k][1]:
-            return None
-        # The windows holding AT: those opened at or before it less those closed at or before it.
-        if bisect.bisect_right(opened, at) - bisect.bisect_right(closed, at) != 1:
-            return None
-    return starts
-
-
-# Past this many STEP_START lines a log is not aligned (_aligned_starts): each is tried against each step's times.
-ALIGN_MAX_STARTS = 20_000
-
-
-def _aligned_starts(steps: list[dict], lines: list[str], texts: list[str], windows: list, step_names
-                    ) -> list[int] | None:
-    """step_owners' second reading, for a log whose STEP_START lines are not one per step (a composite action's
-    inner `Run` lines; cmux#41001's "cmux-next daemon tests", job 130369194352: 38 for 31 steps) or whose steps share
-    a second (hq#9191's "Skill policy tests", job 130394322965: five steps in 07:47:29), when its workflow is proven
-    (workflow_step_names' answer carries HEADERS, the header the runner opens each step with: `Run <its uses>`, `Run
-    <its script's first line>`, `Post job cleanup.` for a post step). Each step's own header is the first STEP_START
-    line of its section, where the runner always prints it; a step's other STEP_START lines (a composite's inner
-    steps, a script's own `::group::Run`) are its section's too. The log is placed only when exactly one choice of
-    own headers, in step order, has every one fitting its step's known header and every stamped line of each section,
-    the header's and every line after it up to the next step's, within that step's times [started_at, completed_at +
-    1s) (the last section: through "Complete job"'s), and the first STEP_START line the first step's own. Any other
-    choice that fits as well (a same-second step's header that could be a composite's inner line), a header the
-    workflow does not give, or a step with no times places nothing (None): the whole-log comparison then reads it."""
-    headers = getattr(step_names, "headers", None)
-    if not isinstance(headers, dict):
-        return None
-    printing = steps[1:-1]
-    starts = [n for n, text in enumerate(texts) if STEP_START.match(text)]
-    if not printing or not starts or len(starts) < len(printing) or len(starts) > ALIGN_MAX_STARTS:
-        return None
-    expected = []
-    for step in printing:
-        want = headers.get(step.get("number"))
-        if not (isinstance(want, tuple) and len(want) == 3 and isinstance(want[0], str) and want[0]):
-            return None
-        expected.append(want)
-    # Each segment: a STEP_START line and the lines after it up to the next one, as the earliest and latest stamp.
-    bounds = [*starts, len(lines)]
-    low: list[datetime | None] = []
-    high: list[datetime | None] = []
-    for s in range(len(starts)):
-        found = [at for n in range(bounds[s], bounds[s + 1]) if (at := _line_time(lines[n])) is not None]
-        low.append(min(found) if found else None)
-        high.append(max(found) if found else None)
-    if low[0] is None:
-        return None
-    spans = [windows[k] for k in range(1, len(steps) - 1)]
-    spans[-1] = (spans[-1][0], max(spans[-1][1], windows[-1][1]))  # "Complete job" prints into the last section
-
-    count = len(starts)
-    heads = [texts[n].removeprefix("##[group]") for n in starts]
-
-    def fitting(i: int) -> list[bool]:
-        text, exact, _ = expected[i]
-        return [head == text for head in heads] if exact else [head.startswith(text) for head in heads]
-
-    def reach(i: int) -> list[int]:
-        """For each segment s, the first segment u >= s outside step I's times (COUNT when none): step I's own
-        header at s lets the next step's be at any t with s < t <= reach[s]."""
-        start, end = spans[i]
-        found = [count] * (count + 1)
-        for u in range(count - 1, -1, -1):
-            inside = low[u] is None or (start <= low[u] and high[u] < end)
-            found[u] = found[u + 1] if inside else u
-        return found
-
-    # ways[s]: how many choices (0, 1, or 2 for "more than one") place steps 0..i with step i's own header at segment
-    # s; back[i][s] the segment of step i-1's in the one choice. Each step is one pass over the headers (a difference
-    # array over the next step's segments, of counts and of segment-weighted counts, so a count of 1 names its one
-    # predecessor): O(steps x headers), never a rescan per candidate (#41220's review F1: 10,000 same-second headers
-    # over 3 steps took 17.6 s).
-    first = fitting(0)
-    ways = {0: 1} if first[0] else {}
-    back: list[dict[int, int]] = [{}]
-    for i in range(len(printing) - 1):
-        far = reach(i)
-        added = [0] * (count + 1)
-        weighed = [0] * (count + 1)
-        for s, n in ways.items():
-            top = min(far[s], count - 1)
-            if top >= s + 1:
-                added[s + 1] += n
-                added[top + 1] -= n
-                weighed[s + 1] += n * s
-                weighed[top + 1] -= n * s
-        fit = fitting(i + 1)
-        nxt: dict[int, int] = {}
-        came: dict[int, int] = {}
-        total = weight = 0
-        for t in range(count):
-            total += added[t]
-            weight += weighed[t]
-            if total and fit[t]:
-                nxt[t] = min(2, total)
-                if total == 1:
-                    came[t] = weight
-        ways, back = nxt, [*back, came]
-        if not ways:
-            return None
-    last = len(printing) - 1
-    far = reach(last)
-    ends = {s: n for s, n in ways.items() if far[s] == count}
-    if sum(ends.values()) != 1:
-        return None
-    s = next(iter(ends))
-    own = [s]
-    for i in range(last, 0, -1):
-        s = back[i][s]
-        own.append(s)
-    chosen = [starts[s] for s in reversed(own)]
-    # The one choice must also agree with what the jobs API says of each workflow step that cannot fail quietly (no
-    # `continue-on-error`): failed, its section has a live `##[error]` line (the runner's exit line, an action's
-    # failure); passed, it has none. A step that printed no header of its own (a "silent" step, which the runner
-    # never makes of a step it ran) would take a composite's same-second inner line for its own and with it the
-    # composite's failure: the composite's section then has no `##[error]` line, and nothing is placed
-    # (LocalCompositeCannotPose).
-    edges = [*chosen, len(lines)]
-    for i, step in enumerate(printing):
-        if not expected[i][2] or step.get("conclusion") not in ("success", "failure"):
-            continue
-        if (step.get("conclusion") == "failure") != _live_red(texts, edges[i], edges[i + 1], opened=True):
-            return None
-    return chosen
-
-
-def failed_steps_log(job: dict, log: str, *, step_names) -> str:
-    """LOG without the lines of JOB's passing steps: its FAILED, ERRORED and AMBIGUOUS lines (step_owners). A job
-    runs many steps, and a passing one may print error-looking stderr on purpose: test_ghostty_licenses.py's negative
-    cases print "pinned license manifest digest changed" and pass. 2026-11-10: cmux#40369's static checks failed only
-    in "Every page's strings generate with no missing translation" (feat-cmux-next runs 42820823641, 42820590433),
-    and the excuse quoted that digest line, sending an agent after the wrong cause. A line whose step cannot be told
-    is kept: what is shown of a red never hides its evidence."""
-    return "\n".join(line for line, _, status in step_owners(job, log, step_names=step_names) if status != PASSED)
+# failed_steps_log.py's, used here as they are (never a copy): the reader of a log's lines and their steps.
+lines_of, STEP_START, _stamp_time = steps_log.lines_of, steps_log.STEP_START, steps_log._stamp_time
+FAILED, ERRORED, PASSED, AMBIGUOUS = steps_log.FAILED, steps_log.ERRORED, steps_log.PASSED, steps_log.AMBIGUOUS
+SECTION_RED, STEP_OWNERS_MAX_LINES = steps_log.SECTION_RED, steps_log.STEP_OWNERS_MAX_LINES
+StepNamesUnknown, STEP_NAMES_UNKNOWN = steps_log.StepNamesUnknown, steps_log.STEP_NAMES_UNKNOWN
+step_owners, failed_steps_log = steps_log.step_owners, steps_log.failed_steps_log
+ALIGN_MAX_STARTS, _one_to_one_starts, _aligned_starts = (steps_log.ALIGN_MAX_STARTS, steps_log._one_to_one_starts,
+                                                         steps_log._aligned_starts)
+_live_red, _line_time = steps_log._live_red, steps_log._line_time
 
 
 class FailedView:
@@ -2667,8 +2432,9 @@ def pr_paths(repo: str, base: str, sha: str, github) -> tuple[int, list[str]]:
 # scripts/cmux-next/check-app-ffi-pin.sh reports "error: the app FFI sources changed since the pinned source" on any PR
 # that changes its inputs. app-ffi-release.yml publishes only from a feat-cmux-next push, so such a PR can never carry
 # its own pin: its merge is what publishes the release the re-pin then names. That error alone, in the cmux-next checks
-# job, is excused when the PR changes FFI inputs, leaves Package.swift (the pin) alone and changes no Swift, so no app
-# code calls a symbol or op the pinned library lacks. Any other red in the job is judged as before.
+# job, is excused when the PR changes FFI inputs, leaves the pin (app-ffi-pin.json, and Package.swift, which reads it)
+# alone and changes no Swift, so no app code calls a symbol or op the pinned library lacks. Any other red in the job is
+# judged as before.
 #
 # Neither rule excuses a PR that changes a file that decides the pin verdict (FFI_PIN_CHECK_CODE; 2026-11-09, review of
 # cmux#39194): it could make the pin error print for any change, and the published base pin rule excuses nearly every
@@ -2676,15 +2442,16 @@ def pr_paths(repo: str, base: str, sha: str, github) -> tuple[int, list[str]]:
 #
 # A published base pin (2026-11-07): step-A PRs change the FFI sources faster than releases publish, so a step-B PR (its
 # Swift, or a re-pin) could never pin a release built from its own sources. Any other PR with that error has it excused
-# when both hold: (a) the release its head pins (Package.swift's canonical CCmuxAppFFI block, app_ffi_pin.py: this
-# repository's own cmux-app-ffi-<sha> release download and its checksum; any other shape refuses; or, at a head that
-# has app-ffi-pin.json, that file read strictly with Package.swift holding only its one loader block, as cmux#37645
-# moves the pin, so this base classifier can judge that PR) is
+# when both hold: (a) the release its head pins (app-ffi-pin.json, read strictly by app_ffi_pin.py: this repository's
+# own cmux-app-ffi-<sha> release download and its checksum, with Package.swift holding the one fixed loader block that
+# reads that file, its checksum comment line equal to that checksum, and no pin of its own; or, at a head that predates
+# the pin file, Package.swift's template-form canonical CCmuxAppFFI block; any other shape refuses) is
 # published, its SOURCE_SHA names that sha, its SHA256SUMS carries that checksum for the archive, and that sha is on
 # the PR's base (an ancestor of the base tip); (b) the app compile check passed at the
 # PR's exact head (compile_pass_at: the Mac Release compile, cmux-next/compile, or the fleet's compile receipt for that
-# head, which cmux-next/compile publishes and which a PR whose route skips the status job still has). The pin in Package.swift at the head is the pin that compile built with: SwiftPM
-# resolves the binary target from that URL and checksum, nothing else. Drift since the pinned source can then only be
+# head, which cmux-next/compile publishes and which a PR whose route skips the status job still has). The pin file at
+# the head is the pin that compile built with: the loader hands its URL and checksum to the binary target, and SwiftPM
+# resolves it from those, nothing else. Drift since the pinned source can then only be
 # other PRs' additive FFI changes, and the compile proves the symbols the app calls are in the pinned library.
 FFI_PIN_JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
 FFI_PIN_CHECK = "Check the app FFI pin"
@@ -2708,8 +2475,8 @@ FFI_RELEASE_SECONDS = 30
 FFI_ASSET = "CCmuxAppFFI.xcframework.zip"
 
 
-# The pin is read by scripts/ci/app_ffi_pin.py's fail-closed canonical match (2026-11-07), shared with the repin
-# picker and the repin script: no Swift is parsed, and anything but the canonical block refuses.
+# The pin is read by scripts/ci/app_ffi_pin.py (2026-11-07), shared with check-app-ffi-pin.sh, the repin picker and the
+# repin script: the pin file strictly, and Package.swift only for its one fixed loader block; anything else refuses.
 _spec = importlib.util.spec_from_file_location("app_ffi_pin", Path(__file__).with_name("app_ffi_pin.py"))
 app_ffi_pin = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(app_ffi_pin)
@@ -2719,29 +2486,30 @@ release_download = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(release_download)
 
 
-def ffi_binary_target(manifest: str, repo: str, pin_file: str | None = None) -> tuple[str | None, str | None, str]:
-    """(source sha, checksum, "") of the head's pin; else (None, None, why). With PIN_FILE (app-ffi-pin.json's text,
-    None when the head has none) it is that file's pin (app_ffi_pin.read_pin_file) and MANIFEST (Package.swift's text)
-    must hold only its loader block (app_ffi_pin.check_loader); without it, MANIFEST's canonical CCmuxAppFFI pin
-    (app_ffi_pin.read). Either way REPO's own cmux-app-ffi-<sha> release download and a 64-hex checksum."""
+def ffi_binary_target(pin_file: str | None, manifest: str | None, repo: str) -> tuple[str | None, str | None, str]:
+    """(source sha, checksum, "") of the head's pin; else (None, None, why). With PIN_FILE (app-ffi-pin.json's text) it
+    is that file's pin, read strictly, and MANIFEST (Package.swift's text) must hold the one fixed loader block and no
+    pin of its own (app_ffi_pin.read and check_manifest). Without it (None: the head predates the pin file) it is
+    MANIFEST's template-form canonical CCmuxAppFFI block (app_ffi_pin.read_template), so a PR still in that form is
+    read as before. None for MANIFEST means it is missing at that commit."""
+    if manifest is None:
+        return None, None, f"{FFI_PIN_MANIFEST} is missing"
     try:
         if pin_file is not None:
-            sha, checksum = app_ffi_pin.read_pin_file(pin_file, repo)
-            app_ffi_pin.check_loader(manifest, checksum)
+            sha, checksum = app_ffi_pin.read(pin_file, repo)
+            app_ffi_pin.check_manifest(manifest, checksum)
         else:
-            sha, checksum, _ = app_ffi_pin.read(manifest, repo)
+            sha, checksum = app_ffi_pin.read_template(manifest, repo)
     except app_ffi_pin.NotCanonical as why:
         return None, None, str(why)
     return sha, checksum, ""
 
 
 def ffi_pin_file_at(repo: str, sha: str, github) -> str | None:
-    """app-ffi-pin.json's text at SHA, or None when GitHub serves none there (the head is in the template form). A head
-    whose file is unread is read in the template form, which refuses a JSON-era Package.swift: never a looser read."""
-    try:
-        return source_text(repo, sha, FFI_PIN_FILE, github)
-    except Refused:
-        return None
+    """app-ffi-pin.json's text at SHA, or None only when SHA definitely has none (the head is in the template form).
+    A file that could not be read (a failed request, an unreadable blob) raises Refused: an unread pin file is never
+    taken for an absent one, which would judge the head by its inline Package.swift pin instead."""
+    return source_text_if_present(repo, sha, FFI_PIN_FILE, github)
 
 
 @once_per_judgement("release")
@@ -2773,8 +2541,8 @@ def ffi_published_base_pin(repo: str, base: str, sha: str, github) -> tuple[str 
     """(audit, "") when the head SHA's app FFI pin (its one CCmuxAppFFI binary target) is a published release of REPO
     built from a commit on BASE, its checksum the release's archive entry, and the app compile check passed at SHA
     (the published base pin rule above); else (None, the part of that rule that does not hold)."""
-    pin, checksum, why = ffi_binary_target(source_text(repo, sha, FFI_PIN_MANIFEST, github), repo,
-                                           ffi_pin_file_at(repo, sha, github))
+    pin, checksum, why = ffi_binary_target(ffi_pin_file_at(repo, sha, github),
+                                           source_text(repo, sha, FFI_PIN_MANIFEST, github), repo)
     if pin is None:
         return None, why
     tag = f"cmux-app-ffi-{pin}"
@@ -2839,8 +2607,8 @@ def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: Counter, er
                           f"compiled against: {missing}")
     others = {error for error in errors if not error.startswith(pin)} - {rollup}
     reason = (f"#{number} {published}" if published is not None else
-              f"#{number} changes app FFI inputs, not {FFI_PIN_MANIFEST} and no Swift: a step-A Rust change, pinned "
-              "by the release its merge publishes")
+              f"#{number} changes app FFI inputs, not {FFI_PIN_FILE}, {FFI_PIN_MANIFEST} or other Swift: a step-A Rust "
+              "change, pinned by the release its merge publishes")
     # The rollup must have named the pin as its red check: a rollup that failed before saying so is another red.
     # STEPS are failed_step_keys: the pin's steps alone, each failed once. A step name read twice (a failure and a
     # cancelled one, say) is two reds, never the pin's one (#41158's review, F1 at 5fa1ea1d).

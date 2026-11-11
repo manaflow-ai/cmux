@@ -67,8 +67,8 @@ public nonisolated struct AcpmuxSessionListGate: Sendable, Equatable {
             guard let page = await call("_acpmux/sessions", params) else { return nil }
             guard let pageRows = page["sessions"] as? [[String: Any]] else { return nil }
             for row in pageRows {
-                guard let id = row["sessionId"] as? String, !id.isEmpty else { continue }
-                let key = "\(row["peer"] as? String ?? "")/\(id)"
+                // One key per session, the feed's own (``AcpmuxPendingReads/sessionKey(_:)``).
+                guard let key = AcpmuxPendingReads.sessionKey(row) else { continue }
                 if seenSessions.insert(key).inserted { sessions.append(row) }
             }
             guard let next = (page["nextCursor"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) else { break }

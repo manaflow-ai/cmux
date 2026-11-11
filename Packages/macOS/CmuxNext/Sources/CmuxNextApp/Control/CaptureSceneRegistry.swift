@@ -287,8 +287,8 @@ final class CaptureSceneRegistry {
         // A literal name: cmux-ci capture finds scenes by `CaptureSceneDefinition(name: "…")`.
         CaptureSceneDefinition(name: "cloud-machine-disconnected",
                                description: "Two Cloud machine headers: a running machine whose app link dropped, and one whose connect the provider refused."),
-        CaptureSceneDefinition(name: "permission-feed-peer", description: "Chief Home's Needs you lists a peer's prompt the feed bridge found at recovery."),
-        CaptureSceneDefinition(name: "permission-feed-peer-resolved", description: "permission-feed-peer, then the prompt is answered elsewhere: the bridge withdraws it."),
+        CaptureSceneDefinition(name: "permission-feed-peer", description: "Chief Home's Needs you lists a peer's prompt the feed bridge found at recovery. Regression: before #41240 the bridge reads the peer's prompts by its raw id and finds none."),
+        CaptureSceneDefinition(name: "permission-feed-peer-resolved", description: "permission-feed-peer, then the prompt is answered elsewhere: the bridge withdraws it. Regression: cfcd0c55d64f (#41240's head) keeps it; #41295 withdraws it."),
         CaptureSceneDefinition(name: "home-chief-long-draft",
                                description: "The home-chief scene with a long draft that grows the field up into the first-run panel; the panel drops what does not fit and nothing it shows runs under the field."),
     ]

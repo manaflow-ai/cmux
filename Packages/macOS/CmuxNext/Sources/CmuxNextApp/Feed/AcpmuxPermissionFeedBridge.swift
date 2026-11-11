@@ -196,13 +196,13 @@ final class AcpmuxPermissionFeedBridge {
         guard let method = message["method"] as? String, let params = message["params"] as? [String: Any] else { return }
         switch method {
         case "_acpmux/permission_pending":
-            guard let session = params["sessionId"] as? String, let permission = params["permissionId"] as? String,
+            guard let session = AcpmuxPendingReads.sessionKey(params), let permission = params["permissionId"] as? String,
                   let request = params["request"] as? [String: Any] else { return }
             Task { await self.post(session: session, permission: permission, request: request) }
         case "_acpmux/session_changed":
             let kind = params["kind"] as? String
             if kind == "permission_decision" || kind == "permission_resolved",
-               let session = params["sessionId"] as? String {
+               let session = AcpmuxPendingReads.sessionKey(params) {
                 Task { await self.withdrawResolved(in: session) }
             }
         default:
