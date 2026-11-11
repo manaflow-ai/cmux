@@ -157,4 +157,27 @@ struct PaneContentAreaHoldTests {
         #expect(widths.count > 3, "the page did not follow its pane: its widths were \(widths.sorted())")
         #expect(content.frame == view.contentHost.bounds, "the page is at \(content.frame) after the landing, its area at \(view.contentHost.bounds)")
     }
+
+    /// A view that joins a pane's content during a key resize (an agent chat's page moved in mid-spring) lays out at the
+    /// content's size in that frame, and the content follows its pane: that size plus what the pane says it still changes
+    /// by (`enclosingLiveRestSizeChange`) is the rest size in every frame. Before: the pane gave only the change from the
+    /// size the hold began at, which is what a producer that holds measures from (`enclosingRestSizeChange`, unchanged).
+    @Test func aViewThatJoinsInAKeyResizeHearsItsRestSizeFromItsSizeNow() throws {
+        let rig = Rig()
+        defer { rig.window.closeAfterTest() }
+        let view = try #require(rig.provider.views["p2"]), content = try #require(rig.provider.contents["p2"])
+        let start = view.frame.width
+        var fromNow: [CGFloat] = [], fromStart: [CGFloat] = []
+        var widths: Set<CGFloat> = []
+        try rig.press(.left) { _ in
+            widths.insert(view.frame.width)
+            fromNow.append(view.frame.width + (content.enclosingLiveRestSizeChange?.width ?? 0))
+            if let change = content.enclosingRestSizeChange { fromStart.append(start + change.width) }
+        }
+        let rest = view.frame.width
+        try #require(widths.count > 3 && abs(rest - start) > 10, "the pane did not move: \(widths.sorted())")
+        #expect(fromNow.allSatisfy { abs($0 - rest) < 0.6 }, "the rest width from the content's size now was \(Set(fromNow).sorted()), the pane rests \(rest) wide")
+        #expect(!fromStart.isEmpty && fromStart.allSatisfy { abs($0 - rest) < 0.6 },
+                "the rest width from the hold's start size was \(Set(fromStart).sorted()), the pane rests \(rest) wide")
+    }
 }
