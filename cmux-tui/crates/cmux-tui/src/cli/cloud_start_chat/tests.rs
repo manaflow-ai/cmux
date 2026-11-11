@@ -1001,6 +1001,52 @@ fn a_reply_that_cannot_be_read_is_an_error_not_an_empty_reply() {
     assert_eq!(error["code"], "chat.read_failed");
 }
 
+/// A turn that failed has no reply to read: the answer is `chat.turn_failed` with the turn's own
+/// reason, not `chat.read_failed`.
+#[test]
+fn a_failed_turn_without_a_reply_is_a_turn_failure_with_its_reason() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+        exec_out(
+            "@@wait 0\n@@history\n{\"turns\":[{\"seq\":3,\"endedAt\":9,\"status\":\"failed\",\
+             \"error\":\"model provider refused the request\"}]}\n\
+             @@last\nno reply\n@@lastexit 1\n",
+        ),
+    ]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--prompt", "x", "--wait"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(exit, 1);
+    assert_eq!(error["code"], "chat.turn_failed", "{error}");
+    assert_eq!(error["message"], "the turn ended failed: model provider refused the request");
+    assert!(error["details"].get("reply").is_none(), "{error}");
+}
+
+/// The pushed route: a turn that ends `cancelled` with no reply is `chat.turn_failed`, too.
+#[test]
+fn a_pushed_turn_that_ends_cancelled_without_a_reply_is_a_turn_failure() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started_with_surface(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    fake.stream = Some(Ok(json!({"socket": "/tmp/link.sock"})));
+    fake.pushes.push_back(Ok(json!({"records": [
+        {"seq": 1, "at": 1_000, "dir": "mux", "kind": "user_message", "msg": {"text": "x"}},
+        {"seq": 2, "at": 1_500, "dir": "mux", "kind": "turn_end", "msg": {"stopReason": "cancelled"}},
+    ], "last_seq": 2, "ended": "turn_end"})));
+    let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--prompt", "x", "--wait"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(exit, 1);
+    assert_eq!(error["code"], "chat.turn_failed", "{error}");
+    assert_eq!(error["message"], "the turn ended cancelled");
+}
+
 #[test]
 fn each_wait_is_bounded_by_the_time_left() {
     let running = "@@wait 3\n@@history\n{\"turns\":[{\"seq\":2,\"status\":\"running\"}]}\n";
@@ -2636,4 +2682,56 @@ fn the_folder_kind_and_the_session_folder_read() {
     let Outcome::Done(answer) = run(&mut fake, &given) else { panic!("{:?}", fake.ran) };
     assert_eq!(answer["folder"], "given");
     assert_eq!(answer["cwd"], "/home/cmux/work/api");
+}
+
+/// `cmux chat read SESSION` of a chat on a Cloud VM reads its records there (one exec of `acp tail`, no
+/// attach) and answers `cmux chat read`'s page: the prompt and the reply as items.
+#[test]
+fn a_vm_chats_read_is_its_transcript_from_the_machine() {
+    let records = [
+        json!({"seq": 1, "at": 1_000, "dir": "mux", "kind": "user_message", "msg": {"text": "hi"}}),
+        json!({"seq": 2, "at": 1_100, "dir": "in", "kind": "update",
+               "msg": {"method": "session/update",
+                       "params": {"update": {"sessionUpdate": "agent_message_chunk",
+                                             "content": {"type": "text", "text": "hello"}}}}}),
+        json!({"seq": 3, "at": 1_200, "dir": "mux", "kind": "turn_result", "msg": {"status": "completed"}}),
+    ];
+    let lines: Vec<String> = records.iter().map(Value::to_string).collect();
+    let mut fake = Fake::new(vec![exec_out(&format!("@@events\n{}\n@@exit 0\n", lines.join("\n")))]);
+    let Outcome::Done(page) = read_on(&mut fake, "vm-1", "s-1", 0, 50) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(fake.ran.len(), 1, "{:?}", fake.ran);
+    let script = fake.ran[0].last().cloned().unwrap_or_default();
+    assert!(fake.ran[0].iter().any(|word| word.contains("acp tail s-1 --last 2000")), "{script}");
+    assert_eq!(page["machine_id"], "vm-1");
+    assert_eq!(page["chat"], "s-1");
+    let items = page["items"].as_array().cloned().unwrap_or_default();
+    let texts: Vec<&str> = items.iter().filter_map(|item| item["text"].as_str()).collect();
+    assert!(texts.contains(&"hi") && texts.contains(&"hello"), "{page}");
+}
+
+/// A chat the machine cannot read is `chat.read_failed` naming the VM, not an empty page.
+#[test]
+fn a_vm_chat_the_machine_cannot_read_is_an_error() {
+    let mut fake = Fake::new(vec![exec_out("@@events\nno session s-9\n@@exit 1\n")]);
+    let Outcome::Failed { error, exit } = read_on(&mut fake, "vm-1", "s-9", 0, 50) else { panic!() };
+    assert_eq!(exit, 1);
+    assert_eq!(error["code"], "chat.read_failed");
+    assert!(error["message"].as_str().unwrap_or_default().contains("vm:vm-1"), "{error}");
+}
+
+/// `cmux chat wait SESSION` of a chat on a Cloud VM waits there for its newest turn and answers its reply.
+#[test]
+fn a_vm_chats_wait_answers_the_newest_turns_reply() {
+    let mut fake = Fake::new(vec![exec_out(
+        "@@wait 0\n@@history\n{\"turns\":[{\"seq\":4,\"endedAt\":9,\"status\":\"completed\"}]}\n\
+         @@last\n{\"sessionId\":\"s-1\",\"replies\":[\"done\"]}\n@@lastexit 0\n",
+    )]);
+    let Outcome::Done(answer) = wait_on(&mut fake, "vm-1", "s-1", Duration::from_secs(60)) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["reply"], "done");
+    assert_eq!(answer["session_id"], "s-1");
+    assert_eq!(answer["machine_id"], "vm-1");
 }
