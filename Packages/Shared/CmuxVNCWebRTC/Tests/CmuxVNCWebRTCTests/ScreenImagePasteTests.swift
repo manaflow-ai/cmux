@@ -110,6 +110,18 @@ struct ScreenImagePasteTests {
         #expect(backend.pasted.isEmpty)
     }
 
+    /// The viewer's session ended halfway through a paste: ``ScreenImageAssembler/cancel()`` drops the
+    /// image, so a late chunk of it is answered as incomplete and the next image is taken as usual.
+    @Test func aCancelledPasteDropsItsImage() throws {
+        let messages = try Self.wire(ScreenInput.pasteImage(Self.image, type: "public.png", id: "a"))
+        var images = ScreenImageAssembler()
+        #expect(images.take(messages[0]) == .partial)
+        images.cancel()
+        #expect(images.take(messages[1]) == .failed(.incomplete, id: "a"))
+        let next = try Self.wire(ScreenInput.pasteImage(Data("next".utf8), type: "public.png", id: "b"))
+        #expect(images.take(next[0]) == .complete(Data("next".utf8), type: "public.png", id: "b"))
+    }
+
     @Test func theHostAnswerRoundTrips() throws {
         let data = try JSONEncoder().encode(ScreenHostMessage(pasteImage: .pasted, id: "a"))
         let message = try JSONDecoder().decode(ScreenHostMessage.self, from: data)

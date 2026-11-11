@@ -825,6 +825,8 @@ public final class ScreenStreamHost: @unchecked Sendable {
         guard let ended else { return }
         let tasks = ended.lock.withLock { () -> [Task<Void, Never>] in
             ended.ended = true
+            // A paste that stopped halfway frees its bytes now, not when the last reference goes.
+            ended.images.cancel()
             defer { ended.tasks.removeAll() }
             return ended.tasks
         }
@@ -1203,7 +1205,7 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     /// order, waiting while the channel is full. False when nothing could
     /// be sent (no channel, or the image is empty, too large or of another
     /// type); the Mac's answer comes in ``onPasteImage``. Runs off the
-    /// caller's actor: up to 20 MB of base64 and JSON never lands on the main thread.
+    /// caller's actor: an image's base64 and JSON never land on the main thread.
     @concurrent
     public func pasteImage(_ data: Data, type: String, id: String = UUID().uuidString) async -> Bool {
         let messages = ScreenInput.pasteImage(data, type: type, id: id)
