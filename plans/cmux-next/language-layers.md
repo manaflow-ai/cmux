@@ -60,5 +60,11 @@ under `webviews/src/pages/` needs a row:
 - `review`: hosted inside native chrome and not judged yet. Judge it, then make it `page` or `debt`.
 
 A directory with no row fails. With `--base`, a row that is new since the base must be `page`: no
-change may add debt. The check cannot see a web view hosted inside native chrome; that part is the
-review bots' (`.github/review-bot-rules/native-chrome-layer.md`).
+change may add debt.
+
+The same check keeps the Command Palette in Swift (question 3): a file of `CmuxNextPalette` that
+imports WebKit or the pages module, or names `WKWebView` or `PageWebView`, fails. On 2026-11-11 the
+target has none, and it does not depend on the pages module.
+
+The check cannot see a web view hosted inside other native chrome; that part is the review bots'
+(`.github/review-bot-rules/native-chrome-layer.md`).
