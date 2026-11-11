@@ -6250,12 +6250,6 @@
           "command": null
         },
         {
-          "id": "agentChat.copyAcpmuxSessionFile",
-          "title": "Copy acpmux Session File",
-          "shortcut": null,
-          "command": null
-        },
-        {
           "id": "agentChat.copyIdentifier",
           "title": "Copy Agent Identifier",
           "shortcut": null,
@@ -6270,6 +6264,12 @@
         {
           "id": "agentChat.copyHost",
           "title": "Copy Chat Host",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "agentChat.copyAcpmuxSessionFile",
+          "title": "Copy cmux Session File",
           "shortcut": null,
           "command": null
         },
