@@ -13,7 +13,7 @@ import { pastePlaceholderLook } from "../agent-session/acpmux/composer/pastePlac
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
 import { tableActionsPlace } from "../agent-session/acpmux/conversation/tableActions.experiment";
 import { expandRowLook } from "../agent-session/acpmux/conversation/expandRow.experiment";
-import { selectionReplyWrap } from "../agent-session/acpmux/conversation/selectionReplyWrap.experiment";
+import { selectionReplyAnchor } from "../agent-session/acpmux/conversation/selectionReplyAnchor.experiment";
 import { backgroundReactionLook } from "../agent-session/acpmux/conversation/backgroundReaction.experiment";
 import { backgroundTurnLook } from "../agent-session/acpmux/conversation/backgroundTurnLook.experiment";
 import { cloudStartLook } from "../agent-session/acpmux/cloudStart.experiment";
@@ -130,7 +130,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   toolErrorLook,
   tableActionsPlace,
   expandRowLook,
-  selectionReplyWrap,
+  selectionReplyAnchor,
   backgroundReactionLook,
   backgroundTurnLook,
   cloudStartLook,

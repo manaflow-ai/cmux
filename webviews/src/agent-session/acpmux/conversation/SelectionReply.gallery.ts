@@ -6,7 +6,7 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../../gallery/play";
-import { selectionReplyWrap } from "./selectionReplyWrap.experiment";
+import { selectionReplyAnchor } from "./selectionReplyAnchor.experiment";
 
 const PHRASE = "retry only on 429 and 503";
 const rows = [
@@ -204,6 +204,53 @@ const backwardMulti = (ctx: PlayContext) =>
     true,
   );
 
+// Leo, 2026-11-11, on a selection that ended partway into a list item's line: "this reply is in
+// the wrong spot, actually ... if you go close, you still get it. But if you go deep into it,
+// there's something that messes up there." The chip went to the right end of the next item's line.
+// A list like his, then a paragraph with a link, inline code and bold mid-line.
+const LIST = [
+  "- **Slow settle on send:** I've decided it goes. On send, the view jumps straight to where it ends up in one frame, no easing. The open motion PRs that add easing get replaced.",
+  "- **Slow growth with queued messages:** the same helper owns this, as one ordering for every send motion.",
+  '- **Video thumbnail time:** the "0:33" breaking onto two lines over the play button gets fixed. The time becomes a small label under the thumbnail.',
+  "",
+  "Read the [retry notes](https://example.com/retry-notes) before you run `cmux chat --on cloud` on the lane, and keep **every status** in the log so a slow server is easy to tell from a broken one.",
+].join("\n");
+const listRows = [
+  user("What happens to the motion PRs?", 6, { id: "gallery-reply-prompt" }),
+  assistant(LIST, 5.9, { id: "gallery-reply-list" }),
+  summary(5.9, { id: "gallery-reply-summary", status: "completed" }),
+];
+/// From `from` in the text node that starts `start` to the end of `end.text`: in that node, or in the
+/// text node that starts `end.node` (a link's, inline code's or bold words').
+const within =
+  (start: string, from: string, end: { node?: string; text: string }, backward = false) =>
+  (ctx: PlayContext) =>
+    selectIn(
+      ctx,
+      start,
+      (node) => {
+        const last = (end.node && textNode(ctx.document, end.node)) || node;
+        return { from: [node, node.data.indexOf(from)], to: [last, last.data.indexOf(end.text) + end.text.length] };
+      },
+      backward,
+    );
+/// His case: "that add easing", partway into the first item's last line.
+const listMid = within(" I've decided", "that add", { text: "that add easing" });
+/// The same words dragged backward: the pointer lets go at "that".
+const listMidBackward = within(" I've decided", "that add", { text: "that add easing" }, true);
+/// From "Read the" into the link's words, ending inside them ("retry no").
+const linkMid = within("Read the ", "Read the", { node: "retry notes", text: "retry no" });
+/// From "before you run" into the inline code, ending inside it ("cmux chat").
+const codeMid = within(" before you run", "before you run", { node: "cmux chat --on cloud", text: "cmux chat" });
+/// From "keep" into the bold words, ending inside them ("every").
+const boldInline = within(" on the lane, and keep", "keep", { node: "every status", text: "every" });
+/// The long paragraph's second line with the space at its wrap: the range's end is on the line after.
+const wrapEnd = (ctx: PlayContext) =>
+  selectIn(ctx, "The fetch helper", (node, ends) => ({
+    from: [node, node.data.indexOf(" ", ends[0]! + 1) + 1],
+    to: [node, Math.min(node.data.length, ends[1]! + 1)],
+  }));
+
 // A short Markdown prompt, right-aligned in its bubble: a column narrower than the chip.
 const okRows = [
   user("**OK**", 6, { id: "gallery-reply-ok" }),
@@ -243,8 +290,8 @@ export default agentPaneEntry({
   title: "Reply to a selected part of a message",
   area: "Agent pane",
   height: 420,
-  // The edge cases' stages (and test/selection-reply-place.test.ts) at every width: the chip covers
-  // no unselected text, stays in the visible transcript and never goes into the margin.
+  // The edge cases' stages (and test/selection-reply-place.test.ts) at every width: the chip sits on
+  // the selection's last line next to its last character, in the visible transcript, never in the margin.
   widths: { narrow: 400, normal: 760, wide: 1040 },
   covers: ["agent-session/acpmux/conversation/SelectionReply.tsx"],
   variants: {
@@ -253,19 +300,19 @@ export default agentPaneEntry({
     ),
     "chip-above": variant(
       "chip",
-      "Shipped: a Reply chip over the selection's end, as Claude and ChatGPT; it quotes the selection into the composer.",
+      "Shipped: a Reply chip just after the selection's last character, on its line; it quotes the selection into the composer.",
       (ctx) => selectPhrase(ctx, true),
     ),
     "chip-under-sent-line": variant(
       "chip",
-      'The chip takes a spot with no text under it: here past the "Sent to" line over the selection, never on it.',
+      'The chip stays on the selection\'s line, so it never covers the "Sent to" line over the selection.',
       (ctx) => selectPhrase(ctx, true),
       chat(sentRows),
     ),
     "chip-right-edge": {
       ...variant(
         "chip",
-        "A selection that ends at a line's right edge mid-paragraph: no free spot near, so the chip covers the selection's own last words, never other text or the margin.",
+        "A selection that ends at a line's right edge mid-paragraph: no room after it, so the chip flips over the selection's own last words, never into the margin.",
         rightEdge,
         chat(longRows),
       ),
@@ -274,7 +321,7 @@ export default agentPaneEntry({
     "chip-multi-line": {
       ...variant(
         "chip",
-        "A selection over three lines ending mid-line: the chip takes the nearest spot that covers no other text.",
+        "A selection over three lines ending mid-line: the chip sits just after its last character, on the third line.",
         multiLine,
         chat(longRows),
       ),
@@ -283,7 +330,7 @@ export default agentPaneEntry({
     "chip-inline-code": {
       ...variant(
         "chip",
-        "A selection that ends inside inline code at its paragraph's end: the chip goes over the end when that is free, else just after it.",
+        "A selection that ends inside inline code at its paragraph's end: the chip sits just after the code's last selected character.",
         inlineCode,
         chat(longRows),
       ),
@@ -301,7 +348,7 @@ export default agentPaneEntry({
     "chip-mid-line": {
       ...variant(
         "chip",
-        "Two words mid-paragraph, text all around: the chip takes the nearest spot with no text under it, or covers only the selection's own words.",
+        "Two words mid-paragraph, text all around: the chip sits just after them on their line, never on another line's free spot.",
         midLine,
         chat(longRows),
       ),
@@ -310,7 +357,7 @@ export default agentPaneEntry({
     "chip-short-mid": {
       ...variant(
         "chip",
-        "Two words mid-paragraph in a dense reply: every spot near holds text, so the chip is its glyph alone over the selected words.",
+        "Two words mid-paragraph in a dense reply: the chip sits just after them on their line.",
         shortMid,
         chat(denseRows),
       ),
@@ -319,7 +366,7 @@ export default agentPaneEntry({
     "chip-bold-mid": {
       ...variant(
         "chip",
-        "A selection across a bold word, whose boxes overlap: the chip still covers none of the text around it.",
+        "A selection across a bold word, whose boxes overlap: the chip sits after its last character, not after the bold word's box.",
         boldMid,
         chat(denseRows),
       ),
@@ -328,7 +375,7 @@ export default agentPaneEntry({
     "chip-backward-multi-line": {
       ...variant(
         "chip",
-        "Three lines dragged backward: the chip goes over where the pointer let go when that is free, else near the end, measured there.",
+        "Three lines dragged backward: the chip still sits just after the selection's last character.",
         backwardMulti,
         chat(denseRows),
       ),
@@ -343,6 +390,60 @@ export default agentPaneEntry({
       ),
       height: 640,
     },
+    "chip-list-item": {
+      ...variant(
+        "chip",
+        "Leo's case: a selection ending partway into a list item's line. The chip sits just after its last character, never at the end of the next item's line.",
+        listMid,
+        chat(listRows),
+      ),
+      height: 640,
+    },
+    "chip-list-item-backward": {
+      ...variant(
+        "chip",
+        "The same words dragged backward: the chip still sits just after the selection's last character.",
+        listMidBackward,
+        chat(listRows),
+      ),
+      height: 640,
+    },
+    "chip-link-mid": {
+      ...variant(
+        "chip",
+        "A selection ending inside a link: just after its last selected letter.",
+        linkMid,
+        chat(listRows),
+      ),
+      height: 640,
+    },
+    "chip-code-mid": {
+      ...variant(
+        "chip",
+        "A selection ending inside inline code mid-line: just after its last selected character, not the code's box.",
+        codeMid,
+        chat(listRows),
+      ),
+      height: 640,
+    },
+    "chip-bold-inline": {
+      ...variant(
+        "chip",
+        "A selection ending inside bold words: just after its last selected letter.",
+        boldInline,
+        chat(listRows),
+      ),
+      height: 640,
+    },
+    "chip-wrap-end": {
+      ...variant(
+        "chip",
+        "A selection that takes the space at a line's wrap, so the range ends on the next line: the chip stays after the last character, on its line.",
+        wrapEnd,
+        chat(longRows),
+      ),
+      height: 640,
+    },
     "chip-icon-only": variant("icon", "The same chip as a quote glyph alone.", (ctx) => selectPhrase(ctx, true)),
     "row-reply-button": variant(
       "row",
@@ -352,16 +453,16 @@ export default agentPaneEntry({
       },
     ),
   },
-  // Where the chip goes when no spot near the selection's end is free of other text
-  // (selectionReplyWrap): compare the arms on chip-right-edge, at the narrow width too.
+  // Where the chip goes next to the selection's last character (selectionReplyAnchor): compare the
+  // arms on Leo's list-item case.
   experiment: {
-    definition: selectionReplyWrap,
+    definition: selectionReplyAnchor,
     script: [
       {
-        // Only the stages with the long reply have that line; the others keep their own selection.
-        name: "Select to the line's right edge",
+        // Only the stages with the list have his line; the others keep their own selection.
+        name: "Select partway into a list item's line",
         run: async (ctx) => {
-          if (ctx.document.querySelector('[data-row-id="gallery-reply-long"]')) await rightEdge(ctx);
+          if (ctx.document.querySelector('[data-row-id="gallery-reply-list"]')) await listMid(ctx);
         },
       },
     ],

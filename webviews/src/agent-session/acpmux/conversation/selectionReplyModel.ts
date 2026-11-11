@@ -54,15 +54,10 @@ const elementOf = (node: Node | null): Element | null =>
 
 export type SelectionReplyTarget = {
   text: string;
-  /** Where the pointer let go (the end, or the start of a backward drag): the chip centres over it. */
-  left: number;
-  top: number;
-  bottom: number;
-  /** The selection's last line: the right of its last character and that line's box. */
-  end?: { right: number; top: number; bottom: number };
-  /** The selection's last line's start: where `own-start` puts the chip. */
-  lineStart?: number;
-  /** The text column the end sits in: where its lines start (the end's block) and its right edge. */
+  /** The selection's last glyph (viewport px): its last non-blank character with a box. The chip
+   *  sits just after it, on its line, whichever way the selection was dragged. */
+  end: { left: number; right: number; top: number; bottom: number };
+  /** The text column that glyph sits in: where its block's lines start and the message body's right edge. */
   column?: { left: number; right: number };
 };
 
@@ -79,7 +74,54 @@ function columnOf(node: Node | null): SelectionReplyTarget["column"] {
   return { left: block.left, right: body.right };
 }
 
-/// The selected transcript text and where its end is (viewport px), or undefined when the
+/// The selection's last glyph: the box of its last non-blank character that has one, and the text
+/// node it is in. Not the range's last client rect: a range's rects follow the DOM, not the lines, so
+/// its last one can be a whole inline element's box (code, a link, bold) or a caret-thin box on the
+/// line after (a selection that runs to the next block's start, or ends on a wrap's space). Leo,
+/// 2026-11-11, on the chip at the far end of the next line: "if you go deep into it, there's
+/// something that messes up there."
+/// It walks back from the range's end and stops at the first character with a box, so a long
+/// selection (Select All) costs no more than a short one: it runs again on every scroll while shown.
+export function lastGlyph(doc: Document, range: Range): { rect: DOMRect; node: Text } | undefined {
+  const common = range.commonAncestorContainer;
+  const root = common.nodeType === 3 ? (common.parentNode ?? common) : common;
+  const walker = doc.createTreeWalker(root, 4);
+  // The last text node at or before the range's end.
+  const end = range.endContainer;
+  let node: Node | null;
+  if (end.nodeType === 3) node = end;
+  else {
+    const after = end.childNodes[range.endOffset];
+    let last: Node = end;
+    if (!after) while (last.lastChild) last = last.lastChild;
+    if (!after && last.nodeType === 3) node = last;
+    else {
+      walker.currentNode = after ?? last;
+      node = walker.previousNode();
+    }
+  }
+  const one = doc.createRange();
+  for (; node && range.intersectsNode(node); node = walker.previousNode()) {
+    walker.currentNode = node;
+    const text = node as Text;
+    const from = text === range.startContainer ? range.startOffset : 0;
+    const to = text === range.endContainer ? Math.min(range.endOffset, text.length) : text.length;
+    for (let at = to - 1; at >= from; at -= 1) {
+      if (/\s/.test(text.data[at]!)) continue;
+      // The low half of a surrogate pair: its glyph starts one code unit earlier.
+      const start = at > from && /[\uDC00-\uDFFF]/.test(text.data[at]!) ? at - 1 : at;
+      one.setStart(text, start);
+      one.setEnd(text, at + 1);
+      const rects = Array.from(one.getClientRects?.() ?? []).filter((rect) => rect.width > 0 && rect.height > 0);
+      const rect = rects[rects.length - 1];
+      if (rect) return { rect, node: text };
+      at = start;
+    }
+  }
+  return undefined;
+}
+
+/// The selected transcript text and its last glyph's box (viewport px), or undefined when the
 /// selection is collapsed, blank, or not wholly in transcript messages.
 export function selectionReplyTarget(doc: Document): SelectionReplyTarget | undefined {
   const selection = doc.getSelection();
@@ -92,42 +134,24 @@ export function selectionReplyTarget(doc: Document): SelectionReplyTarget | unde
   const text = selectionText(selection).trim();
   if (!text) return undefined;
   const range = selection.getRangeAt(0);
-  const rects = Array.from(range.getClientRects?.() ?? []).filter((rect) => rect.width || rect.height);
-  // A selection that runs to the start of the next block ends in a caret-thin box there: its last
-  // character is the last box with a width.
-  const wide = rects.filter((rect) => rect.width > 0);
-  const last = (wide.length ? wide : rects)[(wide.length ? wide : rects).length - 1];
-  // A backward drag ends at the range's start: the chip goes where the pointer let go.
-  const backward =
-    selection.anchorNode !== null &&
-    selection.focusNode !== null &&
-    (selection.anchorNode === selection.focusNode
-      ? selection.focusOffset < selection.anchorOffset
-      : Boolean(selection.anchorNode.compareDocumentPosition(selection.focusNode) & 2));
-  const rect = (backward ? rects[0] : rects[rects.length - 1]) ?? range.getBoundingClientRect?.();
-  if (!rect) return { text, left: 0, top: 0, bottom: 0 };
-  const end = last ? { right: last.right, top: last.top, bottom: last.bottom } : undefined;
-  return {
-    text,
-    left: backward ? rect.left : rect.right,
-    top: rect.top,
-    bottom: rect.bottom,
-    end,
-    lineStart: last?.left,
-    column: columnOf(range.endContainer),
-  };
+  const glyph = lastGlyph(doc, range);
+  // No glyph with a box (no layout): the range's own box, else nothing to place by.
+  const rect = glyph?.rect ?? range.getBoundingClientRect?.();
+  const end = rect
+    ? { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }
+    : { left: 0, right: 0, top: 0, bottom: 0 };
+  return { text, end, column: columnOf(glyph?.node ?? range.endContainer) };
 }
 
-export type PlaceRect = { left: number; top: number; right: number; bottom: number };
-/// Where the chip goes; `compact` draws its glyph alone (a square), where its label would cover text.
-export type SelectionReplyPlace = { left: number; top: number; compact?: boolean };
+/// Where the chip goes, in viewport px.
+export type SelectionReplyPlace = { left: number; top: number };
+/// The chip's gap from the selection's last glyph, and from a line it goes over or under.
 const PLACE_GAP = 6;
-/// What the chip does when no spot near the selection's end is free of text (selectionReplyWrap).
-export type SelectionReplyWrap = "own-end" | "own-start" | "farther";
+/// Where the chip first tries to go (selectionReplyAnchor): just after the last glyph on its line
+/// (the default), over the last glyph, or under its line.
+export type SelectionReplyAnchor = "after" | "over" | "under";
 /// The chip's margin inside the visible transcript's top and bottom.
 const EDGE = 2;
-/// How many lines past the rows next to the end the chip looks for a free spot.
-const FARTHER = 3;
 
 /// The part of the viewport where the transcript shows: its scroller's box, above a composer dock
 /// floating over it. The chip never leaves it. Read once per placed chip.
@@ -155,77 +179,24 @@ export function transcriptClip(doc: Document, node: Node | null): { top: number;
   return { top, bottom };
 }
 
-/// What text a spot would cover: the boxes of transcript text that is not selected and crosses
-/// `box` (viewport px). The chip may cover the selection's own words, never anyone else's.
-export type TextProbe = (box: PlaceRect) => readonly PlaceRect[];
-
-const crosses = (a: PlaceRect, b: PlaceRect) =>
-  Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0.5 &&
-  Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0.5;
-
-/// A probe that asks the DOM at each spot: the transcript rows crossing it, their text nodes, and
-/// of each the parts outside `range` (the selection). Nothing is measured ahead, so a spot far from
-/// the selection's end, or near the other end of a backward drag, is measured where it is.
-export function unselectedTextProbe(doc: Document, range: Range): TextProbe {
-  const part = doc.createRange();
-  return (box) => {
-    const found: PlaceRect[] = [];
-    const take = (node: Text, from: number, to: number) => {
-      if (from >= to) return;
-      part.setStart(node, from);
-      part.setEnd(node, to);
-      for (const rect of Array.from(part.getClientRects?.() ?? []))
-        if (rect.width && rect.height && crosses(box, rect)) found.push(rect);
-    };
-    for (const row of Array.from(doc.querySelectorAll("[data-row-id]"))) {
-      if (row.parentElement?.closest("[data-row-id]")) continue;
-      const rowBox = row.getBoundingClientRect();
-      if (!crosses(box, rowBox)) continue;
-      const walker = doc.createTreeWalker(row, 4);
-      for (let node = walker.nextNode() as Text | null; node; node = walker.nextNode() as Text | null) {
-        if (!node.data.trim()) continue;
-        if (!range.intersectsNode(node)) {
-          take(node, 0, node.length);
-          continue;
-        }
-        // The selected part is [start, end): the rest of the node is someone else's text.
-        const start = node === range.startContainer ? range.startOffset : 0;
-        const end = node === range.endContainer ? range.endOffset : node.length;
-        take(node, 0, start);
-        take(node, end, node.length);
-      }
-    }
-    return found;
-  };
-}
-
-/// Where the chip goes, or undefined to hide it. Every candidate goes through one `accept`: it
-/// slides the chip into its bounds, then takes the spot only when it is inside the visible
-/// transcript (`pane`, from its top to its height) and `probe` finds no unselected text under it.
-/// The bounds are the transcript column, or the pane where the column is narrower than the chip
-/// (a short prompt in its bubble). A selection whose last line is not in the visible transcript
-/// hides the chip until it scrolls back. Leo, 2026-11-05, on the chip drawn over a "Sent to" line:
-/// "this is a bad reply"; and 2026-11-07: "if it's ever on the right edge, just make it in line ...
-/// Sometimes it gets a bit strange, I guess. Like at the sides, because it's not aligned".
-/// The candidates, in order:
-///   1. Over the selection's end, centred on it (as Claude and ChatGPT do): unchanged wherever it
-///      was free.
-///   2. Inline: just after the selection's last character, centred on that line, when it fits
-///      before the column's edge and the rest of the line is empty.
-///   3. Just under the selection's last line, centred on its end (a paragraph break, a block's end).
-///   4. The nearest free spot in the rows just above and just below the last line (`farther`: up
-///      to three lines further each way).
-///   5. Over the selection's own last words, centred on its last line: the person's own text
-///      (`own-end` ends at the selection's end, `own-start` starts at its last line's start).
-///   6. A free spot up to three lines away.
-///   7. The chip's glyph alone (`compact`, a square the chip's height) over the selection's own
-///      last words, for a last line shorter than the chip in dense text.
+/// Where the chip goes, or undefined to hide it (the selection's last line is out of the visible
+/// transcript). The bounds are the transcript column, or the pane where the column is narrower than
+/// the chip (a short prompt in its bubble); the chip stays inside them and inside the visible
+/// transcript (`pane`, from its top to its height).
+/// Leo, 2026-11-11, on the chip drawn at the right end of the next line for a selection that ended
+/// mid-line: "this reply is in the wrong spot". It sits on the selection's own last line, so it never
+/// covers a line over or under it (2026-11-05, on the chip over a "Sent to" line: "this is a bad
+/// reply"), and never floats off to the side (2026-11-07: "if it's ever on the right edge, just make
+/// it in line"). In order:
+///   1. Just after the last glyph, centred on its line, when it fits before the bounds' right edge.
+///   2. Flipped left: over the selection's own last words, its right edge at the last glyph's.
+///   3. Under the last line, centred on the last glyph; over it where the visible transcript ends there.
+/// The `over` and `under` anchors (gallery comparison) try their spot first, then the same order.
 export function selectionReplyPlace(
   target: SelectionReplyTarget,
   size: { width: number; height: number },
   pane: { width: number; height: number; top?: number },
-  probe: TextProbe,
-  wrap: SelectionReplyWrap = "own-end",
+  anchor: SelectionReplyAnchor = "after",
 ): SelectionReplyPlace | undefined {
   const { width, height } = size;
   const gap = PLACE_GAP;
@@ -238,57 +209,25 @@ export function selectionReplyPlace(
   const right = narrow ? paneRight : columnRight;
   const top = Math.max(pane.top ?? 0, 0);
   const bottom = pane.height > 0 ? pane.height : Infinity;
-  const end = target.end ?? { right: target.left, top: target.top, bottom: target.bottom };
+  const { end } = target;
   if (end.top < top || end.bottom > bottom) return undefined;
 
-  /// The one exit: the spot slid into the bounds, if it is in view and over no one else's text.
-  const accept = (x: number, y: number, w = width): SelectionReplyPlace | undefined => {
-    const cx = Math.max(left, Math.min(x, right - w));
-    const cy = Math.max(top + EDGE, Math.min(y, bottom - EDGE - height));
-    const box = { left: cx, top: cy, right: cx + w, bottom: cy + height };
-    if (box.left < left - 0.5 || box.right > right + 0.5 || box.top < top || box.bottom > bottom) return undefined;
-    if (probe(box).length > 0) return undefined;
-    return w < width ? { left: cx, top: cy, compact: true } : { left: cx, top: cy };
-  };
-
-  const line = (end.top + end.bottom - height) / 2;
+  const fits = (x: number) => x >= left - 0.5 && x + width <= right + 0.5;
+  const slide = (x: number) => Math.max(left, Math.min(x, right - width));
+  const inView = (y: number) => y >= top + EDGE && y + height <= bottom - EDGE;
+  // Centred on the last line, kept a margin inside the visible transcript.
+  const line = Math.max(top + EDGE, Math.min((end.top + end.bottom - height) / 2, bottom - EDGE - height));
+  const centred = slide(end.right - width / 2);
   const under = end.bottom + gap;
-  const step = Math.max(end.bottom - end.top, height / 2);
-  const ownX = wrap === "own-start" && target.lineStart !== undefined ? target.lineStart : end.right - width;
-  /// The rows `from` to `to` lines past those next to the last line, each measured once across the
-  /// bounds: the spots that start or end at a gap's edge and cross no text there, nearest first.
-  const rows = (from: number, to: number): [number, number][] => {
-    const spots: { x: number; y: number; far: number }[] = [];
-    for (let k = from; k <= to; k += 1)
-      for (const y of [end.top - height - gap - k * step, under + k * step]) {
-        if (y < top || y + height > bottom) continue;
-        const band = probe({ left, right, top: y, bottom: y + height });
-        const xs = [
-          left,
-          right - width,
-          end.right - width / 2,
-          ...band.flatMap((rect) => [rect.right + gap, rect.left - gap - width]),
-        ];
-        for (const x of xs) {
-          const box = { left: x, top: y, right: x + width, bottom: y + height };
-          if (x < left || x + width > right || band.some((rect) => crosses(box, rect))) continue;
-          spots.push({ x, y, far: Math.abs(x + width / 2 - end.right) + Math.abs(y - line) });
-        }
-      }
-    return spots.sort((a, b) => a.far - b.far).map(({ x, y }) => [x, y]);
-  };
-  function* candidates(): Generator<[number, number, number?]> {
-    yield [target.left - width / 2, target.top - height - gap];
-    if (end.right + gap + width <= right) yield [end.right + gap, line];
-    yield [end.right - width / 2, under];
-    yield* rows(0, wrap === "farther" ? FARTHER : 0);
-    yield [ownX, line];
-    if (wrap !== "farther") yield* rows(1, FARTHER);
-    yield [wrap === "own-start" ? ownX : end.right - height, line, height];
-  }
-  for (const [x, y, w] of candidates()) {
-    const place = accept(x, y, w);
-    if (place) return place;
-  }
-  return undefined;
+  const over = end.top - gap - height;
+
+  if (anchor === "over" && inView(over)) return { left: centred, top: over };
+  if (anchor === "under" && inView(under)) return { left: centred, top: under };
+  const after = end.right + gap;
+  if (fits(after)) return { left: after, top: line };
+  const own = end.right - width;
+  if (fits(own)) return { left: own, top: line };
+  if (inView(under)) return { left: centred, top: under };
+  if (inView(over)) return { left: centred, top: over };
+  return { left: centred, top: line };
 }
