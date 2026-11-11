@@ -3,8 +3,9 @@ import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextDesign
-import CmuxNextLayout
+@testable import CmuxNextLayout
 import CmuxNextTabs
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -41,10 +42,14 @@ struct CmdWEmptiedSplitPaneLeavesInItsTurnTests {
             let hold = s.services.daemon.closeReadHold
             hold.arm()
             defer { hold.release() }
+            print(Self.diag("P0 before Cmd-W", s, sight: false))
+            let pressed = ContinuousClock.now
             #expect(s.services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user)))
+            print(Self.diag("P1 after Cmd-W, same turn", s, sight: false))
             #expect(!Self.shown(s), "the emptied pane stayed on screen while the daemon's read decided")
             hold.release()
             try await PinnedPageTests.until({ Self.question() != nil }, report: { "no close question" })
+            print(Self.diag("P2 question shows, \(ContinuousClock.now - pressed) after Cmd-W", s, sight: false))
             #expect(Self.shown(s), "the pane is not back on screen while its question shows")
             #expect(s.pane.orderedIDs.map(\.rawValue).contains(s.tab.id), "the tab is not back in its strip while its question shows")
             try await PinnedPageTests.until({ s.services.windows.active?.focusedPane === s.pane },
@@ -53,7 +58,9 @@ struct CmdWEmptiedSplitPaneLeavesInItsTurnTests {
                 return "the focus did not come back to the pane the question asks about: focus \(workspace?.focus.state.pane ?? "nil"), pane \(s.pane.paneKey), "
                     + "layout focus \(workspace?.layoutModel.focusedPane.map { "\($0)" } ?? "nil"), closing \(workspace?.layoutModel.isClosing(s.pane.layoutPaneID) == true), "
                     + "topology has it \(workspace?.focus.currentState().topology.contains(pane: s.pane.paneKey) == true)"
+                    + " || " + Self.diag("P3 timed out", s, sight: true)
             })
+            print(Self.diag("P4 after the focus wait", s, sight: true))
             _ = CmuxDialogCenter.shared.press(try #require(Self.question()).id, button: "cancel")
             try await PinnedPageTests.until({ !TabCloseGuard.asking.contains(s.tab.id) }, report: { "the cancelled close still asks" })
             try await Self.turns()
@@ -114,6 +121,28 @@ struct CmdWEmptiedSplitPaneLeavesInItsTurnTests {
         func pct(_ p: Double) -> Double { sorted[min(sorted.count - 1, Int((Double(sorted.count - 1) * p).rounded()))] }
         print("CLOSE-EMPTIED-PANE-BENCH n=\(sorted.count) p50_ms=\(String(format: "%.2f", pct(0.5))) p95_ms=\(String(format: "%.2f", pct(0.95))) max_ms=\(String(format: "%.2f", sorted.last ?? 0))")
         #expect(sorted.count == 15)
+    }
+
+    /// DIAGNOSTIC ONLY (TIP REDS 3 item 6, never merged): which controller the window holds for the pane, and how the
+    /// layout view treated the pane's close. `sight` also reads the frame scheduler's out-of-sight answer (it starts
+    /// the occlusion observer, so it is read only after the restore).
+    private static func diag(_ label: String, _ s: Split, sight: Bool) -> String {
+        guard let workspace = s.pane.workspace else { return "CMDW-DIAG \(label): the pane has no workspace" }
+        let id = s.pane.layoutPaneID, root = workspace.layoutView, window = root.window
+        let held = workspace.paneController(key: s.pane.paneKey)
+        let focused = workspace.focusedPane
+        func name(_ controller: PaneController?) -> String {
+            controller == nil ? "nil" : controller === s.pane ? "SAME" : "OTHER(key \(controller?.paneKey ?? "?"), tabs \(controller?.orderedIDs.count ?? -1), content \(controller?.currentContent != nil), in window \(controller?.view.window != nil))"
+        }
+        var text = "CMDW-DIAG \(label): panes[key] \(name(held)), focusedPane \(name(focused)), panes \(workspace.panes.count), "
+        text += "model closing \(workspace.layoutModel.isClosing(id)), view closing \(root.context.isClosing(id)), host \(root.context.hosts[id] != nil), retired \(root.context.retired[id] != nil), "
+        text += "reduceMotion \(root.context.reduceMotion), animatesPaneLayout \(root.context.animatesPaneLayout), canAnimate \(root.canAnimate), live \(root.isLive), "
+        text += "driver attached \(root.driver.isAttached) running \(root.driver.isRunning) starts \(root.driver.startRequests), motion \(root.screenViews.values.contains(where: \.hasMotion)), "
+        text += "off screen \(workspace.isOffScreen), parked \(workspace.isParked), "
+        text += "window \(window != nil) visible \(window?.isVisible == true) key \(window?.isKeyWindow == true) screen \(window?.screen != nil) screens \(NSScreen.screens.count) app active \(NSApp.isActive), "
+        text += "old pane in window \(s.pane.view.window != nil) tabs \(s.pane.orderedIDs.count), active window is it \(s.services.windows.active?.window === window)"
+        if sight { text += ", out of sight \(window.map { FrameScheduler.windowIsOutOfSight($0) } ?? false)" }
+        return text
     }
 
     // MARK: Fixture
