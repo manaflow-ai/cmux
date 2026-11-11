@@ -672,11 +672,15 @@ export function NewTabScreen(props: Props) {
   const saved = useSavedEnvironments(props.environments ? props.savedEnvironments : undefined);
   const environment = saved.picked;
   // `/customize` changes this machine's cmux: refused when the chat would start anywhere else.
-  elsewhere.current = newChatRunsElsewhere({
+  // Read when a command runs (after commit), so the ref is written in an effect, never in render.
+  const runsElsewhere = newChatRunsElsewhere({
     mode: props.runMode?.mode,
     machine: machine !== undefined,
     environmentKind: environment?.kind,
   });
+  useLayoutEffect(() => {
+    elsewhere.current = runsElsewhere;
+  }, [runsElsewhere]);
   // WEB-SWAP: a reload also loses a pick the page keeps only in its state: shell mode, a folder or
   // no folder, a saved environment, one being edited (pages/shared/webSwap.ts).
   const editingEnvironment = saved.on && saved.editing !== undefined;
