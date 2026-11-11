@@ -1304,8 +1304,10 @@
   font-weight: 600;
 }
 /* A number of three or more digits (Markdown.tsx listNumberStyle) gets room for itself, so it never
-   draws over its item's text. */
-.cv-ol[style*="--cv-ol-digits"] > li {
+   draws over its item's text. Keyed on `data-wide-numbers`, never `[style*=...]`: a rule on the style
+   attribute restyled every list item under any element whose inline style changed, which the send motion
+   and the follow glide do each frame (test/css-invalidation-scope.test.ts). */
+.cv-ol[data-wide-numbers] > li {
   padding-left: calc(var(--cv-ol-digits) * 0.6em + 1.4em);
 }
 .cv-li__bullet {
@@ -1428,7 +1430,7 @@
   top: var(--cv-table-tools-pad);
 }
 .cv-table-block[data-actions="corner"] .cv-table thead th:last-child,
-.cv-table-block[data-actions="corner"] .cv-table:not(:has(thead)) tr:first-child td:last-child {
+.cv-table-block[data-actions="corner"] .cv-table[data-headless] tr:first-child td:last-child {
   padding-right: calc(var(--cv-table-tools-width) + var(--cv-action-gap, 4px));
 }
 /* Above: the pill rises just over the table's top-right corner, over the end of the line before. */
