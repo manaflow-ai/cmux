@@ -44,8 +44,10 @@ Plain scripts the job runs are checked the same way: perf-cron.py reads perf-bud
 measure job of cmux-next-perf-budgets.yml checks out perf-cron.py alone. A script's subcommand may
 never reach a read, so a script read the job provably never reaches is listed in READ_ALLOWLIST with
 the reason and a `reach` pattern: the invocation (subcommand or flag) that would reach the read. The
-entry fails when that pattern shows up in the job's `run:` steps, when its reason is blank, and when
-the read is no longer flagged (a stale entry), so the list cannot rot. When in doubt, add the path to
+entry fails when that pattern matches the arguments of a command in the job's `run:` steps that
+runs the script (read as shell words with shlex: quotes, `\\` continuations, `&&`/`;`/`|`, env
+prefixes), when its reason is blank, and when the read is no longer flagged (a stale entry), so the
+list cannot rot. When in doubt, add the path to
 the sparse list instead.
 
 Run: python3 tests/test_ci_sparse_checkout_imports.py
@@ -57,6 +59,7 @@ import ast
 import os
 import posixpath
 import re
+import shlex
 import subprocess
 import tempfile
 import textwrap
@@ -800,6 +803,71 @@ def _job_run_text(root: Path, workflow: str, job: str) -> str:
     return "\n".join(str(step.get("run") or "") for step in steps if isinstance(step, dict))
 
 
+def _job_run_blocks(root: Path, workflow: str, job: str) -> list[str]:
+    doc = yaml.safe_load((root / ".github" / "workflows" / workflow).read_text(encoding="utf-8")) or {}
+    steps = ((doc.get("jobs") or {}).get(job) or {}).get("steps") or []
+    return [str(step.get("run") or "") for step in steps if isinstance(step, dict)]
+
+
+_SHELL_SEPARATORS = set(";&|()\n")
+
+
+def _shell_tokens(text: str) -> list[str]:
+    """Words and separators of a shell text, as shlex reads them; a newline is a separator."""
+    lexer = shlex.shlex(text, posix=True, punctuation_chars=";&|()<>\n")
+    lexer.whitespace = " \t\r"
+    lexer.whitespace_split = True
+    return list(lexer)
+
+
+def shell_commands(run_text: str) -> list[list[str]]:
+    """The simple commands of a `run:` block, each a list of words with quotes removed.
+
+    `\\`-newline continuations join lines; newlines, `;`, `&&`, `||`, `|`, `&` and parentheses
+    separate commands; leading `NAME=value` assignments are dropped. A block shlex cannot read whole
+    (an unbalanced quote in a heredoc) is read line by line, and a line it cannot read is split on
+    whitespace.
+    """
+    text = re.sub(r"\\\r?\n", " ", run_text)
+    try:
+        tokens = _shell_tokens(text)
+    except ValueError:
+        tokens = []
+        for line in text.splitlines():
+            try:
+                tokens.extend(_shell_tokens(line))
+            except ValueError:
+                tokens.extend(line.split())
+            tokens.append("\n")
+    commands: list[list[str]] = []
+    current: list[str] = []
+    for token in tokens:
+        if token and set(token) <= _SHELL_SEPARATORS:
+            if current:
+                commands.append(current)
+            current = []
+        elif not current and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", token, re.S):
+            continue
+        else:
+            current.append(token)
+    if current:
+        commands.append(current)
+    return commands
+
+
+def script_arguments(run_blocks: list[str], script: str) -> list[str]:
+    """For each command that names `script` (by path, `$X/`-prefixed or bare file name), the words after it, joined by spaces."""
+    base = script.rsplit("/", 1)[-1]
+    out = []
+    for block in run_blocks:
+        for command in shell_commands(block):
+            for index, word in enumerate(command):
+                if word == base or word.endswith("/" + base):
+                    out.append(" ".join(command[index + 1:]))
+                    break
+    return out
+
+
 def read_miss_records(root: Path, tests_only: bool = False) -> list[tuple[str, str, str, str, str]]:
     """(workflow, job, step, run file, repo file it reads that the sparse list leaves out)."""
     records = []
@@ -827,53 +895,54 @@ def find_read_misses(root: Path, tests_only: bool = False) -> list[str]:
 
 
 # A script read the job never reaches: (workflow, job, script, path, reach, reason). `reach` is a regex
-# for the invocation that would reach the read (the subcommand or flag); the entry is void when the
-# job's `run:` steps match it. The reason names the condition. Checked against the tree at 2026-11-11.
+# for the invocation that would reach the read (the subcommand or flag), searched in the arguments of
+# every command of the job's `run:` steps that runs the script (shell words after the script, quotes
+# removed, joined by single spaces); the entry is void when one matches. The reason names the condition. Checked against the tree at 2026-11-11.
 READ_ALLOWLIST: list[tuple[str, str, str, str, str, str]] = [
     ("ci-web.yml", "webviews-test-history", "scripts/ci/webviews_test_history.py", "scripts/cmux-next/web-bundle-key.py",
-     r"webviews_test_history\.py\s+inputs\b",
+     r"(^| )inputs( |$)",
      "run only by inputs(), the `inputs` subcommand; this job runs `fetch` and `record` and takes the key the "
      "shards' full checkouts computed"),
     ("cmux-next-frame-pacing.yml", "bench", "scripts/cmux-next/instant-new-surfaces-bench.py",
-     "scripts/cmux-next/new-pane-start-state-bench.py", r"--bench=new-pane-start-state",
+     "scripts/cmux-next/new-pane-start-state-bench.py", r"(^| )--bench=new-pane-start-state( |$)",
      "exec'd only when argv holds `--bench=new-pane-start-state` (scripts/measure/instant-new-surfaces.sh's "
      "fleet route); no step of this job passes it"),
     ("cmux-next-frame-pacing.yml", "bench", "scripts/cmux-next/bench-startup.py", "scripts/cmux-next/perf-stress-session.py",
-     r"--profile[ =]stress",
+     r"(^| )--profile[ =]stress( |$)",
      "loaded only by seed_stress(), under `--profile stress`; this job passes `--profile empty` and "
      "`--profile realistic`"),
     ("cmux-next-media.yml", "route", "scripts/cmux-next/media/whats-new-clips.py", "scripts/pr-media.py",
-     r"whats-new-clips\.py\s+publish",
+     r"(^| )publish(-auto)?( |$)",
      "loaded only by pr_media_module(), from the `publish` and `publish-auto` subcommands; this job runs `plan`"),
     ("cmux-next-perf-budgets.yml", "measure", "scripts/cmux-next/perf-cron.py", "scripts/ci/cmux_tui_tree_key.py",
-     r"perf-cron\.py\s+plan\b",
+     r"(^| )plan( |$)",
      "run only by tree_published(), reached only from the `plan` subcommand; this job runs `fleet-check`, "
      "`run-part` and `part-cleanup`"),
     ("cmux-next-perf-budgets.yml", "measure", "scripts/cmux-next/perf-cron.py", "scripts/cmux-next/perf-budgets.json",
-     r"perf-cron\.py\s+report\b",
+     r"(^| )report( |$)",
      "read only by cmd_report (the `report` subcommand) when a measurement finishes; this job runs `fleet-check`, "
      "`run-part` and `part-cleanup` (the report job checks it out)"),
     ("cmux-next-perf-budgets.yml", "measure", "scripts/cmux-next/perf-cron.py", "scripts/cmux-next/perf-budgets.py",
-     r"perf-cron\.py\s+report\b",
+     r"(^| )report( |$)",
      "loaded only by load_budgets_module(), from cmd_report (the `report` subcommand); this job runs "
      "`fleet-check`, `run-part` and `part-cleanup` (the report job checks it out)"),
     ("cmux-next-perf-budgets.yml", "report", "scripts/cmux-next/perf-cron.py", "scripts/ci/cmux_tui_tree_key.py",
-     r"perf-cron\.py\s+plan\b",
+     r"(^| )plan( |$)",
      "run only by tree_published(), reached only from the `plan` subcommand; this job runs `fetch-result`, "
      "`report` and `dispatch-next`"),
     ("cmux-next-quality-report.yml", "report", "scripts/cmux-next/perf-cron.py", "scripts/ci/cmux_tui_tree_key.py",
-     r"perf-cron\.py\s+plan\b",
+     r"(^| )plan( |$)",
      "run only by tree_published(), reached only from the `plan` subcommand; this job runs `fetch-state`"),
     ("stable-next.yml", "tick", "scripts/ci/stable_next.py", "scripts/ci/publish-nightly-next-r2.py",
-     r"stable_next\.py\s+write-feed",
+     r"(^| )write-feed( |$)",
      "loaded only by _r2_module(), from the `write-feed` subcommand (stable-next-rollback.yml); this job runs "
      "`window` and `published-tonight`"),
     ("stable-next.yml", "crash-class", "scripts/ci/stable_next.py", "scripts/ci/publish-nightly-next-r2.py",
-     r"stable_next\.py\s+write-feed",
+     r"(^| )write-feed( |$)",
      "loaded only by _r2_module(), from the `write-feed` subcommand (stable-next-rollback.yml); this job runs "
      "`crash-delta`"),
     ("stable-next.yml", "soak", "scripts/ci/stable_next.py", "scripts/ci/publish-nightly-next-r2.py",
-     r"stable_next\.py\s+write-feed",
+     r"(^| )write-feed( |$)",
      "loaded only by _r2_module(), from the `write-feed` subcommand (stable-next-rollback.yml); this job runs "
      "`soak` and `sentry-new-crashes`"),
 ]
@@ -900,9 +969,9 @@ def unhandled_read_misses(root: Path, allowlist=READ_ALLOWLIST, records=None) ->
         if not any(r[:2] == (workflow, job) and r[3:] == (script, rel) for r in records):
             problems.append(f"{entry} is stale: the read is no longer flagged; remove the entry")
             continue
-        run_text = _job_run_text(root, workflow, job).replace("\\\n", " ")
-        if re.search(reach, run_text):
-            problems.append(f"{entry} no longer holds: the job's run steps match {reach!r}; add the path to its sparse list")
+        if any(re.search(reach, args) for args in script_arguments(_job_run_blocks(root, workflow, job), script)):
+            problems.append(f"{entry} no longer holds: the job runs {script} with arguments matching {reach!r}; "
+                            "add the path to its sparse list")
             continue
         covered.add((workflow, job, script, rel))
     unhandled = [_read_miss_line(r) for r in records if (r[0], r[1], r[3], r[4]) not in covered]
@@ -1448,6 +1517,47 @@ class PerfCronScriptReadTests(unittest.TestCase):
             self.assertIn(MEASURE + "scripts/cmux-next/perf-budgets.py, not in its sparse checkout", problems)
             self.assertEqual(sum("no longer holds" in p for p in problems), 2, problems)
             self.assertNotIn(MEASURE + "scripts/ci/cmux_tui_tree_key.py, not in its sparse checkout", problems)
+
+    def _run_block(self, root: Path, block: str) -> None:
+        path = root / ".github/workflows/cmux-next-perf-budgets.yml"
+        lines = "".join(" " * 10 + line + "\n" for line in textwrap.dedent(block).strip("\n").splitlines())
+        path.write_text(path.read_text() + "      - run: |\n" + lines)
+
+    def test_reach_matches_quoted_and_compound_invocations(self) -> None:
+        # Review of 33852f74: `python3 -I "scripts/cmux-next/perf-cron.py" report` got past the reach regex,
+        # which wanted whitespace right after `.py`. The run text is now read as shell words.
+        reaching = {
+            "double quotes": 'python3 -I "scripts/cmux-next/perf-cron.py" report --repo "$GITHUB_REPOSITORY"',
+            "single quotes": "python3 -I 'scripts/cmux-next/perf-cron.py' 'report'",
+            "workspace prefix, env and &&": 'cd "$RUNNER_TEMP" && PYTHONUNBUFFERED=1 python3 '
+                                             '"$GITHUB_WORKSPACE/scripts/cmux-next/perf-cron.py" report',
+            "continuations": "python3 -I scripts/cmux-next/perf-cron.py \\\n  --verbose \\\n  report --dir x",
+            "after ; and in a pipe": "true; python3 scripts/cmux-next/perf-cron.py report | tee log",
+        }
+        for name, block in reaching.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                root = self._root(Path(tmp))
+                self._run_block(root, block)
+                problems = unhandled_read_misses(root, self._measure_allowlist())
+                self.assertEqual(sum("no longer holds" in p for p in problems), 2, problems)
+        holding = {
+            "echoed text": 'echo "perf-cron.py report"',
+            "another command": "python3 scripts/cmux-next/perf-cron.py fleet-check; echo report",
+        }
+        for name, block in holding.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                root = self._root(Path(tmp))
+                self._run_block(root, block)
+                self.assertEqual(unhandled_read_misses(root, self._measure_allowlist()), [])
+
+    def test_shell_commands_split_like_the_shell(self) -> None:
+        self.assertEqual(
+            shell_commands('A=1 B="x y" python3 "a b.py" c \\\n d && e | f; g\n# note\nh \'i j\' &'),
+            [["python3", "a b.py", "c", "d"], ["e"], ["f"], ["g"], ["h", "i j"]],
+        )
+        # An unbalanced quote (a heredoc's apostrophe) falls back to reading line by line.
+        self.assertEqual(shell_commands("cat <<EOF\nit's\nEOF\npython3 x.py report"),
+                         [["cat", "<<", "EOF"], ["it's"], ["EOF"], ["python3", "x.py", "report"]])
 
     def test_real_allowlist_entries_are_well_formed(self) -> None:
         seen = set()
