@@ -1,0 +1,7 @@
+{"envs":[["dark","none"],["light","none"]],
+ "shots":[
+  {"name":"prompt-delivery","entry":"agent-pane.transcript","variant":"prompt-delivery","width":760,"height":520,"deviceScaleFactor":2,"arms":{"now":""}},
+  {"name":"prompt-pending","entry":"agent-pane.transcript","variant":"prompt-pending","width":760,"height":420,"deviceScaleFactor":2,"arms":{"now":""}},
+  {"name":"prompt-pending-clock","entry":"agent-pane.transcript","variant":"prompt-pending-clock","width":760,"height":420,"deviceScaleFactor":2,"arms":{"now":""}},
+  {"name":"prompt-pending-dim","entry":"agent-pane.transcript","variant":"prompt-pending-dim","width":760,"height":420,"deviceScaleFactor":2,"arms":{"now":""}}
+ ]}
