@@ -107,6 +107,7 @@ extension MobileShellComposite {
         notificationFeedKnownRevisionsByMac.removeValue(forKey: session.feedOwnerKey)
         notificationFeedSuccessfulMacIDs.remove(session.feedOwnerKey)
         recomputeNotificationFeedItems()
+        removeDemonstrationAgentFeed(ownerKey: session.feedOwnerKey)
         // With no real (non-demo) rows left, the forced known-Mac hint is
         // restored so the add-device flow returns.
         if session.forcedKnownPairedMacHint,
@@ -139,6 +140,105 @@ extension MobileShellComposite {
         if notificationFeedStatus == .idle || notificationFeedStatus == .unavailable {
             notificationFeedStatus = .ready
         }
+        seedDemonstrationAgentFeedIfNeeded()
+    }
+
+    // MARK: Agent feed (Feed tab)
+
+    /// Seeds the demo Mac's agent-feed snapshot when it is missing (first
+    /// activation, or after a feed reset dropped it), through the same
+    /// per-Mac snapshot store a live Mac's `feed.list` lands in.
+    func seedDemonstrationAgentFeedIfNeeded() {
+        guard let session = demoContentSession,
+              agentFeedSnapshotsByMac[session.feedOwnerKey] == nil else { return }
+        agentFeedSnapshotsByMac[session.feedOwnerKey] = AgentFeedMacSnapshot(
+            revision: 1,
+            items: session.catalog.agentFeedItems
+        )
+        agentFeedKnownRevisionsByMac[session.feedOwnerKey] = 1
+        agentFeedSuccessfulMacIDs.insert(session.feedOwnerKey)
+        recomputeAgentFeedItems()
+        if agentFeedStatus == .idle || agentFeedStatus == .unavailable {
+            agentFeedStatus = .ready
+        }
+    }
+
+    /// Removes the demo agent-feed snapshot and this device's local replies
+    /// and triage state for demo rows.
+    private func removeDemonstrationAgentFeed(ownerKey: String) {
+        func isDemo(_ id: MobileAgentFeedItemID) -> Bool {
+            demonstrationOwnsMac(deviceID: id.macDeviceID, instanceTag: id.macInstanceTag)
+        }
+        agentFeedLocalRepliesByItemID = agentFeedLocalRepliesByItemID.filter { !isDemo($0.key) }
+        agentFeedTriageOverridesByItemID = agentFeedTriageOverridesByItemID.filter { !isDemo($0.key) }
+        agentFeedFailedTerminalReplies = agentFeedFailedTerminalReplies.filter { !isDemo($0.key) }
+        // Also re-resolves a `.ready` status that has no rows left.
+        removeAgentFeedSnapshot(macDeviceID: ownerKey)
+    }
+
+    /// Whether the demo agent-feed snapshot is currently seeded, so the Feed
+    /// tab reports `.ready` when demonstration content is the only source.
+    var demonstrationAgentFeedSeeded: Bool {
+        guard let session = demoContentSession else { return false }
+        return agentFeedSnapshotsByMac[session.feedOwnerKey] != nil
+    }
+
+    /// Whether an agent-feed row belongs to the demonstration Mac.
+    func demonstrationOwnsAgentFeedItem(_ item: MobileAgentFeedItem) -> Bool {
+        demonstrationOwnsMac(deviceID: item.macDeviceID, instanceTag: item.macInstanceTag)
+    }
+
+    /// Resolves a pending demo request (permission, question, exit plan)
+    /// locally, as a live Mac's reply verb would. Never contacts a Mac.
+    func resolveDemonstrationAgentFeedRequest(
+        requestID: String,
+        decision: MobileAgentFeedDecision
+    ) -> Bool {
+        guard !agentFeedPendingReplyRequestIDs.contains(requestID),
+              let session = demonstrationSessionForInteraction() else { return false }
+        seedDemonstrationAgentFeedIfNeeded()
+        applyAgentFeedLocalResolution(
+            ownerKey: session.feedOwnerKey,
+            requestID: requestID,
+            decision: decision
+        )
+        return true
+    }
+
+    /// Records a free-text reply on a demo row so it shows as the user's reply.
+    func recordDemonstrationAgentFeedTerminalReply(
+        _ item: MobileAgentFeedItem,
+        text: String
+    ) -> Bool {
+        guard demonstrationSessionForInteraction() != nil else { return false }
+        agentFeedFailedTerminalReplies[item.id] = nil
+        agentFeedLocalRepliesByItemID[item.id] = text
+        recomputeAgentFeedItems()
+        return true
+    }
+
+    /// Opens a demo row's workspace (and tab) locally. The demo Mac is never
+    /// the foreground connection, so the foreground-owner check the live
+    /// path performs does not apply.
+    func openDemonstrationAgentFeedDestination(
+        _ item: MobileAgentFeedItem,
+        openTab: Bool
+    ) -> Bool {
+        guard let remoteWorkspaceID = item.remoteWorkspaceID,
+              demonstrationSessionForInteraction() != nil,
+              let destination = workspaceID(
+                  matchingRemoteWorkspaceID: remoteWorkspaceID,
+                  macDeviceID: item.macDeviceID,
+                  instanceTag: item.macInstanceTag
+              ) else { return false }
+        if openTab {
+            guard let surfaceID = item.remoteSurfaceID,
+                  workspace(destination, containsSurfaceID: surfaceID) else { return false }
+            selectedWorkspaceID = destination
+            selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceID))
+        }
+        navigateToWorkspaceForDeeplink(destination, origin: .agentFeed)
+        return true
     }
 
     // MARK: Ownership (session-independent, by identifier namespace)
