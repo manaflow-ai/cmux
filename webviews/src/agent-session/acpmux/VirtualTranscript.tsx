@@ -3819,7 +3819,7 @@ function TranscriptView({
             const arrived = now - arrivedAt.current < ARRIVAL_PASS_MS;
             tailAnchor = chaseAnchor.current?.id;
             // A send's own rows rise on the send motion, one clock with the bubble's entrance.
-            chaseFollow(node, layout, rows, below, atOnce, held, arrived, sentRows && !held);
+            chaseFollow(node, layout, rows, below, atOnce, held, arrived, sentRows);
             tailGlides = !atOnce && followChase.current?.arm !== "instant";
           }
         }
@@ -4853,10 +4853,12 @@ function TranscriptView({
       const downInput = readerDownInput(event, pointer, touch);
       if (movingUp) readerDown.current = undefined;
       else if (downInput) readerDown.current = { at: performance.now(), input: downInput };
-      // Down at the scroller's end, where the browser scrolls nothing and sends no scroll event: the
-      // reader is at the latest row, so it follows again from here.
+      // A wheel or key down at the scroller's end, where the browser scrolls nothing and sends no
+      // scroll event: the reader is at the latest row, so it follows again from here. A pressed drag
+      // (selecting text near the end) is not a move to the latest row.
       if (
         downInput &&
+        (event?.type === "wheel" || event?.type === "keydown") &&
         !followingRef.current &&
         jumpTarget.current === undefined &&
         node.clientHeight > 0 &&
