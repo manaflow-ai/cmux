@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Regression test for the normal nightly macOS track and its fast arm64 dogfood path.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../scripts/cmux-next/tests/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"

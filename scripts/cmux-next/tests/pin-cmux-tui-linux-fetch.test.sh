@@ -13,6 +13,7 @@ trap 'rc=$?; printf "%s: line %d exited %d\n" "$0" "$LINENO" "$rc" >&2' ERR
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 # git_q, and no background git maintenance in the scratch repositories.
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
 source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"
 sha256() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | awk '{print $1}'; }
 

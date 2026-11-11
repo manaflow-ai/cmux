@@ -10,6 +10,7 @@
 #  2. Without an hq checkout the demo starts nothing and names the public
 #     fallback instead of a personal default path.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../scripts/cmux-next/tests/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
