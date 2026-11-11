@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43118618439",
+  "recorded_at": "2026-11-11T23:23:01Z",
+  "reason": "cmux-tui a556815e4c74 changes the image's cmux-tui (pinned 047c9fbd2238)",
+  "dry_run": false,
+  "cmux_tui": "a556815e4c744121b5b03f5b5b34e9cebac557d9",
+  "fixes": [
+    {
+      "sha": "a556815e4c744121b5b03f5b5b34e9cebac557d9",
+      "mergedAt": "2026-11-11T15:02:00-08:00",
+      "subject": "Opt-in usage patterns: local counters of how cmux is used, never content (#40554)"
+    },
+    {
+      "sha": "739c07ed2e7e47f79c89b1eef07a225cf0351340",
+      "mergedAt": "2026-11-11T22:55:00Z",
+      "subject": "acpmux: a cancel reaches every link that still carries its request (#41467)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-11T23:23:01Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
