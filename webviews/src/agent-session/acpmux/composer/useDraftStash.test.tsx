@@ -13,6 +13,8 @@ let dom: JSDOM | undefined;
 let root: Root | undefined;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
+const hadFrame = "requestAnimationFrame" in globalThis;
+const frame = globalThis.requestAnimationFrame;
 
 function installDom(): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
@@ -36,6 +38,9 @@ afterEach(async () => {
     else scope[key] = value;
   }
   saved.clear();
+  // The tests that wait for a drawn frame stub it; the next file gets the global it had.
+  if (hadFrame) globalThis.requestAnimationFrame = frame;
+  else delete (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame;
   resetStashForTests();
 });
 
