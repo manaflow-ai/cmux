@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43012023998",
+  "recorded_at": "2026-11-11T11:36:05Z",
+  "reason": "cmux-tui 9fbf1e5eaceb changes the image's cmux-tui (pinned 027024479e86)",
+  "dry_run": false,
+  "cmux_tui": "9fbf1e5eacebf38d3ddaf9af70fb4ad51e22d034",
+  "fixes": [
+    {
+      "sha": "9fbf1e5eacebf38d3ddaf9af70fb4ad51e22d034",
+      "mergedAt": "2026-11-11T03:10:48-08:00",
+      "subject": "Cloud composer: the Mode chip names a mode, Bypass is pickable and starts on your own machine, the team tag never cuts or names a removed team (#40956)"
+    },
+    {
+      "sha": "2a92e592ef345a93e62467d90dd4a99bf9e8d9ef",
+      "mergedAt": "2026-11-11T02:38:11-08:00",
+      "subject": "cmux NEXT bookmarks: the bookmarks bar is native AppKit again; remove the React bar page (#41202)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T11:36:05Z",
+    "snapshot_id": "sh-6c4d9e8b5fa54d61b029b81cf3bf9158",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43012023998): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "66688f4ea38cd696b8fa36057f005e53ae15d662",
+    "image": "cloud-native-auto-9fbf1e5e-43012023998-1",
+    "revision": "ci-43012023998-1",
+    "at": "2026-11-11T11:36:05Z"
+  },
+  "rolled_back": false
+}
