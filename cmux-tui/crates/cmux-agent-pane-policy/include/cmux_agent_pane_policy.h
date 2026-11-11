@@ -63,7 +63,8 @@ int32_t cmux_agent_pane_policy_check(const CmuxAgentPanePolicy *pane,
  * then say "needs_click": true. One click answers one time: the host spends
  * the click that it named, and its gesture grant, on this frame, and holds no
  * click after it until the person clicks again. A "ticket" in the facts is
- * still the host's to redeem; it does not stand in for the click.
+ * still the host's to redeem (the ticket holds the grant then, so the host
+ * spends only the click); it does not stand in for the click.
  * The host may send 2 for two inputs only, each the person's own and not
  * older than "click_window_ms" (op "policy") on the host's own clock: a
  * pointer click on the answer control in the pane, or the host's own answer

@@ -51,10 +51,11 @@ pub enum Gesture {
     /// answer card (a native shortcut the page does not get as a key).
     ///
     /// A host that can not see which control of the page got the click says
-    /// `Click` for the person's pointer click inside the pane's page, and no
-    /// more than that: the Swift host does so (`AgentPaneView` records each
-    /// mouse press of the person in the web view, and its permission shortcut
-    /// without a look at the card's focus).
+    /// `Click` for the person's pointer click inside the pane's page or the
+    /// person's own answer shortcut, and for no other input. The Swift host
+    /// does so (`AgentPaneView` records each mouse press of the person in
+    /// the web view, and its permission shortcut without a look at the
+    /// card's focus).
     ///
     /// A host must never say `Click` for: a key that the web page gets (the
     /// person types while another process posts a click on Allow; this is

@@ -202,9 +202,11 @@ pub struct Facts {
     /// and holds no click after it until the person clicks again. (The
     /// Swift transport spends its grant only and keeps the click's time;
     /// a host on this check must not copy that.) A `ticket` in the facts is
-    /// still the host's to redeem, and it does not stand in for the click: a
-    /// host that spends the click when it gives the ticket gets a refuse for
-    /// the ticketed frame (see the difference note in [`check_frame`]).
+    /// still the host's to redeem; for such a frame the ticket holds the
+    /// grant, so the host spends only the click. The ticket does not stand
+    /// in for the click: a host that spends the click when it gives the
+    /// ticket gets a refuse for the ticketed frame (see the difference note
+    /// in [`check_frame`]).
     /// Implies `needs_gesture`.
     pub needs_click: bool,
     pub needs_path_check: bool,
