@@ -34,7 +34,7 @@ public struct UpdateDropBack {
             updater.revert = RevertProgress(step: .checking, target: build)
         }
         do {
-            let inputs = await updater.rollbackInputs(stateDirectories: stateDirectories)
+            let inputs = await updater.rollbackInputs(to: build, stateDirectories: stateDirectories)
             if checkOnly { return try updater.rollbackDecision(to: build, inputs: inputs).get() }
             Self.mark("revert.inputs_read")
             let target = try await updater.swapForRollback(to: build, inputs: inputs)
@@ -46,10 +46,12 @@ public struct UpdateDropBack {
         }
     }
 
-    /// The kept build is in place: one relaunch, with every session. The quit hands the agent
-    /// daemon to the build it opens (as Restart to Update does, ``UpdaterService/relaunchesIntoUpdate``)
-    /// and takes the windows off the screen at once. A helper that cannot start leaves cmux running
-    /// and says how to finish.
+    /// The kept build is in place: one relaunch, with every session. The quit takes the windows off
+    /// the screen at once. It does not hand the agent daemon over (``UpdaterService/relaunchesIntoUpdate``
+    /// stays false): Restart to Update prepares that handoff while the update stages, a rollback has
+    /// nothing staged, and starting it at the click cost 3.9 s of the quit (update harness, cmux20,
+    /// 2026-11-11); the running daemon keeps every agent and the kept build reconnects to it. A helper
+    /// that cannot start leaves cmux running and says how to finish.
     private func restart(into target: KeptVersion) async throws {
         let label = RevertTarget(kept: target).label
         updater.revert = RevertProgress(step: .restarting, target: target.build, label: label)
@@ -57,7 +59,6 @@ public struct UpdateDropBack {
             updater.log.append("rollback: the relaunch helper did not start; \(target.build) opens on the next launch")
             throw RollbackRefusal.relaunchFailed(target)
         }
-        updater.relaunchesIntoUpdate = true
         updater.willRelaunch?()
         updater.hidesForRelaunch?()
         NSApplication.terminateFromRunLoop()

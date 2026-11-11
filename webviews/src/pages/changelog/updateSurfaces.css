@@ -978,16 +978,18 @@
 .wn-notes:has(.wn-goback) .wn-notes-more { bottom: calc(var(--ds-space-2) * 4 + var(--ds-space-1)); }
 .wn-goback-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--ds-space-2);
+  justify-content: space-between;
+  gap: var(--ds-space-1) var(--ds-space-2);
   min-width: 0;
 }
 .wn-goback-entry {
   display: inline-flex;
   align-items: center;
   gap: var(--ds-space-1);
-  min-width: 0;
-  flex: 1 1 auto;
+  max-width: 100%;
+  flex: 0 1 auto;
   border: 0;
   border-radius: var(--ds-radius-control);
   padding: var(--ds-space-1) var(--ds-space-2);
@@ -1000,8 +1002,9 @@
 .wn-goback-entry:hover:not(:disabled) { background: var(--page-selection); }
 .wn-goback-entry:disabled { color: var(--page-text-2); }
 .wn-goback-glyph { flex: none; color: var(--page-text-2); }
-.wn-goback-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wn-goback-label { min-width: 0; overflow-wrap: anywhere; }
 .wn-goback-more {
+  margin-inline-start: auto;
   display: inline-flex;
   align-items: center;
   gap: calc(var(--ds-space-1) / 2);

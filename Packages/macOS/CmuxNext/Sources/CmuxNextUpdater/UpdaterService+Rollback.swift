@@ -3,7 +3,7 @@ public import Foundation
 import CmuxNextWakeups
 
 /// What a rollback compares, read off the main actor
-/// (``UpdaterService/rollbackInputs(stateDirectories:)``).
+/// (``UpdaterService/rollbackInputs(to:stateDirectories:)``).
 nonisolated public struct RollbackInputs: Sendable {
     /// Kept versions, newest first, each with the schemas it reads (its
     /// Info.plist, its record, else its own CLI; nil when none says).
@@ -105,15 +105,18 @@ extension UpdaterService {
     /// schemas are one run of the running build's CLI per state root. Both at
     /// once. `stateDirectories` are the daemons' state roots (nil: cmux-tui's
     /// default).
-    public func rollbackInputs(stateDirectories: [URL?]) async -> RollbackInputs {
+    public func rollbackInputs(to build: String? = nil, stateDirectories: [URL?]) async -> RollbackInputs {
         let store = keptVersions
         let bundle = Bundle.main.bundleURL
         let work = work
         // task-owner: the rollback's read; awaited below.
         async let stored = StoreSchemaProbe(bundle: bundle).stored(stateDirectories: stateDirectories)
         var kept = (try? await work.run(.userVisible, mayBlock: .files) { store.list() }) ?? []
-        // A build kept before records, whose Info.plist names no schemas: its own CLI says.
-        for index in kept.indices where kept[index].storeSchemas == nil {
+        // The build the rollback would take, when neither its Info.plist nor its record names its
+        // schemas: its own CLI says. Only that one (each probe is a process start, seconds on a
+        // busy Mac); a refusal or another kept build asks none.
+        let target = build ?? RollbackDecision.previous(kept: kept, running: identity.build)?.build
+        if let index = kept.firstIndex(where: { $0.build == target }), kept[index].storeSchemas == nil {
             kept[index].storeSchemas = await StoreSchemaProbe(bundle: kept[index].bundle).readable()
         }
         return RollbackInputs(kept: kept, stored: await stored)

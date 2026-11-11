@@ -768,7 +768,11 @@ def main():
             result["required"]["staged_without_click"] = bool(staged and staged["name"] == "phase.ready")
             result["required"]["phases"] = [r["name"] for r in marks.read() if r["pid"] == v1_pid and r["name"].startswith("phase.")]
             log("required update", json.dumps(result["required"]))
-        if not a.required_update and not a.sparkle_auto:
+        # The host's own cmux settings may opt into automatic downloads (a shared capture Mac's
+        # ~/.config/cmux, another lane's): then staging straight to ready is right, not a skip.
+        auto_downloads = bool((rpc(sock, "updates.status").get("result") or {}).get("automatic_downloads"))
+        result["automatic_downloads"] = auto_downloads
+        if not a.required_update and not a.sparkle_auto and not auto_downloads:
             # No automatic-download opt-in here (the default): the check must stop on the
             # update-found step. Anything else (straight to staged) skipped the first ask.
             if not staged or staged["name"] != "phase.available":
