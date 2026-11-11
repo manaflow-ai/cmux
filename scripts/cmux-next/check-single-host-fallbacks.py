@@ -20,7 +20,9 @@ traced to every value its callers pass (each caller's own matrix expanded, at an
   fromJSON matrix and every condition inside a matrix value);
 - every resolved label that is single-host (a controller label or one starting with a `single_host_prefixes`
   entry) must be declared under `labels`.
-A part that reads no variable (a needs output, an input with no caller) is not this policy's business.
+A part that reads no variable (a needs output, an input with no caller) is not this policy's business. A trace the
+resolver refuses to finish (an input default or caller chain that loops back to itself, Resolved.unverifiable) is a
+finding: what it reads cannot be verified.
 The declaration must also promise a bounded fallback, by the build-fleet test's own schema rules.
 
 The hook runs only installed code, so the installer puts tests/workflow_jobs.py beside this checker (it is in
@@ -208,6 +210,7 @@ class Reads:
         self.variables: dict[str, list[tuple[str, str, int]]] = {}
         self.lines: list[tuple[str, int, str]] = []  # (file, line, a resolved runs-on label)
         self.dynamic: list[tuple[str, str, int]] = []  # (where, file, line) of a variable read with no literal name
+        self.unverifiable: list[tuple[str, str, int]] = []  # (where, file, line) of a trace the resolver refused
         self.unreadable: list[str] = []
 
 
@@ -252,6 +255,11 @@ def references(workflow_dirs: Iterable[Path]) -> Reads:
                             rf"\bvars\s*(?:\.\s*{re.escape(read.name)}\b|\[\s*['\"]{re.escape(read.name)}['\"]\s*\])",
                             re.IGNORECASE))
                         places.append((f"{path.name}:{line}: {where}", f"{WORKFLOWS}/{path.name}", line))
+                for loop in sorted(u for u in resolved.unverifiable if u.field == "runs-on"):
+                    source = paths.get(loop.workflow, paths[name])
+                    _, line = first_line([source], re.compile(rf"^\s*{re.escape(loop.name)}\s*:", re.IGNORECASE))
+                    reads.unverifiable.append((f"{where}: inputs.{loop.name} of {loop.workflow} ({loop.reason})",
+                                               f"{WORKFLOWS}/{source.name}", line))
                 for value in sorted(resolved.runs_on):
                     for label in LABEL.findall(value):
                         _, line = first_line([paths[name]], re.compile(rf"(?<![A-Za-z0-9_.-]){re.escape(label)}(?![A-Za-z0-9_.-])"))
@@ -272,6 +280,10 @@ def findings(workflow_dirs: Iterable[Path], policy: dict) -> list[dict]:
                       "line": line, "status": FOUND,
                       "message": f"{where}: a runs-on reads a repository variable whose name is an expression, so "
                                  f"{DECLARATION} cannot declare its fallback; name the variable"})
+    for where, rel, line in reads.unverifiable:
+        found.append({"key": f"unverifiable:{where}", "file": rel, "line": line, "status": FOUND,
+                      "message": f"{where}: a runs-on takes its value through this input, whose trace never ends, so "
+                                 f"the variables it reads cannot be verified; break the loop"})
     declared = {name.upper() for name in policy.get("variables", {})}
     for name in sorted(reads.variables):
         if name in declared:
