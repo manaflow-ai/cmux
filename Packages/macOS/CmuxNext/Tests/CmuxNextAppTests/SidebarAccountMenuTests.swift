@@ -76,6 +76,8 @@ struct SidebarAccountMenuTests {
         let box = NSSize(width: MenuMetrics.iconSize, height: MenuMetrics.iconSize)
         #expect(teams.allSatisfy { $0.image?.size == box })
         #expect(teams[0].image?.accessibilityDescription == "Checked", "the active team's slot draws the checkmark")
+        // VoiceOver still hears which team is active: the row itself says checked.
+        #expect(teams.map { $0.accessibilityValue() as? String } == [MenuStateMark.accessibilityStateValue(.on), nil, nil])
         #expect(teams[1].image?.accessibilityDescription == plainTeams[1].image?.accessibilityDescription)
         #expect(menu.size.width == unchecked.size.width, "checking a team widened the menu: \(menu.size.width) vs \(unchecked.size.width)")
     }
