@@ -1,0 +1,1322 @@
+{
+  "src/agent-session/acpmux/AddAccountDialog.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "timer: a setTimeout from _associateRange (node_modules/jsdom/lib/jsdom/living/selection/Selection-impl.js) is still pending",
+    "timer: a setTimeout from start (node_modules/@base-ui/utils/useTimeout.mjs) is still pending"
+  ],
+  "src/agent-session/acpmux/AddProjectPanel.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/ChatUnavailableState.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/ChiefDock.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/CloudChatHint.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/CloudStartView.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/ComposerQueue.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/ContextCard.test.tsx": [
+    "module state: src/agent-session/acpmux/chips/useHoverCard.ts `nextBridgeId` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/DictationButton.test.tsx": [
+    "module state: src/agent-session/acpmux/composer/sourceBadgeModel.ts `failed` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/composerSettings.ts `current` is still set",
+    "module state: src/agent-session/acpmux/dictationSources.ts `installed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/EffortPicker.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/ElevationCard.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/EnvironmentPicker.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set"
+  ],
+  "src/agent-session/acpmux/HarnessHealthNotice.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/HarnessStatusCard.dom.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/HostError.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/ManagedBanner.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/MentionMenu.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/NewTabFolderAsk.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/NoticeSlot.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/PaletteMenu.ime.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "timer: a setTimeout from <anonymous> (src/agent-session/acpmux/PaletteMenu.tsx) is still pending"
+  ],
+  "src/agent-session/acpmux/PaneBoundary.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/QuickModelColumns.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/modelMenuWidth.ts `canvas` is still set"
+  ],
+  "src/agent-session/acpmux/QuickModelMenu.test.tsx": [
+    "module state: src/agent-session/acpmux/chatDisplay.ts `current` is still set",
+    "module state: src/agent-session/acpmux/chatDisplay.ts `raw` is still set",
+    "module state: src/agent-session/acpmux/composerSettings.ts `current` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `pluralRules` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/RulesNotice.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/SavedEnvironmentPanel.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/SecretCard.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/StuckBanner.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "timer: a setTimeout from prefill (src/agent-session/acpmux/StuckBanner.test.tsx) is still pending"
+  ],
+  "src/agent-session/acpmux/SwitchNotice.failure.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/SwitchNotice.share.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/TaskGoalStrip.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/autoResumeStatus.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/backgroundExitCode.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/chatOpenPacedList.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/chatOpenTrips.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/claimChecks.test.tsx": [
+    "module state: src/agent-session/acpmux/chips/linkStore.ts `policyAsked` is still set",
+    "module state: src/agent-session/acpmux/chips/linkStore.ts `sites` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/chips/useHoverCard.ts `nextBridgeId` is still set",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeChars` is still set",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeParses` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/selectionCopy.ts `installedOn` is still set",
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/cloudErgonomics/cloudErgonomics.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/relativeTime.ts `lastWords` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/cloudPreviewPorts.test.ts": [
+    "module state: src/agent-session/acpmux/cloudPreviewPorts.ts `context` is still set",
+    "module state: src/agent-session/acpmux/cloudPreviewPorts.ts `knownByContext` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/cloudPreviewPorts.ts `knownPorts` is still set",
+    "module state: src/agent-session/acpmux/cloudPreviewPorts.ts `pending` is still set"
+  ],
+  "src/agent-session/acpmux/cloudTeam.test.ts": [
+    "module state: src/agent-session/acpmux/cloudMachines.ts `accountSignedIn` is still set",
+    "module state: src/agent-session/acpmux/cloudMachines.ts `activeTeam` is still set",
+    "module state: src/agent-session/acpmux/cloudMachines.ts `generation` is still set"
+  ],
+  "src/agent-session/acpmux/composer/SourceBadge.test.tsx": [
+    "module state: src/agent-session/acpmux/composer/sourceBadgeModel.ts `listeners` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `listeners` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/composer/attachmentSources.test.ts": [
+    "timer: a setTimeout from <anonymous> (src/agent-session/acpmux/composer/attachmentSources.test.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/composer/pasteMarks.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `listeners` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/icons/iconPack.ts `familyListeners` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/computerUse/ComputerUsePreviewCard.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/computerUse/cardMotion.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/computerUse/computerUsePreview.test.ts": [
+    "module state: src/agent-session/acpmux/computerUse/computerUsePreview.ts `closed` is still set"
+  ],
+  "src/agent-session/acpmux/conversation/AgentCallCard.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeChars` is still set",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeParses` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/selectionCopy.ts `installedOn` is still set",
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `pluralRules` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/ArtifactPanelEdge.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeChars` is still set",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeParses` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/selectionCopy.ts `installedOn` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "timer: a setTimeout from <anonymous> (src/agent-session/acpmux/conversation/ArtifactPanelEdge.test.tsx) is still pending",
+    "timer: a setTimeout from writeStored (src/ui/SplitEdge.tsx) is still pending"
+  ],
+  "src/agent-session/acpmux/conversation/BackgroundMark.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/cornerActions.ts `looked` is still set",
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/ChiefPromptBubble.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/ContinueAfterStop.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/relativeTime.ts `lastWords` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/DateLine.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set"
+  ],
+  "src/agent-session/acpmux/conversation/DiagramBlockSave.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/DispatchCard.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "timer: a setTimeout from resetTranscriptDisclosure (src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/conversation/FileResultCard.test.tsx": [
+    "module state: src/agent-session/acpmux/chips/linkStore.ts `policy` is still set",
+    "module state: src/agent-session/acpmux/chips/linkStore.ts `queuedPaths` is still set",
+    "module state: src/agent-session/acpmux/chips/linkStore.ts `queuedUrls` is still set",
+    "module state: src/agent-session/acpmux/conversation/ExpandRow.tsx `looked` is still set",
+    "module state: src/agent-session/acpmux/conversation/cornerActions.ts `looked` is still set",
+    "module state: src/agent-session/acpmux/conversation/highlightPool.ts `poolEnvironment` is still set",
+    "module state: src/agent-session/acpmux/conversation/highlightPool.ts `pools` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/toolResult.ts `imagesCache` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `pluralRules` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/ImageViewerKeys.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "timer: a setTimeout from enqueueFocus (node_modules/@base-ui/react/floating-ui-react/utils/enqueueFocus.mjs) is still pending",
+    "timer: a setTimeout from request (node_modules/@base-ui/utils/useAnimationFrame.mjs) is still pending",
+    "timer: a setTimeout from start (node_modules/@base-ui/utils/useTimeout.mjs) is still pending"
+  ],
+  "src/agent-session/acpmux/conversation/InboxNoticeCard.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/inboxThreadRead.ts `reads` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/incomingOpened.ts `opened` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeChars` is still set",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeParses` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/pendingMessages.ts `version` is still set",
+    "module state: src/agent-session/acpmux/conversation/selectionCopy.ts `installedOn` is still set",
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `pluralRules` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/model.ts `receivedPrepared` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/InlinePromptContent.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/LegacyStatusVerbs.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/MarkdownGithubRefs.test.tsx": [
+    "module state: src/agent-session/acpmux/chips/linkStore.ts `policyAsked` is still set",
+    "module state: src/agent-session/acpmux/chips/linkStore.ts `sites` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/chips/useHoverCard.ts `nextBridgeId` is still set",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeChars` is still set",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeParses` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/MarkdownMath.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeChars` is still set",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeParses` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/MarkdownRunRefs.test.tsx": [
+    "module state: src/agent-session/acpmux/chips/linkStore.ts `policyAsked` is still set",
+    "module state: src/agent-session/acpmux/chips/linkStore.ts `sites` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/chips/useHoverCard.ts `nextBridgeId` is still set",
+    "module state: src/agent-session/acpmux/conversation/highlightPool.ts `poolEnvironment` is still set",
+    "module state: src/agent-session/acpmux/conversation/highlightPool.ts `pools` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeChars` is still set",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeParses` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/MarkdownTable.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeChars` is still set",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeParses` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/MarkdownTimestamp.test.tsx": [
+    "module state: src/agent-session/acpmux/chips/linkStore.ts `paths` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/chips/linkStore.ts `policyAsked` is still set",
+    "module state: src/agent-session/acpmux/chips/linkStore.ts `sites` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/chips/useHoverCard.ts `nextBridgeId` is still set",
+    "module state: src/agent-session/acpmux/conversation/highlightPool.ts `poolEnvironment` is still set",
+    "module state: src/agent-session/acpmux/conversation/highlightPool.ts `pools` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeChars` is still set",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeParses` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/MemoryOfferCard.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `pluralRules` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/MessageCardOpen.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/NoticeRow.test.tsx": [
+    "module state: src/agent-session/acpmux/chips/linkStore.ts `policyAsked` is still set",
+    "module state: src/agent-session/acpmux/chips/linkStore.ts `sites` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/chips/pullRequestStore.ts `answers` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/chips/pullRequestStore.ts `version` is still set",
+    "module state: src/agent-session/acpmux/chips/useHoverCard.ts `nextBridgeId` is still set",
+    "module state: src/agent-session/acpmux/conversation/incomingOpened.ts `opened` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeChars` is still set",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeParses` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/laneNoticeBatches.ts `version` is still set",
+    "module state: src/agent-session/acpmux/conversation/selectionCopy.ts `installedOn` is still set",
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/PendingAsks.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/waitingAskStore.ts `answerStates` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/waitingAskStore.ts `claims` is still set",
+    "module state: src/agent-session/acpmux/conversation/waitingAskStore.ts `memory` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/PendingSteer.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/pendingSteerModel.ts `sentNowState` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/PreviewChip.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `pluralRules` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/PromptCoachCard.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `pluralRules` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/PromptDelivery.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/RepoRecoveryCardFlow.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/RevealedMarkdown.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/selectionCopy.ts `installedOn` is still set"
+  ],
+  "src/agent-session/acpmux/conversation/RewindButton.test.tsx": [
+    "module state: src/agent-session/acpmux/composerSettings.ts `listeners` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/relativeTime.ts `lastWords` is still set",
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `listeners` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `listeners` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/icons/iconPack.ts `familyListeners` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/threadMinimap/bookmarks.ts `listeners` holds entries it did not hold when loaded",
+    "timer: a setTimeout from schedule (src/ui/pageClock.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/conversation/RowGrammar.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeChars` is still set",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeParses` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/selectionCopy.ts `installedOn` is still set",
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/RunElsewhere.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/RunElsewhere.tsx `lastMachine` is still set",
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/SelectionReply.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "timer: a setTimeout from <anonymous> (src/agent-session/acpmux/conversation/SelectionReply.test.tsx) is still pending",
+    "timer: a setTimeout from <anonymous> (src/agent-session/acpmux/conversation/SelectionReply.tsx) is still pending",
+    "timer: a setTimeout from select (src/agent-session/acpmux/conversation/SelectionReply.test.tsx) is still pending"
+  ],
+  "src/agent-session/acpmux/conversation/SentMessageGroup.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/acpmuxSends.ts `sendCallsParseCount` is still set",
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/SentMessageLine.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/acpmuxSends.ts `recordedBodyParseCount` is still set",
+    "module state: src/agent-session/acpmux/conversation/acpmuxSends.ts `sendCallsParseCount` is still set",
+    "module state: src/agent-session/acpmux/conversation/cornerActions.ts `looked` is still set",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeChars` is still set",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeParses` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/messageLineLook.ts `listeners` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/selectionCopy.ts `installedOn` is still set",
+    "module state: src/agent-session/acpmux/conversation/sentMessageLineModel.ts `listeners` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `listeners` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `listeners` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/icons/iconPack.ts `familyListeners` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/SessionStartNote.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/ShellBlock.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/ExpandRow.tsx `looked` is still set",
+    "module state: src/agent-session/acpmux/conversation/cornerActions.ts `looked` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `pluralRules` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/Thinking.slot.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/Thinking.test.tsx": [
+    "module state: src/agent-session/acpmux/chatDisplay.ts `raw` is still set",
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `pluralRules` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/ThoughtRow.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/ThoughtRow.tsx `choices` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/ToolDetail.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/cornerActions.ts `looked` is still set",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeChars` is still set",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeParses` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/selectionCopy.ts `installedOn` is still set",
+    "module state: src/agent-session/acpmux/conversation/toolResult.ts `imagesCache` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/ToolGroupExpanded.test.tsx": [
+    "module state: src/agent-session/acpmux/chips/linkStore.ts `paths` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/chips/linkStore.ts `policyAsked` is still set",
+    "module state: src/agent-session/acpmux/chips/useHoverCard.ts `nextBridgeId` is still set",
+    "module state: src/agent-session/acpmux/conversation/ExpandRow.tsx `looked` is still set",
+    "module state: src/agent-session/acpmux/conversation/ThoughtRow.tsx `choices` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/acpmuxSends.ts `recordedBodyParseCount` is still set",
+    "module state: src/agent-session/acpmux/conversation/acpmuxSends.ts `sendCallsParseCount` is still set",
+    "module state: src/agent-session/acpmux/conversation/cornerActions.ts `looked` is still set",
+    "module state: src/agent-session/acpmux/conversation/imageEntries.ts `headless` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/imageEntries.ts `sizes` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/toolResult.ts `imagesCache` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
+    "module state: src/agent-session/acpmux/conversation/transcriptView.ts `own` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `pluralRules` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/ToolVerb.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/ExpandRow.tsx `looked` is still set",
+    "module state: src/agent-session/acpmux/conversation/acpmuxSends.ts `sendCallsParseCount` is still set",
+    "module state: src/agent-session/acpmux/conversation/cornerActions.ts `looked` is still set",
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `pluralRules` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/TruncatedRowsReachable.test.tsx": [
+    "module state: src/agent-session/acpmux/chips/linkStore.ts `paths` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/chips/linkStore.ts `policyAsked` is still set",
+    "module state: src/agent-session/acpmux/chips/useHoverCard.ts `nextBridgeId` is still set",
+    "module state: src/agent-session/acpmux/conversation/imageEntries.ts `headless` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/toolResult.ts `imagesCache` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `pluralRules` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/TurnFooter.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/relativeTime.ts `lastWords` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/TurnRows.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/acpmuxSends.ts `sendCallsParseCount` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `pluralRules` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/TurnWaterfall.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/acpmuxSends.ts `recordedBodyParseCount` is still set",
+    "module state: src/agent-session/acpmux/conversation/acpmuxSends.ts `sendCallsParseCount` is still set",
+    "module state: src/agent-session/acpmux/conversation/relativeTime.ts `lastWords` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `pluralRules` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/UserBubble.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/imageEntries.ts `headless` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/relativeTime.ts `lastWords` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "timer: a setTimeout from schedule (src/ui/pageClock.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/conversation/WhoElseCard.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/acpmuxSends.ts `sendCallsParseCount` is still set",
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/acpmuxSendBatch.test.ts": [
+    "module state: src/agent-session/acpmux/conversation/acpmuxSends.ts `sendCallsCache` is still set"
+  ],
+  "src/agent-session/acpmux/conversation/answerFollowups.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/backgroundRuns.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/backgroundTurns.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/bareClockDetect.test.tsx": [
+    "module state: src/agent-session/acpmux/chips/linkStore.ts `paths` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/chips/linkStore.ts `policyAsked` is still set",
+    "module state: src/agent-session/acpmux/chips/linkStore.ts `sites` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/chips/useHoverCard.ts `nextBridgeId` is still set",
+    "module state: src/agent-session/acpmux/conversation/highlightPool.ts `poolEnvironment` is still set",
+    "module state: src/agent-session/acpmux/conversation/highlightPool.ts `pools` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeChars` is still set",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeParses` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/bareTimeNearest.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeChars` is still set",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeParses` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/blockWrap.test.ts": [
+    "module state: src/agent-session/acpmux/conversation/blockWrap.ts `fallback` is still set"
+  ],
+  "src/agent-session/acpmux/conversation/commandLabels.test.ts": [
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/commandLabelsReal.test.ts": [
+    "module state: src/agent-session/acpmux/conversation/acpmuxSends.ts `sendCallsParseCount` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/disclosureBound.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
+    "module state: src/agent-session/acpmux/conversation/transcriptView.ts `own` is still set",
+    "timer: a setTimeout from resetTranscriptDisclosure (src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/conversation/exportClient.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/conversation/exportMarkdown.test.ts": [
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set"
+  ],
+  "src/agent-session/acpmux/conversation/foldAnchor.test.ts": [
+    "timer: a setTimeout from _attrModified (node_modules/jsdom/lib/jsdom/living/nodes/HTMLDetailsElement-impl.js) is still pending"
+  ],
+  "src/agent-session/acpmux/conversation/footerActions.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/relativeTime.ts `lastWords` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `pluralRules` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/footerRetry.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/relativeTime.ts `lastWords` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `pluralRules` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/footerRetryAttachments.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/relativeTime.ts `lastWords` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `pluralRules` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/forkPending.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/conversation/headerToggle.test.ts": [
+    "timer: a setTimeout from <anonymous> (src/agent-session/acpmux/conversation/headerToggle.test.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/conversation/heldMessage.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/SentVideoTile.tsx `reads` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/incomingOpened.ts `opened` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeChars` is still set",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeParses` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/queuedMessages.ts `version` is still set",
+    "module state: src/agent-session/acpmux/conversation/selectionCopy.ts `installedOn` is still set",
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/conversation/hugePrompt.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/ExpandRow.tsx `looked` is still set",
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/incrementalMarkdown.test.ts": [
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeChars` is still set",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeParses` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/liveLineTakesFooterSlot.test.ts": [
+    "module state: src/agent-session/acpmux/conversation/acpmuxSends.ts `sendCallsParseCount` is still set"
+  ],
+  "src/agent-session/acpmux/conversation/messageLiveLine.test.ts": [
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/nextStepInbound.test.ts": [
+    "module state: src/agent-session/acpmux/conversation/waitingAskStore.ts `claims` is still set"
+  ],
+  "src/agent-session/acpmux/conversation/nextStepSettle.test.ts": [
+    "module state: src/agent-session/acpmux/conversation/waitingAskStore.ts `claims` is still set"
+  ],
+  "src/agent-session/acpmux/conversation/oneRowPerCall.test.ts": [
+    "module state: src/agent-session/acpmux/conversation/acpmuxSends.ts `sendCallsParseCount` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/pendingMessages.test.ts": [
+    "module state: src/agent-session/acpmux/conversation/laneNoticeBatches.ts `version` is still set",
+    "module state: src/agent-session/acpmux/conversation/pendingMessages.ts `version` is still set",
+    "module state: src/agent-session/acpmux/conversation/queuedMessages.ts `version` is still set"
+  ],
+  "src/agent-session/acpmux/conversation/pinnedToolRows.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/acpmuxSends.ts `sendCallsParseCount` is still set",
+    "module state: src/agent-session/acpmux/conversation/cornerActions.ts `looked` is still set",
+    "module state: src/agent-session/acpmux/conversation/toolResult.ts `imagesCache` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
+    "module state: src/agent-session/acpmux/conversation/transcriptView.ts `own` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/promptMarkdown.test.tsx": [
+    "module state: src/agent-session/acpmux/chips/linkStore.ts `policyAsked` is still set",
+    "module state: src/agent-session/acpmux/chips/linkStore.ts `sites` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/chips/useHoverCard.ts `nextBridgeId` is still set",
+    "module state: src/agent-session/acpmux/conversation/highlightPool.ts `poolEnvironment` is still set",
+    "module state: src/agent-session/acpmux/conversation/highlightPool.ts `pools` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/queuedInboxNotice.test.ts": [
+    "module state: src/agent-session/acpmux/conversation/pendingMessages.ts `version` is still set",
+    "module state: src/agent-session/acpmux/conversation/queuedMessages.ts `version` is still set"
+  ],
+  "src/agent-session/acpmux/conversation/queuedMessages.test.ts": [
+    "module state: src/agent-session/acpmux/conversation/queuedMessages.ts `version` is still set"
+  ],
+  "src/agent-session/acpmux/conversation/selfWokenClock.test.ts": [
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/spinnerTurns.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/toolGroupOpenState.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/acpmuxSends.ts `sendCallsParseCount` is still set",
+    "module state: src/agent-session/acpmux/conversation/cornerActions.ts `looked` is still set",
+    "module state: src/agent-session/acpmux/conversation/highlightPool.ts `poolEnvironment` is still set",
+    "module state: src/agent-session/acpmux/conversation/highlightPool.ts `pools` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/toolResult.ts `imagesCache` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
+    "module state: src/agent-session/acpmux/conversation/transcriptView.ts `own` is still set",
+    "module state: src/agent-session/acpmux/diffTheme.ts `registered` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `pluralRules` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/toolGroups.test.ts": [
+    "module state: src/agent-session/acpmux/conversation/acpmuxSends.ts `recordedBodyCache` is still set",
+    "module state: src/agent-session/acpmux/conversation/acpmuxSends.ts `recordedBodyParseCount` is still set",
+    "module state: src/agent-session/acpmux/conversation/acpmuxSends.ts `sendCallsParseCount` is still set"
+  ],
+  "src/agent-session/acpmux/conversation/toolResult.test.ts": [
+    "module state: src/agent-session/acpmux/conversation/toolResult.ts `imagesCache` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/toolResultMarkdown.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeChars` is still set",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeParses` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/transcriptCardRenders.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/transcriptSelectionCopy.test.ts": [
+    "module state: src/agent-session/acpmux/conversation/selectionCopy.ts `installedOn` is still set",
+    "timer: a setTimeout from <anonymous> (src/agent-session/acpmux/conversation/transcriptSelectionCopy.test.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/conversation/turnEndFold.test.ts": [
+    "module state: src/agent-session/acpmux/conversation/turnEndFold.ts `timings` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/waitingOn.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/conversation/whoElseCalls.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/daemonGoneSilent.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/deepseekTodos.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/dictationSources.test.tsx": [
+    "module state: src/agent-session/acpmux/composerSettings.ts `current` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/failedPromptRetry.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/failureCopy.test.ts": [
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/harnessSwitch.test.ts": [
+    "module state: src/agent-session/acpmux/startMode.ts `askers` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/startMode.ts `listeners` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/startMode.ts `memory` is still set",
+    "timer: a setTimeout from schedule (src/agent-session/acpmux/harnessSwitch.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/header/DeleteChatDialog.test.tsx": [
+    "timer: a setTimeout from _associateRange (node_modules/jsdom/lib/jsdom/living/selection/Selection-impl.js) is still pending",
+    "timer: a setTimeout from start (node_modules/@base-ui/utils/useTimeout.mjs) is still pending"
+  ],
+  "src/agent-session/acpmux/header/ThreadTitle.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "timer: a setTimeout from _associateRange (node_modules/jsdom/lib/jsdom/living/selection/Selection-impl.js) is still pending"
+  ],
+  "src/agent-session/acpmux/header/archiveClose.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `keptTails` holds entries it did not hold when loaded",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/header/deleteChat.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/header/miniRow.test.ts": [
+    "module state: src/agent-session/acpmux/header/miniRow.ts `asks` is still set"
+  ],
+  "src/agent-session/acpmux/header/presentationRow.test.tsx": [
+    "module state: src/agent-session/acpmux/chatDisplay.ts `raw` is still set",
+    "module state: src/agent-session/acpmux/conversation/presentation.ts `own` is still set",
+    "module state: src/agent-session/acpmux/conversation/transcriptView.ts `own` is still set",
+    "module state: src/agent-session/acpmux/conversation/transcriptView.ts `switching` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "timer: a setTimeout from snapNextDraw (src/agent-session/acpmux/conversation/transcriptView.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/heldPromptGesture.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/direct.ts `notices` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/heldPrompts.test.tsx": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `keptTails` holds entries it did not hold when loaded",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/hiddenTools.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/inlinePrompt.test.ts": [
+    "module state: src/agent-session/acpmux/conversation/imageEntries.ts `entries` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/imageEntries.ts `entryChars` is still set",
+    "module state: src/agent-session/acpmux/conversation/imageEntries.ts `headless` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/liveChatWatch.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/direct.ts `notices` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `readAheadTails` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/liveProgressClient.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/liveToolOutput.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/acpmuxSends.ts `sendCallsParseCount` is still set",
+    "module state: src/agent-session/acpmux/liveToolOutput.ts `epoch` is still set",
+    "module state: src/agent-session/acpmux/liveToolOutput.ts `seq` is still set",
+    "module state: src/agent-session/acpmux/liveToolOutput.ts `shapesMemo` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/liveToolOutput.ts `tails` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set"
+  ],
+  "src/agent-session/acpmux/lostPrompt.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/memoryOfferClient.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/mockPaging.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `keptTails` holds entries it did not hold when loaded",
+    "timer: a setTimeout from <anonymous> (src/agent-session/acpmux/mockPaging.test.ts) is still pending",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/multiplayer/Faces.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `listeners` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/multiplayer/Faces.tsx `inlined` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/multiplayer/livePresence.test.tsx": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/multiplayer/presenceClient.test.ts": [
+    "timer: a setTimeout from typed (src/agent-session/acpmux/multiplayer/presenceClient.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/museTodos.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/newtab/AllChatsList.test.tsx": [
+    "module state: src/agent-session/acpmux/newtab/deviceChats.ts `chats` is still set",
+    "timer: a setTimeout from resetSettledChatsForTests (src/agent-session/acpmux/newtab/settledCache.ts) is still pending",
+    "timer: a setTimeout from write (src/agent-session/acpmux/newtab/settledCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/newtab/NewTabHeadline.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/newtab/strings.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/newtab/NewTabScreen.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/modelCatalogHost.ts `state` is still set",
+    "module state: src/agent-session/acpmux/newtab/strings.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/newtab/agentHomeTrust.test.tsx": [
+    "module state: src/agent-session/acpmux/useFolderTrustAsk.ts `known` is still set"
+  ],
+  "src/agent-session/acpmux/newtab/allChatsSearch.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/newtab/strings.ts `translators` holds entries it did not hold when loaded",
+    "timer: a setTimeout from resetSettledChatsForTests (src/agent-session/acpmux/newtab/settledCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/newtab/chatOpenFeedback.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/newtab/leadsList.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/newtab/strings.ts `translators` holds entries it did not hold when loaded",
+    "timer: a setTimeout from resetSettledChatsForTests (src/agent-session/acpmux/newtab/settledCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/newtab/trustReread.test.tsx": [
+    "module state: src/agent-session/acpmux/useFolderTrustAsk.ts `known` is still set",
+    "timer: a setTimeout from rememberTrust (src/agent-session/acpmux/useFolderTrustAsk.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/orderedRowsPerf.test.ts": [
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set"
+  ],
+  "src/agent-session/acpmux/organizationFixture.test.ts": [
+    "module state: src/agent-session/acpmux/conversation/acpmuxSends.ts `recordedBodyParseCount` is still set",
+    "module state: src/agent-session/acpmux/conversation/acpmuxSends.ts `sendCallsParseCount` is still set"
+  ],
+  "src/agent-session/acpmux/outsideDictation.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/paneToasts.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/peerStateEvents.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/permissions/cardHeight.test.ts": [
+    "module state: src/agent-session/acpmux/chatDisplay.ts `current` is still set",
+    "module state: src/agent-session/acpmux/chatDisplay.ts `raw` is still set"
+  ],
+  "src/agent-session/acpmux/permissions/notificationFocus.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/permissions/planBody.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeChars` is still set",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeParses` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/plainUserHeight.test.ts": [
+    "module state: src/agent-session/acpmux/chatDisplay.ts `current` is still set",
+    "module state: src/agent-session/acpmux/chatDisplay.ts `raw` is still set"
+  ],
+  "src/agent-session/acpmux/planBuild/PlanBuildCard.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/presetApprovalClient.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/promptAccepted.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/promptBudgetSend.test.ts": [
+    "module state: src/agent-session/acpmux/conversation/imageEntries.ts `headless` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/promptCoachClient.test.ts": [
+    "module state: src/agent-session/acpmux/chatDisplay.ts `raw` is still set",
+    "module state: src/agent-session/acpmux/conversation/imageEntries.ts `entries` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/imageEntries.ts `entryChars` is still set",
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from <anonymous> (src/agent-session/acpmux/promptCoachClient.test.ts) is still pending",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending",
+    "timer: a setTimeout from rememberPromptCoachDismissed (src/agent-session/acpmux/conversation/promptCoachDismissed.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/promptDelivery.test.ts": [
+    "module state: src/agent-session/acpmux/conversation/imageEntries.ts `entries` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/imageEntries.ts `entryChars` is still set",
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/direct.ts `notices` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/promptRefusedNotice.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/direct.ts `notices` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/question/HtmlPreview.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/question/QuestionCardPreview.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/question/inlineText.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/questionAnswerTicket.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/queueAuthor.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `keptTails` holds entries it did not hold when loaded",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/queuePausedState.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from <anonymous> (src/agent-session/acpmux/direct.ts) is still pending",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/queuedMessageRecords.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/races/direct.test.ts": [
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/reconnectPrompt.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/remoteControl.test.ts": [
+    "module state: src/agent-session/acpmux/remoteControl.ts `clicks` is still set",
+    "module state: src/agent-session/acpmux/remoteControl.ts `confirmed` is still set",
+    "module state: src/agent-session/acpmux/remoteControl.ts `current` is still set"
+  ],
+  "src/agent-session/acpmux/requestBudget.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/rowEstimates.test.ts": [
+    "module state: src/agent-session/acpmux/composerSettings.ts `attachmentWrite` is still set",
+    "module state: src/agent-session/acpmux/composerSettings.ts `confirmedWrite` is still set",
+    "module state: src/agent-session/acpmux/composerSettings.ts `current` is still set",
+    "module state: src/agent-session/acpmux/conversation/acpmuxSends.ts `sendCallsParseCount` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/model.ts `notePrepared` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/selfHeal.test.tsx": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `readAheadTails` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/sendHeldWhileLoading.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `readAheadTails` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/sendUploads.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/sendWhenReady.test.ts": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set"
+  ],
+  "src/agent-session/acpmux/senderIdentity.test.ts": [
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/threadMinimap/PreviewCard.tsx `timeFormat` is still set"
+  ],
+  "src/agent-session/acpmux/sentFromRows.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/session-info/cronWords.test.ts": [
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/session-info/native/overlays.test.tsx": [
+    "module state: src/agent-session/acpmux/chips/useHoverCard.ts `nextBridgeId` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/session-info/scheduled.test.ts": [
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/session-info/sectionOrder.test.ts": [
+    "module state: src/agent-session/acpmux/session-info/sectionOrder.ts `page` is still set"
+  ],
+  "src/agent-session/acpmux/sessionListGrowth.test.ts": [
+    "module state: src/agent-session/acpmux/sessionIndex.ts `lastIndexed` is still set"
+  ],
+  "src/agent-session/acpmux/sessionStartFailure.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `keptTails` holds entries it did not hold when loaded",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/share/ShareDialog.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/shell/ShellRow.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/sinceDivider.test.ts": [
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set"
+  ],
+  "src/agent-session/acpmux/socketToken.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/stallLog.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set"
+  ],
+  "src/agent-session/acpmux/started/startedSessions.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/subagents/senderIconLook.ts `current` is still set"
+  ],
+  "src/agent-session/acpmux/statusVerbs.test.ts": [
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/stopHeldMessages.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/queuedMessages.ts `version` is still set",
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/stopping.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/direct.ts `notices` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `keptTails` holds entries it did not hold when loaded",
+    "timer: a setTimeout from <anonymous> (src/agent-session/acpmux/direct.ts) is still pending",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/stringReplyId.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/subagentReportFixture.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `keptTails` holds entries it did not hold when loaded",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/subagentRootChange.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/subagents/SenderIcon.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/subagents/senderIconLook.ts `current` is still set",
+    "module state: src/agent-session/shared/harnessIcons.ts `icons` is still set"
+  ],
+  "src/agent-session/acpmux/subagents/SubagentReportLine.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeChars` is still set",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeParses` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/subagents/subagentDrafts.test.ts": [
+    "module state: src/agent-session/acpmux/subagents/subagentDrafts.ts `sends` is still set"
+  ],
+  "src/agent-session/acpmux/subagents/subagentFooter.test.tsx": [
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeChars` is still set",
+    "module state: src/agent-session/acpmux/conversation/incrementalMarkdown.ts `wholeParses` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/relativeTime.ts `lastWords` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/subagents/trayLatest.experiment.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/summary/realWorkflowFixture.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `pluralRules` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/threadMinimap/useRailPlacement.dom.test.tsx": [
+    "module state: src/agent-session/acpmux/chatWidth.ts `currentScale` is still set",
+    "module state: src/agent-session/acpmux/chatWidth.ts `currentSnapshot` is still set",
+    "module state: src/agent-session/acpmux/chatWidth.ts `watched` is still set"
+  ],
+  "src/agent-session/acpmux/toolCards/toolCardStore.test.ts": [
+    "module state: src/agent-session/acpmux/toolCards/toolCardStore.ts `cards` is still set"
+  ],
+  "src/agent-session/acpmux/toolImages.test.ts": [
+    "module state: src/agent-session/acpmux/conversation/toolResult.ts `imagesCache` holds entries it did not hold when loaded"
+  ],
+  "src/agent-session/acpmux/toolSummaryFixture.test.ts": [
+    "module state: src/agent-session/acpmux/conversation/acpmuxSends.ts `recordedBodyParseCount` is still set",
+    "module state: src/agent-session/acpmux/conversation/acpmuxSends.ts `sendCallsParseCount` is still set"
+  ],
+  "src/agent-session/acpmux/transportDeadlines.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/turnPrompt.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/turnRetry.live.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/typedPromptGesture.test.ts": [
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
+  "src/agent-session/acpmux/worktreeSetup.test.tsx": [
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/worktreeSetupStore.ts `version` is still set"
+  ],
+  "src/agent-session/shared/harnessIcons.compiled.test.tsx": [
+    "module state: src/agent-session/shared/harnessIcons.ts `icons` is still set"
+  ],
+  "src/agent-session/shared/harnessIcons.test.tsx": [
+    "module state: src/agent-session/shared/harnessIcons.ts `icons` is still set",
+    "module state: src/agent-session/shared/harnessIcons.ts `symbolHostRevision` is still set",
+    "module state: src/agent-session/shared/harnessIcons.ts `symbols` is still set"
+  ]
+}

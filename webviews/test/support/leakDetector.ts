@@ -22,13 +22,18 @@
 // - Module mocks: bun's mock.module replaces a module for every later file too. A module the file
 //   mocked and did not mock back to its real exports fails the file (and is put back).
 //
-// Failures name what was left and where. Module state and timers are drained rather than failed:
-// most files leave a cache or counter behind (`CMUX_TEST_LEAKS=report` lists them all), and the
-// drain already gives the next file a clean start. `CMUX_TEST_LEAKS=strict` fails those too.
-// `CMUX_TEST_LEAKS=off` turns the detector off. `CMUX_TEST_LEAKS_SCOPE=all` checks every test file,
-// not only src/agent-session's.
+// Failures name what was left and where. Module state and timers are a ratchet, since most files
+// leave a cache or counter behind today: test/support/leak-baseline.json lists what each file leaves,
+// and a file fails only when it leaves more than its baseline, naming the new items. A file that
+// leaves fewer prints a line asking to lower its baseline (`bun scripts/leak-baseline.ts FILE`, which
+// can only lower counts; raising one is a hand edit to the JSON). Each process prints its total
+// (`agent-session leaks: N (baseline B) in F test files`); the drain gives the next file a clean
+// start either way. `CMUX_TEST_LEAKS=report` lists every leak and fails nothing,
+// `CMUX_TEST_LEAKS=strict` fails every leak, `CMUX_TEST_LEAKS=off` turns the detector off.
+// `CMUX_TEST_LEAKS_RECORD=FILE` appends each file's items as JSON lines (for the baseline script).
+// `CMUX_TEST_LEAKS_SCOPE=all` checks every test file, not only src/agent-session's.
 import { mock } from "bun:test";
-import { readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname } from "node:path";
 
@@ -119,9 +124,7 @@ function drainModuleState(): string[] {
     }
     const now = entriesOf(item.value);
     if (sameEntries(item.loaded, now)) continue;
-    drained.push(
-      `module state: ${shortPath(item.path)} \`${item.name}\` holds ${now.length} entries (${item.loaded.length} when loaded)`,
-    );
+    drained.push(`module state: ${shortPath(item.path)} \`${item.name}\` holds entries it did not hold when loaded`);
     item.value.clear();
     for (const [key, value] of item.loaded)
       if (item.value instanceof Map) item.value.set(key, value);
@@ -170,6 +173,25 @@ const pendingTimers = new Map<number, Pending>();
 let realClearTimeout: typeof clearTimeout = clearTimeout;
 let realClearInterval: typeof clearInterval = clearInterval;
 
+/// Where a timer was started, without line numbers so the key survives edits above it: the first
+/// frame in this repository's sources (else the first library frame), as `fn (path)`.
+function timerSite(): string {
+  const frames = (new Error().stack ?? "")
+    .split("\n")
+    .slice(2)
+    .map((line) => line.trim().replace(/^at /, ""))
+    .filter((line) => line && !line.includes("leakDetector") && !line.includes("native:") && !/\(native\)$/.test(line));
+  const parse = (frame: string) => {
+    const match = /^(?:(.*?) \()?(.+?):\d+:\d+\)?$/.exec(frame);
+    if (!match) return frame;
+    const file = match[2];
+    const at = Math.max(file.lastIndexOf("/src/"), file.lastIndexOf("/test/"), file.lastIndexOf("/node_modules/"));
+    return `${match[1] || "<anonymous>"} (${at >= 0 ? file.slice(at + 1) : file})`;
+  };
+  const own = frames.find((frame) => /\/(src|test)\//.test(frame) && !frame.includes("/node_modules/"));
+  return parse(own ?? frames[0] ?? "unknown");
+}
+
 function callerFrame(): string {
   const lines = (new Error().stack ?? "").split("\n").slice(2);
   const frame = lines.find((line) => !line.includes("leakDetector")) ?? "";
@@ -193,12 +215,12 @@ function wrapTimers(): void {
       ...args,
     );
     id = Number(handle);
-    pendingTimers.set(id, { kind: "setTimeout", handle, where: callerFrame() });
+    pendingTimers.set(id, { kind: "setTimeout", handle, where: timerSite() });
     return handle;
   };
   const interval = (handler: unknown, ms?: number, ...args: unknown[]) => {
     const handle = realInterval(handler as () => void, ms, ...args);
-    pendingTimers.set(Number(handle), { kind: "setInterval", handle, where: callerFrame() });
+    pendingTimers.set(Number(handle), { kind: "setInterval", handle, where: timerSite() });
     return handle;
   };
   scope.setTimeout = Object.assign(timeout, realTimeout) as unknown as typeof setTimeout;
@@ -217,7 +239,7 @@ function wrapTimers(): void {
 function drainTimers(): string[] {
   const drained: string[] = [];
   for (const { kind, handle, where } of pendingTimers.values()) {
-    drained.push(`timer: a ${kind} is still pending (${where})`);
+    drained.push(`timer: a ${kind} from ${where} is still pending`);
     if (kind === "setInterval") realClearInterval(handle as Parameters<typeof clearInterval>[0]);
     else realClearTimeout(handle as Parameters<typeof clearTimeout>[0]);
   }
@@ -317,8 +339,32 @@ function leakedGlobals(start: FileStart): string[] {
   return leaks;
 }
 
+// --- The ratchet: each file's reset state and pending timers against leak-baseline.json. ---
+
+/// leak-baseline.json: for each checked test file, the module state and timers it leaves behind
+/// today (as drained above). A file may leave no more than its baseline; scripts/leak-baseline.ts
+/// can only lower it, so raising one is a hand edit that shows in review.
+const BASELINE_PATH = new URL("./leak-baseline.json", import.meta.url).pathname;
+let baseline: Record<string, string[]> | undefined;
+function baselineOf(name: string): string[] {
+  baseline ??= existsSync(BASELINE_PATH) ? (JSON.parse(readFileSync(BASELINE_PATH, "utf8")) as Record<string, string[]>) : {};
+  return baseline[name] ?? [];
+}
+const totals = { files: 0, leaks: 0, baseline: 0 };
+let totalsHooked = false;
+
+/// Prints the run's total once the process ends (one line per bun process: per file in CI).
+function hookTotals(): void {
+  if (totalsHooked) return;
+  totalsHooked = true;
+  process.on("exit", () => {
+    if (totals.files === 0 || mode === "off") return;
+    writeSync(2, `agent-session leaks: ${totals.leaks} (baseline ${totals.baseline}) in ${totals.files} test files\n`);
+  });
+}
+
 function checkFile(path: string): void {
-  const drained = [...drainModuleState(), ...drainTimers()];
+  const drained = [...new Set([...drainModuleState(), ...drainTimers()])].sort();
   const leaks = listening.map(
     ({ type, where }) => `listener: a "${type}" listener on globalThis was not removed (${where})`,
   );
@@ -327,12 +373,31 @@ function checkFile(path: string): void {
   leaks.push(...drainModuleMocks());
   fileStart = undefined;
   const name = shortPath(path);
+  const allowed = baselineOf(name);
+  hookTotals();
+  totals.files += 1;
+  totals.leaks += drained.length;
+  totals.baseline += allowed.length;
+  const record = process.env.CMUX_TEST_LEAKS_RECORD;
+  if (record) appendFileSync(record, `${JSON.stringify({ file: name, items: drained })}\n`);
   if (mode === "report") {
     const all = [...leaks, ...drained];
     if (all.length) console.error(`LEAK ${name} left state behind for the next test file:\n  ${all.join("\n  ")}`);
     return;
   }
   const failing = mode === "strict" ? [...leaks, ...drained] : leaks;
+  if (mode !== "strict") {
+    if (drained.length > allowed.length) {
+      const known = new Set(allowed);
+      failing.push(
+        `${drained.length} module state and timer leaks, baseline ${allowed.length} (test/support/leak-baseline.json); new:`,
+        ...drained.filter((item) => !known.has(item)).map((item) => `  ${item}`),
+      );
+    } else if (drained.length < allowed.length)
+      console.error(
+        `leak baseline: ${name} leaves ${drained.length}, below its baseline ${allowed.length}: lower the baseline to ${drained.length} (bun scripts/leak-baseline.ts ${name})`,
+      );
+  }
   if (failing.length === 0) return;
   throw new Error(
     `${name} left state behind for the next test file (test/support/leakDetector.ts):\n  ${failing.join("\n  ")}\n` +

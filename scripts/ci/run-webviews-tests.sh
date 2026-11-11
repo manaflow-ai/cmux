@@ -651,6 +651,16 @@ if [ -s "$results/retry-passed" ]; then
   echo "passed only when run alone (failed or timed out beside other files):"
   sed 's/^/  /' "$results/retry-passed"
 fi
+# The leak ratchet (webviews/test/support/leakDetector.ts) prints one total per bun process, so one
+# per file here: the run's total is their sum, and its "lower the baseline" lines are listed with it.
+leak_logs=()
+while read -r _ _ log; do leak_logs+=("$log"); done < "$results/summary"
+if [ "${#leak_logs[@]}" -gt 0 ]; then
+  grep -h '^agent-session leaks: ' "${leak_logs[@]}" 2> /dev/null |
+    awk '{ leaks += $3; sub(/\)/, "", $5); base += $5; files += $7 }
+      END { if (files) printf "agent-session leaks: %d (baseline %d) in %d test files\n", leaks, base, files }' || true
+  grep -h '^leak baseline: ' "${leak_logs[@]}" 2> /dev/null | sort -u || true
+fi
 while read -r result file _; do
   [ "$result" = PASS ] || echo "$result $file (limit $(file_limit "$file" "$timeout_seconds")s)"
 done < <(sort -k2 "$results/summary")
