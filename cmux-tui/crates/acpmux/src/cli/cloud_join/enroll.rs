@@ -337,16 +337,17 @@ pub(crate) async fn record_leave_intent(account: &str) -> Result<()> {
 
 /// Takes the join lock in `home`, waiting up to [`LOCK_WAIT`] for a join or leave in progress.
 pub(super) async fn wait_for_lock(home: &Path) -> Option<HeldLock> {
-    let deadline = tokio::time::Instant::now() + LOCK_WAIT;
-    loop {
-        if let Ok(lock) = crate::config::private_state_dir(home).and_then(|()| join_lock_at(home)) {
-            return Some(lock);
+    let take = async {
+        loop {
+            if let Ok(lock) =
+                crate::config::private_state_dir(home).and_then(|()| join_lock_at(home))
+            {
+                return lock;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         }
-        if tokio::time::Instant::now() >= deadline {
-            return None;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-    }
+    };
+    tokio::time::timeout(LOCK_WAIT, take).await.ok()
 }
 
 /// Enrolls the box whose fingerprint is `current` with its acpmux home at `home`, through `port`.
