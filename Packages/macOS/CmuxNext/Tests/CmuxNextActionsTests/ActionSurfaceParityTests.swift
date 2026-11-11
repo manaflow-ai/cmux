@@ -206,7 +206,7 @@ import Testing
         #expect(String(text[start.lowerBound..<end.upperBound]) == current, "actions.md is stale; rerun with CMUX_UPDATE_ACTION_SURFACES=1")
     }
 
-    /// What the exports list: the Rust catalog's descriptors in its order, debug rows untitled by the palette.
+    /// What the exports list: the Rust catalog's descriptors in its order, with their plain titles, not the palette's "Debug: <name>" ones.
     nonisolated static var exportedCatalog: [ActionDescriptor] { RustActionCatalog.shared.descriptors }
 
     /// Every string catalog of CmuxNextActions, from the source tree.
@@ -224,13 +224,16 @@ import Testing
     /// the title the app shows.
     @Test func exportNamesTitleKeys() throws {
         let titles = try Self.titleCatalog()
+        // The exported titles (plain, as Rust declares them): `ActionCatalog.all` titles debug rows
+        // "Debug: <name>", which name no string, so the check would skip every debug row.
+        let exported = Self.exportedCatalog
         var named = 0
-        for descriptor in catalog {
+        for descriptor in exported {
             guard let entry = titles.entry(for: descriptor) else { continue }
             named += 1
             #expect(entry.english == descriptor.title, "\(descriptor.id)")
         }
-        #expect(named * 10 >= catalog.count * 9, "only \(named) of \(catalog.count) titles name a key")
+        #expect(named * 10 >= exported.count * 9, "only \(named) of \(exported.count) titles name a key")
         for category in ActionCategory.allCases {
             let entry = titles.entry(key: category.titleKey, table: category.titleTable)
             #expect(entry?.english == category.title, "palette section \(category.rawValue) names no string")

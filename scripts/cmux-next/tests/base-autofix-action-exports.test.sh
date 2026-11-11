@@ -7,6 +7,8 @@
 # after 02:14Z on 2026-10-21 (runs 39607727081 and 39609533631; ActionSurfaceParityTests.reportIsFresh
 # red). Then three regenerations in a row raced the merges and none landed (run 39633520123).
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 push_script="$here/../base-autofix-push.sh"
 land_script="$here/../base-autofix-land.sh"
@@ -24,7 +26,7 @@ links=plans/cmux-next/links.json
 # a lane clone that pushes other people's commits.
 setup() {
   rm -rf "$tmp/remote.git" "$tmp/bot" "$tmp/lane"
-  git init -q --bare -b feat "$tmp/remote.git"
+  git_fixture_init --bare -b feat "$tmp/remote.git"
   git clone -q "$tmp/remote.git" "$tmp/lane" 2>/dev/null
   (cd "$tmp/lane" && git checkout -q -b feat \
     && mkdir -p "$(dirname "$actions_src")" plans/cmux-next web/scripts \

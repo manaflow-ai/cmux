@@ -6,6 +6,8 @@
 # as "not a commit between" (run 39617667536, 2026-10-21; #22740's settings export was lost). Found by
 # app-store-features-22.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 script="$here/../base-autofix-changed.sh"
 tmp="$(mktemp -d)"
@@ -16,7 +18,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 # A remote with the run's commit A, then B and C on top; the bot's checkout is depth 1 at A.
 setup() {
   rm -rf "$tmp/remote.git" "$tmp/lane" "$tmp/bot"
-  git init -q --bare -b feat "$tmp/remote.git"
+  git_fixture_init --bare -b feat "$tmp/remote.git"
   git clone -q "$tmp/remote.git" "$tmp/lane" 2>/dev/null
   (cd "$tmp/lane" && git checkout -q -b feat && echo a > a.txt \
     && git add -A && git commit -q -m A && git push -q origin feat)

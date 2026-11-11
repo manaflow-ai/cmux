@@ -843,6 +843,7 @@ impl Mux {
                         entity,
                         workspace_revision: None,
                         transaction: None,
+                        mutation: None,
                     })
                 }
                 None => None,
@@ -1144,6 +1145,7 @@ impl Mux {
                     entity,
                     workspace_revision: None,
                     transaction,
+                    mutation: None,
                 },
                 screen_id,
                 CreatedTerminalEffect { path },
