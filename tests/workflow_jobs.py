@@ -31,7 +31,6 @@ ALL_SECRETS = "*"
 _SECRET_DOT = re.compile(r"\bsecrets\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)", re.IGNORECASE)
 _SECRET_INDEX = re.compile(r"\bsecrets\s*\[\s*(?:'([^']*)'|\"([^\"]*)\"|([^\]]*))\s*\]", re.IGNORECASE)
 _SECRET_WHOLE = re.compile(r"\bsecrets\b(?!\s*[.\[])", re.IGNORECASE)
-_MATRIX_REF = re.compile(r"\bmatrix\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)", re.IGNORECASE)
 _QUOTED = re.compile(r"^'((?:[^']|'')*)'$")
 # `ctx['name']` / `ctx["name"]` with a literal name: the same reference as `ctx.name` (matrix, inputs, vars, secrets,
 # env, needs and the outputs of either).
@@ -303,7 +302,7 @@ def expand_matrix(job: Mapping[str, Any], text: str, reads: "VarReads | None" = 
     whole = re.compile(r"\$\{\{\s*matrix\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)\s*\}\}", re.IGNORECASE)
     keys = list(dict.fromkeys(whole.findall(text)))
     if not keys:
-        return None if _MATRIX_REF.search(text) else [text]
+        return None if reads_matrix(text) else [text]
     choices = []
     for key in keys:
         cells = _matrix_cells(job, key)
@@ -319,7 +318,7 @@ def expand_matrix(job: Mapping[str, Any], text: str, reads: "VarReads | None" = 
         for key, value in zip(keys, combination):
             expanded = re.sub(r"\$\{\{\s*matrix\s*\.\s*" + re.escape(key) + r"\s*\}\}", value, expanded, flags=re.IGNORECASE)
         expanded = dotted(expanded)  # a matrix value may itself index: ${{ vars['X'] }}
-        if _MATRIX_REF.search(expanded):
+        if reads_matrix(expanded):
             return None
         out.append(expanded)
     return out
@@ -399,26 +398,54 @@ def variable_reads(text: str, whole: bool = False) -> list[str | None]:
         expression = dotted("${{" + text + "}}")
         return ([name.upper() for name in _VAR_DOT.findall(expression)]
                 + [None] * len(_VAR_OPEN.findall(expression)))
-    found: list[str | None] = []
     try:
-        for body in expressions(text, strict=True):
-            stream = tokens(body)
-            for index, (kind, value) in enumerate(stream):
-                if kind != "name" or value.lower() != "vars":
-                    continue
-                if index and stream[index - 1] == ("op", "."):
-                    continue
-                after = stream[index + 1:index + 4]
-                if len(after) >= 2 and after[0] == ("op", ".") and after[1][0] == "name":
-                    name: str | None = after[1][1]
-                elif len(after) >= 3 and after[0] == ("op", "[") and after[2] == ("op", "]"):
-                    name = _literal(after[1])
-                else:
-                    name = None
-                found.append(name.upper() if name is not None else None)
+        return [name.upper() if name is not None else None for name in _context_reads(text, "vars")]
     except Unreadable:
         return [None]
+
+
+def _context_reads(text: str, context: str) -> list[str | None]:
+    """The property each read of the `context` context (`vars`, `inputs`, `matrix`) inside `text`'s `${{ }}` takes,
+    read by tokens: `ctx.NAME` and `ctx['NAME']` give NAME, an index that is not a literal or the whole context
+    gives None, a name inside a string literal is no read (`${{ contains('inputs.note', 'x') }}` reads no input) and
+    `github.vars` is a property, not the context. Raises Unreadable for an expression the tokenizer cannot read."""
+    found: list[str | None] = []
+    for body in expressions(text, strict=True):
+        stream = tokens(body)
+        for index, (kind, value) in enumerate(stream):
+            if kind != "name" or value.lower() != context:
+                continue
+            if index and stream[index - 1] == ("op", "."):
+                continue
+            after = stream[index + 1:index + 4]
+            if len(after) >= 2 and after[0] == ("op", ".") and after[1][0] == "name":
+                found.append(after[1][1])
+            elif len(after) >= 3 and after[0] == ("op", "[") and after[2] == ("op", "]"):
+                found.append(_literal(after[1]))
+            else:
+                found.append(None)
     return found
+
+
+def input_reads(text: str) -> list[str]:
+    """Each reusable-workflow input `text` reads inside `${{ }}`, lower-cased (input names match without case), read
+    by tokens like variable_reads: `inputs.note` and `inputs['note']` are reads, `'inputs.note'` inside a string
+    literal is text. An expression the tokenizer cannot read falls back to every `inputs.X` its text names, quoted
+    or not, so the callers of each are still traced (fail closed)."""
+    try:
+        names = _context_reads(text, "inputs")
+    except Unreadable:
+        names = _INPUT_READ.findall(dotted(text))
+    return list(dict.fromkeys(name.lower() for name in names if name is not None))
+
+
+def reads_matrix(text: str) -> bool:
+    """Whether `text` reads the matrix context inside `${{ }}` (outside every string literal); an expression the
+    tokenizer cannot read counts as one that does (fail closed)."""
+    try:
+        return bool(_context_reads(text, "matrix"))
+    except Unreadable:
+        return True
 
 
 class VarRead(NamedTuple):
@@ -494,8 +521,7 @@ def _resolve(job: Mapping[str, Any], text: str, tracer: Tracer | None = None, re
         if tracer is not None:
             # An input read anywhere, a condition's included: its callers' values reach this field too.
             sources = expanded if expanded is not None else [text, *(s for _, s in _strings_at(_matrix(job), ""))]
-            for name in dict.fromkeys(n.lower() for source in sources for e in expressions(source)
-                                      for n in _INPUT_READ.findall(dotted("${{" + e + "}}"))):
+            for name in dict.fromkeys(name for source in sources for name in input_reads(source)):
                 tracer(f"inputs.{name}")
     if expanded is None:
         return set(), {text}
