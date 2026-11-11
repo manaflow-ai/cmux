@@ -1724,9 +1724,26 @@ def in_place_cache(repo: Path, head: str | None) -> bool:
 
 
 def is_checked_out(repo: Path, sha: str) -> bool:
-    """The checkout is exactly `sha`: HEAD is it and nothing is modified or untracked."""
+    """The checkout is exactly `sha`: HEAD is it, nothing is modified or untracked, and no file is left out by a
+    sparse checkout (git status is clean in one that lacks most of the commit)."""
     return (git(repo, "rev-parse", "HEAD").strip() == git(repo, "rev-parse", f"{sha}^{{commit}}").strip()
-            and not git(repo, "status", "--porcelain", "--untracked-files=normal").strip())
+            and not git(repo, "status", "--porcelain", "--untracked-files=normal").strip()
+            and not is_sparse(repo))
+
+
+def is_sparse(repo: Path) -> bool:
+    """The checkout leaves files of the index out: an index entry has the skip-worktree bit (`git ls-files -t`
+    tags it S). Not core.sparseCheckout: a shared config can say true for a checkout that holds every file."""
+    return any(entry.startswith("S ") for entry in git(repo, "ls-files", "-t", "-z").split("\0"))
+
+
+def sparse_refusal(plan: Plan, mode: str) -> str:
+    """What a push from a sparse checkout is told when its checks need the whole commit (tree_of())."""
+    areas = sorted({package.directory for package in plan.script_packages} | set(plan.eslint_files))
+    return (f"{mode}: refused; nothing was linted. This worktree is a sparse checkout, and the "
+            f"{', '.join(area + '/' for area in areas)} checks read the whole repository, which it does not hold. "
+            "Run `git sparse-checkout disable` here and push again, or push with "
+            "`scripts/cmux-next/push-from-host.sh <branch>`, which runs this hook on a full clone.")
 
 
 @contextlib.contextmanager
@@ -1968,7 +1985,16 @@ def main(argv: list[str] | None = None) -> int:
             for job in setup + fixes + jobs:
                 print(shown(job))
             continue
-        with tree_of(repo, head, directories, piece_tree_paths(repo, head, plan, read)) as tree:
+        only = piece_tree_paths(repo, head, plan, read)
+        if is_sparse(repo):
+            # 2026-11-11: a sparse checkout passed is_checked_out() before is_sparse() was part of it, and the checks
+            # ran in it: FileNotFoundError without webviews/, "no Packages/macOS/CmuxNext/Sources" without the sources.
+            if head is None or only is None:
+                print(sparse_refusal(plan, mode), file=sys.stderr)
+                return 1
+            print(f"{mode}: this worktree is a sparse checkout: the checks run on a lint tree of the {len(only)} "
+                  f"files of {head[:12]} they read.", file=sys.stderr)
+        with tree_of(repo, head, directories, only) as tree:
             if args.pre_push and not refuse_escapes(tree, plan, mode, read):
                 continue
             found = run_plan(tree, plan, args.fix, cache=tree == repo, heavy=heavy, mode=mode)
