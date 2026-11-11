@@ -90,6 +90,8 @@ pub const CAPABILITIES: &[Capability] = &[
     // `_acpmux/sessions {pendingOnly: true}`: only the chats with a pending ask, without the
     // list's pace (the app's dialog list). Older daemons would answer the whole list.
     Capability { id: "session-list-pending-v1", wire: &[method::MUX_SESSIONS] },
+    // `_acpmux/markRead`: mark a chat read without showing it (cmux's `chat.mark_read`).
+    Capability { id: "mark-read-v1", wire: &[method::MUX_MARK_READ] },
     Capability { id: "machine.join.stdin.v1", wire: &[] },
     // `acpmux machine vault pull|status|forget` (crate::vault): the CLI, which
     // asks the daemon to pull or forget when the values live only in its memory.

@@ -190,6 +190,7 @@ pub(crate) use topology_ops::split_direction_field;
 mod agent_chat_columns;
 #[cfg(unix)]
 mod agent_chat_notices;
+pub(crate) mod chat_index;
 pub(crate) mod agent_message_pump;
 pub(crate) mod app_terminals;
 mod cell_pixels;
@@ -723,6 +724,8 @@ pub struct Mux {
     /// The chat-index project import's wake (`project_chats.rs`).
     #[cfg(unix)]
     project_chats: project_chats::ProjectChatsWake,
+    /// Every ACP chat acpmux knows, for `chat.list` (`chat_index.rs`).
+    chat_index: chat_index::ChatIndex,
     /// Nonterminal notifications remain placement-local. Terminal unread state is keyed by
     /// stable content identity so every view of one terminal shares the same attention marker.
     placement_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,

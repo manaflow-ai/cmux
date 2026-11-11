@@ -144,6 +144,8 @@ pub use agent_session_attach::{
     AgentStartHost, AgentStartHostSource, set_link_share_app_scheme, start_link_share_bridge,
 };
 #[cfg(unix)]
+pub(crate) use agent_session_attach::agent_session_link::chat_marks::ChatMarkError;
+#[cfg(unix)]
 pub(crate) use agent_session_attach::{
     close_chat_shares, close_listed_chat_shares, close_unlisted_chat_shares, open_chat_shares,
 };

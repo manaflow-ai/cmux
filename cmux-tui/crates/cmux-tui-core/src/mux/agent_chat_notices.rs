@@ -703,6 +703,13 @@ fn read_watch(
     // the list is too old to name.
     let before = mux.upgrade().map(|mux| crate::server::open_chat_shares(&mux)).unwrap_or_default();
     writer.write_all(format!("{initialize}\n{watch}\n").as_bytes())?;
+    // The chat index (`chat_index.rs`) follows the same list and pushes.
+    if let Some(mux) = mux.upgrade() {
+        mux.change_chats(|chats| {
+            chats.begin();
+            false
+        });
+    }
     let mut reader = BufReader::new(stream);
     // The reply that carries the next page; none once the list is whole.
     let mut page = Some(2_u64);
@@ -727,6 +734,7 @@ fn read_watch(
             else {
                 return Err(std::io::Error::other("acpmux did not list its sessions"));
             };
+            mux.change_chats(|chats| chats.page(sessions));
             for summary in sessions {
                 if summary.get("peer").is_none_or(Value::is_null)
                     && let Some(session) = summary.get("sessionId").and_then(Value::as_str)
@@ -772,6 +780,7 @@ fn read_watch(
                         mux.remove_cache_ttl_timer(session);
                     }
                     unlisted.clear();
+                    mux.change_chats(super::chat_index::Chats::end);
                     whole = Some(Instant::now());
                     None
                 }
@@ -781,6 +790,9 @@ fn read_watch(
             message["method"].as_str()
         {
             let params = &message["params"];
+            if method == "_acpmux/session_changed" {
+                mux.change_chats(|chats| chats.push(params));
+            }
             if params["peer"].is_null()
                 && let Some(session) = params["sessionId"].as_str()
             {

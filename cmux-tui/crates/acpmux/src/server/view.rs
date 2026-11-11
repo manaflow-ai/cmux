@@ -171,6 +171,13 @@ pub(super) fn mark_unread(hub: &Hub, params: &Value) -> Result<Value, RpcError> 
     Ok(json!({}))
 }
 
+/// `_acpmux/markRead {sessionId}`: the person marks a chat read without showing it (cmux's
+/// `chat.mark_read`, an App Store app's Mark Read); answered once the mark is on disk.
+pub(super) fn mark_read(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
+    hub.mark_read_answered(&*hub.resolve(session_key(params)?)?)?;
+    Ok(json!({}))
+}
+
 /// The connection closed: every attachment it held ends with it.
 pub(super) fn release_all(hub: &Hub, conn: &Conn) {
     let mut held = conn.subs.lock().unwrap_or_else(|e| e.into_inner());

@@ -16,6 +16,7 @@ mod mouse;
 mod open_url;
 mod owner;
 pub(crate) mod palette_rank;
+mod chats;
 mod revision_conflict;
 mod session;
 mod topology;
@@ -289,6 +290,7 @@ fn dispatch_resource_request(
             crate::state::conductor_import_router::dispatch(mux, request)
         }
         OperationOwner::PaletteRank => palette_rank::dispatch(mux, request),
+        OperationOwner::Chat => chats::dispatch(mux, request),
         OperationOwner::Machine => {
             mux.resource_machine_service().dispatch(&ResourceMachineRequest {
                 operation,
