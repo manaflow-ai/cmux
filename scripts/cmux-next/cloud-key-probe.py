@@ -97,7 +97,9 @@ PLACEHOLDERS = {"", "cmux-vm-edge-placeholder"}
 
 # `NAME=value`, `export NAME=value`, `"NAME": "value"` and `NAME: value` lines in a file, the name in any case
 # (an AWS credentials file writes `aws_secret_access_key = ...`).
-ASSIGN = re.compile(r'["\']?\b([A-Za-z][A-Za-z0-9_]*)\b["\']?\s*[:=]\s*["\']?([^"\'\s,;)}]*)')
+# A YAML block scalar's header (`|`, `|-`, `>+2`, a comment after it): its value is the indented line that follows.
+BLOCK_SCALAR = r'(?:[|>][-+1-9]{0,2}[ \t]*(?:#[^\r\n]*)?(?:\r?\n\s*)?)?'
+ASSIGN = re.compile(r'["\']?\b([A-Za-z][A-Za-z0-9_]*)\b["\']?\s*[:=]\s*' + BLOCK_SCALAR + r'["\']?([^"\'\s,;)}]*)')
 # In a file a key's name alone is common (code that reads it, docs that name it): only a literal that looks
 # like a secret counts there, at least 16 characters of token alphabet with a letter and a digit, and no
 # reference (`$X`, `process.env.X`, `os.environ[...]`) or stand-in word.
@@ -459,7 +461,8 @@ def scan_text(text):
 
 
 # A key's name or a refresh token's field, then `:` or `=`: its value follows, on this line or a later one.
-OPENER = re.compile(r'(?:"refresh_token"|\b[A-Za-z][A-Za-z0-9_]*(?:_KEY|_TOKEN|_JSON|_key|_token|_json)\b["\']?)\s*[:=]\s*["\']?')
+OPENER = re.compile(r'(?:"refresh_token"|\b[A-Za-z][A-Za-z0-9_]*(?:_KEY|_TOKEN|_JSON|_key|_token|_json)\b["\']?)\s*[:=]\s*'
+                    + BLOCK_SCALAR + r'["\']?')
 VALUE_TO_END = re.compile(r'[^"\'\s,;)}]*')
 # How far past its line a value is followed before it counts as ended: past any real key.
 MAX_VALUE = 1 << 20
@@ -546,8 +549,17 @@ def read(path, limit=1 << 20):
         return f.read(limit)
 
 
-def scan_file(path):
-    """Findings in one whole file: (line number or None, what). A binary file (a database, say) is read in overlapping
+class OutOfTime(Exception):
+    """The walk's deadline passed inside a file: `hits` holds what was found in the part read."""
+
+    def __init__(self, hits):
+        super().__init__("past the deadline")
+        self.hits = hits
+
+
+def scan_file(path, deadline=math.inf):
+    """Findings in one whole file: (line number or None, what). Past `deadline` (checked after each read) it raises
+    OutOfTime with the findings so far. A binary file (a database, say) is read in overlapping
     chunks, by shape and by key name; a binary has no lines. In a text file only the lines the prefilter hits are checked: most hold none of the
     prefixes, and a Python loop over every line of every file was the walk's cost."""
     out = []
@@ -558,6 +570,8 @@ def scan_file(path):
             seen = set()
             tail = b""
             while True:
+                if time.monotonic() > deadline:
+                    raise OutOfTime([(None, what) for what in sorted(seen)])
                 chunk = f.read(CHUNK)
                 if not chunk:
                     break
@@ -594,6 +608,8 @@ def scan_file(path):
         # hits are decoded and checked, and their numbers are counted from the newlines before them.
         line, rest = 1, b""
         while True:
+            if time.monotonic() > deadline:
+                raise OutOfTime(out)
             chunk = f.read(CHUNK)
             block = rest + chunk
             cut = len(block) if not chunk else block.rfind(b"\n") + 1
@@ -788,8 +804,12 @@ def scan_files(root, deadline, report):
                         continue
                     reported.add(where)
                     inode = (st.st_dev, st.st_ino)
+                    out_of_time = False
                     if inode not in contents:
-                        contents[inode] = scan_file(path)
+                        try:
+                            contents[inode] = scan_file(path, deadline)
+                        except OutOfTime as cut:
+                            contents[inode], out_of_time = cut.hits, True
                         report["scanned"]["files"] += 1
                     hits = contents[inode]
                 except OSError:
@@ -803,6 +823,10 @@ def scan_files(root, deadline, report):
                 for line, what in hits:
                     listed = report["shipped"] if shipped and what not in CONTEXTUAL else report["findings"]
                     listed.append({"place": "file", "where": where, "line": line, "what": what})
+                if out_of_time:
+                    # A file read in part: what it showed is reported, and the walk is cut there.
+                    report["truncated"] = True
+                    return
 
 
 # The heredoc delimiter keyProbeCommand (cloud-journey.ts) wraps this source in: the shell argument holding it.

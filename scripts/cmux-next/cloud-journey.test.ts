@@ -1453,6 +1453,66 @@ describe("clean-room provider key probe", () => {
     }
   });
 
+  test("a YAML block scalar's value is read as the key's value, in a text file and a binary one", () => {
+    const literal = "Nc4Tq8Lw2Rk7Zp5Hx9Bv3Jd6Fm1Gs0Ya";
+    const folded = "Pe7Xu3Kw9Lq2Rz6Vn8Hb4Jc1Dm5Fg0Ts";
+    const inDb = "Ub2Wh6Ky9Pq4Rm7Xs3Lv8Jd1Fn5Gc0Za";
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      "workspace/project/config.yaml": `MISTRAL_API_KEY: |-\n  ${literal}\nother: 1\n`,
+      "workspace/project/more.yml": `cloud:\n  AWS_SECRET_ACCESS_KEY: >+2 # rotated monthly\n      ${folded}\n`,
+    });
+    const page = Buffer.alloc(8192);
+    Buffer.from("SQLite format 3\0").copy(page, 0);
+    Buffer.from(`OPENAI_API_KEY: |\n  ${inDb}\n`).copy(page, 3000);
+    writeFileSync(join(root, "workspace/project/c.db"), page);
+    try {
+      const { probe, out } = run(root);
+      for (const v of [literal, folded, inDb]) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /workspace/project/[a name].db: OPENAI_API_KEY",
+        "file /workspace/project/[a name].yaml:1: MISTRAL_API_KEY",
+        "file /workspace/project/[a name].yml:2: AWS_SECRET_ACCESS_KEY",
+      ]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("the budget holds inside one large file, and what that file showed is kept", () => {
+    const named = "Hv5Kp8Qx2Lt7Rz4Nw9Bd3Fj6Cm1Gs0Ya";
+    const dir = mkdtempSync(join(tmpdir(), "key-probe-deadline-"));
+    const big = join(dir, "big.db");
+    // 1 GiB, sparse: a binary file whose first read holds a key's name and value.
+    writeFileSync(big, `\0OPENAI_API_KEY="${named}"\0`);
+    spawnSync("truncate", ["-s", "1G", big]);
+    const script = `
+import importlib.util, json, sys, time
+spec = importlib.util.spec_from_file_location("probe", sys.argv[1])
+probe = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(probe)
+t0 = time.monotonic()
+try:
+    probe.scan_file(sys.argv[2], t0 + 0.05)
+    print(json.dumps({"cut": False}))
+except probe.OutOfTime as cut:
+    print(json.dumps({"cut": True, "hits": [w for _, w in cut.hits], "s": time.monotonic() - t0}))
+`;
+    try {
+      const r = spawnSync("python3", ["-I", "-c", script, KEY_PROBE_PY, big], { encoding: "utf8" });
+      const answer = JSON.parse(r.stdout || "{}");
+      expect(answer.cut).toBe(true);
+      expect(answer.hits).toEqual(["OPENAI_API_KEY"]);
+      // One 4 MiB read past the deadline at most, not the rest of the gigabyte.
+      expect(answer.s).toBeLessThan(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("any ASCII character JSON writes as \\u00XX is read as itself, in a text file and a binary one", () => {
     const named = "Hv5Kp8Qx2Lt7Rz4Nw9Bd3Fj6Cm1Gs0Ya";
     const proj = PROJ.replace("sk-", "sk\\u002d");
