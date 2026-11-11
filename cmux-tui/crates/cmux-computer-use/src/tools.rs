@@ -190,7 +190,7 @@ pub static TOOLS: &[Tool] = &[
     Tool {
         name: "set_value",
         access: Access::Act,
-        description: "Set an element's value directly (text fields, sliders, checkboxes), with no typing. On a pop-up or menu button, the value is the title of the item to choose; it is picked without opening the menu.",
+        description: "Set an element's value directly (text fields, sliders, checkboxes), with no typing. On a pop-up or menu button, the value is the title of the item to choose; it is picked without opening the menu. On macOS a slider or stepper whose value is read-only (volume, brightness) is stepped to the value; give a number in its own range or a percentage such as \"25%\".",
         schema: || {
             obj(
                 json!({"window_id": window_id(), "element_id": {"type": "string"}, "value": {"type": "string"}}),

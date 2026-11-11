@@ -482,6 +482,11 @@ pub(super) fn set_value(
     if !el.settable("AXValue") && matches!(role.as_str(), "AXPopUpButton" | "AXMenuButton") {
         return choose_menu_item(&el, element_id, value);
     }
+    if !el.settable("AXValue")
+        && let Some(out) = step_to(&el, value)?
+    {
+        return Ok(out);
+    }
     if !el.settable("AXValue") {
         return Err(DesktopError::Unsupported(format!(
             "element {element_id}'s value cannot be set; use type_text or click"
@@ -671,4 +676,57 @@ fn selectable(el: &Ax) -> Option<Ax> {
         current = node.element("AXParent");
     }
     None
+}
+
+/// A slider, stepper or level whose AXValue is read-only but which takes
+/// AXIncrement / AXDecrement (System Settings' volume and brightness): step
+/// toward `value` until the next step would pass it. Values may be given as
+/// the element's own number or as a percentage of its range ("25%"). None
+/// when the element cannot step or the value is not a number.
+fn step_to(el: &Ax, value: &str) -> DResult<Option<ActionOutcome>> {
+    let actions = el.actions();
+    if !(actions.iter().any(|a| a == "AXIncrement") && actions.iter().any(|a| a == "AXDecrement")) {
+        return Ok(None);
+    }
+    let number = |name: &str| el.attr(name).ok().flatten().and_then(|v| v.as_f64());
+    let (Some(min), Some(max), Some(start)) = (number("AXMinValue"), number("AXMaxValue"), number("AXValue"))
+    else {
+        return Ok(None);
+    };
+    let Some(target) = roles::step_target(value, min, max) else { return Ok(None) };
+    let mut current = start;
+    for _ in 0..200 {
+        let going_up = target > current;
+        let action = if going_up { "AXIncrement" } else { "AXDecrement" };
+        if (target - current).abs() < f64::EPSILON {
+            break;
+        }
+        el.perform(action).map_err(|e| ax_error(e, "step the value"))?;
+        let Some(next) = number("AXValue") else { break };
+        let step = (next - current).abs();
+        if step < f64::EPSILON {
+            break; // at the end of the range
+        }
+        let passed = if going_up { next > target } else { next < target };
+        if passed {
+            // Keep whichever of the last two values is nearer the target.
+            if (next - target).abs() > (current - target).abs() {
+                let back = if going_up { "AXDecrement" } else { "AXIncrement" };
+                el.perform(back).map_err(|e| ax_error(e, "step the value"))?;
+            }
+            break;
+        }
+        current = next;
+    }
+    let read = number("AXValue").unwrap_or(current);
+    let mut out = if roles::step_reached(read, target, min, max) {
+        ActionOutcome::confirmed("ax_step")
+    } else {
+        ActionOutcome::delivered("ax_step")
+    };
+    out.note = format!("stepped from {start} to {read} (asked {target}); the element moves in fixed steps");
+    if let Some(frame) = el.frame() {
+        out = out.at(roles::center(&frame));
+    }
+    Ok(Some(out))
 }

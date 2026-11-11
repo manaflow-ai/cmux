@@ -280,3 +280,15 @@ fn shortcuts_match_menu_items_by_char_and_modifiers() {
     assert!(!m("cmd+s", None, None, 0));
     assert!(!m("cmd+s", Some("SS"), None, 0));
 }
+
+#[test]
+fn stepping_targets_take_numbers_and_percentages() {
+    assert_eq!(roles::step_target("25%", 0.0, 1.0), Some(0.25));
+    assert_eq!(roles::step_target("0.25", 0.0, 1.0), Some(0.25));
+    assert_eq!(roles::step_target(" 40 % ", 0.0, 200.0), Some(80.0));
+    assert_eq!(roles::step_target("150%", 0.0, 1.0), Some(1.0)); // clamped
+    assert_eq!(roles::step_target("-3", 0.0, 10.0), Some(0.0));
+    assert_eq!(roles::step_target("loud", 0.0, 1.0), None);
+    assert!(roles::step_reached(0.26, 0.25, 0.0, 1.0));
+    assert!(!roles::step_reached(0.31, 0.25, 0.0, 1.0));
+}

@@ -254,3 +254,22 @@ pub fn parse_element_id(id: &str) -> Option<(u64, usize)> {
     let (g, i) = id.trim().split_once('.')?;
     Some((g.parse().ok()?, i.parse().ok()?))
 }
+
+/// The number `value` asks a stepping element for: its own unit ("0.25",
+/// "12") or a percentage of its range ("25%"). None for anything else.
+pub fn step_target(value: &str, min: f64, max: f64) -> Option<f64> {
+    let text = value.trim();
+    let target = if let Some(percent) = text.strip_suffix('%') {
+        let p: f64 = percent.trim().parse().ok()?;
+        min + (max - min) * p / 100.0
+    } else {
+        text.parse().ok()?
+    };
+    target.is_finite().then(|| target.clamp(min.min(max), max.max(min)))
+}
+
+/// Whether a stepped value is as close to the target as one step allows:
+/// within 2% of the range.
+pub fn step_reached(read: f64, target: f64, min: f64, max: f64) -> bool {
+    (read - target).abs() <= ((max - min).abs() * 0.02).max(f64::EPSILON)
+}
