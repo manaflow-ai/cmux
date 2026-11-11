@@ -73,7 +73,8 @@ import Testing
     }
 
     /// Lawrence 2026-10-23: "text needs to be as left as possible (how it originally was)". A row with no icon
-    /// starts its title at the row's inset; a top-level group's member at the same x as an ungrouped row (#23975).
+    /// starts its title at the row's content inset (8 pt at Default, where the rows match the Codex sidebar, #39956);
+    /// a top-level group's member at the same x as an ungrouped row (#23975).
     @Test(arguments: cases)
     func titlesStartAsFarLeftAsTheRowAllows(_ c: Case) throws {
         try SidebarGroupRailAlignmentTests.with(c.density, c.minimal, textSize: c.textSize) {
@@ -81,7 +82,7 @@ import Testing
             defer { window.close() }
             let loose = try Self.row(list, Self.loose), member = try Self.row(list, Self.member)
             let looseX = Self.textX(list, loose)
-            #expect(looseX == list.frame(for: try #require(list.displayed.row(for: .workspace(Self.loose)))).minX + SidebarStyle.horizontalInset,
+            #expect(looseX == list.frame(for: try #require(list.displayed.row(for: .workspace(Self.loose)))).minX + SidebarStyle.contentInset,
                     "\(c.testDescription): an ungrouped title at \(looseX)")
             #expect(Self.textX(list, member) == looseX, "\(c.testDescription): member \(Self.textX(list, member)), ungrouped \(looseX)")
             // An icon sits where text would start; the title follows it, never under it.

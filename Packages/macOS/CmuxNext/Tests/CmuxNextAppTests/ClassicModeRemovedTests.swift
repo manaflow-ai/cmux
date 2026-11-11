@@ -33,9 +33,15 @@ import Testing
         return SidebarLayout.make(sections: model.sections, metrics: .standard, options: model.listOptions()).rows
     }
 
-    /// The rows below the section header: one per workspace, nothing listed under them.
+    /// The rows below the section header and the list's "Workspaces" heading (#39956): one per workspace, nothing
+    /// listed under them.
     static func listed(_ rows: [SidebarRow]) -> [SidebarRowKey] {
-        rows.map(\.key).filter { if case .section = $0 { false } else { true } }
+        rows.map(\.key).filter {
+            switch $0 {
+            case .section, .listHeader: false
+            default: true
+            }
+        }
     }
 
     static let workspaceRows: [SidebarRowKey] = [.workspace(WorkspaceID("shell")), .workspace(WorkspaceID("web"))]

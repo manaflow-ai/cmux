@@ -75,6 +75,10 @@ import Testing
         return row
     }
 
+    /// The list with Group by Status off: one list's "Workspaces" heading (`sidebar.listHeading`, #39956), then the
+    /// rows in manual order.
+    static var plainList: [String] { ["Workspaces"] + rows.map(\.id.rawValue) }
+
     /// In manual order: the sections below never reorder them.
     static let rows = [
         SidebarWorkspace(id: WorkspaceID("shell"), title: "shell"),
@@ -105,7 +109,7 @@ import Testing
         defer { Self.toggle(nil) }
         Self.toggle(nil)
         let sidebar = Sidebar(Self.rows)
-        #expect(sidebar.drawn == Self.rows.map(\.id.rawValue), "\(sidebar.drawn)")
+        #expect(sidebar.drawn == Self.plainList, "\(sidebar.drawn)")
         #expect(!sidebar.model.locksReorder, "off, a drag reorders as before")
     }
 
@@ -147,7 +151,7 @@ import Testing
         sidebar.report("shipped", chip: nil, working: true) // held under Done
         Self.toggle(false)
         sidebar.redraw()
-        #expect(sidebar.drawn == Self.rows.map(\.id.rawValue), "\(sidebar.drawn)")
+        #expect(sidebar.drawn == Self.plainList, "\(sidebar.drawn)")
         Self.toggle(true)
         sidebar.redraw()
         #expect(sidebar.drawn.suffix(5) == ["Working, 2 workspaces", "build", "shipped", "Idle, 1 workspaces", "shell"],

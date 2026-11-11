@@ -287,7 +287,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             // session tree or Group by Status, which head or replace the list themselves).
             if o.headsWorkspaceList, !workspacesHeaded, recents == nil, flat, !filtering, o.sessionTree == nil, !nodes.isEmpty {
                 workspacesHeaded = true
-                Self.appendWorkspacesHeader(section: section.id, count: nodes.count, metrics: m, to: &rows, y: &y)
+                Self.appendWorkspacesHeader(section: section.id, metrics: m, to: &rows, y: &y)
             }
             if section.machine != nil { chats.placePinned(&y) }
             // This section's own rows under its block: its groups, or its empty drop zone (or the drop's gap in the zone's
