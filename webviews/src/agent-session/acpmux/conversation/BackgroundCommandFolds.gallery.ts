@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample prompts, commands and replies), not shipped UI.
 // A background command that finished during a turn is the turn's work: its "Background command
 // completed" note folds under the turn's "Worked for" with the calls around it (Leo, 2026-11-11:
-// "Background command completed. Do those not count as the fucking works for?"). Before, every such
+// "Background command completed. Do those not count as the f-ing works for?"). Before, every such
 // note drew beside the closed fold, a bare line between it and the answer. One that failed still
 // stays in sight. Test: conversation/turnFoldStyle.test.ts.
 import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";

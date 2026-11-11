@@ -204,7 +204,7 @@ test("New since you looked stays under a reply the person read", () => {
   expect(shown.indexOf(`${WORKED}-p`)).toBeLessThan(shown.indexOf("a"));
 });
 
-// Leo, 2026-11-11: "Background command completed. Do those not count as the fucking works for?"
+// Leo, 2026-11-11: "Background command completed. Do those not count as the f-ing works for?"
 const shellEnd = (id: string, at: number, state: "completed" | "stopped" | "failed"): AcpmuxRow => ({
   id,
   version: 1,
