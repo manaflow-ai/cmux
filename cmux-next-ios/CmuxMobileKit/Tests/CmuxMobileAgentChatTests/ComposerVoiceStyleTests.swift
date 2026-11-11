@@ -1,3 +1,5 @@
+// ComposerVoiceStyle lives in ChatComposer.swift, which is iOS only: on macOS (`swift test`) this suite has nothing to test.
+#if os(iOS)
 @testable import CmuxMobileAgentChat
 import Testing
 
@@ -24,3 +26,4 @@ import Testing
         }
     }
 }
+#endif
