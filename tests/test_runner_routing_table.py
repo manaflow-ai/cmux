@@ -218,7 +218,7 @@ class RoutingTableTests(unittest.TestCase):
                     self.assertEqual(len(allowed), 0 if error else 1)
                     if not error:
                         number = int(allowed[0].rsplit(":", 1)[1])
-                        self.assertEqual(path.read_text().splitlines()[number - 1].strip(), "runs-on: " + {**baseline, **change}["runs-on"])
+                        self.assertEqual(path.read_text().splitlines()[number - 1].strip(), "runs-on: " + workflow_jobs.single_runs_on({**baseline, **change}))
             policy.write_text(json.dumps({"job_classes": {}, "hosted_light_jobs": {}}))
             self.assertEqual(table.hosted_light_policy(policy, workflows), ([], []))
 

@@ -30,6 +30,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 TEXT = (ROOT / ".github" / "workflows" / "nightly.yml").read_text()
 DOC = yaml.safe_load(TEXT)
@@ -126,7 +129,7 @@ else:
                         "and nightly_next_sign_stage")
     elif "--ref nightly-next" not in runs[0] or "while" in runs[0]:
         failures.append("dispatch-nightly-next-sign dispatches once on nightly-next, no loop")
-    runs_on = str(dispatch.get("runs-on", ""))
+    runs_on = workflow_jobs.single_runs_on(dispatch)
     if "blacksmith" in runs_on.lower() or "CI_NIGHTLY_MINI" not in runs_on:
         failures.append("dispatch-nightly-next-sign runs on the nightly mini")
 if TEXT.count("-f nightly_next_sign_stage=") != 1:

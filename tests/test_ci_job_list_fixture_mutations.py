@@ -76,6 +76,8 @@ sys.path.insert(0, str(TESTS))
 import workflow_jobs  # noqa: E402
 
 KEYCHAIN = "test_ci_signing_keychain_is_deleted_before_bundle_code"
+# The runs-on as written (workflow_jobs.runs_on, never patched): the pre-fix reader read it so.
+_RAW_RUNS_ON = workflow_jobs.runs_on
 
 
 class PreFixReader:
@@ -116,13 +118,13 @@ class PreFixReader:
 
     @staticmethod
     def runs_on_cells(job: Mapping[str, Any], *_: Any) -> list[str] | None:
-        raw = job.get("runs-on")
-        return [raw if isinstance(raw, str) else str(raw)] if raw else []
+        raw = _RAW_RUNS_ON(job)  # the runs-on as written, matrix unexpanded: what the pre-fix guards read
+        return [raw] if raw else []
 
     @staticmethod
     def runs_on_values(job: Mapping[str, Any], *_: Any) -> tuple[set[str], set[str]]:
-        raw = job.get("runs-on")
-        return set(), ({raw if isinstance(raw, str) else str(raw)} if raw else set())
+        raw = _RAW_RUNS_ON(job)
+        return set(), ({raw} if raw else set())
 
     @staticmethod
     def inheriting(document: Mapping[str, Any]) -> dict[str, Any]:

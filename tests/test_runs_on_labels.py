@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from runs_on_labels import EMPTY, Unknown, disallowed_labels, linux_runner_values, resolve_labels  # noqa: E402
 # The personal Linux workstation's label, from the fleet rule lint: the one file allowed to spell it.
 from test_ci_fleet_rule_lints import CANDIDATE_WORDS_ANY_CASE  # noqa: E402
+import workflow_jobs  # noqa: E402
 
 PERSONAL_WORKSTATION_LABEL = CANDIDATE_WORDS_ANY_CASE[0]
 
@@ -44,7 +45,7 @@ def _load(text: str) -> dict:
 
 
 def daemon_runs_on(text: str) -> str:
-    return _daemon_job(_load(text))["runs-on"]
+    return workflow_jobs.single_runs_on(_daemon_job(_load(text)))
 
 
 def lint_runner(text: str) -> str:
