@@ -63,6 +63,8 @@ PROBES = {
     "stdbuf": lambda: _status("stdbuf -oL sh -c 'exit 7'", 7),
     "gnu-time": _gnu_time,
     "env-split": lambda: _status("env -S 'sh -c \"exit 7\"'", 7),
+    # bash's coproc keyword (bash 4 and later; macOS's bash 3.2 has none, and runs a command named coproc).
+    "coproc": lambda: _status("coproc true || exit 1; wait; exit 7", 7),
 }
 
 

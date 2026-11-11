@@ -143,7 +143,13 @@ def code(line: str) -> str:
 # shell_tree.corpus() is the detector's own check: every unsafe write in it is flagged and no safe template is.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import shell_tree  # noqa: E402
-from requires import requires  # noqa: E402
+from requires import available, requires  # noqa: E402
+
+
+def missing(capability: str) -> str | None:
+    """Why this host lacks CAPABILITY (requires.available), or None: a corpus row that needs it is skipped by name."""
+    ok, why = available(capability)
+    return None if ok else why
 
 SHELL_TREE_PIN = Path(__file__).resolve().parent / "shell_tree.pin"
 
@@ -347,14 +353,14 @@ class NoclobberSweep(unittest.TestCase):
         template even where bash never writes it (an echo, an array's words, a function never called)."""
         corpus = shell_tree.corpus()
         before = mktemp_names()
-        verdicts = shell_tree.bash_verdicts([line for line, _ in corpus])
+        verdicts = shell_tree.bash_verdicts([line for line, _ in corpus], missing=missing)
         # Every row bash is asked about has its answer; one with none fails here, never drops out (cmux#41336 review).
         self.assertEqual(shell_tree.no_oracle([line for line, _ in corpus], verdicts), [])
         lines = [c for c, wrote in zip(corpus, verdicts) if wrote is True]
         self.assertEqual([line for line, unsafe in lines if not (unsafe and flagged(code(line)))], [],
                          "lines bash writes a guessable name with, which the tree passes or the corpus calls safe")
         shell = [f for f in shell_tree.FILES if not f[0].endswith(".yml")]
-        ran = shell_tree.bash_verdicts([text for _, text, _ in shell])
+        ran = shell_tree.bash_verdicts([text for _, text, _ in shell], missing=missing)
         self.assertEqual(shell_tree.no_oracle([text for _, text, _ in shell], ran), [])
         files = [f for f, wrote in zip(shell, ran) if wrote is True]
         found = scratch_hits(files)
@@ -444,6 +450,8 @@ class NoclobberSweep(unittest.TestCase):
             for text, want in shell_tree.ASSIGNMENT_WORDS:
                 with self.subTest(text=text):
                     self.assertEqual(shell_tree.assigned_names(text), want, "the tree")
+                    for capability in shell_tree.needs(text):  # env -S, coproc, ...: skips this row alone (#4441 F1)
+                        requires(capability)
                     # stdout and stderr together: a coprocess's cmd writes to stderr (1>&2)
                     run = subprocess.run([shutil.which("bash"), "--noprofile", "--norc", "-c", text],
                                          env={"PATH": bindir + ":/usr/bin:/bin"}, stdin=subprocess.DEVNULL,
@@ -466,11 +474,12 @@ class NoclobberSweep(unittest.TestCase):
             with open(os.path.join(bindir, "cmd"), "w") as f:
                 f.write("#!/bin/sh\necho ran cmd\n")
             os.chmod(os.path.join(bindir, "cmd"), 0o700)
+            self.assertEqual([shell_tree.runs('"$V" cmd'), shell_tree.runs("$V")], ["?", "?"])  # #4441 review
             for text, want in shell_tree.RUN_WORDS:
                 with self.subTest(text=text):
                     self.assertEqual(shell_tree.runs(text), want, "the tree")
-                    if re.search(r'command time|/usr/bin/time|=\S* time|"time"', text):
-                        requires("gnu-time")  # skips this row alone
+                    for capability in shell_tree.needs(text):  # GNU time, env -S, coproc: skips this row alone
+                        requires(capability)
                     run = subprocess.run([shutil.which("bash"), "--noprofile", "--norc", "-c", text], cwd=bindir,
                                          env={"PATH": bindir + ":/usr/bin:/bin"}, stdin=subprocess.DEVNULL,
                                          capture_output=True, text=True, timeout=30)
@@ -483,20 +492,23 @@ class NoclobberSweep(unittest.TestCase):
             shutil.rmtree(bindir, ignore_errors=True)
 
     def test_the_oracle_answers_every_row_or_names_why_not(self):
-        """Review of manaflow-ai/cmux#41336: bash's answer for a row is never a crash. A row past its time
-        (ORACLE_SECONDS) or its processes (MAX_BASH_PROCESSES) is NoOracle with the reason, not an exception; such a
-        row fails the differential check unless TREE_ONLY lists it with its reason, and a tree-only depth fixture has a
-        bash-sized twin that bash does answer."""
+        """Review of manaflow-ai/cmux#41336: bash's answer for a row is never a crash and never read as agreement. A
+        row past its time (ORACLE_SECONDS) or its processes (MAX_BASH_PROCESSES), or whose fork fails, is a named
+        OracleUnavailable, falsy; such a row fails the differential check unless TREE_ONLY lists it with its reason
+        (a tree-only depth fixture has a bash-sized twin that bash answers), or the host lacks a capability it needs
+        (SKIPPED, by name)."""
         spin = "while :; do :; done"
-        [late] = shell_tree.bash_verdicts([spin], timeout=0.5)
-        self.assertIsInstance(late, shell_tree.NoOracle)
+        [late] = shell_tree.bash_verdicts([spin], timeout=0.5, missing=missing)
+        self.assertIsInstance(late, shell_tree.OracleUnavailable)
+        self.assertIsInstance(late, shell_tree.BashTimeout)
+        self.assertFalse(late, "no answer is never read as an answer")
         self.assertIn("budget", late.reason)
         [message] = shell_tree.no_oracle([spin], [late])
         self.assertIn("no answer from bash", message)
         self.assertIn(spin, message)
         deep = shell_tree._deep(200)
-        [wide] = shell_tree.bash_verdicts([deep])
-        self.assertIsInstance(wide, shell_tree.NoOracle)
+        [wide] = shell_tree.bash_verdicts([deep], missing=missing)
+        self.assertIsInstance(wide, shell_tree.OracleUnavailable)
         self.assertIn("MAX_BASH_PROCESSES", wide.reason)
         self.assertEqual(shell_tree.no_oracle([deep], [wide]), [], "a TREE_ONLY row needs no oracle answer")
         corpus = dict(shell_tree.corpus())
@@ -504,8 +516,31 @@ class NoclobberSweep(unittest.TestCase):
         twins = [shell_tree._deep(shell_tree.BASH_TWIN_DEPTH), shell_tree._deep(shell_tree.BASH_TWIN_DEPTH,
                                                                                "; echo > /tmp/out.$$")]
         self.assertEqual([corpus.get(t) for t in twins], [False, True])
-        self.assertEqual(shell_tree.bash_verdicts(twins), [False, True])
+        self.assertEqual(shell_tree.bash_verdicts(twins, missing=missing), [False, True])
         self.assertLessEqual(shell_tree.bash_processes(twins[1]), shell_tree.MAX_BASH_PROCESSES)
+        # A row that needs what the host lacks is skipped by name, never run and never a failure.
+        split = "env -S 'printf x' > /tmp/out.$$"
+        [skipped] = shell_tree.bash_verdicts([split], missing=lambda capability: f"no {capability} here")
+        self.assertEqual((skipped.skipped, skipped.reason), (True, "needs env-split: no env-split here"))
+        self.assertEqual(shell_tree.no_oracle([split], [skipped]), [])
+
+    def test_a_wrapper_that_stays_a_process_is_counted(self):
+        """Review of manaflow-ai/cmux#41371, F3: bash_processes() left out wrappers that stay a process (timeout waits
+        for its command), so fifty nested `timeout 5` were estimated at 4 and held 52, past MAX_BASH_PROCESSES. The
+        estimate bounds what bash holds, and past the cap bash is never run."""
+        for n in (10, 30):
+            text = "timeout 5 " * n + "mktemp /tmp/$USER.XXXXXX"
+            for capability in shell_tree.needs(text):
+                requires(capability)
+            stats = {}
+            self.assertFalse(shell_tree.bash_writes(text, stats=stats))
+            if os.path.exists("/proc/self/stat"):
+                self.assertLessEqual(stats["peak"], shell_tree.bash_processes(text), n)
+            self.assertGreaterEqual(shell_tree.bash_processes(text), n + 2)
+        many = "timeout 5 " * 50 + "mktemp /tmp/$USER.XXXXXX"
+        self.assertGreater(shell_tree.bash_processes(many), shell_tree.MAX_BASH_PROCESSES)
+        [unavailable] = shell_tree.bash_verdicts([many], missing=missing)
+        self.assertIn("MAX_BASH_PROCESSES", unavailable.reason)
 
     def test_tmpdir_is_the_scratch_temp_folder(self):
         """Review of manaflow-ai/cmux-platform#1286, F1: the script's TMPDIR was renamed to a name never set, so
@@ -538,7 +573,8 @@ class NoclobberSweep(unittest.TestCase):
         try:
             before = state()
             shell_tree.bash_verdicts([line for line, _ in shell_tree.corpus()] +
-                                     [text for path, text, _ in shell_tree.FILES if not path.endswith(".yml")])
+                                     [text for path, text, _ in shell_tree.FILES if not path.endswith(".yml")],
+                                     missing=missing)
             self.assertEqual(sorted(state() - before), [])
         finally:
             if was is None:
@@ -581,6 +617,8 @@ class NoclobberSweep(unittest.TestCase):
         shell failed before it ran, and bash could not check the tree there."""
         for text in ("env -S \"bash -c 'printf x > /tmp/out.$$'\"", "sh -c 'printf x > /tmp/out.$$'"):
             with self.subTest(text=text):
+                for capability in shell_tree.needs(text):
+                    requires(capability)
                 self.assertIs(shell_tree.bash_writes(text), True)
 
     def test_shell_tree_is_the_pinned_copy(self):
