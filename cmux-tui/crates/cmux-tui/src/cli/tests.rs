@@ -182,9 +182,27 @@ mod remote_cli_docs {
         }
     }
 
+    /// `cmux vm …` as the `cmux cloud …` line the CLI runs (`vm` is `cloud`'s name, and the
+    /// catalog names a Cloud action `cloud VERB`): a short verb is its Cloud verb (vm_short.rs:
+    /// `vm status dev` runs `cloud machine-status`), any other Cloud verb keeps its name (vm.rs
+    /// `cloud_alias`). `None` for every other line, the VM API's own verbs under `vm` included.
+    fn vm_as_cloud(line: &[String]) -> Option<Vec<String>> {
+        let command = line.get(1..)?;
+        let cloud = match crate::cli::vm_short::parse(command) {
+            Some(short) => {
+                let mut cloud = strings(&["cloud", short.cloud_verb]);
+                cloud.extend(short.tail);
+                cloud
+            }
+            None => crate::cli::vm::cloud_alias(command)?,
+        };
+        Some(std::iter::once("cmux".to_owned()).chain(cloud).collect())
+    }
+
     fn missing_commands(text: &str, names: &HashSet<String>) -> Vec<String> {
         let mut missing = Vec::new();
-        for words in command_lines(text, "cmux") {
+        for line in command_lines(text, "cmux") {
+            let words = vm_as_cloud(&line).unwrap_or_else(|| line.clone());
             let parser_words = words[1..]
                 .iter()
                 .filter(|word| !matches!(word.as_str(), "--json" | "--jsonl" | "--quiet"))
@@ -204,7 +222,7 @@ mod remote_cli_docs {
                 || (parser_words[0] == "agents" && agents::command(&parser_words[1..]).is_ok())
                 || (parser_words[0] != "cloud" && parse(&parser_words, Surface::Cmux).is_ok());
             if action.is_none() && !parser {
-                missing.push(words.join(" "));
+                missing.push(line.join(" "));
             } else if let Some(action) = action {
                 let command_words = action.split_whitespace().count();
                 for flag in words
@@ -214,7 +232,7 @@ mod remote_cli_docs {
                     .map(|word| word.split('=').next().unwrap_or(word))
                 {
                     if !action_flag_allowed(&action, flag) {
-                        missing.push(format!("{} (flag {flag})", words.join(" ")));
+                        missing.push(format!("{} (flag {flag})", line.join(" ")));
                     }
                 }
             }
