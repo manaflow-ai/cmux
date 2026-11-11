@@ -81,7 +81,9 @@ public struct Metrics {
         // From the row's own inputs, not `SidebarRowTokens.current`: its corner radius reads the
         // tab strip's inset, which reads the tab height, which reads this.
         let sections = DesignSettings.shared.sidebarSections
+        // The row as drawn: at Default the list row's fill takes the gap under it (``SidebarRowTokens/listRowHeight``).
         return sidebarRowHeight + SidebarRowTokens.extraHeight(density: sections.density, textSize: sections.textSize, space2: space2)
+            + SidebarRowTokens.listFillGain(isCodexDensity: tokens.id == DensityPreset.cozy.rawValue, density: sections.density, space1: space1)
     }
 
     /// A tab pill's height: the chrome row (``chromeRowHeight``), the Compact tabs option's tighter

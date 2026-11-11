@@ -82,7 +82,17 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
     public var matchesCodex: Bool { base.isCodexDensity && density == .compact }
     /// A list or band row's height: the row and the gap under it as one fill when ``matchesCodex``, so the pitch
     /// stays the row step and the fill grows into the gap (28 + 2 = 30 at Default).
-    public var listRowHeight: CGFloat { rowHeight + (matchesCodex ? base.space1 : 0) }
+    public var listRowHeight: CGFloat { rowHeight + Self.listFillGain(isCodexDensity: base.isCodexDensity, density: density, space1: base.space1) }
+    /// The rule behind ``listRowHeight``'s growth into the gap, on its inputs alone: `Metrics.chromeRowHeight`
+    /// reads it without building the whole token set.
+    /// - Parameters:
+    ///   - isCodexDensity: The app is at Default density (``Base/isCodexDensity``).
+    ///   - density: `sidebar.density`.
+    ///   - space1: The density's `space1`, the gap a ``matchesCodex`` row fills.
+    /// - Returns: The height a list row's fill adds to ``rowHeight``.
+    public static func listFillGain(isCodexDensity: Bool, density: SidebarDensity, space1: CGFloat) -> CGFloat {
+        isCodexDensity && density == .compact ? space1 : 0
+    }
     /// The gap between list rows: none when ``matchesCodex`` (Codex's rows touch), else `space1`.
     public var rowGap: CGFloat { matchesCodex ? 0 : base.space1 }
     /// A row's content (icon, title, trailing marks) from its fill's edge: `space4` (8 pt) when ``matchesCodex``,
