@@ -42,7 +42,7 @@ extension AppProviderChangeFeed {
 }
 
 /// What ``AppProviderChangeFeed/agentChats(_:)`` observes: the lane store's revision and the capture fixture flag.
-struct AgentChatsVersion: Equatable, Sendable {
+nonisolated struct AgentChatsVersion: Equatable, Sendable {
     let lanes: UInt64
     let fixture: Bool
 }
