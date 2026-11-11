@@ -38,7 +38,7 @@ BUNDLE = "com.example.fresh-smoke-stub"
 
 # The stub app: MODE (crash | healthy | no-home | new-tab | first-run | first-run-unmarked | sync-crash | no-sync |
 # seeded-no-home | empty-sync | own-report | quit-report | helper-report | first-report | other-report |
-# home-report | blank-report) comes from the bundle's Resources/mode file. sync-crash,
+# home-report | blank-report | blank-crash | torn-report) comes from the bundle's Resources/mode file. sync-crash,
 # no-sync, empty-sync (the sync saves a baseline of no site) and seeded-no-home are healthy in an empty home. own-report: healthy, and in the seeded home a crash report that names
 # this process appears while it is up. quit-report: healthy, and the empty home's process "crashes while it quits":
 # a crash report that names it appears once the seeded home's launch is up, as ReportCrash writes one seconds later.
@@ -47,7 +47,9 @@ BUNDLE = "com.example.fresh-smoke-stub"
 # first-report, other-report, home-report, blank-report: healthy, and while the EMPTY home's launch is up a crash
 # report appears that names this process, a process of another build's app copy (as another tagged build that
 # crashes on the same host does), a detached process whose program is in this run's HOME (a daemon that the app
-# put there), or no process at all.
+# put there), or no process at all (blank-report: in each home's launch). blank-crash: a report of no process, then
+# the app aborts. torn-report: healthy, and when it is stopped a report of this process is there with its head
+# only, as one that is read while macOS writes it; its body comes a second later.
 STUB = r'''#!PYTHON
 import json, os, signal, socket, subprocess, sys, time
 here = os.path.dirname(os.path.abspath(__file__))
@@ -101,7 +103,7 @@ if mode in ("sync-crash", "no-sync", "empty-sync"):
 if mode == "seeded-no-home":
     mode = "no-home" if seeded else "healthy"
 if mode in ("own-report", "quit-report", "helper-report", "first-report", "other-report", "home-report",
-            "blank-report"):
+            "blank-report", "blank-crash", "torn-report"):
     folder = open(os.path.join(here, "..", "Resources", "diagnostics_path")).read().strip()
     os.makedirs(folder, exist_ok=True)
     name = os.path.join(folder, "stub-2026-11-11-000000.ips")
@@ -125,8 +127,20 @@ if mode in ("own-report", "quit-report", "helper-report", "first-report", "other
     if mode == "home-report" and not seeded:
         # Not this process and not a child of it by the time it died, and not in the app copy: in the run's HOME.
         open(name, "w").write(ips(4190002, 1, time.time(), os.path.join(home, ".cmux", "bin", "stub-daemon")))
-    if mode == "blank-report" and not seeded:
+    if mode in ("blank-report", "blank-crash"):
         open(name, "w").write(json.dumps({"app_name": "stub", "bug_type": "309"}) + "\n")
+    if mode == "blank-crash":
+        time.sleep(0.5)
+        os.abort()
+    if mode == "torn-report":
+        def torn_then_whole(*_):
+            whole = ips(os.getpid(), os.getppid(), time.time())
+            open(name, "w").write(whole.partition("\n")[0] + "\n")
+            subprocess.Popen([sys.executable, "-c", "import os, time\ntime.sleep(1)\n"
+                              "open(os.environ['STUB_REPORT'], 'w').write(os.environ['STUB_REPORT_TEXT'])\n"],
+                             cwd="/", start_new_session=True, env={"STUB_REPORT": name, "STUB_REPORT_TEXT": whole})
+            os._exit(0)
+        signal.signal(signal.SIGTERM, torn_then_whole)
     if mode in ("quit-report", "helper-report") and not seeded:
         # Detached, its command line never names the root: it outlives this launch as ReportCrash does.
         writer = ("import os, time\n"
@@ -390,7 +404,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         for key in ("browser", "profileDirectory", "displayName", "proposedProfileID", "targetProfileID"):
             self.assertIsInstance(record[key], str)
         self.assertEqual(seed["source"], f"{record['browser']}/{record['profileDirectory']}")
-        self.assertEqual(seed["source"], "chrome/Default")
+        self.assertEqual(seed["source"], f"{smoke.SEED_BROWSER}/Default")
         # Not "default": the app moves such an import into a new browser profile at launch (migrateImports).
         self.assertNotEqual(record["targetProfileID"], "default")
         self.assertTrue(record["syncedCookieFile"].startswith("file:///"))
@@ -425,8 +439,28 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         (state / "other.fingerprint").write_text(json.dumps({"version": 1, "source": "arc/Default", "hosts": {"a": "1"}}))
         (state / "torn.fingerprint").write_text("{")
         self.assertIsNone(smoke.cookie_sync_scanned(seed))
-        (state / "x.fingerprint").write_text(json.dumps({"version": 1, "source": "chrome/Default", "hosts": {"a": "1"}}))
+        (state / "x.fingerprint").write_text(json.dumps({"version": 1, "source": seed["source"], "hosts": {"a": "1"}}))
         self.assertEqual(smoke.cookie_sync_scanned(seed), {"hosts": 1})
+
+    def test_the_seeds_browser_has_no_keychain_item_name_in_the_app(self):
+        # The app asks the Keychain for a browser's cookie key by the item name that its table gives that browser
+        # (browser-sources.json `safeStorage`, ImportBrowser.safeStorageService). The seed's browser is in no row of
+        # it, so the app has no name to ask for, also if a later build imports the seeded cookies at launch.
+        table = json.loads((ROOT / "Packages" / "macOS" / "CmuxNext" / "Sources" / "CmuxNextBrowserImport" / "Resources"
+                            / "browser-sources.json").read_text())
+        rows = table["browsers"] if isinstance(table, dict) else table
+        self.assertGreater(len(rows), 50)
+        self.assertIn("Chrome Safe Storage", [(row.get("safeStorage") or {}).get("service") for row in rows])
+        self.assertNotIn(smoke.SEED_BROWSER, [row["id"] for row in rows])
+        self.assertFalse(smoke.SEED_BROWSER.startswith("found."))  # the app's own prefix for a browser it found on disk
+        home = self.dir / "named-home"
+        smoke.seed_cookie_sync_home(home, BUNDLE)
+        (record,) = json.loads((home / "Library" / "Application Support" / BUNDLE / "BrowserImport" / "sources.json").read_text())
+        self.assertEqual(record["browser"], smoke.SEED_BROWSER)
+
+    def test_a_caller_can_read_that_crash_reports_are_matched_by_process(self):
+        # cmux-ci fresh-home gives a validator the account's real crash folder only when it has this.
+        self.assertEqual(smoke.CRASH_FILTER, "pid")
 
     def test_the_seeded_arm_passes_when_the_app_reads_the_seeded_store(self):
         (self.defaults_dir / f"{BUNDLE}.plist").write_bytes(b"account defaults")
@@ -533,17 +567,18 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
 
         self.assertEqual(smoke.crash_report_process(ips("own", pid=200, parentPid=1, procPath=binary)),
                          {"pid": 200, "parent": 1, "path": binary})
-        # Counted: the launch itself, a child of it, another process of this run's copy, a report with no pid.
+        # Counted: the launch itself, a child of it, another process of this run's copy.
         self.assertIsNone(why(ips("own", pid=200, parentPid=1, procPath=binary)))
         self.assertIsNone(why(ips("own-moved", pid=200, parentPid=1, procPath=elsewhere)))
         self.assertIsNone(why(ips("child", pid=300, parentPid=200, procPath=elsewhere)))
         self.assertIsNone(why(ips("copy", pid=300, parentPid=1, procPath=binary)))
-        self.assertIsNone(why(ips("no-pid", exception={"type": "EXC_BAD_ACCESS"})))
+        # A report that names no process is no crash alone: it counts only for a launch whose app ended.
         unreadable = self.dir / "unreadable.ips"
         unreadable.write_text("{}")
         self.assertIsNone(smoke.crash_report_process(unreadable))
-        self.assertIsNone(why(unreadable))
-        self.assertIsNone(why(self.dir / "gone.ips"))
+        for found in (ips("no-pid", exception={"type": "EXC_BAD_ACCESS"}), unreadable, self.dir / "gone.ips"):
+            self.assertIn("names no process", why(found))
+            self.assertIsNone(smoke.not_of_launch(found, 200, app, frozenset({100}), ended=True))
         # Not counted: the earlier launch (also a child of it, also from this run's copy), another copy of the app,
         # another process that names no path.
         self.assertIn("this run's earlier launch", why(ips("earlier", pid=100, parentPid=1, procPath=binary)))
@@ -587,10 +622,47 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertEqual(verdicts.attempt_result(status, report), verdicts.PASS)
         self.assert_cleaned_up(report)
 
-    def test_a_crash_report_of_the_first_arms_own_launch_or_of_no_process_fails_it_as_before(self):
+    def test_a_crash_report_that_names_no_process_is_no_crash_alone_in_either_arm(self):
+        # Such a report says nothing of whose it is: any app with this executable name on the host can have written
+        # it. Both homes' launches are healthy, so the run passes; the report is said and kept, never counted.
+        status, output, report, out = self.seeded("blank-report")
+        self.assertEqual(status, smoke.PASS, output)
+        arm = report["arms"]["seeded"]
+        self.assertEqual((report["verdict"], report["arm"], arm["verdict"]), ("pass", "empty", "pass"), output)
+        for launch, said in ((report, "this launch"), (arm, "the seeded launch")):
+            self.assertEqual(launch["crash_reports"], [])
+            self.assertEqual([Path(found).name for found in launch["crash_reports_not_counted"]],
+                             ["stub-2026-11-11-000000.ips"])
+            self.assertIn(f"stub-2026-11-11-000000.ips is not counted for {said}: it names no process", output)
+        self.assertTrue((out / "not-counted" / "stub-2026-11-11-000000.ips").is_file())
+        self.assertFalse((out / "stub-2026-11-11-000000.ips").exists())
+        verdicts = gate_verdicts()
+        self.assertEqual(verdicts.attempt_result(status, report), verdicts.PASS)
+        self.assert_cleaned_up(report)
+
+    def test_a_report_of_no_process_is_evidence_of_a_launch_whose_app_ended(self):
+        # The end of the app is the crash verdict; the report beside it is kept as its evidence.
+        status, output, report = self.run_smoke("blank-crash", "--seconds", "3", "--startup-timeout", "5")
+        self.assertEqual(status, smoke.FAIL, output)
+        self.assertEqual((report["verdict"], report["exit"]), ("fail", -6))
+        self.assertEqual([Path(found).name for found in report["crash_reports"]], ["stub-2026-11-11-000000.ips"])
+        self.assertEqual(report["crash_reports_not_counted"], [])
+        self.assertTrue((self.dir / f"out-blank-crash-{self.runs}" / "stub-2026-11-11-000000.ips").is_file())
+        self.assert_cleaned_up(report)
+
+    def test_a_report_that_is_read_while_it_is_written_is_read_again(self):
+        # Its head alone names no process. A second later its body does: this launch's. It still fails the launch.
+        status, output, report = self.run_smoke("torn-report", "--seconds", "2", "--startup-timeout", "20")
+        self.assertEqual(status, smoke.FAIL, output)
+        self.assertEqual((report["verdict"], report["exit"]), ("fail", None))
+        self.assertEqual([Path(found).name for found in report["crash_reports"]], ["stub-2026-11-11-000000.ips"])
+        self.assertEqual(report["crash_reports_not_counted"], [])
+        self.assert_cleaned_up(report)
+
+    def test_a_crash_report_of_the_first_arms_own_launch_fails_it_as_before(self):
         # home-report: a detached process whose program is under the run's HOME, not in the app copy. It is of this
         # run (nothing else writes under the run's private root), so it counts, as it did before the filter.
-        for mode in ("first-report", "home-report", "blank-report"):
+        for mode in ("first-report", "home-report"):
             with self.subTest(mode=mode):
                 status, output, report = self.run_smoke(mode, "--seconds", "2", "--startup-timeout", "20")
                 self.assertEqual(status, smoke.FAIL, output)
