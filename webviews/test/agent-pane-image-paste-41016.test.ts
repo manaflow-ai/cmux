@@ -4,13 +4,10 @@
 //
 // - A pasted Retina screenshot shows its tile at once and becomes its chip within a bounded time,
 //   with the page's main thread never stalled for long on the way.
-// - A prompt with a pasted image sent in a new chat waits as a queued row until the chat takes it
-//   (startingSends.ts): that row shows its words and the picture, never the image's id. Before, it
-//   drew the draft as it was: U+FFFC, the attachment's UUID, U+FFFC.
 //
-// The page is the pane's dev entry with the in-page mock host, which never takes a new chat's first
-// prompt, so the prompt stays in that queued row. Real Chromium from Playwright; CI fails the file when
-// it cannot launch (requireBrowserLane).
+// The waiting row of a new chat's prompt, which drew a pasted image as its id, is covered by
+// startingSends.test.ts: the dev entry's mock host refuses the upload, so a send never reaches that
+// row here. Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -87,57 +84,6 @@ await requireBrowserLane("agent-pane-image-paste-41016.test.ts", async () => {
     expect(result.tile as number).toBeLessThan(MAX_TILE_MS);
     expect(result.ready as number).toBeLessThan(MAX_READY_MS);
     expect(result.stall as number).toBeLessThan(MAX_STALL_MS);
-    await page.close();
-  });
-
-  test("a new chat's first prompt with a pasted image never shows the image's id", async () => {
-    // The dev entry as it opens, its mock host with nothing in front of it: a new chat that has not
-    // taken its first prompt yet.
-    const page = await browser!.newPage({ viewport: { width: 900, height: 640 } });
-    const { port } = vite!.httpServer!.address() as { port: number };
-    await page.goto(`http://127.0.0.1:${port}/`);
-    await page.locator(".acpmux-composer-prompt [contenteditable='true']").click();
-    const pasted = await probe(page, {});
-    expect(pasted.error).toBeUndefined();
-    // Every frame from here on that shows a UUID as text, or an image still drawing its id as alt.
-    await page.evaluate(() => {
-      const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
-      const seen = new Set<string>();
-      Object.assign(window, { idsSeen: seen });
-      const scan = () => {
-        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-          const parent = node.parentElement;
-          if (!parent || !UUID.test(node.textContent ?? "") || parent.offsetParent === null) continue;
-          if (parent.closest("script,style,[aria-hidden='true'],.visually-hidden")) continue;
-          seen.add(`<${parent.tagName.toLowerCase()} class="${parent.className}">: ${node.textContent!.slice(0, 120)}`);
-        }
-        for (const image of document.querySelectorAll("img"))
-          if (UUID.test(image.alt) && !(image.complete && image.naturalWidth)) seen.add(`img alt=${image.alt}`);
-        // raf-read: the DOM's text in every frame, not its paint, is what is checked: a frame that
-        // holds an id as text the person can see fails, however briefly it was there.
-        requestAnimationFrame(scan);
-      };
-      requestAnimationFrame(scan);
-    });
-    // Sent as the person sends it: words after the picture, then Return.
-    await page.keyboard.type(" look at this");
-    await page.keyboard.press("Enter");
-    // The waiting row draws the picture itself under its words.
-    const row = page.locator(".acpmux-queued").first();
-    await row.waitFor();
-    // An id could only show until the row's picture has drawn: watched until then.
-    await row
-      .locator("img")
-      .first()
-      .evaluate((image: HTMLImageElement) => image.decode());
-    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-    const seen = await page.evaluate(() => [...(window as unknown as { idsSeen: Set<string> }).idsSeen]);
-    expect(seen).toEqual([]);
-    expect(await row.locator("img").count()).toBeGreaterThan(0);
-    const words = await row.locator(".acpmux-queued-clamp").textContent();
-    expect(words).toContain("look at this");
-    expect(words).not.toContain("\uFFFC");
     await page.close();
   });
 });
