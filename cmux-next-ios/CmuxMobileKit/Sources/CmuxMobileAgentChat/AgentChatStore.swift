@@ -208,6 +208,13 @@ public final class AgentChatStore {
     @ObservationIgnored private var sourceHasEarlier = false
     /// An older page is being read (``loadEarlier()``).
     public private(set) var isLoadingEarlier = false
+    /// The source is still reading the chat's history from the Mac
+    /// (``AgentSessionSource/loadsHistory``, then ``AgentSessionEvent/historyLoading(_:)``). With no
+    /// turns yet the chat shows a loading state, never the empty new-chat screen; with turns it
+    /// shows them (kept from before) and says it is updating.
+    public private(set) var isLoadingHistory = false
+    /// The chat is new: it holds no turns and none are on their way (the empty state shows).
+    public var isNewChat: Bool { !hasTurns && !isLoadingHistory }
     /// The title the agent gave the session (`session_info_update`).
     public private(set) var sessionTitle: String?
     /// Each ended turn's `turn_result` record seq, by turn id: the turn a fork through it keeps
@@ -314,6 +321,7 @@ public final class AgentChatStore {
     public init(source: any AgentSessionSource) {
         self.source = source
         self.summary = source.summary
+        self.isLoadingHistory = source.loadsHistory
         let stream = source.events()
         task = Task { [weak self] in
             for await event in stream {
@@ -1006,6 +1014,8 @@ public final class AgentChatStore {
         case .earlierHistory(let earlier):
             sourceHasEarlier = earlier
             refreshEarlierHistory()
+        case .historyLoading(let loading):
+            if isLoadingHistory != loading { isLoadingHistory = loading }
         case .earlierPage(let events, let hasEarlier):
             isLoadingEarlier = false
             sourceHasEarlier = hasEarlier

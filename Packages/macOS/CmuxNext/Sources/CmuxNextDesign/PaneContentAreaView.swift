@@ -131,13 +131,32 @@ public final class PaneContentAreaView: NSView {
 
     /// Draw ahead of a key hold's first frame (T-KEYS 3): the area will be `sizeChange` larger (negative: smaller) at the
     /// first refresh of its pane's spring, whose layout begins the hold. Each follower that hold will hand hears its size
-    /// then, in the key's turn, as ``drawAhead(sizeChange:)`` tells it each later refresh's.
-    public func drawAheadOfHold(sizeChange: CGSize) {
+    /// then, in the key's turn, as ``drawAhead(sizeChange:)`` tells it each later refresh's. `keyPress`: false for a
+    /// snapped structural change (``PaneMotionHoldFollowing/drawAheadOfFollow(nextHostSize:keyPress:)``).
+    public func drawAheadOfHold(sizeChange: CGSize, keyPress: Bool) {
         guard hold == nil, sizeChange != .zero else { return }
         let next = CGSize(width: max(0, bounds.width + sizeChange.width), height: max(0, bounds.height + sizeChange.height))
         for case let follower as any PaneMotionHoldFollowing in subviews where follows(follower) {
-            follower.drawAheadOfFollow(nextHostSize: next)
+            follower.drawAheadOfFollow(nextHostSize: next, keyPress: keyPress)
         }
+    }
+
+    /// A snapped change that drew its followers' sizes ahead (``drawAheadOfHold(sizeChange:keyPress:)``) showed: each
+    /// follower lets a size its placement did not take go (``PaneMotionHoldFollowing/aheadOfFollowShown()``).
+    public func aheadOfHoldShown() {
+        for case let follower as any PaneMotionHoldFollowing in subviews { follower.aheadOfFollowShown() }
+    }
+
+    /// Whether a key press's snap must keep waiting for a follower's size drawn ahead
+    /// (``PaneMotionHoldFollowing/aheadOfFollowAwaitsContent(refreshesWaited:)``, RESIZE P0 20).
+    public func aheadOfHoldAwaitsContent(refreshesWaited: Int) -> Bool {
+        subviews.contains { ($0 as? any PaneMotionHoldFollowing)?.aheadOfFollowAwaitsContent(refreshesWaited: refreshesWaited) == true }
+    }
+
+    /// A key press's held snap shows in this turn: no follower waits longer
+    /// (``PaneMotionHoldFollowing/aheadOfFollowWillShow()``, RESIZE P0 21).
+    public func aheadOfHoldWillShow() {
+        for case let follower as any PaneMotionHoldFollowing in subviews { follower.aheadOfFollowWillShow() }
     }
 
     /// A container in it was shown again during a following hold (a parked tab): it joins in this frame's layout pass.
@@ -193,7 +212,8 @@ public final class PaneContentAreaView: NSView {
         superview?.needsLayout = true
     }
 
-    /// The pane's own ground as it shows now (FRAME OWNER S3c, read once when the pane closes): the background of the
+    /// The pane's own ground as it shows now (FRAME OWNER S3c: read when the pane closes, and in each frame of a spring that
+    /// holds its content, SPLIT OPEN CHAT): the background of the
     /// topmost shown view that fills the area (a terminal's host paints the terminal's ground), else the area's own; nil
     /// when the pane shows the window's sheet (a see-through window).
     /// A view that reports its own ground (``PaneGroundReporting``: a browser's chrome, whose page paints over the chrome's
@@ -209,7 +229,8 @@ public final class PaneContentAreaView: NSView {
 
 /// A view in a pane's content area whose ground is not its layer's background (CLOSE MOTION 2 case 3, cmux-ad m48): a
 /// browser's chrome paints the window's color under the page, and a closing page pane must show the page's own
-/// background, not the window's. Read once when its pane closes, on the main thread: O(1), no page script.
+/// background, not the window's. Read when its pane closes and in each frame of a spring that holds its pane's content
+/// (SPLIT OPEN CHAT), on the main thread: O(1), no page script.
 @MainActor
 public protocol PaneGroundReporting: NSView {
     /// The ground its pane shows when it closes; nil: its layer's background, as any other view.
@@ -217,10 +238,18 @@ public protocol PaneGroundReporting: NSView {
 }
 
 public extension NSView {
-    /// The pane ground this pane content shows (FRAME OWNER S3c, read once when its pane closes): its content area's
-    /// (``PaneContentAreaView/groundColor``), else its own background; nil for none (a see-through window's sheet).
+    /// The pane ground this pane content shows (FRAME OWNER S3c: read when its pane closes, and in each frame of a spring
+    /// that holds it): its content area's (``PaneContentAreaView/groundColor``), else its own background; nil for none
+    /// (a see-through window's sheet).
     var paneGroundColor: CGColor? {
         if let area = self as? PaneContentAreaView ?? subviews.lazy.compactMap({ $0 as? PaneContentAreaView }).first { return area.groundColor }
         return layer?.backgroundColor
+    }
+
+    /// How far from this pane content's leading edge its ground (``paneGroundColor``) starts: the width of what it shows
+    /// beside its content area (a vertical tab list); 0 with nothing there. It does not change with the content's size.
+    var paneGroundLeadingInset: CGFloat {
+        guard !(self is PaneContentAreaView), let area = subviews.lazy.compactMap({ $0 as? PaneContentAreaView }).first else { return 0 }
+        return max(0, area.frame.minX - bounds.minX)
     }
 }

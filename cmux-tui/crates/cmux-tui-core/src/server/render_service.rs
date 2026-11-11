@@ -126,6 +126,20 @@ pub(super) struct BudgetedText {
     pub(super) text: String,
     pub(super) retained_bytes: usize,
     pub(super) budget: Arc<OutboundByteBudget>,
+    /// Set when this text is a request's reply: the slow request log's record of that request,
+    /// which ends when the text is written (`note_written`) or dropped unwritten.
+    pub(super) reply: Option<crate::diagnostics::request_log::ReplyMark>,
+}
+
+impl BudgetedText {
+    /// The connection's writer wrote this text to its socket (`ok`), or the write failed.
+    pub(super) fn note_written(&self, ok: bool) {
+        match &self.reply {
+            Some(reply) if ok => reply.written(),
+            Some(reply) => reply.lost(),
+            None => {}
+        }
+    }
 }
 
 impl Deref for BudgetedText {
@@ -225,7 +239,7 @@ impl BudgetedJsonWriter {
         // serde_json emits UTF-8; a lossy decode keeps this path panic-free.
         let text = String::from_utf8(bytes)
             .unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned());
-        Arc::new(BudgetedText { text, retained_bytes, budget: self.budget.clone() })
+        Arc::new(BudgetedText { text, retained_bytes, budget: self.budget.clone(), reply: None })
     }
 }
 

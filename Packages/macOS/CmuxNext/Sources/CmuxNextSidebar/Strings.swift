@@ -29,6 +29,8 @@ enum Strings {
     static var projects: String { String(localized: "sidebar.section.projects", defaultValue: "Projects", bundle: .module) }
     /// Projects and Recents' header over workspaces in no group (`ListHeaderRowView`).
     static var recents: String { String(localized: "sidebar.section.recents", defaultValue: "Recents", bundle: .module) }
+    /// One list's heading over its workspace rows (`sidebar.listHeading`): the rail's own word for them.
+    static var workspacesHeading: String { railLabel }
     static var noFolder: String { String(localized: "sidebar.folder.none", defaultValue: "No Folder", bundle: .module) }
     static var pinnedEmpty: String { String(localized: "sidebar.section.pinned.empty", defaultValue: "Drop here to pin", bundle: .module) }
     /// An open empty group's row (`EmptyGroupRowView`).
