@@ -66,6 +66,10 @@ export function useInlineAttachments(options: Options) {
   const removed = useRef(new Map<string, ComposerAttachment>());
   /// Placeholders this composer placed in the text, until each is a chip or gone.
   const placed = useRef(new Set<string>());
+  /// The placed placeholders a commit has drawn as loading (`pending`): only one of these can have
+  /// ended. A paste is placed in its own task, before the render that draws it, so a commit drawn
+  /// earlier whose effect runs after the paste does not list it, and never means it ended.
+  const drawn = useRef(new Set<string>());
   /// Placeholders whose node an edit took out while they loaded: an undo brings each back loading.
   const cancelled = useRef(new Set<string>());
   /// Attachments sent with a prompt: an undo of the send's clear brings their nodes back with no
@@ -85,6 +89,7 @@ export function useInlineAttachments(options: Options) {
   useLayoutEffect(() => {
     removed.current.clear();
     placed.current.clear();
+    drawn.current.clear();
     cancelled.current.clear();
     sentIds.current.clear();
     deferred.current.clear();
@@ -104,14 +109,26 @@ export function useInlineAttachments(options: Options) {
   };
 
   // A placeholder that ended as no chip of its id (an image that went as a link to its file) leaves
-  // the text; one that became its chip is the chip's.
+  // the text; one that became its chip is the chip's. Ended means a commit drew it loading and this
+  // one does not: this effect runs after its commit's paint, and a paste in between (a second image
+  // pasted right after the first one's picture came) is placed already but drawn by no commit yet.
+  // Read as ended, its node left the text and its picture landed at the prompt's start, before the
+  // first (composer-attach-no-jump.test.ts, Chromium under load).
   useEffect(() => {
     const { attachments, pending, field } = live.current;
     for (const id of placed.current) {
-      if (pending.some((chip) => chip.id === id)) continue;
+      if (pending.some((chip) => chip.id === id)) {
+        drawn.current.add(id);
+        continue;
+      }
+      const chip = attachments.some((attachment) => attachment.id === id);
+      if (!chip && !drawn.current.has(id)) continue;
       placed.current.delete(id);
-      if (!attachments.some((attachment) => attachment.id === id)) field.current?.removeInline(id);
+      drawn.current.delete(id);
+      if (!chip) field.current?.removeInline(id);
     }
+    // Those placed no more (cancelled, sent, a lost place) are drawn no more either.
+    for (const id of drawn.current) if (!placed.current.has(id)) drawn.current.delete(id);
   }, [options.pending, options.attachments]);
 
   const sourceFor = (id: string): ComposerAttachment | undefined => {

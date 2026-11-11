@@ -14,9 +14,13 @@
 //    inline? This one went above the whole thing."): an image, a video, a file, a screenshot and a
 //    Pasted text chip each go in at the caret, and one whose node a value from outside took away while
 //    it loaded (as a slow video's read invites) goes at the prompt's start, never the strip above.
+// 8. a paste placed after a commit painted but before that commit's effects ran (a second image
+//    pasted the moment the first one's picture came) keeps its node where it went: that commit never
+//    drew it, so its placeholder has not ended (composer-attach-no-jump.test.ts went red on this in
+//    Chromium under load: the node left the text and its picture landed before the first).
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { act, createRef, useRef, useState } from "react";
+import { act, createRef, useLayoutEffect, useRef, useState } from "react";
 import type { Root } from "react-dom/client";
 import { inlineToken, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import type { PendingAttachment } from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
@@ -119,6 +123,8 @@ type Controls = {
   place(chips: PendingAttachment[]): void;
   setPending(next: PendingAttachment[]): void;
   keepAsFile(id: string): void;
+  /// Runs `run` in the next commit's layout phase: after that commit drew, before its effects ran.
+  onNextCommit(run: () => void): void;
 };
 
 /// A field and the hook, as the New Tab page wires them: the consumer holds the value and the
@@ -194,6 +200,13 @@ async function render(initial: {
       placing: () => placing,
       ...(initial.originalFailures ? { originalFailures: initial.originalFailures } : {}),
     });
+    // After the hook's own layout effects: what a paste does between a commit and its effects.
+    const nextCommit = useRef<(() => void) | undefined>(undefined);
+    useLayoutEffect(() => {
+      const run = nextCommit.current;
+      nextCommit.current = undefined;
+      run?.();
+    });
     controls.current = {
       attachments: () => attachmentsRef.current,
       setAttachments: (next) => setAttachmentsState(next),
@@ -205,6 +218,9 @@ async function render(initial: {
       place: (chips) => inline.place(chips, "drop"),
       setPending,
       keepAsFile: (id) => inline.keepFile(id),
+      onNextCommit: (run) => {
+        nextCommit.current = run;
+      },
     };
     placeFile.current = (chips, start) => inline.place(chips, undefined, start);
     return (
@@ -632,4 +648,35 @@ test("Keep as .txt on a node-less pasted chip survives an undo", async () => {
   expect(held.includes(PASTED.id) || held.includes("kept-txt")).toBe(true);
   expect(nodes().some((id) => held.includes(id!))).toBe(true);
   expect(field.current!.value()).toContain("hello there");
+});
+
+test("a paste placed before the last commit's effects ran keeps its node, after the attachment before it", async () => {
+  const first = { id: "first-shot", name: "first.png", image: true } as PendingAttachment;
+  const second = { id: "second-shot", name: "second.png", image: true } as PendingAttachment;
+  const ready: ComposerAttachment = {
+    id: first.id,
+    kind: "link",
+    name: "first.png",
+    mimeType: "image/png",
+    size: 5,
+    path: "/tmp/first.png",
+  };
+  const { controls } = await render({ text: "", pending: [first] });
+  await act(async () => controls.place([first]));
+  await settle();
+  expect(nodes()).toEqual([first.id]);
+  // The first one's picture comes: a commit with it a chip and nothing loading. The second paste is
+  // placed after that commit drew and before its effects ran, as the intake places a paste in its
+  // own task (attachmentIntakeModel.ts `intake`), its placeholder drawn by the next render.
+  await act(async () => {
+    controls.onNextCommit(() => {
+      controls.place([second]);
+      controls.setPending([second]);
+    });
+    controls.setPending([]);
+    controls.setAttachments([ready]);
+  });
+  for (let turn = 0; turn < 3; turn++) await settle();
+  // Still in the text, where it was placed: after the first.
+  expect(nodes()).toEqual([first.id, second.id]);
 });

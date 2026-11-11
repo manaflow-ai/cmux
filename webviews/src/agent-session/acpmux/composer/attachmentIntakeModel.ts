@@ -840,9 +840,14 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       sent && "error" in sent ? { text: sent.error } : { name: file.name, reason: "unsupported" };
     originalMissed(id, intakeErrorText(error, live.current.t));
   });
-  /// An image no longer in the strip has no Retry to show: its original's file and failure go.
+  /// An image no longer in the strip has no Retry to show: its original's file and failure go. Only one
+  /// a render staged (`everStaged`): this effect runs after its commit's paint, and an original that
+  /// failed in between belongs to a chip whose staging no render has drawn yet, which is not gone
+  /// (the same race as inlineAttachments.tsx `drawn`).
   useEffect(() => {
-    const left = [...originals.current.keys()].filter((id) => !attachments.some((chip) => chip.id === id));
+    const left = [...originals.current.keys()].filter(
+      (id) => everStaged.current.has(id) && !attachments.some((chip) => chip.id === id),
+    );
     for (const id of left) originals.current.delete(id);
     if (left.length)
       setOriginalFailures((now) => Object.fromEntries(Object.entries(now).filter(([id]) => !left.includes(id))));
