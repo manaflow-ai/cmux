@@ -34,6 +34,7 @@
 import { MOTION_MS } from "../../../motion/scale.generated";
 import { motionMode } from "../../../ui/motion/motionMode";
 import { currentChatMetrics } from "../chatDisplay";
+import { bezierAt, parseBezier } from "../../../ui/cubicBezier";
 import { cssTimeMs } from "./fold";
 import { FOLLOW_GLIDE_OFF } from "./followGlide";
 import type { FollowMotionArm } from "./followMotion.experiment";
@@ -146,7 +147,70 @@ export type FollowChase = {
   /// CHASE_LAND_LINES; else within BURST_S at no more than a line a frame (a snap of the whole trail
   /// moved the rows up to two lines in a frame, and a snap on top of a frame that had moved, 26-40 px).
   land(): void;
+  /// Other motion that moves the rows the chase moves, on Web Animations (the turn's end fold,
+  /// turnEndFold.ts): each of the chase's frames reads how far they move the rows in that frame, on
+  /// the same clock, and moves at most what is left of ARRIVAL_FRAME_LINES (`alongsideMove`). Kept
+  /// until replaced; animations that ended move nothing.
+  alongside(animations: ReadonlySet<Animation> | undefined): void;
 };
+
+/// What `alongsideMove` reads of one animation once: how far its keyframes move a row's `translate`
+/// (px, the y span) and its easing.
+type Slide = { span: number; ease: (progress: number) => number };
+const slides = new WeakMap<Animation, Slide | null>();
+const NAMED_EASES: Record<string, readonly [number, number, number, number]> = {
+  ease: [0.25, 0.1, 0.25, 1],
+  "ease-in": [0.42, 0, 1, 1],
+  "ease-out": [0, 0, 0.58, 1],
+  "ease-in-out": [0.42, 0, 0.58, 1],
+};
+function slideOf(animation: Animation): Slide | null {
+  const known = slides.get(animation);
+  if (known !== undefined) return known;
+  const effect = animation.effect as KeyframeEffect | null;
+  const ys = (effect?.getKeyframes?.() ?? [])
+    .map((frame) => (typeof frame.translate === "string" ? frame.translate : undefined))
+    .filter((value): value is string => value !== undefined)
+    .map((value) => (value === "none" ? 0 : Number.parseFloat(value.trim().split(/\s+/)[1] ?? "0")))
+    .filter(Number.isFinite);
+  let slide: Slide | null = null;
+  if (ys.length > 1) {
+    const easing = (effect?.getTiming().easing ?? "linear").trim();
+    const curve = parseBezier(easing) ?? NAMED_EASES[easing];
+    slide = {
+      span: Math.max(...ys) - Math.min(...ys),
+      // A curve this cannot read (steps()) may move its whole span in any frame.
+      ease: easing === "linear" ? (p) => p : curve ? (p) => bezierAt(curve, p) : (p) => (p > 0 ? 1 : 0),
+    };
+  }
+  slides.set(animation, slide);
+  return slide;
+}
+
+/// How far `animations` move a row in the display frame at `now` (the document timeline's time, which
+/// a frame callback gets and the animations are drawn at), from the frame `dt` s before: the most any
+/// one of them moves, from each one's own timing and easing, with no style or layout read. One still
+/// waiting for its start time (it starts in this frame or the next) counts its first `dt`. O(animations).
+export function alongsideMove(animations: Iterable<Animation> | undefined, dt: number): number {
+  let most = 0;
+  for (const animation of animations ?? []) {
+    if (animation.playState === "idle" || animation.playState === "finished" || animation.playState === "paused")
+      continue;
+    const slide = slideOf(animation);
+    if (!slide || slide.span < 0.5) continue;
+    const timing = animation.effect?.getComputedTiming();
+    const duration = typeof timing?.duration === "number" ? timing.duration : 0;
+    if (!(duration > 0)) continue;
+    const delay = timing?.delay ?? 0;
+    const local = typeof timing?.localTime === "number" ? timing.localTime : 0;
+    const pending = animation.startTime === null;
+    const to = pending ? local + dt * 1000 : local;
+    const from = to - dt * 1000;
+    const at = (time: number) => slide.ease(Math.min(1, Math.max(0, (time - delay) / duration)));
+    most = Math.max(most, slide.span * Math.abs(at(to) - at(from)));
+  }
+  return most;
+}
 
 /// The host's motion speed as a factor of the standard step (`--agent-motion-move`), 0 with motion
 /// off, Reduce Motion or a hidden page.
@@ -213,6 +277,20 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
   /// before the frame's step, after it in the frame's measuring pass, or both: counting only the
   /// step moved one frame of the send 34.5 px, its landings before and after the step together).
   let stepped = 0;
+  /// Other motion on the rows (`alongside`): the turn's end fold.
+  let along: ReadonlySet<Animation> | undefined;
+  /// What a frame `dt` s long may still move after that motion's own move in it (px): the fold keeps
+  /// each frame to ARRIVAL_FRAME_LINES, and the reply's last lines draining on the chase moved on top
+  /// of it, the two summed past the two thirds of a line no transition's frame may move (the fold's
+  /// first frame 11.5 px and the drain's 3.8 px: 15.3 px, turn-transition-jumps `thought-text` end).
+  /// Infinite with nothing else moving.
+  const leftBeside = (dt: number, slots: number) => {
+    if (!along?.size) return Number.POSITIVE_INFINITY;
+    const other = alongsideMove(along, dt);
+    return other > 0
+      ? Math.max(0, ARRIVAL_FRAME_LINES * currentChatMetrics().lineHeight * slots - other)
+      : Number.POSITIVE_INFINITY;
+  };
   /// While it chases the thread is its own compositor layer, so a frame's step moves it without
   /// painting its rows again (a `translate` on an unpromoted thread repainted every row each frame).
   const draw = () => {
@@ -293,9 +371,10 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       const frameMost = CHASE_MAX_FRAME_LINES * line * slots;
       // A frame that already moved at once keeps to CHASE_LAND_LINES in all, unless a burst is
       // bringing the trail back (those frames move up to a line in all, as before).
-      const cap = Math.max(
-        0,
-        (spent > 0 && !(burst > 0) ? Math.min(frameMost, CHASE_LAND_LINES * line) : frameMost) - spent,
+      // And with what other motion moves the rows in this frame (`alongside`), no more than its bound.
+      const cap = Math.min(
+        Math.max(0, (spent > 0 && !(burst > 0) ? Math.min(frameMost, CHASE_LAND_LINES * line) : frameMost) - spent),
+        leftBeside(dt, slots),
       );
       const most = Math.min(limit * dt, cap);
       if (Math.abs(nextX - x) > most) {
@@ -322,7 +401,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       x = nextX;
     } else {
       // `linear`: a steady approach at the speed limit, then a stop.
-      const most = limit * dt;
+      const most = Math.min(limit * dt, leftBeside(dt, Math.max(1, Math.round(dt * 120))));
       const nextX = Math.abs(x) <= most ? 0 : x - Math.sign(x) * most;
       v = (nextX - x) / Math.max(dt, 1e-3);
       x = nextX;
@@ -372,6 +451,9 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       });
     },
     resume,
+    alongside(animations) {
+      along = animations;
+    },
     release(px) {
       if (frame !== undefined || recheck !== undefined) return false;
       x -= px;
@@ -455,7 +537,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       if (arm === "blocks" && !held && below !== Number.POSITIVE_INFINITY && x > 0) {
         const line = currentChatMetrics().lineHeight;
         const hold = arrived ? CHASE_ARRIVAL_HOLD_LINES : CHASE_HOLD_LINES;
-        const atOnce = Math.min(x - hold * line, CHASE_LAND_LINES * line - spent - stepped);
+        const atOnce = Math.min(x - hold * line, CHASE_LAND_LINES * line - spent - stepped, leftBeside(1 / 120, 1));
         if (atOnce > 0) {
           x -= atOnce;
           spent += atOnce;

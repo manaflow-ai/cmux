@@ -3931,6 +3931,10 @@ function TranscriptView({
     // `settleTurnEnd`, the reader scrolled up mid-glide with the live line still in view).
     else tailGlide.current?.stop();
     turnEnd.current = playTurnEnd(host, capture, sessionId, ref.current);
+    // The reply's last lines still revealing after the turn ended chase while the fold plays: the
+    // chase reads the fold's move on its own frames and keeps each frame of the two together to the
+    // fold's bound (followChase `alongside`), so the rows move as one motion, never the sum of two.
+    followChase.current?.alongside(turnEnd.current?.animations);
   }, [rows, sessionId, stopFollowMotion]);
   // Another chat shown, or the transcript unmounting: a fold still playing ends at once.
   useLayoutEffect(
