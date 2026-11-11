@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42953479183",
+  "recorded_at": "2026-11-11T03:41:17Z",
+  "reason": "cmux-tui d9151651fcb4 changes the image's cmux-tui (pinned 6e1be83c512f)",
+  "dry_run": false,
+  "cmux_tui": "d9151651fcb474eb3ab10f7fd49f73b6ce9fc826",
+  "fixes": [
+    {
+      "sha": "d4236189dffbc63255dd9475842c141f0fb05beb",
+      "mergedAt": "2026-11-11T03:18:43Z",
+      "subject": "acpmux: a failed log append no longer swallows the next record (#40884)"
+    },
+    {
+      "sha": "c8020d8464318b43c05793e8f13554d4774c1625",
+      "mergedAt": "2026-11-11T03:04:09Z",
+      "subject": "Remote chat with no folder starts without a trust question it could never save (#40816)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T03:41:17Z",
+    "snapshot_id": "sh-c0b5fd64af5a47dda50268d09a4c423a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42953479183): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8491730df3169bea78e95eacffd419de62c77bba",
+    "image": "cloud-native-auto-d9151651-42953479183-1",
+    "revision": "ci-42953479183-1",
+    "at": "2026-11-11T03:41:17Z"
+  },
+  "rolled_back": false
+}
