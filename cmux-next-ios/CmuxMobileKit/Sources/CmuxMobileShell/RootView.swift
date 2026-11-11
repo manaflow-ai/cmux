@@ -626,7 +626,7 @@ struct ShellView: View {
         // A named Home conversation link may arrive before the Mac's Home
         // rows or Cloud Chief are loaded; continue the pending route as those
         // owners publish their identities, instead of opening another Chief.
-        .onChange(of: MacHomeFeed.shared.rows) { _, _ in
+        .onChange(of: MacHomeFeed.shared.rowsRevision) { _, _ in
             if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
         }
         .onChange(of: ChiefSources.shared.cloud.conversationID) { _, _ in

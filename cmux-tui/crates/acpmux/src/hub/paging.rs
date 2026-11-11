@@ -201,6 +201,17 @@ impl EventFilter {
         serde_json::to_vec(self.subagent.as_deref()?).ok()
     }
 
+    /// Whether a page reads only kinds the log keeps copies of (`store/kind_index.rs`
+    /// `INDEXED_KINDS`): exact kinds, none a group (`transcript`, `mux`, `wire`, `all`), and no
+    /// subagent. Such a page is read with `Store::scan_back_indexed` (`Hub::events_page`).
+    fn reads_indexed_kinds(&self) -> bool {
+        self.subagent.is_none()
+            && self.kinds.as_ref().is_some_and(|kinds| {
+                !kinds.is_empty()
+                    && kinds.iter().all(|k| crate::store::INDEXED_KINDS.contains(&k.as_str()))
+            })
+    }
+
     pub fn is_all(&self) -> bool {
         match &self.kinds {
             None => true,
@@ -686,7 +697,21 @@ impl Hub {
             filter.surely_skips(dir, kind) && !(omit && crate::store::starts_prompt(dir, kind))
         };
         let mut superseded = omit.then(crate::store::Superseded::default);
-        self.store.scan_back(id, after, before, &skip, &mut |rec| {
+        // A page of prompts, the queue or turn results reads the log's copies of those kinds
+        // where they are good, segment by segment, newest first: read back from the end, a page
+        // of a chat's last 16 prompts walked its whole log when it had fewer, and every open asks
+        // for one (`turn_opener.rs`), 4 s for a 1 GB chat. The superseded fold below touches tool
+        // calls only, so it changes nothing on such a page.
+        let indexed = filter.reads_indexed_kinds();
+        let back = |skip: &dyn Fn(&[u8], &[u8]) -> bool,
+                    visit: &mut dyn FnMut(EventRecord) -> bool| {
+            if indexed {
+                self.store.scan_back_indexed(id, after, before, skip, visit)
+            } else {
+                self.store.scan_back(id, after, before, skip, visit)
+            }
+        };
+        back(&skip, &mut |rec| {
             let matches = filter.matches(&rec);
             let mut rec = rec;
             if matches {
