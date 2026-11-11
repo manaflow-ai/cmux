@@ -318,7 +318,8 @@ def mutate(rng: random.Random, steps: list, window: list) -> list:
         if step["blocks"] and rng.random() < 0.6:
             block = rng.choice(step["blocks"])
             target = block["retry"] if block.get("retry") is not None else block["failures"]
-            target.append((block["runner"], rng.choice(NAMES), bool(block.get("headerless"))))  # see gen_block
+            if not block.get("silent"):  # a silent run names nothing and prints its one failure alone
+                target.append((block["runner"], rng.choice(NAMES), bool(block.get("headerless"))))  # see gen_block
         else:
             runner = rng.choice(RUNNERS)
             step["blocks"].append({"runner": runner, "failures": [(runner, rng.choice(NAMES), True),
@@ -338,7 +339,8 @@ def mutate(rng: random.Random, steps: list, window: list) -> list:
         step = rng.choice(failed)
         if step["blocks"]:
             block = rng.choice(step["blocks"])
-            block["failures"].append(gen_failure(rng, block["runner"], 0.0))
+            if not block.get("silent"):
+                block["failures"].append(gen_failure(rng, block["runner"], 0.0))
     return steps
 
 

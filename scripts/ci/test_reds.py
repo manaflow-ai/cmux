@@ -794,10 +794,20 @@ def read_bun(lines: list[str], result: Result, steps: list[list[str]] | None = N
             mine = diagnostics.setdefault(name, [])
             mine.extend(message for message in found if message not in mine)
     for attempt in kept:
-        # A `FAIL file` is unnamed when no attempt of its own step that counts named a failure.
-        if not any(other.named for other in kept if other.step == attempt.step):
-            result.unnamed.extend(attempt.fail_files)
-            result.records += [(attempt.step, attempt.number, "unnamed", line) for line in attempt.fail_files]
+        # A `FAIL file` is unnamed unless the file's last attempt that counts named a failure: the one in its own
+        # step, else anywhere; never another file's or an earlier run's (#41329's follow-up F2: a global flag let one
+        # `(fail)` name every file). A file no header names (run-webviews-tests.sh prints `FAIL file` and the file's
+        # results under its own group, no `file:` line) is named when an attempt of its step named a failure.
+        for line in attempt.fail_files:
+            of = BUN_PACKAGE.sub("", BUN_RESULT.match(line).group(2))
+            # The runs of the file printed before this line: in its step (up to its attempt), else anywhere.
+            runs = ([other for other in kept if other.file == of and other.step == attempt.step
+                     and other.number <= attempt.number]
+                    or [other for other in kept if other.file == of and other.step < attempt.step])
+            named = runs[-1].named if runs else any(other.named for other in kept if other.step == attempt.step)
+            if not named:
+                result.unnamed.append(line)
+                result.records.append((attempt.step, attempt.number, "unnamed", line))
     for name, found in diagnostics.items():
         if found:
             # Like web_failures: several diagnostics for one name are all compared, none dropped, in sorted order so
