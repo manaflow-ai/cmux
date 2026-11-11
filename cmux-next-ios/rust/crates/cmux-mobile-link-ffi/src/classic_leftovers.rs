@@ -5,7 +5,8 @@
 //! classic app's items sit in the same default Keychain access group
 //! (`<team>.<bundle id>`) the NEXT app signs with first, so NEXT can see them. It
 //! uses none of them: its Stack tokens live under `<bundle id>.auth`, its device
-//! ids under `dev.cmux.mobile.device`, its settings under `cmuxMobile.`. Nothing
+//! ids under `dev.cmux.mobile.device`, its settings under `cmuxMobile.`, `cnx.`
+//! and a few `cmux.` namespaces of its own (chat, Chief, screen sharing). Nothing
 //! here is migrated: the person signs in again (a clean sign-in, never a stale
 //! classic session), and the classic items are deleted once.
 //!
@@ -14,7 +15,8 @@
 //! The rules are explicit on purpose:
 //!
 //! - Only names the classic app is known to write are deleted (a fixed list of
-//!   Keychain services and UserDefaults keys and prefixes, read from `ios/`).
+//!   Keychain services, UserDefaults keys and classic-only settings namespaces,
+//!   read from `ios/`). Never a whole `cmux.` sweep: NEXT keeps settings there.
 //! - Names NEXT owns are never deleted, even if a classic rule would match.
 //! - Anything else (unknown, malformed, a system framework's key) is left alone
 //!   and only counted.
@@ -164,24 +166,75 @@ fn is_classic_keychain_service(bundle_id: &str, service: &str) -> bool {
     service == "dev.cmux.ssh.keys"
 }
 
-/// Keys cmux-next-ios owns: never removed.
+/// Keys cmux-next-ios owns: never removed. Besides `cmuxMobile.` and `cnx.`, NEXT
+/// keeps settings under `cmux.`: chat display (`cmux.chat.display.v1`), Chief
+/// colors and text size (`cmux.chief.chatColors.v1`, `cmux.chief.textZoom.v1`) and
+/// screen sharing (`cmux.screenSharing.defaults`, `cmux.screenSharing.scope`).
+/// These namespaces win over every classic rule.
 fn is_next_defaults_key(key: &str) -> bool {
-    key.starts_with("cmuxMobile.") || key.starts_with("cnx.")
+    const NEXT_NAMESPACES: [&str; 5] = ["cmuxMobile.", "cnx.", "cmux.chat.", "cmux.chief.", "cmux.screenSharing."];
+    NEXT_NAMESPACES.iter().any(|p| key.starts_with(p))
 }
 
-/// UserDefaults keys the classic app writes.
+/// Settings namespaces only the classic app writes (ios/, Packages/iOS and
+/// Packages/Shared on main). Each is one classic subsystem that NEXT keeps no
+/// settings in; several hold per-Mac, per-account or per-team keys, so they are
+/// matched as a namespace. Never the whole `cmux.` prefix: NEXT keeps settings
+/// there too (see `is_next_defaults_key`).
+const CLASSIC_DEFAULTS_NAMESPACES: [&str; 13] = [
+    // Task composer, templates, feed, terminal and debug settings, remote flags,
+    // paired-Mac backup and recovery, workspace snapshots, haptics, scrollback.
+    "cmux.mobile.",
+    // Push opt-in, device token, registered account, pending unregisters.
+    "cmux.notifications.",
+    // Device registry id and its witness.
+    "cmux.deviceRegistry.",
+    // iroh config, path preference, identity, broker credentials, app instance.
+    "cmux.iroh.",
+    // Terminal toolbar, accessory bar and zoom.
+    "cmux.terminal.toolbar.",
+    "cmux.terminal.accessory.",
+    "cmux.terminal.zoom.",
+    // Conversation drafts and text size.
+    "cmux.conversation.",
+    // Debug and diagnostics switches.
+    "cmux.debug.",
+    "cmux.diagnostics.",
+    // Cloud device identity.
+    "cmux.cloud.",
+    // The paired-Mac backup's legacy migration markers.
+    "cmux.pairedMacBackup.",
+    // Failed push replies kept for retry.
+    "cmux.push.reply.failure.",
+];
+
+/// Exact classic settings keys.
+const CLASSIC_DEFAULTS_KEYS: [&str; 13] = [
+    // Auth.
+    "auth_stack_project_id",
+    "auth_has_tokens",
+    "auth_cached_user",
+    "auth_selected_team",
+    "AuthEnvironment",
+    "selected_team",
+    "has_tokens",
+    "cached_user",
+    // Presence and telemetry.
+    "presenceServiceURL",
+    "sendAnonymousTelemetry",
+    // Mac selection, simulator stream quality, the Keychain migration marker.
+    "cmux.workspaces.macSelection",
+    "cmux.simulatorStream.quality",
+    "cmux.v2.keychain.migration-complete",
+];
+
+/// UserDefaults keys the classic app writes: a named classic key, or a key in a
+/// named classic namespace; never one of NEXT's.
 fn is_classic_defaults_key(key: &str) -> bool {
     if is_next_defaults_key(key) {
         return false;
     }
-    // Auth (auth_stack_project_id, auth_has_tokens, auth_cached_user,
-    // auth_selected_team), `cmux.` settings (iroh config and path preference,
-    // device registry id, notifications opt-in and token, haptics, scrollback,
-    // feature flags, onboarding).
-    const PREFIXES: [&str; 2] = ["auth_", "cmux."];
-    const EXACT: [&str; 6] =
-        ["AuthEnvironment", "presenceServiceURL", "sendAnonymousTelemetry", "selected_team", "has_tokens", "cached_user"];
-    PREFIXES.iter().any(|p| key.starts_with(p)) || EXACT.contains(&key)
+    CLASSIC_DEFAULTS_KEYS.contains(&key) || CLASSIC_DEFAULTS_NAMESPACES.iter().any(|p| key.starts_with(p))
 }
 
 #[cfg(test)]
@@ -344,11 +397,54 @@ mod tests {
         assert_eq!(plan.kept, 3);
     }
 
+    /// The `cmux.` settings NEXT itself writes today (ChatPolishActions,
+    /// ChiefChatColors, ChiefTextZoom, ScreenSharingPreferences).
+    const NEXT_CMUX_DEFAULTS: [&str; 5] = [
+        "cmux.chat.display.v1",
+        "cmux.chief.chatColors.v1",
+        "cmux.chief.textZoom.v1",
+        "cmux.screenSharing.defaults",
+        "cmux.screenSharing.scope",
+    ];
+
+    #[test]
+    fn next_settings_under_cmux_survive_the_cleanup() {
+        let mut defaults: Vec<String> = NEXT_CMUX_DEFAULTS.map(str::to_owned).to_vec();
+        // A `cmux.` key neither app is known to write is left alone too.
+        defaults.push("cmux.someFutureSetting".to_owned());
+        defaults.extend(classic_defaults());
+
+        let plan = classic_cleanup_plan(B.to_owned(), Some(Vec::new()), defaults);
+
+        for key in NEXT_CMUX_DEFAULTS {
+            assert!(!plan.defaults_deletes.iter().any(|d| d == key), "deleted NEXT's {key}");
+            assert!(!is_classic_defaults_key(key), "{key} matches a classic rule");
+        }
+        assert!(!plan.defaults_deletes.iter().any(|d| d == "cmux.someFutureSetting"));
+        let mut want = classic_defaults();
+        want.sort();
+        assert_eq!(plan.defaults_deletes, want);
+        assert_eq!(plan.kept, 6);
+    }
+
+    #[test]
+    fn classic_rules_are_named_keys_and_namespaces_never_all_of_cmux() {
+        for namespace in CLASSIC_DEFAULTS_NAMESPACES {
+            assert!(namespace.starts_with("cmux.") && namespace.len() > "cmux.".len() + 1, "{namespace}");
+            assert!(namespace.ends_with('.'), "{namespace} must be a namespace");
+            assert!(!is_next_defaults_key(namespace), "{namespace} overlaps NEXT");
+        }
+        for key in ["cmux.", "cmux.x", "auth_token", "auth_somethingNew"] {
+            assert!(!is_classic_defaults_key(key), "{key}");
+        }
+    }
+
     #[test]
     fn next_keys_are_never_classic_even_with_a_classic_looking_tail() {
         assert!(!is_classic_defaults_key("cmuxMobile.auth_has_tokens"));
         assert!(!is_classic_defaults_key("cnx.cmux.iroh"));
         assert!(is_classic_defaults_key("cmux.notifications.pushEnabled"));
+        assert!(!is_classic_defaults_key("cmux.chief.mobile.x"));
     }
 
     #[test]

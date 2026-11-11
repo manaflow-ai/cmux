@@ -13,6 +13,8 @@ import Testing
         private let lock = NSLock()
         private var stored: [KeychainLeftover]
         var readable = true
+        /// Services whose deletes fail (a readable Keychain that refuses a delete).
+        var failingServices: Set<String> = []
 
         init(_ items: [(String?, String?)]) {
             stored = items.map { KeychainLeftover(service: $0.0, account: $0.1) }
@@ -22,9 +24,11 @@ import Testing
 
         func items() -> [KeychainLeftover]? { lock.withLock { readable ? stored : nil } }
 
-        func delete(service: String, account: String?) {
+        func delete(service: String, account: String?) -> Bool {
             lock.withLock {
+                if failingServices.contains(service) { return false }
                 stored.removeAll { ($0.service ?? "") == service && (account == nil || $0.account == account) }
+                return true
             }
         }
 
@@ -144,6 +148,43 @@ import Testing
         #expect(unlocked.ran)
         #expect(keychain.all.isEmpty)
         #expect(defaults.object(forKey: "auth_has_tokens") == nil)
+    }
+
+    @Test func aFailedKeychainDeleteRunsTheCleanupAgainNextLaunch() throws {
+        let (defaults, name) = try suite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        let keychain = FakeKeychain(Self.classicItems)
+        keychain.failingServices = ["dev.cmux.ssh.keys"]
+
+        let first = ClassicLeftovers.cleanUpIfDue(bundleIdentifier: "com.cmux.app", defaults: defaults,
+                                                  domain: name, keychain: keychain)
+        #expect(!first.ran)
+        #expect(first.keychainFailed == 1)
+        #expect(keychain.has("dev.cmux.ssh.keys"))
+        #expect(defaults.object(forKey: classicCleanupMarkerKey()) == nil)
+
+        keychain.failingServices = []
+        let second = ClassicLeftovers.cleanUpIfDue(bundleIdentifier: "com.cmux.app", defaults: defaults,
+                                                   domain: name, keychain: keychain)
+        #expect(second.ran)
+        #expect(keychain.all.isEmpty)
+        #expect(defaults.object(forKey: classicCleanupMarkerKey()) != nil)
+    }
+
+    @Test func nextSettingsUnderCmuxStay() throws {
+        let (defaults, name) = try suite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        let next = ["cmux.chat.display.v1", "cmux.chief.chatColors.v1", "cmux.chief.textZoom.v1",
+                    "cmux.screenSharing.defaults", "cmux.screenSharing.scope"]
+        for key in next { defaults.set("kept", forKey: key) }
+        defaults.set("x", forKey: "cmux.notifications.deviceTokenHex")
+
+        let outcome = ClassicLeftovers.cleanUpIfDue(bundleIdentifier: "com.cmux.app", defaults: defaults,
+                                                    domain: name, keychain: FakeKeychain([]))
+        #expect(outcome.ran)
+        #expect(outcome.defaultsDeleted == 1)
+        for key in next { #expect(defaults.string(forKey: key) == "kept", "\(key)") }
+        #expect(defaults.object(forKey: "cmux.notifications.deviceTokenHex") == nil)
     }
 
     @Test func aMalformedMarkerRunsTheCleanup() throws {

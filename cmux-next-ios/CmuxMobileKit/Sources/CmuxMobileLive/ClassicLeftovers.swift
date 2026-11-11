@@ -25,7 +25,8 @@ public enum ClassicLeftovers {
         /// Every generic-password item the app can see; nil when the Keychain
         /// cannot be read yet.
         func items() -> [KeychainLeftover]?
-        func delete(service: String, account: String?)
+        /// Deletes the items; true when they are gone (deleted, or already missing).
+        func delete(service: String, account: String?) -> Bool
     }
 
     /// The outcome, for the log and tests.
@@ -34,6 +35,8 @@ public enum ClassicLeftovers {
         public var keychainDeleted: Int
         public var defaultsDeleted: Int
         public var kept: Int
+        /// Keychain deletes that failed; the cleanup runs again on the next launch.
+        public var keychainFailed: Int = 0
     }
 
     /// Runs the cleanup when it is due.
@@ -47,22 +50,26 @@ public enum ClassicLeftovers {
         let marker = classicCleanupMarkerKey()
         let stored = (defaults.object(forKey: marker) as? NSNumber)?.int64Value
         guard let bundleIdentifier, classicCleanupDue(marker: stored) else {
-            return Outcome(ran: false, keychainDeleted: 0, defaultsDeleted: 0, kept: 0)
+            return Outcome(ran: false, keychainDeleted: 0, defaultsDeleted: 0, kept: 0, keychainFailed: 0)
         }
         let keys = domain.flatMap { defaults.persistentDomain(forName: $0) }.map { Array($0.keys) } ?? []
         let plan = classicCleanupPlan(bundleId: bundleIdentifier, keychain: keychain.items(), defaultsKeys: keys)
-        for item in plan.keychainDeletes {
-            keychain.delete(service: item.service, account: item.account)
+        var failed = 0
+        for item in plan.keychainDeletes where !keychain.delete(service: item.service, account: item.account) {
+            failed += 1
         }
         for key in plan.defaultsDeletes {
             defaults.removeObject(forKey: key)
         }
-        if plan.markDone {
+        // A failed Keychain delete leaves the marker unset, so the next launch tries again.
+        let done = plan.markDone && failed == 0
+        if done {
             defaults.set(classicCleanupVersion(), forKey: marker)
         }
-        let outcome = Outcome(ran: plan.markDone, keychainDeleted: plan.keychainDeletes.count,
-                              defaultsDeleted: plan.defaultsDeletes.count, kept: Int(plan.kept))
-        log.info("classic leftovers: deleted \(outcome.keychainDeleted) Keychain items, \(outcome.defaultsDeleted) settings; kept \(outcome.kept); done \(plan.markDone)")
+        let outcome = Outcome(ran: done, keychainDeleted: plan.keychainDeletes.count - failed,
+                              defaultsDeleted: plan.defaultsDeletes.count, kept: Int(plan.kept),
+                              keychainFailed: failed)
+        log.info("classic leftovers: deleted \(outcome.keychainDeleted) Keychain items, \(outcome.defaultsDeleted) settings; kept \(outcome.kept); failed \(failed); done \(done)")
         return outcome
     }
 
@@ -93,7 +100,12 @@ public enum ClassicLeftovers {
             var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
                                         kSecAttrService as String: service]
             if let account { query[kSecAttrAccount as String] = account }
-            SecItemDelete(query as CFDictionary)
+            let status = SecItemDelete(query as CFDictionary)
+            guard status == errSecSuccess || status == errSecItemNotFound else {
+                log.info("classic leftovers: Keychain delete failed (\(status)); trying again next launch")
+                return false
+            }
+            return true
         }
 
         /// An attribute as text: a string, or UTF-8 data; anything else is missing.
