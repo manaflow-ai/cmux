@@ -1,5 +1,5 @@
 // l10n-allow-file: experiment descriptions are gallery (developer tool) text, never shown in the pane.
-import { defineExperiment } from "../../../experiments/experiment";
+import { defineExperiment, experimentArm } from "../../../experiments/experiment";
 
 /// How a turn the agent ran on its own draws (backgroundTurns.ts; Leo, 2026-11-11: "i feel like it's
 /// no longer worth having this special "background updates" thing. it should maybe arguably just be
@@ -25,3 +25,7 @@ export const backgroundTurnLook = defineExperiment({
 
 /// Whether a background turn's rows draw inline, with no line of their own over them.
 export const backgroundTurnsInline = (arm: string): boolean => arm === "inline";
+
+/// Whether the running look draws a background turn's line: a gallery play that hovers or opens that
+/// line runs only then, so it never waits on a control the inline look does not draw.
+export const drawsBackgroundTurnLines = (): boolean => !backgroundTurnsInline(experimentArm(backgroundTurnLook));

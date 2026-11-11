@@ -7,7 +7,7 @@ import { activity, assistant, chat, row, summary, tool, user } from "../../../ga
 import type { AcpmuxRow } from "../model";
 import { backgroundRunRowId } from "./backgroundRuns";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
-import { backgroundTurnLook } from "./backgroundTurnLook.experiment";
+import { backgroundTurnLook, drawsBackgroundTurnLines } from "./backgroundTurnLook.experiment";
 
 const quiet = (id: string, minutes: number): AcpmuxRow =>
   row(BACKGROUND_TURN, minutes, {
@@ -108,6 +108,7 @@ export default agentPaneEntry({
         },
       },
       play: async (ctx) => {
+        if (!drawsBackgroundTurnLines()) return;
         const line = { selector: `[data-row-id="${RUN}"] .cv-background-turn` };
         await ctx.click(line);
         await ctx.waitFor(() => ctx.find(line).getAttribute("aria-expanded") === "true");
