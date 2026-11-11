@@ -58,6 +58,7 @@ function machine(homeName = "home"): Machine {
   const auth = path.join(root, "agent-auth.sh");
   writeFileSync(auth, readFileSync(path.join(templateDir, "agent-auth.sh"), "utf8")
     .replaceAll("/etc/cmux/vm-kind", kind)
+    .replaceAll("/etc/claude-code/managed-settings.json", path.join(root, "managed-settings.json"))
     .replaceAll("/etc/cmux/claude-onboarding.py", path.join(templateDir, "claude-onboarding.py")));
   const modelPlane = path.join(root, "model-plane.env");
   writeFileSync(modelPlane, `export CMUX_CODEROUTER_URL='${ORIGIN}'\nexport OPENAI_BASE_URL='${ORIGIN}/v1'\nexport OPENAI_API_KEY='${PLACEHOLDER}'\nexport ANTHROPIC_BASE_URL='${ORIGIN}'\nexport ANTHROPIC_API_KEY='${PLACEHOLDER}'\n`);
@@ -373,6 +374,25 @@ describe("Claude Code sign-in precedence", () => {
     const { env } = await launchWith(m, "--resume x", { FAKE_ACCESS: ALL, CLAUDE_CODE_USE_BEDROCK: "0" });
     expect(settingsEnv(env)?.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
     expect(settingsEnv(env)?.CLAUDE_CODE_USE_BEDROCK).toBe("");
+  });
+
+  test("a credential in managed settings keeps own even when team is chosen", async () => {
+    for (const body of ['{"env":{"ANTHROPIC_AUTH_TOKEN":"managed"}}', '{"env":{"CLAUDE_CODE_USE_VERTEX":true}}', '{"apiKeyHelper":"/bin/key"}', "not json"]) {
+      const m = machine();
+      choose(m, "team");
+      writeFileSync(path.join(m.root, "managed-settings.json"), body);
+      const { env, status } = await launchWith(m, "--resume x");
+      expect(status).toBe(0);
+      expect(env.settings).toBeUndefined();
+      expect(env.ANTHROPIC_BASE_URL).toBe("<unset>");
+      expect(env.ANTHROPIC_API_KEY).toBe("<unset>");
+    }
+    // Managed settings with no credential leave team mode as chosen.
+    const m = machine();
+    choose(m, "team");
+    writeFileSync(path.join(m.root, "managed-settings.json"), '{"permissions":{"deny":[]}}');
+    const { env } = await launchWith(m, "--resume x");
+    expect(settingsEnv(env)?.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
   });
 
   test("a chosen team mode keeps a personal endpoint and key the launch's --settings names", async () => {

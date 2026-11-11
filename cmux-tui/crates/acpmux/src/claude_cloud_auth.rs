@@ -78,6 +78,11 @@ where
     if set("ANTHROPIC_BASE_URL") || set("ANTHROPIC_API_KEY") {
         return None;
     }
+    // Managed settings outrank every `--settings`, so team mode cannot empty a credential there:
+    // keep own mode, whatever was chosen, rather than send it to the team endpoint.
+    if managed_credential(&inputs.root.join(MANAGED_SETTINGS)) {
+        return None;
+    }
     let pinned = match var("CMUX_CLAUDE_AUTH").as_deref().map(str::trim) {
         Some("own") => return None,
         Some("team") => true,
@@ -113,6 +118,37 @@ where
     let key =
         inputs.model_plane_var("ANTHROPIC_API_KEY").unwrap_or_else(|| PLACEHOLDER_KEY.to_owned());
     Some([("ANTHROPIC_BASE_URL".to_owned(), base), ("ANTHROPIC_API_KEY".to_owned(), key)])
+}
+
+/// Claude's managed settings on Linux, under the machine root.
+const MANAGED_SETTINGS: &str = "etc/claude-code/managed-settings.json";
+
+/// Whether the managed settings at `path` name a credential, endpoint, provider switch or
+/// helper. Claude applies them over every other source, `--settings` included, so team mode
+/// could not clear one. A file that exists but does not read counts (fail safe: own mode).
+fn managed_credential(path: &Path) -> bool {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) => return e.kind() != std::io::ErrorKind::NotFound,
+    };
+    let Ok(Value::Object(settings)) = serde_json::from_str::<Value>(&text) else {
+        return true;
+    };
+    let on = |v: &Value| match v {
+        Value::String(s) => {
+            let s = s.trim();
+            !s.is_empty() && s != "0" && !s.eq_ignore_ascii_case("false")
+        }
+        Value::Bool(b) => *b,
+        Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0),
+        _ => false,
+    };
+    let mut keys = ["ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"]
+        .into_iter()
+        .chain(TEAM_CLEARS.into_iter().filter(|k| *k != HEADERS));
+    let env = settings.get("env").and_then(Value::as_object);
+    keys.any(|k| env.and_then(|e| e.get(k)).is_some_and(on))
+        || HELPERS.iter().any(|h| settings.get(*h).is_some_and(on))
 }
 
 /// The credentials and provider switches team mode must not keep, as the image's launcher clears
@@ -330,6 +366,27 @@ mod tests {
         let var = move |k: &str| map.get(k).cloned();
         let inputs = Inputs { root: &m.root, home: &m.home, var: &var, broker: false };
         team_pair(&inputs, &env, None, &m.home, |_| async move { dns }).await
+    }
+
+    #[tokio::test]
+    async fn a_credential_in_managed_settings_keeps_own_even_when_team_is_chosen() {
+        let m = machine("owner");
+        let team = [("CMUX_CLAUDE_AUTH", "team")];
+        assert!(pair(&m, &team, true).await.is_some());
+        let managed = m.root.join(MANAGED_SETTINGS);
+        std::fs::create_dir_all(managed.parent().unwrap()).unwrap();
+        for body in [
+            r#"{"env":{"ANTHROPIC_AUTH_TOKEN":"managed"}}"#,
+            r#"{"env":{"CLAUDE_CODE_USE_BEDROCK":true}}"#,
+            r#"{"apiKeyHelper":"/bin/key"}"#,
+            "not json",
+        ] {
+            std::fs::write(&managed, body).unwrap();
+            assert_eq!(pair(&m, &team, true).await, None, "{body}");
+        }
+        // Managed settings with no credential leave team mode as chosen.
+        std::fs::write(&managed, r#"{"permissions":{"deny":[]}}"#).unwrap();
+        assert!(pair(&m, &team, true).await.is_some());
     }
 
     #[tokio::test]

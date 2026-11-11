@@ -131,6 +131,8 @@ sys.exit(0 if isinstance(auth, dict) and auth else 1)
 #          the --settings; a credential helper in any of them; the API key
 #          /login saved in .claude.json; or a --settings that does not read
 #   pair   the --settings env names an endpoint or key of its own
+#   managed  the managed settings name a key, token, endpoint, provider
+#          switch or helper (or do not read): nothing can clear those
 cmux_claude_settings_has() {
   python3 -I -c '
 import json, os, sys
@@ -151,6 +153,22 @@ def load(text):
     if not isinstance(s, dict):
         raise ValueError("not an object")
     return s
+if mode == "managed":
+    # Claude applies managed settings over every --settings: a credential there
+    # cannot be cleared, so team mode must not add the pair. One that exists
+    # but does not read counts.
+    try:
+        text = open("/etc/claude-code/managed-settings.json").read()
+    except FileNotFoundError:
+        sys.exit(1)
+    except Exception:
+        sys.exit(0)
+    try:
+        s = load(text)
+    except Exception:
+        sys.exit(0)
+    env = s.get("env") if isinstance(s.get("env"), dict) else {}
+    sys.exit(0 if credential(s) or any(on(env.get(k)) for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL")) else 1)
 flag_settings = None
 if given:
     try:
@@ -370,7 +388,7 @@ cmux_claude_apply_auth_mode() {
       if [ ! -e "$CLAUDE_CONFIG_DIR/.claude.json" ]; then
         python3 -I /etc/cmux/claude-onboarding.py "$CLAUDE_CONFIG_DIR/.claude.json" || return 1
       fi
-    elif [ -z "${ANTHROPIC_BASE_URL-}" ] && [ -z "${ANTHROPIC_API_KEY-}" ] && [ -n "${CMUX_CLAUDE_TEAM_BASE_URL-}" ] && ! cmux_claude_settings_has pair; then
+    elif [ -z "${ANTHROPIC_BASE_URL-}" ] && [ -z "${ANTHROPIC_API_KEY-}" ] && [ -n "${CMUX_CLAUDE_TEAM_BASE_URL-}" ] && ! cmux_claude_settings_has pair && ! cmux_claude_settings_has managed; then
       ANTHROPIC_BASE_URL=$CMUX_CLAUDE_TEAM_BASE_URL
       # An unset or empty team key is the placeholder, as acpmux sends it
       # (codex_cloud_auth.rs): an empty one would let a personal apiKeyHelper
