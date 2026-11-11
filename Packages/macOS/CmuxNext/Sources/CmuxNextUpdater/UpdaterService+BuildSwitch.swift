@@ -30,13 +30,18 @@ extension UpdaterService {
         if await Self.pulled(in: folder).contains(where: { $0.build == build }) { return UpdaterStrings.channelsSwitchPulled }
         // A directory listing and a read of each kept bundle's Info.plist: file I/O on the files lane.
         let store = keptVersions
-        let kept = (try? await work.run(.userVisible, mayBlock: .files) { store.list().contains { $0.build == build } }) ?? false
+        let kept = (try? await work.run(.userVisible, mayBlock: .files) { store.list(teams: false).contains { $0.build == build } }) ?? false
         if !kept {
             buildSwitchProgress = BuildSwitchProgress(build: build, stage: .download)
+            revert = RevertProgress(step: .downloading, target: build)
             if let failure = await downloadForSwitch(build) {
                 buildSwitchProgress = nil
+                revert = RevertProgress(step: .failed, target: build, failure: failure)
                 return failure
             }
+            // Its first launch is the relaunch below: the check macOS makes of a new bundle runs now,
+            // under Verifying, rather than with the windows already gone (KeptWarmup).
+            await KeptWarmup.warm(store: store, build: build, log: log, runningBuild: identity.build)
         }
         log.append("switch: \(identity.build) -> \(build)")
         return await UpdateDropBack(self).failure(to: build, stateDirectories: pulledWatch.stateDirectories(), claimed: true)
@@ -56,22 +61,22 @@ extension UpdaterService {
         }
         log.append("switch: downloading \(build) from \(source.url.absoluteString)")
         let started = ContinuousClock.now
-        let bundle = Bundle.main.bundleURL, teams = signingTeams
-        let team = try? await work.run(.userVisible, mayBlock: .files) {
-            teams.team(of: bundle, read: UpdateDropBack.signingTeam(of:))
-        }
         // The download reports from its own queue; each step lands on the main actor and never moves
-        // the card back a stage (a late download step after the checks began is dropped).
+        // the cards back a stage (a late download step after the checks began is dropped): the
+        // Channels card's button and the sidebar's notice card.
         let delivery = MainDelivery()
         let progress: @Sendable (BuildSwitchProgress) -> Void = { [self] step in
             delivery.run { [self] in
                 guard let current = buildSwitchProgress, current.build == step.build,
                       current.stage.order <= step.stage.order else { return }
                 buildSwitchProgress = step
+                revert = step.stage == .download ? RevertProgress(step: .downloading, target: build, fraction: step.fraction)
+                    : RevertProgress(step: .verifying, target: build)
             }
         }
+        // The running app's team is its own code's: no file read.
         if let failure = await BuildSwitchDownload(store: keptVersions, bundleIdentifier: identity.bundleIdentifier,
-                                                   teamID: team ?? nil,
+                                                   teamID: UpdateDropBack.runningTeam,
                                                    publicEDKey: Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String,
                                                    progress: progress)
             .keep(build: build, from: source.url, signature: signature) {
@@ -174,8 +179,10 @@ nonisolated struct BuildSwitchDownload: Sendable {
             return "the app's signature does not check: \(error)"
         }
         // Kept without a prune: an older build than every kept one would be pruned at once. The
-        // swap that follows prunes when it keeps the running build.
-        do { try store.keep(bundle: app, build: build, limit: nil) } catch { return "could not keep it: \(error)" }
+        // swap that follows prunes when it keeps the running build. The full check just ran on the
+        // read-only disk image: the copy is sealed with its team, so going back to it skips that check.
+        let record = KeptRecord(build: build, teamID: teamID)
+        do { try store.keep(bundle: app, build: build, limit: nil, record: record, check: .checkedSource) } catch { return "could not keep it: \(error)" }
         return nil
     }
 }

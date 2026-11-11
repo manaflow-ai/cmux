@@ -121,11 +121,17 @@ public final class UpdaterService {
     public internal(set) var buildSwitchProgress: BuildSwitchProgress?
     /// A switch or rollback runs (``UpdateDropBack``): a second one from any entry point is refused.
     @ObservationIgnored var switchRunning = false
-    /// Signing teams already read: the running app's, and kept builds the Channels card asks about.
-    @ObservationIgnored let signingTeams = SigningTeamCache()
+    /// The Keychain key that signs kept-build records (KeptRecordKey), read once.
+    @ObservationIgnored let keptRecordKeys = KeptRecordKey()
     /// The running bundle's keep for rollback (``keepRunningBuildForRollback()``).
     @ObservationIgnored var keptRunningBuild: KeepState?
     @ObservationIgnored var keepTask: Task<Void, Never>?
+    /// A rollback's swap is done and its quit runs: the quit cancels a staged update instead of
+    /// installing it (``prepareForQuit()``), which would relaunch forward (cmux#41013 review F2).
+    @ObservationIgnored var rollbackQuitPending = false
+    /// Runs its closure once when the next quit is refused (set by the App: the quit dialog's
+    /// Cancel). A rollback's quit uses it to put the running build back (``UpdateDropBack``).
+    @ObservationIgnored public var onNextQuitRefused: ((@escaping @MainActor () -> Void) -> Void)?
     /// Takes the windows off the screen as Sparkle commits to a relaunch the
     /// person asked for (set by the App: ``UpdateWindowHandoff/hide()``), not
     /// at the click. ``installAbandoned`` undoes it when the install ends
@@ -174,6 +180,10 @@ public final class UpdaterService {
     @ObservationIgnored var ringFollowed = false
     /// The `updates.*` settings the gate reads (set by the App).
     public var preferences = UpdatePreferences.defaults
+    /// Going back to an earlier build, step by step (``UpdateDropBack``); nil when not going back.
+    public internal(set) var revert: RevertProgress?
+    /// The build Go back takes now (``refreshRevertOffer()``); nil with none kept.
+    public internal(set) var revertOffer: RevertTarget?
     /// Sparkle's staged install and its cancel (replaced by tests).
     @ObservationIgnored var installStaged: () -> Void = {}
     /// The install click replaced a stale staged build (``StagedUpdateRefresh/beforeInstall(updater:install:)``):

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 @testable import CmuxNextUpdater
 import Testing
@@ -38,6 +39,38 @@ import Testing
 
         #expect(Self.build(of: app) == "100")
         #expect(store.list().map(\.build) == ["200"])
+    }
+
+    /// cmux#41013 review F3: a rollback's quit refused at a quit dialog leaves cmux running, so the
+    /// running build goes back in place and the kept build back to the store, with its record.
+    @Test func aRefusedQuitPutsTheRunningBuildBack() throws {
+        let root = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let key = SymmetricKey(size: .bits256)
+        let store = KeptVersionStore(root: root.appending(path: "versions"), teamID: { _ in "TEAM" }, recordKey: { key })
+        let app = root.appending(path: "Applications/cmux.app", directoryHint: .isDirectory)
+        try Self.makeBundle(at: app, build: "200")
+        let previous = root.appending(path: "previous/cmux.app", directoryHint: .isDirectory)
+        try Self.makeBundle(at: previous, build: "100")
+        try store.keep(bundle: previous, build: "100", limit: 2, record: KeptRecord(build: "100", date: "2026-11-10", storeSchemas: ["chats": 3]))
+        let target = try #require(store.list().first)
+        let record = KeptRecord.read(from: target.bundle.deletingLastPathComponent().appending(path: KeptVersionStore.recordName))
+
+        try RollbackSwap.perform(current: app, currentBuild: "200", target: target, store: store, limit: 2)
+        #expect(Self.build(of: app) == "100")
+        try RollbackSwap.undo(current: app, runningBuild: "200", target: target, targetRecord: record, store: store)
+
+        #expect(Self.build(of: app) == "200")
+        let kept = store.list(teams: false)
+        #expect(kept.map(\.build) == ["100"])
+        #expect(kept.first?.storeSchemas == ["chats": 3] && kept.first?.date == "2026-11-10")
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: app.deletingLastPathComponent().path)
+        #expect(leftovers == ["cmux.app"], "nothing staged is left beside the app")
+        // The seal is taken again (the moves changed every ctime): going back again is not refused as changed.
+        let again = try #require(kept.first)
+        #expect(store.stillSealed(again), "a retry after a cancelled rollback is not refused (cmux#41013 review)")
+        try RollbackSwap.perform(current: app, currentBuild: "200", target: again, store: store, limit: 2)
+        #expect(Self.build(of: app) == "100")
     }
 
     @Test func aFailedSwapLeavesTheKeptBuildInTheStore() throws {

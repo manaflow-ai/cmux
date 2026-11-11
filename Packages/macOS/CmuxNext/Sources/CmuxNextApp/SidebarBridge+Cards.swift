@@ -168,6 +168,7 @@ enum SidebarCardFeed {
     /// "Did you know" tip. Nil while the staged update card shows;
     /// announcements and the tip also wait for the "cmux Updated!" card.
     static func noticeCard(_ updater: UpdaterService, registry: ActionRegistry?) -> SidebarNoticeCard? {
+        if let back = updater.revertNotice { return .status(id: updateCardID, title: back.title, detail: back.detail, fraction: back.fraction, working: back.working, dismissLabel: UpdaterService.cardDismissLabel) }
         guard updater.readyCard == nil else { return nil }
         if let shown = updater.cardPresentation { return notice(shown, asked: updater.flow.userAsked) }
         if let text = updater.testFeedCardText {

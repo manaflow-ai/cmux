@@ -189,9 +189,12 @@ public import Foundation
         _ = await lifecycle("deleted", ["machine": machineID, "scope": Self.json(scope)])
     }
 
-    /// A quit: renewal stops and delivered access stays on each machine (#33482).
+    /// A quit: renewal stops and delivered access stays on each machine (#33482). With no holder
+    /// running there is nothing to stop, and a quit never starts one: the detach used to start a
+    /// holder just to tell it to detach, and a quit seconds after launch (going back to the previous
+    /// build) waited 3.8 s on that start, to the quit's deadline (update harness, 2026-11-11).
     public func detachForQuit() async {
-        guard pipe != nil else { return }
+        guard let pipe, await pipe.isRunning else { return }
         _ = await request("detach", [:])
     }
 

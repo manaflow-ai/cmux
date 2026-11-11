@@ -16,7 +16,7 @@ import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { ChangelogStore, compareVersions, type UpdateSpan } from "./store";
 import type { ReleaseNotes } from "./types";
-import type { ChangelogTarget, UpdateHighlights, UpdateSurfaceActions } from "./updateHighlights";
+import type { ChangelogTarget, RecentBuildRow, UpdateHighlights, UpdateSurfaceActions } from "./updateHighlights";
 import { UpdatedCard, UpdateReadyHighlights } from "./UpdateSurfaces";
 import { UpdatedNotes } from "./UpdatedNotes";
 import { rememberRow, type CardDragHost, type CardPlace, type CardRow } from "./updatedCardDrag";
@@ -33,6 +33,8 @@ export const SurfaceOps = {
   size: "cmux.changelog.surface.size",
   openChangelog: "cmux.changelog.surface.openChangelog",
   dismiss: "cmux.changelog.surface.dismiss",
+  goBack: "cmux.changelog.surface.goBack",
+  builds: "cmux.changelog.surface.builds",
   stream: "cmux.changelog.surface.changes",
   /** The sidebar host's word on where the pointer is: `{inside: boolean}` (the Updated card). */
   pointer: "cmux.changelog.surface.pointer",
@@ -73,8 +75,21 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
       ...(typeof target?.area === "string" ? { area: target.area } : {}),
       ...(typeof target?.title === "string" ? { title: target.title } : {}),
     });
+  // The Updated card's changes go back to an earlier build (GoBack.tsx); the host answers.
+  const goBack = (build?: string) =>
+    (client?.call<{ failure?: string | null }>(SurfaceOps.goBack, build ? { build } : {}) ?? Promise.resolve(null)).then(
+      (answer) => answer?.failure ?? null,
+    );
+  const builds = () =>
+    (client?.call<{ builds?: RecentBuildRow[] }>(SurfaceOps.builds, { limit: 6 }) ?? Promise.resolve(null)).then(
+      (answer) => answer?.builds ?? [],
+    );
   const actions: UpdateSurfaceActions =
-    kind === "updated" ? { openChangelog, dismiss: () => call(SurfaceOps.dismiss) } : { openChangelog };
+    kind === "updated"
+      ? { openChangelog, dismiss: () => call(SurfaceOps.dismiss) }
+      : kind === "updated-notes"
+        ? { openChangelog, goBack, builds }
+        : { openChangelog };
   // The sidebar host draws the Updated card's x natively (SidebarUpdatedCardHost: WebKit shows no
   // hover and takes no first click while a Chromium page's window has the key). Escape closes the
   // card once the page has the keyboard (a click into it).

@@ -2026,3 +2026,10 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   Gallery: `AARestartToUpdateGalleryTests` (each layout, ready and installing, dark and light). 09f49ddeb6f keeps
   `height(for:)` a one-argument function for its callers: no visual change. Sidebar-Look: Leo 2026-11-10, "the
   nightly automatically downloads and installs/unpacks and you simply click and it restarts with the new version".
+
+## Go back's progress is a status card (2026-11-11)
+
+- Leo, verbatim (softened): "yo reverting the app to previous nightly is really slow/doesn't work very well sometimes?/needs less [bad] ui". Going back to an earlier build (#41013) shows its steps on the sidebar's notice card: `SidebarNoticeCard.status(id:title:detail:fraction:working:dismissLabel:)` builds it. The text starts at the card's padding, with no leading spinner. The bar shows the download's fraction, or sweeps when there is none, while the step runs. Only a finished card (a failure) has an x. Every other notice card keeps its look. Gallery: the Go Back states in the update surfaces' gallery. Tests: `RollbackGoBackTests.theNoticeNamesTheStep`.
+
+Commits logged without a trailer (the card above):
+- 2c39838ad0c: adds `SidebarNoticeCard.status` for going back to an earlier build.
