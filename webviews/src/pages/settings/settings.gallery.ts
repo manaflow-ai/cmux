@@ -1795,6 +1795,18 @@ variants["devices-none"] = variant("devices", {
   options: { failing: { "cmux.settings.devices.state": "cmux.operation.unsupported" } },
   note: "Settings > Devices on a host with no device hub: the part is read and none, so no Devices card draws.",
 });
+// ui-state-fixes round-5 capture: a device list read that never answers. The store's own
+// PART_READ_DEADLINE_MS (10 s) runs on the page's real timer; past it the card is failed with Try Again.
+variants["devices-deadline"] = variant("devices", {
+  pendingOps: ["cmux.settings.devices.state"],
+  play: async (ctx) => {
+    await ctx.waitFor(() => ctx.document.querySelector('[data-card-read="devices"][data-read="pending"]'));
+    await ctx.waitFor(() => ctx.document.querySelector('[data-card-read="devices"][data-read="failed"]'), {
+      capMs: 15_000,
+    });
+  },
+  note: "Settings > Devices when the device list read never answers: past the 10 s deadline the card's error with Try Again, not a placeholder forever.",
+});
 variants["mobile-failed"] = variant("mobile", {
   options: { failing: { "cmux.settings.host.lists": "cmux.settings.host.failed" } },
   steps: [{ selector: '[data-card-read="mobile"][data-read="failed"]', action: "wait" }],

@@ -1,0 +1,33 @@
+{
+  "title": "Sidebar Priority view: Couldn\u2019t load agent chats. with Try Again, then Try Again: loading again under a fresh deadline (ui-state-fixes M6)",
+  "steps": [
+    {
+      "title": "Launch (past the Priority feed's own 10 s list deadline)",
+      "wait": 12,
+      "shot": false
+    },
+    {
+      "title": "The Priority view: failed",
+      "rpc": {
+        "method": "debug.sidebar_priority_loading",
+        "params": {
+          "state": "failed"
+        }
+      },
+      "wait": 2,
+      "record": true,
+      "shot": false
+    },
+    {
+      "title": "Try Again (the panel's retry action, as its button sends it): the feed's own panel again",
+      "rpc": {
+        "method": "debug.sidebar_priority_loading",
+        "params": {
+          "state": "retry"
+        }
+      },
+      "wait": 1.5,
+      "record": true
+    }
+  ]
+}
