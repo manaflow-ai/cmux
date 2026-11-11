@@ -24,8 +24,10 @@ public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash
     /// write still queued then is never written (it checks this under the same lock, held through its
     /// write, so once ``cancel()`` returns no gated write starts).
     private let cancelled = Mutex(false)
-    /// Largest line accepted.
-    static let maxLine = 16 * 1024 * 1024
+    /// Largest line accepted: past acpmux's largest message (`rpc::MAX_MESSAGE_BYTES`, 31 MiB), which
+    /// it sends as one line. A cap below it closed on a reply the daemon may send, and the reconnect
+    /// asked for the same reply again.
+    static let maxLine = 32 * 1024 * 1024
     /// The longest one send may block when acpmux stops reading (`SO_SNDTIMEO`); the connection
     /// then ends, so nothing waits on a full socket for good.
     static let sendTimeoutSeconds = 5

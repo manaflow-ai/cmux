@@ -23,6 +23,18 @@ you turn it off, and the `DisableTelemetry` managed policy turns it off for ever
 
 Hang reports go to cmux.com only after you agree to send them, and the app never asks while telemetry is off.
 
+## Usage patterns (local only)
+
+Usage patterns are off until you turn on Record Usage Patterns (`diagnostics.usagePatterns`, Settings > Privacy and
+Security). They are never sent anywhere: each daemon on the machine (`cmux-tui`, acpmux) keeps one small file of
+counters under the state directory's `usage-patterns` folder (`cmux-tui/crates/cmux-usage-patterns`). A counter
+names a code-defined family and an identifier the program defines: a command or operation name, a split direction,
+a transport, a client kind, a harness, a token kind, or a 12-digit opaque stand-in for a paired machine's id. The
+key filter (`clean_key`) refuses anything with a space, quote, `@`, `?`, `=`, `~`, a backslash, `:/` or more than one
+`/`, so no prompt, terminal text, URL, file path or title becomes a key. Each family keeps at most 200 keys and the
+per-day rollup 90 days. `cmux usage-patterns` and the Agent Stats page show them; `cmux usage-patterns reset`
+deletes them.
+
 ## Hosts
 
 Each row is a host, its kind and what the app sends there. Kinds:

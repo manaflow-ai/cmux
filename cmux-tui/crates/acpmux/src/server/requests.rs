@@ -225,6 +225,7 @@ pub(super) async fn handle_notification(
                 }
             }
         }
+        // Taken by the connection's read loop, in order with its requests (`in_flight.rs`).
         method::CANCEL_REQUEST => {}
         _ => tracing::debug!(conn = %conn.id, "ignored notification {m}"),
     }
@@ -1260,7 +1261,7 @@ async fn dispatch_request_with_identity(
                 // The daemon run decision proofs bind (`hub/person.rs`).
                 "personInstance": hub.person.instance(),
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::watch_delta::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::sender_token::FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::watch_delta::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::sender_token::FEATURE, crate::request_cancel::FEATURE], "trustGate": true}}
             });
             // Large messages go compressed from here on (`frame_compress.rs`).
             if conn.wire.as_ref().is_some_and(|wire| wire.enabled()) {
@@ -2000,9 +2001,15 @@ async fn dispatch_request_with_identity(
             // `acpmux send --wait`): when the session a lane reports to sent it, that turn is
             // read, and no lane report of it goes to the same session again
             // (`hub/lane_report_reads.rs`). Held until this request returns.
-            let reply_reader = (flag(crate::cli::output::READS_REPLY_META) == Some(true))
-                .then(|| hub.lane_report_reply_reader(conn.caller(), &s.id, conn.ended.subscribe()))
-                .flatten();
+            // It reads while its connection is open and it has not cancelled this request: a
+            // cancel revokes it (`prompt_cancel.rs`, review F2 of #41361).
+            let reads_reply = flag(crate::cli::output::READS_REPLY_META) == Some(true);
+            let reader = (reads_reply || flag("wakeOrFail") == Some(true))
+                .then(|| super::prompt_cancel::ReaderGone::new(hub, conn.ended.subscribe()));
+            let reply_reader = reader
+                .as_ref()
+                .filter(|_| reads_reply)
+                .and_then(|r| hub.lane_report_reply_reader(conn.caller(), &s.id, r.subscribe()));
             if let Some(reader) = &reply_reader {
                 on_accepted = Some(reader.watch(on_accepted));
             }
@@ -2091,9 +2098,7 @@ async fn dispatch_request_with_identity(
                 wake_or_fail: flag("wakeOrFail") == Some(true),
                 // Only a caller that waits for the reply and prints it reads it
                 // (`hub/question_replies.rs`); an outbox delivery's open request reads nothing.
-                reply_reader: (flag(crate::cli::output::READS_REPLY_META) == Some(true)
-                    || flag("wakeOrFail") == Some(true))
-                .then(|| conn.ended.subscribe()),
+                reply_reader: reader.as_ref().map(super::prompt_cancel::ReaderGone::subscribe),
                 inbox: inbox_on
                     && crate::hub::inbox::plain_send(
                         conn.origin == super::Origin::Peer,
@@ -2136,13 +2141,21 @@ async fn dispatch_request_with_identity(
                 // Another agent's message answers nothing the person was shown.
                 crate::suggestion_gate::withdraw(&hub.suggestion_gate, &s.id);
             }
-            let answer = heap(|| hub.prompt_with(&s, blocks, &client, steer, opts)).await;
-            // The turn ended (its read was decided) before the answer came back.
-            drop(reply_reader);
-            if let Some(saved) = saved {
-                saved.settle(hub, &answer).await;
-            }
-            answer
+            // A `$/cancel_request` of this request stops its prompt, and the prompt runs on to
+            // its turn's end, never dropped half way (`prompt_cancel.rs`).
+            let stop = super::prompt_cancel::PromptStop::new(hub, &s, reader);
+            opts.on_accepted = stop.watch(opts.on_accepted.take());
+            let hub = hub.clone();
+            let run = async move {
+                let answer = heap(|| hub.prompt_with(&s, blocks, &client, steer, opts)).await;
+                // The turn ended (its read was decided) before the answer came back.
+                drop(reply_reader);
+                if let Some(saved) = saved {
+                    saved.settle(&hub, &answer).await;
+                }
+                answer
+            };
+            super::prompt_cancel::finish_on_cancel(run, stop).await
         }
         // ACP defines cancel as a notification; a client that sends it as a
         // request gets an empty result instead of a request forwarded to
