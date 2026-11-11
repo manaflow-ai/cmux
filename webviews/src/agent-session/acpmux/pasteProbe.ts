@@ -65,7 +65,8 @@ function watchIds(ms: number): Promise<string[]> {
 /// Milliseconds from the paste to each thing the composer shows, and how long each step took.
 export type PasteProbeResult = Record<string, number | string | boolean | undefined>;
 
-const PROMPT = ".acpmux-composer-prompt [contenteditable='true']";
+/// The chat's composer, or the New Tab page's, where a new chat's first prompt is written.
+const PROMPT = ".acpmux-composer-prompt [contenteditable='true'], .ProseMirror.acpmux-md[contenteditable='true']";
 const LOADING = '.acpmux-md-inline-chip[data-state="loading"], .acpmux-attachment-pending';
 const READY_IMG =
   '.acpmux-md-inline-chip[data-state="ready"] img, .acpmux-attachment-image:not(.acpmux-attachment-pending) img';
