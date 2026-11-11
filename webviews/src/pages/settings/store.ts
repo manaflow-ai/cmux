@@ -258,6 +258,14 @@ export class SettingsStore {
           (state) => (state ? { ...state, machines } : state),
         ),
       ),
+      // A Switch or Go Back's stages (downloading, checking, restarting) move every channel's read,
+      // so the card shows where it is however it was started.
+      this.listen("cmux.settings.channels.switch.changed", (progress) =>
+        this.queryClient.setQueriesData<ChannelsState | null>(
+          { queryKey: [...settingsKeys.all, "channels"] },
+          (state) => (state ? { ...state, progress } : state),
+        ),
+      ),
       this.listen("cmux.page.command", (event) => {
         for (const listener of this.commandListeners) listener(event.command);
       }),

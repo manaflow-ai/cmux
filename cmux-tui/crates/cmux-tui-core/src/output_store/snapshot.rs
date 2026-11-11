@@ -14,7 +14,9 @@
 //! file each [`super::TAIL_FLUSH_INTERVAL`] (`tail.rs`), and a snapshot is
 //! written at most once per [`super::SNAPSHOT_INTERVAL`] while the content
 //! changes, at once for a terminal this daemon has no snapshot of (a new
-//! generation), after a resize, when the tail passes its cap, and at quit.
+//! generation), after a resize, when the tail passes its cap (at most once
+//! per [`super::TAIL_COMPACT_SPACING`] while it stays under
+//! [`super::TAIL_FLOOD_MAX_BYTES`]), and at quit.
 //! The snapshot records the stream offset its screen ends at, read under
 //! the parser lock with no parsed chunk in flight, so the tail continues it
 //! byte for byte; then the tail file goes.
@@ -504,6 +506,8 @@ struct Plan {
     interval_due: bool,
     force: bool,
     tail_bytes: u64,
+    /// A tail-cap compaction may be written now (its spacing has passed).
+    compaction_spaced: bool,
     pending: usize,
     /// The tail file continues the stored snapshot up to the unwritten bytes.
     tail_continues: bool,
@@ -522,6 +526,7 @@ impl Plan {
             interval_due: state.snapshot_at.is_none_or(|at| at.elapsed() >= interval),
             force: state.force_snapshot,
             tail_bytes: state.tail_bytes,
+            compaction_spaced: state.compaction_wait().is_zero(),
             pending: state.pending.len(),
             tail_continues: state.snapshot_generation.as_deref() == Some(&*state.generation)
                 && state.tail_end == Some(state.pending_start),
@@ -547,8 +552,9 @@ impl Plan {
         }
         // Snapshot mode: the tail continues only a snapshot of this
         // generation and size that this daemon wrote; it is compacted at the
-        // interval, when it grows past its cap, when unchanged redraws pile
-        // up in memory, and at quit. Never during a write backoff, except
+        // interval, when it grows past its cap (once per spacing, at once
+        // past the flood cap), when unchanged redraws pile up in memory, and
+        // at quit. Never during a write backoff, except
         // at quit and at a journal checkpoint (`write_now`, at most every
         // checkpoint interval): the last or a rare chance.
         if self.retry_wait.is_some() && !quitting {
@@ -566,7 +572,8 @@ impl Plan {
             || new_generation
             || resized
             || (changed && self.interval_due)
-            || self.tail_bytes >= super::TAIL_MAX_BYTES
+            || (self.tail_bytes >= super::TAIL_MAX_BYTES && self.compaction_spaced)
+            || self.tail_bytes >= super::TAIL_FLOOD_MAX_BYTES
             || self.pending >= super::TAIL_IDLE_BYTES
             || (quitting && (changed || self.pending > 0 || self.tail_bytes > 0))
     }
@@ -965,6 +972,7 @@ pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) {
                 if path.is_dir() { fs::remove_dir_all(&path) } else { fs::remove_file(&path) };
             removed += usize::from(result.is_ok());
         }
+        store.full.forget_all();
         if removed > 0 {
             eprintln!(
                 "cmux-tui: terminal output store removed {removed} file(s): \
@@ -989,9 +997,11 @@ pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) {
         }
         let path = entry.path();
         let _ = if path.is_dir() { fs::remove_dir_all(&path) } else { fs::remove_file(&path) };
+        store.full.forget(directory, &terminal_id);
     }
     if policy.mode != PersistenceMode::Full {
         super::segments::remove_all(directory);
+        store.full.forget_all();
     }
     // Parked: a kept tab and no running shell (after a daemon restart too).
     let parked = mux.parked_terminal_ids(live);

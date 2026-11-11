@@ -223,6 +223,7 @@ impl Surface {
                 terminal_public_id: Some(Arc::new(terminal_public_id)),
                 journal_generation,
                 journal_capture_supported: true,
+                output_log: Default::default(),
                 #[cfg(unix)]
                 local_output: None,
                 journal_capture_epoch: AtomicU64::new(0),

@@ -62,7 +62,7 @@ function Chip() {
       <VideoAttachmentTile
         name="screen-demo.mp4"
         video={undefined}
-        reading={false}
+        shape={1}
         remove={null}
         onPlay={player.play}
         unplayable={player.unplayable}

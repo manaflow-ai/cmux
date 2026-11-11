@@ -1034,7 +1034,10 @@ pub fn sender_record_with_auth(
     let authenticated = stamped_session.is_some() || relay.is_some() || human_authenticated;
     let session = stamped_session.clone().or_else(|| legacy_session.map(str::to_owned));
     let label = declared_label(Some(provenance));
-    let verification = if authenticated {
+    // A named sender this host's sender token proved (`sender_token.rs`): its name is verified,
+    // though no session is (`authenticated` stays the session's or relay's proof).
+    let token = crate::sender_token::verified_by_token(provenance);
+    let verification = if authenticated || token {
         "verified"
     } else if label.is_some() {
         "declared"
@@ -1117,6 +1120,9 @@ pub fn sender_record_with_auth(
     // they were.
     if let Some(sub) = provenance.get(FROM_SUBAGENT).filter(|s| s.is_object()) {
         record.set("subagent", sub.clone());
+    }
+    if token {
+        record.set(crate::sender_token::VERIFIED_BY_KEY, json!(crate::sender_token::VERIFIED_BY));
     }
     record
 }
