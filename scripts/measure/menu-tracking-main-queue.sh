@@ -8,8 +8,7 @@
 # event-tracking-mode run loop NSMenu.popUp runs, without drawing.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
-out="${TMPDIR:-/tmp}/menu-tracking-main-queue.$$"
-mkdir -p "$out"
+out="$(mktemp -d "${TMPDIR:-/tmp}/menu-tracking-main-queue.XXXXXX")"
 trap 'rm -rf "$out"' EXIT
 xcrun swiftc -O -o "$out/bench" "$here/menu-tracking-main-queue.swift"
 "$out/bench"

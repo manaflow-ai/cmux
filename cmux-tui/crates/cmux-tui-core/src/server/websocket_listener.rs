@@ -167,7 +167,11 @@ pub fn serve_websocket_with_keepalive(
             if thread_shutdown.load(Ordering::Acquire) {
                 break;
             }
-            let Some(permit) = claim_connection(&active_connections) else { continue };
+            let Some(permit) = claim_connection(&active_connections) else {
+                let commands = active_connections.commands();
+                commands.connection_refused(crate::diagnostics::ClientKind::WebSocket);
+                continue;
+            };
             let id = next_connection.fetch_add(1, Ordering::Relaxed);
             if let Ok(tracked) = stream.try_clone() {
                 thread_connections.lock().recover_poison().insert(id, tracked);
@@ -387,6 +391,8 @@ fn handle_websocket_connection_with_permit(
         return;
     };
     let client = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
+    let commands = mux.connection_stats().commands();
+    writer.kind.registered(commands, crate::diagnostics::ClientKind::WebSocket);
     if admission == CredentialMatch::Person {
         mux.control_clients.mark_person(client);
     }

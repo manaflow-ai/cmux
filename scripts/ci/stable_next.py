@@ -391,6 +391,14 @@ def sentry_new_crashes(release: str, org: str, project: str, token: str) -> list
 
 # main ---------------------------------------------------------------------------------------------
 
+def annotate(title: str, lines: list[str]) -> None:
+    """An error annotation on the job in GitHub Actions: the reason stable_next_slack.py posts."""
+    if os.environ.get("GITHUB_ACTIONS") != "true" or not lines:
+        return
+    body = "\n".join(lines).replace("%", "%25").replace("\r", "").replace("\n", "%0A")
+    print(f"::error title=cmux NEXT Stable: {title}::{body}")
+
+
 def read_optional(path: str | None) -> str | None:
     if not path:
         return None
@@ -483,6 +491,8 @@ def main(argv: list[str]) -> int:
             for line in risen:
                 print(f"crash-delta: {line}")
             print(f"crash-delta: {len(risen)} crash-class row(s) rose over the last stable build")
+            if risen:
+                annotate("new crash-risk code since the last stable build", risen)
             return 1 if risen else 0
         elif args.command == "sentry-new-crashes":
             token = os.environ.get("SENTRY_AUTH_TOKEN", "").strip()
@@ -500,6 +510,7 @@ def main(argv: list[str]) -> int:
             return 1 if issues else 0
     except Refused as error:
         print(f"refused: {error}", file=sys.stderr)
+        annotate("refused", [str(error)])
         return 1
     return 0
 

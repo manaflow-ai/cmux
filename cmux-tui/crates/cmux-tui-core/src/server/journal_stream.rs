@@ -703,8 +703,8 @@ pub(super) fn run_session_journal_stream(
                     break 'stream;
                 }
                 if stream.shared_fanout && stream.reader.is_some() {
-                    stream.reader = None;
-                    stream.epoch = mux.shared_journal_epoch();
+                    switch_to_shared_journal(mux, &mut stream);
+                    continue;
                 }
                 break;
             }
@@ -775,8 +775,8 @@ pub(super) fn run_session_journal_stream(
             }
             if stream.last_sequence >= head_sequence {
                 if stream.shared_fanout && stream.reader.is_some() {
-                    stream.reader = None;
-                    stream.epoch = mux.shared_journal_epoch();
+                    switch_to_shared_journal(mux, &mut stream);
+                    continue;
                 }
                 break;
             }
@@ -797,6 +797,25 @@ pub(super) fn run_session_journal_stream(
         }
     }
     mux.control_clients.finish_resource_stream(client, &stream.stream_id, stream.outbound.id);
+}
+
+/// A stream that caught up on its database reader reads the shared ring
+/// from here on. It takes the ring's epoch first and the caller reads the
+/// ring once more before it waits: a record the ring published after the
+/// last database page is then either in that read or past the epoch, so the
+/// stream never waits for a later commit to deliver it.
+fn switch_to_shared_journal(mux: &Mux, stream: &mut SessionJournalStreamStart) {
+    #[cfg(test)]
+    if let Some(hook) = mux
+        .journal_stream_before_ring_switch
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()
+    {
+        hook();
+    }
+    stream.reader = None;
+    stream.epoch = mux.shared_journal_epoch();
 }
 
 fn complete_bounded_journal_replay(

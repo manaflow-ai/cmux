@@ -41,6 +41,7 @@
       "backend/packages/protocol/src/",
       "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/",
       "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/",
+      "Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/",
       "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/"
     ],
     "include_named": {
@@ -135,9 +136,9 @@
     "backend/apps/api/src/hand-do.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "backend/apps/api/src/host-relay/frame.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "backend/apps/api/src/host-replica/store.ts": {"count": 4, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
-    "backend/apps/api/src/inference/catalog.ts": {"count": 2, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
+    "backend/apps/api/src/inference/catalog.ts": {"count": 2, "reason": "platform: the model makers' published per-request image-count limits, which hold at every route that serves the model: DeepSeek V4.1 Flash 1017 600 (https://api-docs.deepseek.com/guides/vision) and GPT-5.4 mini 1,500 (https://developers.openai.com/api/docs/guides/images-vision); Particle-1 has none (https://docs.particle.ai/models). A chat is never refused for its history: past the highest limit of the routes that can serve a request the newest images go, each older one becomes a placeholder the model reads, and the x-cmux-images-omitted answer header counts them; a route with a lower limit is skipped, never the cause of a refusal (route.ts, chat-request.ts fitImages). Only one new message that alone carries more images than every route takes is refused, with a 400 that says to send the rest in another message"},
     "backend/apps/api/src/inference/free.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
-    "backend/apps/api/src/inference/route.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
+    "backend/apps/api/src/inference/route.ts": {"count": 1, "reason": "platform: the 32 MiB request body bound of the model router, from the Cloudflare Workers isolate memory of 128 MB (https://developers.cloudflare.com/workers/platform/limits/#memory): the body is held as text and then as parsed JSON; every route's published body limit is higher (DeepSeek 48 MiB, Particle 144 MiB, OpenAI 512 MB), so nothing below it is cut for size. A larger body is refused at admission with 413 validation.too_large (a known limit until history images are handed off by reference)"},
     "backend/apps/api/src/ingress/automation-hook.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "backend/apps/api/src/ingress/verify.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "backend/apps/api/src/integrations/gmail.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
@@ -165,6 +166,8 @@
     "cmux-tui/crates/acpmux/src/acpmux_mcp_artifacts.rs": {"count": 2, "reason": "debt: 4 MiB metadata responses (cmux#33018); 200000-character text pages always include the complete local file reference"},
     "cmux-tui/crates/acpmux/src/adopt_replay.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/acpmux/src/adopt_replay_page.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
+    "cmux-tui/crates/acpmux/src/claude_peers.rs": {"count": 1, "reason": "platform: the macOS kern.argmax bound (1 MiB) on the KERN_PROCARGS2 size the kernel reports for a process launch_args reads, to name a Claude Code session acpmux did not start; a size past it is no real process, and it reads the launch arguments, never a message, prompt or file the person sends"},
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHome/Messages/HomeAttachmentPreparer.swift": {"count": 1, "reason": "safe: the size of one read chunk (3 MiB) of a prepared photo or video the Messages page reads back (attachments.prepare.read); a file of any size moves in chunks, so no attachment is refused or cut"},
     "cmux-tui/crates/acpmux/src/byo_endpoint.rs": {"count": 1, "reason": "safe: the most of a model-list answer (GET /v1/models, 4 MiB) read when cmux asks the endpoint the person adds as a harness for its models (fetch_models); a larger list only fails that model fetch with a message, and the model list is the endpoint's own answer, never a message, prompt or file the person sends"},
     "cmux-tui/crates/acpmux/src/hosted_mcp.rs": {"count": 1, "reason": "safe: the largest JSON-RPC reply (16 MiB) read from cmux's hosted MCP server for a tools/list or tools/call; a larger reply fails that one tool call back to the agent as an MCP error, the chat goes on, and it is a tool's answer to the agent, never a message, prompt or file the person sends"},
     "cmux-tui/crates/acpmux/src/agent_guidance.rs": {"count": 3, "reason": "safe: limits only how many files, how large each, and how many bytes in all (32 MiB), are copied from the person's ~/.config/cmux/skills folder into the session plugin, and how long a skill description is in the first-turn index (the full SKILL.md stays readable); no message, prompt or attachment is refused"},

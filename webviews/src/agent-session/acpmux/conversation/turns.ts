@@ -40,6 +40,7 @@ import { acpmuxSendCalls } from "./acpmuxSends";
 import { subsessionCall } from "./subsessionCalls";
 import { experimentArm } from "../../../experiments/experiment";
 import { finishedTaskLook } from "./taskLine.experiment";
+import { liveTurnWork } from "./liveTurnWork.experiment";
 import { turnFoldReplies } from "./turnFoldReplies.experiment";
 import { turnFoldSteered } from "./turnFoldSteered.experiment";
 import { workedForMessages } from "./workedForMessages.experiment";
@@ -59,6 +60,7 @@ import {
   foldBackgroundTurns,
   foldedBackgroundIds,
   foldsBackground,
+  hiddenInBackground,
   openBackgroundTurns,
 } from "./backgroundTurns";
 import {
@@ -618,7 +620,7 @@ export function turnViewFrom(
     for (const row of shaped) {
       // The local turn may contain a late done line whose background owner is in a prior
       // prompt. Its original background line still controls disclosure of that completion.
-      if (row.inBackground !== undefined && foldedBackground.has(row.inBackground)) continue;
+      if (hiddenInBackground(row, foldedBackground)) continue;
       if (last && isWaitingMessage(row)) pending.push(row);
       else appendLaneNotice(drawn, row);
     }
@@ -892,9 +894,7 @@ function shapedTurn(
   const background = openBackgroundTurns(rows, start + 1, end, expanded);
   const messageRuns = live ? "" : openMessageRuns(rows, start + 1, end, expanded);
   const backgroundRuns = live ? "" : openBackgroundRuns(rows, start + 1, end, expanded);
-  const source = rows
-    .slice(start + 1, end)
-    .filter((row) => row.inBackground === undefined || !foldedBackground.has(row.inBackground));
+  const source = rows.slice(start + 1, end).filter((row) => !hiddenInBackground(row, foldedBackground));
   // The person's own prompt opened the turn after this one: a turn with no summary ended there
   // (`supersededFooters`). Part of the cache key, since that prompt is not in `source`.
   const opener = rows[end];
@@ -1558,9 +1558,10 @@ function shapeTurn(
       rows.flatMap((row) =>
         isPlan(row) ? [] : out(row) ? [endedPlan(row)] : dialogue ? [row] : renderRows([row], version),
       );
-    // Closed over a turn that said something before its answer, the work around each reply folds
-    // into its own line before and after it (turnFoldReplies.experiment.ts), so the replies read in
-    // order with the work between them one click away.
+    // Closed over a turn that said something before its answer, the replies read in order and the
+    // work around them stays under Worked for, as chatgpt.com draws it: no tool call shows beside a
+    // closed fold. The experiment's other arms fold that work into lines before and after each reply
+    // (turnFoldReplies.experiment.ts).
     // A steered turn's one fold keeps every run under Worked for (`nested`): its replies alone draw.
     const around = open ? undefined : nested ? "replies" : experimentArm(turnFoldReplies);
     const between =
@@ -2170,12 +2171,13 @@ function shapeLiveTurn(
   // The Codex-style live line names the call in flight; a command still running in an earlier run
   // (a parallel `cp` while the agent messages others) leaves its run for the line too.
   const named = last ? lineCall(drawn, last) : undefined;
-  // While the turn streams nothing folds or regroups: each run keeps its calls in sight and a short
-  // note between two runs stays its own row, so no row leaves while the turn is live. The turn's end
-  // shapes it once, as its family's finished turn (turnEndFold.ts plays that), as Leo asked (2026-11-08:
-  // "while you're working on stuff, you expose it. You show it ... and you only do the overarching
-  // fold at the very end").
-  const rows = codexRuns(drawn, named?.tool.id);
+  // While the turn streams nothing folds or regroups. By default (liveTurnWork.experiment.ts `line`)
+  // its finished runs draw no row at all, as chatgpt.com draws a running turn: the replies stay in
+  // sight and the one live line below says what it does now, replacing itself at each step. Its
+  // `runs` arm keeps each run's calls in sight until the turn's end shapes it once, as its family's
+  // finished turn (turnEndFold.ts plays that; Leo, 2026-11-08: "while you're working on stuff, you
+  // expose it ... and you only do the overarching fold at the very end").
+  const rows = codexRuns(drawn, named?.tool.id, experimentArm(liveTurnWork) === "line");
   // The status ticks on this computer's clock, from the live turn's start moved onto it. A resumed
   // turn can still open with an older prompt, so the prompt's time (`user.at`) is only the fallback.
   const start = turnStartedAtMs ?? user.at;
@@ -2508,10 +2510,16 @@ const OPEN_RUN_STATES = 2;
 /// `doing`, "Thinking") and each step replaces it in place. A call still running in an earlier run
 /// (a background shell) stays in its run, except the command the live line names (`named`,
 /// `lineCall`), which reads once, on the line. Each derived row's version moves with its drawn state.
-function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
+/// With `lineOnly` a finished run of the stretch still running draws no row: the live line is its
+/// work (liveTurnWork). A stretch that already ended with its summary keeps its runs, as it draws
+/// once the chat stops working, so that end moves nothing (liveLineTakesFooterSlot.test.ts).
+function codexRuns(rows: AcpmuxRow[], named?: string, lineOnly = false): AcpmuxRow[] {
   // A started chats' card after the run is not a step: the run before it is still in flight.
   let latest = rows.length - 1;
   while (latest > 0 && rows[latest]!.kind === STARTED_SESSIONS) latest -= 1;
+  let ended = -1;
+  if (lineOnly)
+    for (let at = rows.length - 1; at >= 0 && ended < 0; at -= 1) if (rows[at]!.kind === "turnSummary") ended = at;
   return rows.flatMap((row, index) => {
     if (row.kind !== "activity") return [row];
     // A run that edited is shaped as the others; the turn's edited-files card lists its edits when
@@ -2522,6 +2530,7 @@ function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
       (row.items ?? []).some((item) => awaitsPermission(item.tool) || (keepsOwnRow(item.tool) && isRunning(item.tool!)))
     )
       return [{ ...row, foldRun: false, version: row.version * RUN_STATES }];
+    if (lineOnly && index > ended) return [];
     // An earlier run draws no call that has nothing to show yet; its row comes with its input.
     if (index !== latest)
       return withoutDrafts(row).flatMap((kept) => {

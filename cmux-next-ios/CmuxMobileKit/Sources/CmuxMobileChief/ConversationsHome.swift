@@ -37,6 +37,8 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     @State private var query = ""
     @State private var unreadOnly = false
     @State private var homeRetries = 0
+    /// The running Try Again dials the Mac first (it was offline), else it only reads again.
+    @State private var retryReconnects = true
     /// The New Chief name prompt is up.
     @State private var namingChief = false
     @State private var newChiefName = ""
@@ -75,13 +77,30 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// The Mac whose Home shows: the one its rows came from, else the Mac Chief's.
     private var homeMacID: String? { feed.macID ?? sources.mac.macID }
 
-    /// Home's "Couldn't load" row with its Retry: shown while the read failed or the
-    /// Mac is offline, and kept for as long as a retry from it runs.
+    /// Home's top connection bar shows (``connectionBar``): while the read failed or the
+    /// Mac is offline, and for as long as a Try Again from it runs.
     private var showsHomeProblem: Bool { feed.problem != nil || homeIsOffline || homeRetries > 0 }
 
     private var homeIsOffline: Bool {
         guard store.tracksMacData, let homeMacID else { return false }
         return store.macConnection[homeMacID] != .connected && store.macConnection[homeMacID] != .connecting
+    }
+
+    /// The bar at the top of Home while its list is not live (``HomeConnectionBar``).
+    private var connectionBar: HomeConnectionBar? {
+        HomeConnectionBar.make(offline: homeIsOffline, problem: feed.problem, retrying: homeRetries > 0,
+                               reconnecting: retryReconnects, hasRows: !(feed.rows ?? []).isEmpty, macName: macTag)
+    }
+
+    /// The bar's Try Again. The bar stays (its spinner turning) until the retry answers:
+    /// reconnecting clears the offline state first, and the bar leaving then would cancel
+    /// nothing but would flash.
+    private func retryHome() async {
+        guard homeRetries == 0 else { return }
+        retryReconnects = homeIsOffline
+        homeRetries += 1
+        defer { homeRetries -= 1 }
+        await HomeRetryAction(feed: feed, reconnect: reconnect).retry(macID: homeMacID, reconnectNeeded: homeIsOffline)
     }
 
     /// Under a Chief's name: where it runs ("Cloud", or the Mac's name), as the Mac's list tags each Chief.
@@ -90,7 +109,13 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     }
 
     /// The Mac's list as its sidebar lays it out, under the search and the Unread toggle.
-    private var list: MacHomeList { listMemo.list(hiddenRows.visible(feed.rows ?? []), query: query, unreadOnly: unreadOnly) }
+    /// Keyed on the rows' revisions, so a pass compares no rows and one row's change patches one
+    /// row (the change's indices are the feed's rows: only while no row is hidden).
+    private var list: MacHomeList {
+        listMemo.list(hiddenRows.visible(feed.rows ?? []), query: query, unreadOnly: unreadOnly,
+                      version: .init(rows: feed.rowsRevision, hidden: hiddenRows.revision),
+                      change: hiddenRows.hidden.isEmpty ? feed.lastChange : nil)
+    }
 
     /// The rows Delete Conversation from List hid that no newer message brought back.
     private var hiddenCount: Int { hiddenRows.hiddenCount(in: feed.rows ?? []) }
@@ -269,28 +294,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                                stamp: stamp, identifier: "home.chief.mac", place: .mac) { CallChiefItem(chief: sources.mac) }
                 }
             }
-            if !searching, showsHomeProblem {
-                VStack(spacing: 6) {
-                    Text(RecoveryMessage.home.text)
-                        .font(.footnote)
-                        .foregroundStyle(theme.colors.label2.color)
-                    RetryButton {
-                        // The row stays (its spinner turning) until the retry answers: reconnecting
-                        // clears the offline state first, and the row leaving then would swap in
-                        // "Connecting…" and cancel the button's own retry mid-flight.
-                        homeRetries += 1
-                        defer { homeRetries -= 1 }
-                        await HomeRetryAction(feed: feed, reconnect: reconnect).retry(macID: homeMacID, reconnectNeeded: homeIsOffline)
-                    }
-                    .accessibilityIdentifier("home.retry")
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
-                .listRowBackground(theme.colors.bg.color)
-                .accessibilityIdentifier("home.note.problem")
-            } else {
+            if !showsHomeProblem {
                 // Rows that exist but are still loading never show as an empty list.
                 switch listNote(searching: searching) {
                 case .connecting:
@@ -320,7 +324,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .listRowBackground(theme.colors.bg.color)
                 .accessibilityIdentifier("home.showHidden")
             }
-            if tiles.isEmpty, entries.isEmpty, feed.rows != nil || searching || unreadOnly {
+            // A search or Unread over the top of the list waits for the rest before it says "none".
+            if tiles.isEmpty, entries.isEmpty, feed.rows != nil || searching || unreadOnly,
+               feed.isComplete || feed.rows == nil || !(searching || unreadOnly) {
                 Text(unreadOnly ? "No Unread Conversations" : searching ? "No Results" : "No Conversations")
                     .font(.callout)
                     .foregroundStyle(theme.colors.label2.color)
@@ -354,6 +360,22 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("home.note.updating")
             }
+        }
+        // The Home Mac is away or its list failed (CMUX-489): a bar at the top says so and
+        // offers Try Again. It sits above the list, never over it: the kept rows, the tab bar
+        // and every local action stay usable.
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if let bar = connectionBar {
+                HomeConnectionBarView(bar: bar, retrying: homeRetries > 0, retry: retryHome)
+                    .padding(.bottom, 6)
+                    .transition(.opacity)
+            }
+        }
+        .onChange(of: connectionBar?.title, initial: true) { old, title in
+            // VoiceOver hears the bar when it appears (also on arriving at Home with the Mac
+            // already away), not on each retry's title.
+            guard old == nil || old == title, let title else { return }
+            AccessibilityNotification.Announcement(title).post()
         }
         // The Mac's search field, as the native drawer revealed by a pull-down.
         .cmuxMobilePullDownSearch(text: $query)

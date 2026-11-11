@@ -156,7 +156,7 @@ pub(crate) fn start_host_runtime(
         fail_next_resize_publication: AtomicBool::new(false),
     });
     HostShared::start_exit_publisher(&shared, exit_publish_receiver)?;
-    shared.clipboard.start_timer(&shared)?;
+    shared.clipboard.bind_timer(&shared);
 
     let parser_host = shared.clone();
     thread::Builder::new().name("terminal-host-parser".into()).spawn(move || {
@@ -274,22 +274,26 @@ const PTY_READ_BYTES: usize = 64 * 1024;
 /// read; a rewritten Kitty image can be larger than the read it came from.
 /// False when the parser is gone.
 pub(crate) fn publish_pty_output(host: &HostShared, bytes: &[u8]) -> bool {
-    bytes.chunks(PTY_READ_BYTES).all(|piece| publish_pty_frame(host, piece.to_vec()))
+    bytes.chunks(PTY_READ_BYTES).all(|piece| publish_pty_frame(host, piece))
 }
 
-fn publish_pty_frame(host: &HostShared, bytes: Vec<u8>) -> bool {
+/// One copy of the read: the Output frame that the smart retention, every
+/// smart tap and the parser share.
+// perf-hot: 1us terminal-host-output (every PTY read)
+fn publish_pty_frame(host: &HostShared, bytes: &[u8]) -> bool {
     let count = bytes.len();
     let _source_order = host.source_order_lock.lock().recover_poison();
     host.parser_budget.reserve(count);
     // Publication deliberately precedes parser enqueue. The bounded queue
     // limits memory while letting a fast renderer consume source bytes
     // independently of parser throughput.
-    let source_cursor = host.smart.publish(Frame::new(MessageKind::Output, bytes.clone()));
+    let (source_cursor, frame) =
+        host.smart.publish_shared(Frame::new(MessageKind::Output, bytes.to_vec()));
     enqueue_parser_output(
         &host.parser_commands,
         &host.parser_budget,
         &host.smart,
-        bytes,
+        frame,
         source_cursor,
         count,
     )

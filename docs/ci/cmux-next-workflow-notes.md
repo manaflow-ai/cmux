@@ -63,6 +63,13 @@ path dependencies) and the release must be built from them. Here on
 Linux it runs on every push and pull request: in swift test a newer
 push replaced the waiting job, so tip runs rarely reached it.
 
+On a push the check runs with `--stale-grace 7200`: an FFI commit's release
+can only be built from that pushed commit, so the pin is behind the sources
+after every FFI push until `app-ffi-release.yml` publishes and pins it. A pin
+behind for less than two hours passes with a note; one behind for longer
+fails, because then the release or the re-pin did not happen. Before, every
+FFI commit left the tip red for 30 to 240 minutes (2026-11-11).
+
 On a pull request the base's copy of the check and of its pin reader
 (the merge commit's first parent), extracted outside the checkout,
 judges a fresh worktree of the merge commit (--tree), with only
@@ -252,6 +259,16 @@ and hands off (note-82, note-83). The wait blocks on the endpoint
 40 min from the job's start, each read hard-bounded by `timeout` to what is left; a missing result (404) is
 read again 30 s later, inside that bound. The terminal post comes before the
 App token's hour ends (it is minted just before the wait).
+
+A refused status post (`post()`, the same function in compile-status and compile-status-handoff) prints GitHub's
+answer (`HTTP 403: {"message":...}`) and waits out a rate limit: a 403 or 429 that says so waits its Retry-After or
+primary reset, at least 60 s and twice as long each try (a retry inside a secondary limit extends it), up to 600 s;
+a 5xx or no answer tries again in 10 s; any other refusal (a bad token, no permission) is final at once. The pending
+post only shows the wait, so it gets 30 s and a refusal is a warning: on 2026-11-11 from 02:38Z a ten-minute 403 rate
+limit on cmux-bot failed this job on #40351, #40942, #41007 and the base push at the pending post, before any compile
+was read. A terminal post that still fails leaves the job's own `cmux-next/compile is not a pass for SHA (STATE)`
+line: no verdict for base_red_excuse.py (`NO_VERDICT`) for every state but `fail`, which stays a compile red.
+`test_every_cmux_next_compile_post_waits_out_a_rate_limit` fails on a job that posts cmux-next/compile any other way.
 
 Forks get no secret and no status: the job does not run, the gate is missing, and a missing
 gate does not admit. The job checks nothing out: no pull request code runs beside the token.
