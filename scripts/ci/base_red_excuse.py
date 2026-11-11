@@ -1530,8 +1530,8 @@ def pr_only_extra(head: UnplacedSignature, same: dict, found: UnplacedSignature
     """(extra failed steps by (name, conclusion), extra failing tests, extra error lines) of HEAD over FOUND, the
     red base verdict SAME of the same job, when the rest is identical and no extra step ran in SAME; else None."""
     extra = head.steps - found.steps
-    if not extra or found.steps - head.steps:
-        return None
+    if not extra or found.steps - head.steps or head.unnamed or found.unnamed:
+        return None  # a log that says tests failed and names none can hide a red no test ID matches (#41253's review)
     ran = {str(step.get("name") or ""): step.get("conclusion") for step in same.get("steps") or []}  # step-name: classify
     if any(ran.get(step) not in PR_ONLY_STEP_SKIPPED for step, _ in extra):
         return None
@@ -1553,8 +1553,12 @@ def pr_only_step_verdict(repo: str, base: str, name: str, head: UnplacedSignatur
         return None
     newest = created(window[0][0])
     reads = 0
+    # Newest first, a job name that passed in a base run is fixed from there back: an older red of it may predate the
+    # fix and never counts (the window rule above; #41253's review: a red from before the menu fix must not excuse a
+    # PR that breaks the menu again). A green run's jobs are read for that too.
+    fixed: set = set()
     for run in runs:
-        if run.get("conclusion") != "failure":  # only a finished red run has a red job to read
+        if run.get("conclusion") not in ("failure", "success"):  # unfinished or cancelled: no verdict either way
             continue
         if newest and created(run) and abs(newest - created(run)) > timedelta(hours=BASE_WINDOW_HOURS):
             continue
@@ -1563,9 +1567,12 @@ def pr_only_step_verdict(repo: str, base: str, name: str, head: UnplacedSignatur
                 break
             reads += 1
             base_jobs[run["id"]] = base_run_jobs(repo, run, github)
-        for other in base_jobs[run["id"]]:
+        jobs = base_jobs[run["id"]]
+        passed = {other.get("name") for other in jobs if other.get("conclusion") == "success"}
+        for other in jobs:
             failed = failed_step_keys(other)
-            if other.get("name") == name or other.get("conclusion") != "failure":
+            if (other.get("name") == name or other.get("conclusion") != "failure"
+                    or other.get("name") in fixed | passed):
                 continue
             fits = [(same_run, extra) for same_run, _, _, extra in candidates if not extra[0] - failed]
             if not fits:
@@ -1578,6 +1585,7 @@ def pr_only_step_verdict(repo: str, base: str, name: str, head: UnplacedSignatur
                             f"'{name}', which fails the same way otherwise; the failing tests there "
                             f"({'; '.join(sorted(tests))[:300]}) fail in {base} run {run['id']}'s "
                             f"'{other.get('name')}' ({url}), in the same steps")
+        fixed |= passed
     return None
 
 

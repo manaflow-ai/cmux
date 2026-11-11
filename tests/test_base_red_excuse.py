@@ -8717,6 +8717,24 @@ class PrOnlyStepsAreExcusedByAnotherBaseJob(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "compared whole"):
             self.judge(PrOnlyStepGitHub(menu=only, gen_menu=only))
 
+    def test_a_base_red_from_before_a_newer_pass_of_that_job_never_counts(self):
+        # #41253's review: once base fixes the menu cap ('cmux-next generated files' passes in a newer run), its older
+        # red must not excuse a PR that breaks the menu again.
+        github = PrOnlyStepGitHub()
+        github.jobs[5] = {"id": 5, "run_id": 22, "head_sha": BASE_SHA, "name": PrOnlyStepGitHub.GEN,
+                          "status": "completed", "conclusion": "success",
+                          "steps": [{"name": PrOnlyStepGitHub.REGEN, "status": "completed", "conclusion": "success"}]}
+        github.base_runs.insert(0, {"id": 22, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                                    "status": "completed", "conclusion": "success", "head_sha": BASE_SHA,
+                                    "created_at": "2026-11-11T07:10:00Z"})
+        with self.assertRaisesRegex(excuse.Refused, "compared whole"):
+            self.judge(github)
+
+    def test_a_head_log_that_says_tests_failed_unnamed_is_the_prs_own(self):
+        # #41253's review: a runner line saying tests failed with none named could hide a red no test ID matches.
+        with self.assertRaisesRegex(excuse.Refused, "names none"):
+            self.judge(PrOnlyStepGitHub(menu=PrOnlyStepGitHub.MENU + (" 1 fail",)))
+
     def test_a_stale_shared_check_without_an_excused_host_is_not_excused_by_it(self):
         github = PrOnlyStepGitHub(menu=("✘ Test aNewMenuTest() failed after 0.100 seconds with 1 issue.",))
         with self.assertRaises(excuse.Refused) as caught:
