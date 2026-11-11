@@ -3883,6 +3883,8 @@ def detect_git_temp_repo_maintenance(code_lines: list[str], text: str, path_suff
 
 
 _LOADS_GIT_FIXTURE = re.compile(r"git_fixture_env|git-fixture\.sh")
+# A git wrapper called with a writing verb: `git("init")`, `self.git("-C", d, "commit")`, `fixture_git(d, "init")`.
+_PY_GIT_WRAPPER_WRITE = re.compile(r"""\b(?:\w*_)?git\([^\n]*['"]""" + _GIT_WRITE_VERBS + r"""['"]""")
 
 
 def detect_git_write_without_fixture(code_lines: list[str], text: str, rel_posix: str) -> Optional[int]:
@@ -3892,16 +3894,18 @@ def detect_git_write_without_fixture(code_lines: list[str], text: str, rel_posix
         or (rel_posix.startswith("scripts/") and "/tests/" in rel_posix)
     )
     kind = pathlib.PurePosixPath(rel_posix).suffix
-    if not in_scope or kind not in (".py", ".sh") or _LOADS_GIT_FIXTURE.search(text):
+    if not in_scope or kind not in (".py", ".sh") or _LOADS_GIT_FIXTURE.search("\n".join(code_lines)):
         return None
     if kind == ".py":
-        code = "\n".join(code_lines)
-        if not (_PY_GIT_WRITE_STRING.search(code) or (_PY_GIT_ARGV.search(code) and _PY_GIT_WRITE_TOKEN.search(code))):
-            return None
+        # The writing verb must belong to a git call: a `git <verb>` string, an argv list naming git with the
+        # verb within its next lines, or a git wrapper called with the verb (`run_git("commit", ...)`). A
+        # "push" event name elsewhere in a file whose only git is `git show` is not a write.
         for index, line in enumerate(code_lines):
-            if _PY_GIT_WRITE_STRING.search(line) or _PY_GIT_WRITE_TOKEN.search(line):
+            if _PY_GIT_WRITE_STRING.search(line) or _PY_GIT_WRAPPER_WRITE.search(line):
                 return index
-        return 0
+            if _PY_GIT_ARGV.search(line) and _PY_GIT_WRITE_TOKEN.search("\n".join(code_lines[index:index + 4])):
+                return index
+        return None
     for index, line in enumerate(code_lines):
         if _SH_GIT_WRITE.search(line):
             return index
@@ -4553,6 +4557,17 @@ def _self_test() -> int:
         (
             "scripts/ci/tests/git_write_plain.test.sh",
             'w=$(mktemp -d)\ngit -C "$w" init -q && git -C "$w" commit -q --allow-empty -m x\n',
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "tests/git_write_wrapper.py",
+            "import subprocess\ndef run_git(*a):\n    return subprocess.run(['git', *a], check=True)\n\n\n\n\n"
+            "run_git('-C', repo, 'commit', '-qm', 'x')\n",
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "tests/git_write_comment_only.py",
+            "import subprocess\n# uses git_fixture_env somewhere\nsubprocess.run(['git', 'init', d], check=True)\n",
             {RULE_GIT_WRITE_WITHOUT_FIXTURE},
         ),
         (
@@ -5637,6 +5652,11 @@ def _self_test() -> int:
             "scripts/ci/tests/git_write_helper.test.sh",
             'source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\nw=$(mktemp -d)\ngit_fixture_init "$w"\n'
             'git -C "$w" commit -q --allow-empty -m x\n',
+        ),
+        (
+            "tests/git_read_only_event_names.py",
+            "import subprocess\ntext = subprocess.run(['git', '-C', root, 'show', 'origin/main:x.py'],\n"
+            "                      capture_output=True).stdout\n\n\n\n\ndef run(event='push'):\n    return event\n",
         ),
         (
             "tests/git_read_only_plain.py",
