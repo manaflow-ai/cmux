@@ -1665,6 +1665,8 @@ except probe.OutOfTime as cut:
     // `~!#&*`).
     const printable = ["ab+Zq8~Hw4=Kd9Lm2Px7", "Ab3!Qx#7Kq2&Zr9*Lw4"];
     const alphabets = ["Qd7+Kx2/Mn4Lw9Vb3Rz8Hj1F==", "Qd7-Kx2_Mn4Lw9Vb3Rz8Hj1Fc6", "0a1b2c3d4e5f60718293a4b5c6d7e8f9"];
+    // A bracket inside a key, a key that spells the answer's own field names, and separators inside a quoted key.
+    const odd = ["ab+Zq8~Hw4[Kd9Lm2Px7]", "Ab3Qxfindings7Kq2Zr9Lw4Np5", "Qd7,Kx2;Mn4)Lw9}Vb3Rz8"];
     const google = `AIza${"Sy9Kq3EXAMPLEw7Lx2Mn4Bv8Rt5Hj1Fd6Gc0".slice(0, 35)}`;
     const root = plant({
       "proc/5/comm": "bash\n",
@@ -1674,6 +1676,7 @@ except probe.OutOfTime as cut:
       "workspace/project/d.env": `GROQ_API_KEY=${inside[0]}\nXAI_API_KEY=${inside[1]}\nDEEPSEEK_API_KEY=${inside[2]}\n`,
       "workspace/project/e.env": `MISTRAL_API_KEY=${printable[0]}\nCOHERE_API_KEY=${printable[1]}\n`,
       "workspace/project/f.env": `TOGETHER_API_KEY=${alphabets[0]}\nFIREWORKS_API_KEY=${alphabets[1]}\nCEREBRAS_API_KEY=${alphabets[2]}\n`,
+      "workspace/project/g.env": `PERPLEXITY_API_KEY="${odd[0]}"\nOPENROUTER_API_KEY=${odd[1]}\nDEEPSEEK_API_KEY='${odd[2]}'\n`,
       "workspace/project/b.json": `{"k": "${google}"}\n`,
       // Stand-ins: a word at the value's start or after a separator, and the exact values AWS documents.
       "workspace/project/c.env": [
@@ -1692,16 +1695,19 @@ except probe.OutOfTime as cut:
     });
     try {
       const { probe, out } = run(root);
-      for (const v of [mistral, google, ...inside, ...printable, ...alphabets]) expect(out).not.toContain(v);
+      for (const v of [mistral, google, ...inside, ...printable, ...alphabets, ...odd]) expect(out).not.toContain(v);
       expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
         "file /workspace/project/[a name].env:1: GROQ_API_KEY",
         "file /workspace/project/[a name].env:1: MISTRAL_API_KEY",
         "file /workspace/project/[a name].env:1: MISTRAL_API_KEY",
+        "file /workspace/project/[a name].env:1: PERPLEXITY_API_KEY",
         "file /workspace/project/[a name].env:1: TOGETHER_API_KEY",
         "file /workspace/project/[a name].env:2: COHERE_API_KEY",
         "file /workspace/project/[a name].env:2: FIREWORKS_API_KEY",
+        "file /workspace/project/[a name].env:2: OPENROUTER_API_KEY",
         "file /workspace/project/[a name].env:2: XAI_API_KEY",
         "file /workspace/project/[a name].env:3: CEREBRAS_API_KEY",
+        "file /workspace/project/[a name].env:3: DEEPSEEK_API_KEY",
         "file /workspace/project/[a name].env:3: DEEPSEEK_API_KEY",
         "file /workspace/project/[a name].json:1: a Google AI key",
       ]);
@@ -1741,6 +1747,30 @@ except MemoryError:
       // Under 192 MiB: reading the line whole takes several copies of it.
       const r = spawnSync("bash", ["-c", 'ulimit -v 196608; exec python3 -I -c "$0" "$@"', script, KEY_PROBE_PY, big, cut], { encoding: "utf8" });
       expect(JSON.parse(r.stdout || "null")).toEqual([["GROQ_API_KEY", "MISTRAL_API_KEY"], ["XAI_API_KEY"]]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a line of many escapes that spell no key is read in linear time", () => {
+    const dir = mkdtempSync(join(tmpdir(), "key-probe-escapes-"));
+    const file = join(dir, "strings.json");
+    // 20,000 escaped spaces on one line: each was a reading of the whole line, minutes in all.
+    writeFileSync(file, `{"s": "${"\\u0020".repeat(20_000)}"}\n`);
+    const script = `
+import importlib.util, json, sys, time
+spec = importlib.util.spec_from_file_location("probe", sys.argv[1])
+probe = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(probe)
+t0 = time.monotonic()
+hits = probe.scan_file(sys.argv[2])
+print(json.dumps({"hits": hits, "s": time.monotonic() - t0}))
+`;
+    try {
+      const r = spawnSync("python3", ["-I", "-c", script, KEY_PROBE_PY, file], { encoding: "utf8" });
+      const answer = JSON.parse(r.stdout || "{}");
+      expect(answer.hits).toEqual([]);
+      expect(answer.s).toBeLessThan(0.5);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
