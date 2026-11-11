@@ -95,6 +95,12 @@ import {
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
+import {
+  cloudModePickFor as cloudModeFor,
+  cloudStartModePick,
+  holdCloudModePick,
+  useCloudModePick,
+} from "./cloudModePick";
 import { configurationSessionMatches, pickEffort } from "./configurationActions";
 import { rememberRecentFolders } from "./newtab/recentProject";
 import { rememberStartedProject } from "./newtab/startedProject";
@@ -205,7 +211,7 @@ import { PastChat } from "./PastChat";
 import { type PastTurn, readPastTurns } from "./pastChatModel";
 import type { Project } from "./ProjectChooser";
 import { byRecentUse, parseProjectRepos } from "./projectRepos";
-import { answerFromHome } from "./homeInboxModel";
+import { answerFromHome, replyElsewhere } from "./homeInboxModel";
 import { HomeLists } from "./HomeLists";
 import { lastChange, turnFiles, turnPathsOnly, turnRows, type PathRef, type TurnFile } from "./diff";
 import { opensTurn } from "./turnStart";
@@ -1261,9 +1267,21 @@ const hatActions = (
         : Promise.reject(new Error("unreachable"));
     const asked = question.question;
     const item = asked?.items[0];
-    if (question.source !== "own" || !asked || !item) return Promise.reject(new Error("unanswerable"));
+    if (!asked || !item) return Promise.reject(new Error("unanswerable"));
     const sent = questionReply(asked, { selections: { [item.id]: selection([answer.id]) } });
+    // A started chat's question is answered as its own card would answer it, sent by the host for
+    // the chat this pane does not show; a host that can't opens that chat (`replyElsewhere`).
+    if (question.source === "child") return replyElsewhere(callNative, sent, () => openAsker(question));
     return callNative("chat.permission", replyParams(sent));
+  },
+  // A started chat's question in the person's own words: its Other, sent the same way.
+  reply: (question, text) => {
+    const asked = question.question;
+    const item = asked?.items[0];
+    if (question.source !== "child" || !asked || !item) return Promise.reject(new Error("unanswerable"));
+    return replyElsewhere(callNative, questionReply(asked, { selections: { [item.id]: selection([], text) } }), () =>
+      openAsker(question),
+    );
   },
   // A tagged ask's typed answer is a reply to it too: the draft takes the ask's quote first, as
   // Quote in Reply puts one there, so what the person types under it goes quoting the ask.
@@ -1276,10 +1294,12 @@ const hatActions = (
     card?.scrollIntoView({ block: "nearest" });
     card?.querySelector<HTMLElement>("input, button")?.focus({ preventScroll: true });
   },
-  open: (question) => {
-    if (question.sessionId) void callNative("chat.asks.open", { sessionId: question.sessionId }).catch(() => undefined);
-  },
+  open: openAsker,
 });
+/// Opens a started chat's question in its chat, beside this one (`chat.asks.open`).
+function openAsker(question: HatQuestion) {
+  if (question.sessionId) void callNative("chat.asks.open", { sessionId: question.sessionId }).catch(() => undefined);
+}
 const sameItems = <T,>(a: readonly T[], b: readonly T[]) =>
   a.length === b.length && a.every((item, index) => item === b[index]);
 
@@ -1395,6 +1415,12 @@ function DefaultComposerChips({
   // A pick before the connect is the page's (heldModePick.ts), so a first send that unmounts these
   // chips never loses it; the connect flushes it. The run reads the page's actions when it runs.
   const onMode = (modeId: string): Promise<unknown> => {
+    // Cloud picked: the pick waits for the Cloud send, which starts the chat in it on the machine;
+    // this Mac starts nothing for it.
+    if (snapshot.startsOnCloud) {
+      holdCloudModePick(snapshot.summary?.harness, modeId);
+      return Promise.resolve();
+    }
     if (!startsChat || window.cmuxAcpmuxActions?.["chat.mode"] !== undefined) return pickMode(modeId);
     return holdModePick(modeId, pickMode);
   };
@@ -1429,7 +1455,9 @@ function DefaultComposerChips({
       // A Cloud or other remote machine's chat starts with its first send: until then its mode pick
       // is held for that start (Leo 2026-11-01: "i couldn't even pick a mode for this kind aqua
       // sandpaper one"), and once its agent reports its modes, their menu replaces this one.
-      holdsStartMode={!startsChat && snapshot.origin === "remote" && !snapshot.summary?.sessionId}
+      holdsStartMode={
+        (!startsChat && snapshot.origin === "remote" && !snapshot.summary?.sessionId) || snapshot.startsOnCloud === true
+      }
       onModel={(modelId) => {
         start();
         void callNative("chat.model", { modelId });
@@ -4570,6 +4598,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The host says its own progress and failures (toasts), and the chat shows the start under the
   /// message as it goes (CloudStartView; the host's `cloudStartProgress` pushes fill it in).
   const cloudPicked = sandbox.mode === "cloud" && !snapshot.sessionId;
+  // The permission mode picked for that Cloud start (cloudModePick.ts).
+  const cloudModePick = useCloudModePick();
   cloudComposeEligible.current = cloudPicked && sandboxOfferable;
   const cloudPickedNotOffered = cloudPicked && !sandboxOffered;
   const [startCloud] = useState(() =>
@@ -6859,6 +6889,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ...(quick && { canHandoff: false }),
       // Cloud picked: the first send starts the chat on a Cloud machine, which decides its mode.
       ...(cloudPicked && { startsOnCloud: true as const }),
+      // Its permission mode pick, for the harness the chat starts on (cloudModePick.ts).
+      ...(cloudPicked &&
+        cloudModeFor(cloudModePick, snapshot.summary?.harness) !== undefined && {
+          cloudStartMode: cloudModeFor(cloudModePick, snapshot.summary?.harness),
+        }),
     };
     // Prompts still waiting for a new chat to take them follow acpmux's queue, then the prompts the
     // folder's trust holds (trustHeld.ts).
@@ -6882,6 +6917,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     quick,
     keptStopping,
     cloudPicked,
+    cloudModePick,
   ]);
   // What the composer draws from: the same object while nothing it shows changed (composer/composerView.ts),
   // so a tool call or another row added to the transcript does not draw the composer again.
@@ -11614,6 +11650,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   {
                     ...cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd),
                     ...heldPick(composerSnapshot),
+                    ...cloudStartModePick(composerSnapshot.summary?.harness),
                   },
                 );
                 if (typeof started === "string") {
@@ -12518,6 +12555,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                               harness,
                               ...cloudStartFolder(cwd),
                               ...(model ? { model } : {}),
+                              // The Mode chip's pick for this harness goes with New Tab's send too.
+                              ...cloudStartModePick(harness),
                             },
                             true,
                           ),

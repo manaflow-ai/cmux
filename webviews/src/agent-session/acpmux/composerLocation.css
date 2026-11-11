@@ -1777,5 +1777,13 @@
 .acpmux-team-tag { display: inline-flex; flex: 0 1 auto; align-items: center; gap: 4px; min-width: 0; color: var(--agent-muted); font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); white-space: nowrap; }
 .acpmux-team-tag > svg { flex: none; }
 .acpmux-team-tag-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* A Cloud face with its team (ComposerContext LocationFace: "Cloud" and the team tag). The machine
+   control's cap (190 px, 145 px in a narrow pane) cut both to "Cl..." and "leo@cmux.com'..." beside an
+   empty strip (Leo 2026-11-10: "this broken too"). With a team the control takes the room it needs
+   and gives it up only after the folder (which shrinks 100 times faster): the one word "Cloud" never
+   cuts, only the team's name shortens, and the tag's tooltip names the team whole. */
+.acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker[data-kind="computer"]:has(.acpmux-team-tag) { flex-shrink: 1; }
+.acpmux-location-picker[data-kind="computer"] .acpmux-location-button:has(> .acpmux-team-tag) { max-width: none; }
+.acpmux-location-button:has(> .acpmux-team-tag) > .acpmux-location-label { flex: none; overflow: visible; }
 .acpmux-location-row .acpmux-team-tag { margin-left: auto; padding-left: 8px; }
 .acpmux-location-row .acpmux-team-tag + .acpmux-location-check { margin-left: 4px; }
