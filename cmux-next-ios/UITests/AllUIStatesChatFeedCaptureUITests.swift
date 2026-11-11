@@ -17,11 +17,21 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
         steps([{ more(app) }, { tap(label(app, contains: item), item) }])
     }
 
+    /// The agent chat shows its composer collapsed ("Reply to …") until tapped.
+    @MainActor
+    private static func openComposer(_ app: XCUIApplication) -> String? {
+        steps([
+            { wait(app.navigationBars.buttons["More"].firstMatch, "chat", timeout: 30) },
+            { let bar = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Reply to'")).firstMatch
+              if bar.waitForExistence(timeout: 10) { _ = tap(bar, "composer bar") }
+              return showKeyboard(app, field: app.textViews["chat.composer.field"], "chat composer") },
+        ])
+    }
+
     @MainActor
     private static func send(_ app: XCUIApplication, _ text: String) -> String? {
         steps([
-            { wait(app.navigationBars.buttons["More"].firstMatch, "chat", timeout: 30) },
-            { showKeyboard(app, field: app.textViews["chat.composer.field"], "chat composer") },
+            { openComposer(app) },
             { app.typeText(text); return nil },
             { tap(app.buttons["Send"].firstMatch, "Send") },
         ])
@@ -41,13 +51,13 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
                 return nil
             },
             Scene(group: g, id: "keyboard-up-draft", args: Self.idleChat, settle: 6) { app in
-                C.steps([{ C.showKeyboard(app, field: app.textViews["chat.composer.field"], "chat composer") }, { app.typeText("Run the tests"); return nil }])
+                C.steps([{ Self.openComposer(app) }, { app.typeText("Run the tests"); return nil }])
             },
             Scene(group: g, id: "slash-suggestions", args: Self.idleChat, settle: 6) { app in
-                C.steps([{ C.showKeyboard(app, field: app.textViews["chat.composer.field"], "chat composer") }, { app.typeText("/"); return nil }])
+                C.steps([{ Self.openComposer(app) }, { app.typeText("/"); return nil }])
             },
             Scene(group: g, id: "mention-suggestions", args: Self.idleChat, settle: 6) { app in
-                C.steps([{ C.showKeyboard(app, field: app.textViews["chat.composer.field"], "chat composer") }, { app.typeText("@"); return nil }])
+                C.steps([{ Self.openComposer(app) }, { app.typeText("@"); return nil }])
             },
             Scene(group: g, id: "running-turn-stop", args: Self.idleChat, settle: 6) { app in
                 C.steps([{ Self.send(app, "Summarize the transport layer") }, { C.wait(app.buttons["Stop"].firstMatch, "Stop button", timeout: 10) }])
@@ -65,14 +75,17 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
             },
             Scene(group: g, id: "more-menu", args: Self.idleChat, settle: 6) { app in Self.more(app) },
             Scene(group: g, id: "files-and-artifacts", args: Self.idleChat, settle: 6) { app in Self.moreItem(app, "Files and Artifacts") },
-            Scene(group: g, id: "agent-edits", args: Self.idleChat, settle: 6) { app in Self.moreItem(app, "Agent Edits") },
-            Scene(group: g, id: "session-info", args: Self.idleChat, settle: 6) { app in Self.moreItem(app, "Session Info") },
-            Scene(group: g, id: "copy-choices", args: Self.idleChat, settle: 6) { app in Self.moreItem(app, "Copy") },
-            Scene(group: g, id: "find-in-chat", args: Self.idleChat, settle: 6) { app in Self.moreItem(app, "Find in Chat") },
-            Scene(group: g, id: "jump-to-turn", args: Self.idleChat, settle: 6) { app in Self.moreItem(app, "Jump to Turn") },
-            Scene(group: g, id: "text-and-width", args: Self.idleChat, settle: 6) { app in Self.moreItem(app, "Text and Width") },
-            Scene(group: g, id: "checkpoints", args: Self.idleChat, settle: 6) { app in Self.moreItem(app, "Checkpoints") },
-            Scene(group: g, id: "continue-in", args: Self.idleChat, settle: 6) { app in Self.moreItem(app, "Continue in") },
+            Scene(group: g, id: "agent-edits-review", args: Self.idleChat, settle: 6) { app in
+                C.tap(app.buttons["Review"].firstMatch, "Review (files changed)")
+            },
+            Scene(group: g, id: "answer-row-menu", args: Self.idleChat, settle: 6) { app in
+                let header = app.navigationBars.buttons["More"].firstMatch
+                guard header.waitForExistence(timeout: 30) else { return "no chat" }
+                let rowMore = app.buttons.matching(NSPredicate(format: "label == %@", "More")).allElementsBoundByIndex
+                    .filter { $0.frame.minY > header.frame.maxY + 20 }.max { $0.frame.minY < $1.frame.minY }
+                guard let rowMore else { return "no answer … button" }
+                return C.tap(rowMore, "answer … button")
+            },
             Scene(group: g, id: "share-transcript", args: Self.idleChat, settle: 6) { app in Self.moreItem(app, "Share Transcript") },
             Scene(group: g, id: "answer-context-menu", args: Self.idleChat, settle: 6) { app in
                 app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.45)).press(forDuration: 1.2)
