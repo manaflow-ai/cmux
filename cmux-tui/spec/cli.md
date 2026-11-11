@@ -1437,18 +1437,30 @@ eighth of it.
 
 Without `--pane` or `--split`, the caller's space is the caller's pane, the
 agent panes stacked with it, and the agent columns right after it in its row.
-A start adds a column right of the space's last pane only while every column
-of the space keeps 40 columns after an even share (the caller's width is its
-terminal's `cols` in the snapshot), and then gives the space's columns, the
-caller's too, the same width. Otherwise the agent opens below the space's last
-pane (below the caller when it has no agent yet), and the agents of that stack
-share its height. So the caller never goes under 40 columns while it had them:
-the first agent beside a caller space narrower than 80 columns stacks below
-the caller. No pane outside the space changes. From a 95-column pane: the first agent
-takes a column (48 | 47) and the next ones stack in it; beside a person's pane
-that leaves the caller 48 columns, every agent stacks below the caller. Without
-the caller's size, or in a screen of viewport columns, the caller's pane is
-split to the right.
+The space's first agent takes a new column right of the caller only when the
+caller's pane and the new one both keep 40 terminal columns after the split;
+else it opens below the caller. A terminal is narrower than its pane: the
+client draws a border box and, by default, a scrollbar column in the pane, 3
+columns and 2 rows in all, and the snapshot's `cols` and `rows` are the
+terminal's. So a lone caller pane needs 86 columns (an 83-column terminal) for
+a column. Every later agent opens below the space's last agent pane, and the
+agents of that stack share its height, while each of them keeps 8 terminal
+rows; else the agent opens as a new tab in that last agent pane (`placement`
+`tab`) and no pane moves. A tab, not a refusal: a script that starts agents in
+a loop keeps working, and the agent still answers to its name. So a column,
+once there, keeps its width: a new agent never resizes an existing column, the
+caller never goes under 40 columns while it had them, and no pane outside the
+space changes. A start that does not know its caller (no
+`CMUX_TUI_TERMINAL_ID`, or `--session`/`--socket` naming another session than
+the caller's `CMUX_TUI_SOCKET`) uses the focused pane, often the agent the
+last start focused; a target that is itself an agent pane never gets a new
+column, so its agent opens below the last agent of its space too. From a
+98-column pane: the first agent takes a column (49 | 49 panes, 46 | 46
+terminals) and the next ones stack in it, at most three in a 39-row column;
+beside a person's pane that leaves the caller 49 columns, every agent stacks
+below the caller. `resume` of an agent whose exited tab has no pane any more
+opens in the caller's space the same way. Without the target's size, or in a
+screen of viewport columns, the target pane is split to the right.
 
 `--json` prints `{name, state, reason, dialog, options, accept_keys,
 accept_label, harness, launcher, args, cwd, placement, workspace_id, screen_id,
@@ -1470,8 +1482,9 @@ arguments as separate argv words: `claude --resume <id>`, `codex resume <id>`,
 `gemini --resume <id>`, `opencode --session <id>`, `amp threads continue
 <id>`. `--cmd` replaces the recorded launcher; `--harness` names the harness
 when no record does. The agent reopens in the exited tab's pane unless `--pane`
-or `--split` say otherwise, with the old tab's name and folder; the exited tab
-is closed. The output adds `resumed: {terminal_id, tab_id, agent_session_id,
+or `--split` say otherwise (with no such pane, in the caller's space as for
+`agent start`), with the old tab's name and folder; the exited tab is closed.
+The output adds `resumed: {terminal_id, tab_id, agent_session_id,
 tab_closed}`. An exited terminal whose tab was closed has no placement, so an
 owner with a reaper (every owner a client starts: 30 s unless the client names
 another grace) ends it after the grace; resume it within that time, or keep it

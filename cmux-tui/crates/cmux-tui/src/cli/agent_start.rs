@@ -22,8 +22,8 @@
 //!   and harness session id (`agent list --terminal <t>`), runs the same
 //!   launcher with the harness's resume arguments (`claude --resume <id>`,
 //!   `codex resume <id>`), in the old tab's pane unless `--pane`/`--split`
-//!   say otherwise, and closes the exited tab, which gives its name to the
-//!   new one.
+//!   say otherwise (with no such pane, in the caller's space as a start),
+//!   and closes the exited tab, which gives its name to the new one.
 //!
 //! Output: `{name, state, reason, dialog, harness, launcher, args, cwd,
 //! placement, workspace_id, screen_id, pane_id, tab_id, terminal_id,
@@ -538,7 +538,7 @@ pub(in crate::cli) fn start<D: Daemon + ?Sized>(
             options.placement(),
         ),
     };
-    let created =
+    let (created, placement) =
         placement::open(daemon, &pane, &placement, Some(name), cwd.as_deref(), &launch.argv())?;
     if let Some((_, Some(shell))) = &fresh {
         placement::end_placeholder(daemon, shell);
@@ -767,7 +767,8 @@ pub(in crate::cli) fn resume<D: Daemon + ?Sized>(
         ),
     };
     let name = exited.name.as_deref();
-    let created = placement::open(daemon, &pane, &placement, name, cwd.as_deref(), &launch.argv())?;
+    let (created, placement) =
+        placement::open(daemon, &pane, &placement, name, cwd.as_deref(), &launch.argv())?;
     // The exited tab gives its name and place to the resumed agent.
     let closed = exited.tab.as_deref().is_some_and(|tab| {
         plan(&["tab", tab, "close"]).is_ok_and(|close| daemon.request(None, close).is_ok())

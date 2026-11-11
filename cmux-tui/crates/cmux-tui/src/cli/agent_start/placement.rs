@@ -22,14 +22,19 @@
 //! The caller's space (W6-F, bench round 5 orchestration row 8: the caller
 //! of two agents was left 9 columns wide) is the caller's pane, the agent
 //! panes stacked with it, and the agent columns right after it in its row.
-//! A default start adds a column there only while every column of the space
-//! keeps [`MIN_AGENT_COLUMNS`] after an even share, and then evens the
-//! space's columns, the caller's too. Otherwise the agent goes below the
-//! last agent pane of the space (below the caller when it has none), and
-//! the agents of that stack share its height. So the caller never goes
-//! under the minimum while it had it, and no pane outside the space
-//! changes. Without the caller's size in the snapshot, or in a screen that
-//! is no split tree, a default start splits the caller to the right.
+//! A default start adds a column only for the space's first agent, and only
+//! when the caller's pane and the new one both keep [`MIN_AGENT_COLUMNS`]
+//! terminal columns after the split; else the first agent goes below the
+//! caller. Every later agent goes below the space's last agent pane, and
+//! the agents of that stack share its height, while each keeps
+//! [`MIN_AGENT_ROWS`] terminal rows; else it opens as a new tab in that
+//! last agent pane. So a column, once there, keeps its width (a new column
+//! never resizes existing ones), the caller never goes under the minimum
+//! while it had it, and no pane outside the space changes. A start whose
+//! target pane is itself an agent pane (no caller known: the focused pane,
+//! often the agent the last start focused) stacks the same way and never
+//! adds a column. Without the target's size in the snapshot, or in a screen
+//! that is no split tree, a default start splits the target to the right.
 //!
 //! The agent runs in a tab of its own (`pane run --on-exit keep --name
 //! NAME`), so its name, argv and harness session stay on record after it
@@ -42,10 +47,26 @@ use super::super::agent_names::{self, Found};
 use super::super::terminal_talk::send::{self, Daemon};
 use super::{Failure, plan};
 
-/// The fewest columns a default start leaves each column of the caller's
-/// space before it stacks agents instead (W6-F): an agent's permission
-/// dialog stays readable, and the caller keeps room to work.
+/// The fewest terminal columns a default start leaves the caller and its
+/// first agent before it stacks the agent below the caller instead (W6-F):
+/// an agent's permission dialog stays readable, and the caller keeps room
+/// to work.
 const MIN_AGENT_COLUMNS: f64 = 40.0;
+
+/// The fewest terminal rows a default start leaves each agent of a stack
+/// before it opens the next agent as a tab in the stack's last agent pane
+/// (W6-F): a permission dialog of a few lines and the input box still show.
+const MIN_AGENT_ROWS: f64 = 8.0;
+
+/// The columns a pane's frame takes from its terminal: the client draws a
+/// border box in the pane and, by default, a scrollbar column inside it
+/// (`scrollbar.position = column`; app/frame_geometry.rs). The snapshot's
+/// `cols` is the terminal's, so a 49-column pane has a 46-column terminal.
+const FRAME_COLUMNS: f64 = 3.0;
+
+/// The rows a pane's frame takes from its terminal: the border box's top
+/// row (the tab bar) and its bottom row.
+const FRAME_ROWS: f64 = 2.0;
 
 /// A new tab in a pane, or a new pane next to it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -67,13 +88,15 @@ impl Placement {
     }
 }
 
-/// Where [`Placement::Beside`] opens the new pane.
+/// Where [`Placement::Beside`] opens the agent.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Room {
-    /// A new column right of this pane; the space's columns then share it.
+    /// A new column right of this pane (the caller's, for its first agent).
     Column(String),
     /// A new pane below this one; the agents of its stack then share it.
     Stack(String),
+    /// A new tab in this pane: the last agent pane of a full stack.
+    Tab(String),
 }
 
 /// The ids of the agent's new tab.
@@ -345,8 +368,11 @@ pub(in crate::cli) fn target_pane(
 }
 
 /// Opens the agent's tab: splits `pane` first for [`Placement::Split`],
-/// runs `argv` there as a named tab that keeps its terminal after exit,
-/// and ends the split's shell ([`end_placeholder`]).
+/// places it in the caller's space for [`Placement::Beside`], runs `argv`
+/// there as a named tab that keeps its terminal after exit, and ends the
+/// split's shell ([`end_placeholder`]). Returns the new tab and the
+/// placement it got: [`Placement::Beside`] becomes the split it made, or
+/// [`Placement::Tab`] in the last agent pane of a full stack.
 pub(in crate::cli) fn open<D: Daemon + ?Sized>(
     daemon: &D,
     pane: &str,
@@ -354,24 +380,33 @@ pub(in crate::cli) fn open<D: Daemon + ?Sized>(
     name: Option<&str>,
     cwd: Option<&str>,
     argv: &[String],
-) -> Result<Created, Failure> {
-    let (target, shell_tab) = match placement {
+) -> Result<(Created, Placement), Failure> {
+    let (target, shell_tab, placed) = match placement {
         Placement::Split(direction) => {
             let split = split(daemon, pane, direction, cwd)?;
             balance(daemon, split.screen.as_deref(), &split.pane, None);
-            (split.pane.clone(), Some(Placeholder::of(&split)))
+            (split.pane.clone(), Some(Placeholder::of(&split)), placement.clone())
         }
         Placement::Beside => {
-            let split = match room(daemon, pane) {
+            let (split, direction) = match room(daemon, pane) {
+                Some(Room::Tab(last)) => {
+                    // W6-F: shows how often a stack is full.
+                    crate::client_log::log(
+                        "debug",
+                        "agent_start",
+                        &format!("agent stack full: the agent opens as a tab in {last}"),
+                    );
+                    return run_in(daemon, &last, None, Placement::Tab, name, cwd, argv);
+                }
                 Some(Room::Column(beside)) => {
                     let split = split(daemon, &beside, "right", cwd)?;
                     balance(daemon, split.screen.as_deref(), &split.pane, Some(pane));
-                    split
+                    (split, "right")
                 }
                 Some(Room::Stack(below)) => {
                     let split = split(daemon, &below, "down", cwd)?;
                     balance(daemon, split.screen.as_deref(), &split.pane, None);
-                    split
+                    (split, "down")
                 }
                 None => {
                     // W6-F: shows how often a start lacks the caller's size.
@@ -385,14 +420,30 @@ pub(in crate::cli) fn open<D: Daemon + ?Sized>(
                     );
                     let split = split(daemon, pane, "right", cwd)?;
                     balance(daemon, split.screen.as_deref(), &split.pane, None);
-                    split
+                    (split, "right")
                 }
             };
-            (split.pane.clone(), Some(Placeholder::of(&split)))
+            let placed = Placement::Split(direction.to_owned());
+            (split.pane.clone(), Some(Placeholder::of(&split)), placed)
         }
-        Placement::Tab => (pane.to_owned(), None),
+        Placement::Tab => (pane.to_owned(), None, Placement::Tab),
     };
-    let mut words = vec!["pane", target.as_str(), "run", "--on-exit", "keep"];
+    run_in(daemon, &target, shell_tab.as_ref(), placed, name, cwd, argv)
+}
+
+/// Runs `argv` in `target` as a named tab that keeps its terminal after
+/// exit and ends `shell_tab`, the new pane's shell; a failed run also
+/// closes the new pane, so no shell pane stays behind.
+fn run_in<D: Daemon + ?Sized>(
+    daemon: &D,
+    target: &str,
+    shell_tab: Option<&Placeholder>,
+    placed: Placement,
+    name: Option<&str>,
+    cwd: Option<&str>,
+    argv: &[String],
+) -> Result<(Created, Placement), Failure> {
+    let mut words = vec!["pane", target, "run", "--on-exit", "keep"];
     if let Some(name) = name {
         words.extend(["--name", name]);
     }
@@ -409,19 +460,19 @@ pub(in crate::cli) fn open<D: Daemon + ?Sized>(
         Err(failure) => {
             // Leave no shell pane, and no shell, behind a failed start: the
             // shell's end takes its tab, and the pane with its last tab.
-            if let Some(shell) = &shell_tab {
+            if let Some(shell) = shell_tab {
                 end_placeholder(daemon, shell);
-                if let Ok(close) = plan(&["pane", target.as_str(), "close"]) {
+                if let Ok(close) = plan(&["pane", target, "close"]) {
                     let _ = daemon.request(None, close);
                 }
             }
             return Err(failure);
         }
     };
-    if let Some(shell) = &shell_tab {
+    if let Some(shell) = shell_tab {
         end_placeholder(daemon, shell);
     }
-    Ok(created)
+    Ok((created, placed))
 }
 
 /// `pane split <pane> --<direction>`: the new pane and its shell tab.
@@ -465,12 +516,12 @@ fn layout_of<D: Daemon + ?Sized>(
     (snapshot, layout)
 }
 
-/// Where a default start opens beside `caller` ([`beside`]); `None` when
+/// Where a default start opens beside `target` ([`beside`]); `None` when
 /// the snapshot or the layout cannot tell.
-fn room<D: Daemon + ?Sized>(daemon: &D, caller: &str) -> Option<Room> {
-    let (snapshot, layout) = layout_of(daemon, None, caller);
+fn room<D: Daemon + ?Sized>(daemon: &D, target: &str) -> Option<Room> {
+    let (snapshot, layout) = layout_of(daemon, None, target);
     let snapshot = snapshot?;
-    beside(&snapshot, &layout?, caller)
+    beside(&snapshot, &layout?, target)
 }
 
 /// Evens the new `pane`'s row by setting the ratios of the splits that
@@ -649,9 +700,9 @@ fn space<'a>(root: &'a Value, caller: &str, is_agent: &dyn Fn(&str) -> bool) -> 
     Some(Space { row: Some(row), cells, caller: caller_cell, end })
 }
 
-/// The caller's terminal width in columns: the widest terminal of its pane
-/// in `snapshot`.
-fn pane_columns(snapshot: &Value, pane: &str) -> Option<f64> {
+/// The size of `pane`'s terminal along `key` (`cols` or `rows`): its
+/// largest terminal's in `snapshot`, without the pane's frame.
+fn pane_size(snapshot: &Value, pane: &str, key: &str) -> Option<f64> {
     let tabs: Vec<&str> = list(snapshot, "tabs")
         .iter()
         .filter(|tab| tab["pane_id"] == pane)
@@ -660,32 +711,93 @@ fn pane_columns(snapshot: &Value, pane: &str) -> Option<f64> {
     list(snapshot, "terminals")
         .iter()
         .filter(|terminal| terminal["id"].as_str().is_some_and(|id| tabs.contains(&id)))
-        .filter_map(|terminal| terminal["cols"].as_f64())
+        .filter_map(|terminal| terminal[key].as_f64())
         .reduce(f64::max)
 }
 
-/// Where a default start opens beside `caller` (module doc): a new column
-/// right of the space's last pane while each column keeps
-/// [`MIN_AGENT_COLUMNS`], else a pane below the space's last pane. `None`
-/// without the caller's width or a split tree.
-fn beside(snapshot: &Value, root: &Value, caller: &str) -> Option<Room> {
+/// Where a default start opens beside `target` (module doc): the caller
+/// alone takes a new column while both halves keep [`MIN_AGENT_COLUMNS`],
+/// else a pane below it; once the space has an agent, a pane below the
+/// space's last agent pane while each agent of that stack keeps
+/// [`MIN_AGENT_ROWS`] ([`stack_rows`]), else a tab in that pane. `None`
+/// without the target's width or a split tree.
+fn beside(snapshot: &Value, root: &Value, target: &str) -> Option<Room> {
     let is_agent = |id: &str| started_agents(snapshot, id);
-    let space = space(root, caller, &is_agent)?;
-    let caller_cell = space.cells.get(space.caller)?;
-    let shared = space.cells.get(space.caller..space.end)?;
-    let last = shared.last()?;
-    let fraction: f64 = shared.iter().map(|cell| cell.width).sum();
-    if caller_cell.width <= 0.0 {
+    let columns = pane_size(snapshot, target, "cols")?;
+    let space = space(root, target, &is_agent)?;
+    let last = space.cells.get(space.end.checked_sub(1)?)?;
+    let last_pane = (*last.panes.last()?).to_owned();
+    if last_pane == target && !is_agent(target) {
+        // The space's first agent: the daemon gives the first side of an
+        // even split `round(width / 2)`, so the narrower side is the floor.
+        let half = ((columns + FRAME_COLUMNS) / 2.0).floor() - FRAME_COLUMNS;
+        return Some(if half >= MIN_AGENT_COLUMNS && last.node["kind"] == "leaf" {
+            Room::Column(last_pane)
+        } else {
+            Room::Stack(last_pane)
+        });
+    }
+    Some(match stack_rows(snapshot, root, &last_pane, &is_agent) {
+        Some(rows) if rows < MIN_AGENT_ROWS => Room::Tab(last_pane),
+        _ => Room::Stack(last_pane),
+    })
+}
+
+/// The terminal rows each agent of `pane`'s stack keeps after a split puts
+/// one more agent below `pane`: [`row_ratios`] then evens the run of agent
+/// panes around the new one in `pane`'s column (the chain of vertical splits
+/// above it). Rows come from the snapshot (each pane's terminal plus its
+/// frame); a cell with no terminal size takes its share of the column.
+/// `None` when no size is known.
+fn stack_rows(
+    snapshot: &Value,
+    root: &Value,
+    pane: &str,
+    is_agent: &dyn Fn(&str) -> bool,
+) -> Option<f64> {
+    let mut path = Vec::new();
+    if !path_to(root, pane, &mut path) {
         return None;
     }
-    let columns = pane_columns(snapshot, caller)? * fraction / caller_cell.width;
-    let room = columns / (shared.len() as f64 + 1.0);
-    let last_pane = (*last.panes.last()?).to_owned();
-    Some(if room >= MIN_AGENT_COLUMNS && last.node["kind"] == "leaf" {
-        Room::Column(last_pane)
-    } else {
-        Room::Stack(last_pane)
-    })
+    let vertical = json!("vertical");
+    let top = path
+        .iter()
+        .rposition(|split| split["direction"] != vertical)
+        .map_or(0, |different| different + 1);
+    let Some(column) = path.get(top) else {
+        // `pane` is not in a stack: the split halves it.
+        let rows = pane_size(snapshot, pane, "rows")? + FRAME_ROWS;
+        return Some((rows / 2.0).floor() - FRAME_ROWS);
+    };
+    let mut cells = Vec::new();
+    cells_of(column, &vertical, 1.0, &mut cells);
+    let at = cells.iter().position(|cell| cell.panes.contains(&pane))?;
+    let known = |cell: &Cell<'_>| match cell.panes.as_slice() {
+        [only] if cell.node["kind"] == "leaf" => {
+            pane_size(snapshot, only, "rows").map(|rows| rows + FRAME_ROWS)
+        }
+        _ => None,
+    };
+    let (mut known_rows, mut known_share) = (0.0, 0.0);
+    for cell in &cells {
+        if let Some(rows) = known(cell) {
+            known_rows += rows;
+            known_share += cell.width;
+        }
+    }
+    if known_share <= 0.0 {
+        return None;
+    }
+    let rows = |cell: &Cell<'_>| known(cell).unwrap_or(known_rows / known_share * cell.width);
+    let agent =
+        |cell: &Cell<'_>| !cell.panes.is_empty() && cell.panes.iter().all(|id| is_agent(id));
+    let before = cells.get(..at).unwrap_or_default();
+    let first = at - before.iter().rev().take_while(|cell| agent(cell)).count();
+    let after = cells.get(at + 1..).unwrap_or_default();
+    let end = at + 1 + after.iter().take_while(|cell| agent(cell)).count();
+    let run = cells.get(first..end)?;
+    let total: f64 = run.iter().map(rows).sum();
+    Some((total / (run.len() as f64 + 1.0)).floor() - FRAME_ROWS)
 }
 
 /// The split ratios that give each column of `caller`'s space (with the
