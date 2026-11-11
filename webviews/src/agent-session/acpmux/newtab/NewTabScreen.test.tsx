@@ -1764,4 +1764,12 @@ test("a start refused because the agent is not installed says so in plain words,
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   expect(asks).toHaveLength(before + 1);
   expect(asks.at(-1)?.[1]).toBe("fix the build on main");
+  expect(asks.at(-1)?.[0]).toBe(harness);
+
+  // An emptied field (a failed New chat) still retries: the chat starts empty, never a no-op.
+  await typePrompt("");
+  await act(async () => button(translate("switch.retry"))!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(asks).toHaveLength(before + 2);
+  expect(asks.at(-1)?.[1]).toBe("");
 });
