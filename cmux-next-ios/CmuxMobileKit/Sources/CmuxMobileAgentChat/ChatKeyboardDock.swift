@@ -62,11 +62,16 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// The transcript: a collection view of reused rows (`ChatTranscriptList`).
     private let list: ChatTranscriptList
     private var scrollView: ChatTranscriptCollectionView { list.collectionView }
-    /// Workspace chats have no navigation bar to provide a native top edge.
+    /// The native top edge's container, over the header (status bar and navigation bar).
     private let topShelf = UIView()
     /// Like the embedded terminal, iOS 26 also needs a gradient fallback:
     /// a bare top edge container alone does not obscure text under the clock.
     private let topFade = TopFadeView()
+    /// The native bottom scroll edge effect's container: from the bottom stack's top to the
+    /// screen's bottom, so rows scrolling under the composer (and under the home indicator
+    /// below it) soften the way they do under a system toolbar, instead of reading through
+    /// the composer's glass.
+    private let bottomShelf = UIView()
     private let emptyHost: UIHostingController<AnyView>
     private var dockHost: UIHostingController<AnyView>?
     private var dockContainer: PassthroughView?
@@ -221,6 +226,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         scrollView.alwaysBounceVertical = true
         scrollView.backgroundColor = .cmuxMobileBackground
         scrollView.topEdgeEffect.style = .soft
+        scrollView.bottomEdgeEffect.style = .soft
         list.scrollDelegate = self
         // Safari's bottom bar: a tap on the page while the field is being edited ends the
         // editing and lowers the keyboard (CMUX-34). The draft stays in the composer, and the
@@ -232,19 +238,32 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         view.addSubview(scrollView)
         setContentScrollView(scrollView, for: .top)
 
+        // The native top edge spans the whole header: the status bar and, for a pushed chat,
+        // the navigation bar under it. The bar alone softened only the status bar's height
+        // (the transcript manages its own insets), so rows under the title read sharp.
+        topShelf.isUserInteractionEnabled = false
+        topShelf.isAccessibilityElement = false
+        view.addSubview(topShelf)
+        let topEdge = UIScrollEdgeElementContainerInteraction()
+        topEdge.scrollView = scrollView
+        topEdge.edge = .top
+        topShelf.addInteraction(topEdge)
         if placement == .external {
-            topShelf.isUserInteractionEnabled = false
-            view.addSubview(topShelf)
-            let topEdge = UIScrollEdgeElementContainerInteraction()
-            topEdge.scrollView = scrollView
-            topEdge.edge = .top
-            topShelf.addInteraction(topEdge)
             if #unavailable(iOS 27) {
                 topFade.isUserInteractionEnabled = false
                 topFade.isAccessibilityElement = false
                 view.addSubview(topFade)
             }
         }
+
+        bottomShelf.isUserInteractionEnabled = false
+        bottomShelf.isAccessibilityElement = false
+        bottomShelf.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(bottomShelf)
+        let bottomEdge = UIScrollEdgeElementContainerInteraction()
+        bottomEdge.scrollView = scrollView
+        bottomEdge.edge = .bottom
+        bottomShelf.addInteraction(bottomEdge)
 
         for host in [emptyHost] + [dockHost, jumpHost].compactMap({ $0 }) {
             addChild(host)
@@ -273,6 +292,10 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             emptyHost.view.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             emptyHost.view.centerYAnchor.constraint(equalTo: openArea.centerYAnchor),
             emptyHost.view.widthAnchor.constraint(lessThanOrEqualTo: view.widthAnchor, constant: -40),
+            bottomShelf.topAnchor.constraint(equalTo: dockGuide.topAnchor),
+            bottomShelf.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            bottomShelf.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bottomShelf.trailingAnchor.constraint(equalTo: view.trailingAnchor),
         ])
 
         // Above a docked keyboard (the guide's top is the view's bottom when
@@ -394,11 +417,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         if openAreaTop?.constant != top { openAreaTop?.constant = top }
         updateStackCeiling(headerBottom: top)
         scrollView.edgeTopInset = top
-        if placement == .external {
-            let chromeFrame = CGRect(x: 0, y: 0, width: view.bounds.width, height: top)
-            if topShelf.frame != chromeFrame { topShelf.frame = chromeFrame }
-            if topFade.superview != nil, topFade.frame != chromeFrame { topFade.frame = chromeFrame }
-        }
+        let chromeFrame = CGRect(x: 0, y: 0, width: view.bounds.width, height: top)
+        if topShelf.frame != chromeFrame { topShelf.frame = chromeFrame }
+        if topFade.superview != nil, topFade.frame != chromeFrame { topFade.frame = chromeFrame }
 
         // As in Messages, a transcript drag takes the keyboard once the finger
         // reaches the stack's top edge.
