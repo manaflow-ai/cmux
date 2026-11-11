@@ -70,6 +70,8 @@ mod host_notice_tests;
 #[cfg(test)]
 mod ledger_hub_tests;
 #[cfg(test)]
+mod owned_scope_bench_tests;
+#[cfg(test)]
 mod peer_notice_cost_tests;
 #[cfg(test)]
 mod prompt_accept_tests;
@@ -132,6 +134,7 @@ mod team_information;
 mod team_sent;
 pub(crate) mod workflow_index;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
+pub use list_guard::{RequestHold, RequestStage};
 pub use media_read::FEATURE as MEDIA_READ_FEATURE;
 pub use native_history::FEATURE as NATIVE_HISTORY_FEATURE;
 pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
@@ -485,6 +488,15 @@ pub struct RemoteRef {
     pub summary: Value,
 }
 
+impl RemoteRef {
+    /// The id this daemon's list row names the peer's session `mux_id` by (its
+    /// `qualifiedSessionId`, `Hub::remote_summary`): the one key a client matches the
+    /// peer's notices of that session to its row and to what it found by that row.
+    pub fn qualified_id(&self, mux_id: &str) -> String {
+        SessionReceipt::new(self.peer.as_str(), mux_id, None, 0).qualified_id()
+    }
+}
+
 /// A session that lives on a peer daemon.
 #[derive(Debug, Clone)]
 pub struct RemoteSession {
@@ -736,6 +748,9 @@ pub struct Hub {
     pub(super) events: list_guard::Events,
     /// The shared, paced full session list (`list_guard.rs`).
     pub(crate) list_guard: list_guard::ListGuard,
+    /// Client requests every connection serves now, each holding its work slot
+    /// (`server/in_flight.rs`, `Hub::requests_in_flight`).
+    pub(crate) requests_in_flight: Arc<std::sync::atomic::AtomicUsize>,
     /// Each chat's spend and context as its harness recorded them (`usage_view.rs`).
     pub(crate) usage_stats: usage_view::UsageCache,
     /// What every turn here cost, indexed by day and session (`hub/ledger`, `_acpmux/ledger`).
@@ -749,6 +764,14 @@ pub struct Hub {
     /// The approvals audit trail (`audit_log.rs`).
     pub(crate) audit: audit_log::AuditLog,
     pub shutdown: Notify,
+    /// The owner of the hub's own tasks (`cmux_scope`). Every task that lives off the hub (the
+    /// idle reaper, each chat's inbound loop, pool starts, carried turns, retries, message
+    /// projections) is spawned here, never with a bare `tokio::spawn`: then the shutdown cancels
+    /// them all and joins them within a deadline (`Hub::close_owned_tasks`, after the agents),
+    /// naming any that did not end, instead of leaving them parked on a wake nobody sends with a
+    /// handle that keeps the hub alive. A connection's scope is a child of this one. New hub
+    /// code spawns through it; the spawn-owner ratchet counts the bare spawns left.
+    pub(crate) scope: cmux_scope::Scope,
     /// Latched daemon restart and drain shared by TCP and embedded-tailnet listeners.
     pub(crate) ws_shutdown: crate::server::WsShutdown,
     /// Set only by an explicit daemon restart/update handoff. Ordinary stops
@@ -1198,12 +1221,14 @@ impl Hub {
             inline_btw: StdMutex::new(HashMap::new()),
             events,
             list_guard: Default::default(),
+            requests_in_flight: Default::default(),
             usage_stats: Default::default(),
             ledger,
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
             review_index: Default::default(),
             audit,
             shutdown: Notify::new(),
+            scope: cmux_scope::Scope::new("acpmux hub"),
             ws_shutdown: Default::default(),
             restart_requested: std::sync::atomic::AtomicBool::new(false),
             fatal: crate::supervise::Fatal::default(),
@@ -1737,6 +1762,7 @@ impl Hub {
             detaching: AtomicBool::new(false),
             inbound_tx,
             inbound_rx: Mutex::new(Some(inbound_rx)),
+            closed: tokio::sync::watch::channel(false).0,
             steering: AtomicBool::new(steering),
             backgrounds_work: AtomicBool::new(backgrounds_work),
             person: AtomicBool::new(false),
@@ -2707,6 +2733,8 @@ impl Hub {
         };
         self.update_live_session_index(session);
         if was != status {
+            // Its inbound loop parks once the chat closes, and a reopen starts it again.
+            session.closed.send_replace(status == SessionStatus::Closed);
             // A closed snapshot partitions sessions by status. Invalidate on both sides of a
             // closed transition, including reopen before its `reopened` record is appended, so a
             // build that observed the old partition cannot publish it after the transition.
