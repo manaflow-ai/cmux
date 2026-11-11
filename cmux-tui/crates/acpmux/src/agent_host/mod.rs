@@ -30,6 +30,8 @@ pub mod link;
 pub mod program_wait;
 #[cfg(unix)]
 pub(crate) mod record_watch;
+#[cfg(all(test, unix))]
+mod record_write_tests;
 pub(crate) mod scope;
 pub mod sweep;
 #[cfg(unix)]
