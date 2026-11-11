@@ -9,6 +9,7 @@
 // The item is the shared shape (plans/cmux-next/needs-you.md): the header's pinned list draws it,
 // the Feed keys the same prompt `acpmux:<permissionId>` (its dedupe key), and an agent points at an
 // item with `cmux://needs-you/<permissionId>` (links.ts) instead of restating it.
+import { PrefixFlatCache } from "../conversation/prefixFlatMap";
 import type { AcpmuxAgentPair, AcpmuxPermission, AcpmuxRow, QueuedPrompt } from "../model";
 import { questionSummary, type AgentQuestion } from "../question/model";
 import type { AcpmuxSessionEntry } from "../sessionList";
@@ -226,12 +227,16 @@ function questionAnswers(question: AgentQuestion): NeedsYouAnswer[] {
   return item.options.map((option) => ({ id: option.id, label: option.label, tone: "choice" as const }));
 }
 
+const NO_PAIRS: readonly AcpmuxAgentPair[] = [];
+const pairReads = new PrefixFlatCache<AcpmuxRow, AcpmuxAgentPair>((row) =>
+  row.kind === "agentPair" && row.agentPair ? [row.agentPair] : NO_PAIRS,
+);
+
 /// The open chat's agent pairs that still hold messages for the person to release.
 export function heldPairs(rows: readonly AcpmuxRow[]): AcpmuxAgentPair[] {
   const pairs = new Map<string, AcpmuxAgentPair>();
-  for (const row of rows) {
-    const pair = row.kind === "agentPair" ? row.agentPair : undefined;
-    if (!pair) continue;
+  // Only the rows a snapshot changed are read again (conversation/prefixFlatMap.ts).
+  for (const pair of pairReads.read(rows).items) {
     // A later row for the same peer replaces an earlier one (a re-pause takes over what it held).
     if (pair.resumed || pair.held.length === 0) pairs.delete(pair.peer);
     else pairs.set(pair.peer, pair);

@@ -149,9 +149,10 @@ English only). Results go to stdout and diagnostics to stderr.
 | Exit | Meaning |
 | --- | --- |
 | 0 | Success. |
-| 1 | Operation failure (the request ran and failed, or `screen wait` or `agents wait` timed out). |
+| 1 | Operation failure (the request ran and failed). |
 | 2 | Usage error (`usage.invalid`). |
 | 3 | Transport failure (no session or app socket, unreachable, broken reply). |
+| 124 | A wait timed out: `screen wait`, `process wait`, `wait --until`, `send --wait`, `run`, `agents wait`, `status wait`. Its result says `timed_out: true`. On a Cloud machine, a timed-out `process wait` exits 124 only for a caller that sets `CMUX_CALLER_READS_WAIT_124=1` (the current guest adapter does); for any other it still exits 0 and says `timed_out: true`, so an older adapter keeps working. |
 
 `cmux acp` keeps acpmux's own exit codes (for example `acp wait` exits 2 when a
 permission is waiting and 3 on timeout).
@@ -428,9 +429,14 @@ modifiers `ctrl`, `alt` (or `option`), `shift`; keys `enter`, `tab`, `backtab`,
 `home`, `end`, `pageup`, `pagedown`, `space`, `f1` to `f24`, or one character.
 Example: `cmux terminal current keys ctrl+c enter`.
 
-`screen wait` prints its result either way and exits 1 when the timeout passes
-without a match. `cmux agents wait` does the same: it prints its receipt
-(`matched: false`) and exits 1 when its timeout passes.
+Every wait prints its result either way, and a wait whose timeout passed says
+`timed_out: true` and exits 124, as timeout(1) does; exit 0 means the wait
+ended for its own reason. `screen wait` answers `matched: false`, `timed_out:
+true` and `waited_ms` when the timeout passes without a match. `process wait`
+answers `outcome` once the process ends (exit 0, whatever the process's own
+code), and `state: "pending"`, `timed_out: true` and `waited_ms` when it still
+runs at the timeout. `cmux agents wait` prints its receipt (`matched: false`,
+`timed_out: true`) and exits 124 when its timeout passes.
 
 `wait --until prompt` returns when the shell sits at its prompt (`extra.prompt`,
 from OSC 133 shell integration); `--until idle` when no plain command runs, no

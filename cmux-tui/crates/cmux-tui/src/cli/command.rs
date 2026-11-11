@@ -35,7 +35,7 @@ pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
 pub(super) mod plan;
 mod screen;
 mod session_reset;
-pub(super) use session_reset::run_session_reset_state;
+pub(super) use session_reset::{end_stopped_terminal_state, run_session_reset_state};
 pub(super) use state::parse_duration_ms;
 mod server_ensure;
 mod settings;
@@ -193,7 +193,7 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
     }
     let mut selectors = Selectors::default();
     let plan = match scope {
-        "server" => parse_server(words, &mut tokens.flags)?,
+        "server" => parse_server(words, &mut tokens.flags, surface)?,
         "machine" => machine::parse(words, &mut selectors, &mut tokens.flags, surface)?,
         "session" => parse_session(words, &mut selectors, &mut tokens.flags)?,
         "client" => parse_client(words, &mut selectors, &mut tokens.flags)?,
@@ -234,7 +234,11 @@ fn parse_space(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageEr
     }
 }
 
-fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+fn parse_server(
+    words: &[String],
+    flags: &mut Flags,
+    surface: super::Surface,
+) -> Result<CommandPlan, UsageError> {
     let action = match strs(words).as_slice() {
         ["status"] => super::lifecycle::ServerAction::Status,
         ["stats"] => super::lifecycle::ServerAction::Stats,
@@ -245,6 +249,10 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
         ["compact-registry"] => super::lifecycle::ServerAction::CompactRegistry {
             state_dir: flags.take("state-dir").map(PathBuf::from),
         },
+        ["premigrate-registry"] => super::lifecycle::ServerAction::PremigrateRegistry {
+            state_dir: flags.take("state-dir").map(PathBuf::from),
+            max_duration: premigrate_max_duration(flags)?,
+        },
         ["start"] => {
             return Err(UsageError::new(
                 crate::localization::catalog().local_server.start_options_after_action,
@@ -252,7 +260,9 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
         }
         [action] => {
             let messages = &crate::localization::catalog().local_server;
+            let scope = if surface == super::Surface::Cmux { "daemon" } else { "server" };
             return Err(UsageError::new(messages.unknown_server_action(
+                scope,
                 action,
                 super::suggestion(
                     action,
@@ -265,6 +275,7 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
                         "restart",
                         "reload-config",
                         "compact-registry",
+                        "premigrate-registry",
                     ],
                 ),
             )));
@@ -302,6 +313,23 @@ fn restart_action(flags: &mut Flags) -> Result<super::lifecycle::ServerAction, U
         restore_wait: restore_wait(flags)?,
         force: flags.boolean("force"),
     })
+}
+
+/// `server premigrate-registry --max-seconds <n>`: at most a day, 10 minutes
+/// by default (the app's update handoff waits for it; a partial fold still
+/// shortens the next start, and the next run resumes it).
+fn premigrate_max_duration(flags: &mut Flags) -> Result<Option<std::time::Duration>, UsageError> {
+    const DEFAULT_SECONDS: u64 = 600;
+    const MAX_SECONDS: u64 = 86_400;
+    match flags.take("max-seconds") {
+        None => Ok(Some(std::time::Duration::from_secs(DEFAULT_SECONDS))),
+        Some(value) => match value.parse::<u64>() {
+            Ok(seconds @ 1..=MAX_SECONDS) => Ok(Some(std::time::Duration::from_secs(seconds))),
+            _ => Err(UsageError::new(
+                crate::localization::catalog().local_server.registry_premigrate_max_seconds_invalid,
+            )),
+        },
+    }
 }
 
 fn restore_wait(flags: &mut Flags) -> Result<std::time::Duration, UsageError> {

@@ -92,6 +92,36 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
         onSignIn: async () => undefined,
       },
     },
+    "spend-cap": {
+      note: "The team's spending cap refused the machine: an admin can raise it; Run on This Mac sends the same prompt here.",
+      props: {
+        start: {
+          ...begun,
+          step: "machine",
+          state: "failed",
+          code: "cloud_spend_cap",
+          message:
+            "Your team reached its spending cap, so no Cloud machine can start. A team admin can raise it, or run this chat on this Mac.",
+        },
+        onRunHere: () => undefined,
+        onDismiss: () => undefined,
+      },
+    },
+    "member-budget": {
+      note: "The member's own monthly budget refused the machine: an admin can raise it; Run on This Mac goes on here.",
+      props: {
+        start: {
+          ...begun,
+          step: "machine",
+          state: "failed",
+          code: "cloud_member_budget",
+          message:
+            "You've spent your monthly budget, so no Cloud machine can start. A team admin can raise it, or run this chat on this Mac.",
+        },
+        onRunHere: () => undefined,
+        onDismiss: () => undefined,
+      },
+    },
     "signing-in": {
       note: "The person clicked Sign in to continue: the card waits on the browser sign-in, not on Cloud.",
       props: { start: { ...begun, signingIn: true } },

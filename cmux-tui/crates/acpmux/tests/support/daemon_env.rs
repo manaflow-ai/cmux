@@ -169,6 +169,11 @@ const _: Process = super::HERMETIC;
 #[cfg(unix)]
 pub fn enter(process: Process, args: Vec<std::ffi::OsString>) {
     use std::os::unix::process::CommandExt;
+    // The daemon refuses a state folder that group or others may write (`config.rs`), so a test's
+    // folders are private whatever umask its caller has (a lane VM's shell has 002). Before the
+    // check below: a test this process starts again inherits the mark, and its caller's umask.
+    // SAFETY: `umask` only swaps this process's file mode mask; no thread has started yet.
+    unsafe { libc::umask(0o077) };
     if std::env::var_os(ENTERED).is_some() {
         remove_moved_scratch_at_exit();
         return;

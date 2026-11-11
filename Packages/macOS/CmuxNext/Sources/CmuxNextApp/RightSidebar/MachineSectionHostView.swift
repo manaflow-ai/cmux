@@ -22,7 +22,7 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
             style: { ServerTunables.machinesStyle.value }, joined: { joined },
             newWorkspace: { registry.perform("workspace.newOnMachine", invocation: ActionInvocation(arguments: ["machine": .string($0)])) },
             addMachine: { registry.perform("device.add") }, present: { _, _ in },
-            menu: { kind, row in Self.menu(kind, row: row, registry: registry) }))
+            menu: { kind, row in Self.menu(kind, row: row, registry: registry) }, cloudTeam: { [weak cloud = services.cloud] in cloud.flatMap { TeamRowText.machinesTeam($0.auth) } }))
         section = provider.makeSection(joined: joined)
         super.init(frame: NSRect(x: 0, y: 0, width: RightSidebarModel.width, height: 400))
         section.translatesAutoresizingMaskIntoConstraints = false

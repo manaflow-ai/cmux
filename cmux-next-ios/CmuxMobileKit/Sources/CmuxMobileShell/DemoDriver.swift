@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-feed", "retry-terminal", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -50,6 +50,21 @@ struct DemoDriver {
         case "settings-middle": await settingsScrolled(to: "appearance")
         case "states": await states()
         case "retry-workspaces":
+            // Nothing cached: the error page (cached rows would stay, CMUX-49).
+            shell.tab = .workspaces
+            shell.store.workspaces = []
+            shell.store.teams = shell.store.teams.map { var team = $0; team.macs = []; return team }
+            shell.store.teamDataState = .failed
+        // CMUX-49: the launch states (`retry-` names: public captures, no real names).
+        // A first launch (nothing cached) loading, waiting offline, or failed; and a
+        // cached list whose refresh failed (the rows stay, marked last known).
+        case "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed":
+            shell.tab = .workspaces
+            shell.store.workspaces = []
+            shell.store.teams = shell.store.teams.map { var team = $0; team.macs = []; return team }
+            shell.store.isOffline = name != "retry-first-launch"
+            shell.store.teamDataState = name == "retry-first-launch-failed" ? .failed : .loading
+        case "retry-refresh-failed":
             shell.tab = .workspaces
             shell.store.teamDataState = .failed
         case "retry-feed":
@@ -139,6 +154,17 @@ struct DemoDriver {
                 var summary = summary
                 summary.status = .idle
                 return MockAgentSession(summary: summary, richFirstTurn: false, history: true)
+            }
+            shell.tab = .home
+            shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
+        case "slow-history-chat":
+            // An existing chat whose Mac answers 4 s late (AgentChatLoadingUITests): the chat
+            // shows its loading state, never the new-chat screen, until the history lands.
+            AgentSessionDirectory.shared.makeSource = { summary in
+                var summary = summary
+                summary.status = .idle
+                return DelayedHistorySource(inner: MockAgentSession(summary: summary, richFirstTurn: false, history: true),
+                                            delay: .seconds(4))
             }
             shell.tab = .home
             shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
@@ -1120,5 +1146,41 @@ private final class FrameClock: NSObject {
         link?.invalidate()
         link = nil
     }
+}
+/// A demo chat whose history comes `delay` late, as from a slow Mac: it says it loads history
+/// (``AgentSessionSource/loadsHistory``) and says when it caught up.
+@MainActor
+final class DelayedHistorySource: AgentSessionSource {
+    let inner: MockAgentSession
+    let delay: Duration
+
+    init(inner: MockAgentSession, delay: Duration) {
+        self.inner = inner
+        self.delay = delay
+    }
+
+    var summary: AgentSessionSummary { inner.summary }
+    var loadsHistory: Bool { true }
+
+    func events() -> AsyncStream<AgentSessionEvent> {
+        let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
+        let inner = inner, delay = delay
+        Task { @MainActor in
+            // Demo only: stands in for a Mac that answers late.
+            try? await Task.sleep(for: delay)
+            var first = true
+            for await event in inner.events() {
+                continuation.yield(event)
+                if first {
+                    first = false
+                    continuation.yield(.historyLoading(false))
+                }
+            }
+            continuation.finish()
+        }
+        return stream
+    }
+
+    func send(_ intent: AgentClientIntent) { inner.send(intent) }
 }
 #endif

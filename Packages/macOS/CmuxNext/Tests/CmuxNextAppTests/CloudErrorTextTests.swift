@@ -30,8 +30,6 @@ struct CloudErrorTextTests {
     /// caller or the classic `cmux vm` CLI: the app shows the message and
     /// trace id without them; the log (`description`) keeps them.
     @Test(arguments: [
-        ("vm_firewall_rule_not_found", "List your rules with GET /api/vm/firewall; a retried delete of a removed rule is already done."),
-        ("vm_tunnel_not_found", "Enroll it with POST /api/vm/tunnel, then bring the WireGuard tunnel up."),
         ("vm_not_found", "Run `cmux vm ls` to see available Cloud VMs. If the VM stopped while idle, start a new one with `cmux vm new`."),
         ("vm_access_requires_pro", "Upgrade to Pro at https://cmux.com/pricing to reconnect vm-1, or delete it with `cmux vm rm vm-1`."),
         ("vm_active_limit_exceeded", "Upgrade to cmux Pro at https://cmux.com/pricing for more active machines, or free a slot with `cmux vm rm <id>`."),

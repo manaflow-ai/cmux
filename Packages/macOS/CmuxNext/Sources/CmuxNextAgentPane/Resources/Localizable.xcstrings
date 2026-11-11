@@ -34605,6 +34605,80 @@
         }
       }
     },
+    "agentPane.error.gitPushUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": { "state": "translated", "value": "تعذّر دفع الفرع؛ أعد الاتصال بالمحادثة وحاول مرة أخرى." }
+        },
+        "bs": {
+          "stringUnit": { "state": "translated", "value": "Granu nije moguće poslati; ponovo povežite razgovor i pokušajte ponovo." }
+        },
+        "da": {
+          "stringUnit": { "state": "translated", "value": "Grenen kunne ikke pushes; forbind chatten igen, og prøv igen." }
+        },
+        "de": {
+          "stringUnit": { "state": "translated", "value": "Der Branch konnte nicht gepusht werden; verbinde den Chat erneut und versuche es noch einmal." }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The branch could not be pushed; reconnect the chat and try again."
+          }
+        },
+        "es": {
+          "stringUnit": { "state": "translated", "value": "No se pudo subir la rama; vuelve a conectar el chat e inténtalo de nuevo." }
+        },
+        "fr": {
+          "stringUnit": { "state": "translated", "value": "Impossible d'envoyer la branche ; reconnectez la conversation et réessayez." }
+        },
+        "it": {
+          "stringUnit": { "state": "translated", "value": "Impossibile eseguire il push del branch; riconnetti la chat e riprova." }
+        },
+        "ja": {
+          "stringUnit": { "state": "translated", "value": "ブランチをプッシュできませんでした。チャットを再接続して、もう一度お試しください。" }
+        },
+        "ko": {
+          "stringUnit": { "state": "translated", "value": "브랜치를 푸시할 수 없습니다. 채팅을 다시 연결한 후 다시 시도하세요." }
+        },
+        "nl": {
+          "stringUnit": { "state": "translated", "value": "De branch kon niet worden gepusht; verbind de chat opnieuw en probeer het nogmaals." }
+        },
+        "no": {
+          "stringUnit": { "state": "translated", "value": "Grenen kunne ikke pushes; koble til chatten på nytt og prøv igjen." }
+        },
+        "pl": {
+          "stringUnit": { "state": "translated", "value": "Nie można wypchnąć gałęzi; połącz ponownie czat i spróbuj jeszcze raz." }
+        },
+        "pt-BR": {
+          "stringUnit": { "state": "translated", "value": "Não foi possível enviar o branch; reconecte o chat e tente novamente." }
+        },
+        "ru": {
+          "stringUnit": { "state": "translated", "value": "Не удалось отправить ветку; переподключите чат и попробуйте снова." }
+        },
+        "sv": {
+          "stringUnit": { "state": "translated", "value": "Grenen kunde inte pushas; anslut chatten igen och försök igen." }
+        },
+        "th": {
+          "stringUnit": { "state": "translated", "value": "พุชสาขาไม่ได้ โปรดเชื่อมต่อแชทอีกครั้งแล้วลองใหม่" }
+        },
+        "tr": {
+          "stringUnit": { "state": "translated", "value": "Dal gönderilemedi; sohbeti yeniden bağlayıp tekrar deneyin." }
+        },
+        "uk": {
+          "stringUnit": { "state": "translated", "value": "Не вдалося надіслати гілку; повторно підключіть чат і спробуйте ще раз." }
+        },
+        "vi": {
+          "stringUnit": { "state": "translated", "value": "Không thể đẩy nhánh; hãy kết nối lại cuộc trò chuyện rồi thử lại." }
+        },
+        "zh-Hans": {
+          "stringUnit": { "state": "translated", "value": "无法推送分支；请重新连接聊天，然后重试。" }
+        },
+        "zh-Hant": {
+          "stringUnit": { "state": "translated", "value": "無法推送分支；請重新連線聊天，然後再試一次。" }
+        }
+      }
+    },
     "agentPane.error.gitWrite": {
       "extractionState": "manual",
       "localizations": {
@@ -38930,134 +39004,134 @@
         }
       }
     },
-    "agentPane.menu.inspectUIElement": {
-      "comment": "Agent chat right-click menu: the Labs UI pointer picker, which attaches a page element to a composer.",
+    "agentPane.menu.pointAtElement": {
+      "comment": "Agent chat right-click menu: starts the UI pointer picker, which points at a page element and attaches it to a composer. Holding Option shows the page's developer tools in its place.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "فحص عنصر الواجهة"
+            "value": "الإشارة إلى عنصر…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pregledaj UI element"
+            "value": "Pokaži na element…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Undersøg UI-element"
+            "value": "Peg på element…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "UI-Element untersuchen"
+            "value": "Auf Element zeigen…"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspect UI Element"
+            "value": "Point at Element…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspeccionar elemento de la interfaz"
+            "value": "Señalar elemento…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspecter l’élément d’interface"
+            "value": "Désigner un élément…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ispeziona elemento dell’interfaccia"
+            "value": "Indica elemento…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "UI 要素を検証"
+            "value": "要素を指す…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ពិនិត្យធាតុ UI"
+            "value": "ចង្អុលទៅធាតុ…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "UI 요소 검사"
+            "value": "요소 가리키기…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspiser UI-element"
+            "value": "Pek på element…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zbadaj element interfejsu"
+            "value": "Wskaż element…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspecionar elemento da interface"
+            "value": "Apontar para elemento…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Просмотреть элемент интерфейса"
+            "value": "Указать на элемент…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ตรวจสอบองค์ประกอบ UI"
+            "value": "ชี้ที่องค์ประกอบ…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arayüz öğesini incele"
+            "value": "Öğeyi işaret et…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Переглянути елемент інтерфейсу"
+            "value": "Вказати на елемент…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kiểm tra phần tử giao diện"
+            "value": "Trỏ vào phần tử…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "检查界面元素"
+            "value": "指向元素…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "檢查介面元素"
+            "value": "指向元素…"
           }
         }
       }

@@ -214,6 +214,9 @@ impl Mux {
         let mux = Arc::new(Mux {
             launch_identity,
             registry_connection: registry.connection.clone(),
+            committed_snapshots: crate::resource_api::CommittedSnapshots::open(
+                registry.session_journal_database_path().as_deref(),
+            ),
             bound_socket_path: OnceLock::new(),
             workspace_registry: SignaledMutex::new(registry),
             session_public_id,
@@ -321,6 +324,8 @@ impl Mux {
                     .unwrap_or(0),
             ),
             #[cfg(test)]
+            host_frames_spawn_failures: AtomicU64::new(0),
+            #[cfg(test)]
             kitty_image_budget_operation: Mutex::new(None),
             cell_pixel_lifecycle: Mutex::new(()),
             next_cell_pixel_generation: AtomicU64::new(1),
@@ -345,20 +350,27 @@ impl Mux {
             agent_records: Mutex::new(agent_records),
             agent_hook_fences: Mutex::new(agent_hook_fences),
             agent_hook_projection: Mutex::new(()),
+            agent_hooks_at_rest: Default::default(),
+            agent_plugin_reports_at_rest: Default::default(),
             agent_presence: Mutex::new(HashMap::new()),
             agent_hook_children: Mutex::new(HashMap::new()),
-            agent_prompts: Mutex::new(agent_prompts::AgentTexts::default()),
+            agent_prompts: Mutex::new(agent_prompts::AgentTexts::with_sessions(
+                agent_roster.roster.hook_sessions(),
+            )),
             agent_roster: Mutex::new(agent_roster),
             agent_roster_worker: Default::default(),
             agent_message_pump: Default::default(),
             #[cfg(unix)]
             agent_chat_notices: Default::default(),
+            #[cfg(unix)]
+            project_chats: Default::default(),
             placement_notifications: Mutex::new(HashMap::new()),
             terminal_notifications: Mutex::new(terminal_notifications),
             terminal_command_history: AtomicBool::new(false),
             terminal_last_command: AtomicBool::new(false),
             command_history_worker: Mutex::new(None),
             terminal_publisher: Default::default(),
+            terminal_live: Default::default(),
             terminal_tail_pins: Default::default(),
             notification_ledger: Mutex::new(notification_ledger),
             notification_reads: Mutex::new(notification_reads),
@@ -373,6 +385,7 @@ impl Mux {
             output_store,
             incognito_workspace_keys: Mutex::new(HashSet::new()),
             journal_maintenance: Mutex::new(None),
+            disk_usage: Mutex::default(),
             output_cleanup: Default::default(),
             journal_maintenance_control: Arc::default(),
             journal_hook_dispatcher_started: AtomicBool::new(false),
@@ -444,7 +457,7 @@ impl Mux {
             terminal_reap_grace_ms: AtomicU64::new(
                 u64::try_from(DEFAULT_TERMINAL_REAP_GRACE.as_millis()).unwrap_or(u64::MAX),
             ),
-            terminal_reaper_events: Mutex::new(None),
+            terminal_reaper: Mutex::default(),
             launch_snapshot_path: Mutex::new(None),
             settings: settings::SettingsSlot::default(),
             keybindings: keybindings::KeybindingsSlot::default(),
@@ -453,6 +466,8 @@ impl Mux {
             prelaunched_terminals: Mutex::new(HashMap::new()),
             #[cfg(unix)]
             image_pastes: crate::image_paste::ImagePasteStore::default(),
+            #[cfg(unix)]
+            shell_runs: crate::shell_runs::ShellRuns::default(),
             history: crate::history_ops::HistoryHost::default(),
             surface_operation_admission: Arc::new(
                 crate::server::ServerSurfaceOperationAdmission::new(lane_on),

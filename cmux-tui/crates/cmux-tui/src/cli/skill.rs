@@ -69,7 +69,8 @@ pub(super) const RECIPES: &[Recipe] = &[
         ],
         read: "run opens a new tab in your pane that runs the command as its own process \
                (`value.terminal_id`). process wait prints `outcome.code` (and \
-               `outcome.kind`: exit or signal) once it ends. `--on-exit keep` keeps the \
+               `outcome.kind`: exit or signal) once it ends; `timed_out: true` (exit 124, \
+               `state: pending`) means it still runs. `--on-exit keep` keeps the \
                output readable after the exit.",
     },
     Recipe {
@@ -83,7 +84,7 @@ pub(super) const RECIPES: &[Recipe] = &[
                `matched: false` (exit 1) when the command ended first, `timed_out: true` \
                (exit 124) when the time passed. For a command already running, `screen wait \
                --pattern RE --new` waits in the daemon for output printed after the wait \
-               starts.",
+               starts (`timed_out: true`, exit 124, when it never shows).",
     },
     Recipe {
         ask: "What does the pane on the right show?",
@@ -263,7 +264,12 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     match rest.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
         [] | ["show"] => Some(show(&global)),
         ["--help" | "-h"] | ["show", "--help" | "-h"] => Some(usage(0)),
-        _ => Some(usage(2)),
+        _ => Some(super::scope_usage_failure(
+            global.output,
+            "skill",
+            &super::unknown_words("skill", rest),
+            messages.skill_usage,
+        )),
     }
 }
 
@@ -420,21 +426,24 @@ const WAITS_AND_ERRORS: &str = "
 | `terminal <term> send --text T --wait none` | at once, after typing T and Enter | - |
 | `terminal <term> run -- CMD` | the shell's next prompt; exits with CMD's `exit_status` | `--timeout 5m`, exit 124 (125: no status) |
 | `terminal <term> send --text T --pattern RE` | output after T matches RE (or T ends: exit 1) | `--timeout`, exit 124 |
-| `terminal <term> screen wait --pattern RE` | RE matches the screen | `--timeout-ms N`, exit 1 |
-| `terminal <term> screen wait --pattern RE --new` | RE matches output printed after the wait starts | `--timeout-ms N`, exit 1 |
+| `terminal <term> screen wait --pattern RE` | RE matches the screen | `--timeout-ms N`, exit 124 |
+| `terminal <term> screen wait --pattern RE --new` | RE matches output printed after the wait starts | `--timeout-ms N`, exit 124 |
 | `terminal <term> wait --until prompt\\|idle` | the terminal is at a prompt / idle | `--timeout 30s`, exit 124 |
-| `terminal <term> process wait` | the terminal's process exits (`outcome.code`) | `--timeout-ms N` |
+| `terminal <term> process wait` | the terminal's process exits (`outcome.code`) | `--timeout-ms N`, exit 124 (`state: pending`) |
+| `agents wait --until idle\\|dialog\\|text` | another agent stops, a dialog is pending, text shows | `--timeout S`, exit 124 |
 
 `--wait prompt` and `wait --until` need shell integration (OSC 133), which cmux shells have.
-A timeout does not stop the command; read the screen before you send more.
+Every wait whose time ran out prints `timed_out: true` and exits 124; exit 0 means the wait \
+ended for its own reason. A timeout does not stop the command; read the screen before you \
+send more.
 A `--pattern` RE is matched line by line: `^` and `$` match at the start and end of each line \
 (`--pattern '^BENCH_OK$'`), as in grep. Start it with `(?-m)` to match the whole text.
 
 ## Errors and exit codes
 
 Errors are one JSON object on stderr with `--json`: `{\"code\", \"message\", \"details\", \
-\"retryable\"}`. Exit codes: 0 done, 1 the operation failed (or `screen wait` found no \
-match), 2 usage error (fix the command), 3 cannot reach the session, 124 a wait timed out.
+\"retryable\"}`. Exit codes: 0 done, 1 the operation failed, 2 usage error (fix the \
+command), 3 cannot reach the session, 124 a wait timed out (`timed_out: true`).
 A change that failed with `retryable: true` prints an idempotency key: run it again with \
 `--idempotency-key <key>`, which never applies it twice. Before you retry a timed-out \
 create, list first: it may have run.

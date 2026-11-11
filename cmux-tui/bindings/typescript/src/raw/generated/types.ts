@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 16dc901b40ed3a51599c02e8ad774f8f8e638e4b970274faa2cfcf267e7dc330. */
+/* cmux-tui mux protocol 12, IR 8f7c38cfe306dacf10763a16c8b540a144ad4c48ef14d76c58f729ee5f0f8ee0. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -372,6 +372,8 @@ export type ConversationTabRecord = {
 };
 
 export type ConversationTabSplit = {
+  /** The split the new split wraps whole, as split-around-v1 on split: pane must be that split's last pane and direction right or down. */
+  "around"?: (Id) | null;
   /** The side of pane the new pane takes: right, down, left or up. */
   "direction": string;
   /** Caller-minted public id of the new pane (pane_ and 32 hex digits), as split-client-keys-v1; refused when it exists or ever existed. */
@@ -1093,6 +1095,69 @@ export type ServerStatsConnections = {
   "refused": bigint;
 };
 
+export type ServerStatsDisk = {
+  "error": (string) | null;
+  "files": Array<ServerStatsDiskFile>;
+  "files_truncated": boolean;
+  "files_unlisted": bigint;
+  "freelist_pages": bigint;
+  "journal": (ServerStatsDiskJournal) | null;
+  "page_count": bigint;
+  "page_size": bigint;
+  "registry_bytes": bigint;
+  "segments": (ServerStatsDiskSegments) | null;
+  "shm_bytes": bigint;
+  "wal_bytes": bigint;
+};
+
+export type ServerStatsDiskFile = {
+  "bytes": bigint;
+  "files": bigint;
+  "name": string;
+};
+
+export type ServerStatsDiskJournal = {
+  "estimated_live_bytes": bigint;
+  "first_sequence": bigint;
+  "head_sequence": bigint;
+  "kinds": Array<ServerStatsDiskJournalKind>;
+  "live_rows": bigint;
+  "sample_bytes": bigint;
+  "sample_rows": bigint;
+  "sample_span_ms": bigint;
+};
+
+export type ServerStatsDiskJournalKind = {
+  "budget_bytes_per_day": bigint;
+  "bytes_per_day": (bigint) | null;
+  "kind": string;
+  "over_budget": boolean;
+  "sample_bytes": bigint;
+  "sample_rows": bigint;
+};
+
+export type ServerStatsDiskSegmentCodec = {
+  "codec": string;
+  "compressed_bytes": bigint;
+  "records": bigint;
+  "segments": bigint;
+  "uncompressed_bytes": bigint;
+};
+
+export type ServerStatsDiskSegmentKind = {
+  "kind": string;
+  "segments": bigint;
+};
+
+export type ServerStatsDiskSegments = {
+  "by_codec": Array<ServerStatsDiskSegmentCodec>;
+  "compressed_bytes": bigint;
+  "kinds": Array<ServerStatsDiskSegmentKind>;
+  "records": bigint;
+  "segments": bigint;
+  "uncompressed_bytes": bigint;
+};
+
 export type ServerStatsHistogram = {
   "count": bigint;
   "max": bigint;
@@ -1106,6 +1171,27 @@ export type ServerStatsHookQueue = {
   "queued_events": bigint;
   "reset_dropped_events": bigint;
   "undeliverable_events": bigint;
+};
+
+export type ServerStatsJournalFollower = {
+  "client": bigint;
+  "connected_ms": bigint;
+  "keeps_hook_rows": boolean;
+  "keeps_report_rows": boolean;
+  "kinds": Array<string>;
+  "left_ms": (bigint) | null;
+  "max_sensitivity": (string) | null;
+  "remote": boolean;
+  "stream_id": string;
+};
+
+export type ServerStatsJournalFollowers = {
+  "followers": Array<ServerStatsJournalFollower>;
+  "grace_ms": bigint;
+  "hook_rows_kept": boolean;
+  "journal_hook_keeps_rows": (boolean) | null;
+  "keep_all_ms": bigint;
+  "report_rows_kept": boolean;
 };
 
 export type ServerStatsJournalWriter = {
@@ -1202,7 +1288,9 @@ export type ServerStatsResourceProjection = {
 
 export type ServerStatsResult = {
   "connections": ServerStatsConnections;
+  "disk"?: ServerStatsDisk;
   "hook_queue"?: ServerStatsHookQueue;
+  "journal_followers"?: ServerStatsJournalFollowers;
   "journal_writer": (ServerStatsJournalWriter) | null;
   "locks"?: ServerStatsLocks;
   "registry_lock": ServerStatsRegistryLock;
@@ -1393,6 +1481,8 @@ export type Tab = {
   "terminal_incarnation"?: (string) | null;
   "terminal_resource_id"?: (string) | null;
   "title": string;
+  "title_activity"?: (string) | null;
+  "title_text"?: string;
 };
 
 export type TabGroupEndedTerminal = {

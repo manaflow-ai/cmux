@@ -96,7 +96,9 @@ extension ScreenContentView {
 
     /// Steps every pane and divider spring by `dt`, no presentation (`step`'s first part). The panes and dividers are
     /// one motion: none settles on its own (an edge with a shorter travel would snap frames before the others and
-    /// change the gap beside it); they all land in the frame the last one comes within a quarter point of rest.
+    /// change the gap beside it); they all land in the frame the last one comes within a quarter point of rest. A closing
+    /// pane's side is an edge of the motion too: the landing moves it no more than that quarter point from where this
+    /// frame's step put it (`landingMovesAClosingPane`), or it would take what is left of the pane's ground away at once.
     /// True while any of them still moves.
     func advancePaneAndDividerSprings(_ dt: Double, policy: MotionPolicy) -> Bool { // perf-hot: 4ms motion-frame
         var moving = false
@@ -116,7 +118,8 @@ extension ScreenContentView {
             if frame.advanceUnsettled(dt, parameters: frameSpring) { moving = true }
             dividerFrames[key] = frame
         }
-        if paneFrames.values.allSatisfy(\.geometryNearRest) && dividerFrames.values.allSatisfy(\.geometryNearRest) {
+        if paneFrames.values.allSatisfy(\.geometryNearRest) && dividerFrames.values.allSatisfy(\.geometryNearRest),
+           !landingMovesAClosingPane(snap: AnimatedFrame.landingDistance) {
             for key in panes { if var frame = paneFrames[key] { frame.snapGeometry(); paneFrames[key] = frame } }
             for key in dividers { if var frame = dividerFrames[key] { frame.snapGeometry(); dividerFrames[key] = frame } }
         } else {
@@ -255,10 +258,12 @@ extension ScreenContentView {
             if host.restSize != rest.size { host.restSize = rest.size }
             if springing { host.isOnLayoutSpring = true }
             defer { if !springing { host.isOnLayoutSpring = false } }
-            // A key press's rest size reaches the content before its host moves (S1B: the press's first tick, where the key's
-            // turn used to do it): the content takes its final size once, at the edge that stays, never the frame's first.
-            let announcesFirst = restChanged && springing && holdsContentForKeyResize
-            if announcesFirst { host.announceRest() }
+            // A spring that starts or retargets (a split, a close, a zoom, a key press, a press during the motion) to a new
+            // size: the content hears the size it will rest at now, once, before its host takes this frame's size (S1B for
+            // key presses; #37755 for every spring). It decides how it rides the motion before the frame lays it out: a
+            // terminal sends its final grid at the start, a Chromium page that holds the keys lays out at its rest and keeps
+            // its window, and none of them is laid out first at the frame's size, which it leaves in the next frame.
+            if restChanged, springing { host.announceRest() }
             if host.restOffset != restOffset { host.restOffset = restOffset }
             if host.frame.size != placed.size {
                 host.frame = placed
@@ -276,9 +281,6 @@ extension ScreenContentView {
                 host.frame = placed
                 changed = true
             }
-            // A spring that starts or retargets (a press during the motion) to a new size: the content
-            // hears the size it will rest at now, once (a terminal sends its final grid at the start).
-            if restChanged, springing, !announcesFirst { host.announceRest() }
             if host.alphaValue != frame.alpha.value {
                 host.alphaValue = frame.alpha.value
                 changed = true

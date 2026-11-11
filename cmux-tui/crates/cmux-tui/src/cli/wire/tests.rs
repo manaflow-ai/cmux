@@ -13,13 +13,86 @@ fn plan(operation: ResourceOperation) -> RequestPlan {
     }
 }
 
+/// A `screen wait` or `process wait` whose time ran out exits 124, as
+/// `terminal send` and `terminal run` do; one that ended for its own reason
+/// (a match, an exit) exits 0.
 #[test]
-fn screen_wait_timeout_exits_one_and_a_match_exits_zero() {
+fn a_terminal_wait_that_ran_out_of_time_exits_124() {
     let wait = plan(ResourceOperation::TerminalWait);
-    assert_eq!(success_exit_code(&wait, &json!({"matched": false, "text": ""})), 1);
+    assert_eq!(success_exit_code(&wait, &json!({"matched": false, "text": ""})), 124);
     assert_eq!(success_exit_code(&wait, &json!({"matched": true, "text": "ready"})), 0);
+    let exit = plan(ResourceOperation::TerminalWaitExit);
+    let pending = json!({"state": "pending", "terminal_id": "term_1", "lifecycle": "running"});
+    assert_eq!(success_exit_code(&exit, &pending), 124);
+    let exited = json!({"state": "exited", "outcome": {"kind": "exit", "code": 5}});
+    assert_eq!(success_exit_code(&exit, &exited), 0, "the process's own code is in outcome");
     let read = plan(ResourceOperation::TerminalScreenRead);
     assert_eq!(success_exit_code(&read, &json!({"matched": false})), 0);
+    assert_eq!(success_exit_code(&read, &json!({"state": "pending"})), 0);
+    let unsend = plan(ResourceOperation::AgentMessageUnsend);
+    assert_eq!(success_exit_code(&unsend, &json!({"value": {"outcome": "failed"}})), 1);
+}
+
+/// On a Cloud guest (one with a guest adapter), a timed-out `process wait`
+/// exits 124 only for a caller that says it reads 124: an adapter that
+/// predates 124, on disk or still running in a shell, reads any other exit as
+/// a failed `agent --wait`, so it keeps 0. `screen wait` exits 124 either way:
+/// every adapter reads its printed `matched: false`.
+#[test]
+fn a_timed_out_process_wait_exits_zero_for_a_guest_caller_that_predates_124() {
+    let dir = std::env::temp_dir().join(format!("cmux-wait-adapter-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let adapter = dir.join("cmux-cloud-adapter");
+    let exit = plan(ResourceOperation::TerminalWaitExit);
+    let pending = json!({"state": "pending", "lifecycle": "running"});
+    let missed = json!({"matched": false, "text": ""});
+    let wait = plan(ResourceOperation::TerminalWait);
+
+    let code = |plan, result, reads| wait_timeout::exit_code_with(plan, result, &adapter, reads);
+    assert_eq!(code(&exit, &pending, false), Some(124), "no adapter: not a guest");
+    std::fs::write(&adapter, "#!/bin/sh\n").unwrap();
+    assert_eq!(code(&exit, &pending, false), None);
+    assert_eq!(code(&exit, &pending, true), Some(124));
+    assert_eq!(code(&wait, &missed, false), Some(124));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// The printed answer keeps the daemon's fields and adds `timed_out` (and,
+/// when the time ran out, `waited_ms`: the timeout, a decimal string).
+#[test]
+fn a_terminal_wait_answer_says_whether_it_timed_out() {
+    let mut wait = plan(ResourceOperation::TerminalWait);
+    wait.params = json!({"pattern": "ready", "timeout_ms": "500"});
+    let mut missed = json!({"matched": false, "text": "$ "});
+    wait_timeout::mark(&wait, &mut missed);
+    assert_eq!(
+        missed,
+        json!({"matched": false, "text": "$ ", "timed_out": true, "waited_ms": "500"})
+    );
+    let mut found = json!({"matched": true, "text": "ready"});
+    wait_timeout::mark(&wait, &mut found);
+    assert_eq!(found, json!({"matched": true, "text": "ready", "timed_out": false}));
+
+    let mut exit = plan(ResourceOperation::TerminalWaitExit);
+    exit.params = json!({"timeout_ms": "500"});
+    let mut pending = json!({"state": "pending", "lifecycle": "running", "revision": "4"});
+    wait_timeout::mark(&exit, &mut pending);
+    assert_eq!(
+        pending,
+        json!({
+            "state": "pending", "lifecycle": "running", "revision": "4",
+            "timed_out": true, "waited_ms": "500"
+        })
+    );
+    let mut exited = json!({"state": "exited", "outcome": {"kind": "exit", "code": 5}});
+    wait_timeout::mark(&exit, &mut exited);
+    assert_eq!(exited["timed_out"], false);
+    assert!(exited.get("waited_ms").is_none());
+
+    // Any other answer is printed as the daemon sent it.
+    let mut read = json!({"matched": false});
+    wait_timeout::mark(&plan(ResourceOperation::TerminalScreenRead), &mut read);
+    assert_eq!(read, json!({"matched": false}));
 }
 
 /// nxdog55: with `--order personal` the rows come in sidebar order, but

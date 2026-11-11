@@ -508,6 +508,7 @@ fn folder_profile(dir: &Path) -> (PathBuf, acpmux::config::folder_profiles::Fold
             record: dir.join("records").join("trust.json"),
             agent_home: None,
             cmux_worktrees: None,
+            peer_scratch: None,
         },
     };
     (repo, gate)
@@ -1497,5 +1498,49 @@ async fn a_narrow_policy_holds_on_a_claude_launcher_that_runs_tools_without_aski
         assert_eq!(r["error"]["data"]["policy"], policy, "{r}");
         assert!(r["error"]["data"]["hint"].as_str().is_some_and(|h| !h.is_empty()), "{r}");
     }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A remote chat records the launch of its config entry as the entry is written, not the
+/// canonical program path its remote start resolves (lead, 2026-11-09): a catalog reload that
+/// changes nothing never marks it for a respawn, as it never marks a local chat. `asker`'s
+/// program is the bare `python3`, which a remote start resolves to a path. The reload also
+/// changes the entry of a local control chat, `ctl`: once that one's agent started again, the
+/// sweep that judged every chat is done.
+#[tokio::test]
+async fn a_remote_chat_keeps_its_entrys_launch_through_an_unchanged_reload() {
+    let ctl = |flag: &str| json!({"argv": ["python3", FAKE_AGENT], "env": {"CTL": flag}});
+    let dir = home("remote-respawn", json!({"webAskingModes": {"asker": ["normal"]}}));
+    let config_path = dir.join("config.json");
+    let write_ctl = |flag: &str| {
+        let mut config: Value =
+            serde_json::from_slice(&std::fs::read(&config_path).unwrap()).unwrap();
+        config["harnesses"]["ctl"] = ctl(flag);
+        std::fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    };
+    write_ctl("1");
+    let daemon = hub(&dir);
+    let mut web = Client::new(&daemon, Origin::Web, ConnAuth::ListenerToken);
+    let (remote, _) = web.chat(&dir, "asker").await;
+    let mut app = Client::app(&daemon).await;
+    let claims = app.records(&remote, "asks_before_tools_claim").await;
+    assert_eq!(claims.len(), 1, "{claims:?}");
+    assert_eq!(claims[0]["msg"]["trusted"], true, "the remote chat's claim: {claims:?}");
+    let (control, _) = app.chat(&dir, "ctl").await;
+
+    let mut events = daemon.subscribe();
+    write_ctl("2");
+    daemon.reload_catalog().await.unwrap();
+    tokio::time::timeout(Duration::from_secs(30), async {
+        while app.records(&control, "asks_before_tools_claim").await.len() < 2 {
+            if let Err(tokio::sync::broadcast::error::RecvError::Closed) = events.recv().await {
+                panic!("the hub ended");
+            }
+        }
+    })
+    .await
+    .expect("the control chat's agent started again on its changed entry");
+    let marked = app.records(&remote, "respawn_pending").await;
+    assert!(marked.is_empty(), "an unchanged entry respawns no remote chat: {marked:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -84,11 +84,15 @@ impl Hub {
                 ..Default::default()
             });
         }
+        // The entry's launch as it is written, before a remote start resolves its program
+        // (`admit_remote_profile`): what the session's start records (`Resolved::launch_digest`).
+        let launch_digest = profile.launch_digest();
         if remote {
             admit_remote_profile(cfg, &resolved, &mut profile, &d.env)?;
         }
         Ok(Resolved {
             agent: resolved,
+            launch_digest,
             profile,
             defaults: d,
             head,
@@ -262,6 +266,12 @@ fn folder_refusal(refusal: folder_profiles::FolderRefusal) -> RpcError {
 pub(super) struct Resolved {
     pub(super) agent: String,
     pub(super) profile: HarnessProfile,
+    /// `HarnessProfile::launch_digest` of the entry as the catalog or folder holds it, before a
+    /// remote start's admission resolves its program to a canonical path: the launch the
+    /// session's agent is recorded as starting from (`Spawn::launch_digest`), which a later
+    /// start, a profile reload (`profile_respawn.rs`) and an `asksBeforeTools` claim
+    /// (`policy_mode.rs` `claim_distrust`) compare with the entry.
+    pub(super) launch_digest: String,
     pub(super) defaults: crate::config::SessionDefaults,
     pub(super) head: String,
     pub(super) preset_name: Option<String>,
@@ -396,6 +406,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         turn_cap_ms: None,
         turn_cap_noticed: None,
         delegator: None,
+        cold: None,
     }
 }
 

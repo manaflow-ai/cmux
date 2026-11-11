@@ -432,9 +432,10 @@ export function ToolGroupRow({
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}
         ref={fold.headerRef}
-        onClick={() => {
-          if (!open) setByClick(true);
-          fold.toggle();
+        onClick={(event) => {
+          // The click itself, so a drag across the line opens nothing (useAnchoredCollapse `deliberateClick`).
+          const opening = !open;
+          if (fold.toggle(event) && opening) setByClick(true);
         }}
       >
         <span className="cv-tool__icon">{groupIcon(kind)}</span>

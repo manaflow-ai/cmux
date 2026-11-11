@@ -50,7 +50,7 @@
   border: 1px solid var(--page-separator);
 }
 
-.keys-search-field:focus-within {
+.keys-search-field:is(:focus-visible, :has(:focus-visible)) {
   border-color: var(--page-text-3);
 }
 

@@ -38,13 +38,11 @@ extension CloudStrings {
     }
 
     /// Whether a server `action` is written for an API caller or the classic
-    /// `cmux vm` CLI, not a person in this app: "List your rules with GET
-    /// /api/vm/firewall", "Enroll it with POST /api/vm/tunnel", "Request the
-    /// attach endpoint with transport …", "Run `cmux vm ls`"
-    /// (`web/services/vms/routeHelpers.ts`). Such a failure shows its
+    /// `cmux vm` CLI, not a person in this app: "Request the attach endpoint
+    /// with transport …", "Run `cmux vm ls`". Such a failure shows its
     /// message and trace id without the action; the log keeps it.
     nonisolated static func isCallerOnly(_ action: String) -> Bool {
-        ["cmux vm ", "/api/vm", "attach endpoint"].contains { action.contains($0) }
+        ["cmux vm ", "attach endpoint"].contains { action.contains($0) }
     }
 
     /// The support reference after a Cloud server message.

@@ -200,13 +200,15 @@ mod api_revision_wire;
 mod conversation_tabs_wire;
 mod conversations;
 mod detached_terminals;
+mod feed_client_ops;
 mod feed_local;
+mod feed_places;
 mod frontend_browser_history;
 mod history_search;
 mod home;
 mod icon_assets;
 mod launch_snapshot;
-pub(crate) use launch_snapshot::MAX_LAUNCH_SNAPSHOT_BYTES;
+pub(crate) use launch_snapshot::{LAUNCH_SNAPSHOT_FILE, MAX_LAUNCH_SNAPSHOT_BYTES};
 #[cfg(unix)]
 mod carrier_role;
 #[cfg(unix)]
@@ -323,6 +325,7 @@ mod chief_registry_resource;
 mod chief_work;
 mod participant_avatars;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
+mod shell_wire;
 mod url_open;
 #[cfg(test)]
 use capabilities::advertised_capabilities;
@@ -599,6 +602,12 @@ pub const PROFILES_CAPABILITY: &str = "profiles-v1";
 /// `placement-shift-v1`: an echoing connection gets no `workspace_placement`
 /// restatement on `session.events` (state/placement_shift.rs).
 pub use crate::state::placement_shift::CAPABILITY as PLACEMENT_SHIFT_CAPABILITY;
+/// `session-live-cursor-v1`: a connection that sends it in `set-client-info`
+/// gets `live` in each `session.events` cursor, the position of the live
+/// terminal facts it has. A resume from such a cursor sends only the
+/// terminals whose live facts changed after it
+/// (server/session_event_stream.rs).
+pub const SESSION_LIVE_CURSOR_CAPABILITY: &str = "session-live-cursor-v1";
 /// Per-terminal themes in the home session's personal state:
 /// `set-personal-terminal` and `list-personal.terminals`.
 pub const PERSONAL_TERMINALS_CAPABILITY: &str = "personal-terminals-v1";
@@ -1134,6 +1143,11 @@ enum Command {
         #[serde(alias = "timeout_ms")]
         timeout_ms: u64,
     },
+    /// Shell mode's command on this machine (`shell-runs-v1`, `shell_wire.rs`).
+    ShellRun(shell_wire::RunParams),
+    /// Its output, a long poll answered off the dispatcher (`shell_wire::read`).
+    ShellRead(shell_wire::ReadParams),
+    ShellStop(shell_wire::StopParams),
     Run {
         #[serde(default)]
         argv: Option<Vec<String>>,
@@ -1610,6 +1624,15 @@ enum Command {
     SetSplitRatio {
         split: SplitId,
         ratio: f32,
+        #[serde(default)]
+        transaction: Option<u64>,
+    },
+    /// `split-divider-visibility-v1`: hide (`visible` false) or show the
+    /// divider of split `split`. The screen's layout lists hidden dividers
+    /// as `hidden_dividers`.
+    SetDividerVisible {
+        split: SplitId,
+        visible: bool,
         #[serde(default)]
         transaction: Option<u64>,
     },
@@ -2894,7 +2917,7 @@ fn node_json(
 ) -> Value {
     match node {
         Node::Leaf(id) => json!({ "type": "leaf", "pane": id }),
-        Node::Split { id, dir, ratio, a, b } => {
+        Node::Split { id, dir, ratio, a, b, .. } => {
             let mut value = json!({
                 "type": "split",
                 "split": id,
@@ -2944,15 +2967,15 @@ fn layout_request_to_spec(layout: LayoutRequest) -> anyhow::Result<LayoutSpec> {
 }
 
 mod tree_json;
-#[cfg(test)]
-pub(crate) use tree_json::panes_built_for_test;
 pub(crate) use tree_json::selection_changed_json;
-#[cfg(test)]
-pub(crate) use tree_json::set_entity_check_hook_for_test;
+#[cfg(all(test, unix))]
+pub(crate) use tree_json::skip_entity_check_on_this_thread_for_bench as skip_tree_entity_check;
 pub(crate) use tree_json::tree_entity_json;
 pub(crate) use tree_json::workspace_presentation_changed_json;
 pub(crate) use tree_json::workspaces_json;
 use tree_json::{ShortIds, pane_json, tree_delta_json};
+#[cfg(test)]
+pub(crate) use tree_json::{panes_built_for_test, set_entity_check_hook_for_test};
 
 fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> {
     mux.surface(id)
@@ -3116,6 +3139,10 @@ mod creation_burst_tests;
 #[cfg(test)]
 #[path = "server/run_public_ids_tests.rs"]
 mod run_public_ids_tests;
+
+#[cfg(test)]
+#[path = "server/open_persistent_bench_tests.rs"]
+mod open_persistent_bench_tests;
 
 #[cfg(test)]
 mod tests;

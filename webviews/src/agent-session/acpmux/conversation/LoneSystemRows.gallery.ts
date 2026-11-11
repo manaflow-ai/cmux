@@ -148,7 +148,7 @@ export default agentPaneEntry({
       play: async (ctx) => ctx.hover({ selector: "button.cv-background-turn .cv-agent-activity__sentence" }),
     },
     "subagent-finished-hover": {
-      note: '"Subagent finished" under the pointer: its words light all the way through, as a tool row\'s do (Leo, 2026-11-09).',
+      note: '"Subagent finished" with the pointer on its name: only the name chip lights, the line opens nothing (Leo, 2026-11-05: "subagents need to have their clickable bit be highlighted instead of the whole line click").',
       snapshot: chat([
         ...opening,
         {
@@ -160,7 +160,7 @@ export default agentPaneEntry({
         },
         next,
       ]),
-      play: async (ctx) => ctx.hover({ selector: "button.cv-subagent-done .cv-agent-activity__sentence" }),
+      play: async (ctx) => ctx.hover({ selector: ".cv-subagent-done button.cv-agent-tag.is-open" }),
     },
     "received-message": {
       note: "Another agent's message after the turn ended keeps the block gap under the footer (footer-to-received, 51 centre to centre): it is another speaker, not this turn's tail.",

@@ -55,12 +55,17 @@ state="${CMUX_WEB_SLOT_STATE_DIR:-$HOME/Library/Caches/cmux-next/web-slot}"
 DEFAULT_PORT=4200
 
 # Sets keys of web-dev.json to JSON values in one write (`null` removes a key), keeping the others:
-# set_key KEY VALUE [KEY VALUE]...
+# set_key [--if-ours URL TOKEN] KEY VALUE [KEY VALUE]...
+# Every write holds .web-dev.lock beside it, so each writer's read and write are one step. With
+# --if-ours, it writes only while web-dev.json names server URL (`*`: any) with TOKEN (a non-empty
+# one), and otherwise fails, writing nothing.
 set_key() {
   mkdir -p "$config_dir"
   python3 - "$web_dev" "$@" <<'PY'
-import json, os, sys, tempfile
+import fcntl, json, os, sys, tempfile
 path, pairs = sys.argv[1], sys.argv[2:]
+lock = open(os.path.join(os.path.dirname(path), ".web-dev.lock"), "a")
+fcntl.flock(lock, fcntl.LOCK_EX)  # released when this process ends
 try:
     with open(path) as f:
         data = json.load(f)
@@ -68,6 +73,10 @@ try:
         data = {}
 except (OSError, ValueError):
     data = {}
+if pairs[:1] == ["--if-ours"]:
+    url, token, pairs = pairs[1], pairs[2], pairs[3:]
+    if not token or data.get("token") != token or url not in ("*", data.get("server")):
+        sys.exit(3)
 for key, raw in zip(pairs[::2], pairs[1::2]):
     value = json.loads(raw)
     if value is None:
@@ -206,7 +215,33 @@ stop_started() {
     fi
     rm -f "$state/$name.pid"
   done
-  rm -f "$state/dev-server.tree" "$state/follow.pr" "$state/dev-server.token"
+  # dev-server.token stays until the next pick: it says whether web-dev.json still names the server
+  # stopped here (forget_stopped).
+  rm -f "$state/dev-server.tree" "$state/follow.pr"
+}
+
+# The pick `server` wrote last (its server URL and token, one per line), when web-dev.json still
+# names it; nothing otherwise. Read before a start stops that server, so the start's cleanup knows
+# which pick it may clear.
+our_pick() {
+  python3 - "$web_dev" "$(cat "$state/dev-server.token" 2>/dev/null)" <<'PY'
+import json, sys
+try:
+    data = json.load(open(sys.argv[1]))
+except (OSError, ValueError):
+    sys.exit(0)
+if isinstance(data, dict) and sys.argv[2] and data.get("token") == sys.argv[2] and data.get("server"):
+    print(data["server"]); print(sys.argv[2])
+PY
+}
+
+# Clears web-dev.json's server while it still names exactly server $1 with token $2 (a pick read by
+# `our_pick` before its server was stopped), and says why ($3) in dev-server.exit for `cmux live
+# status`. A pick made since (another start, `server URL`) has another token and is kept.
+forget_stopped() {
+  [[ -n "$1" && -n "$2" ]] || return 0
+  set_key --if-ours "$1" "$2" server null >/dev/null 2>&1 || return 0
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $3" >"$state/dev-server.exit"
 }
 
 # A field of web-dev.json's "slot" (host or port), empty when unset.
@@ -238,8 +273,12 @@ start_local() {
     fi
   fi
   # One dev server at a time: a new port or checkout replaces the one started before (and frees
-  # the port when it is the same one).
+  # the port when it is the same one). Until the new one answers, any way this start ends (a failed
+  # install, a server that dies) clears the stopped server's pick, so the app does not keep asking it.
+  local stopped
+  stopped="$(our_pick)"
   stop_started
+  trap "forget_stopped $(printf '%q %q' "$(sed -n 1p <<<"$stopped")" "$(sed -n 2p <<<"$stopped")") $(printf '%q' "it did not start on port $port")" EXIT
   answers "$port" && for _ in 1 2 3 4 5; do sleep 1; answers "$port" || break; done
   mkdir -p "$state"
   [[ -d "$tree/webviews/node_modules" ]] || (cd "$tree/webviews" && bun install --frozen-lockfile >/dev/null)
@@ -266,6 +305,7 @@ start_local() {
   if ! answers "$port" 60 || ! ours_listens "$port"; then
     echo "the dev server did not start; see $state/dev-server.log" >&2; exit 1
   fi
+  trap - EXIT
   echo "dev server: http://127.0.0.1:$port/ from $tree (log: $state/dev-server.log)"
 }
 
@@ -281,23 +321,9 @@ watch_exit() {
   [[ "$(cat "$state/dev-server.pid" 2>/dev/null)" == "$pid" ]] || return 0
   rm -f "$state/dev-server.pid"
   # Nor is a server picked since (`server URL`, a slot): only web-dev.json still naming this one, with
-  # the token `point_at` wrote for it, is cleared.
-  points_here "http://127.0.0.1:$port/" "$(cat "$state/dev-server.token" 2>/dev/null)" || return 0
+  # the token `point_at` wrote for it, is cleared, checked and cleared in one locked write.
+  set_key --if-ours "http://127.0.0.1:$port/" "$(cat "$state/dev-server.token" 2>/dev/null)" server null >/dev/null 2>&1 || return 0
   echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) it served port $port" >"$state/dev-server.exit"
-  set_key server null >/dev/null
-}
-
-# Whether web-dev.json's server is $1 with token $2 (a non-empty one).
-points_here() {
-  [[ -n "$2" ]] || return 1
-  python3 - "$web_dev" "$1" "$2" <<'PY'
-import json, sys
-try:
-    data = json.load(open(sys.argv[1]))
-except (OSError, ValueError):
-    sys.exit(1)
-sys.exit(0 if isinstance(data, dict) and data.get("server") == sys.argv[2] and data.get("token") == sys.argv[3] else 1)
-PY
 }
 
 # A fresh token for web-dev.json on every `server`: the app sends each request a random nonce and
@@ -501,6 +527,7 @@ case "$cmd" in
       off)
         stop_started
         set_key server null
+        rm -f "$state/dev-server.token"
         ;;
       --local)
         tree="$ROOT" port="$(slot_field port)"; port="${port:-$DEFAULT_PORT}"

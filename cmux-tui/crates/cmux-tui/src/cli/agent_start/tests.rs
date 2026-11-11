@@ -9,7 +9,7 @@ use super::super::terminal_talk::send::Daemon;
 use super::super::wire::request_value;
 use super::launch::{self, Launch};
 use super::readiness::{self, Gate, Look, Readiness, Reads, WaitOptions};
-use super::{Clock, Command, Env, Options, ResumeTarget, parse, resume, start};
+use super::{Clock, Command, Env, Options, ResumeTarget, parse, resume, resume_launch, start};
 
 const OLD: &str = "term_0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d";
 const NEW: &str = "term_a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1";
@@ -171,13 +171,6 @@ fn w3h_launch_argv_keeps_each_argument_out_of_the_shell_and_resumes_per_harness(
     assert_eq!(launch::resume_args("opencode", "s1"), Some(strings(&["--session", "s1"])));
     assert_eq!(launch::resume_args("amp", "t1"), Some(strings(&["threads", "continue", "t1"])));
     assert_eq!(launch::resume_args("muse", "s1"), None);
-    let resumed = strings(&["--model", "opus", "--resume", "old"]);
-    assert_eq!(launch::strip_resume("claude", &resumed), strings(&["--model", "opus"]));
-    assert_eq!(launch::strip_resume("codex", &strings(&["resume", "x"])), Vec::<String>::new());
-    assert_eq!(
-        launch::strip_resume("claude", &strings(&["--model", "opus"])),
-        strings(&["--model", "opus"])
-    );
     assert!(launch::valid_session_id(SESSION));
     assert!(!launch::valid_session_id("--dangerously-skip-permissions"));
     assert!(!launch::valid_session_id("a b"));
@@ -372,6 +365,28 @@ fn w3h_resume_reruns_the_recorded_launcher_with_the_harness_session_and_takes_th
     assert_eq!(closed[0]["tab"], "tab_a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0");
 }
 
+/// W3-H review (main #39226): a resume runs the recorded launcher, not the
+/// recorded extra arguments: `agent start alpha -- 'Fix the test'` must not
+/// send the first prompt again (and `codex '<prompt>' resume <id>` would not
+/// resume).
+#[test]
+fn w3h_resume_does_not_send_the_first_prompt_again() {
+    let recorded = Launch {
+        shell: "/bin/zsh".into(),
+        launcher: "codex --model o3".into(),
+        args: strings(&["Fix the failing test", "resume", "older"]),
+    };
+    let launch = resume_launch(Some(recorded), &env(), &Options::default(), "codex", SESSION)
+        .expect("resume launch");
+    assert_eq!(launch.launcher, "codex --model o3");
+    assert_eq!(launch.args, strings(&["resume", SESSION]));
+    let options = Options { args: strings(&["--yolo"]), ..Options::default() };
+    let recorded =
+        Launch { shell: "/bin/zsh".into(), launcher: "claude".into(), args: strings(&["hello"]) };
+    let launch = resume_launch(Some(recorded), &env(), &options, "claude", SESSION).unwrap();
+    assert_eq!(launch.args, strings(&["--yolo", "--resume", SESSION]));
+}
+
 /// An agent that quit (its hooks reported the session's end) has no agent
 /// record left; resume reads the session id the daemon kept on the terminal.
 #[test]
@@ -380,9 +395,12 @@ fn w3h_resume_reads_the_session_id_kept_on_the_terminal_after_the_session_ended(
     if let Some(old) = snapshot.pointer_mut("/terminals/1") {
         old["extra"] = json!({"agent": "claude-code", "agent_session_id": SESSION});
     }
-    let daemon = Fake::new(|operation, _params, _count| match operation {
+    let daemon = Fake::new(|operation, params, _count| match operation {
         "session.snapshot" => snapshot.clone(),
-        "agent.list" => json!([]),
+        "agent.list" if params["terminal_id"] == OLD || params["terminal"] == OLD => json!([]),
+        // The resumed Claude Code reports its session start (W5-R: a resume
+        // of a hooked harness is ready on that report, not on its input box).
+        "agent.list" => json!([{"terminal_id": NEW, "state": "idle", "updated_at_ms": "1500"}]),
         "terminal.process.get" => json!({"argv": snapshot["terminals"][1]["argv_for_test"]}),
         "pane.run" => created(
             "pane_22222222222222222222222222222222",
@@ -1233,4 +1251,156 @@ fn w5_no_stream_waits_out_the_fallback_and_an_invalid_cursor_is_dropped() {
     let waited = events.wake(&[], Some("cursor.invalid"), &mut cursor, at_most);
     assert_eq!(waited, at_most);
     assert_eq!(cursor, None);
+}
+
+/// The wait keeps the daemon's cursor whole, so a cursor with a live position
+/// (`session-live-cursor-v1`) goes back as it came. The daemon then sends a look that resumes
+/// at rest no item, and the look waits out its fallback: before the live position, each resume
+/// got the record of every terminal with a live fact, and the wait woke on each look.
+#[test]
+fn w5_a_look_resumes_from_the_whole_cursor_and_no_item_is_no_change() {
+    let events = ScriptedEvents::new();
+    let mut cursor = None;
+    let at_most = Duration::from_secs(1);
+    let first = json!({"generation": "gen", "revision": "4", "live": "epoch.7"});
+    let snapshot = json!({"kind": "snapshot", "reset_reason": "initial", "cursor": first});
+    events.wake(&[snapshot], None, &mut cursor, at_most);
+    assert_eq!(cursor, Some(first.clone()));
+    // At rest the daemon sends nothing after that cursor.
+    let waited = events.wake(&[], None, &mut cursor, at_most);
+    assert_eq!(waited, at_most, "a resume with no item woke the wait");
+    assert!(!events.stopped_early.get());
+    assert_eq!(cursor, Some(first.clone()));
+    // A terminal's live fact after the cursor is a change, and its cursor is the next one.
+    let next = json!({"generation": "gen", "revision": "4", "live": "epoch.8"});
+    let live = json!({"kind": "delta", "cursor": next, "previous_revision": "4", "revision": "4"});
+    let waited = events.wake(&[live], None, &mut cursor, at_most);
+    assert!(waited < at_most / 2, "woke after {waited:?}");
+    assert_eq!(cursor, Some(next));
+    assert_eq!(*events.opened_from.borrow(), [None, Some(first.clone()), Some(first)]);
+}
+
+/// The other daemon of the pair: one with no live position (a build before
+/// `session-live-cursor-v1`). Its cursor has two fields, and the wait sends it back unchanged.
+#[test]
+fn w5_a_look_sends_a_two_field_cursor_back_unchanged() {
+    let events = ScriptedEvents::new();
+    let mut cursor = None;
+    let at_most = Duration::from_secs(1);
+    let first = json!({"generation": "gen", "revision": "4"});
+    let snapshot = json!({"kind": "snapshot", "reset_reason": "initial", "cursor": first});
+    events.wake(&[snapshot], None, &mut cursor, at_most);
+    events.wake(&[], None, &mut cursor, at_most);
+    assert_eq!(*events.opened_from.borrow(), [None, Some(first)]);
+}
+
+/// What sr2 prints before Claude Code starts: no input box yet.
+const LAUNCHER_BANNER: &str = "\
+sr2 route: gateway http://sr2-gateway.example:4016
+sr2 claude2: automatic /compact through cmux terminal term_c7d53df9a7de; log /tmp/claude2.log";
+
+/// A resume whose new terminal shows `screen` and whose `agent list` gives
+/// `records`, waited on for at most 5 s.
+fn resume_with(screen: &'static str, records: Value) -> (Value, i32) {
+    resume_of("claude", screen, records)
+}
+
+/// [`resume_with`] for an agent whose hooks reported as `harness`.
+fn resume_of(harness: &'static str, screen: &'static str, records: Value) -> (Value, i32) {
+    let snapshot = snapshot();
+    let daemon = Fake::new(move |operation, params, _count| match operation {
+        "session.snapshot" => snapshot.clone(),
+        "agent.list" if params["terminal_id"] == OLD || params["terminal"] == OLD => json!([
+            {"terminal_id": OLD, "state": "done", "source": "hook", "updated_at_ms": "900",
+             "extra": {"agent": harness, "agent_session_id": SESSION}},
+        ]),
+        "agent.list" => records.clone(),
+        "terminal.process.get" => json!({"argv": snapshot["terminals"][1]["argv_for_test"]}),
+        "pane.run" => created(
+            "pane_22222222222222222222222222222222",
+            "tab_e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0",
+            NEW,
+        ),
+        "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
+        "terminal.screen.read" => json!({"text": screen}),
+        _ => json!({}),
+    });
+    let options = Options { timeout: Duration::from_secs(5), ..Options::default() };
+    let target = ResumeTarget::Agent("alpha".into());
+    run_with_clock(|clock| resume(&daemon, &env(), clock, &target, &options)).expect("resume")
+}
+
+/// Bench round 4 (A6, 2 of 2): `agent resume` said ready 2 s after the
+/// launch, while the screen still showed the launcher's banner. The ready
+/// signal was the screen-detection plugin's fresh `idle` record, a guess
+/// from the screen; Claude's own SessionStart hook came 5 s later, and the
+/// first message typed before it was never submitted. A resume is ready
+/// only once the agent itself reports idle (its hooks: the session id that
+/// resume needs came from them).
+#[test]
+fn w5r_resume_is_ready_only_when_the_agents_own_hook_reports_idle() {
+    let plugin_idle = json!([{"terminal_id": NEW, "state": "idle", "source": "plugin",
+                              "updated_at_ms": "1500"}]);
+    let (report, exit) = resume_with(LAUNCHER_BANNER, plugin_idle.clone());
+    assert_eq!(
+        report["state"], "timeout",
+        "a screen-detection record is no ready signal: {report}"
+    );
+    assert_eq!(exit, 124, "{report}");
+    // An input box on the screen is not enough either: the hook says when
+    // the resumed session took its transcript and accepts a message.
+    let (report, exit) = resume_with(COMPOSER, plugin_idle);
+    assert_eq!(report["state"], "timeout", "resume waits for the hook, not the screen: {report}");
+    assert_eq!(exit, 124, "{report}");
+    // The agent's SessionStart hook (idle, source hook) after the resume began.
+    let hook_idle = json!([
+        {"terminal_id": NEW, "state": "idle", "source": "plugin", "updated_at_ms": "1400"},
+        {"terminal_id": NEW, "state": "idle", "source": "hook", "updated_at_ms": "1500"},
+    ]);
+    let (report, exit) = resume_with(COMPOSER, hook_idle);
+    assert_eq!(report["state"], "ready", "{report}");
+    assert_eq!(exit, 0, "{report}");
+}
+
+/// Review 6731023492 item 4: a resume waits for the agent's own idle report
+/// only when its harness's hooks report a session start. Amp's report
+/// nothing at its start, so its input box makes it ready, as for a start,
+/// instead of a wait to the timeout.
+#[test]
+fn w5r_resume_of_a_harness_without_a_session_start_hook_is_ready_on_its_input_box() {
+    let plugin_idle = json!([{"terminal_id": NEW, "state": "idle", "source": "plugin",
+                              "updated_at_ms": "1500"}]);
+    let (report, exit) = resume_of("amp", COMPOSER, plugin_idle);
+    assert_eq!(report["state"], "ready", "amp cannot report its start: {report}");
+    assert_eq!(exit, 0, "{report}");
+    // Claude's SessionStart hook reports: its resume still waits for it.
+    let plugin_idle = json!([{"terminal_id": NEW, "state": "idle", "source": "plugin",
+                              "updated_at_ms": "1500"}]);
+    let (report, exit) = resume_of("claude", COMPOSER, plugin_idle);
+    assert_eq!(report["state"], "timeout", "{report}");
+    assert_eq!(exit, 124, "{report}");
+}
+
+/// `agent start` has the same race: a fresh screen-detection record says
+/// `idle` before the agent drew its input box. Only the agent's own reports
+/// (hooks, socket) or its input box make a start ready.
+#[test]
+fn w5r_start_is_not_ready_on_a_screen_detection_record_alone() {
+    let look = |hook_state| Look { screen: LAUNCHER_BANNER, exited: false, hook_state };
+    let records = json!([{"terminal_id": NEW, "state": "idle", "source": "plugin",
+                          "updated_at_ms": "1500"}]);
+    let state = readiness::fresh_hook_state(&records, 1_000);
+    assert_eq!(readiness::assess(&look(state)), Readiness::Starting, "state {state:?}");
+    let detected = json!([{"terminal_id": NEW, "state": "idle", "source": "detected",
+                           "updated_at_ms": "1500"}]);
+    let state = readiness::fresh_hook_state(&detected, 1_000);
+    assert_eq!(readiness::assess(&look(state)), Readiness::Starting, "state {state:?}");
+    // The agent's own hook or socket report still counts.
+    for source in ["hook", "socket"] {
+        let own = json!([{"terminal_id": NEW, "state": "idle", "source": source,
+                          "updated_at_ms": "1500"}]);
+        let hook_state = readiness::fresh_hook_state(&own, 1_000);
+        let own_look = Look { screen: LAUNCHER_BANNER, exited: false, hook_state };
+        assert_eq!(readiness::assess(&own_look), Readiness::Ready, "{source}");
+    }
 }
