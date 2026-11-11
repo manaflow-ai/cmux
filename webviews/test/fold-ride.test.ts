@@ -274,10 +274,11 @@ test("the ride gives way when a row it would move plays its own animation", () =
   ride.release();
 });
 
-// The reader scrolls while rows ride: the scroll range is still the placed one, so the transcript
-// places every row now, before the browser scrolls (review of #39917 at 184fed21: a scroll to a
-// run's foot clamped 1250px short). Nothing riding, a scroll places nothing.
-test("a reader scroll lands the ride: the rows are placed before it scrolls", () => {
+// Input while rows ride: the scroll range and layout are still the placed ones, so the transcript
+// places every row now, before the input reaches anything (review of #39917 at 184fed21 and
+// e357b4a0: a scroll to a run's foot 1250px short, a map drag 800px short). Nothing riding, input
+// places nothing.
+test("input lands the ride: the rows are placed before it reaches anything", () => {
   const rows = transcript(4);
   const [row, below] = rows as [HTMLElement, HTMLElement];
   const placed = new Map<HTMLElement, number>(rows.map((each) => [each, 100]));
@@ -298,4 +299,13 @@ test("a reader scroll lands the ride: the rows are placed before it scrolls", ()
   expect(ride.riding).toBe(false);
   expect(below.style.translate).toBe("");
   expect(finished).toEqual([[row]]);
+  // The fold plays on: the transcript places it to its end (a map scrub goes on aiming by the
+  // layout), and the row's next fold rides again.
+  height.set(row, 950);
+  expect(ride.ride([row])).toBe(false);
+  expect(below.style.translate).toBe("");
+  markHeightFold(row, 20_000);
+  expect(ride.ride([row])).toBe(true);
+  expect(below.style.translate).toBe("0 850px");
+  ride.release();
 });

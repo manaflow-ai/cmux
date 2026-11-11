@@ -19,15 +19,16 @@
 // - the line the reader clicked (the transcript's fold hold) is in a row the ride would move, or has
 //   moved from where it is held (another fold above it in its own row): the transcript keeps that
 //   line in place by moving the offset, which a translate cannot;
-// - the reader scrolls (`land`): the scroll range is still the placed one, which a scroll into the
-//   rows' new end would clamp to, so the transcript places the rows before the browser scrolls;
+// - any input arrives (`land`): the scroll range and the layout are still the placed ones, which a
+//   scroll would clamp to and the map, find or a jump would aim by, so the transcript places the
+//   rows before the input reaches anything;
 // - the mounted rows, where they are placed or moved, do not reach past the view's end: a close
 //   would show a gap the virtualizer has not mounted rows for, or the transcript's end is in view
 //   or within a screen of it,
 //   which the transcript places itself (the bottom pinned while a fold plays there, the room under
 //   the last reply and the dock's); or a close would end the scroll range above the view.
 // Work per frame is O(mounted rows), never O(transcript rows).
-import { heightFoldInFlight } from "./fold";
+import { heightFoldInFlight, heightFoldUntil } from "./fold";
 
 /// The mounted transcript rows that are siblings of `row`, with their index (aria-posinset).
 function siblingRows(row: HTMLElement): { node: HTMLElement; index: number }[] {
@@ -74,6 +75,9 @@ export class FoldRide {
   private handed: HandedFold[] | undefined;
   /// The drawn heights the hand-over was made on (`drawn`).
   private handedOn: unknown;
+  /// The folds an input landed (`land`), each by when it ends: the transcript places them to the end,
+  /// so a scrub that goes on moving aims by the layout of every frame, not the one it landed on.
+  private readonly landed = new WeakMap<HTMLElement, number>();
   private frame: number | undefined;
   private view: (Window & typeof globalThis) | null = null;
 
@@ -93,6 +97,7 @@ export class FoldRide {
     const view = scroller.getBoundingClientRect();
     for (const target of targets) {
       if (!target.isConnected || !heightFoldInFlight(target)) return this.release();
+      if (this.landed.get(target) === heightFoldUntil(target)) return this.release();
       const placed = this.options.placed(target);
       const height = this.options.height(target);
       if (placed === undefined || height === undefined) return this.release();
@@ -193,6 +198,10 @@ export class FoldRide {
   land(): void {
     if (!this.riding) return;
     const folds = [...this.folds.keys()];
+    for (const fold of folds) {
+      const until = heightFoldUntil(fold);
+      if (until !== undefined) this.landed.set(fold, until);
+    }
     this.release();
     this.options.finish(folds.filter((fold) => fold.isConnected));
   }

@@ -4841,24 +4841,26 @@ function TranscriptView({
       holdTop.current = node.scrollTop;
       if (!bottom) keepFoldRoom();
     };
-    // The reader scrolling lets go of it, and of a fold ride: the rows go to their places before the
-    // browser scrolls, or the scroll stops at the range placed before the fold.
+    // The reader scrolling lets go of it.
     const release = (event: Event) => {
       const key = (event as KeyboardEvent).key;
       if (key === "Enter" || key === " ") return;
       if (event.type === "wheel" && !verticalWheel(event as WheelEvent)) return;
       stopBottomStackFold();
       foldAnchor.current = undefined;
-      foldRide.current?.land();
     };
-    // A press on the scroller itself (its scrollbar) is a scroll too.
-    const scrollbarPress = (event: Event) => {
-      if (event.target === node) foldRide.current?.land();
-    };
+    // Any input lands a fold ride first, before whatever it reaches reads the layout: rows go to
+    // their places and the scroll range to its new end. Otherwise a wheel, the scrollbar, the map's
+    // scrub (ScrollMap's `seek`, from `layout.totalHeight`), find or a jump would stop at, or aim
+    // by, the range placed before the fold (review of #39917 at 184fed21 and e357b4a0: 1250px and
+    // 800px short). A ride only plays mid-fold, so this is one render, only for input then.
+    const landRide = () => foldRide.current?.land();
+    const landingInputs = ["pointerdown", "wheel", "touchstart", "keydown"] as const;
+    const view = node?.ownerDocument.defaultView;
     const releases = ["wheel", "touchstart", "keydown"] as const;
     node?.addEventListener("click", holdClicked, { capture: true });
     node?.addEventListener("pointerdown", notePressed, { capture: true });
-    node?.addEventListener("pointerdown", scrollbarPress, { capture: true });
+    for (const name of landingInputs) view?.addEventListener(name, landRide, { capture: true, passive: true });
     node?.addEventListener("pointercancel", dropPressed, { capture: true });
     node?.addEventListener(ANCHORED_COLLAPSE_EVENT, holdAsked);
     for (const name of releases) node?.addEventListener(name, release, { passive: true });
@@ -4910,7 +4912,7 @@ function TranscriptView({
       node?.removeEventListener("click", holdClicked, { capture: true });
       node?.removeEventListener(ANCHORED_COLLAPSE_EVENT, holdAsked);
       node?.removeEventListener("pointerdown", notePressed, { capture: true });
-      node?.removeEventListener("pointerdown", scrollbarPress, { capture: true });
+      for (const name of landingInputs) view?.removeEventListener(name, landRide, { capture: true });
       node?.removeEventListener("pointercancel", dropPressed, { capture: true });
       for (const name of releases) node?.removeEventListener(name, release);
       removeWheel?.();
