@@ -1375,7 +1375,11 @@ def step_errors(view: FailedView) -> set[tuple[str, str]]:
 # of each script, with at least one. Counts, not sets: a whole log may take in a passing step's expected `✘ Test` or
 # error line (#40542's Codex BLOCKs), so a head whose failing step newly prints a line the base printed only from a
 # passing step prints it once more than the base, and is refused. Any line the head prints more or less often than
-# the base breaks identity: a subset either way is never enough.
+# the base breaks identity: a subset either way is never enough. Not covered by counts: a PR that both stops a passing
+# step's line and makes its failing step print that same line; it must change two steps to look the same, and the
+# failed steps must still be the base's. Failing tests are counted by name with their digits (test2() is not test3()).
+# The app FFI pin's red (FFI_PIN_ERROR) is never excused this way: its rules read the PR's paths (ffi_pin_step_a),
+# which a whole-log identity cannot stand in for, and its error masks the pinned sha.
 class UnplacedSignature(NamedTuple):
     steps: frozenset
     tests: Counter
@@ -1389,9 +1393,12 @@ def unplaced_signature(job: dict, log: str) -> UnplacedSignature:
                       if step.get("conclusion") not in (None, "success", "skipped"))
     output = test_reds.lines_of(log)
     named = test_reds.failed_names(output)
-    # Each line that names a failing test by itself, counted; a listing (xcodebuild's `Failing tests:`) adds its names.
-    tests = Counter(normalise_error(text) for text in output if test_reds.failed_names([text]))
-    tests.update(f"listed: {name}" for name in named - set().union(*(test_reds.failed_names([text]) for text in output)))
+    # The failing tests by name, digits kept (never normalise_error's masking: test2() is not test3()), each counted
+    # once per line that names it; a listing's names (xcodebuild's `Failing tests:`) that no line names alone, once.
+    tests: Counter = Counter()
+    for text in output:
+        tests.update(test_reds.failed_names([text]))
+    tests.update(name for name in named if name not in tests)
     errors: Counter = Counter()
     for line in output:
         if line.startswith(test_reds.TAP_MARKER) or SUMMARY_RED.match(line):
@@ -4356,7 +4363,8 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
     cut short), by the verdicts that are not a comparison of its lines with a base's (a no-verdict compile another
     pass compiled, the fleet's compile receipts at the merge-base), and by the gallery and webview per-test verdicts,
     which read their runners' own per-state and per-file blocks (test_reds.gallery_classify, classify_web_window),
-    not its steps' sections. Raises Refused; Infra for a lost runner."""
+    not its steps' sections, and by unplaced_signature when its failed_view is UNPLACED (compared whole, only on
+    identity: UnplacedSignature). Raises Refused; Infra for a lost runner."""
     head_log = lost_runner_log(repo, name, job, github)
     # Which steps the workflow names (step_owners), read before any reader places this log's lines.
     names = job_step_names(repo, job, github, run_reads)
@@ -4529,6 +4537,10 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             # Why: UnplacedSignature (compared whole, excused only on identity with the newest red base verdict)
             if got.unplaced is None:
                 raise Refused(f"'{name}': {UNPLACED_WHY}; nothing is compared with the base")
+            pin = normalise_error(FFI_PIN_ERROR)
+            if name == FFI_PIN_JOB and any(error.startswith(pin) for error in got.unplaced.errors):
+                raise Refused(f"'{name}': {UNPLACED_WHY}, and its app FFI pin is red: the pin's rules read this PR's "
+                              "paths (ffi_pin_step_a) and need a placed log; nothing is compared with the base")
             audit.append(unplaced_verdict(repo, name, base, got.unplaced,
                                           unplaced_base_evidence(repo, base_job, github), base_run))
             continue

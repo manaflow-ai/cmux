@@ -8549,14 +8549,31 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
         self.assertIs(excuse.failed_view(job, github.log(REPO, job), base=False, **UNKNOWN), excuse.UNPLACED)
 
     def test_the_checks_jobs_red_the_base_shares_is_excused(self):
-        red = ["##[error]red check: Check the app FFI pin",
-               "error: the app FFI sources changed since the pinned source 6e1be83c512fc8d963a241da9d389cd95f48ac30:"]
+        red = ["##[error]raw colour outside the tokens", "##[error]red check: Motion and colour tokens"]
         said = self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP, red, red))
         self.assertIn(f"excused '{UNPLACED_CHECKS}': its log does not map onto its steps, so it was compared whole", said)
-        self.assertIn("red check: Check the app FFI pin", said)
+        self.assertIn("red check: Motion and colour tokens", said)
+
+    def test_an_unplaced_app_ffi_pin_red_is_never_excused_whole(self):
+        # The pin's rules read the PR's paths (a PR that moves the pin or edits its check is refused): identical masked
+        # lines on both sides are no proof, since the pinned sha is masked.
+        red = ["##[error]red check: Check the app FFI pin",
+               "error: the app FFI sources changed since the pinned source 6e1be83c512fc8d963a241da9d389cd95f48ac30:"]
+        with self.assertRaisesRegex(excuse.Refused, "its app FFI pin is red: the pin's rules read this PR's paths"):
+            self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP, red, red))
+
+    def test_tests_that_differ_only_in_a_digit_are_different_tests(self):
+        head = ["✘ Test test2() failed after 1.000 seconds with 1 issue."]
+        base = ["✘ Test test3() failed after 1.000 seconds with 1 issue."]
+        with self.assertRaisesRegex(excuse.Refused, "failing tests are not .*more on this head: test2"):
+            self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, head, base))
+        # Timings still match: the same test failing after another time is the same test.
+        said = self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, head,
+                                         ["✘ Test test2() failed after 7.250 seconds with 1 issue."]))
+        self.assertIn("compared whole", said)
 
     def test_a_new_check_red_beside_the_bases_is_the_prs_own(self):
-        base = ["##[error]red check: Check the app FFI pin"]
+        base = ["##[error]red check: Scrollbars thin, one style"]
         head = base + ["##[error]raw colour outside the tokens", "##[error]red check: Motion and colour tokens"]
         with self.assertRaisesRegex(excuse.Refused, r"compared whole, its error lines are not feat-cmux-next run 20.*"
                                     r"more on this head: .*Motion and colour tokens"):
@@ -8566,7 +8583,7 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "more on this head: .*Motion and colour tokens; more on the base"):
             self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP,
                                       ["##[error]red check: Motion and colour tokens"],
-                                      ["##[error]red check: Check the app FFI pin"]))
+                                      ["##[error]red check: Scrollbars thin, one style"]))
 
     def test_the_kit_tests_the_base_fails_too_are_excused(self):
         red = ["✘ Test silentDropDetectionBenchmark() failed after 16.970 seconds with 1 issue."]
@@ -8598,7 +8615,7 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
         # #40542's Codex BLOCK, whole: the base's passing negative case prints the error the head's failing step now
         # prints too. As sets the two logs match; counted, the head prints it once more, and is refused.
         negative = "##[error]error: Sources/New.swift:3: cannot find 'x' in scope"
-        base = [negative, "##[error]red check: Check the app FFI pin"]
+        base = [negative, "##[error]red check: Scrollbars thin, one style"]
         with self.assertRaisesRegex(excuse.Refused, "error lines are not .*more on this head: .*New.swift"):
             self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP, base + [negative], base))
 
@@ -8611,7 +8628,7 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
         echo = ["##[group]Run echo \"::error::red check: Motion and colour tokens\"",
                 "\x1b[36;1mecho \"::error::red check: Motion and colour tokens\"\x1b[0m",
                 "shell: /usr/bin/bash -e {0}", "##[endgroup]"]
-        red = ["##[error]red check: Check the app FFI pin"]
+        red = ["##[error]red check: Scrollbars thin, one style"]
         said = self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP, echo + red, red))
         self.assertIn("compared whole", said)
 
