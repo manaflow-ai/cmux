@@ -652,7 +652,7 @@ pub static ACTIONS: &[Action] = &[
         id: "cloudPauseMachine",
         group: GROUP,
         title: Text::raw("Pause Machine"),
-        description: Some("Pauses the machine (--target machine:<id>); the run ends when the server has paused it. Returns no fields. `cmux cloud resume-machine --target machine:<id>` starts it again."),
+        description: Some("Pauses the machine (--target machine:<id>); the run ends when the server has paused it, answering machine_id, target and status `paused`. A pause that takes longer than 30 s answers `pending: true` with status `pausing` and goes on; `cmux vm status` shows when it lands. `cmux cloud resume-machine --target machine:<id>` starts it again."),
         keywords: &["vm", "cloud tree", "pause", "sleep"],
         category: "cloud",
         symbol: "pause.circle",
@@ -661,13 +661,16 @@ pub static ACTIONS: &[Action] = &[
         requires: &["cloudWorkspace"],
         targets: &["machine"],
         cli_name: "cloud pause-machine",
+        // A server round trip the caller awaits: the 40 s result deadline, never the 2 s
+        // control-plane one that answered `timeout` while the pause was still in flight.
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
         id: "cloudResumeMachine",
         group: GROUP,
         title: Text::raw("Resume Machine"),
-        description: Some("Resumes a paused machine (--target machine:<id>); the run ends when the server has resumed it. Returns no fields."),
+        description: Some("Resumes a paused machine (--target machine:<id>); the run ends when the server has resumed it, answering machine_id, target and status `running`. A resume that takes longer than 30 s answers `pending: true` with status `starting` and goes on; `cmux vm status` shows when it lands."),
         keywords: &["vm", "cloud tree", "resume", "wake", "start"],
         category: "cloud",
         symbol: "play.circle",
@@ -676,6 +679,7 @@ pub static ACTIONS: &[Action] = &[
         requires: &["cloudWorkspace"],
         targets: &["machine"],
         cli_name: "cloud resume-machine",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {

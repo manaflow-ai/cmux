@@ -158,16 +158,20 @@ extension CloudHandlers {
                 return deletionPending(session.machineID)
             }
         }
+        // The run waits for the server (the catalog's `waits_for_result`), and one that outlasts
+        // ``machineAnswerWait`` answers `pending` while the pause or resume goes on.
         bind("cloudPauseMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
-            runTracked("pause machine", context) {
+            result("pause machine", context, pendingAfter: machineAnswerWait, pending: machineFields(session.machineID, ["status": .string("pausing")])) {
                 try await cloud.pauseMachine(session.machineID)
+                return machineFields(session.machineID, ["status": .string("paused")])
             }
         }
         bind("cloudResumeMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
-            runTracked("resume machine", context) {
+            result("resume machine", context, pendingAfter: machineAnswerWait, pending: machineFields(session.machineID, ["status": .string("starting")])) {
                 try await cloud.resumeMachine(session.machineID)
+                return machineFields(session.machineID, ["status": .string("running")])
             }
         }
         // A live daemon proves Resume is redundant. Cached API status cannot: idle-pause
@@ -497,7 +501,7 @@ extension CloudHandlers {
         CloudHandlerRules().machineFields(machineID, extra)
     }
 
-    /// How long a CLI or agent fork, restore, resize or kill waits for the
+    /// How long a CLI or agent fork, restore, resize, kill, pause or resume waits for the
     /// server before it answers `pending`: inside `action.run`'s 40 s result
     /// deadline. The work finishes either way.
     static let machineAnswerWait: Duration = .seconds(30)
