@@ -1724,10 +1724,12 @@ Only the connection that sent the creation can cancel its input. For it:
 - The bytes it queued for the id are dropped. It gets no `terminal-input-unclaimed` event for them (a
   client gives such bytes to the terminal that has focus, which is the wrong terminal here).
 - The bytes other connections queued for the id go back to them in `terminal-input-unclaimed` events with
-  `reason` `cancelled` (one event; two when the cancel arrives while the commit writes the queue).
+  `reason` `cancelled` (one event; two when the cancel arrives while the commit writes the queue, and the
+  second has `reason` `write-failed` when the write that the commit was in fails).
 - From then on, `send` with this `terminal_id` fails with error code `input.cancelled` on every
   connection: until the creation ends, and for 10 seconds after a creation that committed. So a key that
-  arrives late cannot reach the terminal the commit made live.
+  arrives late cannot reach the terminal the commit made live. A `send` with this `terminal_id` and no
+  bytes is not refused: it answers as for any creating or live terminal.
 - When the commit already started to write the queue, the bytes not yet written are not written. The
   chunk that is in its write at the time of the cancel is not recalled, and one more chunk can be written
   when its write starts in the same instant as the cancel.
@@ -1740,8 +1742,7 @@ The caller closes the new terminal when the reply names it (`close-tabs`). Input
 committed terminal is not refused.
 
 The result is `{cancelled:false}`, and nothing changes, when the caller did not send a creation of the id,
-when the id is not creating, and when the creation's queue was already written or given back. A `send`
-with this `terminal_id` and no bytes is not refused: it answers as for any creating or live terminal. A second
+when the id is not creating, and when the creation's queue was already written or given back. A second
 cancel by the creator answers `{cancelled:true}`.
 
 Authority: control, local connections. A remote relay connection cannot send it (it is not on the relay
