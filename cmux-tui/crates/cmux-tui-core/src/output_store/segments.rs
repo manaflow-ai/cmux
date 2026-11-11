@@ -69,6 +69,10 @@ impl Segments {
     pub(crate) fn set_enabled(&self, enabled: bool) {
         self.enabled.store(enabled, Ordering::Relaxed);
     }
+
+    /// Forgets what this daemon knows of a terminal's segment files; call
+    /// when they are removed.
+    pub(crate) fn forget(&self, _directory: &Path, _terminal_id: &TerminalPublicId) {}
 }
 
 fn generation_key(generation: &str) -> String {
