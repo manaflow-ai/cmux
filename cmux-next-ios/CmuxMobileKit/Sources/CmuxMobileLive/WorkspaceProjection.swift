@@ -551,9 +551,17 @@ public actor WorkspaceProjection {
     /// The first row with `key` or `workspace` as its handle, as a scan of
     /// the rows finds it.
     private func rowIndex(workspace: Int?, key: String?) -> Int? {
-        let byKey = key.flatMap { key in keyRows[key].flatMap { rows.indices.contains($0) && rows[$0].key == key ? $0 : nil } }
-        let byHandle = workspace.flatMap { handle in
-            handleRows[handle].flatMap { rows.indices.contains($0) && rows[$0].handle == handle ? $0 : nil }
+        let byKey = key.flatMap { keyRows[$0] }
+        let byHandle = workspace.flatMap { handleRows[$0] }
+        // The indexes are rebuilt with every insert, remove, move and re-key;
+        // one that disagrees with the rows falls back to reading them.
+        let stale = byKey.map { !rows.indices.contains($0) || rows[$0].key != key } == true
+            || byHandle.map { !rows.indices.contains($0) || rows[$0].handle != workspace } == true
+        if stale {
+            scannedRows += rows.count
+            return rows.firstIndex { row in
+                (key != nil && row.key == key) || (workspace != nil && row.handle == workspace)
+            }
         }
         if let byKey, let byHandle { return min(byKey, byHandle) }
         return byKey ?? byHandle
