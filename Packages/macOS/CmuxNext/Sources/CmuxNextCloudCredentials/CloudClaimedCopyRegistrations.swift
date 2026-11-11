@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextWakeups
 public import Foundation
 
 /// The claimed machines whose login copy (``CloudSpareWarm/start(claimed:)``) Rust has not registered yet. A start onto
@@ -39,12 +40,16 @@ public import Foundation
         // task-owner: `consentFollower`, cancelled when a warm comes on another connection; each send is bounded by its timeout.
         consentFollower = (connection, Task { @MainActor [weak self] in
             var push = CloudLoginCopyConsentPush()
-            let clock = ContinuousClock()
             for await _ in ObservationStream(consent) {
+                // A re-send only repairs a lost request: full jitter, so many apps that failed together never re-send together.
+                var backoff = Backoff.fullJitter(initial: CloudLoginCopyConsentPush.retryDelays[0], maximum: CloudLoginCopyConsentPush.retryDelays[2])
                 await push.send(consent, numbered: { self?.consentGeneration() }, { value, generation in
                     let request = CloudSpareWarmConsentRequest(consent: value, generation: generation)
                     return (try? await connection.request(request, timeout: .seconds(5))) != nil
-                }, pause: { (try? await clock.sleep(for: $0)) != nil })
+                }, pause: { _ in
+                    // concurrency-allow: Backoff.wait is an async sleep after a failed send, not a blocking wait.
+                    (try? await backoff.wait(owner: "cloud-spare-warm.consent-resend")) != nil
+                })
             }
         })
     }
@@ -89,7 +94,8 @@ struct CloudLoginCopyConsentPush {
 
     mutating func failed() { sent = nil }
 
-    /// How long a failed send waits before it is sent again, each retry once: a send that fails while the link stays up
+    /// The cap of each wait before a failed send is sent again, each retry once (the follower draws each under
+    /// ``Backoff/fullJitter(initial:maximum:random:)``): a send that fails while the link stays up
     /// and the consent stays the same has no next state to ride on, and the daemon would keep the old consent for a
     /// copy in flight (an opt-out it never heard). After the last, the next change or reconnect sends it.
     static let retryDelays: [Duration] = [.seconds(1), .seconds(2), .seconds(4)]
