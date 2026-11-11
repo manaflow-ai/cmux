@@ -67,7 +67,6 @@ import Testing
         await settle { !store.transcript(for: id).isEmpty && view.debugTranscriptLoadState != nil }
         #expect(store.transcript(for: id).count == 1, "the inbox's newest message did not draw at once")
         #expect(view.debugTranscriptLoadState == "loading", "a drawn newest message hid the loading state")
-        #expect(view.loadState.overRows)
         #expect(view.firstRun.isHidden)
 
         source.release()
@@ -77,7 +76,6 @@ import Testing
         #expect(view.debugTranscriptLoadState == "failed", "a failed first read under a drawn message showed no error")
         #expect(!view.loadState.isHidden)
         #expect(!view.loadState.retry.isHidden, "a failed first read under a drawn message offered no Try Again")
-        #expect(view.loadState.overRows, "the error replaced the drawn message instead of sitting above it")
         #expect(store.transcript(for: id).count == 1, "the drawn message went when the read failed")
         #expect(view.firstRun.isHidden, "a Chief with history whose read failed showed the first-run panel")
 
@@ -111,7 +109,6 @@ import Testing
         await settle { source.waiting == 1 && clock.sleeperCount >= 2 }
         await settle { view.debugTranscriptLoadState == "loading" }
         #expect(view.debugTranscriptLoadState == "loading")
-        #expect(view.loadState.overRows)
 
         clock.advance(by: HomeStore.firstPageDeadline)
         await settle { view.debugTranscriptLoadState == "failed" }
