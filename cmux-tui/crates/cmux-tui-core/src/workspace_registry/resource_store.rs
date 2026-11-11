@@ -614,13 +614,12 @@ fn advance_agent_hook_apply_cursor_transaction(
     sequence: u64,
 ) -> anyhow::Result<()> {
     let sequence = i64::try_from(sequence).context("agent hook sequence exceeds SQLite range")?;
-    let changed = transaction
-        .prepare_cached(
-            "UPDATE resource_agent_hook_apply_cursor
+    let changed = transaction.execute(
+        "UPDATE resource_agent_hook_apply_cursor
          SET sequence = CASE WHEN sequence < ?1 THEN ?1 ELSE sequence END
          WHERE id = 1",
-        )?
-        .execute([sequence])?;
+        [sequence],
+    )?;
     anyhow::ensure!(changed == 1, "agent hook apply cursor row is missing");
     Ok(())
 }
@@ -660,24 +659,16 @@ impl WorkspaceRegistry {
             .iter()
             .find(|subject| subject.kind == "terminal")
             .map(|subject| subject.id.as_str());
-        transaction
-            .prepare_cached(
-                "INSERT INTO resource_agent_hook_pending(
+        transaction.execute(
+            "INSERT INTO resource_agent_hook_pending(
                producer_id, origin, idempotency_key, terminal_id, event_sequence, ingress_json, error, attempt
              ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, '', 0)
              ON CONFLICT(producer_id, origin, idempotency_key) DO UPDATE SET
                terminal_id = excluded.terminal_id,
                event_sequence = excluded.event_sequence,
                ingress_json = excluded.ingress_json",
-            )?
-            .execute(params![
-                producer_id,
-                origin,
-                idempotency_key,
-                terminal_id,
-                i64::try_from(sequence)?,
-                ingress_json
-            ])?;
+            params![producer_id, origin, idempotency_key, terminal_id, i64::try_from(sequence)?, ingress_json],
+        )?;
         Ok(())
     }
 
@@ -772,13 +763,11 @@ impl WorkspaceRegistry {
         origin: &str,
         idempotency_key: &str,
     ) -> anyhow::Result<()> {
-        self.connection
-            .get()
-            .prepare_cached(
-                "DELETE FROM resource_agent_hook_pending
+        self.connection.get().execute(
+            "DELETE FROM resource_agent_hook_pending
              WHERE producer_id = ?1 AND origin = ?2 AND idempotency_key = ?3",
-            )?
-            .execute(params![producer_id, origin, idempotency_key])?;
+            params![producer_id, origin, idempotency_key],
+        )?;
         Ok(())
     }
 
@@ -863,7 +852,7 @@ impl WorkspaceRegistry {
         let before =
             before.map(i64::try_from).transpose().context("pending hook sequence is too large")?;
         let db = self.connection.get();
-        let mut statement = db.prepare_cached(
+        let mut statement = db.prepare(
             "SELECT producer_id, origin, idempotency_key, event_sequence, ingress_json
              FROM resource_agent_hook_pending
              WHERE terminal_id = ?1 AND attempt < ?2

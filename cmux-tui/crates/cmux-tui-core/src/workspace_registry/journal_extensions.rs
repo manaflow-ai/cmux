@@ -1047,21 +1047,23 @@ fn append_journal_ingress_transaction(
         return Ok(commit);
     }
     let installed = tx
-        .prepare_cached(
+        .query_row(
             "SELECT 1 FROM journal_producers
              WHERE producer_id = ?1 AND manifest_version = ?2",
-        )?
-        .query_row(params![ingress.producer_id, i64::from(ingress.manifest_version)], |_| Ok(()))
+            params![ingress.producer_id, i64::from(ingress.manifest_version)],
+            |_| Ok(()),
+        )
         .optional()?
         .is_some();
     anyhow::ensure!(installed, "journal producer or manifest version is not installed");
     let causation_depth = match ingress.causation_id.as_deref() {
         Some(causation_id) => {
             let parent_depth = tx
-                .prepare_cached(
+                .query_row(
                     "SELECT causation_depth FROM journal_event_index WHERE event_id = ?1",
-                )?
-                .query_row([causation_id], |row| row.get::<_, i64>(0))
+                    [causation_id],
+                    |row| row.get::<_, i64>(0),
+                )
                 .optional()?
                 .context("journal causation event does not exist")?;
             u16::try_from(parent_depth)
@@ -1128,21 +1130,21 @@ fn append_journal_ingress_transaction(
         "sequence":sequence.to_string(),
         "event_id":event_id,
     });
-    tx.prepare_cached(
+    tx.execute(
         "INSERT INTO journal_ingress_receipts(
            producer_id, origin, idempotency_key, fingerprint, event_id,
            journal_sequence, result_json
          ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-    )?
-    .execute(params![
-        ingress.producer_id,
-        origin,
-        idempotency_key,
-        fingerprint.as_slice(),
-        event_id,
-        i64::try_from(sequence)?,
-        canonical_json(&result)?,
-    ])?;
+        params![
+            ingress.producer_id,
+            origin,
+            idempotency_key,
+            fingerprint.as_slice(),
+            event_id,
+            i64::try_from(sequence)?,
+            canonical_json(&result)?,
+        ],
+    )?;
     if built_in_agent {
         WorkspaceRegistry::stage_agent_hook_pending(
             tx,
@@ -1549,8 +1551,7 @@ fn checkpoint_request_fingerprint() -> sha2::digest::Output<Sha256> {
 
 fn transaction_session_id(transaction: &Transaction<'_>) -> anyhow::Result<String> {
     transaction
-        .prepare_cached("SELECT value FROM meta WHERE key = 'session_public_id'")?
-        .query_row([], |row| row.get(0))
+        .query_row("SELECT value FROM meta WHERE key = 'session_public_id'", [], |row| row.get(0))
         .context("read journal session id")
 }
 
@@ -1784,14 +1785,13 @@ fn ingress_receipt(
     fingerprint: &[u8],
 ) -> anyhow::Result<Option<JournalAppendCommit>> {
     let stored = connection
-        .prepare_cached(
+        .query_row(
             "SELECT fingerprint, event_id, journal_sequence
              FROM journal_ingress_receipts
              WHERE producer_id = ?1 AND origin = ?2 AND idempotency_key = ?3",
-        )?
-        .query_row(params![producer_id, origin, idempotency_key], |row| {
-            Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
-        })
+            params![producer_id, origin, idempotency_key],
+            |row| Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?)),
+        )
         .optional()?;
     let Some((stored_fingerprint, event_id, sequence)) = stored else { return Ok(None) };
     anyhow::ensure!(
