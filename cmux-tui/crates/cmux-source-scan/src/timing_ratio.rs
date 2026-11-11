@@ -478,7 +478,17 @@ impl Scope<'_> {
             Expr::MethodCall(m) => self.method_kind(m),
             Expr::Call(c) => self.call_kind(c),
             Expr::Closure(c) => {
-                Kind::of(if reads_clock(c.to_token_stream()) { Base::ClockFn } else { Base::Other })
+                if reads_clock(c.to_token_stream()) {
+                    return Kind::of(Base::ClockFn);
+                }
+                // A closure over a measurement (`|busy| run(busy).p99.min(..)`, cmux#41346's
+                // shape) holds what its body is; each call measures anew.
+                let body = self.kind_of(&c.body);
+                if body.measured() || body.base == Base::Ratio {
+                    Kind { scaled: false, ..body }
+                } else {
+                    Kind::of(Base::Other)
+                }
             }
             _ => Kind::of(Base::Other),
         }
@@ -603,6 +613,7 @@ impl Scope<'_> {
             return match v.base {
                 Base::ClockFn => Kind::from(Base::Timing, here(c)),
                 Base::Other => Kind::of(Base::Other),
+                Base::Timing | Base::Pct | Base::Ratio => Kind::from(v.base, here(c)),
                 _ => v.clone(),
             };
         }

@@ -432,6 +432,33 @@ fn ratio_in_its_own_run() {
     let (busy, idle) = (helper(), helper());
     assert!(busy < idle * 4);
 }
+=== flagged :: busy < idle * 4 :: ratio of two timings :: cmux#41346's own shape: a closure returning a percentile field, called for each side (missed by hq#9512)
+struct Round { p99: Duration }
+
+fn notices_round(busy: bool, round: usize) -> Round {
+    let started = Instant::now();
+    let _ = (busy, round);
+    Round { p99: started.elapsed() }
+}
+
+#[test]
+fn a_reader_walking_every_row_never_holds_up_a_peer_notice() {
+    let p99 = |busy: bool, round: usize| {
+        notices_round(busy, round).p99.min(notices_round(busy, round + 1).p99)
+    };
+    let busy = p99(true, 1);
+    let idle = p99(false, 3);
+    assert!(busy < idle * 4, "a busy reader held notices up: p99 {busy:?} against {idle:?} idle");
+}
+=== clean :: a < b * 4 :: - :: a closure over counts is not a timing
+#[test]
+fn counts_from_a_closure() {
+    let started = Instant::now();
+    let count = |n: usize| vec![0u8; n].len();
+    let (a, b) = (count(3), count(1));
+    assert!(a < b * 4);
+    assert!(started.elapsed() < Duration::from_secs(10));
+}
 === flagged :: busy < idle * 4 :: ratio of two timings :: a multi-thread tokio test is in the default run (debug_assert)
 #[tokio::test(flavor = "multi_thread")]
 async fn tokio_ratio() {
