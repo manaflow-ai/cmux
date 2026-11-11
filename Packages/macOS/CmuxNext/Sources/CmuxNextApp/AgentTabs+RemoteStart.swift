@@ -95,11 +95,7 @@ extension AgentTabStore {
         // A default model pick is omitted by the page. After a harness switch it must remain
         // that harness's default, rather than restoring the previous harness's seeded model.
         let model = chosenModel ?? (harness == seed?.harness ? seed?.model : nil)
-        // The person's mode pick from the Cloud send (``AgentPaneSeed/mode``), for the harness it was
-        // picked on, and only toward the caller's own Cloud machine (the client sends it only with
-        // the owner word).
-        let startMode = ownerLink != nil && harness == seed?.harness ? seed?.mode : nil
-        do { result = .success(try await client.start(cwd: fallback, harness: harness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink, model: model, startMode: startMode)) } catch { result = .failure(error) }
+        do { result = .success(try await client.start(cwd: fallback, harness: harness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink, model: model, startMode: ownerLink != nil && harness == seed?.harness ? seed?.mode : nil)) } catch { result = .failure(error) } // the Cloud send's mode pick, own machine only
         let phases = await client.startPhases
         await client.close()
         switch result {
