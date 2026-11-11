@@ -28,6 +28,11 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
     public static let listedElsewhereCode = "app.listed_elsewhere"
 
     public static func folderNeeded(machine: String) -> Self { Self(code: appFolderNeeded, machine: machine) }
+    /// A Cloud start from a folder this Mac does not trust: its copy on the machine is trusted only when this Mac
+    /// trusts the folder (cmux-tui `link start-chat copy`'s `source_trusted`), so the machine's agent refuses the copy.
+    /// The cause and the fix are on this Mac, never "on that machine". `folder` is the folder on this Mac.
+    public static let untrustedSourceCode = "app.untrusted_source"
+    public static func untrustedSource(folder: String, machine: String = "") -> Self { Self(code: untrustedSourceCode, machine: machine, folder: folder) }
     /// The refusal of a start on a teammate's machine (the card's New Cloud Machine, startRefusal.ts).
     public static func teamMachine(machine: String) -> Self { Self(code: AgentSessionAttachError.teamMachine, machine: machine) }
     /// An untrusted folder on a machine whose cmux-tui cannot take the person's Trust from here.
@@ -53,6 +58,10 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
             RefusalStrings.format("handlers.refusal.agentRemoteStart.untrustedFolder",
                                   "%1$@ is not a trusted folder on %2$@. Trust it on that machine, then start the chat again.",
                                   folder ?? "~", machine)
+        case Self.untrustedSourceCode:
+            RefusalStrings.format("handlers.refusal.agentRemoteStart.untrustedSource",
+                                  "This Mac doesn't trust %1$@, so its copy on a Cloud machine isn't trusted either. Trust it on this Mac (Trust Folder in a chat in that folder, or `cmux setup trust %2$@`), then start the chat again.",
+                                  folder ?? "~", Self.shellWord(folder ?? "~"))
         case "agent_session.not_asking":
             RefusalStrings.format("handlers.refusal.agentRemoteStart.harnessRefused",
                                   "This agent cannot ask before it acts on %@, so it cannot run there from this Mac. Pick another agent.", machine)
@@ -91,6 +100,17 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
             RefusalStrings.format("handlers.refusal.agentRemoteStart.refused",
                                   "%1$@ refused to start the agent chat (%2$@).", machine, code)
         }
+    }
+}
+
+extension AgentRemoteStartRefusal {
+    /// `text` as one shell word: as it is when it needs no quoting, else in single quotes.
+    static func shellWord(_ text: String) -> String {
+        let plain = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._-+,:@%")
+        guard !text.isEmpty, text.unicodeScalars.allSatisfy(plain.contains) else {
+            return "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        }
+        return text
     }
 }
 

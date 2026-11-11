@@ -438,6 +438,37 @@ struct CloudStartSessionTests {
         #expect(message.contains("--cwd"))
     }
 
+    // MARK: A folder this Mac does not trust
+
+    /// Live journey (2026-11-10): `cmux chat --on vm:new --from-folder` from a folder this Mac had never trusted leased a
+    /// machine, copied the folder and only then failed "… is not a trusted folder on chat-…. Trust it on that machine".
+    /// The copy is trusted there only when this Mac trusts the folder, so the cause and the fix are on this Mac: the
+    /// start is refused before any machine (`link start-chat trust`), and a refusal after one says the same.
+    @Test(arguments: ["unknown", "untrusted"])
+    func aFolderThisMacDoesNotTrustIsRefusedWithTheFixHere(level: String) throws {
+        let message = try #require(CloudStartSession.untrustedRefusal(level: level, folder: "/Users/me/my project"))
+        #expect(message.hasPrefix("This Mac doesn't trust /Users/me/my project,"), "\(message)")
+        #expect(message.contains("`cmux setup trust '/Users/me/my project'`"), "\(message)")
+        #expect(!message.contains("that machine"), "the cause is on this Mac: \(message)")
+    }
+
+    /// A trusted folder goes on, and so does one whose trust could not be read (the copy then reads it again, as before).
+    @Test func aTrustedOrUnreadFolderGoesOn() {
+        #expect(CloudStartSession.untrustedRefusal(level: "trusted", folder: "/w/paint") == nil)
+        #expect(CloudStartSession.untrustedRefusal(level: nil, folder: "/w/paint") == nil)
+    }
+
+    /// The machine's refusal of an untrusted copy of a folder this Mac does not trust names this Mac; the same refusal of
+    /// a folder that is no copy (`--cwd` on the machine) keeps the machine's own words.
+    @Test func aRefusedCopyNamesThisMacNotThatMachine() {
+        let refused = AgentRemoteStartRefusal(code: "agent_session.untrusted_folder", machine: "chat-6fe5", folder: "/home/cmux/work/chats/k/a/paint-9a62e5")
+        let copied = CloudStartSession.startFailure(refused, name: "chat-6fe5", id: "vm-6fe5", agent: "codex", untrustedCopyOf: "/Users/me/paint")
+        #expect(copied == AgentRemoteStartRefusal.untrustedSource(folder: "/Users/me/paint").userMessage)
+        #expect(copied.contains("cmux setup trust /Users/me/paint") && !copied.contains("that machine"), "\(copied)")
+        let onMachine = CloudStartSession.startFailure(refused, name: "chat-6fe5", id: "vm-6fe5", agent: "codex")
+        #expect(onMachine.contains("Trust it on that machine"), "\(onMachine)")
+    }
+
     @Test func everyHintNamesAVerbTheCLIOffers() {
         let services = Self.fixture().services
         let messages = [

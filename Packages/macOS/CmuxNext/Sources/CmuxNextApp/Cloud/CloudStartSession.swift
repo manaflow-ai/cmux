@@ -234,7 +234,12 @@ struct CloudStartSession {
                           revealing: Bool) async throws -> [String: ActionResultValue] {
         let still = { [services] (machine: String) throws in try Self.checked(account, now: services.cloud.account, request.asked(machine: machine)) }
         try still(request.name ?? request.machineID ?? "")
-        if let local = request.fromFolder, case .failure(let r) = await AgentPaneCloudStart.checkedFolder(local, home: NSHomeDirectory()) { throw ActionFailure(message: Self.message(r, folder: local)) } // before any machine
+        if let local = request.fromFolder { // before any machine
+            switch await AgentPaneCloudStart.checkedFolder(local, home: NSHomeDirectory()) {
+            case .failure(let r): throw ActionFailure(message: Self.message(r, folder: local))
+            case .success(let checked): try await refuseUntrusted(checked.folder)
+            }
+        }
         let steps = CloudStartSteps(logger: services.cloud.logger)
         let session = try await machine(request, invocation, account: account, byPerson: byPerson, capCard: capCard, askedBy: askedBy)
         steps.done("machine") // the list read and the take, or the create's answer
@@ -289,7 +294,8 @@ struct CloudStartSession {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            try Self.failed(account, now: services.cloud.account, request.asked(machine: name), Self.startFailure(error, name: name, id: id, agent: agent))
+            try Self.failed(account, now: services.cloud.account, request.asked(machine: name),
+                            Self.startFailure(error, name: name, id: id, agent: agent, untrustedCopyOf: copy?.trusted == false ? request.fromFolder : nil))
         }
         steps.done("start")
         CloudStartStepRecord.current?.machine = started.phases
@@ -348,10 +354,30 @@ struct CloudStartSession {
         do { try check(account, now: now, asked) } catch let changed as AccountChanged { throw changed.failure }
     }
 
+    /// Before any machine is taken: a folder this Mac does not trust is refused here, with the fix on this Mac. Its copy
+    /// would be trusted on the machine only when this Mac trusts it (``trust(_:surface:on:)``), so the machine's agent
+    /// would refuse it after a lease and a copy (live journey, 2026-11-10: "… is not a trusted folder on chat-…. Trust
+    /// it on that machine"). A level that can't be read lets the start go on, as before.
+    func refuseUntrusted(_ folder: String) async throws {
+        guard let binary = services.cloud.move.cli, let home = QuitAgents.environment(services)?.home.path else { return }
+        let level = await CloudMoveCLI(binary: binary, timeout: .seconds(15)).startChatTrust(folder: folder, acpmuxHome: home)
+        if let refusal = Self.untrustedRefusal(level: level, folder: folder) { throw ActionFailure(message: refusal) }
+    }
+
+    /// The refusal for this Mac's trust `level` of `folder` (`link start-chat trust`): none when trusted or unread.
+    nonisolated static func untrustedRefusal(level: String?, folder: String) -> String? {
+        guard let level, level != "trusted" else { return nil }
+        return AgentRemoteStartRefusal.untrustedSource(folder: folder).userMessage
+    }
+
     /// The start's refusal in the run's words: the machine is up, its agent is not.
-    static func startFailure(_ error: any Error, name: String, id: String, agent: String) -> String {
+    /// `untrustedCopyOf`: the folder on this Mac the session's folder is a copy of, when this Mac does not trust it. The
+    /// machine's agent then refuses the copy as untrusted, and the cause and the fix are on this Mac, never "on that machine".
+    static func startFailure(_ error: any Error, name: String, id: String, agent: String, untrustedCopyOf: String? = nil) -> String {
         if let refusal = error as? AgentRemoteStartRefusal {
             switch refusal.code {
+            case "agent_session.untrusted_folder" where untrustedCopyOf != nil:
+                return AgentRemoteStartRefusal.untrustedSource(folder: untrustedCopyOf ?? "", machine: name).userMessage
             case AgentRemoteStartRefusal.folderNeededCode, "agent_session.home_unconfirmed", "agent_session.above_home":
                 return CloudStartSessionStrings.needsFolder(name, id: id, agent: agent)
             default:
