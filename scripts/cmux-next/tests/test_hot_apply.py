@@ -197,7 +197,8 @@ class HotApplyRust(unittest.TestCase):
         self.assertEqual(code, 0, err)
         code, receipt, err = self.hot("rollback")
         self.assertEqual(code, 0, err)
-        self.assertEqual(receipt["steps"]["rust"]["acpmux"], [{"home": str(self.tmp / "home"), "restarted": True}])
+        self.assertEqual(receipt["steps"]["rust"]["acpmux"], [{"home": str(self.tmp / "home"), "restarted": True,
+                                                            "own_environment": False}])
         # Once for the apply, once for the rollback, each on the home and never on the inherited socket.
         self.assertEqual(log.read_text().splitlines(), [f"{self.tmp / 'home'}||daemon restart"] * 2)
 
