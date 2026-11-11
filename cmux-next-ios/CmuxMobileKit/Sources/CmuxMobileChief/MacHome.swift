@@ -298,7 +298,8 @@ public struct HomeConnectionBar: Equatable, Sendable {
     /// The bar for Home's state, or nil while the list is live. `offline`: the Home Mac's link
     /// is neither connected nor connecting. `problem`: why the last read failed. `retrying`: a
     /// Try Again runs. `hasRows`: rows show under the bar (the last ones read).
-    public static func make(offline: Bool, problem: String?, retrying: Bool, hasRows: Bool,
+    /// `reconnecting`: the running Try Again dials the Mac first (it was offline), else it only reads again.
+    public static func make(offline: Bool, problem: String?, retrying: Bool, reconnecting: Bool = true, hasRows: Bool,
                             macName: String?) -> HomeConnectionBar? {
         let mac = macName ?? String(localized: "your Mac")
         let kind: Kind
@@ -313,8 +314,8 @@ public struct HomeConnectionBar: Equatable, Sendable {
         }
         let title: String = switch kind {
         case .offline: String(localized: "Not connected to \(mac)")
-        case .failed: String(localized: "Couldn't load \(mac)'s Home")
-        case .retrying: String(localized: "Reconnecting to \(mac)…")
+        case .failed: String(localized: "Couldn't load Home from \(mac)")
+        case .retrying: reconnecting ? String(localized: "Reconnecting to \(mac)…") : String(localized: "Loading Home from \(mac)…")
         }
         var detail: String = if hasRows {
             String(localized: "Showing the last list from this iPhone. It updates when the Mac answers.")
