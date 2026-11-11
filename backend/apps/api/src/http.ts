@@ -296,6 +296,11 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const p = yield* principalFor("cloud:TeamDO", principal)
           return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)).ssoOp(p.team!, p, frame)), catch: unreachable })
         }
+        // Team shared agent keys (team-agent-keys.ts): the key travels only in this request, sealed in TeamDO.
+        if (payload.op === "team.agent_key.set" || payload.op === "team.agent_key.remove") {
+          const p = yield* principalFor("cloud:TeamDO", principal)
+          return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)).agentKeyOp(p.team!, p, frame)), catch: unreachable })
+        }
         // TeamDO, outside its reducer: the SSH CA (team-ssh-ca.ts; keys never enter params), a tainted team VM's owner actions (cx-q4f3), member removal via Stack (cx-3bi.4).
         if (["team_vm.ssh_cert", "team_vm.ssh_cert.challenge", "team_vm.ssh_cert.revoke", "team_vm.ssh_ca.rotate", "team_vm.taint.accept", "team_vm.rebuild", "team_vm.retired.delete", "team_vm.retired.export", "team.members.remove"].includes(payload.op)) {
           const p = yield* principalFor("cloud:TeamDO", principal)

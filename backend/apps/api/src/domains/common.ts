@@ -1,5 +1,5 @@
 import type { Principal, Reject } from "@cmux/ownership"
-import { cloudInternalOps, cloudOpByName, InstallRegister, MachineId, ServerCapabilities, ServerNetworkReservation, HostId, connectionInternalOps, DisplayName, feedInternalOps, pushInternalOps, userConfirmInternalOps, InstallId, Platform, schedulerInternalOps, teamMemberInternalOps, teamSshInternalOps, teamVmInternalOps, TeamId, UserId, WgPublicKey, type CloudOpDef } from "@cmux/protocol"
+import { cloudInternalOps, cloudOpByName, InstallRegister, MachineId, ServerCapabilities, ServerNetworkReservation, HostId, connectionInternalOps, DisplayName, feedInternalOps, pushInternalOps, userConfirmInternalOps, InstallId, Platform, schedulerInternalOps, teamMemberInternalOps, teamAgentKeyInternalOps, teamSshInternalOps, teamVmInternalOps, TeamId, UserId, WgPublicKey, type CloudOpDef } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 import { HostNetworkBoundParams } from "./host-network-params.ts"
 
@@ -486,7 +486,8 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
   ...teamVmInternalOps.map((d) => [d.name, d] as const),
   ...cloudInternalOps.map((d) => [d.name, d] as const),
   ...teamSshInternalOps.map((d) => [d.name, d] as const),
-  ...teamMemberInternalOps.map((d) => [d.name, d] as const)
+  ...teamMemberInternalOps.map((d) => [d.name, d] as const),
+  ...teamAgentKeyInternalOps.map((d) => [d.name, d] as const)
 ])
 
 /**
