@@ -4,7 +4,7 @@
 //! restart counts only new lines.
 
 use std::cmp::Reverse;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -14,6 +14,7 @@ use crate::adapters::{PathRole, classify_path};
 use crate::entry::{ChatEntry, ChatKey};
 use crate::roots::ChatRoot;
 use crate::scan::{RootScan, read_file, scan_root};
+use crate::stamp::FileStamp;
 use crate::store_file;
 
 // 2: Codex rollouts count their typed prompts from message items (current Codex writes no
@@ -44,6 +45,25 @@ pub enum ChatChange {
 struct Slot {
     root: ChatRoot,
     scan: RootScan,
+    /// Each store file's stamp when an event last named it (None: it was not there).
+    store_stamps: HashMap<PathBuf, Option<FileStamp>>,
+}
+
+impl Slot {
+    /// Whether store file `path` moved since an event last named it. macOS reports an extended
+    /// attribute event on a WAL while processes read it, with nothing written; taken for a change,
+    /// each daemon's read made every other daemon read the whole store again.
+    fn store_file_changed(&mut self, path: &Path) -> bool {
+        let now = std::fs::metadata(path).ok().map(|meta| FileStamp::of(&meta));
+        self.store_stamps.insert(path.to_path_buf(), now) != Some(now)
+    }
+
+    /// Whether any store file an event has named moved: a writer that holds its connection open
+    /// may report nothing on the store, so a transcript written beside it says to look.
+    fn known_store_files_changed(&mut self) -> bool {
+        let known: Vec<PathBuf> = self.store_stamps.keys().cloned().collect();
+        known.iter().fold(false, |changed, path| self.store_file_changed(path) | changed)
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -82,7 +102,11 @@ impl ChatIndex {
             .unwrap_or_default();
         let slots = roots
             .into_iter()
-            .map(|root| Slot { scan: saved.remove(&root.id()).unwrap_or_default(), root })
+            .map(|root| Slot {
+                scan: saved.remove(&root.id()).unwrap_or_default(),
+                store_stamps: HashMap::new(),
+                root,
+            })
             .collect();
         let mut index = Self { slots, ..Self::default() };
         let merged = index.merge();
@@ -106,7 +130,7 @@ impl ChatIndex {
                 .position(|slot| slot.root.id() == root.id())
                 .map(|at| old.swap_remove(at).scan)
                 .unwrap_or_default();
-            self.slots.push(Slot { root, scan });
+            self.slots.push(Slot { root, scan, store_stamps: HashMap::new() });
         }
         self.remerge()
     }
@@ -152,10 +176,13 @@ impl ChatIndex {
                 let Some(root) = owning_root(&slot.root, path) else { continue };
                 let spelled = slot.root.path.join(path.strip_prefix(root).unwrap_or(path));
                 match classify_path(slot.root.harness, &slot.root.path, &spelled) {
-                    PathRole::Store => store_changed = true,
+                    PathRole::Store => store_changed |= slot.store_file_changed(&spelled),
                     PathRole::Session => sessions.push(spelled),
                     PathRole::Ignore => {}
                 }
+            }
+            if slot.scan.database && !sessions.is_empty() {
+                store_changed |= slot.known_store_files_changed();
             }
             if store_changed {
                 rescan(slot);
