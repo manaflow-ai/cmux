@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43110409800",
+  "recorded_at": "2026-11-11T22:27:17Z",
+  "reason": "cmux-tui 1647355095c6 changes the image's cmux-tui (pinned 497ac4922fbd)",
+  "dry_run": false,
+  "cmux_tui": "1647355095c6628c1123444a301c6fd45f5ba685",
+  "fixes": [
+    {
+      "sha": "1647355095c6628c1123444a301c6fd45f5ba685",
+      "mergedAt": "2026-11-11T14:01:51-08:00",
+      "subject": "perf(acpmux): no list reply over 4 MiB on any connection; stop whole-list re-reads (#41204)"
+    },
+    {
+      "sha": "21f39728efd20f52abefcf9b324e2098c988ed09",
+      "mergedAt": "2026-11-11T13:47:24-08:00",
+      "subject": "acpmux: four flaky lib tests made deterministic, and a same-size edit saved in one clock tick is no longer lost (#41466)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T22:27:17Z",
+    "snapshot_id": "sh-bca45a11e8f84f548a0399d558b48a93",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43110409800): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "86826c93070ffe26ccfe1f3d1e221e768637c006",
+    "image": "cloud-native-auto-16473550-43110409800-1",
+    "revision": "ci-43110409800-1",
+    "at": "2026-11-11T22:27:17Z"
+  },
+  "rolled_back": false
+}
