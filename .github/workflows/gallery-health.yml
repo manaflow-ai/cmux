@@ -504,8 +504,12 @@ jobs:
             | map(select(((.params.entry // "") + "#" + (.params.variant // "")) as $state | any($red[]; . == $state)))' \
             "$RUNNER_TEMP/base-entries.json" > "$RUNNER_TEMP/base-manifest.json"
           echo "base replay: $(jq length "$RUNNER_TEMP/base-manifest.json") of $(jq length "$RUNNER_TEMP/base-entries.json") cases of those entries"
+          # Only the red entries' files are compiled (CMUX_GALLERY_ENTRIES, galleryEntrySubset in
+          # webviews/dev-server/galleryHost.ts): the whole gallery's 3,224 modules took ~80 s of every judged
+          # shard to replay a handful of states (2026-11-11 timing records). A base from before that plugin
+          # ignores the variable and builds everything, as before.
           echo "::group::base gallery build"
-          CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/base-gallery" bun run gallery:build
+          CMUX_GALLERY_ENTRIES="$entries" CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/base-gallery" bun run gallery:build
           echo "::endgroup::"
           cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
           # Red on the base is the point here: its exit says so, and its verdict is read from health.json
@@ -513,17 +517,26 @@ jobs:
           # The head keeps a state red only when it is red on every retry; the base renders twice with
           # no retries and a state red in either render is the base's. Holding the base to every retry
           # too called states that flake on the base (layout shift) the pull request's own.
-          # One case at a time, like the head's retries: a base render under load would excuse a red
-          # that the head kept on a quiet runner.
+          # Each render takes one case at a time, so a render under load does not excuse a red the head
+          # kept on a quiet runner. The two renders run side by side: one after the other they were ~55 s
+          # each for ten red cases (2026-11-11), most of it a case waiting out its play's timeout, not CPU.
+          # Two pages at once is still less than the head's own render, which runs three.
+          for pass in 1 2; do
+            (
+              rc=0
+              bun health.ts --manifest "$RUNNER_TEMP/base-manifest.json" --gallery-dir "$RUNNER_TEMP/base-gallery" \
+                --retries 0 --concurrency 1 --output-dir "$RUNNER_TEMP/health/base/$pass" > "$RUNNER_TEMP/base-render-$pass.log" 2>&1 || rc=$?
+              echo "$rc" > "$RUNNER_TEMP/base-render-$pass.rc"
+            ) &
+          done
+          wait
           bases=()
           for pass in 1 2; do
-            rc=0
             echo "::group::base render $pass"
-            bun health.ts --manifest "$RUNNER_TEMP/base-manifest.json" --gallery-dir "$RUNNER_TEMP/base-gallery" \
-              --retries 0 --concurrency 1 --output-dir "$RUNNER_TEMP/health/base/$pass" || rc=$?
+            cat "$RUNNER_TEMP/base-render-$pass.log"
             echo "::endgroup::"
             if [ ! -s "$RUNNER_TEMP/health/base/$pass/health.json" ]; then
-              echo "::error::the base replay of $entries wrote no health.json (health.ts exited $rc): no base verdict, so nothing is excused"
+              echo "::error::the base replay of $entries wrote no health.json (health.ts exited $(cat "$RUNNER_TEMP/base-render-$pass.rc")): no base verdict, so nothing is excused"
               exit 1
             fi
             bases+=(--base "$RUNNER_TEMP/health/base/$pass/health.json")

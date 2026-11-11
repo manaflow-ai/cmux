@@ -157,6 +157,26 @@ class GalleryHealthBaseReds(unittest.TestCase):
         self.assertIn("for pass in 1 2", run)
         self.assertIn("--retries 0", run)
 
+    def test_the_base_builds_only_the_red_entries(self) -> None:
+        # The whole gallery (3,224 modules) took ~80 s of every judged shard to replay a handful of states
+        # (2026-11-11); galleryEntrySubset builds only CMUX_GALLERY_ENTRIES.
+        run = step("Judge the red states against the base")["run"]
+        build = next(line for line in run.splitlines() if "bun run gallery:build" in line)
+        self.assertIn('CMUX_GALLERY_ENTRIES="$entries"', build)
+        self.assertLess(run.index("entries=$(python3"), run.index(build))
+        config = (ROOT / "webviews/vite.config.gallery.ts").read_text(encoding="utf-8")
+        self.assertIn("galleryEntrySubset()", config)
+
+    def test_the_two_base_renders_run_side_by_side_each_one_case_at_a_time(self) -> None:
+        # One after the other they were ~55 s each for ten red cases, most of it waiting out a play's timeout.
+        run = step("Judge the red states against the base")["run"]
+        replay = run[run.index("for pass in 1 2"):]
+        self.assertIn("--concurrency 1", replay)
+        self.assertIn(") &", replay)
+        self.assertLess(replay.index(") &"), replay.index("\n          wait\n"))
+        # Both verdicts are read only after both renders ended.
+        self.assertLess(replay.index("\n          wait\n"), replay.index('[ ! -s "$RUNNER_TEMP/health/base/$pass/health.json" ]'))
+
     def test_one_classifier_judges_it_and_fails_closed(self) -> None:
         run = step("Judge the red states against the base")["run"]
         self.assertIn("scripts/ci/test_reds.py", run)
