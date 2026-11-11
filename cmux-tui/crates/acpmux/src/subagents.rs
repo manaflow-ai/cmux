@@ -161,6 +161,14 @@ impl SubagentTree {
         }
     }
 
+    /// Whether a `SendMessage` to `to` names one of this session's subagents: its name, its id, or
+    /// the agent id an event of it gave (`hub/native_messaging.rs`).
+    pub fn answers_to(&self, to: &str) -> bool {
+        self.names.values().any(|name| name == to)
+            || self.parents.contains_key(to)
+            || self.previews.values().any(|p| p.agent_id.as_deref() == Some(to))
+    }
+
     /// Whether `session_id` is one of this session's subagents.
     pub fn owns(&self, session_id: &str) -> bool {
         self.own.as_deref() != Some(session_id) && self.parents.contains_key(session_id)
