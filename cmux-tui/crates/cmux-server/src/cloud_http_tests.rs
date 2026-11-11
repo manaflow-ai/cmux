@@ -384,3 +384,22 @@ fn a_refused_connect_fails_at_once() {
     assert!(answer.is_err());
     assert!(started.elapsed() < Duration::from_secs(1), "{:?}", started.elapsed());
 }
+
+/// The delayed-attach harness (scripts in the PR that adds it): run inside a
+/// network namespace where `CMUX_ATTACH_URL`'s address is attached some
+/// seconds after this starts. Prints how long the request took.
+#[test]
+#[ignore = "needs a network namespace whose address attaches late"]
+fn attach_harness_request() {
+    let url = std::env::var("CMUX_ATTACH_URL").expect("CMUX_ATTACH_URL");
+    let http = JsonPoster::allowing_http().unwrap();
+    let started = Instant::now();
+    let answer =
+        http.request_until(&url, Some(&json!({})), None, started + Duration::from_secs(20));
+    let took = started.elapsed();
+    println!(
+        "attach-harness: answered {:?} in {:.2}s",
+        answer.as_ref().map(|a| a.0),
+        took.as_secs_f64()
+    );
+}
