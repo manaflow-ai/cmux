@@ -263,8 +263,122 @@ fn c_abi_the_ops_without_a_pane() {
     let frame: Value = serde_json::from_str(frame["frame"].as_str().unwrap()).unwrap();
     assert_eq!(frame["id"], 4);
     assert_eq!(frame["error"]["data"]["code"], "transport.method_refused");
+    // The folder keys the host's disk check walks.
+    assert!(p["path_keys"].as_array().unwrap().contains(&json!("cwd")));
+    // A prompt's own id: one hand-off turn's label off, an id under two labels as it is.
+    let own = |id: &str| call(none, "own_prompt_id", json!({"id": id})).unwrap();
+    assert_eq!(own("handoff-3-p1"), json!({"id": "p1"}));
+    assert_eq!(own("handoff-1-handoff-2-x"), json!({"id": "handoff-1-handoff-2-x"}));
+    assert_eq!(own("p1"), json!({"id": "p1"}));
     // The pane's own ops need a pane.
     assert_eq!(call(none, "add", json!({"session": "s"})), Err(ERR_NULL));
+    assert_eq!(
+        call(none, "is_known_allow", json!({"permission": "p", "option": "o"})),
+        Err(ERR_NULL)
+    );
+}
+
+/// The pick a gesture ticket is bound to, asked without a frame check (the
+/// host redeems a ticket for a page op such as `cloud.startChat`, and holds a
+/// click's intent by the same values): every case of tests/cases/picks.json
+/// through the `pick` op, and each digest in them through `canonical_digest`.
+#[test]
+fn c_abi_runs_the_pick_corpus() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/cases/picks.json");
+    let cases: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let cases = cases.as_array().unwrap();
+    assert!(!cases.is_empty(), "picks.json holds no cases");
+    let none = std::ptr::null();
+    let mut digests = 0;
+    for case in cases {
+        let name = &case["name"];
+        let request = json!({"method": case["method"], "params": case["params"]});
+        let got = call(none, "pick", request).unwrap();
+        assert_eq!(got["pick"]["method"], case["pick"]["method"], "{name} method");
+        assert_eq!(got["pick"]["params"], case["pick"]["params"], "{name} params");
+        // A click's intent holds a question's answers and annotations by this digest.
+        for key in ["answers", "annotations"] {
+            let value = &case["params"][key];
+            let want = &case["pick"]["params"][key];
+            if value.is_object() && want.is_string() {
+                let got = call(none, "canonical_digest", json!({"value": value})).unwrap();
+                assert_eq!(got, json!({"digest": want}), "{name} {key}");
+                digests += 1;
+            }
+        }
+    }
+    assert!(digests > 0, "picks.json holds no digest");
+    // A value with no canonical form has no digest.
+    assert_eq!(
+        call(none, "canonical_digest", json!({"value": {"q": 1.5}})).unwrap(),
+        json!({"digest": null})
+    );
+    assert_eq!(call(none, "canonical_digest", json!({})), Err(ERR_INVALID));
+    assert_eq!(call(none, "pick", json!({"method": 1})), Err(ERR_INVALID));
+    assert_eq!(call(none, "pick", json!({"method": "m", "params": []})), Err(ERR_INVALID));
+}
+
+/// The host reserves a permission answer's ticket only for an option the
+/// daemon offered as an allow (Swift `AcpmuxPermissionOptions.isKnownAllow`).
+#[test]
+fn c_abi_a_known_allow_is_an_option_the_daemon_offered_as_one() {
+    let pane = new();
+    let pending = |options: Value| {
+        json!({"jsonrpc": "2.0", "method": "_acpmux/permission_pending", "params": {
+        "permissionId": "p1", "request": {"options": options}}})
+    };
+    observe(
+        &pane,
+        &pending(json!([
+            {"optionId": "yes", "kind": "allow_once"},
+            {"optionId": "no", "kind": "reject_once"},
+        ])),
+        None,
+    );
+    let allow = |permission: &str, option: &str| {
+        call(pane.0, "is_known_allow", json!({"permission": permission, "option": option}))
+            .unwrap()
+    };
+    assert_eq!(allow("p1", "yes"), json!({"allow": true}));
+    assert_eq!(allow("p1", "no"), json!({"allow": false}));
+    // An option the pane never saw is no known allow, and no known deny.
+    assert_eq!(allow("p1", "other"), json!({"allow": false}));
+    assert_eq!(allow("p2", "yes"), json!({"allow": false}));
+    assert_eq!(
+        call(pane.0, "is_deny", json!({"permission": "p1", "option": "other"})).unwrap(),
+        json!({"deny": false})
+    );
+    // An option seen with two kinds counts as allow.
+    observe(&pane, &pending(json!([{"optionId": "no", "kind": "allow_always"}])), None);
+    assert_eq!(allow("p1", "no"), json!({"allow": true}));
+    assert_eq!(call(pane.0, "is_known_allow", json!({"permission": "p1"})), Err(ERR_INVALID));
+}
+
+/// A refusal the host words itself (a refused Enable harness): acpmux's own
+/// reason as `detail`, cut to 1000 characters, and why as the `reason` code.
+#[test]
+fn c_abi_a_refusal_carries_the_hosts_detail_and_reason() {
+    let none = std::ptr::null();
+    let data = |extra: Value| {
+        let mut request = json!({"id": "4", "code": "transport.harness_not_confirmed",
+            "method": "_acpmux/harness_enable"});
+        request.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        let reply = call(none, "refusal_frame", request).unwrap();
+        let frame: Value = serde_json::from_str(reply["frame"].as_str().unwrap()).unwrap();
+        frame["error"]["data"].clone()
+    };
+    let plain = json!({"code": "transport.harness_not_confirmed", "origin": "native",
+        "method": "_acpmux/harness_enable"});
+    assert_eq!(data(json!({})), plain);
+    assert_eq!(
+        data(json!({"detail": "no such harness", "reason": "harness_gone"})),
+        json!({"code": "transport.harness_not_confirmed", "origin": "native",
+            "method": "_acpmux/harness_enable", "detail": "no such harness",
+            "reason": "harness_gone"})
+    );
+    // An empty detail is no detail.
+    assert_eq!(data(json!({"detail": ""})), plain);
+    assert_eq!(data(json!({"detail": "é".repeat(1200)}))["detail"], json!("é".repeat(1000)));
 }
 
 #[test]
