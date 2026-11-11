@@ -73,10 +73,18 @@ class RepositoryTests(unittest.TestCase):
 
     def test_every_allowance_still_names_a_file(self):
         names = {w.name for w in self.workflows}
-        for table in (cc.PER_SOURCE_RUN, cc.CANCEL_FALSE_ON_SCHEDULE, cc.TRIVIAL_NO_SUPERSEDE):
+        for table in (cc.PER_SOURCE_RUN, cc.SOURCE_KEYED, cc.CANCEL_FALSE_ON_SCHEDULE, cc.TRIVIAL_NO_SUPERSEDE):
             self.assertEqual(sorted(set(table) - names), [])
         for name, _owner in [*cc.EXCLUDED_SHARED, *cc.EXCLUDED_CANCEL]:
             self.assertIn(name, names)
+
+    def test_the_janitor_collapses_only_interchangeable_runs(self):
+        self.assertTrue(cc.collapsible_run(".github/workflows/ci-queue-janitor.yml", "workflow_run"))
+        self.assertTrue(cc.collapsible_run(".github/workflows/ci-owned-pool-rescue.yml", "schedule"))
+        for path, event in (("ci-owned-pool-rescue.yml", "workflow_run"), ("ci-guard-attribution.yml", "workflow_run"),
+                            ("nightly.yml", "schedule"), ("ios-testflight.yml", "schedule"),
+                            ("ci-queue-janitor.yml", "workflow_dispatch"), ("ci.yml", "pull_request")):
+            self.assertFalse(cc.collapsible_run(path, event), (path, event))
 
     def test_per_source_run_entries_are_still_needed(self):
         by_name = {w.name: w for w in self.workflows}

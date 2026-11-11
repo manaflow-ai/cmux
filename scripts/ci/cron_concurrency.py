@@ -100,6 +100,13 @@ PER_SOURCE_RUN: dict[str, str] = {
     "pr-media.yml": "each run renders media for the one pull request run that fired it; tours are per PR",
 }
 
+# workflow_run workflows whose shared group is keyed by the source run's workflow, repository or pull request:
+# runs on one branch are not all interchangeable, so the queue janitor never collapses their stuck runs.
+SOURCE_KEYED: dict[str, str] = {
+    "ci-failure-attribution.yml": "one group per source head repository and branch",
+    "ci-guard-attribution.yml": "one group per pull request branch, or per source workflow on main",
+}
+
 # cancel-in-progress expressions that are false on the schedule event, which the shared reader
 # (delivery_concurrency) cannot prove through a `!`.
 CANCEL_FALSE_ON_SCHEDULE: dict[str, str] = {
@@ -132,7 +139,7 @@ def collapsible_run(path: str | None, event: str | None) -> bool:
     name = str(path or "").rsplit("/", 1)[-1].split("@", 1)[0]
     if not name or is_excluded(name) or event not in CRON_EVENTS:
         return False
-    return not (event == "workflow_run" and name in PER_SOURCE_RUN)
+    return not (event == "workflow_run" and (name in PER_SOURCE_RUN or name in SOURCE_KEYED))
 
 
 @dataclass(frozen=True)

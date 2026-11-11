@@ -38,7 +38,8 @@ behind itself after an outage. The fix has three parts.
    - a `pull_request` or `pull_request_target` run whose pull request has moved to another head
      or closed. A run at an open pull request's head is never touched.
    - an older cron or maintenance run, when a newer run of the same workflow and branch exists.
-     The newest one is always kept.
+     The newest one is always kept. Workflows whose group is keyed by the source run's workflow
+     or pull request (`SOURCE_KEYED`) are left alone.
 
 Trivial pull request checks are seconds-long Linux checks: every job has `timeout-minutes` of 10 or
 less and no macOS runner. The detector derives this set and prints it. Each check in it must cancel
