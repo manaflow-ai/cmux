@@ -46,6 +46,14 @@ import Testing
         #expect(drawn(model) == ["a", "d", "b", "c"])
     }
 
+    @Test func rowsDrawnBeforeTheHoldStartsKeepTheirOrder() {
+        let model = SidebarModel()
+        model.setSections([section(["a", "b", "c"])]) // the window's saved rows, drawn first
+        model.holdsLaunchOrder = true
+        model.setSections([section(["b", "c", "a"])])
+        #expect(drawn(model) == ["a", "b", "c"])
+    }
+
     @Test func aGroupKeepsItsMembersDrawnOrder() {
         let model = SidebarModel()
         model.holdsLaunchOrder = true
