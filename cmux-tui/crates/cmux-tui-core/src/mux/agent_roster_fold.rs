@@ -281,6 +281,19 @@ impl Mux {
                 NotificationSource::Agent,
             )
             .with_context(|| format!("agent hook notification for sequence {sequence}"))?;
+            // The agent's own desktop notification of this permission wait
+            // or finished turn, near it in time, is its copy
+            // (`agent_desktop_holds.rs`).
+            let hook_source = ingress
+                .payload
+                .get("adapter")
+                .and_then(|adapter| adapter.get("id"))
+                .and_then(Value::as_str);
+            if matches!(ingress.kind.as_str(), "agent.approval.requested" | "agent.turn.completed")
+                && hook_source.and_then(crate::agent_hooks::notifying_hook_source_apps).is_some()
+            {
+                self.agent_desktop_holds.hook_posted(&terminal_id);
+            }
         }
         // A notification that leaves the roster state as it is reports
         // nothing and leaves the fence where the last report stored it.

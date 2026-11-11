@@ -506,15 +506,17 @@ pub fn agent_hook_event_starts_session(source: &str, native_event: &str) -> bool
 /// Hook sources whose installed hooks post both a permission wait
 /// (`agent.approval.requested`) and a finished turn (`agent.turn.completed`),
 /// with the OSC 7501 `app` names their agent reports itself under (the hook
-/// source id and its aliases, as `cmux agents` reads them). Only for these does
-/// the daemon drop the agent's own desktop notifications and its 7501
-/// permission and done alerts while the hook session is live
-/// (`Mux::post_terminal_notifications`).
+/// source id and its aliases, as `cmux agents` reads them). Only for these
+/// does the daemon drop the agent's own desktop notification near a hook
+/// notification and its 7501 permission and done alerts while the hook
+/// session is live (`Mux::post_terminal_notifications`).
 ///
-/// Gemini (`Notification`), Cursor, Grok, Kimi, Kiro, Copilot, Codebuddy,
-/// Factory, Qoder, Antigravity, Amp, pi, omp and Campfire are not here: no
-/// hook they install becomes an approval, so their permission waits reach
-/// the person only through their own notifications.
+/// Muse (`PermissionRequest`, `Stop`), Hermes (`pre_approval_request`,
+/// `on_session_end`) and Rovo Dev (`on_tool_permission`, `on_complete`) map
+/// to the same kinds but are not here until a real build shows their hooks
+/// fire at every permission prompt. Gemini (`Notification`), Cursor, Grok,
+/// Kimi, Kiro, Copilot, Codebuddy, Factory, Qoder, Antigravity, Amp, pi, omp
+/// and Campfire install no hook that becomes an approval.
 const NOTIFYING_HOOK_SOURCES: &[(&str, &[&str])] = &[
     // `PermissionRequest` and `Stop` (cmux-tui-hooks `CLAUDE_EVENTS`).
     ("claude", &["claude", "claude-code", "claude_code", "claudecode"]),
@@ -522,12 +524,6 @@ const NOTIFYING_HOOK_SOURCES: &[(&str, &[&str])] = &[
     ("codex", &["codex", "codex-cli", "codex_cli", "openai-codex"]),
     // `permission.asked` and `session.idle` (the OpenCode plugin).
     ("opencode", &["opencode", "open-code", "open_code"]),
-    // `PermissionRequest` and `Stop` (`MUSE_EVENTS`).
-    ("muse", &["muse", "muse-code", "muse-cli"]),
-    // `pre_approval_request` and `on_session_end` (the Hermes plugin).
-    ("hermes-agent", &["hermes-agent", "hermes"]),
-    // `on_tool_permission` and `on_complete` (`ROVODEV_EVENTS`).
-    ("rovodev", &["rovodev", "rovo", "acli"]),
 ];
 
 /// The OSC 7501 `app` names of the agent behind hook source `source` when

@@ -25,39 +25,45 @@ or the agent's own status report (OSC 7501 `blocked`, then `idle` or
 
 A hook event that waits on the person (approval, question, plan review), a
 finished turn and a reported error each post one notification. Some agents
-also print their own notification for the same event, so the daemon drops
-the agent's copy while its hooks report. It drops a terminal notification
-only when all of these are true:
+also print their own notification for the same event. The daemon drops that
+copy only for agents whose hooks post both a permission wait and a finished
+turn:
 
-- The terminal has a live hook session: a hook event set its fence and no
-  `SessionEnd` (or the screen seeing the agent leave) ended it.
-- The hook source of the last applied hook event is one whose hooks post both
-  a permission wait and a finished turn:
+| hook source | permission hook | finished-turn hook | OSC 7501 `app` names |
+| --- | --- | --- | --- |
+| `claude` | `PermissionRequest` | `Stop` | `claude`, `claude-code`, `claude_code`, `claudecode` |
+| `codex` | `PermissionRequest` | `Stop` | `codex`, `codex-cli`, `codex_cli`, `openai-codex` |
+| `opencode` | `permission.asked` | `session.idle` | `opencode`, `open-code`, `open_code` |
 
-  | hook source | permission hook | finished-turn hook | OSC 7501 `app` names |
-  | --- | --- | --- | --- |
-  | `claude` | `PermissionRequest` | `Stop` | `claude`, `claude-code`, `claude_code`, `claudecode` |
-  | `codex` | `PermissionRequest` | `Stop` | `codex`, `codex-cli`, `codex_cli`, `openai-codex` |
-  | `opencode` | `permission.asked` | `session.idle` | `opencode`, `open-code`, `open_code` |
-  | `muse` | `PermissionRequest` | `Stop` | `muse`, `muse-code`, `muse-cli` |
-  | `hermes-agent` | `pre_approval_request` | `on_session_end` | `hermes-agent`, `hermes` |
-  | `rovodev` | `on_tool_permission` | `on_complete` | `rovodev`, `rovo`, `acli` |
+A later change can add `muse`, `hermes-agent` and `rovodev` after a check on a
+real build shows that their hooks fire at every permission prompt.
 
-- The notification is one of these:
-  - a desktop notification (OSC 9, OSC 777 or OSC 99) from the terminal, or
-  - an OSC 7501 alert for `done` or for `blocked` with `kind=permission`,
-    from a record whose app (its own or an ancestor's) is one of that
-    agent's `app` names (case does not matter).
+The rules apply only while the terminal has a live hook session of one of
+these sources: a hook event of that source set the session's fence, and no
+`SessionEnd` (or the screen seeing the agent leave) ended it.
 
-Everything else still posts: every notification of a terminal whose hooks
-are from another source (for example `gemini`, whose permission callback
-`Notification` is no approval, or `cursor`, which has no permission hook),
-an OSC 7501 record of another app or with no app, and a 7501 `blocked` with
-another kind (sign-in, question, plain input) or an `error`. A direct
-hook-source report through the socket names no hook source, so after it
-nothing is dropped. The hook
-source is kept in memory only: after a daemon restart nothing is dropped until
-the agent's next hook event.
+- **Desktop notifications (OSC 9, OSC 777, OSC 99).** They name no app and no
+  kind, so the daemon drops one only as the copy of a hook notification. A
+  desktop notification is dropped when the same terminal's hooks posted a
+  permission or finished-turn notification at most 2 s before it, or post one
+  at most 2 s after it. To see a hook notification that comes after it, the
+  daemon holds the desktop notification for 2 s, and then posts it. A
+  background job's OSC 9 thus posts, 2 s late, unless a permission or
+  finished-turn hook notification of the same terminal comes within 2 s of
+  it. When the terminal's output ends or the session stops, held
+  notifications post at once.
+- **OSC 7501 alerts.** A `done` alert or a `blocked` alert with
+  `kind=permission` is dropped when the record's app (its own or an
+  ancestor's) is one of the agent's `app` names (case does not matter). A
+  record of another app or with no app, a `blocked` alert of another kind
+  (sign-in, question, plain input) and an `error` alert post.
+
+Every notification of a terminal whose hooks are from another source posts
+at once: for example `gemini`, whose permission callback `Notification` is no
+approval, or `cursor`, which has no permission hook. A direct hook-source
+report through the socket names no hook source, so after it nothing is
+dropped. The hook source is kept in memory only: after a daemon restart
+nothing is dropped or held until the agent's next hook event.
 
 ## Agents in a tmux session started elsewhere
 

@@ -345,6 +345,9 @@ impl Mux {
             agent_records: Mutex::new(agent_records),
             agent_hook_fences: Mutex::new(agent_hook_fences),
             agent_hook_sources: Mutex::new(HashMap::new()),
+            agent_desktop_holds: Arc::new(agent_desktop_holds::AgentDesktopHolds::new(
+                agent_notification_clock(),
+            )),
             agent_hook_projection: Mutex::new(()),
             agent_presence: Mutex::new(HashMap::new()),
             agent_hook_children: Mutex::new(HashMap::new()),
@@ -469,6 +472,7 @@ impl Mux {
             session,
         });
         mux.exit_settles.bind(Arc::downgrade(&mux));
+        mux.agent_desktop_holds.bind(Arc::downgrade(&mux));
         if let Some(from_version) = agent_roster_unmarked_from {
             mux.agent_roster_worker.unmarked_from.store(from_version, Ordering::Release);
         }
@@ -646,4 +650,14 @@ fn test_restore_delay() {
     {
         std::thread::sleep(Duration::from_millis(delay));
     }
+}
+
+/// The clock of the agent desktop notification dedupe window: the system
+/// clock, or in tests a clock that moves only when a test advances it.
+fn agent_notification_clock() -> Arc<dyn agent_desktop_holds::AgentNotificationClock> {
+    #[cfg(test)]
+    let clock = agent_desktop_holds::ManualAgentNotificationClock::default();
+    #[cfg(not(test))]
+    let clock = agent_desktop_holds::SystemAgentNotificationClock;
+    Arc::new(clock)
 }

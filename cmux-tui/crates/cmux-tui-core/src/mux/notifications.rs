@@ -114,44 +114,66 @@ impl Mux {
     ///
     /// While the hooks of an agent that posts its own permission waits and
     /// finished turns report for the terminal (`notifying_agent_hooks_for`:
-    /// claude, codex, opencode, muse, hermes-agent, rovodev), the hooks post
-    /// those events once: the program's desktop notifications (OSC 9, 777,
-    /// 99) and the 7501 permission and done alerts of a record whose app is
-    /// that agent post nothing (bench r5: one permission was three rows).
-    /// Every other agent and program keeps its notifications.
+    /// claude, codex, opencode), the hooks post those events once:
+    /// - a desktop notification (OSC 9, 777, 99) is dropped as the copy of a
+    ///   hook permission or done notification of the same terminal within
+    ///   the dedupe window around it, else posts at the window's end
+    ///   (`agent_desktop_holds.rs`);
+    /// - a 7501 permission or done alert of a record whose app is that agent
+    ///   posts nothing.
+    ///
+    /// Every other notification posts at once (bench r5: one permission was
+    /// three rows).
     pub(crate) fn post_terminal_notifications(
         &self,
         surface: SurfaceId,
         notifications: Vec<crate::terminal_metadata::TerminalNotification>,
     ) {
-        let hook_agent_apps = self.notifying_agent_hooks_for(surface);
+        use crate::terminal_metadata::TerminalNotificationOrigin;
+        let hooks = self.notifying_agent_hooks_for(surface);
         for notification in notifications {
-            if hook_agent_apps.is_some_and(|apps| notification.origin.duplicates_agent_hooks(apps))
-            {
+            let Some((terminal, apps)) = &hooks else {
+                self.post_terminal_notification_now(surface, notification);
                 continue;
-            }
-            if self
-                .post_notification_as(
-                    &Actor::Daemon,
-                    notification.title,
-                    notification.body,
-                    notification.level,
-                    Some(surface),
-                    NotificationSource::Terminal,
-                )
-                .is_err()
-            {
-                self.report_internal_diagnostic("terminal notification not posted");
+            };
+            if notification.origin == TerminalNotificationOrigin::Desktop {
+                self.admit_agent_desktop_notification(terminal.clone(), surface, notification);
+            } else if !notification.origin.duplicates_agent_hooks(apps) {
+                self.post_terminal_notification_now(surface, notification);
             }
         }
     }
 
-    /// The OSC 7501 app names of the agent whose hooks report for
-    /// `surface`'s terminal, when its hook session is live (a fence that has
-    /// not ended: `SessionStart` set it, `SessionEnd` or the screen seeing
-    /// the agent leave ends it) and its hook source posts permission waits
-    /// and finished turns (`agent_hooks::notifying_hook_source_apps`).
-    fn notifying_agent_hooks_for(&self, surface: SurfaceId) -> Option<&'static [&'static str]> {
+    /// Post one terminal notification now.
+    pub(super) fn post_terminal_notification_now(
+        &self,
+        surface: SurfaceId,
+        notification: crate::terminal_metadata::TerminalNotification,
+    ) {
+        if self
+            .post_notification_as(
+                &Actor::Daemon,
+                notification.title,
+                notification.body,
+                notification.level,
+                Some(surface),
+                NotificationSource::Terminal,
+            )
+            .is_err()
+        {
+            self.report_internal_diagnostic("terminal notification not posted");
+        }
+    }
+
+    /// The terminal of `surface` and the OSC 7501 app names of the agent
+    /// whose hooks report for it, when its hook session is live (a fence
+    /// that has not ended: `SessionStart` set it, `SessionEnd` or the screen
+    /// seeing the agent leave ends it) and its hook source posts permission
+    /// waits and finished turns (`agent_hooks::notifying_hook_source_apps`).
+    fn notifying_agent_hooks_for(
+        &self,
+        surface: SurfaceId,
+    ) -> Option<(TerminalPublicId, &'static [&'static str])> {
         let terminal_id = {
             let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             state
@@ -165,9 +187,12 @@ impl Mux {
             return None;
         }
         let sources = self.agent_hook_sources.lock().unwrap_or_else(PoisonError::into_inner);
-        sources
+        let apps = sources
             .get(&terminal_id)
-            .and_then(|source| crate::agent_hooks::notifying_hook_source_apps(source.as_str()))
+            .and_then(|source| crate::agent_hooks::notifying_hook_source_apps(source.as_str()))?;
+        drop(sources);
+        drop(fences);
+        Some((terminal_id, apps))
     }
 
     /// A bell (BEL) in `surface`'s terminal marks its tab for attention like a
@@ -1032,12 +1057,4 @@ impl Mux {
             Some(members)
         })
     }
-}
-
-#[cfg(test)]
-impl Mux {
-    /// Moves the clock of the agent desktop notification dedupe forward by
-    /// `by`, then posts the held desktop notifications that are due. Nothing
-    /// is held yet: the dedupe window comes with the W6-D fix.
-    pub(crate) fn advance_agent_notification_clock_for_test(&self, _by: Duration) {}
 }

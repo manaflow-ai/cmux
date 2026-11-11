@@ -293,31 +293,28 @@ pub(crate) enum TerminalNotificationOrigin {
 }
 
 impl TerminalNotificationOrigin {
-    /// Whether the live hooks of an agent that reports itself in OSC 7501 as
-    /// one of `agent_apps` (`agent_hooks::notifying_hook_source_apps`)
-    /// already post this event: its permission wait and its finished turn
-    /// are hook notifications (`agent_hook_notification`), and the agent's
-    /// own desktop notification (Claude Code's `Claude needs your
-    /// permission`) says the same again. A record of another app, or without
-    /// one, still posts, and so does a wait the hooks do not report
-    /// (sign-in, plain input, a question) and a failure.
+    /// Whether this is surely the copy of what the live hooks of an agent
+    /// that reports itself in OSC 7501 as one of `agent_apps`
+    /// (`agent_hooks::notifying_hook_source_apps`) post: a 7501 permission
+    /// wait or done of a record whose app (its own or an ancestor's) is that
+    /// agent. The hooks post those as `agent_hook_notification`. A record of
+    /// another app or without one, a wait the hooks do not report (sign-in,
+    /// plain input, a question) and a failure are no copies. A desktop
+    /// notification carries no app: it is a copy only when a hook
+    /// notification comes near it in time (`mux/agent_desktop_holds.rs`).
     pub(crate) fn duplicates_agent_hooks(&self, agent_apps: &[&str]) -> bool {
         use ghostty_vt::{ProgramStatusKind, ProgramStatusState};
-        match self {
-            Self::Desktop => true,
-            Self::ProgramStatus { state, kind, app } => {
-                let hooks_post = match state {
-                    ProgramStatusState::Done => true,
-                    ProgramStatusState::Blocked => *kind == Some(ProgramStatusKind::Permission),
-                    _ => false,
-                };
-                hooks_post
-                    && app.as_deref().is_some_and(|app| {
-                        let app = app.trim();
-                        agent_apps.iter().any(|agent| agent.eq_ignore_ascii_case(app))
-                    })
-            }
-        }
+        let Self::ProgramStatus { state, kind, app } = self else { return false };
+        let hooks_post = match state {
+            ProgramStatusState::Done => true,
+            ProgramStatusState::Blocked => *kind == Some(ProgramStatusKind::Permission),
+            _ => false,
+        };
+        hooks_post
+            && app.as_deref().is_some_and(|app| {
+                let app = app.trim();
+                agent_apps.iter().any(|agent| agent.eq_ignore_ascii_case(app))
+            })
     }
 }
 
