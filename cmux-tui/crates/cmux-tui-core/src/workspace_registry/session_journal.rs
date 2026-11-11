@@ -1560,7 +1560,8 @@ fn backfill_legacy_journal_segment_kinds(connection: &Connection) -> anyhow::Res
     let deadline = std::time::Instant::now() + kind_slice();
     let mut decoded_any = false;
     for (segment_id, start_sequence) in legacy_backfill_segments(connection, rescan)? {
-        if decoded_any && std::time::Instant::now() >= deadline {
+        // MUTANT (never merges): the backfill ignores its slice, so one call maps every segment.
+        if false && decoded_any && std::time::Instant::now() >= deadline {
             return Ok(());
         }
         decoded_any = true;
