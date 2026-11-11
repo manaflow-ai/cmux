@@ -17,6 +17,7 @@ fn kept(team: &str, sent: u64, now: u64, status: u64, body: Value) -> KeepReply 
     keep(&KeepRequest {
         state: State::default(),
         team: team.into(),
+        fetch_id: None,
         sent_ms: sent,
         now_ms: now,
         status,
@@ -114,6 +115,7 @@ fn a_failed_refresh_drops_the_old_token() {
     let reply = keep(&KeepRequest {
         state,
         team: "team_a".into(),
+        fetch_id: None,
         sent_ms: T0 + 240_000,
         now_ms: T0 + 240_100,
         status: 503,
@@ -180,19 +182,27 @@ fn the_process_holds_the_token_between_calls_and_a_drop_forgets_it() {
     let _turn = process();
     forget();
     let ask = |now: u64| header(&HeaderRequest { team: Some("team_a".to_owned()), now_ms: now });
-    assert_eq!(ask(T0), HeaderReply { header: None, fetch: true });
+    let first = ask(T0);
+    assert_eq!((first.header, first.fetch), (None, true));
+    assert!(first.fetch_id.is_some(), "the fetch has an id");
     assert!(!ask(T0 + 1).fetch, "one fetch in flight");
     let kept = super::answer(AnswerRequest {
         team: "team_a".to_owned(),
+        fetch_id: first.fetch_id,
         sent_ms: T0,
         now_ms: T0 + 50,
         status: 200,
         body: answer("team_a", 1_000),
     });
     assert_eq!(kept.outcome, "held");
-    assert_eq!(ask(T0 + 60), HeaderReply { header: Some(TOKEN.to_owned()), fetch: false });
+    assert_eq!(
+        ask(T0 + 60),
+        HeaderReply { header: Some(TOKEN.to_owned()), fetch: false, fetch_id: None }
+    );
     forget();
-    assert_eq!(ask(T0 + 70), HeaderReply { header: None, fetch: true });
+    let again = ask(T0 + 70);
+    assert_eq!((again.header, again.fetch), (None, true));
+    assert!(again.fetch_id > first.fetch_id, "ids keep counting across a drop");
     forget();
 }
 
@@ -223,6 +233,7 @@ fn a_late_answer_for_a_team_the_person_left_is_not_kept() {
     let late = keep(&KeepRequest {
         state: back.state,
         team: "team_b".into(),
+        fetch_id: b.fetch_id,
         sent_ms: T0 + 20,
         now_ms: T0 + 40,
         status: 200,
@@ -249,10 +260,12 @@ fn an_answer_to_a_fetch_sent_before_a_drop_is_not_kept() {
     let _turn = process();
     forget();
     let ask = |now: u64| header(&HeaderRequest { team: Some("team_a".to_owned()), now_ms: now });
-    assert!(ask(T0).fetch);
+    let before = ask(T0);
+    assert!(before.fetch);
     forget();
     let late = super::answer(AnswerRequest {
         team: "team_a".to_owned(),
+        fetch_id: before.fetch_id,
         sent_ms: T0,
         now_ms: T0 + 50,
         status: 200,

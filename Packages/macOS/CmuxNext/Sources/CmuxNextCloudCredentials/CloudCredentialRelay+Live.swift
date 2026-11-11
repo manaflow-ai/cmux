@@ -47,11 +47,11 @@ public struct CloudPreApproval: Sendable {
 
     /// The header for one call made with `installToken`; starts the fetch in the background when Rust says so.
     public func headers(installToken: String) -> [String: String] {
-        struct Reply: Decodable { var header: String?; var fetch: Bool }
+        struct Reply: Decodable { var header: String?; var fetch: Bool; var fetchId: Double? }
         let team = MacInstallIdentity.team(ofToken: installToken)
         let request: JSONValue = .object(["team": team.map(JSONValue.string) ?? .null, "nowMs": .number(Self.nowMs())])
         guard let reply = CloudStartCore().call("cloud_capability_header", request, as: Reply.self) else { return [:] }
-        if reply.fetch, let team { fetch(team: team, installToken: installToken) }
+        if reply.fetch, let team { fetch(team: team, installToken: installToken, id: reply.fetchId) }
         return reply.header.map { ["x-cmux-cloud-capability": $0] } ?? [:]
     }
 
@@ -64,7 +64,9 @@ public struct CloudPreApproval: Sendable {
     /// The account or team changed, or the install token was refused: nothing is sent until a new token arrives.
     public func drop() { _ = CloudStartCore().call("cloud_capability_drop", JSONValue.object([:]), as: JSONValue.self) }
 
-    private func fetch(team: String, installToken: String) {
+    /// `id`: Rust's id for this fetch; the answer names it, so an answer from before a drop is told apart by it,
+    /// never by its time.
+    private func fetch(team: String, installToken: String, id: Double?) {
         let sent = Self.nowMs()
         let transport = InstallHTTPTransport(baseURL: platform)
         // task-owner: fire and forget; bounded by the transport's own timeout, and its answer only reaches Rust.
@@ -72,7 +74,8 @@ public struct CloudPreApproval: Sendable {
             let answer: (status: Int, body: Data) = (try? await transport.post("v1/cloud/capability", json: Data("{}".utf8), bearer: installToken, headers: headers)) ?? (status: 0, body: Data())
             struct Reply: Decodable { var outcome: String }
             let body = (try? JSONDecoder().decode(JSONValue.self, from: answer.body)) ?? .null
-            let request: JSONValue = .object(["team": .string(team), "sentMs": .number(sent), "nowMs": .number(Self.nowMs()),
+            let request: JSONValue = .object(["team": .string(team), "fetchId": id.map(JSONValue.number) ?? .null,
+                                              "sentMs": .number(sent), "nowMs": .number(Self.nowMs()),
                                               "status": .number(Double(answer.status)), "body": body])
             let outcome = CloudStartCore().call("cloud_capability_answer", request, as: Reply.self)?.outcome ?? "unread"
             Self.logger.info("cloud capability: \(outcome, privacy: .public)")

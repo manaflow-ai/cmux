@@ -70,20 +70,33 @@ pub struct State {
     /// not kept, so once every fetch has answered the token held is this team's.
     #[serde(default)]
     pub wanted: Option<String>,
-    /// Set by a drop (a sign-out, an account or team switch): from then on an answer is kept only for
-    /// a fetch started since, so a late answer for the account that left is never held.
+    /// Set by a drop (a sign-out, an account or team switch): from then on an answer that names no
+    /// fetch id is not kept.
     #[serde(default)]
     pub fenced: bool,
+    /// The id of the newest fetch started: ids count up for the life of the process, a drop never
+    /// resets them, so a fetch is told apart by its id and never by its time.
+    #[serde(default)]
+    pub last_fetch_id: u64,
+    /// Every fetch with an id up to this one started before the last drop: its answer is the old
+    /// account's or team's, and is never kept.
+    #[serde(default)]
+    pub dropped_through: u64,
 }
 
-/// One team's fetch: in flight since a time, and the backoff after a failed one.
+/// One team's fetch: the one in flight (its id, and since when, for the in-flight hold), and the
+/// backoff after a failed one.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Fetch {
     pub team: String,
-    /// When its newest fetch started (`None`: none in flight).
+    /// When its newest fetch started (`None`: none in flight). Timing only: an answer is matched by
+    /// [`Fetch::in_flight_id`].
     #[serde(default)]
     pub in_flight_since: Option<u64>,
+    /// Its newest fetch's id (`None`: none in flight).
+    #[serde(default)]
+    pub in_flight_id: Option<u64>,
     /// No fetch for this team starts before this.
     #[serde(default)]
     pub wait_until_ms: u64,
@@ -125,6 +138,8 @@ pub struct UseRequest {
 pub struct UseReply {
     pub header: Option<String>,
     pub fetch: bool,
+    /// The fetch's id when this call starts one: its answer names it.
+    pub fetch_id: Option<u64>,
     pub state: State,
 }
 
@@ -135,7 +150,7 @@ pub struct UseReply {
 pub fn use_for(request: &UseRequest) -> UseReply {
     let mut state = request.state.clone();
     let Some(team) = request.team.as_deref().filter(|team| !team.is_empty()) else {
-        return UseReply { header: None, fetch: false, state };
+        return UseReply { header: None, fetch: false, fetch_id: None, state };
     };
     let now = request.now_ms;
     let held = state.held.as_ref().filter(|held| held.team == team);
@@ -146,10 +161,16 @@ pub fn use_for(request: &UseRequest) -> UseReply {
     state.wanted = Some(team.to_owned());
     // A team with nothing in flight and no backoff left needs no record.
     state.fetches.retain(|fetch| fetch.in_flight_since.is_some() || now < fetch.wait_until_ms);
-    if fetch {
-        update_fetch(&mut state, team, |fetch| fetch.in_flight_since = Some(now));
-    }
-    UseReply { header, fetch, state }
+    let fetch_id = fetch.then(|| {
+        state.last_fetch_id = state.last_fetch_id.saturating_add(1);
+        let id = state.last_fetch_id;
+        update_fetch(&mut state, team, |fetch| {
+            fetch.in_flight_since = Some(now);
+            fetch.in_flight_id = Some(id);
+        });
+        id
+    });
+    UseReply { header, fetch, fetch_id, state }
 }
 
 /// The route's answer to a fetch for `team` sent at `sent_ms`, read at
@@ -160,6 +181,9 @@ pub struct KeepRequest {
     #[serde(default)]
     pub state: State,
     pub team: String,
+    /// The id [`use_for`] gave the fetch (`None`: an app that names none).
+    #[serde(default, deserialize_with = "opt_ms")]
+    pub fetch_id: Option<u64>,
     #[serde(deserialize_with = "ms")]
     pub sent_ms: u64,
     #[serde(deserialize_with = "ms")]
@@ -182,19 +206,26 @@ pub struct KeepReply {
 /// off: every team for [`RETRY_OFF_MS`] when the backend has no capabilities, that team for
 /// [`RETRY_REFUSED_MS`] on a refusal, else [`RETRY_UNREACHABLE_MS`]. A token another team's answer
 /// named, an expired one, or one that could not go in a header is never kept. Neither is an answer
-/// for a team the person has left (`left`: the newest call was in another team), nor, after a drop,
-/// one to a fetch started before it (`dropped`).
+/// for a team the person has left (`left`: the newest call was in another team), nor one to a fetch
+/// started before the last drop (`dropped`: its id is at most [`State::dropped_through`], or it names
+/// no id after a drop). A fetch is matched by its id, never by when it was sent.
 pub fn keep(request: &KeepRequest) -> KeepReply {
     let mut state = request.state.clone();
     let team = request.team.as_str();
-    let current = state.fetches.iter().any(|fetch| {
-        fetch.team == team && fetch.in_flight_since.is_some_and(|since| since <= request.sent_ms)
-    });
-    if state.fenced && !current {
+    let id = request.fetch_id;
+    if id.map_or(state.fenced, |id| id <= state.dropped_through) {
         return KeepReply { state, outcome: "dropped" };
     }
-    if current {
-        update_fetch(&mut state, team, |fetch| fetch.in_flight_since = None);
+    // Its team's newest fetch answered: the in-flight hold ends. An older fetch's answer (same
+    // account, same team) may still be kept, but leaves the newer one in flight.
+    let newest = id.is_some_and(|id| {
+        state.fetches.iter().any(|fetch| fetch.team == team && fetch.in_flight_id == Some(id))
+    });
+    if newest {
+        update_fetch(&mut state, team, |fetch| {
+            fetch.in_flight_since = None;
+            fetch.in_flight_id = None;
+        });
     }
     if state.wanted.as_deref().is_some_and(|wanted| wanted != team) {
         return KeepReply { state, outcome: "left" };
@@ -259,6 +290,8 @@ static HELD: std::sync::Mutex<State> = std::sync::Mutex::new(State {
     fetches: Vec::new(),
     wanted: None,
     fenced: false,
+    last_fetch_id: 0,
+    dropped_through: 0,
 });
 
 fn held() -> std::sync::MutexGuard<'static, State> {
@@ -281,6 +314,8 @@ pub struct HeaderRequest {
 pub struct HeaderReply {
     pub header: Option<String>,
     pub fetch: bool,
+    /// The fetch's id when `fetch`: the app sends it back with the answer.
+    pub fetch_id: Option<u64>,
 }
 
 /// [`use_for`] on the process's held state.
@@ -292,7 +327,7 @@ pub fn header(request: &HeaderRequest) -> HeaderReply {
         now_ms: request.now_ms,
     });
     *state = reply.state;
-    HeaderReply { header: reply.header, fetch: reply.fetch }
+    HeaderReply { header: reply.header, fetch: reply.fetch, fetch_id: reply.fetch_id }
 }
 
 /// `cloud_capability_answer`: [`KeepRequest`] without the state, which this process holds.
@@ -300,6 +335,9 @@ pub fn header(request: &HeaderRequest) -> HeaderReply {
 #[serde(rename_all = "camelCase")]
 pub struct AnswerRequest {
     pub team: String,
+    /// The id `cloud_capability_header` gave the fetch.
+    #[serde(default, deserialize_with = "opt_ms")]
+    pub fetch_id: Option<u64>,
     #[serde(deserialize_with = "ms")]
     pub sent_ms: u64,
     #[serde(deserialize_with = "ms")]
@@ -322,6 +360,7 @@ pub fn answer(request: AnswerRequest) -> AnswerReply {
     let reply = keep(&KeepRequest {
         state: state.clone(),
         team: request.team,
+        fetch_id: request.fetch_id,
         sent_ms: request.sent_ms,
         now_ms: request.now_ms,
         status: request.status,
@@ -334,7 +373,25 @@ pub fn answer(request: AnswerRequest) -> AnswerReply {
 /// `cloud_capability_drop`: the install token was refused, or the account or team changed. Nothing is sent until
 /// a new token is fetched, and an answer to a fetch started before the drop is never kept.
 pub fn forget() {
-    *held() = State { fenced: true, ..State::default() };
+    let mut state = held();
+    *state = dropped(&state);
+}
+
+/// The state after a drop: nothing held or in flight, and every fetch started so far fenced off. The
+/// fetch ids keep counting, so no fetch after the drop shares an id with one before it.
+pub fn dropped(state: &State) -> State {
+    State {
+        fenced: true,
+        last_fetch_id: state.last_fetch_id,
+        dropped_through: state.last_fetch_id,
+        ..State::default()
+    }
+}
+
+/// [`ms`] for a number that may be absent or `null`.
+fn opt_ms<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<u64>, D::Error> {
+    let value = Option::<f64>::deserialize(deserializer)?;
+    value.map(|value| ms(Value::from(value)).map_err(serde::de::Error::custom)).transpose()
 }
 
 /// A whole non-negative number from JSON, written as an integer or (through Swift's `JSONValue`) a float.
