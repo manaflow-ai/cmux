@@ -195,6 +195,7 @@ pub fn gateway_fallback_on() -> bool {
 
 /// How long [`Machine::gateway_access`] waits for the image's answer (its own request gives up
 /// after 5 s; an answer is kept 60 s).
+// timeout: breaks a hung shell only; the script's own request has its 5 s bound, and no answer is `None` (unknown), never a refusal
 pub const GATEWAY_ACCESS_WAIT: Duration = Duration::from_secs(10);
 
 /// Asks the image's own check (`cmux_agent_team_access`, the one every launcher and `cr use`

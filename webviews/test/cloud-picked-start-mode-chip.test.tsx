@@ -147,6 +147,15 @@ async function render(snapshot: Snapshot) {
 
 const chipText = () => (host.querySelector(".acpmux-mode .acpmux-mode-text")?.textContent ?? "").trim();
 
+// The open menu's rows, once it has drawn them: each turn of the wait lets React commit, up to a deadline, so the
+// assertions read the menu as it shows, never what one fixed turn happened to reach.
+async function menuRows(): Promise<string[]> {
+  const read = () => [...dom.window.document.querySelectorAll("[role=menuitemradio]")].map((row) => row.textContent ?? "");
+  const deadline = Date.now() + 5_000;
+  while (read().length === 0 && Date.now() < deadline) await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  return read();
+}
+
 test("a new chat that starts on this Mac names the mode this Mac's acpmux starts it in", async () => {
   await render(await newChat(false));
   expect(chipText()).toBe("Bypass permissions");
@@ -193,8 +202,7 @@ test("with Cloud picked, the menu offers only the modes a Cloud start can run in
     button!.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, button: 0 }));
     button!.click();
   });
-  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
-  const rows = [...dom.window.document.querySelectorAll("[role=menuitemradio]")].map((row) => row.textContent ?? "");
+  const rows = await menuRows();
   expect(rows.some((row) => row.includes("Manual"))).toBe(true);
   expect(rows.some((row) => row.includes("Bypass permissions"))).toBe(true);
   expect(rows.some((row) => row.includes("Accept edits"))).toBe(false);
@@ -223,8 +231,7 @@ test("with Cloud picked and such a harness, the menu offers Claude's Cloud modes
     button!.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, button: 0 }));
     button!.click();
   });
-  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
-  const rows = [...dom.window.document.querySelectorAll("[role=menuitemradio]")].map((row) => row.textContent ?? "");
+  const rows = await menuRows();
   expect(rows.some((row) => row.includes("Manual"))).toBe(true);
   expect(rows.some((row) => row.includes("Bypass permissions"))).toBe(true);
   expect(rows.some((row) => row.includes("Accept edits"))).toBe(false);

@@ -126,6 +126,14 @@ UNWIRED: set[str] = {
     # `deployment: false`, so the PR logs no "temporarily deployed" event. Run it by hand after adding an
     # environment to a job.
     "tests/test_ci_secrets_only_environments_log_no_deployment.py",
+    # lane = "manual" for the same rule. It runs scripts/cmux-next/cargo-locks.py against throwaway Cargo
+    # workspaces (it needs cargo) and reads rust-workspaces.yml only to see its plan job run that check; run it
+    # by hand after changing cargo-locks.py or that step. The CI check itself is the plan job's own step.
+    "tests/test_cargo_locks.py",
+    # lane = "manual" for the same rule (its tests/test-execution.d/ci.toml entry says so). It pins
+    # scripts/cmux-next/check-single-host-fallbacks.py, which CI runs with --advisory and the pre-push gate runs
+    # strictly; run it by hand after changing the checker or .github/single-host-fallbacks.json.
+    "tests/test_ci_single_host_fallbacks.py",
 }
 
 

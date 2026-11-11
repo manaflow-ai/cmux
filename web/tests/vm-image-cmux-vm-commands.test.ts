@@ -363,8 +363,15 @@ describe("cmux VM image /tmp writer after clean (image roll 42888042827: /tmp/op
     const holder = spawn("bash", ["-c", 'exec 3>>"$1"; exec sleep 300', "holder", leftover], { stdio: "ignore" });
     const namer = spawn("sh", ["-c", "sleep 300; :", "namer", leftover], { stdio: "ignore" });
     try {
-      for (let i = 0; i < 50 && !readdirSync(dir).includes("opencode"); i++) await new Promise((r) => setTimeout(r, 50));
-      await new Promise((r) => setTimeout(r, 200));
+      // Both are in place once the leftover exists, the holder has become `sleep 300` with it open, and the
+      // namer's command line names it: wait for exactly that, up to a deadline, never a fixed pause.
+      const { spawnSync } = await import("node:child_process");
+      const runs = (pid: number | undefined, text: string) =>
+        pid !== undefined && spawnSync("ps", ["-o", "args=", "-p", String(pid)], { encoding: "utf8" }).stdout.includes(text);
+      const ready = () => readdirSync(dir).includes("opencode") && runs(holder.pid, "sleep 300") && runs(namer.pid, leftover);
+      const deadline = Date.now() + 20_000;
+      while (!ready() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 25));
+      expect(ready()).toBe(true);
       const result = await writers(dir);
       const out = result.stdout + result.stderr;
       expect(result.status).not.toBe(0);

@@ -6,11 +6,18 @@ from __future__ import annotations
 import importlib.util
 import json
 import tempfile
+import sys
 import unittest
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# scripts/ci/guard_findings.py, imported by name (tests/test_script_module_loads.py): each finding is its own check
+# of the guard step, so a red on the base never masks a new one.
+if str(ROOT / "scripts" / "ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+import guard_findings  # noqa: E402
 SCRIPT = ROOT / "scripts/ci/check_short_timeouts.py"
 SPEC = importlib.util.spec_from_file_location("short_timeout_guard", SCRIPT)
 assert SPEC and SPEC.loader
@@ -22,7 +29,9 @@ class ShortTimeoutGuardTests(unittest.TestCase):
     def test_checked_in_tree_matches_its_ratchet(self) -> None:
         allow = json.loads((ROOT / "tests/short-timeout-allowlist.json").read_text(encoding="utf-8"))
         found = guard.scan_tree(ROOT)
-        self.assertEqual(guard.problems(found, allow), [])
+        problems = guard.problems(found, allow)
+        guard_findings.report(problems)
+        self.assertEqual(problems, [])
 
     def test_new_two_second_deadline_fails_and_reasoned_comment_passes(self) -> None:
         source = "func request() { call(deadline: .seconds(2)) }\n"
