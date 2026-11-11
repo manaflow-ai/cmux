@@ -110,9 +110,11 @@ import CmuxNextDesignTokens
         menu.themeRows(in: Self.darkScope())
         #expect(!menu.showsStateColumn)
         #expect(menu.items[2].submenu?.showsStateColumn == false)
+        // AppKit's own column, as an unthemed checked row opens it (it follows the rows' state, not
+        // `showsStateColumn` alone: measured on the profile menu, 2026-11-10).
         let kept = Self.menu(NativeMenuTarget())
         kept.themeRows(in: Self.darkScope())
-        kept.showsStateColumn = true
+        kept.items[0].state = .on
         print("state column widths: without \(menu.size.width) with \(kept.size.width)")
         #expect(menu.size.width < kept.size.width, "dropping the column must take its width off the leading edge")
     }
