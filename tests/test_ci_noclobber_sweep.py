@@ -487,7 +487,9 @@ class NoclobberSweep(unittest.TestCase):
                         self.assertIn("ran cmd", run.stdout, run.stderr)
                     else:
                         self.assertNotIn("ran cmd", run.stdout)
-                        self.assertRegex(run.stderr, re.escape(want) + r": (command )?not found")
+                        # bash says NAME: not found; GNU time, which runs NAME itself, says cannot run NAME
+                        missing = r"(?:cannot run )?" + re.escape(want) + r": (?:(?:command )?not found|No such file)"
+                        self.assertRegex(run.stderr, missing)
         finally:
             shutil.rmtree(bindir, ignore_errors=True)
 
