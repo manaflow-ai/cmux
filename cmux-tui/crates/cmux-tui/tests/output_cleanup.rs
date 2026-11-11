@@ -726,7 +726,12 @@ fn stored_output_is_removed_and_the_registry_swapped_at_the_next_start() {
     assert!(!kept.exists());
     let (_, reason) = read_journal(&owner.socket());
     assert_eq!(reason, "completed");
-    assert_eq!(workspaces(&owner), prepared.workspaces, "the session without the kept file");
+    // The session without the kept file: the workspaces from before the
+    // swap and the one that `assert_cleaned` made after it.
+    let listed = workspaces(&owner);
+    assert!(listed.is_superset(&prepared.workspaces), "a workspace is gone: {listed:?}");
+    let made_after = listed.iter().filter(|(_, name)| name == "after-cleanup").count();
+    assert_eq!((listed.len(), made_after), (prepared.workspaces.len() + 1, 1), "{listed:?}");
     owner.stop();
 }
 

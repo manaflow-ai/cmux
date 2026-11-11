@@ -170,7 +170,7 @@ fn a_version_1_swap_later_marked_not_needed_by_version_2_is_still_the_swapped_re
         &db_path,
         &[
             ("registry_id", "r1"),
-            (super::super::V1_DONE_META_KEY, "{\"at_ms\":\"1\",\"kept\":\"1\"}"),
+            (V1_DONE_META_KEY, "{\"at_ms\":\"1\",\"kept\":\"1\"}"),
             (DONE_META_KEY, "not-needed"),
         ],
     );

@@ -436,9 +436,9 @@ fn a_second_rebuild_at_a_higher_floor_swaps_a_registry_that_a_swap_made() {
     // days), and it still does not swap.
     let later = crate::workspace_registry::session_journal::unix_epoch_ms().unwrap()
         + 8 * 24 * 60 * 60 * 1_000;
-    super::backup::NOW_MS_FOR_TEST.with(|now| now.set(Some(later)));
+    backup::NOW_MS_FOR_TEST.with(|now| now.set(Some(later)));
     drop(WorkspaceRegistry::open(&root.0, SESSION).unwrap());
-    super::backup::NOW_MS_FOR_TEST.with(|now| now.set(None));
+    backup::NOW_MS_FOR_TEST.with(|now| now.set(None));
     let deadline = Instant::now() + Duration::from_secs(20);
     while kept_file.exists() && Instant::now() < deadline {
         std::thread::yield_now();

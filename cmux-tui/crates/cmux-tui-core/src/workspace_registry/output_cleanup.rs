@@ -89,7 +89,7 @@ use rusqlite::{Connection, params};
 use super::open_guard::sidecar_path;
 use super::{WorkspaceRegistry, meta_value};
 
-pub(crate) use backup::{HeldBackup, backup_held, held_backup};
+pub(crate) use backup::{backup_held, held_backup};
 pub(super) use backup::{
     finish_pending_rollback, keep_or_remove_previous_registry, note_full_start,
     refuse_open_beside_backup, restore_interrupted_swap, roll_back_swap, rollback_possible,

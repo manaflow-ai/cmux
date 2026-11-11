@@ -12,7 +12,7 @@ const DAY_MS: u64 = 24 * 60 * 60 * 1_000;
 /// The time of the swap in each registry of these tests.
 const SWAPPED_AT_MS: u64 = 1_700_000_000_000;
 
-fn temp_dir(name: &str) -> std::path::PathBuf {
+fn temp_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir()
         .join(format!("cmux-output-cleanup-backup-{name}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
@@ -32,7 +32,7 @@ fn registry_with_meta(path: &Path, entries: &[(&str, &str)]) {
 
 /// A registry that a swap made at [`SWAPPED_AT_MS`], with `full_starts`
 /// counted on it. The file the swap replaced is at `backup`.
-fn swapped(name: &str, full_starts: u64, backup: fn(&Path) -> std::path::PathBuf) -> PathBuf {
+fn swapped(name: &str, full_starts: u64, backup: fn(&Path) -> PathBuf) -> PathBuf {
     let db_path = temp_dir(name).join("workspace-registry.sqlite3");
     registry_with_meta(
         &db_path,
