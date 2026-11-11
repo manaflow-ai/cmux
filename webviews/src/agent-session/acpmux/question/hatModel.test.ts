@@ -175,7 +175,65 @@ describe("the questions the composer hat holds", () => {
     expect(list.map((question) => question.source)).toEqual(["own"]);
   });
 
-  test("a started chat's question opens that chat; another chat's never shows", () => {
+  // Leo, 2026-11-10: "this is unusable to respond to i necessarily have to open... this is bad ui".
+  test("a started chat's question is answered in the hat: who asks, what about, its choices and Other", () => {
+    const sessions = [
+      { sessionId: "chat", title: "Coordinator" },
+      {
+        sessionId: "child",
+        name: "coord-deputy",
+        title: "From claude-sr2-coord: coord-deputy left real product a…",
+        harness: "claude",
+        startedBy: "chat",
+        pendingPermissions: 1,
+      },
+      {
+        sessionId: "unnamed",
+        name: "claude-2",
+        title: "A long generated title",
+        harness: "claude",
+        startedBy: "chat",
+        pendingPermissions: 1,
+      },
+      { sessionId: "planner", name: "planner", harness: "codex", startedBy: "chat", pendingPermissions: 1 },
+    ] as unknown as AcpmuxSessionEntry[];
+    const asked = (sessionId: string, id: string, question = fixture("pending-single")): WatchedAsk => ({
+      sessionId,
+      permission: permission({ ...question, source: { ...question.source, session: sessionId } }, id),
+      at: 1,
+    });
+    const recommended = fixture("pending-single");
+    recommended.items[0]!.options[1] = {
+      ...recommended.items[0]!.options[1]!,
+      id: "API keys (Recommended)",
+      label: "API keys (Recommended)",
+    };
+    const [named, longer, generated] = hatQuestions({
+      sessionId: "chat",
+      rows: [],
+      sessions,
+      asks: [
+        asked("child", "perm-child", recommended),
+        asked("unnamed", "perm-unnamed"),
+        asked("planner", "perm-four", fixture("pending-4-questions")),
+      ],
+    }).sort((a, b) => a.id.localeCompare(b.id));
+    // Who asks is the chat's own name, never its long title; what about is the question's header.
+    expect(named).toMatchObject({ source: "child", who: "coord-deputy", about: "Auth method", typed: true });
+    expect(named!.answers.map((answer) => [answer.label, answer.recommended ?? false])).toEqual([
+      ["OAuth 2.0", false],
+      ["API keys", true],
+      ["Passkeys", false],
+    ]);
+    // The answer still sends the option as the agent wrote it.
+    expect(named!.answers[1]!.id).toBe("API keys (Recommended)");
+    // A chat with only a generated name is named by its agent.
+    expect(generated).toMatchObject({ who: "Claude" });
+    // Several questions in one ask need the card: no buttons, no field; Open Chat takes it.
+    expect(longer).toMatchObject({ answers: [], typed: false });
+  });
+
+  test("a started chat's question shows; another chat's never shows", () => {
     const sessions = [
       { sessionId: "chat", title: "Coordinator" },
       { sessionId: "child", title: "Key setup", startedBy: "chat", pendingPermissions: 1 },
@@ -193,7 +251,7 @@ describe("the questions the composer hat holds", () => {
       asks: [asked("child", "perm-child"), asked("stranger", "perm-stranger")],
     });
     expect(list.map((question) => [question.source, question.sessionId, question.answers.length])).toEqual([
-      ["child", "child", 0],
+      ["child", "child", 3],
     ]);
   });
 

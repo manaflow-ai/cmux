@@ -224,16 +224,6 @@ export const PAGES = {
     out: "webviews/src/pages/bookmarks/generated/strings.json",
     catalogs: [{ file: `${sources}/CmuxNextBookmarks/Resources/Localizable.xcstrings` }],
   },
-  // The bookmarks bar (cmux-page://cmux.bookmarks-bar/): the bar's words from the same catalog.
-  "bookmarks-bar": {
-    out: "webviews/src/pages/bookmarks-bar/generated/strings.json",
-    catalogs: [
-      {
-        file: `${sources}/CmuxNextBookmarks/Resources/Localizable.xcstrings`,
-        keys: () => ["root.bar", "root.other", "bar.more", "bar.emptyHint", "folder.empty", "verb.openAll"],
-      },
-    ],
-  },
   // The sidebar's chat history blocks (CmuxNextSidebar SidebarChatHistoryHost): the sidebar's own keys.
   "sidebar-chats": {
     out: "webviews/src/pages/sidebar-chats/generated/strings.json",
