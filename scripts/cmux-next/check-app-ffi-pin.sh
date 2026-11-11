@@ -99,12 +99,12 @@ read -r sha checksum <<<"$pinned"
 url="https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-$sha/$asset"
 
 cd "$root"
+# A fleet ci-step checkout has no `origin` remote (step 6e04059b590e).
+remote=origin
+git remote get-url origin >/dev/null 2>&1 || remote="${CMUX_APP_FFI_PIN_REMOTE:-https://github.com/manaflow-ai/cmux.git}"
 if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
-  # A fleet ci-step checkout has no `origin` remote (step 6e04059b590e). Only
-  # a shallow checkout fetches shallow: a worktree of a full warm checkout
+  # Only a shallow checkout fetches shallow: a worktree of a full warm checkout
   # must not turn its repository shallow.
-  remote=origin
-  git remote get-url origin >/dev/null 2>&1 || remote="${CMUX_APP_FFI_PIN_REMOTE:-https://github.com/manaflow-ai/cmux.git}"
   depth=()
   [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
   git fetch --quiet ${depth[@]+"${depth[@]}"} "$remote" "$sha" \
@@ -149,8 +149,25 @@ elif ! git diff --quiet "$sha" HEAD -- "${paths[@]}"; then
     esac
   done
   echo "Owning lane(s), which publish the release and update the pin:$(sort -u <<<"$owners")" >&2
+  # A shallow checkout (cmux-next.yml's checks job has 2 commits) shows its oldest commit as adding every input, so
+  # the list named #39749 for #39027's change on 2026-11-09. Deepen (trees only: the log reads no blob) until no
+  # commit since the pin is a shallow boundary; a full checkout never fetches here. The list walks first parents
+  # only: the pin is a feat-cmux-next commit, so that chain reaches it, and a merge is named for the input change it
+  # brought in, while a merged branch that forks before the pin would list input commits older than the pin.
+  shallow_range() {
+    local list
+    list="$(git rev-parse --git-path shallow)"
+    # grep reads the whole list (no -q): an early exit would fail rev-list under pipefail.
+    [[ -s "$list" ]] && git rev-list --first-parent "$sha..HEAD" | grep -xFf "$list" >/dev/null
+  }
+  deepen=64
+  while shallow_range && ((deepen <= 2048)); do
+    git fetch --quiet --no-tags --filter=blob:none --deepen="$deepen" "$remote" "$(git rev-parse HEAD)" || break
+    deepen=$((deepen * 2))
+  done
   echo "Commits since the pin:" >&2
-  git log --format='  %h %an: %s' "$sha..HEAD" -- "${paths[@]}" >&2 || true
+  shallow_range && echo "  (this checkout's history is shallow: the oldest commit below may not have changed an input)" >&2
+  git log --first-parent --format='  %h %an: %s' "$sha..HEAD" -- "${paths[@]}" >&2 || true
   echo "Fix: the push to feat-cmux-next runs app-ffi-release.yml; publish its artifact (by hand when the run says so), then pin the new URL and checksum in Package.swift in one commit, in the same push as the source change when possible." >&2
   # A release is published only from a feat-cmux-next push, so a pull request cannot pin its own FFI sources.
   echo "If this PR changes FFI inputs: split it into a Rust-only step A and a Swift step B after the re-pin (docs/ci/app-ffi-release.md, \"A pull request that changes FFI inputs\")." >&2
