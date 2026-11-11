@@ -37,6 +37,8 @@ public final class HomeNativeTranscriptView: NSView {
     var firstPage: TranscriptWindow.FirstPage = .loaded
     /// The last older page failed: the notice offers Try Again (``followTranscriptLoad()``).
     var olderFailed = false
+    /// The older-page read Try Again started (``retryOlder()``); cancelled by the next one and by `stop()`.
+    var olderRetry: Task<Void, Never>?
     var starterSent = false
     var starterIntakes = 0 { didSet { updateStarterAvailability() } }
     let me: ParticipantID
@@ -281,6 +283,8 @@ public final class HomeNativeTranscriptView: NSView {
     public func stop() {
         guard !stopped else { return }
         stopped = true
+        olderRetry?.cancel()
+        olderRetry = nil
         if let linkPreviews { linkPreviews.coordinator.unregister(linkPreviews) }
         intake?.cancel()
         closeAgentCard()

@@ -46,11 +46,15 @@ extension HomeNativeTranscriptView {
         let store = binding.store, id = binding.conversation
         olderFailed = false
         showNotice(nil)
-        // task-owner: one older-page read; ends with it. A second failure leaves the store's state
-        // as it was (no change to observe), so the notice comes back from the read's own result.
-        Task { [weak self] in
+        olderRetry?.cancel()
+        // task-owner: one older-page read, held in `olderRetry`; the next Try Again and stop() cancel
+        // it. A second failure leaves the store's state as it was (no change to observe), so the
+        // notice comes back from the read's own result.
+        olderRetry = Task { [weak self] in
+            guard !Task.isCancelled else { return }
             await store.loadOlder(id)
-            guard let self, !self.stopped else { return }
+            guard !Task.isCancelled, let self, !self.stopped else { return }
+            self.olderRetry = nil
             self.applyTranscriptLoad(page: store.transcriptFirstPage(id), older: store.olderMessagesFailed(in: id))
         }
     }
