@@ -35,6 +35,8 @@ import type { SourceOption } from "../toolbar-model";
 import type {
   AccountsState,
   AgentsState,
+  ChannelSwitch,
+  ChannelsState,
   CloudEnvironmentsState,
   DevicesState,
   HarnessesState,
@@ -74,6 +76,12 @@ export type SettingsPageVariant = VariantBase & {
   harnesses?: HarnessesState;
   /** Settings > Devices; default the mock's (this Mac, two other devices, two relays). */
   devices?: DevicesState;
+  /** Settings > Updates' Channels card (null: no updater); default the mock's tracks. */
+  channels?: ChannelsState | null;
+  /** The Channels card's way back to the picked channel; default none. */
+  channelSwitch?: ChannelSwitch | null;
+  /** The host's refusal of every Switch; default none (Switch runs). */
+  switchRefusal?: string;
   /** Settings > Agents > Agent integrations; default the mock's four (focus `agents.integrations` opens it). */
   integrations?: IntegrationsState;
   /** Public-safe thumbnail data URLs for native-origin backdrop images. */

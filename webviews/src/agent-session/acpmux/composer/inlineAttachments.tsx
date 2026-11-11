@@ -389,7 +389,12 @@ const InlineChip = memo(function InlineChip({
   /// Whether this chip loaded in place (a paste, a drop): its picture then comes up from the loading
   /// tile's dim instead of popping in. A chip that arrives ready (a draft read back) just shows.
   const loaded = useRef(false);
-  if (pending && !pending.failed) loaded.current = true;
+  // Only a tile that showed (not one held unseen for its size or picture) has a dim to come up from.
+  if (pending && !pending.failed && !pending.sizing) loaded.current = true;
+  /// Whether its loading tile already showed its own picture: the chip then just stays, with no
+  /// second coming up (Leo, 2026-11-11: "this 3 stage attachment thing is still there").
+  const pictured = useRef(false);
+  if (pending?.preview && pending.image && !pending.failed) pictured.current = true;
 
   // A node whose attachment is not here (yet: a chat's kept chips still on their way) draws nothing.
   if (!attachment && !pending) return null;
@@ -416,6 +421,7 @@ const InlineChip = memo(function InlineChip({
           ? { "data-sized": "", style: imageShape(pending!.size) }
           : {})}
         {...(!pending!.failed && pending!.sizing ? { "data-sizing": "" } : {})}
+        {...(!pending!.failed && pending!.image && pending!.preview ? { "data-instant": "" } : {})}
         aria-busy={pending!.failed ? undefined : "true"}
         aria-label={name}
         /* tooltip-allow: the failed tile is cut to its size; the tooltip has the reason */ title={pending!.failed}
@@ -505,7 +511,7 @@ const InlineChip = memo(function InlineChip({
       data-state="ready"
       data-chip="strip"
       ref={chipRef(id)}
-      {...(loaded.current ? { "data-loaded": "" } : {})}
+      {...(loaded.current && !pictured.current ? { "data-loaded": "" } : {})}
     >
       <AttachmentChip
         attachment={attachment}

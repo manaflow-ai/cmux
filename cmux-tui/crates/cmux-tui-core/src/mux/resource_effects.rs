@@ -204,6 +204,11 @@ impl Mux {
         crate::debug_spans::mark("projection.built");
         persist_public_topology_result(operation, &mut projection.result, &projection.changes)?;
         #[cfg(test)]
+        crate::walk_counters::projection_prepared(
+            projection.patch.changes.len(),
+            projection.changes.as_array().map_or(0, Vec::len),
+        );
+        #[cfg(test)]
         if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
             hook();
         }
@@ -455,9 +460,6 @@ impl Mux {
 /// journal already states (a scoped walk still restates every workspace's
 /// row), and a full projection's, unpruned, may seed the public fold.
 fn projection_plan(projection: ResourceEffectProjection) -> ResourceMutationPlan {
-    let mut plan =
-        ResourceMutationPlan::new(projection.patch, projection.result, projection.changes, |_| {});
-    plan.restates_all = projection.restates_all;
-    plan.prunes_stated = true;
-    plan
+    ResourceMutationPlan::new(projection.patch, projection.result, projection.changes, |_| {})
+        .projected(projection.restates_all)
 }

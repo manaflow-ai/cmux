@@ -1978,15 +1978,17 @@ async fn connect_relay_socket_once(
     let config = WebSocketConfig::default()
         .max_message_size(Some(maximum_message_bytes))
         .max_frame_size(Some(maximum_message_bytes));
-    let opened =
-        tokio::time::timeout(RELAY_CONNECT_TIMEOUT, connect_async_with_config(request, Some(config), true))
-            .await
-            .map_err(|_| {
-                RelaySocketConnectError::Provider(ProviderError::Link(LinkError::Transport(format!(
-                    "relay WebSocket connection failed: no answer within {} ms",
-                    RELAY_CONNECT_TIMEOUT.as_millis()
-                ))))
-            })?;
+    let opened = tokio::time::timeout(
+        RELAY_CONNECT_TIMEOUT,
+        connect_async_with_config(request, Some(config), true),
+    )
+    .await
+    .map_err(|_| {
+        RelaySocketConnectError::Provider(ProviderError::Link(LinkError::Transport(format!(
+            "relay WebSocket connection failed: no answer within {} ms",
+            RELAY_CONNECT_TIMEOUT.as_millis()
+        ))))
+    })?;
     match opened {
         Ok((socket, _)) => Ok(socket),
         Err(tokio_tungstenite::tungstenite::Error::Http(response))
