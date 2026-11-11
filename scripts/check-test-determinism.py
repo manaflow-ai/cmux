@@ -1139,6 +1139,16 @@ def _lexical_positions_and_unresolved(
     expression_stop = _LEXER_JSX_EXPRESSION_STOP if is_jsx else _LEXER_EXPRESSION_STOP
     index = 0
     length = len(line)
+    hashbang = (0, 0)
+    if path_suffix in _JAVASCRIPT_SUFFIXES:
+        # A `#!` line at the very start (after a byte order mark) is ECMAScript's hashbang comment: trivia the parser
+        # lists as no comment. It is read as blanks (a `/` or `/*` in it opens nothing, and the first token after it
+        # starts the file), then left unmarked: neither code nor a comment.
+        start = 1 if line.startswith("\ufeff") else 0
+        if line.startswith("#!", start):
+            line_end = _JAVASCRIPT_LINE_TERMINATOR.search(line, start)
+            hashbang = (start, line_end.start() if line_end else length)
+            line = line[: hashbang[0]] + " " * (hashbang[1] - hashbang[0]) + line[hashbang[1] :]
     while index < length:
         kind, brace_depth, delimiter = contexts[-1]
         if kind == "code":
@@ -1514,6 +1524,7 @@ def _lexical_positions_and_unresolved(
                 contexts[-1] = (kind, brace_depth - 1, delimiter)
         index += 1
 
+    executable[hashbang[0] : hashbang[1]] = bytes(hashbang[1] - hashbang[0])
     return bytes(executable), bytes(comments), tuple(unresolved)
 
 
