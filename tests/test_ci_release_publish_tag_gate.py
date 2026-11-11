@@ -611,6 +611,41 @@ SHELL_FORM_ESCAPES = {
     "$( ) in ${x:-}": f'echo "${{x:-$(gh api {RELEASES} -f tag_name=v1)}}"',
     "backticks in ${x:+}": "echo ${x:+`gh release create v1 dist/x`}",
     "$( ) in a nested ${ }": f'echo "${{x:-${{y:-$(gh api {RELEASES} -XPOST)}}}}"',
+    # #41398 review F1: a substitution inside arithmetic, inside a parameter expansion or an array subscript, runs.
+    "$( ) in $(( )) in ${x:-}": 'echo "${x:-$(( $(gh release create v1 dist/x) + 1 ))}"',
+    "$( ) in $(( ))": "echo $(( $(gh release create v1 dist/x) + 1 ))",
+    "$( ) in an array subscript": 'echo "${arr[$(gh release create v1 dist/x)]}"',
+    "$( ) in $(( )) in a heredoc body": "cat <<EOF\n$(( $(gh release create v1 dist/x) + 1 ))\nEOF",
+    "an escaped $( ) in backticks": "echo `echo \\$(gh release create v1 dist/x)`",
+}
+# #41398 (folded in from the review of #41376, F1): the subcommand is read by position, with each tool's option
+# grammar, never anywhere in the line: an option's value is no subcommand.
+SUBCOMMAND_ESCAPES = {
+    "gh release -R before upload": "gh release -R o/r upload v1 dist/x",
+    "gh release --repo= before create": "gh release --repo=o/r create v1 dist/x",
+    "gh release -Ro/r before delete": "gh release -Ro/r delete v1",
+    "npm -w before publish": "npm -w pkg publish",
+    "npm --workspace= before publish": "npm --workspace=pkg publish --provenance",
+    "pnpm --filter before publish": "pnpm --filter pkg publish",
+    "cargo --locked before publish": "cargo --locked publish",
+    "cargo +toolchain before publish": "cargo +stable publish",
+    "cargo -Z value before publish": "cargo -Z unstable-options publish",
+    "yarn workspace NAME npm publish": "yarn workspace pkg npm publish",
+    "python -I -m twine upload": "python3 -I -m twine upload dist/*",
+    "twine --no-color upload": "twine --no-color upload dist/*",
+    "xcrun --sdk before notarytool": "xcrun --sdk macosx notarytool submit x.zip",
+}
+SUBCOMMAND_READS = {
+    "gh release download --dir upload": "gh release download v1 --dir upload",
+    "gh release download -D upload": "gh release download v1 -D upload",
+    "gh release view -R o/r create": "gh release view -R o/r create",
+    "cargo test -p publish": "cargo test -p publish",
+    "cargo build --package publish": "cargo build --package publish",
+    "npm test publish": "npm test publish",
+    "npm view pkg publish": "npm view pkg publish",
+    "twine check upload/x.whl": "twine check upload/x.whl",
+    "twine check upload": "twine check upload",
+    "xcrun --find notarytool": "xcrun --find notarytool",
 }
 
 
@@ -649,6 +684,14 @@ class RealGateMutations(RealStepMutation, unittest.TestCase):
 
     def test_every_gh_api_write_form_without_the_real_gate_is_named(self) -> None:
         self.assert_escape_caught(GH_API_WRITE_ESCAPES)
+
+    def test_a_subcommand_after_options_without_the_real_gate_is_named(self) -> None:
+        self.assert_escape_caught(SUBCOMMAND_ESCAPES)
+
+    def test_an_option_value_that_names_a_subcommand_stays_unnamed_without_the_gate(self) -> None:
+        for label, run in SUBCOMMAND_READS.items():
+            with self.subTest(label):
+                self.assertEqual(self.mutate(run, keep_gate=False), [], f"{label}: {run!r}")
 
     def test_unresolved_executable_content_without_the_real_gate_is_named(self) -> None:
         self.assert_escape_caught(UNRESOLVED_ESCAPES)
