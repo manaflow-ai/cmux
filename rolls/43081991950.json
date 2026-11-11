@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43081991950",
+  "recorded_at": "2026-11-11T19:02:27Z",
+  "reason": "cmux-tui 21779ec2451f changes the image's cmux-tui (pinned 8add064c5162)",
+  "dry_run": false,
+  "cmux_tui": "21779ec2451f009b6676d9222a3d42f39aadc681",
+  "fixes": [
+    {
+      "sha": "21779ec2451f009b6676d9222a3d42f39aadc681",
+      "mergedAt": "2026-11-11T10:37:16-08:00",
+      "subject": "acpmux tests: attached peer notices carry the row's qualifiedSessionId; fix the codex-bridge fork flake (#41338)"
+    },
+    {
+      "sha": "cfd79126eb0e27ba0b2ede32fca6f0cc2f781353",
+      "mergedAt": "2026-11-11T10:37:05-08:00",
+      "subject": "Cloud start: refuse an over-limit folder before leasing, release stranded machines (Rust step A) (#41408)"
+    },
+    {
+      "sha": "7f43250a33d503650494ae6d1f1ac8c923574b02",
+      "mergedAt": "2026-11-11T10:36:30-08:00",
+      "subject": "acpmux: a cancel stops whichever dual-sent copy runs; cancelled ids age out with a log (#41361)"
+    },
+    {
+      "sha": "962802900cfe59932cf2ad6f4f354c3dd91678c5",
+      "mergedAt": "2026-11-11T10:36:27-08:00",
+      "subject": "test: orphan test_*.py files that fail on feat-cmux-next are fixed or skipped against #41322; history skips fetch or say needs history (#41425)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T19:02:27Z",
+    "snapshot_id": "sh-6f69a1567b0e4e07a3d678d04f847cba",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43081991950): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "0f5bbcd0b7684072515e2cb95a5bf2b4a862f8c4",
+    "image": "cloud-native-auto-21779ec2-43081991950-1",
+    "revision": "ci-43081991950-1",
+    "at": "2026-11-11T19:02:27Z"
+  },
+  "rolled_back": false
+}
