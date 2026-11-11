@@ -2366,7 +2366,9 @@ def bash_oracle_cases(root: Path | None = None) -> list[tuple[str, str, bool, fr
     return cases
 
 
-def run_bash_oracle(cases) -> tuple[Counter, list[str]]:
+def run_bash_oracle(cases, timeouts: list[str] | None = None) -> tuple[Counter, list[str]]:
+    """Outcome counts and the disagreements over `cases`; given `timeouts`, each bash run that did not
+    finish in 5 s is added to it (its case label, and the stub bits of that path)."""
     import multiprocessing
     from concurrent.futures import ProcessPoolExecutor
 
@@ -2381,6 +2383,8 @@ def run_bash_oracle(cases) -> tuple[Counter, list[str]]:
                 counts[outcome] += 1
                 if outcome == "disagree":
                     disagreements.append(detail)
+                elif outcome == "timeout" and timeouts is not None:
+                    timeouts.append(detail)
     return counts, disagreements
 
 
