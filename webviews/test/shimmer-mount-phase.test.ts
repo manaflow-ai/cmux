@@ -105,6 +105,42 @@ await requireBrowserLane("shimmer-mount-phase.test.ts", async () => {
     });
   }
 
+  for (const restart of ["an ancestor shown again", "the static status look turned off"] as const)
+    test(`shimmers mounted apart restart on the clock's phase: ${restart}`, async () => {
+      const p = await open();
+      try {
+        await p.evaluate(() => (window as any).mountShimmers(3, false, "first"));
+        await frames(p);
+        // fixed-wait: real time must pass between the mounts and while the loops are off; that gap is the test.
+        await p.waitForTimeout(337);
+        await p.evaluate(() => (window as any).mountShimmers(3, false, "second"));
+        await frames(p);
+        const off = (on: boolean) =>
+          p.evaluate(
+            ([value, how]) => {
+              if (how === "an ancestor shown again")
+                for (const host of document.querySelectorAll<HTMLElement>("body > div"))
+                  host.style.display = value ? "none" : "";
+              else if (value) document.documentElement.setAttribute("data-status-indicators", "static");
+              else document.documentElement.removeAttribute("data-status-indicators");
+            },
+            [on, restart] as const,
+          );
+        await off(true);
+        await frames(p);
+        await p.waitForTimeout(523);
+        await off(false);
+        await frames(p);
+        await frames(p);
+        const { loops, clock, period } = await phases(p);
+        expect(loops.length).toBe(12);
+        for (const loop of loops)
+          expect(apart(loop.phase, clock, period), `${loop.host} ${loop.name}`).toBeLessThan(40);
+      } finally {
+        await p.close();
+      }
+    });
+
   test("a hidden page's paused shimmer comes back on the clock's phase", async () => {
     const p = await open();
     try {

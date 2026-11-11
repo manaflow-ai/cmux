@@ -14,7 +14,9 @@ const flag = (name: string, fallback: number) => {
   const at = args.indexOf(name);
   return at >= 0 ? Number(args[at + 1]) : fallback;
 };
-const sessions = Number(args.find((arg) => /^\d+$/.test(arg)) ?? 12000);
+/// The session count: the one argument that is not a flag or a flag's value.
+const positional = args.filter((arg, at) => !arg.startsWith("--") && !args[at - 1]?.startsWith("--"));
+const sessions = Number(positional[0] ?? 12000);
 const seconds = flag("--seconds", 60);
 const rate = flag("--rate", 5);
 const lagEvery = flag("--lag-every", 25);

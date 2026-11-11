@@ -113,15 +113,20 @@ function periodOf(doc: Document, variable: string): number | undefined {
  * the loops' rules read) from the period cached per page, and reads no style: asking the element for its
  * animations flushed style on every running row's mount, about 8% of a streaming chat's main thread on
  * Leo's Mac (2026-11-11). */
-export function setLoopPhase(element: HTMLElement, variable = SHIMMER_PERIOD_VARIABLE): void {
+/// `at` is when the loops start, in the document's ms (`performance.now()`): the mount by default, or an
+/// `animationstart`'s time when they start again later (below).
+export function setLoopPhase(element: HTMLElement, variable = SHIMMER_PERIOD_VARIABLE, at?: number): void {
   const doc = element.ownerDocument;
   const period = periodOf(doc, variable);
-  const origin = doc.defaultView?.performance.timeOrigin;
-  if (period === undefined || typeof origin !== "number") return;
-  const unixNow = origin + doc.defaultView!.performance.now();
-  const phase = ((unixNow % period) + period) % period;
+  const view = doc.defaultView;
+  if (period === undefined || !view) return;
+  const unixAt = view.performance.timeOrigin + (at ?? view.performance.now());
+  const phase = ((unixAt % period) + period) % period;
+  const delay = `-${phase.toFixed(1)}ms`;
   element.setAttribute(LOOP_PHASE_ATTRIBUTE, "");
-  element.style.setProperty(LOOP_DELAY_VARIABLE, `-${phase.toFixed(1)}ms`);
+  // The same delay again (a row's band and lit copy start in one frame) changes nothing: no style write.
+  if (element.style.getPropertyValue(LOOP_DELAY_VARIABLE) !== delay)
+    element.style.setProperty(LOOP_DELAY_VARIABLE, delay);
 }
 
 const installed = new WeakSet<Document>();
@@ -137,8 +142,11 @@ export function installSpinnerClock(doc: Document = document): void {
     "animationstart",
     (event) => {
       if (!SHARED_LOOP_KEYFRAMES.has(event.animationName) || !(event.target instanceof Element)) return;
-      // Its delay put it on the phase when it mounted (`setLoopPhase`): no style read for it here.
-      if (event.target.closest(`[${LOOP_PHASE_ATTRIBUTE}]`)) return;
+      // A loop phased by its delay (`setLoopPhase`) starts again whenever its rule comes back (an ancestor
+      // shown again, the static status look or the motion gate turned off): its delay is written anew for
+      // the time it started, still with no style read. The mount's own start writes the same phase.
+      const phased = event.target.closest(`[${LOOP_PHASE_ATTRIBUTE}]`);
+      if (phased instanceof HTMLElement) return setLoopPhase(phased, SHIMMER_PERIOD_VARIABLE, event.timeStamp);
       // A hidden page's loops stay paused: giving one a start time would run it unseen. They take
       // the shared phase when the page shows (below).
       if (root.hasAttribute(PAGE_HIDDEN_ATTRIBUTE)) return;
