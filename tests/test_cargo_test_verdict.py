@@ -167,6 +167,27 @@ class ColouredSummary(unittest.TestCase):
         self.assertIn("test result: FAILED. 1 passed; 2 failed;", text)
 
 
+class TitleSequencesKeepTheLinesBetweenThem(unittest.TestCase):
+    """#41382's review F1 (test_reds.py:64): "The OSC pattern is greedy and runs to the last ESC \\ in the log, so
+    plain() deletes every line between two title sequences. Reproduced through cargo_test_verdict.read_text: a head
+    with one new and one existing failure loses the new one, and judge() excuses it."""
+
+    TITLE = "\x1b]0;cargo test\x1b\\"
+
+    def test_a_new_failure_between_two_titles_is_the_changes_own(self):
+        head = log(binary(("hub::turn_cap_tests::caps", "FAILED")),
+                   self.TITLE + binary(("agent_inbox::delivers", "FAILED")), self.TITLE + "done")
+        base = log(binary(("hub::turn_cap_tests::caps", "FAILED")), binary(("agent_inbox::delivers", "ok")))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp, "head.log")
+            path.write_text(head)
+            text = verdict.read_text(path)
+        self.assertEqual(verdict.failed_names(text), ["agent_inbox::delivers", "hub::turn_cap_tests::caps"])
+        own, notes = verdict.judge(text, None, base, JOB)
+        self.assertTrue(own, notes)
+        self.assertTrue(any(n.startswith("::error") and "agent_inbox::delivers" in n for n in notes), notes)
+
+
 def workflow_paths(workflow: str) -> dict[str, list[str]]:
     """Each trigger's `paths:` globs in WORKFLOW, read without a YAML parser."""
     found, event, inside = {}, None, False
