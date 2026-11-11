@@ -47,16 +47,19 @@ extension ScreenInput {
     /// The image types the host puts on its pasteboard (uniform type identifiers).
     public static let pasteImageTypes: Set<String> = ["public.png", "public.jpeg", "public.heic", "public.tiff"]
 
-    /// The messages for one image of any size, in ``pasteImageChunkBytes`` chunks (empty when it is
-    /// empty or of another type).
+    /// The messages for one image of any size, in ``pasteImageChunkBytes`` chunks, all at once (empty
+    /// when it is empty or of another type). A sender uses ``pasteImageChunks(_:type:id:)``, which
+    /// makes each chunk's base64 only when it is read.
     public static func pasteImage(_ data: Data, type: String, id: String = UUID().uuidString) -> [ScreenInput] {
-        guard !data.isEmpty, pasteImageTypes.contains(type) else { return [] }
-        let count = (data.count + pasteImageChunkBytes - 1) / pasteImageChunkBytes
-        return (0 ..< count).map { index in
-            let start = data.startIndex + index * pasteImageChunkBytes
-            let chunk = data[start ..< min(start + pasteImageChunkBytes, data.endIndex)]
-            return ScreenInput(t: ScreenHostMessage.pasteImageType, s: chunk.base64EncodedString(), i: index, n: count, id: id, f: type)
-        }
+        pasteImageChunks(data, type: type, id: id).map(Array.init) ?? []
+    }
+
+    /// The messages for one image of any size, made one chunk at a time as they are read, so a
+    /// sender holds one chunk's base64 at a time, never the whole image's (nil when it is empty or
+    /// of another type).
+    public static func pasteImageChunks(_ data: Data, type: String, id: String = UUID().uuidString) -> PasteImageChunks? {
+        guard !data.isEmpty, pasteImageTypes.contains(type) else { return nil }
+        return PasteImageChunks(data: data, type: type, id: id)
     }
 }
 
@@ -109,8 +112,12 @@ struct ScreenImageAssembler {
 
     /// Drops the image being collected and frees its bytes: the viewer's session ended, so its
     /// remaining chunks never come. A later chunk of that image is answered as incomplete.
-    mutating func cancel() {
+    /// Returns how many bytes it dropped (0 when no image was being collected).
+    @discardableResult
+    mutating func cancel() -> Int {
+        let dropped = id == nil ? 0 : data.count
         reset()
+        return dropped
     }
 
     private mutating func fail(_ outcome: ScreenHostMessage.PasteImageOutcome, id: String?) -> Step {

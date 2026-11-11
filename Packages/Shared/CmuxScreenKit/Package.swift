@@ -39,6 +39,6 @@ let package = Package(
             swiftSettings: swiftSettings
         ),
         .target(name: "CmuxScreenKitUI", dependencies: ["CmuxScreenKit", .product(name: "CmuxSpinner", package: "CmuxSpinner")], swiftSettings: swiftSettings),
-        .testTarget(name: "CmuxScreenKitTests", dependencies: ["CmuxScreenKit"], swiftSettings: swiftSettings),
+        .testTarget(name: "CmuxScreenKitTests", dependencies: ["CmuxScreenKit", "CmuxScreenKitUI"], swiftSettings: swiftSettings),
     ]
 )
