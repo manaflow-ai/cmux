@@ -608,18 +608,45 @@ _HOST_PORT_TUPLE = re.compile(
 
 
 def _strip_comment(line: str, path_suffix: str) -> str:
-    """Best-effort removal of trailing comments for non-network detectors."""
-    markers = ["#"] if path_suffix in (".py", ".sh") else ["//"]
-    out = line
-    for marker in markers:
-        idx = out.find(marker)
-        while idx != -1:
-            prefix = out[:idx]
-            if prefix.count('"') % 2 == 0 and prefix.count("'") % 2 == 0:
-                out = prefix
-                break
-            idx = out.find(marker, idx + len(marker))
-    return out
+    """LINE without its comments, as the lexer reads the line on its own (`_code_lines` reads a whole file)."""
+    if "#" not in line and "/" not in line:
+        return line
+    comments = _source_lexical_positions(line, path_suffix)[1]
+    if not any(comments):
+        return line
+    return "".join(character for character, comment in zip(line, comments) if not comment)
+
+
+# The last whole file the lexer read: scan_text's passes (comments, blocks, function names) share one lexing.
+_LAST_WHOLE_TEXT: list[tuple[str, str, tuple[bytes, bytes]]] = []
+
+
+def _whole_text_positions(text: str, path_suffix: str) -> tuple[bytes, bytes]:
+    if _LAST_WHOLE_TEXT and _LAST_WHOLE_TEXT[0][0] is text and _LAST_WHOLE_TEXT[0][1] == path_suffix:
+        return _LAST_WHOLE_TEXT[0][2]
+    positions = _lexical_positions(text, path_suffix)
+    _LAST_WHOLE_TEXT[:] = [(text, path_suffix, positions)]
+    return positions
+
+
+def _code_lines(text: str, path_suffix: str) -> list[str]:
+    """TEXT's lines (`str.splitlines`) without comments, by the lexer over the whole text: a block comment is
+    gone from every line it spans, and a comment marker inside a string (one-line or multi-line) stays."""
+    comments = _whole_text_positions(text, path_suffix)[1]
+    lines = text.splitlines()
+    if not any(comments):
+        return lines
+    code: list[str] = []
+    offset = 0
+    for line, with_end in zip(lines, text.splitlines(keepends=True)):
+        line_comments = comments[offset : offset + len(line)]
+        code.append(
+            line
+            if not any(line_comments)
+            else "".join(character for character, comment in zip(line, line_comments) if not comment)
+        )
+        offset += len(with_end)
+    return code
 
 
 def _is_assertion_line(line: str) -> bool:
@@ -722,6 +749,9 @@ def _javascript_regex_literal_starts_at(
 
     if character in ")]}'\"`.":
         return False
+    if character == "<" and previous + 1 == index:
+        # `</div>`: a JSX closing tag, not `<` followed by a regex literal.
+        return False
     if (
         character in "+-"
         and previous > 0
@@ -730,6 +760,27 @@ def _javascript_regex_literal_starts_at(
     ):
         return False
     return True
+
+
+# Where each lexer context can next do anything but carry on: the run up to it is all one kind (code, literal
+# text or comment), marked in one step. Without these the lexer is a Python loop over every character.
+_LEXER_CODE_STOP = re.compile(r"[/#'\"`\\$]")
+_LEXER_EXPRESSION_STOP = re.compile(r"[/#'\"`\\$(){}]")
+_LEXER_TEMPLATE_STOP = re.compile(r"[\\`$]")
+_LEXER_SHELL_DOUBLE_STOP = re.compile(r'[\\"$`]')
+_LEXER_REGEX_STOP = re.compile(r"[\\\r\n\[\]/]")
+_LEXER_BLOCK_COMMENT_STOP = re.compile(r"[/*\n]")
+_LEXER_STRING_STOPS: dict[tuple[str, str], "re.Pattern[str]"] = {}
+
+
+def _lexer_string_stop(kind: str, delimiter: str) -> "re.Pattern[str]":
+    key = (kind, delimiter[:1])
+    pattern = _LEXER_STRING_STOPS.get(key)
+    if pattern is None:
+        braces = "{}" if kind == "f-string-text" else ""
+        pattern = re.compile("[\\\\\n" + re.escape(delimiter[:1]) + braces + "]")
+        _LEXER_STRING_STOPS[key] = pattern
+    return pattern
 
 
 def _lexical_positions(
@@ -759,8 +810,31 @@ def _lexical_positions(
     contexts: list[tuple[str, int, str]] = [("code", 0, "")]
     is_shell = path_suffix == ".sh"
     index = 0
-    while index < len(line):
+    length = len(line)
+    while index < length:
         kind, brace_depth, delimiter = contexts[-1]
+        if kind == "code":
+            stop = _LEXER_CODE_STOP.search(line, index)
+        elif kind in ("string-text", "f-string-text"):
+            stop = _lexer_string_stop(kind, delimiter).search(line, index)
+        elif kind == "template-text":
+            stop = _LEXER_TEMPLATE_STOP.search(line, index)
+        elif kind == "shell-double-text":
+            stop = _LEXER_SHELL_DOUBLE_STOP.search(line, index)
+        elif kind == "regex-text":
+            stop = _LEXER_REGEX_STOP.search(line, index)
+        elif kind == "block-comment":
+            stop = _LEXER_BLOCK_COMMENT_STOP.search(line, index)
+        else:
+            stop = _LEXER_EXPRESSION_STOP.search(line, index)
+        run_end = stop.start() if stop else length
+        if run_end > index:
+            if kind == "block-comment":
+                comments[index:run_end] = b"\x01" * (run_end - index)
+            elif not kind.endswith("-text"):
+                executable[index:run_end] = b"\x01" * (run_end - index)
+            index = run_end
+            continue
         character = line[index]
 
         if kind == "block-comment":
@@ -805,6 +879,11 @@ def _lexical_positions(
             if line.startswith(delimiter, index):
                 contexts.pop()
                 index += len(delimiter)
+                continue
+            if character == "\n" and not is_shell and not delimiter.startswith(delimiter[0] * 3):
+                # A one-line string never spans lines (Swift, JavaScript, Python): an unterminated one ends
+                # with its line instead of hiding the rest of the file.
+                contexts.pop()
                 continue
             index += 1
             continue
@@ -862,6 +941,9 @@ def _lexical_positions(
             if line.startswith(delimiter, index):
                 contexts.pop()
                 index += len(delimiter)
+                continue
+            if character == "\n" and not delimiter.startswith(delimiter[0] * 3):
+                contexts.pop()
                 continue
             if character == "{" and index + 1 < len(line) and line[index + 1] == "{":
                 index += 2
@@ -944,6 +1026,16 @@ def _lexical_positions(
             contexts.append(("shell-command-substitution", 1, ""))
             index += 2
             continue
+        if (
+            character in ("'", '"')
+            and path_suffix in _JAVASCRIPT_SUFFIXES
+            and index > 0
+            and line[index - 1].isascii()
+            and (line[index - 1].isalnum() or line[index - 1] in "_$")
+        ):
+            # No JavaScript string starts right after a word character: this is JSX text (`<p>Don't</p>`).
+            index += 1
+            continue
         if character in ("'", '"'):
             opening_delimiter = (
                 character
@@ -1003,6 +1095,9 @@ def _lexical_positions(
             contexts[-1] = (kind, brace_depth + 1, delimiter)
         elif kind in ("template-expression", "f-string-expression") and character == "}":
             if brace_depth == 1:
+                # The `}` that ends `${...}` or `{...}` belongs to the literal, as its `${` or `{` does: a
+                # brace count over the executable code stays balanced.
+                executable[index] = False
                 contexts.pop()
             else:
                 contexts[-1] = (kind, brace_depth - 1, delimiter)
@@ -1052,6 +1147,73 @@ def _is_inside_string_literal(
 ) -> bool:
     positions = _executable_code_positions(line, path_suffix)
     return 0 <= offset < len(positions) and not positions[offset]
+
+
+_CODE_MARK = re.compile(r"[{};]")
+
+
+@dataclass(frozen=True)
+class _MaskedLine:
+    """One line of a source (`str.splitlines`) as the lexer sees it.
+
+    `masked` is the line with comments blanked and each literal's text (a string, a template, a regex literal)
+    blanked between its first and last character, so positions line up with the line and a quote still marks
+    where a literal starts. `marks` are the `{`, `}` and `;` of executable code, by column. `in_literal`: the
+    line starts inside a string or block comment that an earlier line opened (its indentation is text).
+    """
+
+    text: str
+    masked: str
+    marks: tuple[tuple[int, str], ...]
+    in_literal: bool = False
+
+
+_LEXER_LITERAL_RUN = re.compile(r"\x00+")
+_LEXER_COMMENT_RUN = re.compile(r"\x02+")
+_LINE_TEXT = re.compile(r"[^\r\n]")
+
+
+def _masked_lines(text: str, path_suffix: str, *, with_masked: bool = True) -> list[_MaskedLine]:
+    """TEXT's lines with strings, templates, regex literals and comments masked by the one lexer.
+
+    The lexer runs over the whole text, so a multi-line string (Swift `\"\"\"`, a JavaScript template, a Python
+    triple-quoted string) or block comment masks every line it spans. Without WITH_MASKED each line's `masked`
+    is its text (for a caller that reads only the marks).
+    """
+    executable, comments = _whole_text_positions(text, path_suffix)
+    masked = text
+    if with_masked:
+        # One character per position: 1 code, 2 comment, 0 literal text (a string, template or regex literal).
+        kinds = bytes(code | (comment << 1) for code, comment in zip(executable, comments)).decode("latin-1")
+        characters = list(text)
+        for run in _LEXER_COMMENT_RUN.finditer(kinds):
+            characters[run.start():run.end()] = " " * (run.end() - run.start())
+        for run in _LEXER_LITERAL_RUN.finditer(kinds):
+            # Keep a literal's first and last character (its quotes); blank what is between, but its line breaks.
+            inner_start, inner_end = run.start() + 1, run.end() - 1
+            if inner_end > inner_start:
+                characters[inner_start:inner_end] = _LINE_TEXT.sub(" ", text[inner_start:inner_end])
+        masked = "".join(characters)
+    lines: list[_MaskedLine] = []
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        stripped = line.rstrip("\r\n\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029")
+        end = offset + len(stripped)
+        marks = tuple(
+            (match.start() - offset, match.group())
+            for match in _CODE_MARK.finditer(text, offset, end)
+            if executable[match.start()]
+        )
+        lines.append(
+            _MaskedLine(
+                stripped,
+                masked[offset:end],
+                marks,
+                offset > 0 and not executable[offset - 1] and not comments[offset - 1],
+            )
+        )
+        offset += len(line)
+    return lines
 
 
 def _call_end(
@@ -3610,10 +3772,11 @@ def detect_assert_on_duration(line: str, path_suffix: str = "") -> bool:
         return False
     # A duration word in the assertion's message (`#expect(..., "duration \(t) s")`) measures nothing: a token
     # there does not count. A token in code, or in a string the code reads (`stats["elapsed_ms"]`), does.
-    executable = _executable_code_positions(line, path_suffix)
-    if all(_in_assertion_message(line, match.start(), executable) for match in _DURATION_TOKEN.finditer(line)):
+    tokens = list(_DURATION_TOKEN.finditer(line))
+    if not tokens or not _NUMERIC_LITERAL.search(line):
         return False
-    if not _NUMERIC_LITERAL.search(line):
+    executable = _executable_code_positions(line, path_suffix)
+    if all(_in_assertion_message(line, match.start(), executable) for match in tokens):
         return False
     # A latency assertion is a ONE-SIDED bound on a measured clock value: a
     # threshold comparison (`elapsed < 5`, `t > 0.18`) or a Less/Greater assert
@@ -3674,8 +3837,6 @@ _CLOCK_KEYS = (
 )
 _PY_ASSIGNMENT = re.compile(r"^\s*([A-Za-z_]\w*)\s*(?::\s*[\w\[\]., |]+)?=(?!=)\s*(\S.*)$")
 _BRACE_ASSIGNMENT = re.compile(r"^\s*(?:(?:let|var|const)\s+)?([A-Za-z_]\w*)\s*(?::\s*[^=]+)?=(?![=>])\s*(\S.*)$")
-_ONE_LINE_STRING = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`(?:\\.|[^`\\])*`')
-_BRACES = re.compile(r"[{}]")
 _DECLARATION = re.compile(r"^\s*(?:let|var|const)\s")
 _PY_DEF = re.compile(r"^(\s*)(?:async\s+)?def\s")
 _RELATIONAL_HELPER = re.compile(
@@ -3820,7 +3981,9 @@ def _classify_assignment(value: str, timings: set[str], readings: set[str]) -> O
     return None
 
 
-def detect_assert_on_duration_through_name(code_lines: list[str], path_suffix: str) -> list[int]:
+def detect_assert_on_duration_through_name(
+    code_lines: list[str], path_suffix: str, text: Optional[str] = None
+) -> list[int]:
     """Lines bounding a name that holds a clock difference assigned earlier in the same function.
 
     `took = time.perf_counter() - started` then `self.assertLess(took, 0.5)`: the line-at-a-time check sees
@@ -3836,6 +3999,10 @@ def detect_assert_on_duration_through_name(code_lines: list[str], path_suffix: s
     if not any(key in source for key in _CLOCK_KEYS):
         return []
     python = path_suffix == ".py"
+    # Blocks and Python scopes come from the lexer over the raw text (TEXT, else the lines): a brace in a string,
+    # a template, a regex literal or a comment opens nothing, and a line that starts inside a Python string ends
+    # no scope.
+    masked_lines = _masked_lines(text if text is not None else source, path_suffix, with_masked=False)
     # Each scope is (opening indent or brace depth, {name: kind}); module level is the outermost. A kind is
     # "timing", "reading" or None (a name bound to anything else, which shadows an outer timing of that name).
     # A name resolves through every visible scope, innermost first: a block nested in a test still sees the
@@ -3845,6 +4012,9 @@ def detect_assert_on_duration_through_name(code_lines: list[str], path_suffix: s
     flagged: list[int] = []
     for index, line in enumerate(code_lines):
         if not line.strip():
+            continue
+        lexed = masked_lines[index] if index < len(masked_lines) else _MaskedLine(line, line, ())
+        if python and lexed.in_literal:
             continue
         if python:
             indent = len(line) - len(line.lstrip())
@@ -3870,9 +4040,8 @@ def detect_assert_on_duration_through_name(code_lines: list[str], path_suffix: s
                 # `took = ...` with no let/var/const rebinds the innermost scope that declared it.
                 target = next((bindings for _, bindings in reversed(scopes) if name in bindings), target)
             target[name] = kind
-        if not python and ("{" in line or "}" in line):
-            # A brace in a one-line string literal does not open a block (comments are already stripped).
-            for character in _BRACES.findall(_ONE_LINE_STRING.sub("", line)):
+        if not python:
+            for _, character in lexed.marks:
                 if character == "{":
                     depth += 1
                     scopes.append((depth, {}))
@@ -4499,11 +4668,6 @@ _SHELL_DECLARATION = re.compile(r"^\s*(?:function\s+)?([\w.:-]+)\s*\(\)\s*$|^\s*
 _HEADER_LIMIT = 2000
 
 
-def _mask_one_line_strings(line: str) -> str:
-    """LINE with each one-line string literal's contents blanked, so positions still line up with LINE."""
-    return _ONE_LINE_STRING.sub(lambda m: m.group(0)[0] + " " * (len(m.group(0)) - 2) + m.group(0)[-1], line)
-
-
 def _block_name(header: str, masked: str, path_suffix: str) -> Optional[str]:
     """The name a block opened after HEADER declares (a function, a type, a JS test's title), or None."""
     if path_suffix == ".swift":
@@ -4532,47 +4696,50 @@ def _block_name(header: str, masked: str, path_suffix: str) -> Optional[str]:
     return best[1].replace("\t", " ") or None
 
 
-def _python_line_functions(code_lines: list[str], text: Optional[str] = None) -> list[str]:
-    """Python by its syntax tree when it parses (a multi-line string never ends a scope), else by indentation."""
-    if text is not None:
-        import ast
+def _python_line_functions(text: str) -> list[str]:
+    """Python by its syntax tree when it parses, else by indentation over the lexer's lines: a line that starts
+    inside a string ends no scope, and a `def` in a string or a comment opens none."""
+    import ast
 
-        try:
-            tree = ast.parse(text)
-        except (SyntaxError, ValueError):
-            tree = None
-        if tree is not None:
-            names = [MODULE_SCOPE] * len(code_lines)
+    line_count = len(text.splitlines())
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        tree = None
+    if tree is not None:
+        names = [MODULE_SCOPE] * line_count
 
-            def visit(node: "ast.AST", prefix: str) -> None:
-                for child in ast.iter_child_nodes(node):
-                    if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                        qualified = f"{prefix}.{child.name}" if prefix else child.name
-                        first = min([child.lineno, *(d.lineno for d in child.decorator_list)])
-                        for line in range(first, (child.end_lineno or child.lineno) + 1):
-                            if line <= len(names):
-                                names[line - 1] = qualified
-                        visit(child, qualified)
-                    else:
-                        visit(child, prefix)
+        def visit(node: "ast.AST", prefix: str) -> None:
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    qualified = f"{prefix}.{child.name}" if prefix else child.name
+                    first = min([child.lineno, *(d.lineno for d in child.decorator_list)])
+                    for line in range(first, (child.end_lineno or child.lineno) + 1):
+                        if line <= len(names):
+                            names[line - 1] = qualified
+                    visit(child, qualified)
+                else:
+                    visit(child, prefix)
 
-            visit(tree, "")
-            return names
-    names: list[str] = []
+        visit(tree, "")
+        return names
+    names = []
     stack: list[tuple[int, str]] = []
-    for line in code_lines:
-        if line.strip():
-            indent = len(line) - len(line.lstrip())
+    for lexed in _masked_lines(text, ".py"):
+        if lexed.masked.strip() and not lexed.in_literal:
+            indent = len(lexed.text) - len(lexed.text.lstrip())
             while stack and indent <= stack[-1][0]:
                 stack.pop()
-            scope = _PY_SCOPE.match(line)
+            scope = _PY_SCOPE.match(lexed.masked)
             if scope:
                 stack.append((indent, scope.group(2)))
         names.append(".".join(name for _, name in stack) or MODULE_SCOPE)
     return names
 
 
-def _brace_line_functions(code_lines: list[str], path_suffix: str) -> list[str]:
+def _brace_line_functions(text: str, path_suffix: str) -> list[str]:
+    """Swift, JavaScript/TypeScript and shell by the braces of executable code (the lexer's marks): a brace in a
+    string, a template, a regex literal or a comment opens and closes nothing."""
     names: list[str] = []
     stack: list[Optional[str]] = []
     header = ""
@@ -4581,14 +4748,12 @@ def _brace_line_functions(code_lines: list[str], path_suffix: str) -> list[str]:
     def qualified() -> str:
         return ".".join(name for name in stack if name) or MODULE_SCOPE
 
-    for line in code_lines:
-        masked = _mask_one_line_strings(line)
+    for lexed in _masked_lines(text, path_suffix):
+        line, masked = lexed.text, lexed.masked
         deepest = qualified()
         deepest_depth = len(stack)
         start = 0
-        for index, character in enumerate(masked):
-            if character not in "{};":
-                continue
+        for index, character in lexed.marks:
             header += line[start:index]
             masked_header += masked[start:index]
             start = index + 1
@@ -4605,22 +4770,33 @@ def _brace_line_functions(code_lines: list[str], path_suffix: str) -> list[str]:
     return names
 
 
-def line_functions(code_lines: list[str], path_suffix: str, text: Optional[str] = None) -> list[str]:
-    """For each line, the qualified name of the innermost function (or type, or JS test) holding it.
+def line_functions(text: str, path_suffix: str) -> list[str]:
+    """For each line of TEXT (`str.splitlines`), the qualified name of the innermost function (or type, or JS
+    test) holding it.
 
-    Python by its syntax tree (`TestX.test_y`); Swift, JavaScript/TypeScript and shell by braces, each named block
-    joining the path (`FooTests.testBar`, `describe title.test title`). An unnamed block (a closure, an `if`)
-    adds nothing. Outside every named block: MODULE_SCOPE.
+    Python by its syntax tree (`TestX.test_y`); Swift, JavaScript/TypeScript and shell by the braces of executable
+    code, each named block joining the path (`FooTests.testBar`, `describe title.test title`). One lexer
+    (`_lexical_positions`) masks strings, templates, regex literals and comments for both. An unnamed block (a
+    closure, an `if`) adds nothing. Outside every named block: MODULE_SCOPE.
     """
     if path_suffix == ".py":
-        return _python_line_functions(code_lines, text)
-    return _brace_line_functions(code_lines, path_suffix)
+        return _python_line_functions(text)
+    return _brace_line_functions(text, path_suffix)
 
 
-def _with_functions(findings: list[Finding], code_lines: list[str], path_suffix: str, text: str) -> list[Finding]:
+def file_functions(text: str, path_suffix: str) -> set[str]:
+    """Every function (or type, or JS test) name TEXT declares, qualified, with each enclosing name on its own."""
+    found = {MODULE_SCOPE}
+    for name in line_functions(text, path_suffix):
+        parts = name.split(".")
+        found.update(".".join(parts[: count + 1]) for count in range(len(parts)))
+    return found
+
+
+def _with_functions(findings: list[Finding], path_suffix: str, text: str) -> list[Finding]:
     if not findings:
         return findings
-    names = line_functions(code_lines, path_suffix, text)
+    names = line_functions(text, path_suffix)
     return [
         replace(finding, function=names[finding.line - 1] if 0 < finding.line <= len(names) else MODULE_SCOPE)
         for finding in findings
@@ -4630,7 +4806,7 @@ def _with_functions(findings: list[Finding], code_lines: list[str], path_suffix:
 def scan_text(rel_posix: str, text: str) -> list[Finding]:
     suffix = pathlib.PurePosixPath(rel_posix).suffix
     raw_lines = text.splitlines()
-    code_lines = [_strip_comment(line, suffix) for line in raw_lines]
+    code_lines = _code_lines(text, suffix)
     findings: list[Finding] = []
     if _NETWORK_VERB.search(text) and _contains_public_network_url(text):
         network_source = _strip_comments(text, suffix)
@@ -4671,7 +4847,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
             findings.append(Finding(rel_posix, line_no, RULE_YIELD_COUNT_POLL, snippet))
 
     duration_lines = {f.line for f in findings if f.rule == RULE_ASSERT_ON_DURATION}
-    for duration_line in detect_assert_on_duration_through_name(code_lines, suffix):
+    for duration_line in detect_assert_on_duration_through_name(code_lines, suffix, text):
         if duration_line + 1 not in duration_lines:
             findings.append(
                 Finding(rel_posix, duration_line + 1, RULE_ASSERT_ON_DURATION, raw_lines[duration_line].strip())
@@ -4689,7 +4865,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
     for tmp_line in detect_predictable_tmp_path(raw_lines, rel_posix):
         findings.append(Finding(rel_posix, tmp_line + 1, RULE_PREDICTABLE_TMP_PATH, raw_lines[tmp_line].strip()))
     findings.sort(key=lambda f: (f.line, f.rule))
-    return _with_functions(findings, code_lines, suffix, text)
+    return _with_functions(findings, suffix, text)
 
 
 def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Finding]:
@@ -4731,7 +4907,8 @@ ALLOWLIST_HEADER = (
     "# An entry suppresses the findings of RULE inside FUNCTION of RELPATH only: a new finding in another\n"
     "# function of the same file still fails. `function` is what --json and each finding line print after\n"
     "# 'in' (Python `Class.method`, Swift `Type.method`, a JS test's title path, or <module>).\n"
-    "# --strict fails on an entry that no longer matches any finding (\"stale entry\"): delete it.\n"
+    "# --strict fails on an entry that no longer matches any finding (\"stale entry\"): delete it; and on one\n"
+    "# whose function its file does not declare (\"missing function\"): rename or delete it.\n"
     "# A reason that starts with 'hang guard:' marks a deadline-only bound, well above any normal run, that\n"
     "# exists so a hang fails instead of stalling CI; it says what would hang. Every other entry is old debt:\n"
     "# tests/test_determinism_allowlist_ratchet.py lets that debt only shrink. Fix a new finding (a recorded\n"
@@ -4829,6 +5006,26 @@ def _tracked_but_absent(repo_root: pathlib.Path, paths: list[str]) -> set[str]:
     return {item.decode("utf-8", "replace") for item in listed.split(b"\0") if item}
 
 
+def missing_function_entries(entries: list[AllowlistEntry], repo_root: pathlib.Path) -> list[AllowlistEntry]:
+    """Entries whose function their file does not declare (renamed, moved or misspelt): such an entry can never
+    match a finding. A file missing from the checkout is left to `stale_entries`."""
+    declared: dict[str, set[str]] = {}
+    missing: list[AllowlistEntry] = []
+    for entry in entries:
+        if entry.function == MODULE_SCOPE:
+            continue
+        if entry.path not in declared:
+            path = repo_root / entry.path
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            declared[entry.path] = file_functions(text, pathlib.PurePosixPath(entry.path).suffix)
+        if entry.function not in declared[entry.path]:
+            missing.append(entry)
+    return missing
+
+
 def stale_entries(
     entries: list[AllowlistEntry], findings: list[Finding], repo_root: Optional[pathlib.Path] = None
 ) -> list[AllowlistEntry]:
@@ -4885,6 +5082,164 @@ def _isolated_import_self_test() -> list[str]:
     return failures
 
 
+# One source per construct the lexer masks. Each holds a finding after the construct, in a function the
+# construct must not end or open: a brace (or, for Python, a line) inside it once moved the finding into the
+# wrong function, or hid it. (label, path, source, rule, {line: function}).
+_JS_SLEEP = "    await new Promise((r) => setTimeout(r, 200));\n    expect(drawn).toBe(true);\n"
+_SWIFT_SLEEP = "        try await Task.sleep(for: .milliseconds(5))\n        XCTAssertTrue(done)\n"
+
+
+def _js_attribution_fixture(construct: str) -> str:
+    """A describe with test `a` holding CONSTRUCT, then test `b` sleeping: the sleep belongs to `pane.b`."""
+    return (
+        "describe('pane', () => {\n"
+        "  it('a', () => {\n"
+        f"{construct}"
+        "  });\n"
+        "  it('b', async () => {\n"
+        f"{_JS_SLEEP}"
+        "  });\n"
+        "});\n"
+    )
+
+
+def _swift_attribution_fixture(construct: str) -> str:
+    """A type with func `a` holding CONSTRUCT, then func `b` sleeping: the sleep belongs to `PaneTests.b`."""
+    return (
+        "final class PaneTests: XCTestCase {\n"
+        "    func a() {\n"
+        f"{construct}"
+        "    }\n"
+        "    func b() async throws {\n"
+        f"{_SWIFT_SLEEP}"
+        "    }\n"
+        "}\n"
+    )
+
+
+def _sleep_line(source: str) -> int:
+    return next(i + 1 for i, line in enumerate(source.splitlines()) if "sleep" in line or "setTimeout" in line)
+
+
+_ATTRIBUTION_CONSTRUCTS: list[tuple[str, str, str]] = [
+    # (label, path, the construct inside the first function)
+    ("js regex literal with {", "web/tests/a1.test.ts", "    const re = /foo\\{bar/;\n"),
+    ("js regex literal with }, after a division", "web/tests/a2.test.ts",
+     "    const half = { w: total / 2 }; const re = /\\}+/g;\n"),
+    ("js regex literal with a class and a slash", "web/tests/a3.test.ts", "    const re = /[/{]x/;\n"),
+    ("js multi-line template literal", "web/tests/a4.test.ts", "    const css = `\n      .a {\n    `;\n"),
+    ("js template literal with nested ${} and a template in it", "web/tests/a5.test.tsx",
+     "    const s = `x ${y ? `{` : \"}\"} z`;\n"),
+    ("js block comment over lines", "web/tests/a6.test.mjs", "    /* a brace\n       } in a comment */\n"),
+    ("js one-line block comment", "web/tests/a7.test.js", "    f(/* { */ 1);\n"),
+    ("js line comment after a string with an apostrophe", "web/tests/a8.test.ts",
+     "    const a = \"it's\"; // {\n"),
+    ("swift multi-line string", "cmuxTests/A1Tests.swift", "        let json = \"\"\"\n        {\"a\": 1\n        \"\"\"\n"),
+    ("swift raw string with quotes", "cmuxTests/A2Tests.swift", "        let s = #\"a \"{\" b\"#\n"),
+    ("swift multi-line raw string", "cmuxTests/A3Tests.swift",
+     "        let t = #\"\"\"\n        } \"\\(not interpolated)\n        \"\"\"#\n"),
+    ("swift nested block comment", "cmuxTests/A4Tests.swift", "        /* outer /* { */ still a comment */\n"),
+    ("swift interpolation holding a string", "cmuxTests/A5Tests.swift",
+     "        let u = \"\\(flag ? \"}\" : \"\")\"\n"),
+]
+
+ATTRIBUTION_FIXTURES: list[tuple[str, str, str, str, dict[int, str]]] = []
+for _label, _path, _construct in _ATTRIBUTION_CONSTRUCTS:
+    if _path.endswith(".swift"):
+        _source, _want = _swift_attribution_fixture(_construct), "PaneTests.b"
+    else:
+        _source, _want = _js_attribution_fixture(_construct), "pane.b"
+    ATTRIBUTION_FIXTURES.append((_label, _path, _source, RULE_SLEEP_THEN_ASSERT, {_sleep_line(_source): _want}))
+ATTRIBUTION_FIXTURES += [
+    # Python that does not parse goes by indentation: the lines of a triple-quoted string are text.
+    (
+        "python triple-quoted string at column 0 (indentation fallback)",
+        "tests/test_a1.py",
+        "print 'legacy'\n"
+        "class Waits(unittest.TestCase):\n"
+        "    def test_a(self):\n"
+        "        doc = \"\"\"\n"
+        "def fake():\n"
+        "class Fake:\n"
+        "\"\"\"\n"
+        "        time.sleep(0.5)\n"
+        "        self.assertTrue(done())\n",
+        RULE_SLEEP_THEN_ASSERT,
+        {8: "Waits.test_a"},
+    ),
+    # A timing name lives until its block ends: a brace in a regex literal ends nothing.
+    (
+        "js regex literal with } inside a timed test",
+        "web/tests/a9.test.ts",
+        "it('times', () => {\n"
+        "  const started = performance.now();\n"
+        "  const took = performance.now() - started;\n"
+        "  const re = /\\}/;\n"
+        "  expect(took).toBeLessThan(100);\n"
+        "});\n",
+        RULE_ASSERT_ON_DURATION,
+        {5: "times"},
+    ),
+    (
+        "swift multi-line string with } inside a timed test",
+        "cmuxTests/A6Tests.swift",
+        "final class TimeTests: XCTestCase {\n"
+        "    func testTook() {\n"
+        "        let start = ContinuousClock.now\n"
+        "        let took = ContinuousClock.now - start\n"
+        "        let text = \"\"\"\n"
+        "        }\n"
+        "        \"\"\"\n"
+        "        XCTAssertLessThan(took, .seconds(1))\n"
+        "    }\n"
+        "}\n",
+        RULE_ASSERT_ON_DURATION,
+        {8: "TimeTests.testTook"},
+    ),
+    # Python's timing scope is its function by indentation: a triple-quoted string's column-0 line ends nothing.
+    (
+        "python triple-quoted string at column 0 inside a timed test",
+        "tests/test_a2.py",
+        "import time\n"
+        "def test_t():\n"
+        "    started = time.perf_counter()\n"
+        "    took = time.perf_counter() - started\n"
+        "    doc = \"\"\"\n"
+        "x\n"
+        "\"\"\"\n"
+        "    assert took < 0.5\n",
+        RULE_ASSERT_ON_DURATION,
+        {8: "test_t"},
+    ),
+]
+
+# Guards: what the lexer must still read as code (each passed before the lexer too).
+ATTRIBUTION_GUARDS: list[tuple[str, str, str, str, dict[int, str]]] = [
+    ("js division is no regex literal", "web/tests/g1.test.ts",
+     _js_attribution_fixture("    const r = { a: x / 2, b: y / 3 };\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
+    ("jsx text: an apostrophe and a closing tag", "web/tests/g2.test.tsx",
+     _js_attribution_fixture("    const el = cond && <p>Don't {name}</p>;\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
+    ("python comment holding a triple quote", "tests/test_g3.py",
+     "print 'legacy'\n"
+     "class Waits(unittest.TestCase):\n"
+     "    def test_a(self):\n"
+     "        # \"\"\" not a string\n"
+     "        marker = '\"\"\"'\n"
+     "        time.sleep(0.5)\n"
+     "        self.assertTrue(done())\n",
+     RULE_SLEEP_THEN_ASSERT, {6: "Waits.test_a"}),
+]
+
+
+def _attribution_self_test() -> list[str]:
+    failures: list[str] = []
+    for label, rel, source, rule, want in ATTRIBUTION_FIXTURES + ATTRIBUTION_GUARDS:
+        got = {f.line: f.function for f in scan_text(rel, source) if f.rule == rule}
+        if got != want:
+            failures.append(f"ATTRIBUTION {label} ({rel}): expected {want}, got {got}")
+    return failures
+
+
 def _allowlist_self_test() -> list[str]:
     """The per-function allowlist: an entry hides its own function's findings only, and a stale one fails."""
     import contextlib
@@ -4901,6 +5256,8 @@ def _allowlist_self_test() -> list[str]:
         "        self.assertTrue(done())\n"
         "    def test_new(self):\n"
         "        time.sleep(0.5)\n"
+        "        self.assertTrue(done())\n"
+        "    def test_fixed(self):\n"
         "        self.assertTrue(done())\n"
     )
     swift = (
@@ -4959,7 +5316,23 @@ def _allowlist_self_test() -> list[str]:
     code, output = run(listed + new + gone)
     if code != 1 or "stale entry: tests/test_waits.py Waits.test_fixed sleep-then-assert" not in output:
         failures.append(f"ALLOWLIST stale entry: expected a 'stale entry' failure, got {code}: {output!r}")
-    # 4. An old per-file entry is refused, so no entry hides a whole file again.
+    # 4. An entry whose function the file does not declare (renamed, or a name the lexer once got wrong) fails
+    # --strict as a missing function, not as a stale entry.
+    renamed = f"tests/test_waits.py\tWaits.test_renamed\t{RULE_SLEEP_THEN_ASSERT}\told debt\n"
+    code, output = run(listed + new + renamed)
+    if (
+        code != 1
+        or "missing function: tests/test_waits.py declares no Waits.test_renamed" not in output
+        or "stale entry" in output
+    ):
+        failures.append(f"ALLOWLIST missing function: expected a 'missing function' failure, got {code}: {output!r}")
+    # A class the file declares is a function name an entry may use; <module> always is.
+    for declared in ("Waits", MODULE_SCOPE):
+        entry = f"tests/test_waits.py\t{declared}\t{RULE_SLEEP_THEN_ASSERT}\told debt\n"
+        code, output = run(listed + new + entry)
+        if "missing function:" in output or "stale entry:" not in output:
+            failures.append(f"ALLOWLIST declared {declared}: expected only a stale entry, got {code}: {output!r}")
+    # 5. An old per-file entry is refused, so no entry hides a whole file again.
     code, output = run(f"tests/test_waits.py\t{RULE_SLEEP_THEN_ASSERT}\told debt\n")
     if code != 2 or "per-file entry" not in output:
         failures.append(f"ALLOWLIST per-file entry: expected it refused, got {code}: {output!r}")
@@ -7118,6 +7491,7 @@ def _self_test() -> int:
 
     failures += _isolated_import_self_test()
     failures += _allowlist_self_test()
+    failures += _attribution_self_test()
     isolated_fixtures = 6
 
     if failures:
@@ -7126,9 +7500,11 @@ def _self_test() -> int:
             print(f"  - {failure}")
         return 1
 
-    total = len(positives) + len(negatives) + isolated_fixtures
+    attribution = len(ATTRIBUTION_FIXTURES) + len(ATTRIBUTION_GUARDS)
+    total = len(positives) + len(negatives) + isolated_fixtures + attribution
     print(f"self-test OK: {len(positives)} positive + {len(negatives)} negative fixtures, "
-          f"{isolated_fixtures} isolated-import fixtures and the per-function allowlist cases passed ({total} total)")
+          f"{isolated_fixtures} isolated-import fixtures, {attribution} function-attribution fixtures and the "
+          f"per-function allowlist cases passed ({total} total)")
     return 0
 
 
@@ -7219,8 +7595,14 @@ def main(argv: list[str]) -> int:
     # Only a full scan sees every finding an entry could match (--roots narrows it; isolated-import runs with
     # --strict only), so only a full scan judges an entry stale.
     stale: list[AllowlistEntry] = []
+    missing: list[AllowlistEntry] = []
     if args.roots is None:
-        judged = [entry for entry in entries if args.strict or entry.rule != RULE_ISOLATED_IMPORT]
+        missing = missing_function_entries(entries, repo_root)
+        judged = [
+            entry
+            for entry in entries
+            if (args.strict or entry.rule != RULE_ISOLATED_IMPORT) and entry not in missing
+        ]
         stale = stale_entries(judged, findings, repo_root)
 
     if args.json:
@@ -7230,10 +7612,14 @@ def main(argv: list[str]) -> int:
             "stale": [
                 {"path": e.path, "function": e.function, "rule": e.rule, "allowlist_line": e.line} for e in stale
             ],
+            "missing_function": [
+                {"path": e.path, "function": e.function, "rule": e.rule, "allowlist_line": e.line} for e in missing
+            ],
             "counts": {
                 "active": len(active),
                 "suppressed": len(suppressed),
                 "stale": len(stale),
+                "missing_function": len(missing),
                 "total": len(findings),
             },
         }
@@ -7246,15 +7632,21 @@ def main(argv: list[str]) -> int:
                 f"{allowlist_path.name}:{entry.line}: stale entry: {entry.path} {entry.function} {entry.rule} "
                 "matches no finding; delete it"
             )
+        for entry in missing:
+            print(
+                f"{allowlist_path.name}:{entry.line}: missing function: {entry.path} declares no {entry.function} "
+                f"({entry.rule}); name the function its findings sit in, or delete the entry"
+            )
         print("")
         print(
             f"test-determinism: {len(active)} active finding(s), "
-            f"{len(suppressed)} allowlisted, {len(findings)} total, {len(stale)} stale allowlist entr(ies)"
+            f"{len(suppressed)} allowlisted, {len(findings)} total, {len(stale)} stale allowlist entr(ies), "
+            f"{len(missing)} naming a missing function"
         )
-        if (active or stale) and not args.strict:
+        if (active or stale or missing) and not args.strict:
             print("(non-strict mode: not failing. Run with --strict to enforce.)")
 
-    if args.strict and (active or stale):
+    if args.strict and (active or stale or missing):
         return 1
     return 0
 
