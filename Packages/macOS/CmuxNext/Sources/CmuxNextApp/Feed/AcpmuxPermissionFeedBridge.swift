@@ -79,7 +79,7 @@ final class AcpmuxPermissionFeedBridge {
     private var backoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
     private var nextID = 10
     /// Recovery's info reads, kept for the bridge's life: one outstanding per session, a late answer posted.
-    private let pendingReads = AcpmuxPendingReads.feed
+    private let pendingReads: AcpmuxPendingReads
     /// The session-list filters this connection's acpmux serves (its `initialize`).
     private var listGate = AcpmuxSessionListGate(capabilities: [])
     /// Waiting requests by id; a reply is its `result` as JSON bytes (Sendable).
@@ -92,8 +92,8 @@ final class AcpmuxPermissionFeedBridge {
 
     init(environment: AcpmuxEnvironment, owner: @escaping Owner, isSignedIn: @escaping @MainActor () -> Bool,
          ownInstall: @escaping @Sendable () async -> String?,
-         presenceKeys: @escaping PresenceKeys) {
-        self.environment = environment
+         presenceKeys: @escaping PresenceKeys, pendingReads: AcpmuxPendingReads = .feed) {
+        (self.environment, self.pendingReads) = (environment, pendingReads)
         self.owner = owner
         self.isSignedIn = isSignedIn
         self.ownInstall = ownInstall
