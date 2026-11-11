@@ -26,13 +26,13 @@ import os
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
 
     /// The probe's reply as the rule reads it.
-    struct Probe: Codable, Equatable { var status: Int; var headers: [String: String] }
-    struct Request: Encodable { var harness: String?; var model: String?; var probe: Probe?; var now: Int64 }
-    struct Refusal: Decodable, Equatable { var code: String; var message: String }
-    struct Answer: Decodable, Equatable { var refusal: Refusal?; var freshUntil: Int64 }
+    nonisolated struct Probe: Codable, Equatable { var status: Int; var headers: [String: String] }
+    nonisolated struct Request: Encodable { var harness: String?; var model: String?; var probe: Probe?; var now: Int64 }
+    nonisolated struct Refusal: Decodable, Equatable { var code: String; var message: String }
+    nonisolated struct Answer: Decodable, Equatable { var refusal: Refusal?; var freshUntil: Int64 }
 
     /// Why a new machine is not made.
-    enum Refused: Equatable, Sendable {
+    nonisolated enum Refused: Equatable, Sendable {
         /// The harness login rules refuse a start that may show no prompt.
         case login(CloudHarnessLoginDecision.Reason)
         /// The person's Claude limit for this model is used up: the refusal's words.
