@@ -2,6 +2,7 @@ public import CmuxNextActions
 
 /// A quit request that names more than one choice.
 public struct QuitArgumentConflict: Error, Equatable {
+    public init() {}
     public static let reason = "quit takes one of --keep-sessions, --end-sessions and --end-everything"
 }
 
