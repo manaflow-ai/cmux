@@ -1134,10 +1134,16 @@
 .acpmux-menu.acpmux-location-menu.acpmux-folder-popover {
   display: flex;
   flex-direction: column;
-  /* A lower floor than the location menu's 200 px: with only short rows (Add folder…, No folder,
-     short names), the menu is no wider than its fullest row plus the menu-fit spare (design/menus.md,
-     gallery invariants.ts menu-fit). */
-  min-width: 184px;
+  /* As wide as its content in the menu's chrome type, like the model picker (quickModelColumns.css
+     .acpmux-cols: max-content between em bounds), so density, Interface Size and the chrome text
+     size widen it in proportion (cmux#38864). The folder rows are virtual (Combobox virtualRows:
+     absolutely placed, 100% wide) and an input never sizes by its placeholder, so the placeholder
+     sizer below gives the field its width; the pinned actions give theirs. The floor is the old
+     184 px in em; the menu stays no wider than its fullest row (design/menus.md, gallery invariants.ts
+     menu-fit) and never outgrows the room on its side (Base UI's --available-width). */
+  width: max-content;
+  min-width: min(14.15em, var(--available-width, calc(100vw - 24px)));
+  max-width: min(30em, var(--available-width, calc(100vw - 24px)));
   /* It fits the room on its side (Base UI's --available-height), so it never covers its control. */
   max-height: min(360px, calc(100dvh - 36px), var(--available-height, 360px));
   overflow: hidden;
@@ -1159,7 +1165,8 @@
      compressed field grow back to its row height and moves every result under the caret. */
   flex-shrink: 0;
   box-sizing: border-box;
-  /* The rows set the menu's width; the field's default size (about 218 px) never does. */
+  /* Its placeholder sizer and the pinned actions set the menu's width; the field's default size
+     (about 218 px) never does. */
   width: 0;
   min-width: 100%;
   height: var(--ui-row-height);
@@ -1171,7 +1178,20 @@
   background: transparent;
   color: var(--agent-text);
   font: inherit;
+  /* `font` never carries letter-spacing: inherit the menu's, as its placeholder sizer does. */
+  letter-spacing: inherit;
   outline: none;
+}
+/* The search placeholder's width in flow, drawn nowhere (FolderPopover.tsx): the field's own padding
+   and type, no height. */
+.acpmux-folder-popover .acpmux-location-search-sizer {
+  flex: none;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  padding: 0 var(--ui-row-padding-inline);
+  white-space: nowrap;
+  pointer-events: none;
 }
 .acpmux-folder-popover .acpmux-location-search::placeholder { color: var(--agent-muted); opacity: 1; }
 .acpmux-folder-popover .acpmux-location-folders { margin: 0; padding: 0; list-style: none; overflow: auto; }
@@ -1532,8 +1552,9 @@
    with its ⌥⌘ digit, then the current one's check. */
 /* Its floor beats the folder popover's own rules, whose classes it carries: the location menus'
    200 px, so This Mac, Cloud and Remote (its longest row now This Mac with its ⌥⌘ digit) are no
-   wider than their fullest row needs (gallery invariants.ts `menu-fit`). */
-.acpmux-menu.acpmux-location-menu.acpmux-env-popover { min-width: 200px; }
+   wider than their fullest row needs (gallery invariants.ts `menu-fit`). It keeps the location
+   menus' 320 px cap too, not the folder popover's em cap (cmux#38864 sizes the folder popover only). */
+.acpmux-menu.acpmux-location-menu.acpmux-env-popover { min-width: 200px; max-width: min(320px, var(--available-width, calc(100vw - 24px))); }
 /* Its rows as the model picker's and every other menu's (design/menus.md, popupSurface.css): the
    neutral menu wash (--acpmux-menu-hover, as .acpmux-quick-item), no accent tint and no focus bar,
    inset 5 from the popup's edges at radius 5, the icon at the shared 15 leading. The highlight is

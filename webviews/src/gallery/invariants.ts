@@ -14,8 +14,9 @@
 //   menu-label   menus.md: "Every row of one menu starts its label on one line".
 //   menu-row     menus.md: "Rows are `--ds-control-row` (28) high".
 //   menu-fit     menus.md (Leo, 2026-11-01, "a picker that is too wide"): a menu is no wider than
-//                its fullest row needs, its insets and columns included, unless a field-like
-//                trigger sets its width ("at least as wide" as the field).
+//                its fullest row needs (an empty search field's placeholder counts as a row), its
+//                insets and columns included, unless a field-like trigger sets its width ("at least
+//                as wide" as the field).
 // A rule reads only what the stage shows; a state with no transcript or menu has nothing to check.
 // The pure checks are here (unit tested); `collectInvariants` measures the live page.
 
@@ -107,6 +108,16 @@ function textRects(root: Element, skip?: string): Rect[] {
     for (const rect of range.getClientRects()) if (visible(rect)) rects.push(rect);
   }
   return rects;
+}
+
+/** The drawn width of a field's placeholder in the field's own type (a placeholder has no text node). */
+function placeholderWidth(field: HTMLInputElement): number {
+  const style = getComputedStyle(field);
+  const context = field.ownerDocument.createElement("canvas").getContext("2d");
+  if (!context) return 0;
+  context.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+  const spacing = Number.parseFloat(style.letterSpacing) || 0;
+  return context.measureText(field.placeholder).width + spacing * field.placeholder.length;
 }
 
 /** A key that survives copy edits: the row id, a data id or value attribute, the accessible name (never a generated id), and
@@ -274,6 +285,11 @@ function menuViolations(doc: Document): Violation[] {
         ];
         return menuRect.width - drawn.reduce((sum, rect) => sum + rect.width, 0);
       }),
+      // An empty search field draws its placeholder: the menu is as wide as that hint needs too
+      // (cmux#38864, the folder popover's "Search folders or type a path").
+      ...[...menu.querySelectorAll<HTMLInputElement>("input[placeholder]")]
+        .filter((field) => !field.value && visible(field.getBoundingClientRect()))
+        .map((field) => menuRect.width - placeholderWidth(field)),
     );
     if (spare > MENU_SPARE_MAX)
       violations.push({
