@@ -28,6 +28,11 @@ lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. #30360 registered it as linux-guard without a ci-guards.yml step, which reddened tooling-tests on every pull request. Checks .github/runners.json linux_sizes against every Blacksmith Linux runs-on; run python3 tests/test_ci_blacksmith_linux_sizes.py yourself after changing a runs-on label or that table (about 3 s, no build)."
 
 [[test]]
+path = "tests/test_ci_blacksmith_off_switch.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that feat-cmux-next accepts the runner values main's watch writes while CI_BLACKSMITH_OFF is '1' (every pool's off label, cmux-fleet-linux-x64 in the signing guard); run python3 tests/test_ci_blacksmith_off_switch.py yourself after changing a pool, a pool read or the signing guard (about 2 s, no build)."
+
+[[test]]
 path = "tests/test_ci_build_class.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23). Checks scripts/ci/build_class.py's blaze/app/no-compile classes against the real Cargo manifests and cmux.xcodeproj; run python3 tests/test_ci_build_class.py yourself after changing it or cmux_next_route.py's app_ffi_inputs or scheme_phase_rust_inputs (under a second, no build)."
@@ -530,11 +535,6 @@ reason = "Cross-branch integration: requires RUNNER_POOL_POLICY_ROOT pointing at
 path = "tests/test_ci_runner_pools_copy.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Checks that every fromJSON(vars.RUNNER_POOLS).<pool> read names a pool declared in .github/runners.json and that the copy equals main's pools; run python3 tests/test_ci_runner_pools_copy.py yourself after changing a pool read or the pools (about 1 s, no build)."
-
-[[test]]
-path = "tests/test_ci_blacksmith_off_switch.py"
-lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI tests. Checks that feat-cmux-next accepts the runner values main's watch writes while CI_BLACKSMITH_OFF is '1' (every pool's off label, cmux-fleet-linux-x64 in the signing guard); run python3 tests/test_ci_blacksmith_off_switch.py yourself after changing a pool, a pool read or the signing guard (about 2 s, no build)."
 
 [[test]]
 path = "tests/test_ci_runner_set.py"
