@@ -151,8 +151,12 @@ await requireBrowserLane("agent-pane-unread-jump.browser.test.ts", async () => {
           landedNearTop(after);
           // Pressed, it holds the way back, and the dot goes with the unread target in sight.
           expect(after.back).toBe(true);
-          await press(page);
-          expect((await read(page)).fromEnd).toBeLessThanOrEqual(2);
+          // The second press goes back with Jump to latest's own glide: wait for it to land.
+          await page.click(".acpmux-jump-up");
+          await page.waitForFunction(() => {
+            const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            return node.scrollHeight - node.clientHeight - node.scrollTop <= 2;
+          });
         } finally {
           await page.close();
         }
