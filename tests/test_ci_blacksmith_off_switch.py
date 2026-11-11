@@ -177,6 +177,18 @@ class OverflowSwitch(unittest.TestCase):
         mine = switch.plan_blacksmith_off(None, {"LINUX_RUNNER": "my-runner"}, {"LINUX_RUNNER": "cmux-fleet-linux-x64"})
         self.assertEqual(mine, {})
 
+    def test_a_hand_redirect_under_an_outage_record_is_not_written_over(self):
+        outage = {"since": "2026-11-11T00:00:00Z", "probe": "x", "changed": {
+            "LINUX_RUNNER": {"before": "blacksmith-4vcpu-ubuntu-2404", "after": "blacksmith-16vcpu-ubuntu-2404"}}}
+        fake = FakeSwitch({"LINUX_RUNNER": "my-runner", switch.RECORD_VARIABLE: json.dumps(outage)})
+        code = switch.main([], env_for(fake.values, CI_BLACKSMITH_OFF="1"), api=NoApi(), switch=fake,
+                           now=lambda: NOW, sleep=lambda _: None)
+        self.assertEqual(code, 0)
+        self.assertEqual(fake.values["LINUX_RUNNER"], "my-runner")
+        self.assertNotIn(("LINUX_RUNNER", "blacksmith-16vcpu-ubuntu-2404"), fake.writes)
+        record = json.loads(fake.values[switch.RECORD_VARIABLE])
+        self.assertEqual(record["changed"]["LINUX_RUNNER"]["before"], "blacksmith-4vcpu-ubuntu-2404")
+
 
 class Workflow(unittest.TestCase):
     def test_the_probe_is_skipped_and_the_pools_take_off_labels_while_on(self):

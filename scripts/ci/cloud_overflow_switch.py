@@ -989,8 +989,11 @@ def switch_blacksmith_off(record: Mapping[str, Any] | None, current: Mapping[str
     """CI_BLACKSMITH_OFF=1: move every runner variable off Blacksmith through the record, without probing."""
     log(f"{OFF_VARIABLE}=1: Blacksmith is off by hand (temporary); no probe. Delete {OFF_VARIABLE} to go back")
     changed = plan_blacksmith_off(record, current, values)
+    # Only what this switch planned moves: a record entry kept as it was (someone pointed that variable elsewhere by
+    # hand after an outage failover) stays in the record for the way back but is never written over.
     moves = {name: change for name, change in changed.items()
-             if (current.get(name) or "").strip() != change["after"]}
+             if name in values and change["after"] == values[name]
+             and (current.get(name) or "").strip() != change["after"]}
     if record and not moves and record.get(OFF_RECORD_KEY):
         log("every runner variable is already off Blacksmith")
         return 0
