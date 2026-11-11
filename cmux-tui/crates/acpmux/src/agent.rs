@@ -248,64 +248,92 @@ enum CancelSink {
     None,
 }
 
+impl CancelSink {
+    /// Tells the agent `note`, waiting for room in a full queue rather than dropping it.
+    async fn send(self, note: Message) {
+        match self {
+            Self::Direct(tx) => {
+                let _ = tx.send((note.to_line(), None)).await;
+            }
+            Self::Hosted(link) => {
+                let _ = link.line(note.to_value()).await;
+            }
+            Self::None => {}
+        }
+    }
+}
+
 /// A request to the agent that its client may cancel (`request_cancel.rs`): dropped before its
-/// answer under a cancel, it forgets its pending entry at once, remembers the id so the late
-/// answer is dropped on purpose, and tells the agent with `$/cancel_request`. Dropped for any
-/// other reason it does what it did before: nothing.
+/// answer under a cancel, it takes its pending entry out, remembers the id so the late answer is
+/// dropped on purpose, and only then tells the agent with `$/cancel_request` (review F1 of
+/// #41285: an answer that took the entry first went to a waiter that is gone, and is dropped as
+/// late here, with no cancel sent). Dropped for any other reason it does nothing, unless
+/// `forget_on_drop` (`request_within`): then its entry goes, as on its timeout.
 struct Abandoned {
     pending: Arc<Mutex<Pending>>,
     sink: CancelSink,
     id: i64,
     method: String,
     armed: bool,
+    forget_on_drop: bool,
 }
 
 impl Drop for Abandoned {
     fn drop(&mut self) {
-        if !self.armed || !crate::request_cancel::requested() {
+        if !self.armed {
             return;
         }
         let k = key(&Value::from(self.id));
-        let method = std::mem::take(&mut self.method);
-        let forget = move |p: &mut Pending| {
-            p.map.remove(&k);
-            p.cancelled.remember(k, method);
-        };
         let runtime = tokio::runtime::Handle::try_current().ok();
-        match self.pending.try_lock() {
-            Ok(mut p) => forget(&mut p),
-            Err(_) => {
-                if let Some(rt) = &runtime {
-                    let pending = self.pending.clone();
-                    rt.spawn(async move { forget(&mut *pending.lock().await) });
+        if !crate::request_cancel::requested() {
+            if !self.forget_on_drop {
+                return;
+            }
+            match self.pending.try_lock() {
+                Ok(mut p) => {
+                    p.map.remove(&k);
+                }
+                Err(_) => {
+                    if let Some(rt) = &runtime {
+                        let pending = self.pending.clone();
+                        rt.spawn(async move { pending.lock().await.map.remove(&k) });
+                    }
                 }
             }
+            return;
         }
+        let method = std::mem::take(&mut self.method);
+        let sink = std::mem::replace(&mut self.sink, CancelSink::None);
         let note = Message::notification(
             crate::rpc::method::CANCEL_REQUEST,
             serde_json::json!({"requestId": self.id}),
         );
-        match &self.sink {
-            CancelSink::Direct(tx) => {
-                if let Err(mpsc::error::TrySendError::Full(item)) =
-                    tx.try_send((note.to_line(), None))
-                    && let Some(rt) = &runtime
-                {
-                    let tx = tx.clone();
-                    rt.spawn(async move {
-                        let _ = tx.send(item).await;
-                    });
+        // Whether the agent still owes the answer: then it hears the cancel.
+        let forget = move |p: &mut Pending| {
+            let owed = p.map.remove(&k).is_some();
+            p.cancelled.remember(k.clone(), method);
+            if !owed {
+                p.cancelled.take_late(&k, "agent");
+            }
+            owed
+        };
+        let Some(rt) = runtime else { return };
+        match self.pending.try_lock() {
+            Ok(mut p) => {
+                if forget(&mut p) {
+                    drop(p);
+                    rt.spawn(sink.send(note));
                 }
             }
-            CancelSink::Hosted(link) => {
-                if let Some(rt) = &runtime {
-                    let link = link.clone();
-                    rt.spawn(async move {
-                        let _ = link.line(note.to_value()).await;
-                    });
-                }
+            Err(_) => {
+                let pending = self.pending.clone();
+                rt.spawn(async move {
+                    let owed = forget(&mut *pending.lock().await);
+                    if owed {
+                        sink.send(note).await;
+                    }
+                });
             }
-            CancelSink::None => {}
         }
     }
 }
@@ -1786,6 +1814,7 @@ impl ChildAgent {
             id,
             method: method.to_owned(),
             armed: true,
+            forget_on_drop: false,
         };
         let msg = Message::request(id, method, params);
         let answer = async {
@@ -1852,12 +1881,25 @@ impl ChildAgent {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
         self.pending.lock().await.map.insert(key(&Value::from(id)), tx);
+        // Dropped before its answer (review F4 of #41285): its entry goes, and under its client's
+        // cancel the agent hears it too, as for `request`.
+        let mut abandoned = Abandoned {
+            pending: self.pending.clone(),
+            sink: self.cancel_sink(),
+            id,
+            method: method.to_owned(),
+            armed: true,
+            forget_on_drop: true,
+        };
         let msg = Message::request(id, method, params);
         if let Err(e) = self.write(&msg).await {
+            abandoned.armed = false;
             self.pending.lock().await.map.remove(&key(&Value::from(id)));
             return Some(Err(RpcError::internal(e.to_string())));
         }
-        match tokio::time::timeout(limit, rx).await {
+        let answer = tokio::time::timeout(limit, rx).await;
+        abandoned.armed = false;
+        match answer {
             Ok(answer) => Some(
                 answer
                     .unwrap_or_else(|_| Err(RpcError::internal("agent response channel dropped"))),
@@ -3014,6 +3056,7 @@ mod cancel_tests {
             id: 7,
             method: "session/set_mode".into(),
             armed: true,
+            forget_on_drop: false,
         };
         let mut busy = pending.lock().await;
         let (cancel, cancelled) = oneshot::channel();

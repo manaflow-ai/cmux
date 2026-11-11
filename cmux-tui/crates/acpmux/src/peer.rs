@@ -1551,13 +1551,15 @@ impl Peer {
             ForgetRetry { peer: self, key: key.clone() }
         });
         // Its client may cancel it from here: the peer hears `$/cancel_request` for it on the
-        // same link, when it says it takes one (an older peer ignores the notification).
-        let cancel = self.lists(crate::request_cancel::FEATURE).then(|| PeerCancel {
+        // same link, when it says it takes one (an older peer ignores the notification), and its
+        // late answer is dropped and logged either way.
+        let cancel = Some(PeerCancel {
             out: self.out.clone(),
             epoch: tag,
             id,
             method: m.to_owned(),
             cancelled: self.cancelled.clone(),
+            tell: self.lists(crate::request_cancel::FEATURE),
         });
         let frame = Outbound { epoch: tag, key: Some(key), line };
         match tokio::time::timeout_at(deadline, self.out.send(frame)).await {
@@ -3342,6 +3344,8 @@ struct PeerCancel {
     id: i64,
     method: String,
     cancelled: Arc<StdMutex<crate::request_cancel::Cancelled>>,
+    /// The peer listed `cancelRequestV2`: it hears the cancel.
+    tell: bool,
 }
 
 /// Drops a bound request's line from `switch_retry` once its caller has its answer or left.
@@ -3356,34 +3360,72 @@ impl Drop for ForgetRetry<'_> {
     }
 }
 
+impl PeerCancel {
+    /// `$/cancel_request` on the link the request went out on (a later link never carries it).
+    /// A full queue is waited out, never a reason to drop it (review F2 of #41285); a closed one
+    /// means the link is gone, and is logged.
+    fn send(self) {
+        let note = crate::rpc::Message::notification(
+            method::CANCEL_REQUEST,
+            json!({"requestId": self.id}),
+        );
+        let frame = Outbound { epoch: self.epoch, key: None, line: note.to_line() };
+        let id = self.id;
+        match self.out.try_send(frame) {
+            Ok(()) => {}
+            Err(mpsc::error::TrySendError::Full(frame)) => {
+                if let Ok(rt) = tokio::runtime::Handle::try_current() {
+                    let out = self.out.clone();
+                    rt.spawn(async move {
+                        if out.send(frame).await.is_err() {
+                            tracing::debug!(target: crate::request_cancel::LOG_TARGET, id, "the peer link closed before its cancel went out");
+                        }
+                    });
+                }
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                tracing::debug!(target: crate::request_cancel::LOG_TARGET, id, "the peer link closed before its cancel went out");
+            }
+        }
+    }
+}
+
 impl Drop for ForgetPending {
     fn drop(&mut self) {
         let Some(key) = self.key.take() else { return };
-        // Its client cancelled it while the peer still owed the answer: the peer is told on the
-        // link it went out on (a later link never carries it), and the answer is dropped.
-        if let Some(cancel) = self.cancel.take()
-            && crate::request_cancel::requested()
-            && self.pending.try_lock().map_or(true, |map| map.contains_key(&key))
-        {
-            cancel.cancelled.lock_or_recover().remember(key.clone(), cancel.method);
-            let note = crate::rpc::Message::notification(
-                method::CANCEL_REQUEST,
-                json!({"requestId": cancel.id}),
-            );
-            let _ = cancel.out.try_send(Outbound {
-                epoch: cancel.epoch,
-                key: None,
-                line: note.to_line(),
-            });
-        }
         self.on_wire.lock_or_recover().remove(&key);
         self.prompts.lock_or_recover().remove(&key);
+        // Its client cancelled it: its entry goes first, and the peer hears the cancel only if
+        // it still owed the answer (review F1 of #41285). An answer that took the entry first
+        // went to a waiter that is gone, and is dropped as late here.
+        let cancel = self.cancel.take().filter(|_| crate::request_cancel::requested());
+        let forget = move |map: &mut HashMap<String, _>| {
+            let owed = map.remove(&key).is_some();
+            let cancel = cancel?;
+            let mut cancelled = cancel.cancelled.lock_or_recover();
+            cancelled.remember(key.clone(), cancel.method.clone());
+            if !owed {
+                cancelled.take_late(&key, "peer");
+                return None;
+            }
+            drop(cancelled);
+            // An older peer ignores the notification: it is not sent, but its late answer is
+            // still dropped and logged here.
+            cancel.tell.then_some(cancel)
+        };
         if let Ok(mut map) = self.pending.try_lock() {
-            map.remove(&key);
+            let tell = forget(&mut map);
+            drop(map);
+            if let Some(cancel) = tell {
+                cancel.send();
+            }
         } else if let Ok(rt) = tokio::runtime::Handle::try_current() {
             let pending = self.pending.clone();
             rt.spawn(async move {
-                pending.lock().await.remove(&key);
+                let tell = forget(&mut *pending.lock().await);
+                if let Some(cancel) = tell {
+                    cancel.send();
+                }
             });
         }
     }

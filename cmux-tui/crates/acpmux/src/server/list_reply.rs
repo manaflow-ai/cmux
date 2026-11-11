@@ -20,23 +20,34 @@ use std::sync::atomic::Ordering;
 /// Lists read again for a reply whose list a notice overtook, before it goes with a lag.
 const REBUILDS: usize = 1;
 
+/// A list reply's request: its id, its list method ([`list_method`]), its claim on its
+/// connection's in-flight entry (`in_flight.rs`), and whether its reply was sent here: then
+/// whether it went whole.
+struct Reply {
+    id: Value,
+    method: Option<&'static str>,
+    claim: Option<super::in_flight::Claim>,
+    sent: Option<bool>,
+}
+
 tokio::task_local! {
-    /// The request's id and list method ([`list_method`]), and whether its reply was sent here:
-    /// then whether it went whole.
-    static REPLY: RefCell<(Value, Option<&'static str>, Option<bool>)>;
+    static REPLY: RefCell<Reply>;
 }
 
 /// Runs request `id` (of `method`), whose list reply may be sent here: then the option is set,
-/// true if the reply went whole (not as its too-large error). The request's future is made on the
+/// true if the reply went whole (not as its too-large error), false if it was not sent because a
+/// cancel answered the request first (its `claim` lost). The request's future is made on the
 /// heap (`heap_future.rs`): this future, the task's, and their poll frames hold only its pointer.
 pub(super) async fn scope<F: Future>(
     id: Value,
     method: &str,
+    claim: Option<super::in_flight::Claim>,
     request: impl FnOnce() -> F,
 ) -> (F::Output, Option<bool>) {
     let request = crate::heap_future::heap(request);
-    let run = async move { (request.await, REPLY.with(|r| r.borrow().2)) };
-    REPLY.scope(RefCell::new((id, list_method(method), None)), run).await
+    let run = async move { (request.await, REPLY.with(|r| r.borrow().sent)) };
+    let reply = Reply { id, method: list_method(method), claim, sent: None };
+    REPLY.scope(RefCell::new(reply), run).await
 }
 
 /// `method` as the name a list reply sent here goes by in the size watch (`wire_size.rs`):
@@ -91,15 +102,16 @@ async fn reply(
             }
         };
         let text = make(&list)?;
-        let Ok((id, method)) = REPLY.try_with(|r| {
+        let Ok((id, method, claim)) = REPLY.try_with(|r| {
             let r = r.borrow();
-            (r.0.clone(), r.1)
+            (r.id.clone(), r.method, r.claim.clone())
         }) else {
             return Ok(serde_json::from_str(&text).unwrap_or(Value::Null));
         };
         hub.request_hold(RequestStage::ListBuilt, method.unwrap_or_default(), &id).await;
-        if let Some(whole) = conn.send_serialized(&id, method, &text, seen, reads == REBUILDS) {
-            REPLY.with(|r| r.borrow_mut().2 = Some(whole));
+        let last = reads == REBUILDS;
+        if let Some(whole) = conn.send_serialized(&id, method, claim.as_ref(), &text, seen, last) {
+            REPLY.with(|r| r.borrow_mut().sent = Some(whole));
             hub.request_hold(RequestStage::ListQueued, method.unwrap_or_default(), &id).await;
             break;
         }

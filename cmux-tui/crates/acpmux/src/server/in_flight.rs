@@ -5,10 +5,14 @@
 //! once, answers the request with the cancelled error and drops the future that serves it; that
 //! future's own answer, if it still comes, finds no entry and is dropped. Whichever of the two
 //! takes the entry first answers, so a request is answered exactly once.
+//!
+//! An answer sent from inside its request (a list reply, `list_reply.rs`) takes the entry as it
+//! is queued, under the connection's outbound lock ([`InFlight::claim`]): a cancel read after
+//! that finds nothing, and one read before it leaves the answer unsent.
 
 use crate::rpc::Id;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::{OwnedSemaphorePermit, oneshot};
 
@@ -29,11 +33,27 @@ pub(crate) struct InFlight {
 
 /// One request's part in [`InFlight`]: what its task finishes with.
 pub(crate) struct Ticket {
-    /// Its key and generation; None when its id was already in flight (a client that reused
+    /// Its claim on its entry; None when its id was already in flight (a client that reused
     /// one), so it is not cancellable and keeps its slot itself.
-    key: Option<(String, u64)>,
+    claim: Option<Claim>,
     pub cancel: oneshot::Receiver<()>,
     _slot: Option<OwnedSemaphorePermit>,
+}
+
+/// What takes a request's entry for its own answer ([`InFlight::claim`]): its key and
+/// generation, and whether it took it already.
+#[derive(Clone)]
+pub(crate) struct Claim {
+    key: String,
+    generation: u64,
+    won: Arc<AtomicBool>,
+}
+
+impl Ticket {
+    /// Its claim, for an answer sent before its request ends (`list_reply.rs`).
+    pub(crate) fn claim(&self) -> Option<Claim> {
+        self.claim.clone()
+    }
 }
 
 impl InFlight {
@@ -63,7 +83,7 @@ impl InFlight {
         let key = id.to_string();
         let mut map = self.map();
         if id.is_null() || map.contains_key(&key) {
-            return Ticket { key: None, cancel: rx, _slot: slot };
+            return Ticket { claim: None, cancel: rx, _slot: slot };
         }
         let generation = self.next.fetch_add(1, Ordering::Relaxed);
         map.insert(
@@ -71,7 +91,8 @@ impl InFlight {
             Entry { generation, method: method.to_owned(), cancel: tx, _slot: slot },
         );
         self.gauge.fetch_add(1, Ordering::Relaxed);
-        Ticket { key: Some((key, generation)), cancel: rx, _slot: None }
+        let won = Arc::default();
+        Ticket { claim: Some(Claim { key, generation, won }), cancel: rx, _slot: None }
     }
 
     /// The client cancelled request `id`: its method when it was in flight. Its slot is free
@@ -84,18 +105,28 @@ impl InFlight {
         Some(entry.method)
     }
 
-    /// The request's task has its answer: true when it still owns it and sends it, false when a
-    /// cancel answered the request already.
-    pub(crate) fn finish(&self, ticket: &Ticket) -> bool {
-        let Some((key, generation)) = &ticket.key else { return true };
+    /// The request takes its entry for its own answer: true when it owns the answer (now, or by
+    /// an earlier claim), false when a cancel answered the request already. A cancel read after
+    /// it finds nothing.
+    pub(crate) fn claim(&self, claim: &Claim) -> bool {
+        if claim.won.load(Ordering::SeqCst) {
+            return true;
+        }
         let mut map = self.map();
-        match map.get(key) {
-            Some(entry) if entry.generation == *generation => {
-                self.remove(&mut map, key);
+        match map.get(&claim.key) {
+            Some(entry) if entry.generation == claim.generation => {
+                self.remove(&mut map, &claim.key);
+                claim.won.store(true, Ordering::SeqCst);
                 true
             }
             _ => false,
         }
+    }
+
+    /// The request's task has its answer: true when it still owns it and sends it (or sent it
+    /// already, [`Self::claim`]), false when a cancel answered the request already.
+    pub(crate) fn finish(&self, ticket: &Ticket) -> bool {
+        ticket.claim.as_ref().is_none_or(|claim| self.claim(claim))
     }
 
     /// How many requests are in flight now.
@@ -148,5 +179,21 @@ mod tests {
         assert!(flights.finish(&again));
         assert_eq!(flights.len(), 1);
         assert!(flights.finish(&first));
+    }
+
+    /// A list reply takes its entry as it is queued: a cancel after that finds nothing, and the
+    /// request's own finish still owns the answer it sent.
+    #[test]
+    fn a_claimed_answer_is_not_cancelled_and_still_finishes() {
+        let flights = InFlight::default();
+        let sent = flights.begin(&json!(1), "_acpmux/sessions", None);
+        let lost = flights.begin(&json!(2), "_acpmux/sessions", None);
+        assert!(flights.claim(&sent.claim().unwrap()));
+        assert_eq!(flights.cancel(&json!(1)), None, "nothing left to cancel");
+        assert!(flights.finish(&sent), "it sent its answer");
+        assert!(flights.cancel(&json!(2)).is_some());
+        assert!(!flights.claim(&lost.claim().unwrap()), "the cancel answered it");
+        assert!(!flights.finish(&lost));
+        assert_eq!(flights.len(), 0);
     }
 }
