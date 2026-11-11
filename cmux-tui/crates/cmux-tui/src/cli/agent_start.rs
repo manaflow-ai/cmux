@@ -25,9 +25,9 @@
 //!   say otherwise (with no such pane, in the caller's space as a start),
 //!   and closes the exited tab, which gives its name to the new one.
 //! - On a `--session`/`--socket` route not known to be the caller's, a
-//!   start without `--pane` (or with `--pane current`) places by
-//!   `CMUX_TUI_TERMINAL_ID` only when the session has that terminal, and is
-//!   refused otherwise (`caller_terminal`); it never falls back to the
+//!   start without `--pane` (or with `--pane current` or `caller`) places
+//!   by `CMUX_TUI_TERMINAL_ID` only when the session has that terminal, and
+//!   is refused otherwise (`caller_terminal`); it never falls back to the
 //!   focused pane then.
 //!
 //! Output: `{name, state, reason, dialog, harness, launcher, args, cwd,
@@ -526,12 +526,13 @@ fn report(
 
 /// The caller's terminal for a start or resume in `snapshot`'s session.
 ///
-/// With a `--pane` other than `current`, or on a route known to be the
-/// caller's, it is [`Env::caller_terminal`]. On a `--session` or `--socket`
-/// route not known to be the caller's ([`Env::unconfirmed_caller`]), with
-/// no `--pane` or with `--pane current` (both name the caller's pane, else
-/// the focused one), it is `CMUX_TUI_TERMINAL_ID` when a pane of the
-/// session shows that terminal. Else the start is refused
+/// With a `--pane` other than `current` or `caller`, or on a route known to
+/// be the caller's, it is [`Env::caller_terminal`]. On a `--session` or
+/// `--socket` route not known to be the caller's
+/// ([`Env::unconfirmed_caller`]), with no `--pane` or with `--pane current`
+/// or `caller` (all name the caller's pane; the first two fall back to the
+/// focused one), it is `CMUX_TUI_TERMINAL_ID` when a pane of the session
+/// shows that terminal. Else the start is refused
 /// (`agent.start.caller_not_in_session`, exit 2) before it changes
 /// anything: the terminal is another session's, and the focused pane, the
 /// fallback, may be a person's shell. A session with no pane yet has no
@@ -543,7 +544,7 @@ fn caller_terminal(
     options: &Options,
 ) -> Result<Option<String>, Failure> {
     let unconfirmed = match (options.pane.as_deref(), &env.unconfirmed_caller) {
-        (None | Some("current"), Some(unconfirmed)) => unconfirmed,
+        (None | Some("current" | "caller"), Some(unconfirmed)) => unconfirmed,
         _ => return Ok(env.caller_terminal.clone()),
     };
     if placement::pane_of_terminal(snapshot, &unconfirmed.terminal).is_some() {

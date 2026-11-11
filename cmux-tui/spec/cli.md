@@ -1456,9 +1456,10 @@ once there, keeps its width: a new agent never resizes an existing column, the
 caller never goes under 40 columns while it had them, and no pane outside the
 space changes. A start with `--session` or `--socket` that names no socket of
 the caller's (`CMUX_TUI_SOCKET`, `CMUX_MUX_SOCKET`) from a cmux-tui terminal
-(`CMUX_TUI_TERMINAL_ID`), with no `--pane` or with `--pane current`, asks that
-session's snapshot for the terminal: when a pane of the session shows it, it
-is the caller and the start places the agent as above (`--pane current`: a new
+(`CMUX_TUI_TERMINAL_ID`), with no `--pane` or with `--pane current` or
+`--pane caller` (one rule for all three), asks that session's snapshot for
+the terminal: when a pane of the session shows it, it is the caller and the
+start places the agent as above (`--pane current` and `--pane caller`: a new
 tab in the caller's pane); else the start is refused before any change with
 `agent.start.caller_not_in_session` (exit 2, details `terminal_id` and
 `session`, a localized message that says to name the pane with `--pane` or to

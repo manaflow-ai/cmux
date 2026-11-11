@@ -48,9 +48,9 @@ pub(crate) struct PaneCliMessages {
     /// The `agent list` text line for the ended agents of closed terminals
     /// it left out: `{count}` of them.
     pub agent_list_hidden_ended: &'static str,
-    /// `agent start`/`resume` without `--pane` on a `--session`/`--socket`
-    /// route not known to be the caller's, to a session that does not show
-    /// the caller's terminal: `{terminal}` (`CMUX_TUI_TERMINAL_ID`) and
+    /// `agent start`/`resume` without `--pane` (or with `--pane current` or
+    /// `caller`) on a `--session`/`--socket` route not known to be the
+    /// caller's, to a session that does not show the caller's terminal: `{terminal}` (`CMUX_TUI_TERMINAL_ID`) and
     /// `{session}` (the `--session` name or `--socket` path).
     pub agent_caller_not_in_session: &'static str,
 }
