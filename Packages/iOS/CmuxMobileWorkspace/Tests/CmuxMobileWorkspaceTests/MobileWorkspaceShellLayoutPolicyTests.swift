@@ -127,6 +127,26 @@ import Testing
         #expect(Policy.launchRestoredWorkspaceID(sceneOpenWorkspaceID: "ws-1", hasPendingDeeplink: true) == nil)
     }
 
+    @Test func edgeSwipeOpensAHiddenSidebar() {
+        typealias Policy = MobileWorkspaceShellLayoutPolicy
+        #expect(Policy.splitSidebarSwipeCandidate(sidebarShown: false, startX: 10, sidebarWidth: 380) == .show)
+        #expect(Policy.splitSidebarSwipeCandidate(sidebarShown: false, startX: 120, sidebarWidth: 380) == nil)
+        #expect(Policy.splitSidebarSwipeCompletes(.show, translationX: 80))
+        #expect(!Policy.splitSidebarSwipeCompletes(.show, translationX: 20))
+        #expect(!Policy.splitSidebarSwipeCompletes(.show, translationX: -80))
+    }
+
+    @Test func dividerSwipeClosesAShownSidebar() {
+        typealias Policy = MobileWorkspaceShellLayoutPolicy
+        #expect(Policy.splitSidebarSwipeCandidate(sidebarShown: true, startX: 385, sidebarWidth: 380) == .hide)
+        // Rows and the terminal keep their own swipes.
+        #expect(Policy.splitSidebarSwipeCandidate(sidebarShown: true, startX: 200, sidebarWidth: 380) == nil)
+        #expect(Policy.splitSidebarSwipeCandidate(sidebarShown: true, startX: 500, sidebarWidth: 380) == nil)
+        #expect(Policy.splitSidebarSwipeCandidate(sidebarShown: true, startX: 10, sidebarWidth: 0) == nil)
+        #expect(Policy.splitSidebarSwipeCompletes(.hide, translationX: -80))
+        #expect(!Policy.splitSidebarSwipeCompletes(.hide, translationX: 80))
+    }
+
     @Test func onlyTheSidebarColumnCountsAsShown() {
         #expect(MobileWorkspaceShellLayoutPolicy.splitSidebarIsHidden(.detailOnly))
         #expect(!MobileWorkspaceShellLayoutPolicy.splitSidebarIsHidden(.all))

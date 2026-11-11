@@ -1114,6 +1114,15 @@ struct WorkspaceShellView: View {
             )
         }
         .navigationSplitViewStyle(.balanced)
+        .background {
+            if hostsSplitDestinationsInSidebar {
+                SplitSidebarSwipeGesture(
+                    sidebarShown: !MobileWorkspaceShellLayoutPolicy.splitSidebarIsHidden(splitColumnVisibility),
+                    sidebarWidth: splitSidebarWidth,
+                    setSidebarShown: setSplitSidebarShown
+                )
+            }
+        }
         .mobileToolbarVisibility(
             hostsSplitDestinationsInSidebar ? .hidden : .automatic,
             for: .tabBar
@@ -1517,6 +1526,13 @@ struct WorkspaceShellView: View {
         splitColumnVisibility = MobileWorkspaceShellLayoutPolicy.restoredSplitColumnVisibility(
             sidebarWasHidden: splitSidebarHidden
         )
+    }
+
+    private func setSplitSidebarShown(_ shown: Bool) {
+        splitSidebarShownUntilWorkspacePicked = false
+        withAnimation {
+            splitColumnVisibility = shown ? .all : .detailOnly
+        }
     }
 
     private func toggleSplitSidebar() {

@@ -128,4 +128,55 @@ public struct MobileWorkspaceShellLayoutPolicy {
     ) -> Bool {
         !(visibility == .all || visibility == .doubleColumn)
     }
+
+    /// A sidebar change asked for by a horizontal swipe in the phone split layout.
+    public enum SplitSidebarSwipe: Equatable, Sendable {
+        case show
+        case hide
+    }
+
+    /// Width of the leading screen-edge strip a show swipe starts in.
+    public static let splitSidebarSwipeEdgeWidth: CGFloat = 24
+    /// Width of the band around the sidebar's trailing edge a hide swipe
+    /// starts in. Starting on the divider keeps it clear of the list rows'
+    /// own swipe actions and of the terminal.
+    public static let splitSidebarSwipeDividerBand: CGFloat = 32
+    /// Horizontal travel a swipe needs before it changes the sidebar.
+    public static let splitSidebarSwipeMinimumTravel: CGFloat = 60
+
+    /// Which sidebar change a swipe starting at `startX` could make, judged
+    /// before it moves, or `nil` when the touch belongs to the content.
+    /// - Parameters:
+    ///   - sidebarShown: Whether the sidebar column is shown.
+    ///   - startX: The touch's starting x in window coordinates.
+    ///   - sidebarWidth: The sidebar column's measured width.
+    /// - Returns: The change the swipe may make.
+    public static func splitSidebarSwipeCandidate(
+        sidebarShown: Bool,
+        startX: CGFloat,
+        sidebarWidth: CGFloat
+    ) -> SplitSidebarSwipe? {
+        if !sidebarShown {
+            return startX <= splitSidebarSwipeEdgeWidth ? .show : nil
+        }
+        guard sidebarWidth > 0 else { return nil }
+        let half = splitSidebarSwipeDividerBand / 2
+        return abs(startX - sidebarWidth) <= half ? .hide : nil
+    }
+
+    /// Whether a finished swipe travelled far enough, the right way, to make
+    /// its candidate change.
+    /// - Parameters:
+    ///   - candidate: The change the swipe started as.
+    ///   - translationX: The swipe's horizontal travel, positive to the right.
+    /// - Returns: `true` when the sidebar should change.
+    public static func splitSidebarSwipeCompletes(
+        _ candidate: SplitSidebarSwipe,
+        translationX: CGFloat
+    ) -> Bool {
+        switch candidate {
+        case .show: translationX >= splitSidebarSwipeMinimumTravel
+        case .hide: translationX <= -splitSidebarSwipeMinimumTravel
+        }
+    }
 }
