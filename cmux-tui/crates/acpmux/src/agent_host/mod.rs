@@ -754,11 +754,16 @@ pub fn remove_promoted(dir: &Path, record: &HostRecord) {
 }
 
 /// Write `value` to `path` through a temporary file and a rename.
+///
+/// The temporary file is named by the record's start nonce, random per host process: a pid
+/// comes back after a restart or a wrap, and a file that a writer killed before its rename left
+/// under that pid's name made the next record write fail (`create_new`), so that chat's agent
+/// never started.
 #[cfg(unix)]
 pub fn write_record_atomic(path: &Path, record: &HostRecord) -> Result<()> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
-    let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
+    let tmp = path.with_extension(format!("tmp-{}-{}", std::process::id(), record.start_nonce));
     let mut f = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
