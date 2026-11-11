@@ -1078,7 +1078,8 @@ def run_seeded(args: argparse.Namespace, root: Path, report: dict, launch: dict,
     try:
         launch_seeded(args, root, launch, arm, seen, failed)
     except Exception as error:  # noqa: BLE001 - whatever stops this arm short of a verdict never fails the run
-        arm.update(verdict="cannot-run", reason=f"{type(error).__name__}: {error}"[:500])
+        if arm["verdict"] != "fail":  # a failure that the arm found stands, whatever its evidence then did
+            arm.update(verdict="cannot-run", reason=f"{type(error).__name__}: {error}"[:500])
     arm["wall_seconds"] = round(time.monotonic() - started, 1)
     if arm["verdict"] == "pass":
         log(f"==> seeded-home arm OK: up {arm['seconds_up']:.0f}s, Home at {arm['rendered_at']:.1f}s, the cookie sync "
@@ -1182,13 +1183,15 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
         return PASS
     # The verdict stands before the evidence is kept: a run that is cut in the log read or the wait below keeps it.
     report.update(verdict="fail", failures=failures, crash_reports_late=[])
-    explain(report["pid"], launched_wall, root / "app.log", crashes, exceptions, failures, report)
-    if status is not None and not crashes:
-        try:
+    try:
+        explain(report["pid"], launched_wall, root / "app.log", crashes, exceptions, failures, report)
+        if status is not None and not crashes:
             report["crash_reports_late"] = late_crash_reports(diagnostics, executable, launched_wall, process.pid, app,
                                                               frozenset(), launched_wall, root, asked, out)
-        except OSError as error:  # evidence only: never the verdict
-            log(f"warning: a late crash report could not be kept: {error}")
+    except Exception as error:  # noqa: BLE001 - evidence only: never the verdict
+        log(f"warning: this launch's evidence is not complete: {type(error).__name__}: {error}")
+        for failure in failures:
+            log(f"FAIL: {failure}")
     return FAIL
 
 
