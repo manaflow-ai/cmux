@@ -281,6 +281,11 @@ def run_attempt(task: dict, arm: str, trial: int, args, out_dir: str) -> dict:
             row["agent_rc"] = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else f"ssh {r.returncode}"
             if row["agent_rc"] == "setup":
                 raise RuntimeError("the arm's computer-use service did not start in the guest")
+            # The agent never ran: ssh itself failed (the guest dropped the
+            # connection) and run-agent.sh printed nothing. An infrastructure
+            # failure, not a task failure.
+            if not r.stdout.strip() and r.returncode != 0:
+                raise RuntimeError(f"ssh to the guest failed (exit {r.returncode}) before the agent ran")
             vm.get("~/cub/out/events.jsonl", adir)
             vm.get("~/cub/out/stderr.txt", adir)
             if args.screenshot:
