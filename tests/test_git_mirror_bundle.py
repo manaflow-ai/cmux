@@ -18,6 +18,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import r2_cache_prune as prune  # noqa: E402
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 
 DOC = yaml.safe_load((ROOT / ".github/workflows/git-mirror-bundle.yml").read_text())
 PROBE = DOC["jobs"]["probe"]
@@ -25,6 +27,17 @@ PROBE_STEPS = {step.get("name"): step for step in PROBE["steps"]}
 JOB = DOC["jobs"]["bundle"]
 STEPS = {step.get("name"): step for step in JOB["steps"]}
 TRIGGERS = DOC.get("on", DOC.get(True))  # YAML 1.1 reads a bare `on` key as True
+
+
+def runs_on_text(job: dict, where: str) -> str:
+    """The job's runs-on, every matrix cell; a matrix nothing resolves fails."""
+    cells = workflow_jobs.runs_on_cells(job)
+    if cells is None:
+        raise AssertionError(f"{where}: runs-on has a matrix value nothing resolves")
+    return "\n".join(cells)
+
+
+WRITER_ENVIRONMENT = {"name": "${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}"}
 
 
 class Contract(unittest.TestCase):
@@ -54,7 +67,7 @@ class Contract(unittest.TestCase):
     def test_only_feat_cmux_next_writes_with_the_next_writer(self) -> None:
         self.assertEqual(DOC["permissions"], {})
         self.assertEqual(JOB["permissions"], {"contents": "read"})
-        self.assertEqual(JOB["environment"], "${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}")
+        self.assertEqual(workflow_jobs.resolve(JOB).environment, WRITER_ENVIRONMENT)
         self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", PROBE["if"])
         self.assertIn("needs.probe.outputs.due == 'true'", JOB["if"])
         self.assertEqual(TRIGGERS["push"]["branches"], ["feat-cmux-next"])
@@ -63,23 +76,22 @@ class Contract(unittest.TestCase):
         self.assertEqual(DOC["concurrency"]["group"], "git-mirror-bundle-${{ github.ref }}")
         self.assertFalse(DOC["concurrency"]["cancel-in-progress"])
         self.assertEqual(JOB["needs"], "probe")
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_4", JOB["runs-on"])
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_4", runs_on_text(JOB, "bundle"))
 
     def test_cheap_probe_is_separate_from_the_32_vcpu_bundle_writer(self) -> None:
         # Frequent pushes require only a HEAD/read; the full 2.36 GB bundle
         # remains on the larger runner and only starts when the probe says due.
         self.assertEqual(PROBE["permissions"], {})
         self.assertEqual(PROBE["outputs"]["due"], "${{ steps.due.outputs.due }}")
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_2", PROBE["runs-on"])
-        self.assertNotIn("vars.LINUX_RUNNER", PROBE["runs-on"])
-        self.assertIn("vars.LINUX_RUNNER", JOB["runs-on"])
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_2", runs_on_text(PROBE, "probe"))
+        self.assertNotIn("vars.LINUX_RUNNER", runs_on_text(PROBE, "probe"))
+        self.assertIn("vars.LINUX_RUNNER", runs_on_text(JOB, "bundle"))
         self.assertNotIn("Fetch the mirrored branches", PROBE_STEPS)
         self.assertNotIn("Publish the bundle", PROBE_STEPS)
         self.assertNotIn("Is a bundle due", STEPS)
         for name in ("Fetch the mirrored branches", "Checkout the cache tooling", "Publish the bundle"):
             self.assertNotIn("if", STEPS[name])
-        self.assertEqual(JOB["environment"],
-                         "${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}")
+        self.assertEqual(workflow_jobs.resolve(JOB).environment, WRITER_ENVIRONMENT)
 
     def test_prune_keeps_a_day_and_the_pointed_one(self) -> None:
         key = "git-mirror-cmux-2026102709.0123456789ab"

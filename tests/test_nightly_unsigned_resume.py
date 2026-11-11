@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -17,6 +18,8 @@ import zipfile
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 spec = importlib.util.spec_from_file_location("artifact_download", ROOT / "scripts/ci/download-run-artifact.py")
 download = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(download)
@@ -240,8 +243,11 @@ class WorkflowRoutingTests(unittest.TestCase):
         for name, native_runner, resume_runner in (("build-nightly-app", "glaeda-nightly-only-m4pro", "glaeda-nightly-only-m4pro"),
                                                    ("build-nightly-ghostty-cli-helper", "glaeda-nightly-std-xcode-26.6", "glaeda-nightly-std-xcode-26.6")):
             with self.subTest(name=name):
-                self.assertEqual(self.evaluate(self.jobs[name]["runs-on"], True), resume_runner)
-                self.assertEqual(self.evaluate(self.jobs[name]["runs-on"], False), native_runner)
+                cells = workflow_jobs.runs_on_cells(self.jobs[name])
+                self.assertIsNotNone(cells, "a runs-on matrix nothing resolves")
+                self.assertEqual(len(cells), 1, cells)
+                self.assertEqual(self.evaluate(cells[0], True), resume_runner)
+                self.assertEqual(self.evaluate(cells[0], False), native_runner)
 
     def test_resume_selects_restore_and_zero_native_or_cache_work(self):
         for name in ("build-nightly-app", "build-nightly-ghostty-cli-helper"):

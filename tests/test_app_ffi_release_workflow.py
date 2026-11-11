@@ -41,6 +41,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/app-ffi-release.yml"
 REPIN_WORKFLOW = ROOT / ".github/workflows/app-ffi-repin.yml"
 sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 from test_seed_derived_data import evaluate  # noqa: E402
 
 SHA = "45845b2d13d794c435d31f72ea74dc0f4a5739d0"
@@ -108,21 +109,25 @@ def condition(expression: str | None, context: dict, failed: bool) -> bool:
 
 class PublishJob(unittest.TestCase):
     def run_publish(self, *, workflow_changed: bool, create: str = "ok", existing: bool = False) -> tuple[bool, str]:
-        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["publish"]
+        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        job = document["jobs"]["publish"]
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
             bin_dir, state, work = temp_path / "bin", temp_path / "state", temp_path / "work"
-            for path in (bin_dir, state, work / "assets"):
+            # The job downloads into ${{ runner.temp }}/assets (RUNNER_TEMP is `temp`), not into its workspace.
+            assets = temp_path / "assets"
+            work.mkdir()
+            for path in (bin_dir, state, assets):
                 path.mkdir(parents=True)
             executable(bin_dir / "gh", FAKE_GH)
             executable(bin_dir / "curl", FAKE_CURL)
             executable(bin_dir / "sleep", "#!/bin/sh\nexit 0\n")
-            archive = work / "assets/CCmuxAppFFI.xcframework.zip"
+            archive = assets / "CCmuxAppFFI.xcframework.zip"
             archive.write_bytes(b"xcframework bytes")
             checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
-            (work / "assets/CCmuxAppFFI.xcframework.zip.sha256").write_text(checksum + "\n")
-            (work / "assets/SHA256SUMS").write_text(f"{checksum}  CCmuxAppFFI.xcframework.zip\n")
-            (work / "assets/SOURCE_SHA").write_text(SHA + "\n")
+            (assets / "CCmuxAppFFI.xcframework.zip.sha256").write_text(checksum + "\n")
+            (assets / "SHA256SUMS").write_text(f"{checksum}  CCmuxAppFFI.xcframework.zip\n")
+            (assets / "SOURCE_SHA").write_text(SHA + "\n")
             if existing:
                 (state / "release").mkdir()
                 (state / "release/CCmuxAppFFI.xcframework.zip").write_bytes(archive.read_bytes())
@@ -141,7 +146,7 @@ class PublishJob(unittest.TestCase):
                         "GITHUB_RUN_ID": RUN_ID, "GITHUB_SERVER_URL": "https://github.com",
                         "RUNNER_TEMP": temp, "GITHUB_OUTPUT": str(temp_path / "output"),
                         "GITHUB_STEP_SUMMARY": str(temp_path / "summary")}
-            base_env.update({key: render(value, context) for key, value in (job.get("env") or {}).items()})
+            base_env.update({key: render(value, context) for key, value in workflow_jobs.effective_env(document, job).items()})
             failed, log = False, []
             for step in job["steps"]:
                 if "run" not in step or not condition(step.get("if"), context, failed):
@@ -198,7 +203,7 @@ class PublishToken(unittest.TestCase):
         self.steps = {step.get("id") or step.get("name"): step for step in self.job["steps"]}
 
     def test_the_job_runs_in_the_ffi_release_environment_with_a_read_only_github_token(self):
-        self.assertEqual(self.job.get("environment"), "ffi-release")
+        self.assertEqual(workflow_jobs.resolve(self.job).environment, {"name": "ffi-release"})
         self.assertEqual(self.job.get("permissions"), {"contents": "read"})
 
     def test_the_app_tokens_are_scoped_to_this_repository(self):
@@ -565,13 +570,16 @@ class RePinPublication(unittest.TestCase):
         job = workflow["jobs"]["repin"]
         release = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["repin"]
         self.assertNotIn("needs", job)
-        self.assertEqual(job["environment"], "ffi-release")
+        self.assertEqual(workflow_jobs.resolve(job).environment, {"name": "ffi-release"})
         self.assertEqual(job["concurrency"], {"group": "app-ffi-repin", "cancel-in-progress": False})
         self.assertEqual(job["permissions"], {"contents": "read", "checks": "read", "statuses": "read"})
         self.assertEqual(release["permissions"], job["permissions"])
         self.assertEqual(job["steps"][-1]["env"]["READ_TOKEN"], "${{ github.token }}")
         self.assertEqual(release["steps"][-1]["env"]["READ_TOKEN"], "${{ github.token }}")
-        self.assertNotIn("macos", str(job["runs-on"]))
+        cells = workflow_jobs.runs_on_cells(job)
+        self.assertTrue(cells, "repin: runs-on reads a matrix value nothing resolves, or is missing")
+        for runs_on in cells:
+            self.assertNotIn("macos", runs_on)
         self.assertEqual([s.get("with") for s in job["steps"]], [s.get("with") for s in release["steps"]])
         self.assertEqual(job["steps"][-1]["run"], release["steps"][-1]["run"])
         result, state = self.run_repin(workflow=REPIN_WORKFLOW, refs={})

@@ -6503,7 +6503,9 @@ jobs:
           run-id: ${{ needs.published-build.outputs.source_run || github.run_id }}
           github-token: ${{ needs.published-build.outputs.cross_run == 'true' && github.token || '' }}
           name: cmux-nightly-variant-${{ matrix.variant }}
-          path: nightly-delta/input
+          # Under the runner's temp directory: the checkout above cleans only .publish-tooling, and this
+          # mini keeps its workspace between jobs.
+          path: ${{ runner.temp }}/nightly-delta/input
       - name: Build the deltas without the key
         env:
           GH_TOKEN: ${{ github.token }}
@@ -6514,8 +6516,8 @@ jobs:
             feed="appcast-${NIGHTLY_VARIANT}.xml"
           fi
           ./.publish-tooling/scripts/ci/generate-nightly-deltas.sh \
-            "nightly-delta/input/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg" \
-            "nightly-delta/input/$feed" nightly-delta/prebuilt
+            "$RUNNER_TEMP/nightly-delta/input/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg" \
+            "$RUNNER_TEMP/nightly-delta/input/$feed" nightly-delta/prebuilt
           rm -f nightly-delta/prebuilt/*.xml
           ls -l nightly-delta/prebuilt
       - name: Upload the prebuilt deltas

@@ -15,6 +15,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 TEXT = (ROOT / ".github" / "workflows" / "nightly.yml").read_text()
 JOBS = yaml.safe_load(TEXT)["jobs"]
@@ -38,7 +41,7 @@ if build is None:
     failures.append("no build-nightly-deltas job builds the deltas without the key")
 else:
     body = job_text("build-nightly-deltas")
-    if "secrets." in body:
+    if workflow_jobs.secret_names(body) or workflow_jobs.secret_names(build):
         failures.append("build-nightly-deltas must hold no secret")
     if "glaeda-trusted-next-signing" in str(build.get("runs-on")) or "hold-the-whole-mac" in body \
             or "claim-publication-mac" in body:

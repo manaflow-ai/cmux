@@ -46,6 +46,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 from blacksmith_linux_sizes import label as size_label, table  # noqa: E402
 from runs_on_labels import holds_signing_material, unwrap_fork_pool_reads  # noqa: E402
+import workflow_jobs  # noqa: E402
 WORKFLOWS = ROOT / ".github" / "workflows"
 
 BIG = "blacksmith-32vcpu-ubuntu-2404"
@@ -88,7 +89,7 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
     ("cmux-tui.yml", "optchat-chief", "runs-on", BIG),
     ("cmux-vm-clients.yml", "rust", "runs-on", BIG),
     ("coderouter-ci.yml", "test", "runs-on", BIG),
-    ("coderouter-release.yml", "build", "matrix:rust_target=x86_64-unknown-linux-gnu:runner", BIG),
+    ("coderouter-release.yml", "build-linux", "runs-on", BIG),
     ("iroh-relay-minter.yml", "test", "runs-on", BIG),
     ("macos-cross-parity.yml", "linux-build", "runs-on", BIG),
     ("rust-workspaces.yml", "workspace", "runs-on", BIG),
@@ -227,7 +228,7 @@ PREFIX: dict[tuple[str, str, str], tuple[str, str]] = {
     ("cmux-next-terminal.yml", "rust-terminal-linux", "runs-on"): ("", ""),
     ("cmux-next-terminal.yml", "swift-terminal-linux", "runs-on"): ("", ""),
     ("cmux-tui-headless-debug.yml", "build", "runs-on"): ("", ""),
-    ("coderouter-release.yml", "build", "matrix:rust_target=x86_64-unknown-linux-gnu:runner"): ("", ""),
+    ("coderouter-release.yml", "build-linux", "runs-on"): ("", ""),
 }
 # Selectors with the owner branch and no fork pull request branch.
 OWNER_ONLY = {
@@ -269,7 +270,10 @@ def load(name: str) -> dict:
 
 def selector(job: dict, where: str) -> str:
     if where == "runs-on":
-        return str(job["runs-on"])
+        cells = workflow_jobs.runs_on_cells(job)
+        if cells is None or len(cells) != 1:
+            raise AssertionError(f"expected one runs-on, read {cells!r}")
+        return cells[0]
     kind, _, rest = where.partition(":")
     if kind == "matrix":
         match, field = rest.rsplit(":", 1)

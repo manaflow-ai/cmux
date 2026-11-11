@@ -25,6 +25,7 @@ import sys
 from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from nightly_workflow_text import expand as nightly_expand  # noqa: E402  (moved step scripts back inline)
+import workflow_jobs  # noqa: E402
 
 import yaml
 
@@ -185,9 +186,12 @@ class WorkflowTests(unittest.TestCase):
         jobs = yaml.safe_load(nightly_expand((ROOT / ".github/workflows/nightly.yml").read_text()))["jobs"]
         helper = jobs["build-nightly-ghostty-cli-helper"]
         self.assertIn("resolve-nightly-ghostty-cli-helper", helper["needs"])
-        runs_on = helper["runs-on"].split("!= 'manaflow-ai' && 'macos-26' ||", 1)[1]
-        self.assertNotIn("macos-15", helper["runs-on"])
-        self.assertNotIn("'macos-26'", runs_on)
+        cells = workflow_jobs.runs_on_cells(helper)
+        self.assertTrue(cells, "a runs-on matrix nothing resolves, or no runs-on")
+        for cell in cells:
+            runs_on = cell.split("!= 'manaflow-ai' && 'macos-26' ||", 1)[1]
+            self.assertNotIn("macos-15", cell)
+            self.assertNotIn("'macos-26'", runs_on)
         for name in ("Key the Ghostty CLI helper cache", "Cache the Ghostty CLI helper",
                      "Build Ghostty CLI helper", "Strip the Ghostty CLI helper", "Upload Ghostty CLI helper"):
             step = next(s for s in helper["steps"] if s.get("name") == name)

@@ -29,46 +29,124 @@ import nightly_sign_runner as picker  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "tests"))
 from runs_on_labels import holds_signing_material  # noqa: E402
+import workflow_jobs  # noqa: E402
+from workflow_jobs import holds_secret  # noqa: E402
 
 NOW = dt.datetime(2026, 10, 26, 9, 30, tzinfo=dt.timezone.utc)
 LARGE, SMALL = "blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26"
 LINUX4, LINUX16, LINUX32 = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404",
                              "blacksmith-32vcpu-ubuntu-2404")
-WORKFLOW = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8"))
+WORKFLOW = workflow_jobs.document(ROOT / ".github/workflows/nightly.yml")
 
-# The jobs that sign, notarize, verify a signed build or publish it, and the job whose
-# output names their label. Each reads it first, then the variable, then 6 vCPU.
-SIGNING_JOBS = {
-    "build-sign-notarize-nightly": "needs.pick-nightly-sign-runner.outputs.runner",
-    "verify-signed-nightly": "needs.pick-nightly-sign-runner.outputs.runner",
-    "verify-final-dmg-nightly": "needs.pick-nightly-sign-runner.outputs.runner",
-    "recover-nightly-next-notarization": "needs.find-nightly-next-recovery.outputs.sign_runner",
-    "verify-recovered-nightly-next": "needs.find-nightly-next-recovery.outputs.sign_runner",
+# The pickers that name a signing-phase Mac job's label, and the output each one would print for Blacksmith.
+SIGN_PICKERS = {
+    "pick-nightly-sign-runner": "needs.pick-nightly-sign-runner.outputs.runner",
+    "find-nightly-next-recovery": "needs.find-nightly-next-recovery.outputs.sign_runner",
 }
-# Jobs that never take Blacksmith (Lawrence, 2026-10-30: nightlies never use Blacksmith): an owned
-# pick where one exists, then the owned nightly slot variable, the owned side lane, then the owned std pool
-# literal, so the chain never ends on a reserved lane variable (test_ci_runs_on_fallback.py).
-OWNED_ONLY_JOBS = ("generate-nightly-deltas",
-                   "build-sign-notarize-nightly", "recover-nightly-next-notarization", "verify-signed-nightly",
-                   "verify-final-dmg-nightly", "verify-recovered-nightly-next")
 OWNED_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}"
 # The notarization recovery's own owned pick (find-nightly-next-recovery), then the nightly build pool.
 RECOVERY_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}"
-RECOVERY_JOBS = {"recover-nightly-next-notarization", "verify-recovered-nightly-next"}
 # The secret-bearing jobs end on the signer's label alone (a trusted-only mini that runs no pull request job), never a
 # label they share with nightly builds or PR side lanes.
 SIGNING_FALLBACK = "|| 'glaeda-trusted-next-signing' }}"
-SECRET_JOBS = {"sign-nightly-identity-legacy", "generate-nightly-deltas", "build-sign-notarize-nightly",
-               "recover-nightly-next-notarization"}
+# Parser anchors: a regression that empties the derived sets would empty the route checks with them.
+SIGNING_ANCHORS = {"build-sign-notarize-nightly", "verify-signed-nightly", "recover-nightly-next-notarization"}
+SECRET_ANCHORS = {"build-sign-notarize-nightly", "recover-nightly-next-notarization", "generate-nightly-deltas"}
 
 
-def owned_fallback(name: str) -> str:
-    return SIGNING_FALLBACK if name in SECRET_JOBS else RECOVERY_FALLBACK if name in RECOVERY_JOBS else OWNED_FALLBACK
+def is_mac(job: dict) -> bool:
+    """A macOS label anywhere on the route, or an owned Xcode label (promote's route forks to Ubuntu), in any matrix
+    cell (workflow_jobs.runs_on_cells). A runner nothing resolves (a fromJSON matrix) may be a Mac, so it counts."""
+    cells = workflow_jobs.runs_on_cells(job)
+    return cells is None or any("macos" in cell or "xcode" in cell for cell in cells)
+
+
+def runs_on_text(job: dict, name: str = "") -> str:
+    """A job's runs-on as written, one line per matrix cell (workflow_jobs.runs_on_cells; "" when it has none). A
+    matrix runner nothing resolves fails the caller: it is never read as the raw string."""
+    cells = workflow_jobs.runs_on_cells(job)
+    if cells is None:
+        raise AssertionError(f"{name or job}: runs-on has a matrix value nothing resolves")
+    return "\n".join(cells)
+
+
+def signing_jobs(jobs: dict) -> dict[str, str]:
+    """Every Mac job a sign picker places (it needs one), and the Blacksmith output it must never read.
+
+    Derived from nightly.yml, not kept by hand: these sign, notarize, verify a signed build or publish it."""
+    found = {}
+    for name, job in jobs.items():
+        needs = job.get("needs") or []
+        needs = [needs] if isinstance(needs, str) else needs
+        picker = next((p for p in SIGN_PICKERS if p in needs), None)
+        if picker and is_mac(job):
+            found[name] = SIGN_PICKERS[picker]
+    return found
+
+
+def secret_jobs(jobs: dict) -> set[str]:
+    """The signing-phase Mac jobs that hold a secret: they end on the signer's label alone."""
+    return {name for name in signing_jobs(jobs) if holds_secret(jobs[name])}
+
+
+def recovery_jobs(jobs: dict) -> set[str]:
+    return {name for name, picked in signing_jobs(jobs).items() if picked == SIGN_PICKERS["find-nightly-next-recovery"]}
+
+
+def owned_fallback(name: str, jobs: dict | None = None) -> str:
+    jobs = WORKFLOW["jobs"] if jobs is None else jobs
+    return (SIGNING_FALLBACK if name in secret_jobs(jobs) else RECOVERY_FALLBACK if name in recovery_jobs(jobs)
+            else OWNED_FALLBACK)
+
+
+def owned_route_failures(jobs: dict) -> dict[str, str]:
+    """Each signing-phase Mac job whose route can take Blacksmith or misses its owned ending, with the reason."""
+    failures = {}
+    for name, picked in sorted(signing_jobs(jobs).items()):
+        # Every matrix cell's runs-on (workflow_jobs.runs_on_cells); a runner nothing resolves is a failure.
+        cells = workflow_jobs.runs_on_cells(jobs[name])
+        if not cells:
+            failures[name] = "runs-on has a matrix value nothing resolves" if cells is None else "no runs-on"
+            continue
+        ending = owned_fallback(name, jobs)
+        for runs_on in cells:
+            for needle in (picked, ALTERNATES[picked], "blacksmith", "RUNNER_POOLS", "MACOS_RUNNER", "sign_runner",
+                           "sign_alternate"):
+                if needle in runs_on:
+                    failures[name] = f"runs-on reads {needle}"
+                    break
+            else:
+                if not runs_on.endswith(ending):
+                    failures[name] = f"runs-on does not end {ending!r}" + (
+                        " (it holds a secret: the signer's label alone)" if ending == SIGNING_FALLBACK else "")
+            if name in failures:
+                break
+    return failures
+
+
 # Each picker's re-run label, the other Blacksmith macOS 26 size.
 ALTERNATES = {
     "needs.pick-nightly-sign-runner.outputs.runner": "needs.pick-nightly-sign-runner.outputs.alternate",
     "needs.find-nightly-next-recovery.outputs.sign_runner": "needs.find-nightly-next-recovery.outputs.sign_alternate",
 }
+# Derived from nightly.yml (signing_jobs, secret_jobs), not kept by hand. OWNED_ONLY_JOBS is the same set: every
+# job a sign picker places takes the owned chain, never Blacksmith (Lawrence, 2026-10-30).
+SIGNING_JOBS = signing_jobs(WORKFLOW["jobs"])
+OWNED_ONLY_JOBS = tuple(sorted(SIGNING_JOBS))
+SECRET_JOBS = secret_jobs(WORKFLOW["jobs"])
+RECOVERY_JOBS = recovery_jobs(WORKFLOW["jobs"])
+# Mac jobs that hold signing material (runs_on_labels.holds_signing_material) but no sign picker places. job -> why.
+SIGNING_MATERIAL_UNPICKED = {
+    "promote-nightly-next": "a main dispatch the signer refuses; its own route ends on the nightly slot "
+                            "(test_nightly_trusted_routing.test_no_signing_job_reads_an_owned_runner_variable)",
+    "promote-nightly-next-acked": "retired (if: false) twin of promote-nightly-next, same route",
+}
+
+
+def unpicked_signing_mac_jobs(jobs: dict) -> set[str]:
+    """Mac jobs holding signing material that neither a sign picker places nor SIGNING_MATERIAL_UNPICKED names."""
+    return {name for name, job in jobs.items() if is_mac(job) and holds_signing_material(job)} - set(
+        signing_jobs(jobs)) - set(SIGNING_MATERIAL_UNPICKED)
 # macOS jobs that still read vars.MACOS_RUNNER_26 directly: they build (no signing material)
 # and have owned-pool routes of their own.
 BUILD_JOBS = {"build-nightly-app", "prepare-nightly-variant-primary"}
@@ -466,20 +544,16 @@ class Workflow(unittest.TestCase):
     def test_signing_jobs_never_read_the_blacksmith_pick(self) -> None:
         # Nightlies never run on Blacksmith (Lawrence, 2026-10-30): no signing, verify or publication Mac job
         # reads the picker's Blacksmith label or its re-run alternate; each ends on the owned route.
-        jobs = WORKFLOW["jobs"]
-        for name, picked in SIGNING_JOBS.items():
-            with self.subTest(job=name):
-                runs_on = str(jobs[name]["runs-on"])
-                self.assertNotIn(picked, runs_on)
-                self.assertNotIn(ALTERNATES[picked], runs_on)
-                self.assertTrue(runs_on.endswith(owned_fallback(name)), runs_on)
-                self.assertIn(name, OWNED_ONLY_JOBS)
+        self.assertLessEqual(SIGNING_ANCHORS, set(SIGNING_JOBS))
+        self.assertLessEqual(SECRET_ANCHORS, SECRET_JOBS)
+        self.assertEqual(set(OWNED_ONLY_JOBS), set(SIGNING_JOBS))
+        self.assertEqual(owned_route_failures(WORKFLOW["jobs"]), {})
 
     def test_owned_only_jobs_never_name_blacksmith(self) -> None:
         jobs = WORKFLOW["jobs"]
         for name in OWNED_ONLY_JOBS:
             with self.subTest(job=name):
-                runs_on = str(jobs[name]["runs-on"])
+                runs_on = runs_on_text(jobs[name], name)
                 self.assertTrue(runs_on.endswith(owned_fallback(name)), runs_on)
                 self.assertNotIn("blacksmith", runs_on)
                 self.assertNotIn("RUNNER_POOLS", runs_on)
@@ -487,14 +561,111 @@ class Workflow(unittest.TestCase):
                 self.assertNotIn("sign_runner", runs_on)
                 self.assertNotIn("sign_alternate", runs_on)
 
+    def test_every_secret_mac_job_a_picker_places_ends_on_the_signer(self) -> None:
+        # The hand lists named sign-nightly-identity-legacy, which nightly.yml no longer has, and missed nothing
+        # today; derived, a new signing-phase Mac job is checked the day it is added.
+        jobs = WORKFLOW["jobs"]
+        for name in SECRET_JOBS:
+            with self.subTest(job=name):
+                self.assertTrue(runs_on_text(jobs[name], name).endswith(SIGNING_FALLBACK))
+
+    def test_every_mac_job_with_signing_material_is_placed_by_a_sign_picker_or_named(self) -> None:
+        jobs = WORKFLOW["jobs"]
+        self.assertEqual(unpicked_signing_mac_jobs(jobs), set(),
+                         "a Mac job holds signing material but no sign picker places it: give it a sign picker's "
+                         "owned route, or name it in SIGNING_MATERIAL_UNPICKED with the reason")
+        for name in SIGNING_MATERIAL_UNPICKED:
+            with self.subTest(job=name):
+                self.assertTrue(is_mac(jobs[name]) and holds_signing_material(jobs[name]), "stale entry")
+                self.assertNotIn(name, SIGNING_JOBS)
+        import copy
+        fixture = copy.deepcopy(jobs)
+        fixture["notarize-fixture-nightly"] = {
+            "runs-on": "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'glaeda-nightly-only-m4pro' }}",
+            "needs": ["decide"], "steps": [{"run": "xcrun notarytool submit"}]}
+        self.assertEqual(unpicked_signing_mac_jobs(fixture), {"notarize-fixture-nightly"})
+        # Signing material read only by bracket, with no signing tool named in the job.
+        bracket = copy.deepcopy(jobs)
+        bracket["upload-bracket-fixture-nightly"] = {
+            "runs-on": "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'glaeda-nightly-only-m4pro' }}",
+            "needs": ["decide"], "steps": [{"run": "./upload.sh", "env": {"K": "${{ secrets['APPLE_API_KEY'] }}"}}]}
+        self.assertEqual(unpicked_signing_mac_jobs(bracket), {"upload-bracket-fixture-nightly"})
+
+    def test_a_mac_job_whose_runner_comes_from_its_matrix_is_named(self) -> None:
+        """Codex: `runs-on: ${{ matrix.runner }}` hid a Mac job calling notarytool from the raw-string read. Each
+        matrix cell is a route; a runner nothing resolves counts as a Mac."""
+        import copy
+        for name, strategy in (
+            ("matrix-notarize-fixture-nightly", {"matrix": {"runner": ["ubuntu-24.04", "glaeda-nightly-only-m4pro-macos"]}}),
+            ("matrix-include-notarize-fixture-nightly", {"matrix": {"include": [{"runner": "macos-26"}]}}),
+            ("matrix-json-notarize-fixture-nightly", {"matrix": "${{ fromJSON(needs.decide.outputs.matrix) }}"}),
+        ):
+            with self.subTest(job=name):
+                jobs = copy.deepcopy(WORKFLOW["jobs"])
+                jobs[name] = {"runs-on": "${{ matrix.runner }}", "strategy": strategy, "needs": ["decide"],
+                              "steps": [{"run": "xcrun notarytool submit"}]}
+                self.assertEqual(unpicked_signing_mac_jobs(jobs), {name})
+
+    def test_a_named_matrix_mac_job_stays_green(self) -> None:
+        import copy
+        from unittest import mock
+        jobs = copy.deepcopy(WORKFLOW["jobs"])
+        jobs["matrix-notarize-fixture-nightly"] = {
+            "runs-on": "${{ matrix.runner }}", "strategy": {"matrix": {"runner": ["macos-26"]}}, "needs": ["decide"],
+            "steps": [{"run": "xcrun notarytool submit"}]}
+        with mock.patch.dict(SIGNING_MATERIAL_UNPICKED, {"matrix-notarize-fixture-nightly": "fixture"}):
+            self.assertEqual(unpicked_signing_mac_jobs(jobs), set())
+
+    def test_a_new_signing_job_is_checked_without_being_listed(self) -> None:
+        """The class #36559 hit in backend.yml: a job split out with a secret that nobody lists."""
+        import copy
+        side_lane = ("${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+                     "needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && "
+                     "needs.pick-nightly-sign-runner.outputs.owned " + OWNED_FALLBACK)
+        blacksmith_pick = ("${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+                           "needs.pick-nightly-sign-runner.outputs.runner || 'glaeda-trusted-next-signing' }}")
+        recovery = ("${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+                    "needs.find-nightly-next-recovery.outputs.sign_runner " + RECOVERY_FALLBACK)
+        for name, runs_on, needs, steps, secret in (
+            # A signing secret on the shared side-lane chain: it must end on the signer's label alone.
+            ("staple-fixture-nightly", side_lane, ["pick-nightly-sign-runner"],
+             [{"run": "codesign", "env": {"P": "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}"}}], True),
+            # The same secret read by bracket, with no `secrets.` in the job at all (Codex, #40754 review).
+            ("staple-bracket-fixture-nightly", side_lane, ["pick-nightly-sign-runner"],
+             [{"run": "xcrun stapler staple", "env": {"P": "${{ secrets['APPLE_CERTIFICATE_PASSWORD'] }}"}}], True),
+            # A secret-free verify that reads the picker's Blacksmith label.
+            ("verify-fixture-nightly", blacksmith_pick, ["decide", "pick-nightly-sign-runner"],
+             [{"run": "true"}], False),
+            ("verify-recovery-fixture-nightly", recovery, "find-nightly-next-recovery", [{"run": "true"}], False),
+        ):
+            with self.subTest(job=name):
+                jobs = copy.deepcopy(WORKFLOW["jobs"])
+                jobs[name] = {"runs-on": runs_on, "needs": needs, "steps": steps}
+                self.assertIn(name, signing_jobs(jobs))
+                self.assertEqual(name in secret_jobs(jobs), secret)
+                self.assertEqual(set(owned_route_failures(jobs)), {name})
+
+    def test_a_new_signing_job_on_the_signer_route_stays_green(self) -> None:
+        """The positive half: a bracket-secret job a sign picker places, ending on the signer's label alone."""
+        import copy
+        jobs = copy.deepcopy(WORKFLOW["jobs"])
+        jobs["staple-signer-fixture-nightly"] = {
+            "runs-on": ("${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+                        "needs.pick-nightly-sign-runner.outputs.owned " + SIGNING_FALLBACK),
+            "needs": ["pick-nightly-sign-runner"],
+            "steps": [{"run": "xcrun stapler staple", "env": {"P": "${{ secrets['APPLE_CERTIFICATE_PASSWORD'] }}"}}]}
+        self.assertIn("staple-signer-fixture-nightly", secret_jobs(jobs))
+        self.assertEqual(owned_route_failures(jobs), {})
+        self.assertEqual(unpicked_signing_mac_jobs(jobs), set())
+
     def test_no_other_macos_job_resolves_to_the_variable_alone(self) -> None:
-        reads = {name for name, job in WORKFLOW["jobs"].items() if "vars.MACOS_RUNNER_26" in str(job.get("runs-on", ""))}
+        reads = {name for name, job in WORKFLOW["jobs"].items() if "vars.MACOS_RUNNER_26" in runs_on_text(job, name)}
         self.assertEqual(reads - set(SIGNING_JOBS) - BUILD_JOBS, set(),
                          "a new macOS job reads vars.MACOS_RUNNER_26 for its route: give it a picked label "
                          "(scripts/ci/nightly_sign_runner.py) or add it to BUILD_JOBS if it signs nothing")
         for name in BUILD_JOBS & reads:
             with self.subTest(job=name):
-                self.assertNotIn("environment", WORKFLOW["jobs"][name].get("environment", "") or "")
+                self.assertNotIn("environment", (workflow_jobs.resolve(WORKFLOW["jobs"][name]).environment or {}).get("name") or "")
 
 
 
@@ -517,15 +688,16 @@ class OwnedVerify(unittest.TestCase):
             with self.subTest(job=name):
                 job = jobs[name]
                 self.assertNotIn("environment", job)
-                self.assertNotIn("secrets.", yaml.safe_dump(job))
+                self.assertEqual(workflow_jobs.secret_names(job), set())
                 # The owned pick for this attempt, then the owned nightly route; never Blacksmith.
                 self.assertIn(f"|| needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && {self.OWNED} "
-                              + OWNED_FALLBACK, str(job["runs-on"]))
+                              + OWNED_FALLBACK, runs_on_text(job, name))
                 # The launch smoke selects no Xcode: it mounts a DMG and runs the app in it.
+                env = workflow_jobs.resolve(job).env
                 if name == "launch-smoke-nightly":
-                    self.assertNotIn("CMUX_CI_XCODE_APP", job["env"])
+                    self.assertNotIn("CMUX_CI_XCODE_APP", env)
                     continue
-                xcode = job["env"]["CMUX_CI_XCODE_APP"]
+                xcode = env["CMUX_CI_XCODE_APP"]
                 self.assertIn(f"needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && {self.OWNED} != '' "
                               "&& vars.CMUX_CI_XCODE_APP_PR", xcode)
                 self.assertIn("|| vars.CMUX_CI_XCODE_APP_MACOS_26", xcode)
@@ -573,19 +745,20 @@ class OwnedVerify(unittest.TestCase):
                     context = {**base, **changes}
                     def resolve(source):
                         return evaluate(parse_expression(source.removeprefix("${{").removesuffix("}}")), context)
-                    self.assertEqual(resolve(job["runs-on"]), runner)
-                    if context["github.repository_owner"] == "manaflow-ai" and "CMUX_CI_XCODE_APP" in job["env"]:
-                        self.assertEqual(resolve(job["env"]["CMUX_CI_XCODE_APP"]),
+                    env = workflow_jobs.resolve(job).env
+                    self.assertEqual(resolve(runs_on_text(job, name)), runner)
+                    if context["github.repository_owner"] == "manaflow-ai" and "CMUX_CI_XCODE_APP" in env:
+                        self.assertEqual(resolve(env["CMUX_CI_XCODE_APP"]),
                                          f"/Applications/Xcode-{xcode}.app")
 
     def test_no_job_that_holds_a_secret_reads_the_owned_pick(self) -> None:
         for name, job in WORKFLOW["jobs"].items():
-            if self.OWNED not in str(job.get("runs-on", "")):
+            if self.OWNED not in runs_on_text(job, name):
                 continue
             with self.subTest(job=name):
                 self.assertIn(name, self.OWNED_JOBS)
-                self.assertFalse(job.get("environment"))
-                self.assertNotIn("secrets.", yaml.safe_dump(job))
+                self.assertIsNone(workflow_jobs.resolve(job).environment)
+                self.assertEqual(workflow_jobs.secret_names(job), set())
 
     def test_the_owned_pick_is_bounded_and_never_blocks(self) -> None:
         job = WORKFLOW["jobs"]["pick-nightly-sign-runner"]
@@ -597,7 +770,7 @@ class OwnedVerify(unittest.TestCase):
         self.assertIn("steps.owned.outputs.owned", owned_output)
         self.assertEqual(job["outputs"]["attempt"], "${{ github.run_attempt }}")
         # The routing environment only scopes the routing App key; it has no reviewers, so nothing waits.
-        self.assertEqual(job.get("environment"), {"name": "ci-routing-agent", "deployment": False})
+        self.assertEqual(workflow_jobs.resolve(job).environment, {"name": "ci-routing-agent", "deployment": False})
         step = next(s for s in job["steps"] if s.get("id") == "owned")
         self.assertTrue(step["continue-on-error"])
         self.assertNotIn("github.run_attempt == 1", step["if"])
@@ -642,7 +815,7 @@ class SnapshotReadToken(unittest.TestCase):
 
     PICKERS = ("pick-nightly-build-runner", "pick-nightly-sign-runner")
     READ = "${{ steps.snapshot-read-token.outputs.token || github.token }}"
-    KEY = "secrets.GLAEDA_ROUTE_APP_KEY"
+    KEY = "GLAEDA_ROUTE_APP_KEY"
     # The jobs that read the routing App key; no other job gains it (find-nightly-next-recovery and
     # legacy-identity-target keep reading the snapshot with GITHUB_TOKEN). route-visual-gate-nightly
     # picks the visual gate's idle owned Mac with it (docs/ci/nightly-next-visual-gate.md).
@@ -685,12 +858,12 @@ class SnapshotReadToken(unittest.TestCase):
                 self.assertEqual(mint["if"], route["if"])
                 # No widening: the job keeps actions: read and contents: read, in the routing environment.
                 self.assertEqual(job["permissions"], {"actions": "read", "contents": "read"})
-                self.assertEqual(job["environment"], {"name": "ci-routing-agent", "deployment": False})
+                self.assertEqual(workflow_jobs.resolve(job).environment, {"name": "ci-routing-agent", "deployment": False})
                 budget = sum(int(step.get("timeout-minutes", 0)) for step in job["steps"])
                 self.assertGreaterEqual(job_limit(job), budget)
 
     def test_no_other_job_gains_the_routing_app_key(self) -> None:
-        keyed = {name for name, job in WORKFLOW["jobs"].items() if self.KEY in yaml.safe_dump(job)}
+        keyed = {name for name, job in WORKFLOW["jobs"].items() if workflow_jobs.reads_secret(job, self.KEY)}
         self.assertEqual(keyed, self.KEYED_JOBS)
         for name, job in WORKFLOW["jobs"].items():
             if name in self.KEYED_JOBS:

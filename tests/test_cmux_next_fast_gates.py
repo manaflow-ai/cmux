@@ -33,6 +33,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/cmux-next-fast-gates.yml"
 GUARDS = ROOT / ".github/workflows/cmux-next-guards.yml"
@@ -68,6 +71,14 @@ def job(doc: dict, key: str = "fast-gates") -> dict:
     return doc["jobs"][key]
 
 
+def runner_text(job_body: dict) -> str:
+    """The job's runs-on, every matrix cell on its own line; a matrix nothing resolves fails."""
+    cells = workflow_jobs.runs_on_cells(job_body)
+    if cells is None:
+        raise AssertionError("runs-on reads a matrix value nothing resolves")
+    return "\n".join(cells)
+
+
 def step_named(steps: list[dict], fragment: str) -> dict:
     found = [s for s in steps if fragment in s.get("name", "")]
     if len(found) != 1:
@@ -84,10 +95,10 @@ class WorkflowShape(unittest.TestCase):
         # The reconciled Linux pool is the default for every trusted job; fork
         # pull requests retain their ephemeral Blacksmith branch, and reruns
         # accept bounded overflow explicitly.
-        guards_runner = yaml.safe_load(GUARDS.read_text(encoding="utf-8"))["jobs"]["own-change-checks"]["runs-on"]
-        self.assertNotEqual(doc["jobs"]["resolve"]["runs-on"], guards_runner)
-        self.assertNotEqual(doc["jobs"]["post"]["runs-on"], guards_runner)
-        fast_runner = doc["jobs"]["fast-gates"]["runs-on"]
+        guards_runner = runner_text(workflow_jobs.jobs(GUARDS)["own-change-checks"])
+        self.assertNotEqual(runner_text(doc["jobs"]["resolve"]), guards_runner)
+        self.assertNotEqual(runner_text(doc["jobs"]["post"]), guards_runner)
+        fast_runner = runner_text(doc["jobs"]["fast-gates"])
         self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", fast_runner)
         self.assertIn("inputs.runner", fast_runner)
         self.assertNotIn("macos", fast_runner.lower())
@@ -98,7 +109,7 @@ class WorkflowShape(unittest.TestCase):
         declared = json.loads((ROOT / ".github/runners.json").read_text())["hosted_light_jobs"]
         for key in light:
             with self.subTest(light=key):
-                runner = str(doc["jobs"][key]["runs-on"])
+                runner = runner_text(doc["jobs"][key])
                 self.assertIn(f"cmux-next-fast-gates.yml#{key}", declared)
                 self.assertTrue(runner.endswith(
                     "|| github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}"), runner)
@@ -107,20 +118,26 @@ class WorkflowShape(unittest.TestCase):
             if key in light or key == "portable-placement":
                 continue
             with self.subTest(runner=key):
-                runner = str(each["runs-on"])
-                self.assertIn("cmux-fleet-linux-x64", runner)
-                self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", runner)
-                self.assertTrue(runner.endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"),
-                                "a stalled literal fleet label must not bypass the reconciled live pool")
-                self.assertNotRegex(runner, r"\|\|\s*'cmux-fleet-linux-x64'")
-                self.assertNotIn("vars.LINUX_RUNNER", str(each["runs-on"]))
+                # Each matrix cell (`${{ matrix.runner }}` read as its values) is a route of its own.
+                cells = workflow_jobs.runs_on_cells(each)
+                self.assertTrue(cells, f"{key}: no runs-on, or a matrix value nothing resolves")
+                for runner in cells:
+                    self.assertIn("cmux-fleet-linux-x64", runner)
+                    self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", runner)
+                    self.assertTrue(runner.endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"),
+                                    "a stalled literal fleet label must not bypass the reconciled live pool")
+                    self.assertNotRegex(runner, r"\|\|\s*'cmux-fleet-linux-x64'")
+                    self.assertNotIn("vars.LINUX_RUNNER", runner)
         for key, each in doc["jobs"].items():
             with self.subTest(job=key):
                 # The panic ratchet builds cmux-tui twice, as cmux-tui-spec.yml's clippy job (40) does once. The gates
                 # job's own budget (--budget-seconds) ends a stalled gate with its reason well inside its 25.
                 limit = {"panic-ratchet": 40, "fast-gates": 25}.get(key, 15)
                 self.assertLessEqual(int(each["timeout-minutes"]), limit)
-                self.assertNotIn("macos", str(each["runs-on"]).lower())
+                cells = workflow_jobs.runs_on_cells(each)
+                self.assertTrue(cells, f"{key}: no runs-on, or a matrix value nothing resolves")
+                for runner in cells:
+                    self.assertNotIn("macos", runner.lower())
 
     def test_triggers_have_no_paths_filter(self):
         on = triggers(workflow())

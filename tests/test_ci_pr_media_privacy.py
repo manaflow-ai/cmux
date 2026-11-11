@@ -21,6 +21,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 from nightly_workflow_text import nightly_text  # noqa: E402
 spec = importlib.util.spec_from_file_location("pr_media_privacy", ROOT / "scripts/ci/pr_media_privacy.py")
 assert spec and spec.loader
@@ -1032,7 +1033,7 @@ class FeatWorkflowTests(unittest.TestCase):
                     continue
                 found.setdefault(workflow, set()).add(job_id)
                 with self.subTest(workflow=workflow, job=job_id):
-                    self.assertEqual(job.get("environment"), "pr-media",
+                    self.assertEqual(workflow_jobs.resolve(job).environment, {"name": "pr-media"},
                                      "a pr-media writer runs in the pr-media environment (the terms list lives there)")
                     for step in job.get("steps") or []:
                         self.assertFalse(self.runs_a_writer(str(step.get("run", ""))),
@@ -1083,8 +1084,8 @@ class FeatWorkflowTests(unittest.TestCase):
 
     @staticmethod
     def environment(job: dict) -> str:
-        env = job.get("environment")
-        return str((env.get("name") if isinstance(env, dict) else env) or "")
+        spec = workflow_jobs.environment_spec(job)
+        return str((spec or {}).get("name") or "")
 
     @staticmethod
     def split_top(text: str, op: str) -> list[str]:
@@ -1190,12 +1191,12 @@ class FeatWorkflowTests(unittest.TestCase):
     def test_only_the_action_in_the_pr_media_environment_reads_the_terms_secret(self) -> None:
         for workflow, loaded in self.workflows():
             for job_id, job in (loaded.get("jobs") or {}).items():
-                if "secrets.PR_MEDIA_PRIVATE_TERMS" not in yaml.dump(job):
+                if not workflow_jobs.reads_secret(job, "PR_MEDIA_PRIVATE_TERMS"):
                     continue
                 with self.subTest(workflow=workflow, job=job_id):
-                    self.assertEqual(job.get("environment"), "pr-media")
+                    self.assertEqual(workflow_jobs.resolve(job).environment, {"name": "pr-media"})
                     for step in job.get("steps") or []:
-                        if "secrets.PR_MEDIA_PRIVATE_TERMS" in yaml.dump(step):
+                        if workflow_jobs.reads_secret(step, "PR_MEDIA_PRIVATE_TERMS"):
                             self.assertEqual(step.get("uses"), self.ACTION_USE)
 
     def test_a_pull_request_run_never_holds_the_secret_or_the_write_token(self) -> None:
@@ -1207,7 +1208,7 @@ class FeatWorkflowTests(unittest.TestCase):
         self.assertIn("github.event_name == 'pull_request'", hand_off["if"])
         self.assertEqual(hand_off["permissions"], {"actions": "write"})
         self.assertNotIn("environment", hand_off)
-        self.assertNotIn("secrets.", yaml.dump(hand_off))
+        self.assertEqual(workflow_jobs.secret_names(hand_off), set())
         dispatch = "\n".join(str(step.get("run", "")) for step in hand_off["steps"])
         self.assertRegex(dispatch, r"gh workflow run cmux-next-media\.yml .*--ref feat-cmux-next")
         self.assertIn('publish_run="$GITHUB_RUN_ID"', dispatch)

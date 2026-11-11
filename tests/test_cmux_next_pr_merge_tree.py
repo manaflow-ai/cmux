@@ -15,6 +15,9 @@ import unittest
 
 import yaml
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/publish_pr_merge_tree.py"
 WORKFLOW = ROOT / ".github/workflows/cmux-next-pr-merge-tree.yml"
@@ -65,7 +68,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(job.get("permissions"), {})
         self.assertNotIn("environment", job)
         self.assertNotIn("create-github-app-token", self.text)
-        self.assertNotIn("secrets.", self.text)
+        self.assertEqual(workflow_jobs.secret_names(self.text), set())
+        self.assertEqual(workflow_jobs.secret_names(job), set())
         self.assertNotIn("actions/checkout", self.text)
 
 

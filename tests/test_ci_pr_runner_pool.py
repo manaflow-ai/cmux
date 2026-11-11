@@ -35,6 +35,22 @@ def load(name: str, path: Path):
 pool = load("pr_runner_pool", ROOT / "scripts/ci/pr_runner_pool.py")
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import warm_distance  # noqa: E402
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
+
+
+def runs_on_of(job: dict) -> str:
+    """A job's runs-on expression, read through workflow_jobs.resolve. These jobs have no matrix, so it is one cell;
+    a matrix nothing resolves (None) or one with several cells fails rather than comparing one raw string."""
+    cells = workflow_jobs.resolve(job).runs_on_cells
+    if cells is None or len(cells) != 1:
+        raise AssertionError(f"runs-on cells {cells!r}: expected one runs-on expression")
+    return cells[0]
+
+
+def env_of(job: dict) -> dict:
+    """The env a job's steps start from (workflow_jobs.resolve)."""
+    return workflow_jobs.resolve(job).env
 
 # Warm routing's cost model in the picker tests: a kept build of the merge base
 # compiles in 100 s, one of the pull request in 150 s, anything else in 400 s.
@@ -2535,7 +2551,7 @@ class Wiring(unittest.TestCase):
 
     def test_a_rerun_of_failed_jobs_leaves_the_owned_pool_only_past_attempt_two(self):
         cli = self.workflow("ci-macos.yml")["jobs"]["cli-product-tests"]
-        self.assertEqual(cli["runs-on"], "${{ needs.late-placement.outputs.attempt == github.run_attempt && fromJSON(needs.late-placement.outputs.runners || '{}')"
+        self.assertEqual(runs_on_of(cli), "${{ needs.late-placement.outputs.attempt == github.run_attempt && fromJSON(needs.late-placement.outputs.runners || '{}')"
                                          "['cli-product'] "
                                          "|| (github.run_attempt > 2 && (contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, "
                                          "' cli-product ')) && inputs.pr_retry_runner "
@@ -2624,7 +2640,7 @@ class Wiring(unittest.TestCase):
         self.assertIn("needs.admission-placement.outputs.attempt == github.run_attempt && "
                       "needs.admission-placement.outputs.runner && fromJSON(needs.admission-placement.outputs.runner) "
                       "|| github.run_attempt == 1 && inputs.pr_admission_runner && "
-                      "fromJSON(inputs.pr_admission_runner) ||", admission["runs-on"])
+                      "fromJSON(inputs.pr_admission_runner) ||", runs_on_of(admission))
         # Only admission reads it (warm pin and overflow borrow, in runs-on and
         # CMUX_PRODUCT_RUNNER); its consumers follow its root label.
         text = (WORKFLOWS / "ci-macos.yml").read_text()
@@ -2688,20 +2704,20 @@ class Wiring(unittest.TestCase):
                  "(github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) || "
                  "github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && "
                  "contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner)")
-        self.assertIn("fromJSON(inputs.owned_head_repos)", job["runs-on"])
-        self.assertIn("contains(inputs.pr_owned_jobs, ' swift-package ')", job["runs-on"])
-        self.assertNotIn("github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith", job["runs-on"])
-        self.assertIn("contains(fromJSON(inputs.owned_head_repos)", job["env"]["CMUX_CI_XCODE_APP"])
-        self.assertIn("contains(inputs.pr_owned_jobs, ' swift-package ')", job["env"]["CMUX_CI_XCODE_APP"])
-        self.assertIn("inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR", job["env"]["CMUX_CI_XCODE_APP"])
-        self.assertEqual(job["runs-on"].count("swift-package"), 1)
+        self.assertIn("fromJSON(inputs.owned_head_repos)", runs_on_of(job))
+        self.assertIn("contains(inputs.pr_owned_jobs, ' swift-package ')", runs_on_of(job))
+        self.assertNotIn("github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith", runs_on_of(job))
+        self.assertIn("contains(fromJSON(inputs.owned_head_repos)", env_of(job)["CMUX_CI_XCODE_APP"])
+        self.assertIn("contains(inputs.pr_owned_jobs, ' swift-package ')", env_of(job)["CMUX_CI_XCODE_APP"])
+        self.assertIn("inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR", env_of(job)["CMUX_CI_XCODE_APP"])
+        self.assertEqual(runs_on_of(job).count("swift-package"), 1)
         # The fork pull request keeps the label (a fork's run has no variables); every other run reads the pool.
-        self.assertEqual(job["runs-on"].count("'blacksmith-6vcpu-macos-15'"), 1)
-        self.assertEqual(job["runs-on"].count("fromJSON(vars.RUNNER_POOLS).macos_15"), 1)
+        self.assertEqual(runs_on_of(job).count("'blacksmith-6vcpu-macos-15'"), 1)
+        self.assertEqual(runs_on_of(job).count("fromJSON(vars.RUNNER_POOLS).macos_15"), 1)
         # The Xcode follows the same condition: the lane pin on the owned
         # label, the macOS 15 pin everywhere else.
-        self.assertIn("inputs.owned_head_repos", job["env"]["CMUX_CI_XCODE_APP"])
-        self.assertIn("inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR", job["env"]["CMUX_CI_XCODE_APP"])
+        self.assertIn("inputs.owned_head_repos", env_of(job)["CMUX_CI_XCODE_APP"])
+        self.assertIn("inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR", env_of(job)["CMUX_CI_XCODE_APP"])
         block = yaml.safe_dump(job)
         for lane in ("pr_retry_runner", "pr_root_runner", "MACOS_RUNNER_PR"):
             self.assertNotIn(lane, block, lane)
@@ -2723,12 +2739,12 @@ class Wiring(unittest.TestCase):
                  "(github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) || "
                  "github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && "
                  "contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner)")
-        self.assertIn("fromJSON(inputs.owned_head_repos)", job["runs-on"])
-        self.assertIn("contains(inputs.pr_owned_jobs, ' release-build ')", job["runs-on"])
-        self.assertEqual(job["runs-on"], job["env"]["CMUX_PRODUCT_RUNNER"])
+        self.assertIn("fromJSON(inputs.owned_head_repos)", runs_on_of(job))
+        self.assertIn("contains(inputs.pr_owned_jobs, ' release-build ')", runs_on_of(job))
+        self.assertEqual(runs_on_of(job), env_of(job)["CMUX_PRODUCT_RUNNER"])
         # The Xcode follows the same condition: the lane pin on the owned label.
-        self.assertIn("inputs.owned_head_repos", job["env"]["CMUX_CI_XCODE_APP"])
-        self.assertIn("inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR", job["env"]["CMUX_CI_XCODE_APP"])
+        self.assertIn("inputs.owned_head_repos", env_of(job)["CMUX_CI_XCODE_APP"])
+        self.assertIn("inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR", env_of(job)["CMUX_CI_XCODE_APP"])
         self.assertEqual(pool.RELEASE_BUILD_JOB, "release-build")
 
     def test_release_build_is_a_side_lane_of_a_full_suite_with_release_build(self):
@@ -3864,10 +3880,10 @@ class IrohReleaseGateWiring(unittest.TestCase):
         self.assertEqual(job["needs"], ["resolve-ref", "runner"])
         # A failed or skipped runner job leaves the Blacksmith expression.
         self.assertEqual(job["if"], "${{ !cancelled() && needs.resolve-ref.result == 'success' }}")
-        self.assertEqual(job["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+        self.assertEqual(runs_on_of(job), "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
                                          "(github.run_attempt == 1 && needs.runner.outputs.label || "
                                          f"{self.BLACKSMITH}) }}}}")
-        self.assertEqual(job["env"]["CMUX_CI_XCODE_APP"],
+        self.assertEqual(env_of(job)["CMUX_CI_XCODE_APP"],
                          "${{ github.run_attempt == 1 && needs.runner.outputs.label != '' && "
                          "vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}")
         names = [step.get("name") for step in job["steps"]]
@@ -3911,9 +3927,9 @@ class IOSWiring(unittest.TestCase):
 
     def test_test_ios_macos_jobs_take_the_runner_jobs_pool(self):
         jobs = self.workflow("test-ios.yml")["jobs"]
-        self.assertEqual(jobs["mobile-core-package"]["runs-on"], self.RUNS_ON.replace(
+        self.assertEqual(runs_on_of(jobs["mobile-core-package"]), self.RUNS_ON.replace(
             "needs.runner.outputs.runs_on", "needs.runner.outputs.package_runs_on"))
-        self.assertEqual(jobs["ios-simulator-build"]["runs-on"], self.RUNS_ON)
+        self.assertEqual(runs_on_of(jobs["ios-simulator-build"]), self.RUNS_ON)
         for name in ("mobile-core-package", "ios-simulator-build"):
             self.assertIn("runner", jobs[name]["needs"], name)
             self.assertIn("needs.runner.result == 'success'", jobs[name]["if"], name)
@@ -3937,7 +3953,7 @@ class IOSWiring(unittest.TestCase):
         self.assertIn('--seed-cache "$SEED_CACHE"', step["run"])
         pin = IOS_XCODE_PIN
         for name in ("mobile-core-package", "ios-simulator-build"):
-            self.assertEqual(jobs[name]["env"]["CMUX_CI_XCODE_APP"], pin, name)
+            self.assertEqual(env_of(jobs[name])["CMUX_CI_XCODE_APP"], pin, name)
         # PyYAML reads the `on:` key as True.
         options = self.workflow("test-ios.yml")[True]["workflow_dispatch"]["inputs"]["runner"]["options"]
         self.assertEqual(options, ["auto", "blacksmith-6vcpu-macos-26", "owned"])
@@ -3945,7 +3961,7 @@ class IOSWiring(unittest.TestCase):
     def test_screenshots_take_the_runner_jobs_pool_without_actions_read(self):
         workflow = self.workflow("ios-screenshots.yml")
         jobs = workflow["jobs"]
-        self.assertEqual(jobs["screenshots"]["runs-on"], self.RUNS_ON)
+        self.assertEqual(runs_on_of(jobs["screenshots"]), self.RUNS_ON)
         # release.yml calls this with `contents: read` only (#12149).
         self.assertNotIn("permissions", jobs["runner"])
         self.assertEqual(workflow["permissions"], {"contents": "read"})
@@ -3956,7 +3972,7 @@ class IOSWiring(unittest.TestCase):
                          "${{ !contains(github.workflow_ref, '/.github/workflows/ios-screenshots.yml@') }}")
         self.assertNotIn("GH_TOKEN", step["env"])
         screenshots = jobs["screenshots"]
-        self.assertEqual(screenshots["env"]["CMUX_CI_XCODE_APP"],
+        self.assertEqual(env_of(screenshots)["CMUX_CI_XCODE_APP"],
                          "${{ startsWith(needs.runner.outputs.label, 'glaeda-') && vars.CMUX_CI_XCODE_APP_PR || '' }}")
         capture = next(step for step in screenshots["steps"] if step.get("name") == "Capture screenshots")
         self.assertEqual(capture["env"]["SNAPSHOT_DERIVED_DATA_PATH"],
@@ -3985,7 +4001,7 @@ class IOSWiring(unittest.TestCase):
                            "vars.CI_PR_POOL_OWNED"):
                 self.assertNotIn(routed, text, f"{name} must not route to an owned Mac")
         validate = self.workflow("ios-streamed-validate.yml")["jobs"]["validate"]
-        self.assertEqual(validate["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+        self.assertEqual(runs_on_of(validate), "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
                                               "fromJSON(vars.RUNNER_POOLS).macos_26 }}")
 
     def test_home_secrets_are_removed_however_the_job_ends(self):

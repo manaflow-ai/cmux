@@ -20,6 +20,7 @@ from urllib.parse import parse_qs
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/ci"))
 import reuse_app_host_products as reuse
 from test_app_host_test_products import TestProductHandoff
+import workflow_jobs
 import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 
@@ -1545,7 +1546,7 @@ class ContractParity(unittest.TestCase):
     def job_env(self, job):
         # As a step sees them: YAML `true` reaches it as the string "true".
         return {name: str(value).lower() if isinstance(value, bool) else str(value)
-                for name, value in job.get("env", {}).items()}
+                for name, value in workflow_jobs.resolve(job).env.items()}
 
     def executed(self, step):
         """What a step runs: its action, and each non-comment line of `run`."""

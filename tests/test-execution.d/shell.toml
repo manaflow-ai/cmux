@@ -26,6 +26,11 @@ path = "tests/test_shell_histfile_ghostty_zdotdir_regression.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_shell_invocations.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Runs each shell fixture in real bash with its commands stubbed and compares with tests/shell_invocations.py, the invocation detector the CI guards share; run python3 tests/test_shell_invocations.py yourself after changing it (a few seconds, no build)."
+
+[[test]]
 path = "tests/test_shell_no_git_watch.py"
 lane = "linux-guard"
 

@@ -188,6 +188,11 @@ path = "tests/test_ci_guard_workflow_structure.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_guards_read_through_workflow_jobs.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Fails on any guard under tests/ that reads a job's runs-on, environment, env or secrets raw, or copies a job with {**job} or dict(job), instead of through tests/workflow_jobs.py; run python3 tests/test_ci_guards_read_through_workflow_jobs.py yourself after changing a workflow guard (a few seconds, no build)."
+
+[[test]]
 path = "tests/test_ci_health_report.py"
 lane = "linux-guard"
 
@@ -207,6 +212,11 @@ reason = "Portable unit tests for the overflow watch's hosted light rescue (main
 [[test]]
 path = "tests/test_ci_ios_conventions_diff.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_job_list_fixture_mutations.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Proves each job-list fixture goes red with the pre-fix secret, job-header and environment reader and green with tests/workflow_jobs.py; run python3 tests/test_ci_job_list_fixture_mutations.py yourself after changing workflow_jobs.py or a job-list guard (no build)."
 
 [[test]]
 path = "tests/test_ci_killpg_tolerates_eperm.py"
@@ -569,6 +579,11 @@ path = "tests/test_ci_select_package_tests.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_self_hosted_downloads_are_fresh.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Fails when a job on a self-hosted selector downloads an artifact into a relative directory (a persistent worker keeps an earlier job's files there) instead of ${{ runner.temp }}; run python3 tests/test_ci_self_hosted_downloads_are_fresh.py yourself after adding a download-artifact step (a few seconds, no build)."
+
+[[test]]
 path = "tests/test_ci_session_label_routing.py"
 lane = "linux-guard"
 
@@ -671,6 +686,11 @@ path = "tests/test_ci_web_test_verdict.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_webviews_affected.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/ci/webviews_affected.py's selection for the react-apps-check shards on pull requests; run python3 tests/test_ci_webviews_affected.py yourself after changing it or focused_tests.py's webviews graph (about 5 s, no build)."
+
+[[test]]
 path = "tests/test_ci_workflow_guards_are_wired.py"
 lane = "linux-guard"
 
@@ -701,8 +721,3 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_xcodebuild_noninteractive_helper.py"
 lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_webviews_affected.py"
-lane = "manual"
-reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/ci/webviews_affected.py's selection for the react-apps-check shards on pull requests; run python3 tests/test_ci_webviews_affected.py yourself after changing it or focused_tests.py's webviews graph (about 5 s, no build)."
