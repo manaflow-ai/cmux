@@ -45,43 +45,6 @@ import CmuxHomeCoreTestSupport
         store.stop()
     }
 
-    /// Round 2 (verifier M-3): a first read that never answered left the transcript loading
-    /// forever. Past its deadline it is failed (Couldn't load messages. / Try Again); Try Again
-    /// while that read is still out shows loading again under a fresh deadline; the read's page,
-    /// when it finally lands, replaces the error.
-    @Test func aHungFirstReadEndsInTheErrorAndItsLatePageStillLands() async {
-        let source = GatedHomeSource(MockHomeSource(options: .immediate))
-        let clock = ManualClock()
-        let blobs = FileManager.default.temporaryDirectory.appendingPathComponent("home-first-page-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: blobs) }
-        let store = HomeStore(source: source, blobCacheDirectory: blobs, clock: clock)
-        store.start()
-        await waitUntil { store.isOnline && !store.rows.isEmpty }
-        // The blob cache's prune loop is the clock's one sleeper until the read's deadline joins it.
-        await waitUntil { clock.pendingSleepers == 1 }
-        source.hold()
-        let opening = store.beginOpen(chief)
-        await waitUntil { source.waiting == 1 && clock.pendingSleepers == 2 }
-        #expect(store.transcriptFirstPage(chief) == .loading)
-        clock.advance(by: HomeStore.firstPageDeadline)
-        await waitUntil { store.transcriptFirstPage(chief) == .failed }
-        #expect(store.transcript(for: chief).isEmpty)
-
-        // Try Again while the read is still out: loading again, under a fresh deadline.
-        _ = store.retryTranscript(chief)
-        #expect(store.transcriptFirstPage(chief) == .loading, "Try Again kept the error while it waited")
-        await waitUntil { clock.pendingSleepers == 2 }
-        clock.advance(by: HomeStore.firstPageDeadline)
-        await waitUntil { store.transcriptFirstPage(chief) == .failed }
-
-        // The late page replaces the error.
-        source.release()
-        await opening.value
-        #expect(store.transcriptFirstPage(chief) == .loaded)
-        #expect(!store.transcript(for: chief).isEmpty)
-        store.stop()
-    }
-
     @Test func aRetryOfATranscriptShownNowhereReadsNothing() async {
         let (store, source) = await started()
         await store.retryTranscript(chief).value

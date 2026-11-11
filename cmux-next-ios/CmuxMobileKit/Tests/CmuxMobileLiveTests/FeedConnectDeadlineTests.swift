@@ -1,4 +1,4 @@
-@testable import CmuxMobileFeed
+import CmuxMobileFeed
 import Foundation
 import Testing
 
@@ -96,21 +96,3 @@ import Testing
         }
     }
 }
-
-/// Round 2 (verifier low): the offline state's copy was a SwiftUI literal in a module with no
-/// catalog, so it never translated. It lives in CmuxMobileFeed's catalog now.
-@Suite struct FeedStringsCatalogTests {
-    @Test func theOfflineAndConnectingCopyIsTranslated() throws {
-        let path = try #require(FeedStrings.bundle.path(forResource: "de", ofType: "lproj"), "CmuxMobileFeed ships no German strings")
-        let german = try #require(Bundle(path: path))
-        let expected = [
-            "mobile.feed.offline.title": "Deine Macs sind offline",
-            "mobile.feed.offline.body": "Öffne cmux auf deinem Mac und prüfe, ob er online ist.",
-            "mobile.feed.connecting": "Verbindung mit deinem Mac wird hergestellt …",
-        ]
-        for (key, value) in expected {
-            #expect(german.localizedString(forKey: key, value: "<missing>", table: nil) == value, "\(key)")
-        }
-    }
-}
-

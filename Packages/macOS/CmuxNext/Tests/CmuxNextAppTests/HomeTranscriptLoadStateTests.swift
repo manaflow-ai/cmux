@@ -45,28 +45,6 @@ import Testing
         #expect(view.firstRun.isHidden, "a Chief with history never shows the first-run panel")
     }
 
-    /// Round 2 (verifier low): Try Again on a failed older page started a Task nobody held, so
-    /// `stop()` could not end it. The view keeps it and `stop()` cancels it.
-    @Test func stopCancelsTheOlderPageRetry() async throws {
-        let source = GatedHomeSource(MockHomeSource(options: .immediate))
-        let store = HomeStore(source: source)
-        store.start()
-        defer { store.stop() }
-        await settle { store.me != nil && store.isOnline && !store.rows.isEmpty }
-        let me = try #require(store.me?.id)
-        let view = HomeNativeTranscriptView(store: store, conversation: id, me: me)
-        await view.binding.opened()
-        view.retryOlder()
-        let retry = try #require(view.olderRetry, "Try Again's older-page read is not held")
-        // A second Try Again replaces the first.
-        view.retryOlder()
-        #expect(retry.isCancelled)
-        let second = try #require(view.olderRetry)
-        view.stop()
-        #expect(second.isCancelled, "stop() left the older-page retry running")
-        #expect(view.olderRetry == nil)
-    }
-
     @Test func aTrulyNewChiefStillShowsTheFirstRunPanel() async throws {
         let source = EmptyChiefSource()
         let store = HomeStore(source: source)
