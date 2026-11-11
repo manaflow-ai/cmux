@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 626,
+  "count": 628,
   "sections": [
     {
       "id": "general",
@@ -4607,7 +4607,7 @@
           "title": "Workspace Color Style",
           "help": "How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color.",
           "kind": "choice",
-          "default": "dot",
+          "default": "leftRail",
           "group": "Sidebar",
           "values": [
             "dot",
@@ -5638,6 +5638,14 @@
           "group": "Bookmarks"
         },
         {
+          "key": "browser.showLoadingBar",
+          "title": "Show Loading Bar",
+          "help": "A thin progress line under the address bar while a page loads. The Stop button shows either way.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Toolbar"
+        },
+        {
           "key": "browser.siteEngines",
           "title": "Site Engines",
           "help": "Sites that always open in one engine: a site, such as spotify.com, and chromium or webkit. Spotify, Netflix and other protected media sites open in WebKit, because their media does not play in Chromium.",
@@ -5887,6 +5895,14 @@
           "kind": "toggle",
           "default": false,
           "group": "Hang Reports"
+        },
+        {
+          "key": "diagnostics.usagePatterns",
+          "title": "Record Usage Patterns",
+          "help": "Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Usage Patterns"
         },
         {
           "key": "home.attachments.keepLocation",

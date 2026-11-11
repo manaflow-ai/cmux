@@ -200,6 +200,13 @@ fn handle_frame(
         Ok(request) => request,
         Err(error) => return send_bad_request(writer, message, &error),
     };
+    // Opt-in usage patterns: the command's wire name (it parsed as a `Command`, so it is one of
+    // the enum's names), never its params. One atomic load when off.
+    if cmux_usage_patterns::enabled()
+        && let Some(name) = command_wire_name(message)
+    {
+        cmux_usage_patterns::count("command", &name);
+    }
     request.remote_line = incognito_remote::line_to_recheck(mux, client, message);
     // The command is counted under its name where it runs, here or on the connection's
     // dispatch thread (`handle_request_with_cancellation`).
@@ -226,6 +233,17 @@ fn handle_frame(
             None => true,
         },
     }
+}
+
+/// The top-level `cmd` member of a line that parsed as a [`Request`] (so it is one of the
+/// `Command` enum's wire names), never a nested one. Parsed only while usage patterns count.
+fn command_wire_name(message: &str) -> Option<String> {
+    #[derive(Deserialize)]
+    struct CmdName<'a> {
+        #[serde(borrow)]
+        cmd: std::borrow::Cow<'a, str>,
+    }
+    serde_json::from_str::<CmdName<'_>>(message).ok().map(|name| name.cmd.into_owned())
 }
 
 /// Whether a v2 request is an agent hook's report (`session.journal.append` of the agent hook
