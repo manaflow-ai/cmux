@@ -9,7 +9,7 @@ import Testing
 /// fill in afterwards, in bounded pages, in order, each once, while live records go on. A gap
 /// that fits one page reads as it always did, and a Mac that pages only forward still catches up.
 @MainActor
-@Suite struct TailFirstReattachLiveTests {
+@Suite(.serialized) struct TailFirstReattachLiveTests {
     typealias Chat = ChatOpenSnapshotLiveTests
 
     /// A fake acpmux over a log of `Chat.turnRecords` turns that pages as acpmux does
@@ -152,13 +152,20 @@ import Testing
         await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
         let source = hub.source(sessionID: "s1", summary: Chat.summary)
         let store = AgentChatStore(source: source)
-        await Chat.waitUntil { store.turns.count == Chat.turns }
+        await Self.waitUntil { store.turns.count == Chat.turns }
         #expect(store.turns.map(\.id) == ids(0..<Chat.turns))
         await hub.bind(nil)
         fake.write(through: missedThrough)
         fake.resetCounts()
         await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
         return (hub, source, store, link)
+    }
+
+    /// Each test reads hundreds of turns over the fake link; with the whole kit running in
+    /// parallel on one runner that takes several seconds, so the deadline is a minute (a wait
+    /// that is met returns at once). The suite runs its tests one at a time for the same reason.
+    static func waitUntil(_ done: () -> Bool) async {
+        await LongChatOpenLiveTests.waitUntil(seconds: 60, done)
     }
 
     static func ids(_ turns: some Sequence<Int>) -> [String] { turns.map { "t\($0)" } }
@@ -175,7 +182,7 @@ import Testing
         fake.failGapPages(true)
         let (hub, source, store, link) = try await Self.reconnect(fake, missedThrough: last)
         defer { withExtendedLifetime((hub, link)) {} }
-        await Chat.waitUntil { Self.shows(store, last) && fake.gapPageCount > 0 }
+        await Self.waitUntil { Self.shows(store, last) && fake.gapPageCount > 0 }
 
         // The chat had, then the newest 80 turns; the 220 between are still on the Mac.
         #expect(store.turns.map(\.id) == Self.ids(0..<Chat.turns) + Self.ids((last - 79)...last))
@@ -193,7 +200,7 @@ import Testing
         fake.failGapPages(false)
         await hub.bind(nil)
         await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
-        await Chat.waitUntil { !store.isFillingGap }
+        await Self.waitUntil { !store.isFillingGap }
         #expect(!store.isFillingGap)
         #expect(store.turns.map(\.id) == Self.ids(0...last))
         #expect(source.gapFill == nil)
@@ -206,7 +213,7 @@ import Testing
         let fake = Fake(turns: 0..<(last + 1), visibleThrough: Chat.turns * 5)
         let (hub, source, store, link) = try await Self.reconnect(fake, missedThrough: last)
         defer { withExtendedLifetime((hub, link)) {} }
-        await Chat.waitUntil { Self.shows(store, last) && !store.isFillingGap && store.turns.count == last + 1 }
+        await Self.waitUntil { Self.shows(store, last) && !store.isFillingGap && store.turns.count == last + 1 }
 
         #expect(store.turns.map(\.id) == Self.ids(0...last))
         for turn in store.turns {
@@ -221,7 +228,7 @@ import Testing
         #expect(store.isReplayed("t\(Chat.turns + 10)"))
 
         let second = AgentChatStore(source: source)
-        await Chat.waitUntil { second.turns.count == last + 1 }
+        await Self.waitUntil { second.turns.count == last + 1 }
         #expect(second.turns.map(\.id) == Self.ids(0...last))
         #expect(!second.isFillingGap)
     }
@@ -235,7 +242,7 @@ import Testing
         let (hub, _, store, link) = try await Self.reconnect(fake, missedThrough: last)
         defer { withExtendedLifetime((hub, link)) {} }
         let newest = last + 2
-        await Chat.waitUntil { Self.shows(store, newest) && !store.isFillingGap && store.turns.count == newest + 1 }
+        await Self.waitUntil { Self.shows(store, newest) && !store.isFillingGap && store.turns.count == newest + 1 }
 
         #expect(store.turns.map(\.id) == Self.ids(0...newest))
         #expect(ReattachCatchUpLiveTests.answer(store, newest) == "answer \(newest)")
@@ -257,13 +264,13 @@ import Testing
         await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
         let source = hub.source(sessionID: "s1", summary: Kept.summary)
         let store = AgentChatStore(source: source)
-        await Chat.waitUntil { store.turns.count == Chat.turns }
+        await Self.waitUntil { store.turns.count == Chat.turns }
         #expect(store.turns.map(\.id) == Self.ids(0..<Chat.turns))
 
         await hub.bind(nil)
         fake.write(through: last)
         await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
-        await Chat.waitUntil { Self.shows(store, last) && fake.gapPageCount > 0 }
+        await Self.waitUntil { Self.shows(store, last) && fake.gapPageCount > 0 }
         #expect(store.isFillingGap)
 
         // The link drops with the gap still open: the kept copy is saved as it stands.
@@ -284,7 +291,7 @@ import Testing
         let fake = Fake(turns: 0..<(last + 1), visibleThrough: Chat.turns * 5)
         let (hub, source, store, link) = try await Self.reconnect(fake, missedThrough: last)
         defer { withExtendedLifetime((hub, link)) {} }
-        await Chat.waitUntil { Self.shows(store, last) }
+        await Self.waitUntil { Self.shows(store, last) }
 
         #expect(store.turns.map(\.id) == Self.ids(0...last))
         #expect(!store.isFillingGap)
@@ -304,7 +311,7 @@ import Testing
                         forwardOnly: true)
         let (hub, source, store, link) = try await Self.reconnect(fake, missedThrough: last)
         defer { withExtendedLifetime((hub, link)) {} }
-        await Chat.waitUntil { Self.shows(store, last) }
+        await Self.waitUntil { Self.shows(store, last) }
 
         let missed = (Chat.turns...last).filter { !hole || $0 != Chat.turns }
         #expect(store.turns.map(\.id) == Self.ids(0..<Chat.turns) + Self.ids(missed))
@@ -324,7 +331,7 @@ import Testing
         fake.growAndFailForwardOnce(through: last)
         let (hub, source, store, link) = try await Self.reconnect(fake, missedThrough: missed)
         defer { withExtendedLifetime((hub, link)) {} }
-        await Chat.waitUntil { Self.shows(store, last) && !store.isFillingGap && store.turns.count == last + 1 }
+        await Self.waitUntil { Self.shows(store, last) && !store.isFillingGap && store.turns.count == last + 1 }
 
         #expect(store.turns.map(\.id) == Self.ids(0...last))
         #expect(!store.isFillingGap)
