@@ -205,7 +205,21 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             run(id) { client in try await client.typing(on); return Data("{}".utf8) }
         case "_acpmux/view":
             guard names(params["sessionId"]), let visible = params["visible"] as? Bool else { return refuse(id, method) }
-            run(id) { client in try await client.view(visible); return Data("{}".utf8) }
+            // Whether the person attends the chat on screen (webviews attention.ts): absent, they do.
+            // A chat on another machine keeps its turns unread while they are away, as a local one.
+            let attending: Bool
+            switch params["attending"] {
+            case nil, is NSNull: attending = true
+            case let value as Bool: attending = value
+            default: return refuse(id, method)
+            }
+            var seenSeq: UInt64?
+            switch params["seenSeq"] {
+            case nil, is NSNull: break
+            case let value as NSNumber where value.int64Value >= 0 && !(value is Bool): seenSeq = value.uint64Value
+            default: return refuse(id, method)
+            }
+            run(id) { client in try await client.view(visible, attending: attending, seenSeq: seenSeq) }
         case "_acpmux/watch" where state.withLock({ $0.client == nil }):
             // A new chat before its first send: no session on that machine yet.
             reply(id, ["sessions": [Any]()])

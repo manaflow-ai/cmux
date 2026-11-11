@@ -8,6 +8,10 @@
 //   `_acpmux/view` visible false; showing it again sends true.
 // - acpmux handles each request on its own task, so a view sent while the attach is in flight
 //   could overtake it and be refused; the pane sends it once the attach is answered.
+// - Showing is not seeing (attention.ts; Leo, 2026-11-11: "if they didn't move the mouse at all,
+//   then it's like, well, they didn't see it"): a shown pane with no input for the idle window says
+//   `attending: false` with the seq it had at the last input, and the next input says
+//   `attending: true` and draws "New since you looked" where acpmux's answer puts it.
 //
 // Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -45,13 +49,17 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
   /// While set, the stand-in holds the attach's reply until `releaseAttach` runs.
   let holdAttach = false;
   let releaseAttach: (() => void) | undefined;
+  /// While set, a view that says the person attends again is answered with their return.
+  let returnOnAttend = false;
   /// The socket of the pane that last spoke to the daemon.
   let socket: { send(data: string): void } | undefined;
   /// The waits on what the daemon heard: each message it takes wakes them.
   const waiting = new Set<() => void>();
 
-  function answer(method: string): unknown {
+  function answer(method: string, params: Record<string, unknown> = {}): unknown {
     switch (method) {
+      case "_acpmux/view":
+        return returnOnAttend && params.attending === true ? { lastReturn: { since: 0, turns: 2 } } : {};
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: ["_acpmux/view"] } } };
       case "_acpmux/watch":
@@ -80,7 +88,7 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, unknown> };
           sent.push({ method: message.method, params: message.params ?? {} });
           socket = ws;
-          const result = answer(message.method);
+          const result = answer(message.method, message.params);
           const reply = () => ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
           if (message.id === undefined) {
             for (const wake of waiting) wake();
@@ -172,7 +180,11 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
   const sentViews = (count: number) => until(() => views().length >= count, `${count} views`);
 
   async function openPane(): Promise<Page> {
+    return openPaneWith();
+  }
+  async function openPaneWith(init?: () => void): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    if (init) await page.addInitScript(init);
     // Keeps the page's sockets, so a test can send a marker down the pane's own connection.
     await page.addInitScript(() => {
       const sockets: WebSocket[] = [];
@@ -233,6 +245,30 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
       } finally {
         holdAttach = false;
         await page.close();
+      }
+    }, 120_000);
+
+    test("idle on screen says not attending; the next input attends and draws the return", async () => {
+      const from = sent.length;
+      returnOnAttend = true;
+      // A short idle window, so the test waits half a second instead of a minute (attention.ts).
+      const pane = await openPaneWith(() => {
+        (globalThis as { __cmuxAttentionIdleMs?: number }).__cmuxAttentionIdleMs = 500;
+      });
+      try {
+        const viewsFrom = () =>
+          sent.slice(from).filter((m) => m.method === "_acpmux/view" && m.params.sessionId === SESSION);
+        await until(() => viewsFrom().some((m) => m.params.attending === false), "an idle view", ATTACH_MS);
+        const idle = viewsFrom().find((m) => m.params.attending === false)!;
+        expect(idle.params.visible).toBe(true);
+        expect(typeof idle.params.seenSeq).toBe("number");
+        await pane.mouse.move(40, 40);
+        await pane.mouse.move(60, 60);
+        await until(() => viewsFrom().some((m) => m.params.attending === true), "the return");
+        await pane.waitForSelector(".cv-since", { timeout: 10_000 });
+      } finally {
+        returnOnAttend = false;
+        await pane.close();
       }
     }, 120_000);
   });

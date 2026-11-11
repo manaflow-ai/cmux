@@ -381,6 +381,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// (a Cloud VM chat's sub-sessions on the Mac). Without it the chat shows no children.
     case agentSessionChildren = "agent-session-children-v1"
     case agentSessionPresence = "agent-session-presence-v1"
+    /// `attending` and `seen_seq` on `agent-session-view`: whether the person attends the chat it
+    /// shows, so a chat there keeps its turns unread while they are away (acpmux `hub/seen.rs`).
+    case agentSessionAttention = "agent-session-attention-v1"
     /// `agent-session-set-model`, `-set-mode` and `-set-config`: the person's model, mode and
     /// option picks in a chat on that machine. Without it those picks say to update its cmux-tui.
     case agentSessionSettings = "agent-session-settings-v1"

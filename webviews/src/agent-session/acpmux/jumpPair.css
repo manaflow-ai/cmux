@@ -22,3 +22,28 @@
     transition: transform var(--agent-motion-move) var(--agent-ease-out);
   }
 }
+/* While Jump up goes to the unread "New" line (turns that ended while the person was away, even
+   with the chat on screen: attention.ts, acpmux hub/seen.rs), the disc carries the theme's accent
+   dot at its top end, the unread dot the sidebar draws for a chat (design/transcript-overlays.md).
+   Without unread it goes to where the person last acted by hand, and has no dot. The dot is drawn
+   over the glass in the disc's own box, so showing it moves nothing. */
+.acpmux-jump-up::after {
+  content: "";
+  position: absolute;
+  top: var(--ds-space-1);
+  right: var(--ds-space-1);
+  width: calc(var(--ds-icon-12) / 2);
+  height: calc(var(--ds-icon-12) / 2);
+  border-radius: 50%;
+  background: var(--cmux-app-accent, var(--agent-text));
+  opacity: 0;
+  pointer-events: none;
+}
+.acpmux-jump-up[data-unread]:not([data-back])::after {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-jump-up::after {
+    transition: opacity var(--agent-motion-calm) var(--agent-ease-out);
+  }
+}

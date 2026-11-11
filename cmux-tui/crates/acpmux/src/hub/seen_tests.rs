@@ -120,3 +120,94 @@ async fn coming_back_while_background_work_runs_tells_every_client_the_count_cle
     assert_eq!(read["turns"], json!(1));
     assert_eq!(s.meta().unread_turns, 0);
 }
+
+// Showing is not seeing (Leo, 2026-11-11): a chat left on screen while the person is away keeps
+// its turns unread, and their return says where they stopped attending.
+
+#[tokio::test]
+async fn a_person_idle_at_the_bottom_keeps_turns_unread_and_returns_to_where_they_stopped() {
+    let (hub, s) = chat().await;
+    hub.attach_count(&s, 1, true);
+    hub.append(&s, "mux", "note", json!({"seen": true}));
+    let last_input = s.seq.load(Ordering::SeqCst);
+    // Output streams after their last input, before the client's idle window ran out.
+    hub.append(&s, "mux", "note", json!({"seen": false}));
+    assert_eq!(hub.look_changed(&s, Look::Attending, Look::Idle, Some(last_input)), None);
+    assert!(hub.shown(&s), "an idle client still shows the chat: process, recap, presence");
+    assert!(!hub.attended(&s));
+    assert_eq!(s.meta().seen_seq, Some(last_input), "left off at the last input, not at the timeout");
+
+    hub.append(&s, "mux", "note", json!({"seen": false}));
+    hub.note_turn_end(&s);
+    let meta = s.meta();
+    assert!(meta.unread, "a turn that ends on screen with nobody attending is unread");
+    assert_eq!(meta.unread_turns, 1);
+
+    let back = hub.look_changed(&s, Look::Idle, Look::Attending, None);
+    let want = crate::store::LastReturn { since: last_input, turns: 1 };
+    assert_eq!(back, Some(want), "coming back answers the return for the client to draw");
+    let read = last_read(&hub, &s).expect("coming back logs the read status");
+    assert_eq!(read["since"], json!(last_input));
+    assert!(!s.meta().unread);
+}
+
+#[tokio::test]
+async fn a_person_who_attends_at_the_bottom_sees_each_turn() {
+    let (hub, s) = chat().await;
+    hub.attach_count(&s, 1, true);
+    hub.append(&s, "mux", "note", json!({"seen": true}));
+    hub.note_turn_end(&s);
+    let meta = s.meta();
+    assert!(!meta.unread);
+    assert_eq!(meta.unread_turns, 0);
+    // Going idle after reading it all leaves nothing new behind.
+    let at = s.seq.load(Ordering::SeqCst);
+    hub.look_changed(&s, Look::Attending, Look::Idle, Some(at));
+    assert!(!s.meta().unread, "the turn ended before their last input: they saw it");
+    assert_eq!(hub.look_changed(&s, Look::Idle, Look::Attending, None), None);
+}
+
+#[tokio::test]
+async fn a_turn_that_ended_after_the_last_input_is_missed_when_idle_is_noticed() {
+    let (hub, s) = chat().await;
+    hub.attach_count(&s, 1, true);
+    let last_input = s.seq.load(Ordering::SeqCst);
+    hub.append(&s, "mux", "note", json!({"seen": false}));
+    // The turn ends inside the idle window, while the client still counted the person attending.
+    hub.note_turn_end(&s);
+    assert!(!s.meta().unread);
+    hub.look_changed(&s, Look::Attending, Look::Idle, Some(last_input));
+    let meta = s.meta();
+    assert!(meta.unread, "it ended after the person's last input");
+    assert_eq!(meta.unread_turns, 1);
+    assert_eq!(meta.seen_seq, Some(last_input));
+}
+
+#[tokio::test]
+async fn another_attending_client_still_sees_and_an_idle_one_lets_go_cleanly() {
+    let (hub, s) = chat().await;
+    hub.attach_count(&s, 1, true);
+    hub.attach_count(&s, 1, true);
+    hub.look_changed(&s, Look::Attending, Look::Idle, None);
+    assert!(hub.attended(&s), "the other client's person attends");
+    hub.note_turn_end(&s);
+    assert!(!s.meta().unread);
+    // The idle one detaches the way server/view.rs lets it go: hidden first.
+    hub.look_changed(&s, Look::Idle, Look::Hidden, None);
+    hub.attach_count(&s, -1, false);
+    assert_eq!(s.idle.load(Ordering::SeqCst), 0);
+    assert_eq!(s.hidden.load(Ordering::SeqCst), 0);
+    assert!(hub.attended(&s));
+}
+
+#[tokio::test]
+async fn coming_back_from_idle_mid_turn_counts_what_the_running_turn_wrote() {
+    let (hub, s) = chat().await;
+    hub.attach_count(&s, 1, true);
+    let last_input = s.seq.load(Ordering::SeqCst);
+    hub.look_changed(&s, Look::Attending, Look::Idle, Some(last_input));
+    hub.set_status(&s, SessionStatus::Running);
+    hub.append(&s, "mux", "note", json!({"seen": false}));
+    let back = hub.look_changed(&s, Look::Idle, Look::Attending, None);
+    assert_eq!(back.map(|b| b.since), Some(last_input), "the output written while away is new");
+}

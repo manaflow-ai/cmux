@@ -205,6 +205,7 @@ import {
 } from "./conversation/promptCoach";
 import { promptCoachDismissed, rememberPromptCoachDismissed } from "./conversation/promptCoachDismissed";
 import { promptCoachEnabled } from "./chatDisplay";
+import { Attention, browserAttentionEnv } from "./attention";
 import {
   PRESET_APPROVAL,
   PresetApprovalFold,
@@ -2855,8 +2856,13 @@ export class AcpmuxDirectClient {
   private selectionGeneration = 0;
   /// The last attach sent, and what acpmux last accepted about whether the page shows its chat.
   private attaching: Promise<unknown> = Promise.resolve();
-  private shownToAcpmux?: { sessionId: string; visible: boolean };
+  private shownToAcpmux?: { sessionId: string; visible: boolean; attending?: boolean };
   private viewSync: Promise<void> = Promise.resolve();
+  /// Whether the person attends the chat on screen (attention.ts): acpmux counts what they see by it.
+  private attention?: Attention;
+  /// The log seq the chat had at the person's last input, and which chat: where an idle pane says
+  /// it was left off (`_acpmux/view` `seenSeq`).
+  private seenAt?: { sessionId: string; seq: number };
   /// The selection generation whose attach reply has landed; lag resync waits for it.
   private attachedGeneration = -1;
   private historyExhausted = false;
@@ -2903,6 +2909,17 @@ export class AcpmuxDirectClient {
     this.onLost = onLost;
     this.selectedSessionId = host.sessionId;
     if (typeof document !== "undefined") document.addEventListener("visibilitychange", this.showChanged);
+    // The person attending (attention.ts): a flip tells acpmux, which keeps the chat's read mark.
+    const env = browserAttentionEnv();
+    if (env)
+      this.attention = new Attention(
+        env,
+        () => this.syncView(),
+        () => {
+          const sessionId = this.selectedSessionId ?? this.host.sessionId;
+          if (sessionId) this.seenAt = { sessionId, seq: this.lastSeq };
+        },
+      );
     // The chat on screen is handed over when this page goes away as well as when it is left, so a
     // tab closed or reloaded on a chat leaves that chat warm for the next tab (keptAttachments.ts
     // hands the composer's chips over the same way). Without this the only chat the host ever
@@ -5082,6 +5099,8 @@ export class AcpmuxDirectClient {
       await this.attaching;
       const sessionId = this.selectedSessionId;
       const visible = pageShown();
+      // Shown but not attended (attention.ts): acpmux keeps the chat shown and its turns unread.
+      const attending = visible && (this.attention?.now() ?? true);
       if (
         generation !== this.selectionGeneration ||
         !sessionId ||
@@ -5089,11 +5108,26 @@ export class AcpmuxDirectClient {
         this.shownToAcpmux?.sessionId !== sessionId
       )
         return;
-      if (this.shownToAcpmux.visible === visible) return;
-      await this.typed("_acpmux/view", { sessionId, visible }).then(
-        () => {
-          if (generation === this.selectionGeneration && this.selectedSessionId === sessionId)
-            this.shownToAcpmux = { sessionId, visible };
+      const was = this.shownToAcpmux;
+      if (was.visible === visible && (was.attending ?? was.visible) === attending) return;
+      const seen = this.seenAt?.sessionId === sessionId ? this.seenAt.seq : undefined;
+      await this.typed("_acpmux/view", {
+        sessionId,
+        visible,
+        ...(visible && { attending }),
+        ...(visible && !attending && seen !== undefined && { seenSeq: seen }),
+      }).then(
+        (answer) => {
+          if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
+          this.shownToAcpmux = { sessionId, visible, attending };
+          // Back after turns ended while the person was away from the chat on screen: "New since
+          // you looked" goes where they stopped attending, as when they come back to it.
+          const back = attending ? returnOf(sessionId, answer?.lastReturn) : undefined;
+          if (back && this.since?.seq !== back.seq) {
+            this.since = back;
+            this.placeSince();
+            this.emit();
+          }
         },
         () => undefined,
       );
@@ -5877,6 +5911,8 @@ export class AcpmuxDirectClient {
   /// `reads`, the reads the chat draws with (`startAttachReads`) in the same round trip.
   private sendAttach(sessionId: string, generation: number, reads: boolean): SentAttach {
     const visible = pageShown();
+    // A reconnect while the person is away from the chat on screen sees nothing (attention.ts).
+    const attending = visible && (this.attention?.now() ?? true);
     const attaching = this.typed("_acpmux/attach", {
       sessionId,
       // The visible page must not wait for the daemon's restart-time full-log restoration. The
@@ -5902,6 +5938,7 @@ export class AcpmuxDirectClient {
       ],
       eventStream: true,
       visible,
+      ...(visible && !attending && { attending }),
     });
     const out = { sessionId };
     this.attachOut = out;
@@ -5912,7 +5949,7 @@ export class AcpmuxDirectClient {
       () => {
         settled();
         if (generation === this.selectionGeneration && this.selectedSessionId === sessionId)
-          this.shownToAcpmux = { sessionId, visible };
+          this.shownToAcpmux = { sessionId, visible, attending };
       },
       () => settled(),
     );
@@ -13352,6 +13389,8 @@ export class AcpmuxDirectClient {
     this.rejectPending();
   }
   private stopPageListeners(): void {
+    this.attention?.dispose();
+    this.attention = undefined;
     if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
     if (typeof window !== "undefined") {
       window.removeEventListener("pagehide", this.pageWentAway);

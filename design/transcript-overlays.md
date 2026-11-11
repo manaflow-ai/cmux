@@ -79,10 +79,33 @@ thread."
 - **Jump up** stands one control and one gap above it (`jumpPair.css`): the same disc, size, glass, focus and
   fade, its arrow up. The two read as one column, and neither moves for the other.
 - It goes to where the reader left off (`jumpUp.ts`): the New line while it is unread, else the newer of the
-  person's last sent prompt and where they last stopped scrolling by hand.
+  person's last sent prompt and where they last stopped scrolling by hand. Leo, 2026-11-11: "if I scrolled
+  to the bottom the whole time ... you eventually can jump right up to the last unread bit, right? Because,
+  like, that's when you last interacted with it."
+- While it goes to the New line it carries the theme's accent dot at its top end (`data-unread`, the
+  sidebar's unread dot) and reads "Jump up to what's new". Without unread it has no dot: the fallback is the
+  person's own last act (a prompt, a stop), the one place in the chat that is theirs, rather than nothing or
+  the chat's top. Looks compared in `agent-pane.unread-marker`: `dot` (chosen), `ring` (an accent rim) and
+  `tint` (an accent arrow).
+- Pressed, the place lands near the top of the view (the thread's top padding over it), so the New line and
+  the first row the person did not see sit under the header with everything after it below.
 - It shows only while that place is off screen.
 - Pressed, it holds where the view was and points down: a second press, or Esc, goes back there. A scroll by
   hand lets go of the way back. Esc that something else takes (the composer's Stop, a menu) is left to it.
+
+## What counts as seen
+
+Leo, 2026-11-11: "if someone steps away from the computer for a bit, that doesn't mean they're necessarily
+watching it, right? Like if they didn't move the mouse at all, then it's like, well, they didn't see it."
+
+- A chat's rows are seen only while the person attends it (`attention.ts`): the pane is on screen, its window
+  is key and focused, and they moved the pointer, pressed a key or scrolled in it within 60 s
+  (`ATTENTION_IDLE_MS`: about a screenful of reading without touching anything; a coffee or a call is away).
+- Pinned at the bottom while idle marks nothing seen: the turns that end then are unread (the sidebar's dot),
+  and the next input is a return, with the New line where the person last gave input and the dot on Jump up.
+- acpmux owns it (`hub/seen.rs`, `_acpmux/view` `attending` and `seenSeq`): one mark per chat (`seenSeq` in
+  the chat's session.json), the same for every client, kept across tab switches and app restarts. The pane
+  only reports the three facts and draws what the daemon answers (`lastReturn`).
 
 ## Putting a waiting card away
 
