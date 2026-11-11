@@ -81301,6 +81301,17 @@
           "name" : "login",
           "suggestions" : null,
           "title" : "Harness Login"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "model",
+          "suggestions" : null,
+          "title" : "Model"
         }
       ],
       "category" : "cloud",

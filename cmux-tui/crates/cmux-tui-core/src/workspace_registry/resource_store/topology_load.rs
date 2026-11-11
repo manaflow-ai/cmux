@@ -167,6 +167,41 @@ pub(crate) fn load_resource_topology(
     Ok(topology)
 }
 
+/// The stored screens and panes of the whole session, with the frame: what a
+/// `pane.list` with no scope reads. No tabs, no browsers and no screen side
+/// tables: a pane's public value names its screen's workspace, active pane
+/// and zoomed pane only.
+pub(crate) fn load_session_panes(
+    connection: &Connection,
+    session_id: SessionPublicId,
+    generation: String,
+) -> anyhow::Result<ResourceTopologySnapshot> {
+    let mut topology = load_topology_frame(connection, session_id, generation)?;
+    topology.screens = load_screens(connection, "", &[])?;
+    topology.panes = load_panes(connection, "", &[])?;
+    Ok(topology)
+}
+
+/// The stored panes and tabs of the whole session, with the frame: what a
+/// `tab.list` with no scope reads. No screens and no browsers: a tab's
+/// public value names its pane's active tab only.
+pub(crate) fn load_session_tabs(
+    connection: &Connection,
+    session_id: SessionPublicId,
+    generation: String,
+) -> anyhow::Result<ResourceTopologySnapshot> {
+    let mut topology = load_topology_frame(connection, session_id, generation)?;
+    topology.panes = load_panes(connection, "", &[])?;
+    topology.tabs = load_tabs(connection, "", &[])?;
+    Ok(topology)
+}
+
+/// The stored terminal tabs of the whole session, in the full load's order:
+/// what a `terminal.list` with no scope reads.
+pub(crate) fn load_terminal_tabs(connection: &Connection) -> anyhow::Result<Vec<RegistryTab>> {
+    load_tabs(connection, " AND t.content_kind = 'terminal'", &[])
+}
+
 /// The stored subtrees (screens, panes, tabs and their browsers) of
 /// `workspaces` only, with the complete workspace list, active workspace and
 /// revision. A scoped projection diffs against this, so its read cost follows
