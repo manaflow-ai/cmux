@@ -118,20 +118,11 @@ final class CreationInputCoordinator {
     func hasPendingCreation(in window: NSWindow?) -> Bool { window.flatMap { buffers[$0.windowNumber] }?.hasPendingCreation == true }
 
     /// The person closed provisional tab `tab` in `window` before the daemon made it: the keys held
-    /// for it are dropped and the rest go on (``CreationInputBuffer/cancel(tab:)``), with the keys a New Tab page's opening holds for it. So are the keys its
+    /// for it are dropped and the rest go on (``CreationInputBuffer/cancel(tab:)``). So are the keys its
     /// terminal already sent to the daemon, when the daemon gives them back (``GivenBackInput/creationClosed(terminal:)``).
     func drop(tab: String, in window: NSWindow?) {
         if let terminal = router?.services?.cache.existingTerminal(tab)?.io.creatingTerminalID { GivenBackInput.shared.creationClosed(terminal: terminal) }
         if let window, buffers[window.windowNumber]?.cancel(tab: tab) == true { scheduleFlush(in: window) }
-        router?.newTabInputCoordinator.drop(tab: tab, in: window)
-    }
-
-    /// The person closed what holds `panes` (a workspace, a screen, a stand-in pane): the same drop for each terminal of them that has
-    /// not started, so the keys it gave back never go to the terminal that the window shows and focuses next.
-    func drop(closing panes: [PaneModel]) {
-        guard let services = router?.services else { return }
-        let windows = services.windows.controllers.compactMap(\.window)
-        for tab in panes.flatMap(\.tabs) where services.cache.existingTerminal(tab.id)?.gate != nil { windows.forEach { drop(tab: tab.id, in: $0) } }
     }
 
     /// A selection shows a terminal whose surface comes later: keys wait for it, at most `holdLimit`.

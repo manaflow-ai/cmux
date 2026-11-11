@@ -64,7 +64,6 @@ extension PaneHandlers {
                 return ctx.refuse(MiscHandlerStrings.homeChiefPaneStays)
             }
             let handle = pane.handle
-            ctx.services.keyRouter.creationInputCoordinator.drop(closing: [pane]) // a stand-in that is no split (a dock's, Cmd-N's first pane): no creation to cancel above
             // The pane leaves its window now and its neighbours spring into its space
             // (close-animation DESIGN.md); a refused close brings it back.
             let controller = ctx.services.paneController(for: pane)
