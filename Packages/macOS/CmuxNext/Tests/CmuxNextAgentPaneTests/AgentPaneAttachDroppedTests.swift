@@ -78,8 +78,34 @@ struct AgentPaneAttachDroppedTests {
         #expect(items.count == 1)
         #expect(path.hasPrefix(uploads.path))
         #expect(try Data(contentsOf: URL(fileURLWithPath: path)) == bytes)
+        // A screenshot is private: the file and every folder written for it are the owner's alone.
+        let permissions = { (path: String) in
+            (try? FileManager.default.attributesOfItem(atPath: path)[.posixPermissions] as? Int) ?? -1
+        }
+        #expect(permissions(path) == 0o600)
+        var folder = URL(fileURLWithPath: path).deletingLastPathComponent()
+        while folder.path.hasPrefix(uploads.path), folder.path != uploads.deletingLastPathComponent().path {
+            #expect(permissions(folder.path) == 0o700, "\(folder.path)")
+            folder = folder.deletingLastPathComponent()
+        }
         // Used once: a second ask answers nothing.
         #expect(Self.items(await rig.ask("paste", ["image.png"]))?.isEmpty == true)
+    }
+
+    /// A TIFF bitmap (what AppKit's pasteboard often holds) becomes a PNG of the same size.
+    @Test func aPastedTiffBecomesAPngOfTheSameSize() throws {
+        let image = NSImage(size: NSSize(width: 3, height: 2))
+        image.lockFocus()
+        NSColor.red.setFill()
+        NSRect(x: 0, y: 0, width: 3, height: 2).fill()
+        image.unlockFocus()
+        let tiff = try #require(image.tiffRepresentation)
+        let png = try #require(AgentPaneModel.pngData(fromBitmap: tiff))
+        #expect(png.prefix(4) == Data([0x89, 0x50, 0x4e, 0x47]))
+        let rep = try #require(NSBitmapImageRep(data: png))
+        #expect(rep.pixelsWide > 0 && rep.pixelsHigh > 0)
+        #expect(rep.pixelsWide * 2 == rep.pixelsHigh * 3)
+        #expect(AgentPaneModel.pngData(fromBitmap: Data([1, 2, 3])) == nil)
     }
 
     /// A chat on another machine keeps streaming the bitmap: nothing is written here.

@@ -80,22 +80,31 @@ extension AgentPaneModel {
         let folder = folders.freshUpload(session: sessionId)
         let url = folder.appending(path: "image.png")
         let written = Task.detached(priority: .userInitiated) { () -> Bool in
+            // A screenshot is private: owner-only folders and file, as every Chat Uploads writer
+            // (AgentPaneCloudAttachments.write), the file created with its bytes so it is never
+            // readable by others even for a moment.
+            guard let data = png ? bytes : Self.pngData(fromBitmap: bytes) else { return false }
+            let manager = FileManager.checked
             do {
-                try FileManager.checked.createDirectory(at: folder, withIntermediateDirectories: true)
-                if png {
-                    try bytes.blockingWrite(to: url, options: .atomic)
-                    return true
-                }
-                guard let source = CGImageSourceCreateWithData(bytes as CFData, nil),
-                      let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil)
-                else { return false }
-                CGImageDestinationAddImageFromSource(destination, source, 0, nil)
-                return CGImageDestinationFinalize(destination)
+                try manager.createDirectory(
+                    at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]
+                )
             } catch {
                 return false
             }
+            return manager.createFile(atPath: url.path, contents: data, attributes: [.posixPermissions: 0o600])
         }
         droppedPaths.stashBitmap(url, written: written, kind: .paste)
+    }
+
+    /// A pasteboard bitmap (TIFF) re-encoded as PNG in memory, or nil if ImageIO cannot read it.
+    nonisolated static func pngData(fromBitmap bytes: Data) -> Data? {
+        guard let source = CGImageSourceCreateWithData(bytes as CFData, nil) else { return nil }
+        let out = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(out as CFMutableData, UTType.png.identifier as CFString, 1, nil)
+        else { return nil }
+        CGImageDestinationAddImageFromSource(destination, source, 0, nil)
+        return CGImageDestinationFinalize(destination) ? out as Data : nil
     }
 
     /// The paths, files and folders, of link items made by ``attachItems(_:)``.
