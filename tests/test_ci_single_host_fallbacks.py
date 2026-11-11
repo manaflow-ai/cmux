@@ -447,6 +447,49 @@ class SingleHostFallbacks(unittest.TestCase):
                 self.assertEqual(wj.variable_reads(text), expected)
         self.assertEqual(self.scan({"x.yml": "jobs:\n  a:\n    runs-on: ${{ 'vars.NEW_X' }}\n"}), [])
 
+    def test_an_input_named_inside_a_string_literal_is_not_traced_to_its_callers(self) -> None:
+        """dep-fleet-6 on #40979: the resolver found the inputs a field reads with a regex, which also matched text
+        inside a quoted literal, so `contains('inputs.note', 'note')` in a matrix runner traced inputs.note to its
+        caller and reported the caller's `with.note: ${{ vars.MESSAGE }}` as a runner dependency. The literal is the
+        text "inputs.note"; no input is read. A real read beside it is still traced, in dot and bracket form."""
+        wj = checker.load_workflow_jobs()
+        callee = ("on:\n  workflow_call:\n    inputs:\n      note: {type: string}\n      runner: {type: string}\n"
+                  "jobs:\n  a:\n%s")
+        condition = "contains('inputs.note', 'note') && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404'"
+        jobs = {
+            "matrix": ("    strategy:\n      matrix:\n        runner: [\"${{ %s }}\"]\n"
+                       "    runs-on: ${{ matrix.runner }}\n" % condition),
+            "runs-on": "    runs-on: ${{ %s }}\n" % condition,
+            "double-quoted": "    runs-on: ${{ \"inputs['note']\" == 'x' && 'a' || 'b' }}\n",
+            # #40894 review: an input reference that is only a string literal is the text "inputs.runner".
+            "literal-only": "    runs-on: ${{ 'inputs.runner' }}\n",
+        }
+        caller = ("jobs:\n  c:\n    uses: ./.github/workflows/callee.yml\n    with:\n      note: ${{ vars.MESSAGE }}\n"
+                  "      runner: ${{ vars.MESSAGE }}\n")
+        for label, job in jobs.items():
+            with self.subTest(label=label):
+                self.assertEqual(self.scan({"callee.yml": callee % job, "caller.yml": caller}), [])
+                documents = {"callee.yml": wj.document(callee % job), "caller.yml": wj.document(caller)}
+                resolved = wj.resolve(documents["callee.yml"]["jobs"]["a"], "a", "callee.yml", wj.Workflows(documents))
+                self.assertEqual({r.name for r in resolved.vars_read}, set())
+        # A read outside the literal, beside one inside it, still reaches the caller's value.
+        for read in ("inputs.note", "inputs['note']", 'inputs["note"]'):
+            with self.subTest(read=read):
+                job = "    runs-on: ${{ contains('inputs.runner', 'x') && %s || 'b' }}\n" % read
+                self.assert_names(self.scan({"callee.yml": callee % job, "caller.yml": caller}), "MESSAGE")
+
+    def test_a_matrix_named_inside_a_string_literal_does_not_count_the_whole_matrix(self) -> None:
+        """The same class as the quoted input: expand_matrix asked a regex whether a field reads the matrix, so
+        `contains('matrix.os', 'x')` made the runs-on unexpandable and every variable anywhere in the matrix counted
+        as a runner dependency. A literal reads no matrix; a real read beside it still does."""
+        matrix = "    strategy:\n      matrix:\n        os: ['${{ vars.NOT_A_RUNNER }}']\n"
+        quoted = ("jobs:\n  a:\n" + matrix + "    runs-on: ${{ contains('matrix.os', 'x') && "
+                  "'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}\n")
+        self.assertEqual(self.scan({"x.yml": quoted}), [])
+        read = ("jobs:\n  a:\n" + matrix + "    runs-on: ${{ contains('matrix.os', 'x') && matrix.os || "
+                "'blacksmith-4vcpu-ubuntu-2404' }}\n")
+        self.assert_names(self.scan({"x.yml": read}), "NOT_A_RUNNER")
+
     def test_a_closing_brace_pair_inside_a_string_literal_does_not_end_the_expression(self) -> None:
         """Codex on hq#9175: the `${{ }}` scan stopped at the first `}}`, also one inside a quoted literal, so
         `contains('}}', '}') && vars.NEW_X || ...` hid the variable after it and the rest read as plain text. The scan
