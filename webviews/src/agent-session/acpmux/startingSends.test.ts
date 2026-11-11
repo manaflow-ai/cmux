@@ -1,7 +1,9 @@
 // Prompts sent while a new chat starts leave the composer at once as queued rows and go out in
 // order once the chat takes the one before (startingSends.ts).
 import { expect, test } from "bun:test";
-import { StartingSends } from "./startingSends";
+import { inlineToken, type ComposerAttachment } from "./attachments";
+import { inlinePrompt } from "./inlinePrompt";
+import { StartingSends, startingQueueEntry } from "./startingSends";
 
 /** A send acpmux takes or refuses when the test says. */
 function gate() {
@@ -139,4 +141,59 @@ test("a queued send goes with the gesture its Enter bound, and one without goes 
   await h.settle();
   expect(h.sent).toEqual(["first", "with the screenshot"]);
   expect(carried).toEqual([undefined, "held-1"]);
+});
+
+// #41016: a queued row drew the draft as it was, each attachment as U+FFFC, its id, U+FFFC.
+const image = {
+  id: "0ffcff4e-5219-4332-9ceb-9d0acc03a47a",
+  kind: "image",
+  name: "image.png",
+  preview: "data:image/png;base64,AA==",
+  data: "AA==",
+  mimeType: "image/png",
+} as unknown as ComposerAttachment;
+const pasted = {
+  id: "37e67889-51d8-415a-beed-6d890ed57505",
+  kind: "pasted",
+  name: "Pasted text",
+  text: "HELLO",
+} as unknown as ComposerAttachment;
+
+test("a waiting row shows its words and its pictures, never an attachment's id", () => {
+  const row = {
+    id: "starting-1",
+    text: `look ${inlineToken(image.id)} at ${inlineToken(pasted.id)} this`,
+    attachments: [image, pasted],
+  };
+  const entry = startingQueueEntry(row);
+  expect(entry.prompt).toBe("look  at HELLO this");
+  expect(entry.prompt).not.toContain("\uFFFC");
+  expect(entry.images?.length).toBe(1);
+});
+
+test("an edited waiting row keeps its picture in place and sends a pasted chip's text once", async () => {
+  const h = harness();
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  h.sends.add("first", [], h.go);
+  h.sends.add(
+    `hi ${inlineToken(image.id)} ${inlineToken(pasted.id)} end`,
+    [image, pasted],
+    async (text, attachments) => {
+      sent.push({ text, attachments });
+    },
+  );
+  const waiting = h.sends.rows[1]!;
+  const shown = startingQueueEntry(waiting).prompt;
+  expect(shown).toBe("hi  HELLO end");
+  expect(h.sends.edit(waiting.id, `${shown}!`)).toBe(true);
+  await h.settle();
+  h.gates.get("first")!.take();
+  await h.settle();
+  expect(sent).toHaveLength(1);
+  const { text, attachments } = sent[0]!;
+  expect(text).toBe(`hi ${inlineToken(image.id)} HELLO end!`);
+  expect(attachments.map((attachment) => attachment.id)).toEqual([image.id]);
+  // The prompt as it goes: HELLO once, the picture in its place.
+  const parts = inlinePrompt(text, attachments);
+  expect(JSON.stringify(parts).split("HELLO").length - 1).toBe(1);
 });

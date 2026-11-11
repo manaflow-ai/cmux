@@ -107,6 +107,11 @@ export class StartingSends {
     const item = this.items.find((each) => each.id === id && !each.going);
     if (!item) return false;
     item.text = carryInline(item.text, text, item.attachments);
+    // A pasted or text chip's text is in the edited words now (the row shows it inline): its chip
+    // goes, or the prompt would carry that text twice, the chip's copy after the words.
+    item.attachments = item.attachments.filter(
+      (attachment) => attachment.kind !== "pasted" && attachment.kind !== "text",
+    );
     this.emit();
     return true;
   }
