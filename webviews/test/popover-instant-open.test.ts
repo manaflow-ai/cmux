@@ -211,6 +211,10 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   "src/agent-session/acpmux/changes/treeTitles.ts": { count: 2, what: "a long tree title's marquee" },
   "src/agent-session/acpmux/conversation/PromptText.tsx": { count: 3, what: "a prompt bubble resizes" },
   "src/agent-session/acpmux/conversation/fold.ts": { count: 3, what: "a transcript block folds" },
+  "src/agent-session/acpmux/conversation/Thinking.tsx": {
+    count: 1,
+    what: "the live line's token count glides sideways when its words change width",
+  },
   "src/agent-session/acpmux/header/headerMotion.ts": {
     count: 3,
     what: "the chat header's icons (Debug agentChat.headerMotion): an arriving icon springs in, its neighbours glide, and an opening click's glyph travels to its pane's tab; buttons and a ghost, never a menu",
