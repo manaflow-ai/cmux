@@ -15,10 +15,14 @@
 //
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux.
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+//
+// This file tests the `runs` arm of live-turn-work, not the shipped `line` arm: its steps are finished
+// calls and thoughts of a turn that still runs, which only `runs` draws (support/liveTurnRuns.ts).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
+import { pinLiveTurnRuns } from "./support/liveTurnRuns";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -120,6 +124,7 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
   };
   const open = async (): Promise<Page> => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await pinLiveTurnRuns(page);
     await page.goto(url());
     await page.getByText("build-acpmux.sh").first().waitFor();
     // Rows place by their drawn heights a frame after they mount: two painted frames later they have.

@@ -48,7 +48,14 @@ import "../../src/agent-session/acpmux/markdownField.css";
 
 const query = new URLSearchParams(location.search);
 const arm = query.get("arm");
-if (arm) globalThis.cmuxExperiments = { "follow-motion": arm };
+// `liveTurnWork=runs`: the arm of live-turn-work for a test of a finished run in a running turn
+// (test/support/liveTurnRuns.ts). This page loads when open120Hz makes it, before an init script can run.
+const liveTurnWork = query.get("liveTurnWork");
+if (arm || liveTurnWork)
+  globalThis.cmuxExperiments = {
+    ...(arm ? { "follow-motion": arm } : {}),
+    ...(liveTurnWork ? { "live-turn-work": liveTurnWork } : {}),
+  };
 if (query.get("motion") === "off") {
   document.documentElement.dataset.agentMotion = "off";
   document.documentElement.dataset.cmuxMotion = "off";

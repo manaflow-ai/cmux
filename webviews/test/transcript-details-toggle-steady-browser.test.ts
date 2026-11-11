@@ -12,10 +12,15 @@
 //   move one way only, the clicked line with them (Leo, 2026-11-03).
 // A close away from the bottom puts every row back where it was before the open.
 //
+//
+// This file tests the `runs` arm of live-turn-work, not the shipped `line` arm: the runs of commands it
+// toggles are finished runs of a turn that still runs, which only `runs` draws (support/liveTurnRuns.ts).
+//
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
+import { pinLiveTurnRuns } from "./support/liveTurnRuns";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -305,6 +310,7 @@ await requireBrowserLane("transcript-details-toggle-steady-browser.test.ts", asy
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
     await installPaintedFrames(page);
+    await pinLiveTurnRuns(page);
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
     await page.waitForFunction(() => "__showLiveRows" in window);
