@@ -71,7 +71,7 @@ impl MacDesktop {
     /// so it is pressed only when the target window is that window (or keys
     /// would reach it, see key_route); one that opens a submenu is refused
     /// (it would open a menu), and one the deny list blocks is refused.
-    fn check_menu_item(&self, t: &Target, el: &Ax) -> DResult<()> {
+    fn check_menu_item(&self, t: &Target, el: &Ax, delivery: Delivery) -> DResult<()> {
         if !super::ax::in_menu_bar(el) {
             return Ok(());
         }
@@ -90,7 +90,9 @@ impl MacDesktop {
             ));
         }
         // Menu commands act on the app's key window: the same rule as keys.
-        self.key_route(t, Delivery::Background).map(|_| ())
+        // In the foreground the window is raised first (it becomes the key
+        // window), as for keys.
+        self.key_route(t, delivery).map(|_| ())
     }
 
     /// The route for key events. Keys posted to a process go to its key
@@ -277,9 +279,14 @@ pub(super) fn click(
     if spec.delivery == Delivery::Background {
         d.refuse_menu(&el)?;
     }
-    d.check_menu_item(&t, &el)?;
-    let semantic =
-        spec.delivery == Delivery::Background && spec.modifiers.is_empty() && spec.count <= 1;
+    d.check_menu_item(&t, &el, spec.delivery)?;
+    // A menu bar item has no screen frame to click while its menu is closed:
+    // after check_menu_item raised the window (foreground) it is pressed
+    // through AX in either delivery.
+    let in_menu_bar = super::ax::in_menu_bar(&el);
+    let semantic = (spec.delivery == Delivery::Background || in_menu_bar)
+        && spec.modifiers.is_empty()
+        && spec.count <= 1;
     if semantic {
         let available = el.actions();
         if let Some(action) =
@@ -715,7 +722,7 @@ pub(super) fn perform_action(
     if matches!(ax_action.as_str(), "AXPress" | "AXPick") {
         d.refuse_menu(&el)?;
     }
-    d.check_menu_item(&t, &el)?;
+    d.check_menu_item(&t, &el, Delivery::Background)?;
     let before = el.value_text();
     el.perform(ax_action).map_err(|e| ax_error(e, &format!("element {element_id}")))?;
     let route = if ax_action.starts_with("Name:") {
