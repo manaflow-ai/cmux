@@ -140,6 +140,8 @@ def main() -> int:
     env = dict(kv.split("=", 1) for kv in args.env)
     home = args.home or Path(tempfile.mkdtemp(prefix="smx-home-"))
     d = Daemon(args.acpmux, home, args.config, env)
+    # A prompt from this script is the person's, never an agent's (`acpmux send` reads ACPMUX_FROM).
+    d.env.pop("ACPMUX_FROM", None)
     # The daemon refuses a config another user may write (a umask of 002).
     if (home / "config.json").exists():
         os.chmod(home / "config.json", 0o600)
