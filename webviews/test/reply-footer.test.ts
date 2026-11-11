@@ -237,13 +237,11 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
               .filter((row) => row.getBoundingClientRect().bottom <= box.top + 0.5)
               .sort((a, b) => b.getBoundingClientRect().bottom - a.getBoundingClientRect().bottom)[0]!;
             const above = aboveRow.getBoundingClientRect();
-            // Under a closed "Worked for" line the row's own room under its rule stands in for the 8,
-            // so the stack adds none (transcriptGrid.ts MARK_WORKED, #37727).
-            const worked = aboveRow.querySelector(".cv-worked.has-divider") !== null;
+            // Under a closed "Worked for" line too: its rule is over its words (#40062), so the
+            // footer row sits the 8 under the line, as under any step row (transcriptGrid.ts MARK_WORKED).
             return {
               gap: actions.top - above.bottom,
-              footerGap: worked ? 0 : length("--grid-gap-footer"),
-              worked,
+              footerGap: length("--grid-gap-footer"),
               rowHeight: box.height,
               actionsHeight: actions.height,
               control: length("--grid-transcript-footer-control"),

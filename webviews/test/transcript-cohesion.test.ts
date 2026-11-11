@@ -209,10 +209,23 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
                 return (rect.top + rect.bottom) / 2;
               };
               const box = header.getBoundingClientRect();
-              const next = row.nextElementSibling!.getBoundingClientRect();
+              const nextRow = row.nextElementSibling!;
+              const next = nextRow.getBoundingClientRect();
+              const probe = document.createElement("div");
+              probe.style.height = "var(--grid-gap-run)";
+              document.body.append(probe);
+              const runGap = probe.getBoundingClientRect().height;
+              probe.remove();
+              const rule = getComputedStyle(header, "::after");
               return {
                 headerHeight: box.height,
+                // The rule's top edge and its words' top, from the line's top (#40062).
+                ruleTop: parseFloat(rule.top),
+                ruleHeight: parseFloat(rule.height),
+                wordsTop: header.querySelector(".cv-worked__label")!.getBoundingClientRect().top - box.top,
                 nextGap: next.top - box.bottom,
+                nextIsProse: nextRow.classList.contains("acpmux-assistant"),
+                runGap,
                 replyGap: reply.getBoundingClientRect().top - box.bottom,
                 replyCenterGap:
                   firstLineCenter(reply.querySelector(".cv-md p")!) -
@@ -221,15 +234,18 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
             });
             console.log(`transcript-cohesion ${variant} ${label}: ${JSON.stringify(measured)}`);
             if (process.env.CMUX_COHESION_MEASURE_ONLY !== "1") {
-              // Worked for's rule sits between its words and the next row, open or closed:
-              // 4 under its 22px line, 8 over the next row, and no stack gap after it (Codex parity,
-              // Lucas, 2026-11-07; conversation.css `.cv-worked.has-divider.is-toggle`, model.ts
-              // WORKED_GAP_PT, transcriptGrid.ts MARK_WORKED).
+              // Worked for's rule opens the turn over its words, open or closed (#40062: the
+              // previous turn's footer, the rule, then the line): the rule on the line's top edge,
+              // 4 from it to the 22px line, and under the words a step row's gaps
+              // (conversation.css `.cv-worked.has-divider.is-toggle`, model.ts WORKED_GAP_PT,
+              // transcriptGrid.ts MARK_WORKED).
               expect(measured.headerHeight).toBeCloseTo(22 + 4, 1);
+              expect(measured.ruleTop).toBeCloseTo(0, 1);
+              expect(measured.wordsTop).toBeGreaterThan(measured.ruleTop + measured.ruleHeight);
               if (variant === "codex-closed") {
-                expect(measured.replyGap).toBeCloseTo(8, 1);
-                expect(Math.abs(measured.replyCenterGap - 34.375)).toBeLessThan(1);
-              } else expect(measured.nextGap).toBeCloseTo(8, 1);
+                expect(measured.replyGap).toBeCloseTo(measured.runGap, 1);
+                expect(Math.abs(measured.replyCenterGap - 38.375)).toBeLessThan(1);
+              } else expect(measured.nextGap).toBeCloseTo(measured.nextIsProse ? measured.runGap : 0, 1);
             }
           }
           if (process.env.FAST_CHECKS_OUT) {
