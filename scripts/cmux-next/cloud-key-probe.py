@@ -120,10 +120,16 @@ WORD_ASSIGN = re.compile(
 )
 ASSIGNS = (ASSIGN, CALL_ASSIGN, WORD_ASSIGN)
 # In a file a key's name alone is common (code that reads it, docs that name it): only a literal that looks
-# like a secret counts there, at least 16 characters of token alphabet with a letter and a digit, and no
-# reference (`$X`, `process.env.X`, `os.environ[...]`) or stand-in word.
+# like a secret counts there, at least 16 printable characters with a letter and a digit, and no reference or stand-in.
+# Any printable character may be in a credential (base64's `+/=`, a password's `~!@#%^&*`), so the alphabet is all of
+# printable ASCII but quotes, backquote and backslash (a value's own ends); what makes a value not a literal is how it
+# reads: a reference (`$X`, `%X%`, `{{x}}`, `<x>`, `@x`, a YAML alias `*x`), code (`get(`, `env[`) or a stand-in.
+# A value in the token alphabet (base64, base64url, hex) needs a letter and a digit; one with any other printable
+# character also needs a random key's variety (4 bits a character), as minified code (`useFoo:!0`) has those too.
 SECRET_LITERAL = re.compile(r"^(?=[^/]*[0-9])(?=.*[A-Za-z])[A-Za-z0-9_\-.+/=:]{16,}$")
 SECRET_TOKEN = re.compile(r"^[A-Za-z0-9_\-.+/=:]{16,}$")
+SECRET_PRINTABLE = re.compile(r"^(?=.*[0-9])(?=.*[A-Za-z])[!#-&(-\[\]-_a-~]{16,}$")
+NOT_LITERAL = re.compile(r"^[$%{<@*]|[(\[]")
 # A stand-in is a value that starts as one: a stand-in word at its start, after at most a short prefix (`your-key`,
 # `sk-test-1`, `placeholder_x`), or a reference (`process.env.X`, `os.environ`). Nothing inside a value counts but an
 # ellipsis: a random key can hold any word by chance (`...myenvironment7...`, `Ab3-test-9...`), and is still a key.
@@ -492,9 +498,11 @@ def literal_secret(value):
     """Whether a value written after a key's name in a file looks like the key itself: a token with a letter and a
     digit, or one without digits whose characters are as varied as a random key's (an identifier such as
     `requiredStringValueHere` is not, at under 4 bits a character)."""
-    if value in PUBLIC_VALUES or STAND_IN.search(value):
+    if value in PUBLIC_VALUES or STAND_IN.search(value) or NOT_LITERAL.search(value):
         return False
     if SECRET_LITERAL.match(value):
+        return True
+    if SECRET_PRINTABLE.match(value) and entropy(value) >= 4.0:
         return True
     return bool(SECRET_TOKEN.match(value)) and len(value) >= 20 and entropy(value) >= 4.2
 
