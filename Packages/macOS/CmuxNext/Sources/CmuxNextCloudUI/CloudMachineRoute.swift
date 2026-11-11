@@ -1,5 +1,6 @@
 public import CmuxNextCloud
 import Foundation
+import os
 
 /// A Cloud start's last check before the first chat opens on its machine: once the machine runs the
 /// app's own machine software, its agents must reach models through the machine's edge with no provider
@@ -33,6 +34,29 @@ public struct CloudMachineRoute: Sendable {
 
     public init(exec: @escaping Exec) {
         self.exec = exec
+        machineID = nil
+    }
+
+    /// The route of Cloud machine `machineID`, whose commands run through the Cloud API's exec.
+    public init(api: CloudAPIClient, machineID: String) {
+        exec = { try await api.exec(machineID, command: $0, timeoutMs: $1) }
+        self.machineID = machineID
+    }
+
+    /// The machine ``init(api:machineID:)`` named; a ``prepare(_:)`` refusal retries on it.
+    private let machineID: String?
+
+    /// A Cloud start's machine before its first chat: it runs this app's machine software (`update`, a no-op
+    /// when it does, ``afterUpdate(within:_:)``) and its agents reach models through its edge. A refusal is the
+    /// start's failure, its reason as the start card shows it, with a retry on the same machine.
+    public func prepare(_ update: @escaping @Sendable () async -> Void) async throws {
+        Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
+            .info("cloud start chat: bringing \(machineID ?? "", privacy: .public) to this app's machine software")
+        do {
+            try await afterUpdate(update)
+        } catch let refused as Refused {
+            throw CloudMoveFailure(message: refused.message, retry: machineID.map { .move(machineID: $0) })
+        }
     }
 
     private struct Request: Encodable { var stdout: String? }

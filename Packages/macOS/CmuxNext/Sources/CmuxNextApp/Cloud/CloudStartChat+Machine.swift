@@ -106,18 +106,10 @@ extension CloudStartChat {
             invocation.arguments["machine"] = .string(created.machineID)
         }
         let session = try await CloudMove(services: services).machine(invocation, pick: pick), id = session.machineID
-        // Before its first chat the machine runs this app's machine software (the update is a no-op when it does) and its agents reach models through its edge.
-        cloud.logger.info("cloud start chat: bringing \(id, privacy: .public) to this app's machine software")
-        do { try await CloudMachineRoute { [api = cloud.machineAPI] in try await api.exec(id, command: $0, timeoutMs: $1) }.afterUpdate { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(id, services: services) }
-        } catch let refused as CloudMachineRoute.Refused { throw CloudMove.Failure(message: refused.message, retry: .move(machineID: id)) }
+        try await CloudMachineRoute(api: cloud.machineAPI, machineID: id).prepare { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(id, services: services) }
         return (session, plan)
     }
 
-    /// `answer`, or its error as the person reads it.
-    static func checked<T>(_ answer: (CloudMoveCLI.Answer, T)) throws -> T {
-        guard answer.0.ok else {
-            throw answer.0.errorCode == "cloud.plan.required" ? CloudAPIError.planRequired(message: nil, upgradeURL: nil) as any Error : CloudMove.Failure(message: CloudMoveStrings.moveFailed(answer.0.error ?? answer.0.errorCode ?? ""))
-        }
-        return answer.1
-    }
+    /// `answer`, or its error as the person reads it (``CloudMoveStrings/checked(_:)``).
+    static func checked<T>(_ answer: (CloudMoveCLI.Answer, T)) throws -> T { try CloudMoveStrings.checked(answer) }
 }
