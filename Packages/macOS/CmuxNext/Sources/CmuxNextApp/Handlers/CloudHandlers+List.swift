@@ -65,7 +65,6 @@ extension CloudHandlers {
             let machine = session.machine
             return ["machineId": session.machineID, "title": machine.title, "status": session.effectiveStatus.rawValue,
                     "createdBy": machine.createdBy as Any, "createdAt": machine.createdAt?.timeIntervalSince1970 as Any,
-                    "lastApiActivityAt": machine.idlePause?.lastApiActivityAt as Any, "runningSince": machine.runningSince?.timeIntervalSince1970 as Any,
                     "failure": machine.lastChangeFailure.map { ["code": $0.code, "message": $0.message] } as Any].compacted
         }
         let creating: [[String: Any]] = cloud.creations.all.filter { $0.session == nil }.map { creation in
@@ -73,9 +72,10 @@ extension CloudHandlers {
             if case .failed(let reason) = creation.phase { failed = reason }
             return ["creationId": creation.id.uuidString.lowercased(), "name": creation.request.name as Any, "failed": failed as Any].compacted
         }
-        // Fetched for the account's team when it has one (the API client's `X-Cmux-Team-Id`), else for the person alone.
+        // The list is fetched for the account's team when it has one (the `X-Cmux-Team-Id` the API
+        // client sends), else for the person alone.
         let list: [String: Any] = ["loaded": loaded, "team": cloud.auth.teamID != nil, "signedIn": cloud.isSignedIn,
-                                   "user": cloud.auth.platformUserID as Any, "machines": machines, "creating": creating]
+                                   "machines": machines, "creating": creating]
         return CloudHandlerRules().fields("cloud_handler_machine_list", ["list": list])
     }
 }
