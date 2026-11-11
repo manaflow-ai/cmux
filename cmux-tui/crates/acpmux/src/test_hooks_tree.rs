@@ -1,0 +1,56 @@
+//! The crate adds no process-wide test hook (cmux#41350): the test-hooks check of
+//! cmux-source-scan (crates/cmux-source-scan/src/test_hooks.rs) over this crate's `src`, run by
+//! `cargo test -p acpmux --lib`. Its rows and the property are in that crate.
+
+use std::collections::BTreeSet;
+use std::path::Path;
+use std::time::Instant;
+
+use cmux_source_scan::source::rust_files;
+use cmux_source_scan::test_hooks::{Finding, judge_tree};
+
+const SRC: &str = "cmux-tui/crates/acpmux/src/";
+
+/// The statics the crate held when this check replaced check-test-hooks.py, `path NAME` from
+/// `src/`: each is to be fixed or marked. A new finding fails this test, and so does a row whose
+/// static no longer has one (take the row out).
+const KNOWN: &[&str] = &[
+    "agent_host/link.rs RECEIPTS",
+    "daemon/router_owner.rs ROUTER",
+    "folder_instructions.rs SWAP_HOOK",
+    "harness_fixture.rs LOADED",
+    "harness_fixture.rs EMPTY",
+    "hub/transfer_in.rs SWEEP_PAUSE",
+    "route_probe.rs LAST",
+    "server/chats/team_audit.rs HELD",
+    "server/dual_requests.rs BOOK",
+    "shadow_admission.rs KEPT",
+    "store/journal_store/meta.rs SETTLE_HOLD",
+    "vault.rs LOADED",
+];
+
+#[test]
+fn the_crate_adds_no_process_wide_test_hook() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let started = Instant::now();
+    let files = rust_files(&dir.join("src")).len();
+    let found = judge_tree(dir);
+    eprintln!("test hooks: {files} files, {} findings in {:?}", found.len(), started.elapsed());
+    for finding in &found {
+        eprintln!("{finding}");
+    }
+    let key = |f: &Finding| format!("{} {}", f.rel.trim_start_matches(SRC), f.name);
+    let keys: BTreeSet<String> = found.iter().map(key).collect();
+    let new: Vec<String> = found
+        .iter()
+        .filter(|f| !KNOWN.contains(&key(f).as_str()))
+        .map(ToString::to_string)
+        .collect();
+    let gone: Vec<&&str> = KNOWN.iter().filter(|k| !keys.contains(**k)).collect();
+    assert!(
+        new.is_empty(),
+        "process-wide test hooks: a parallel test can replace or clear another's hook (cmux#41350):\n{}",
+        new.join("\n")
+    );
+    assert!(gone.is_empty(), "these KNOWN rows have no finding any more; take them out: {gone:?}");
+}
