@@ -35,10 +35,14 @@ public struct CodeCard: View {
     /// The code's drawn height with its padding, measured: wrapped lines are taller than the
     /// line count says.
     @State private var drawnHeight: CGFloat = 0
-    private var isCapped: Bool {
-        guard !expanded else { return false }
-        return wraps ? drawnHeight + 40 > maxHeight : CGFloat(lineCount) * lineHeight + 20 > maxHeight
+    /// The code's height with its padding: its lines, or as measured when wrapping makes it
+    /// taller. Never below the line count's height, so a card the lines already cap is capped
+    /// from its first layout.
+    private var codeHeight: CGFloat {
+        let lines = CGFloat(lineCount) * lineHeight + 20
+        return wraps ? max(lines, drawnHeight) : lines
     }
+    private var isCapped: Bool { !expanded && codeHeight > maxHeight }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {

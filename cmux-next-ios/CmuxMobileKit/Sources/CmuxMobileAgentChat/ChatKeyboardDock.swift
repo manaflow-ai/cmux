@@ -818,8 +818,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         // row (8 pt over the stack) nothing is, and the edge stays off it (as the terminal's).
         let under = !isEmpty && distanceFromBottom > Self.contentGap
         if scrollView.bottomEdgeEffect.isHidden == under { scrollView.bottomEdgeEffect.isHidden = !under }
-        let fade: CGFloat = under ? 1 : 0
-        if bottomFade.superview != nil, bottomFade.alpha != fade { bottomFade.alpha = fade }
+        // The fallback fade comes in over its own height as the rows go under, not at once.
+        let fade = isEmpty ? 0 : min(1, max(0, (distanceFromBottom - Self.contentGap) / BottomFadeView.tail))
+        if bottomFade.superview != nil, abs(bottomFade.alpha - fade) > 0.01 { bottomFade.alpha = fade }
         let shown: Bool
         if isEmpty {
             jumpVisibility = JumpToBottomVisibility()

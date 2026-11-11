@@ -183,26 +183,38 @@ enum ChatSelectText {
     /// (tab-separated) stay.
     nonisolated static func readable(_ markdown: String) -> String {
         var out: [String] = []
-        var fence: Character?
-        for raw in markdown.components(separatedBy: "\n") {
+        // An open code fence: its mark and length (CommonMark: a backtick fence's info string
+        // holds no backtick, and only a run as long or longer, alone on its line, closes it).
+        var fence: (mark: Character, count: Int)?
+        var inTable = false
+        let lines = markdown.components(separatedBy: "\n")
+        for (index, raw) in lines.enumerated() {
             let trimmed = raw.trimmingCharacters(in: .whitespaces)
-            if let mark = trimmed.first, mark == "`" || mark == "~", trimmed.hasPrefix(String(repeating: mark, count: 3)) {
-                if fence == nil { fence = mark; continue }
-                if fence == mark { fence = nil; continue }
+            if let mark = trimmed.first, mark == "`" || mark == "~" {
+                let run = trimmed.prefix { $0 == mark }.count
+                let rest = trimmed.dropFirst(run)
+                if let open = fence {
+                    if mark == open.mark, run >= open.count, rest.allSatisfy(\.isWhitespace) {
+                        fence = nil
+                        continue
+                    }
+                } else if run >= 3, !(mark == "`" && rest.contains("`")) {
+                    fence = (mark, run)
+                    continue
+                }
             }
             if fence != nil {
                 out.append(raw)
                 continue
             }
-            if trimmed.hasPrefix("|") || (trimmed.contains("|") && trimmed.hasSuffix("|")) {
-                var cells = trimmed.split(separator: "|", omittingEmptySubsequences: false).map {
-                    $0.trimmingCharacters(in: .whitespaces)
-                }
-                if cells.first == "" { cells.removeFirst() }
-                if cells.last == "" { cells.removeLast() }
-                // A header rule (|---|:--:|) is the table's drawing, not its text.
-                if !cells.isEmpty, cells.allSatisfy({ !$0.isEmpty && $0.allSatisfy { "-: ".contains($0) } }) { continue }
-                out.append(cells.map(inline).joined(separator: "\t"))
+            // A table: a header row followed by its delimiter row, then rows until a line
+            // without a cell bar.
+            if !inTable, trimmed.contains("|"), index + 1 < lines.count, Self.isTableRule(lines[index + 1]) { inTable = true }
+            if inTable, !trimmed.contains("|") { inTable = false }
+            if inTable {
+                // The delimiter row (|---|:--:|) is the table's drawing, not its text.
+                if Self.isTableRule(raw) { continue }
+                out.append(Self.tableCells(trimmed).map(inline).joined(separator: "\t"))
                 continue
             }
             // A thematic break (---, ***, * * *) is drawing too.
@@ -211,6 +223,23 @@ enum ChatSelectText {
             out.append(inline(Self.blockMarks.apply(raw)))
         }
         return out.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    nonisolated private static func tableCells(_ row: String) -> [String] {
+        var cells = row.split(separator: "|", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
+        if cells.first == "" { cells.removeFirst() }
+        if cells.last == "" { cells.removeLast() }
+        return cells
+    }
+
+    /// A table's delimiter row: cells of dashes with optional alignment colons, at least one bar.
+    nonisolated private static func isTableRule(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.contains("|") else { return false }
+        let cells = tableCells(trimmed)
+        return !cells.isEmpty && cells.allSatisfy { cell in
+            cell.contains("-") && cell.allSatisfy { "-: ".contains($0) }
+        }
     }
 
     /// Inline Markdown as read. Code spans keep their characters as written (`__init__`,

@@ -787,9 +787,6 @@ extension CmuxMobileModel.TransportKind {
     var link: CmuxMobileTransport.TransportKind { self == .webrtc ? .webRTC : .wireGuard }
 }
 
-/// The live Chief call over the signed-in shell: the full-screen call, the
-/// pill while it is minimized, and every Call Chief entry point
-/// (``ChiefCallLauncher``) routed to ``ShellModel/callChief()``.
 /// The height of the bar drawn over every screen (voice mode's), with its gap: the shell's
 /// container takes it as extra top safe area.
 @MainActor @Observable
@@ -800,6 +797,9 @@ final class ShellTopBar {
     var height: CGFloat = 0
 }
 
+/// The live Chief call over the signed-in shell: the full-screen call, the
+/// pill while it is minimized, and every Call Chief entry point
+/// (``ChiefCallLauncher``) routed to ``ShellModel/callChief()``.
 private struct LiveCallHost: ViewModifier {
     let shell: ShellModel
     private let call = ChiefLiveCall.shared
