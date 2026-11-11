@@ -606,6 +606,12 @@ impl Cmd {
         self.from_name().iter().skip(1).map(|w| w.lit.as_deref()).collect()
     }
 
+    /// It ends the shell (or function) with the failure that reached it: `exit` but `exit 0`,
+    /// `return`, `exec`.
+    fn terminal(&self) -> bool {
+        matches!(self.name(), Some("exit" | "return" | "exec")) && self.masks().is_none()
+    }
+
     /// What it is when it always succeeds and so stands in for the exit before it.
     fn masks(&self) -> Option<String> {
         match self.name()? {
@@ -689,9 +695,18 @@ impl List {
         self.chain.iter().flatten().any(|c| !c.setup())
     }
 
-    /// Real work left of an `&&` or `||`, whose failure `set -e` does not exit on.
+    /// Real work left of an `&&` or `||`, whose failure `set -e` does not exit on. A failure
+    /// left of a `|| exit N`, `|| return` or `|| exec ...` in the list reaches it (an `&&` skips
+    /// on to it), so the scan starts after the last one: `set -e; false || exit 1 && echo done`
+    /// keeps its failure.
     fn runs_real_left_of_and_or(&self) -> bool {
-        self.chain.split_last().is_some_and(|(_, left)| left.iter().flatten().any(|c| !c.setup()))
+        let Some((_, left)) = self.chain.split_last() else { return false };
+        let ends = |i: usize| {
+            let joined = i.checked_sub(1).and_then(|o| self.ops.get(o)) == Some(&AndOr::Or);
+            joined && matches!(left.get(i).map(Vec::as_slice), Some([cmd]) if cmd.terminal())
+        };
+        let from = (0..left.len()).rev().find(|&i| ends(i)).map_or(0, |i| i.saturating_add(1));
+        left.get(from..).unwrap_or_default().iter().flatten().any(|c| !c.setup())
     }
 
     /// It ends `|| exit N` (N not 0) or `|| exit`, which keeps a failure.
@@ -836,6 +851,22 @@ mod tests {
         quiet("set -e; cargo test || exit 1; echo done");
         quiet("set -e; cd x && cargo test; echo done");
         quiet("set -e; echo a && cargo test; echo done");
+    }
+
+    /// A failure left of a `|| exit N`, `|| return` or `|| exec` reaches it, so it is not hidden
+    /// (#41270 review F1); work after it, or before an `&& exit` a failure skips, still is.
+    #[test]
+    fn errexit_scan_stops_at_a_terminal_exit() {
+        quiet("set -e; false || exit 1 && echo done; echo final");
+        quiet("set -e; cargo test && cargo doc || exit 2 && echo built; echo final");
+        quiet("set -e; cargo test || return && echo done; echo final");
+        quiet("set -e; cargo test || exec false && echo done; echo final");
+        assert_eq!(
+            warns("set -e; false || exit 1 && make && echo done; echo final"),
+            "last stage is echo"
+        );
+        assert_eq!(warns("set -e; false && exit 1 && echo done; echo final"), "last stage is echo");
+        assert_eq!(warns("set -e; false || exit 0 && echo done; echo final"), "last stage is echo");
     }
 
     /// A heredoc's body is skipped: its `|` and `;` are text.
