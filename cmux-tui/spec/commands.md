@@ -10142,7 +10142,7 @@ the trust question; the person answers it on the machine or through
 `agent-session-trust`). There is no command, env, policy, mode,
 peer, preset or MCP server param; `model` is only accepted with the additive
 `agent-session-start-model-v1` capability and is passed to the first session; `permission_mode` (`fullAccess`,
-`standard` or `ask`, with `agent-session-start-permission-mode-v1`, advertised with the owner-Cloud capability) is
+`standard` or `ask`, with `agent-session-start-permission-mode-v1`, advertised wherever the start is served) is
 the person's `agents.defaultPermissionMode`, read only on the caller's own Cloud VM, where `fullAccess` and `standard`
 start the chat with no `ask` policy (anywhere else, and for a phone, the start keeps `ask`); an unknown param is
 `agent_session.bad_request`. The machine kind decides first, read again at
