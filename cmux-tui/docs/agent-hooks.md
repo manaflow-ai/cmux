@@ -21,6 +21,24 @@ sends no hook when a permission dialog is dismissed with Esc, so this proof,
 or the agent's own status report (OSC 7501 `blocked`, then `idle` or
 `working`), is the only evidence that the agent stopped waiting.
 
+One agent's hook events reach the session in the order its hooks ran: each
+hook queues its event behind the agent's earlier ones. A hook that cannot
+queue (no private queue directory, a full disk, or a platform without the
+queue) sends its event on its own connection, and the session serves each
+connection on its own thread, so the journal can then take a `Stop` before
+the prompt that came first. Each event carries when its hook started
+(`observed_at_ms`, from the clock of the machine the hook runs on). The
+agent's state, in the agent rows and in the roster that the sidebar, tab
+badges and attention jump read, follows the latest-started event of its
+session: an event of the same session that started earlier than the latest
+applied one, by at most 5 s (the reorder window), is kept in the journal
+but does not change the state. The session's start and end, and an event
+that shows a dialog, a question, a plan review or an error, always apply.
+Limits: two events that start in the same millisecond keep journal order;
+an event that started more than 5 s earlier applies (a clock stepped back);
+for an agent on a remote host, a step of that host's clock within 5 s can
+drop the state of the event after it until the agent's next event.
+
 ## Agents in a tmux session started elsewhere
 
 An agent can run in a tmux session whose server was started outside

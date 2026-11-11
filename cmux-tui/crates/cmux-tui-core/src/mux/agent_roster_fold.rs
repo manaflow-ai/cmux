@@ -278,6 +278,14 @@ impl Mux {
         ) else {
             return Ok(());
         };
+        if HookFence::reordered(
+            previous_fence.as_ref(),
+            &ingress.kind,
+            &agent_session_id,
+            observed_at_ms,
+        ) {
+            return Ok(());
+        }
         // Attention-worthy transitions become durable notifications before
         // the agent report commits. The notification key is derived from the
         // journal sequence, so a retry after a crash between the two commits
