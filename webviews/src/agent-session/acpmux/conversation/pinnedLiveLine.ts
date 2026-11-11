@@ -36,6 +36,10 @@ type Pinned = {
   top: number;
   /// The thread offset last drawn against.
   x: number;
+  /// How far the line still rides with the thread: taken while the chase was drawn away, the line
+  /// keeps its drawn place (it never jumps by the offset); it holds still as the thread is drawn
+  /// further away and comes home with the thread as it comes back (`cap` only shrinks, to 0).
+  cap: number;
   /// The reader took the view: the line and its clips hold where they are drawn.
   held?: boolean;
 };
@@ -83,14 +87,17 @@ function dropClipGlides(row: HTMLElement) {
 export function drawPinned(thread: HTMLElement, x: number): void {
   const rows = pinned.get(thread);
   if (!rows || rows.held) return;
+  rows.cap = Math.max(0, Math.min(rows.cap, x));
   rows.x = x;
-  if (Math.abs(x) < 0.25) {
+  // Held back by what the thread is drawn away past the line's cap.
+  const held = x - rows.cap;
+  if (Math.abs(held) < 0.25) {
     clear(rows);
     return;
   }
-  rows.live.style.translate = `0 ${-x}px`;
+  rows.live.style.translate = `0 ${-held}px`;
   for (const { row, bottom } of rows.above) {
-    const over = bottom + x - rows.top;
+    const over = bottom + held - rows.top;
     if (over > 0.25) {
       // A glide's clip on the row (tailGlide.ts) would win over this one: where the line's held place
       // reaches the row, the pin's clip is its whole clip, so that one ends. Only there: a row the line
@@ -135,7 +142,12 @@ export function pinLiveLine(thread: HTMLElement | null, pin: boolean, hold = fal
     if (was) clear(was);
     // A row over the line lies under its held place by at most the most the chase holds back.
     const reach = Math.max(Math.abs(x), thread.ownerDocument.defaultView?.innerHeight ?? 0);
-    pinned.set(thread, { live, above: rowsAbove(live, reach), top: live.offsetTop, x: was?.x ?? 0 });
+    // Taken fresh, the line is drawn where the thread draws it (`cap` the thread's offset): the pin
+    // starts from there, never jumping it by the offset the chase is still bringing home (105 px in
+    // turn-transition-jumps steer-tools, the line taken again mid-chase after a steer's rise).
+    const kept = was?.live === live;
+    const cap = kept ? was.cap : Math.max(0, x);
+    pinned.set(thread, { live, above: rowsAbove(live, reach), top: live.offsetTop, x: kept ? was.x : x, cap });
     thread.setAttribute(PIN_LIVE_ATTR, "");
     drawPinned(thread, x);
     return undefined;
@@ -144,10 +156,10 @@ export function pinLiveLine(thread: HTMLElement | null, pin: boolean, hold = fal
   pinned.delete(thread);
   thread.removeAttribute(PIN_LIVE_ATTR);
   clear(was);
-  if (!was.live.isConnected || Math.abs(was.x) < 0.5) return undefined;
-  // Drawn at its place in the thread's layout, the thread itself drawn `x` away: it was `-x` from
-  // where the thread draws it now.
-  return { id: LIVE_THINKING, y: was.x, used: false };
+  const held = was.x - was.cap;
+  if (!was.live.isConnected || Math.abs(held) < 0.5) return undefined;
+  // Drawn `held` short of where the thread draws it now (its layout place when the cap is 0).
+  return { id: LIVE_THINKING, y: held, used: false };
 }
 
 /// Plays a line let go and not taken by a glide home from where it was held, on `step`.
