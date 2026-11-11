@@ -43,5 +43,8 @@ area cloud 'backend/catalog/cloud-operations\.json|backend/packages/protocol/(sc
 area webviews 'webviews/'
 area ghostty 'ghostty$|scripts/ghosttykit-checksums\.txt'
 area fmt 'cmux-tui/|Native/OptChat/'
+# Every tracked Cargo.lock against its manifests (cargo-locks.py): any Cargo.toml or Cargo.lock anywhere, since a
+# manifest reaches other workspaces' locks through path dependencies (eb4f3eb1d94).
+area locks '(.*/)?Cargo\.(toml|lock)$'
 # cargo clippy --fix (pull request job only): the cmux-tui Rust it changes.
 area clippy 'cmux-tui/.*\.rs$'

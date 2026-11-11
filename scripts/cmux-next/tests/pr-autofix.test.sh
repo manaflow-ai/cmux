@@ -44,6 +44,10 @@ done
 # The settings exports (schemas/settings/settings-schema.json and
 # docs/mdm) follow a CmuxNextSettings change on the same Mac job, so a pull
 # request that adds a setting lands with them instead of a red defaults-snapshot.
+locks() { printf '%s\n' "$1" | bash "$AREAS" | sed -n 's/^locks=//p'; }
+[[ "$(locks cmux-tui/Cargo.toml)" == true ]] || fail "a Cargo.toml change must check every lock"
+[[ "$(locks services/iroh-relay-minter/Cargo.lock)" == true ]] || fail "a Cargo.lock change anywhere must check every lock"
+[[ "$(locks cmux-tui/crates/x/src/lib.rs)" == false ]] || fail "a Rust source change alone must not run the lock repair"
 settings() { printf '%s\n' "$1" | bash "$AREAS" | sed -n 's/^settings=//p'; }
 for path in Packages/macOS/CmuxNext/Sources/CmuxNextSettings/CmuxConfigSnapshot.swift \
   Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings schemas/settings/settings-schema.json; do

@@ -1581,6 +1581,35 @@ let package = Package(
         self.assertEqual(self.remote_head(), before)
         self.assertIn("cmux-tui/Cargo.lock: does not match its manifests", output)
 
+    def test_a_manifest_change_that_leaves_another_workspaces_lock_stale_is_refused(self):
+        # 2026-11-10: eb4f3eb1d94 changed cmux-tui/Cargo.toml and cmux-tui/Cargo.lock only; cmux-app-ffi, a workspace
+        # of its own that builds cmux-tui's crates by path, kept a stale lock and every --locked step there stopped.
+        env = self.cargo_workspace()
+        self.write("cmux-tui/crates/ffi/Cargo.toml", '[package]\nname = "ffi"\nversion = "0.1.0"\nedition = "2021"\n'
+                   '\n[dependencies]\na = { path = "../a" }\n\n[workspace]\n')
+        self.write("cmux-tui/crates/ffi/src/lib.rs", "")
+        made = subprocess.run(["cargo", "generate-lockfile", "--offline"], cwd=self.repo / "cmux-tui/crates/ffi",
+                              env={**self.env, **env}, text=True, capture_output=True)
+        self.assertEqual(made.returncode, 0, made.stderr)
+        self.commit("ffi workspace")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        before = self.remote_head()
+        self.write("cmux-tui/crates/a/Cargo.toml", '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\n'
+                   '\n[dependencies]\nb = { path = "../b" }\n')
+        locked = subprocess.run(["cargo", "metadata", "--offline", "--format-version", "1"], cwd=self.repo / "cmux-tui",
+                                env={**self.env, **env}, capture_output=True, text=True)
+        self.assertEqual(locked.returncode, 0, locked.stderr)
+        self.commit("a uses b, with cmux-tui's lock only")
+
+        result = self.push(**env)
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("cmux-tui/crates/ffi/Cargo.lock: does not match its manifests", output)
+        self.assertNotIn("cmux-tui/Cargo.lock: does not match", output)
+        self.assertIn("cargo-locks.py fix", output)
+
     def test_a_cargo_dependency_with_its_lock_pushes(self):
         env = self.cargo_workspace()
         self.write("cmux-tui/crates/a/Cargo.toml", '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\n'
