@@ -174,6 +174,19 @@ pub(super) struct ServerProcess {
     pid: Arc<Mutex<Option<u32>>>,
 }
 
+/// A started server that no thread owns yet: dropped, it is killed and
+/// reaped, so a failed start leaves no process and no zombie.
+struct ReapOnDrop(Option<std::process::Child>);
+
+impl Drop for ReapOnDrop {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.0.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
 /// Starts one of a server's threads. Tests make the n-th start fail
 /// ([`fail_thread_start_for_test`]), as a thread limit would.
 fn thread(name: String, body: impl FnOnce() + Send + 'static) -> std::io::Result<()> {
@@ -242,6 +255,8 @@ impl ServerProcess {
         #[cfg(test)]
         LAST_SPAWNED_PID.with(|last| last.set(Some(child.id())));
         let pid = Arc::new(Mutex::new(Some(child.id())));
+        // Until the reaper thread runs, a failed start kills and waits the child.
+        let mut child = ReapOnDrop(Some(child));
         let (queue, outgoing) = sync_channel(QUEUE);
         thread(format!("cmux-app-server-w:{name}"), move || write_loop(stdin, outgoing))?;
         thread(format!("cmux-app-server-e:{name}"), move || {
@@ -280,6 +295,7 @@ impl ServerProcess {
                 // SAFETY: signalling our own child by pid; it is not reaped yet.
                 unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
             }
+            let Some(mut child) = child.0.take() else { return };
             let exit = match child.wait() {
                 Ok(status) => {
                     use std::os::unix::process::ExitStatusExt;
