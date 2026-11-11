@@ -81,6 +81,9 @@ struct CmdNTopInGroupFramesTests {
         let doc = services.sidebarDoc
         print("settle-debug: items \(after.map { "\($0)=\(doc.item(workspace: $0) ?? "none")" })")
         print("settle-debug: personal \(services.machines.local.store.personal.workspacesInOrder.map { String(describing: $0) })")
+        if let connection = services.machines.local.connection, let state = try? await connection.listPersonal() {
+            print("settle-debug: daemon personal rev \(state.revision) \(state.workspaces.sorted { $0.index < $1.index }.map { "\($0.workspaceKey.rawValue)@\($0.index)" })")
+        } else { print("settle-debug: daemon personal unavailable") }
         print("settle-debug: keys \(store.workspaces.map { "\($0.id)=\(String(describing: $0.key))" })")
         await launched.stop()
 
