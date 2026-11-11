@@ -512,6 +512,7 @@ import type { LocalCommand } from "./localCommands";
 import {
   cloudPageRefusal,
   cloudRunsHere,
+  cloudSendAfterCheck,
   cloudFolderGrants,
   cloudStartFolder,
   cloudStartSaid,
@@ -4672,15 +4673,27 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The plan card's Switch to <team>: the next Cloud send carries the team, and the host switches to it
   /// (the team picker's switch) before it starts, under the same click.
   const [cloudSwitchTeam] = useState(() => cloudStartTeam());
+  /// The Cloud send that waits on the tab's check (cloudRun.ts cloudSendAfterCheck), while it waits.
+  const [cloudAfterCheck] = useState(() => cloudSendAfterCheck());
+  const [cloudWaitsForCheck, setCloudWaitsForCheck] = useState(false);
+  const sendToCloudLatest = useRef<typeof sendToCloud>(() => false);
   const sendToCloud = (
     text: string,
     attachments: ComposerAttachment[],
     start: Omit<CloudStart, "task" | "attachments">,
     fromPage = false,
   ): string | boolean => {
-    const refused = cloudPageRefusal(sandboxOffered);
-    if (refused === "cloud_not_now")
-      return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
+    const refused = cloudPageRefusal({ offerable: sandboxOfferable, checked: sandbox.checked });
+    if (refused === "cloud_chat_starting") return translate("cloudStart.chatStartingHere");
+    if (refused === "cloud_checking") {
+      // The tab's check hasn't answered (cloudRun.ts cloudPageRefusal): this send waits for it and
+      // goes by itself, the prompt held where it was typed. A read now, since the handshake's may
+      // have missed its 15 s; a read that fails again shows Check again (sandboxUnchecked).
+      cloudAfterCheck.hold(() => void sendToCloudLatest.current(text, attachments, start, fromPage));
+      setCloudWaitsForCheck(true);
+      void sandbox.read();
+      return false;
+    }
     if (cloudStartPending.current) return false;
     // The Environment chip's pick (CLOUD_ENVIRONMENTS_ENABLED); Auto, and the flag off, name none.
     const environment = cloudEnvironment.forSend(start.environment);
@@ -4700,6 +4713,23 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // as the message (CloudStartView) and comes back if the start fails (`cloudStartHeld`).
     return Boolean(started) && !fromPage;
   };
+  sendToCloudLatest.current = sendToCloud;
+  // The held send goes once Cloud is offered here; leaving Cloud, a chat opening here or another
+  // New Tab drops it.
+  useEffect(() => {
+    if (!cloudWaitsForCheck) return;
+    if (sandbox.mode !== "cloud" || snapshot.sessionId) {
+      cloudAfterCheck.drop();
+      setCloudWaitsForCheck(false);
+    } else if (sandboxOffered) {
+      setCloudWaitsForCheck(false);
+      cloudAfterCheck.offered();
+    }
+  }, [cloudAfterCheck, cloudWaitsForCheck, sandboxOffered, sandbox.mode, snapshot.sessionId]);
+  useEffect(() => {
+    cloudAfterCheck.drop();
+    setCloudWaitsForCheck(false);
+  }, [cloudAfterCheck, newTabGeneration]);
   const beginCloudSend = (
     request: CloudStart,
     signingIn = false,
@@ -12350,6 +12380,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                         runMode: sandboxModeRows,
                         // A page-side refusal goes to the chat view, which says why (SandboxRunView), with
                         // the prompt and attachments put back in its composer.
+                        ...(!cloudStart && cloudWaitsForCheck && !sandbox.unread
+                          ? {
+                              cloudStatus: (
+                                <output className="acpmux-switch-notice">
+                                  <span role="status">{t("cloudStart.checkingTab")}</span>
+                                </output>
+                              ),
+                            }
+                          : {}),
                         ...(cloudStart
                           ? {
                               cloudStatus: (

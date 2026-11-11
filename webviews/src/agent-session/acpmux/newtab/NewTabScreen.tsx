@@ -741,6 +741,14 @@ export function NewTabScreen(props: Props) {
   /// A Sandboxed send refused here (attachments, an agent a sandbox can't run): said over the box,
   /// and the prompt stays.
   const [sandboxRefusal, setSandboxRefusal] = useState<string>();
+  // A refusal is about the send it answered: another mode or folder is a new pick, so it goes
+  // (it stayed over every folder and team Leo then picked, 2026-11-10).
+  const refusalPick = `${props.runMode?.mode ?? ""}\u0000${envFolder ?? ""}`;
+  const [refusedPick, setRefusedPick] = useState(refusalPick);
+  if (refusedPick !== refusalPick) {
+    setRefusedPick(refusalPick);
+    setSandboxRefusal(undefined);
+  }
   const [startError, setStartError] = useState<string>();
   /// The request in flight (its number), or 0: Return waits for it. Only that request's own end
   /// opens the page again, never an older one's late reply.

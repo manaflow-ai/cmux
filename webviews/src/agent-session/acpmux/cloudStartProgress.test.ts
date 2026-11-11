@@ -244,6 +244,13 @@ test("the pane's other refusals before Cloud (attachments, a busy pane) mark no 
   }
 });
 
+// Leo 2026-11-10: "Cloud isn't available for this chat" said no reason and offered nothing.
+test("the host's not-now refusal says a chat is starting in this tab and how to use Cloud instead", () => {
+  const text = cloudRefusalText("unavailable_now");
+  expect(text).toBe("A chat is already starting in this tab. Open a new chat to start one in Cloud.");
+  expect(text).not.toContain("isn't available");
+});
+
 const question: CloudStartAsk = {
   id: "ask-1",
   kind: "codexDevice",
