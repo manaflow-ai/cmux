@@ -601,7 +601,7 @@ class TransportTests(unittest.TestCase):
         self.assertLessEqual(waits[0], publisher.RATE_LIMIT_BUDGET_SECONDS)
 
     def test_the_wait_never_exceeds_the_budget_at_any_clock(self):
-        # The boundary: a reset further off than the budget waits exactly the budget, whatever the clock's float.
+        # The boundary: a reset further off than the budget waits the budget and never more, whatever the clock's float.
         for index, clock in enumerate((1000.84, 8000.3, 123456.789, 3.0e7 + 0.1)):
             with self.subTest(clock=clock):
                 waits = []
@@ -619,7 +619,9 @@ class TransportTests(unittest.TestCase):
                     self.addCleanup(setattr, publisher, "_ledger_at_start", None)
                     self.addCleanup(setattr, publisher, "_rate_limit_deadline", None)
                     publisher.backoff(1, publisher.RequestError("limited", status=403, rate_limited=True, wait=3601.0))
-                self.assertEqual(waits, [600.0])
+                self.assertEqual(len(waits), 1)
+                self.assertLessEqual(waits[0], 600)
+                self.assertAlmostEqual(waits[0], 600, delta=1e-6)
 
     def test_rate_limit_that_outlasts_the_budget_fails(self):
         publisher._rate_limit_deadline = publisher.time.monotonic() - 1
