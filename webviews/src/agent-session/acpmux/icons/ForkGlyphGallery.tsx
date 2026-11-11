@@ -6,10 +6,11 @@ import { Icon } from "./Icon";
 /**
  * The fork glyph candidates in the message action row, between the neighbours it sits with (Copy,
  * Pin, Read aloud, More), light and dark, at the row's size, at 12 and at 20 (Leo 2026-11-09: "and this
- * fork symbol is so bad"; 2026-11-07: "like codex"). The chosen drawing is the pack's `agent.fork`; the
- * others are frozen here as paths on the pack's 24 grid at its 1.5 stroke.
+ * fork symbol is so bad"; 2026-11-07: "our generated github icon... man figure somethgn out"). The
+ * chosen drawing is the pack's `agent.fork`; the others are frozen here as paths on the pack's 24 grid
+ * at its 1.5 stroke.
  */
-export type ForkGlyphCandidate = "codex-branch" | "fork-mark" | "soft-fork" | "turned-y" | "sideways" | "before";
+export type ForkGlyphCandidate = "branch-mark" | "fork-mark" | "soft-fork" | "turned-y" | "sideways" | "before";
 
 export interface ForkGlyphGalleryProps {
   fork: ForkGlyphCandidate;
@@ -17,7 +18,7 @@ export interface ForkGlyphGalleryProps {
 
 const NODE = (cx: number, cy: number) => `M${cx - 2.25} ${cy}a2.25 2.25 0 1 0 4.5 0a2.25 2.25 0 1 0 -4.5 0`;
 
-const PATHS: Record<Exclude<ForkGlyphCandidate, "codex-branch">, string[]> = {
+const PATHS: Record<Exclude<ForkGlyphCandidate, "branch-mark">, string[]> = {
   "fork-mark": [
     NODE(7, 6),
     NODE(17, 6),
@@ -36,7 +37,7 @@ const PATHS: Record<Exclude<ForkGlyphCandidate, "codex-branch">, string[]> = {
 };
 
 function Fork({ fork, size }: { fork: ForkGlyphCandidate; size: number }) {
-  if (fork === "codex-branch") return <Icon name={FORK_ICON} size={size} />;
+  if (fork === "branch-mark") return <Icon name={FORK_ICON} size={size} />;
   return (
     <svg
       width={size}
