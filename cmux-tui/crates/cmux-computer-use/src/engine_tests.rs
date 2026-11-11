@@ -730,3 +730,20 @@ fn the_cursor_shows_a_refusal_and_a_wait_for_the_person() {
     let v = serde_json::to_value(&ev[refused]).unwrap();
     assert_eq!((v["kind"].as_str(), v["reason"].as_str()), (Some("refused"), Some("You're in control")));
 }
+
+#[test]
+fn a_batch_step_that_fails_says_why() {
+    let d = Arc::new(FakeDesktop::standard());
+    let e = engine(d, PolicyConfig::default());
+    let out = e.call(
+        &ctx(None),
+        "batch",
+        &json!({"window_id": "1", "actions": [
+            {"action": "press_key", "keys": "cmd+nonsense"}
+        ]}),
+    );
+    let result = &out.body["results"][0];
+    assert_eq!(result["ok"], false, "{:?}", out.body);
+    let message = result["message"].as_str().unwrap_or_default();
+    assert!(message.contains("nonsense"), "the step's error text reaches the agent: {:?}", out.body);
+}

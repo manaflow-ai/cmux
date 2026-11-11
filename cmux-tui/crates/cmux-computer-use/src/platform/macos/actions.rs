@@ -245,6 +245,21 @@ pub(super) fn click(
             return Ok(outcome_after(&route_name(action), before, &el));
         }
     }
+    // A row or cell with no press action (System Settings' sidebar, Finder
+    // lists, tables): select it through accessibility. A background window
+    // drops pid-posted mouse events, so its center click did nothing.
+    if semantic
+        && spec.button == Button::Left
+        && let Some(row) = selectable(&el)
+        && let Some(yes) = Cf::boolean(true)
+        && row.set("AXSelected", &yes).is_ok()
+    {
+        let mut out = ActionOutcome::delivered("ax_select");
+        if let Some(frame) = row.frame() {
+            out = out.at(roles::center(&frame));
+        }
+        return Ok(out);
+    }
     let center = d.element_center(&t, element_id)?;
     let mut out = click_point(d, &t, center, spec)?;
     if semantic {
@@ -625,6 +640,24 @@ fn menu_item_for(pid: i32, combo: &KeyCombo) -> Option<Ax> {
             break;
         }
         menus = next;
+    }
+    None
+}
+
+/// The element, or its nearest row or cell ancestor (at most 4 up), whose
+/// AXSelected can be set: what a click selects in a list, table or outline.
+fn selectable(el: &Ax) -> Option<Ax> {
+    let mut current = Some(el.clone());
+    for _ in 0..5 {
+        let node = current?;
+        let role = node.string("AXRole").unwrap_or_default();
+        if matches!(role.as_str(), "AXRow" | "AXCell" | "AXOutlineRow") && node.settable("AXSelected") {
+            return Some(node);
+        }
+        if matches!(role.as_str(), "AXWindow" | "AXTable" | "AXOutline" | "AXList") {
+            return None;
+        }
+        current = node.element("AXParent");
     }
     None
 }

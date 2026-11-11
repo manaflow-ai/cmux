@@ -1215,7 +1215,9 @@ impl Engine {
                 "action": actions.get(completed).and_then(|a| a.get("action")).cloned(),
                 "ok": false,
                 "code": failure.code,
-                "message": failure.body.get("message").cloned(),
+                // Errors carry their text as `error` (ToolOutput::error);
+                // without it an agent sees only a code and gives up.
+                "message": failure.body.get("error").or_else(|| failure.body.get("message")).cloned(),
             }));
         }
         let mut out = ToolOutput::ok(json!({
@@ -1298,7 +1300,7 @@ impl Engine {
             Err(e) => {
                 out.body["state"] = json!({
                     "available": false,
-                    "reason": e.body.get("message").cloned().unwrap_or(json!(e.code)),
+                    "reason": e.body.get("error").or_else(|| e.body.get("message")).cloned().unwrap_or(json!(e.code)),
                     "next": "call list_windows, then screenshot the window you need",
                 });
                 return;
