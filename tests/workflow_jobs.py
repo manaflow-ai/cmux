@@ -347,6 +347,20 @@ class VarRead(NamedTuple):
     field: str
 
 
+class Unverifiable(NamedTuple):
+    """A trace the resolve step refused to finish: `inputs.<name>` of `workflow` loops back to itself (a default that
+    names itself, two inputs whose defaults or callers name each other, a call cycle) or nests past
+    MAX_TRACE_DEPTH. What it would read is unknown, so a guard treats it as a finding, never as "reads nothing"."""
+    workflow: str
+    name: str
+    reason: str
+    field: str
+
+
+# How many reusable-workflow inputs one trace may pass through (callers' `with:` values and defaults alike).
+MAX_TRACE_DEPTH = 32
+
+
 class VarReads:
     """What one field's resolve consumed: every `vars` operand of every text it read (the field as written, each
     matrix value it took, each caller's `with:` value and declared default an input it read came from, at any
@@ -355,12 +369,16 @@ class VarReads:
     def __init__(self, field: str, file: str | None = None, job: str = "") -> None:
         self.field, self.file, self.job = field, file, job
         self.found: set[VarRead] = set()
+        self.unverifiable: set[Unverifiable] = set()
 
     def at(self, file: str | None, job: str) -> "VarReads":
         """The same record, for texts in another job (a caller's)."""
         other = VarReads(self.field, file, job)
-        other.found = self.found
+        other.found, other.unverifiable = self.found, self.unverifiable
         return other
+
+    def refuse(self, workflow: str, name: str, reason: str) -> None:
+        self.unverifiable.add(Unverifiable(workflow, name, reason, self.field))
 
     def note(self, path: str, text: str, whole: bool = False) -> None:
         for name in variable_reads(text, whole):
@@ -398,6 +416,17 @@ def _resolve(job: Mapping[str, Any], text: str, tracer: Tracer | None = None, re
     matrix value it took (the whole matrix when it could not expand one), and, through the tracer, in each caller's
     value of every input it reads, as a branch or in a condition."""
     text = text.strip()
+    if tracer is not None:
+        # Each input once per call: the reads pass below and the branches both trace it, and a trace that ran twice
+        # per level grew as 2^depth along a chain of inputs.
+        raw, done = tracer, {}
+
+        def tracer(term: str) -> "tuple[set[str], set[str]] | None":
+            match = _INPUT_TERM.fullmatch(term)
+            key = match.group(1).lower() if match else term
+            if key not in done:
+                done[key] = raw(term)
+            return done[key]
     expanded = expand_matrix(job, text, reads)
     if reads is not None:
         reads.note(path, text)
@@ -461,10 +490,20 @@ class Workflows:
                      reads: VarReads | None = None) -> tuple[set[str], set[str]]:
         """Every value `inputs.<name>` takes in `workflow`, and what nothing resolves (`inputs.<name>` itself when
         no workflow here calls it). `reads` records the variables each caller's value (or the declared default)
-        reads, with the caller's file, job and `with.<name>` path."""
+        reads, with the caller's file, job and `with.<name>` path.
+
+        A caller that passes nothing gets the input's declared default, which is read in `workflow` itself: an
+        `inputs.Y` in it is traced to this workflow's callers like any other (Codex on #40979: a default of
+        `${{ inputs.fallback_runner }}` was scanned as text, so a caller's `fallback_runner: ${{ vars.X }}` was never
+        read). A trace that comes back to an input it is already tracing, or passes MAX_TRACE_DEPTH inputs, stays
+        unresolved and, with `reads`, is recorded as Unverifiable."""
         key = (workflow, name.lower())
+        if key in _seen or len(_seen) >= MAX_TRACE_DEPTH:
+            if reads is not None:
+                reads.refuse(workflow, name, "a loop" if key in _seen else f"more than {MAX_TRACE_DEPTH} inputs")
+            return set(), {f"inputs.{name}"}
         callers = list(self.callers(workflow))
-        if key in _seen or not callers:
+        if not callers:
             return set(), {f"inputs.{name}"}
         values: set[str] = set()
         unresolved: set[str] = set()
@@ -472,9 +511,14 @@ class Workflows:
             passed_key = next((k for k in (job.get("with") or {}) if str(k).lower() == name.lower()), None)
             if passed_key is None:
                 default = self._declared_default(workflow, name)
-                if reads is not None and isinstance(default, str):
-                    reads.at(workflow, "").note(f"on.workflow_call.inputs.{name}.default", default)
-                values.add("" if default is None else _scalar_text(default))
+                if not isinstance(default, str):
+                    values.add("" if default is None else _scalar_text(default))
+                    continue
+                here = reads.at(workflow, "") if reads is not None else None
+                found, open_terms = _resolve({}, default, self.tracer(workflow, _seen | {key}, here), here,
+                                             f"on.workflow_call.inputs.{name}.default")
+                values |= found
+                unresolved |= open_terms
                 continue
             passed = job["with"][passed_key]
             here = reads.at(caller, caller_job) if reads is not None else None
@@ -639,7 +683,8 @@ class Resolved:
     path it sits at, and the field), wherever it sat: the field as written, a matrix value it took (a matrix
     nothing could expand counts whole), a caller's `with:` value or an input's default at any call depth, inside a
     condition or a fromJSON, in dot or bracket form. A guard about the variables a field reads reads them here,
-    never the field's text. Field `env` holds the variables the job's env layers read (the workflow's, then the
+    never the field's text. `unverifiable` is every trace those fields refused to finish (Unverifiable: a loop or
+    a nesting past MAX_TRACE_DEPTH); a guard counts each as a finding. Field `env` holds the variables the job's env layers read (the workflow's, then the
     job's): runs-on, environment and name cannot read the env context, so no other field consumes them."""
 
     def __init__(self, job: Mapping[str, Any], job_id: str = "", workflow: str | None = None,
@@ -656,6 +701,7 @@ class Resolved:
             for path, text in _strings_at(layer or {}, "env"):
                 reads["env"].at(workflow, scope).note(path, text)
         self.vars_read: frozenset[VarRead] = frozenset().union(*(r.found for r in reads.values()))
+        self.unverifiable: frozenset[Unverifiable] = frozenset().union(*(r.unverifiable for r in reads.values()))
         self.secrets = secret_names(job)
 
 
