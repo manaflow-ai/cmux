@@ -13,7 +13,7 @@ import Testing
 /// start of its CLI. The Channels card reads each step of a Switch off ``BuildSwitchProgress``.
 @Suite(.serialized) struct RollbackSpeedTests {
     /// Counts the signature checks a store makes.
-    private final class Checks: Sendable {
+    private nonisolated final class Checks: Sendable {
         let count = OSAllocatedUnfairLock(initialState: 0)
         func team(_ bundle: URL) -> String? {
             count.withLock { $0 += 1 }
