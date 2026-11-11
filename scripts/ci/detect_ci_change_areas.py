@@ -175,9 +175,11 @@ CI_MACOS_TEST_PRODUCT_INPUTS = frozenset({
 # that tree can execute cannot change what a pull request's lanes do.
 _LOCAL_WORKFLOW_CALL_RE = re.compile(r"""uses:\s*["']?\./(\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml)""")
 _DOCUMENTATION_SUFFIXES = (".md", ".mdx", ".txt")
-# Data files that name helpers without running them: git attributes and the
-# warm-source table, whose entries describe a source in prose (#28568).
-_NON_RUNNING_FILES = frozenset({".gitattributes", ".github/warm-sources.json"})
+# Data files that name helpers without running them: git attributes, the
+# warm-source table, whose entries describe a source in prose (#28568), and the
+# single-host fallback declarations, whose prose names the helpers a fallback
+# leans on (owned_pool_rescue.py) without running them.
+_NON_RUNNING_FILES = frozenset({".gitattributes", ".github/warm-sources.json", ".github/single-host-fallbacks.json"})
 
 
 def routed_workflows(root: Path) -> Optional[frozenset[str]]:

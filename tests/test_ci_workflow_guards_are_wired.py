@@ -45,6 +45,11 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
 UNWIRED: set[str] = {
+    # lane = "manual" (no new CI tests, Lawrence 2026-10-23). It pins scripts/cmux-next/check-single-host-fallbacks.py,
+    # reading fixture workflows and this repository's runs-on as data; CI runs that checker with --advisory and the
+    # pre-push gate runs it strictly. Run it by hand after changing the checker or .github/single-host-fallbacks.json.
+    # Exit: wire it here if that rule changes and the toml entry moves to a CI lane.
+    "tests/test_ci_single_host_fallbacks.py",
     # lane = "manual" (no new CI tests, CLAUDE.md). It checks pool reads against .github/runners.json and that
     # copy against main's; run it by hand when a pool read or the pools change. Exit: as below.
     "tests/test_ci_runner_pools_copy.py",
