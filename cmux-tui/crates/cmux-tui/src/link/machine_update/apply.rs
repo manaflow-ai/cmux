@@ -91,18 +91,30 @@ pub(crate) fn is_sha256(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
 }
 
+/// How the new build reaches the daemon (`--route`, default `work`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Route {
+    /// Renamed over `--install`, the daemon's own file; only the daemon restarts.
+    Work,
+    /// `--install` links into the self-updating image's store: the build goes into the
+    /// store as the machine's next profile (`cmux host update install`, as root through
+    /// `sudo -n`), and the machine restarts acpmux, the session host and `cmux host` on it.
+    Store,
+}
+
 struct Args {
     sha256: String,
     install: PathBuf,
     daemon_pid: i32,
     result: PathBuf,
+    route: Route,
 }
 
 /// Runs the apply step; the exit code (its outcome is in `--result`).
 pub(crate) fn run(args: &[String]) -> i32 {
     let Some(args) = parse(args) else {
         eprintln!(
-            "usage: cmux-tui {MODE} --sha256 HEX --install PATH --daemon-pid PID --result PATH"
+            "usage: cmux-tui {MODE} --sha256 HEX --install PATH --daemon-pid PID --result PATH [--route work|store]"
         );
         return 64;
     };
@@ -132,6 +144,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
 fn parse(args: &[String]) -> Option<Args> {
     let mut rest = args.iter();
     let (mut sha256, mut install, mut daemon_pid, mut result) = (None, None, None, None);
+    let mut route = Route::Work;
     while let Some(flag) = rest.next() {
         let value = rest.next()?;
         match flag.as_str() {
@@ -139,6 +152,13 @@ fn parse(args: &[String]) -> Option<Args> {
             "--install" => install = Some(PathBuf::from(value)),
             "--daemon-pid" => daemon_pid = value.parse::<i32>().ok().filter(|pid| *pid > 1),
             "--result" => result = Some(PathBuf::from(value)),
+            "--route" => {
+                route = match value.as_str() {
+                    "work" => Route::Work,
+                    "store" => Route::Store,
+                    _ => return None,
+                }
+            }
             _ => return None,
         }
     }
@@ -163,7 +183,7 @@ fn parse(args: &[String]) -> Option<Args> {
         && install_text.ends_with(INSTALL_SUFFIX)
         && plain(&install)
         && result_ok;
-    valid.then_some(Args { sha256, install, daemon_pid, result })
+    valid.then_some(Args { sha256, install, daemon_pid, result, route })
 }
 
 /// The update itself: its outcome state and a detail line.
@@ -179,6 +199,9 @@ fn apply(args: &Args) -> (&'static str, String) {
     // and so does not start it again (machine_update.rs `start`); a run it
     // starts anyway finds the outcome claimed ([`claim`]) and writes nothing.
     let _ = write_atomically(&args.result, RUNNING.as_bytes());
+    if args.route == Route::Store {
+        return apply_store(args);
+    }
     let own = match check(args) {
         Ok(own) => own,
         Err((state, why)) => return (state, why),
@@ -225,6 +248,120 @@ fn apply(args: &Args) -> (&'static str, String) {
         return ("updated", format!("the daemon runs {own_build}"));
     }
     restore(args, &previous, "the new daemon did not serve")
+}
+
+/// The store route ([`Route::Store`]): checks this staged build against the pin, has the
+/// machine's updater put a root-owned copy of it in the store and flip the profile to it
+/// (`cmux host update install`, which relinks `--install` into `current` and restarts
+/// acpmux, the cmux units and `cmux host`; the new host proves the build or rolls it
+/// back), then waits until the daemon on this terminal's socket and the acpmux daemon
+/// both run it. A machine whose updater was turned off on purpose, already applied a
+/// newer build or rolled this one back is left as it is (`foreign`).
+fn apply_store(args: &Args) -> (&'static str, String) {
+    let own = match std::env::current_exe() {
+        Ok(own) => own,
+        Err(error) => return ("failed", format!("cannot read the staged build's path: {error}")),
+    };
+    match file_sha256(&own) {
+        Ok(sha) if sha == args.sha256 => {}
+        _ => return ("failed", "the staged build does not have the pinned checksum".into()),
+    }
+    match std::fs::read_link(&args.install) {
+        Ok(target) if target == Path::new(STORE_CURRENT) => {}
+        _ => {
+            return (
+                "foreign",
+                format!("{} is not the store link; left as it is", args.install.display()),
+            );
+        }
+    }
+    let build = cmux_build_identity::BUILD_IDENTITY;
+    let answer = cmux_process::Command::new("sudo")
+        .args(["-n", "bash", "-c", STORE_INSTALL])
+        .arg(&own)
+        .arg(build)
+        .arg(cmux_build_identity::BUILD_TIME.to_string())
+        .stdin(cmux_process::Stdio::null())
+        .output();
+    let answer = match answer {
+        Ok(answer) => answer,
+        Err(error) => return ("failed", format!("cannot run the machine's updater: {error}")),
+    };
+    let (state, detail) = store_answer(&String::from_utf8_lossy(&answer.stdout));
+    match state {
+        "updating" | "current" => {}
+        "older" | "off" | "rolled-back-before" => return ("foreign", detail),
+        _ => {
+            let why = String::from_utf8_lossy(&answer.stderr);
+            return ("failed", format!("the machine's updater refused: {detail} {}", why.trim()));
+        }
+    }
+    let binary = Path::new("/opt/cmux/store").join(&args.sha256).join("cmux-tui");
+    if !serving(|running| running == build, args.daemon_pid) {
+        return (
+            "failed",
+            "the new build did not serve within ten minutes; the machine's updater rolls it back"
+                .into(),
+        );
+    }
+    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+        return ("failed", "no HOME".into());
+    };
+    if home.join(ACPMUX_UNIT).exists() && !wait(SERVE_TIMEOUT, || acpmux_runs(&binary)) {
+        return ("failed", "acpmux did not restart on the new build within ten minutes".into());
+    }
+    ("updated", format!("the machine runs {build}: its session host, acpmux and cmux host"))
+}
+
+/// The updater's link the work user's cmux-tui points at on a self-updating image.
+const STORE_CURRENT: &str = "/opt/cmux/current/bin/cmux-tui";
+/// The work user's acpmux unit (`cmuxTuiServiceInstallCommand`), under HOME.
+const ACPMUX_UNIT: &str = ".config/systemd/user/acpmux.service";
+/// Run as root by [`apply_store`] with the staged build, its commit and commit time:
+/// a root-owned copy of the build runs its own `cmux host update install` (`host` is
+/// mounted only under the name `cmux`), which moves that copy into the store.
+const STORE_INSTALL: &str = r#"set -eu
+f=$(mktemp /var/tmp/cmux-install.XXXXXX)
+install -m 0555 -o root -g root "$0" "$f"
+exec -a cmux "$f" host update install --file "$f" --commit "$1" --committed-at "$2""#;
+
+/// The state and detail of `cmux host update install`'s one JSON line; `unknown` for
+/// anything else.
+pub(super) fn store_answer(stdout: &str) -> (&'static str, String) {
+    let answer = stdout
+        .lines()
+        .rev()
+        .find_map(|line| serde_json::from_str::<serde_json::Value>(line.trim()).ok());
+    let detail = answer
+        .as_ref()
+        .and_then(|answer| answer["detail"].as_str())
+        .unwrap_or_else(|| stdout.trim())
+        .to_owned();
+    let state = match answer.as_ref().and_then(|answer| answer["state"].as_str()) {
+        Some("updating") => "updating",
+        Some("current") => "current",
+        Some("older") => "older",
+        Some("off") => "off",
+        Some("rolled-back-before") => "rolled-back-before",
+        Some("failed") => "failed",
+        _ => "unknown",
+    };
+    (state, detail)
+}
+
+/// Whether the acpmux daemon serving this user's acpmux socket (`acpmux::config::socket_path`,
+/// the one rule every acpmux client shares) runs `binary`. Its executable is read through that
+/// one connection's peer authentication, as [`daemon_binary`] does for the cmux daemon, never
+/// by a pid alone (plans/cmux-next/pty-holder.md, section 4).
+fn acpmux_runs(binary: &Path) -> bool {
+    use cmux_tui_core::platform::transport::Stream as _;
+    let Ok(stream) = std::os::unix::net::UnixStream::connect(acpmux::config::socket_path()) else {
+        return false;
+    };
+    stream
+        .peer_process_key()
+        .and_then(|key| peer_binary(&key))
+        .is_some_and(|(path, _)| path == binary)
 }
 
 /// The staged build that passed [`check`]: its path and the inode hashed,

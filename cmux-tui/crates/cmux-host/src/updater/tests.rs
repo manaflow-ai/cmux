@@ -1724,3 +1724,38 @@ fn adopt_relinks_a_work_link_the_app_replaced_and_keeps_the_file() {
     restore_work_link(&paths, Relinked::KeptFile);
     assert_eq!(fs::read(&link).unwrap(), b"a newer app build");
 }
+
+/// The app's own pinned build (`cmux host update install`): installed over another
+/// build, left alone when the profile already links it, never older than the last build
+/// applied here, never one rolled back here.
+#[test]
+fn a_pinned_build_installs_only_when_new_newer_and_never_rolled_back() {
+    let pinned =
+        Pinned { sha256: "a".repeat(64), size: 10, commit: "c".repeat(40), committed_at: 2_000 };
+    let state = State { applied_committed_at: 1_000, ..State::default() };
+    assert_eq!(pinned_decision(&"b".repeat(64), &state, &pinned), None, "another build: update");
+    assert_eq!(pinned_decision(&pinned.sha256, &state, &pinned), Some(Decision::Current));
+    let newer = State { applied_committed_at: 3_000, ..State::default() };
+    assert_eq!(pinned_decision(&"b".repeat(64), &newer, &pinned), Some(Decision::Older));
+    let rolled = State { rolled_back: vec![pinned.sha256.clone()], ..State::default() };
+    assert_eq!(pinned_decision(&"b".repeat(64), &rolled, &pinned), Some(Decision::RolledBack));
+}
+
+/// The plan for a pinned build changes only cmux-tui: the profile keeps its hook.
+#[test]
+fn a_pinned_build_replaces_only_cmux_tui() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    let pinned =
+        Pinned { sha256: "a".repeat(64), size: 10, commit: "c".repeat(40), committed_at: 2_000 };
+    let Ok(Decision::Update(plan)) = decide_pinned(&paths, &State::default(), &pinned) else {
+        panic!("an update")
+    };
+    assert_eq!(plan.replacements(), vec![(OLD_TUI.to_owned(), pinned.sha256.clone())]);
+    assert_eq!(plan.cmux_tui_hook.sha256, OLD_HOOK);
+    assert_eq!((plan.from, plan.to), (1, 2));
+    let current = Pinned { sha256: OLD_TUI.to_owned(), ..pinned.clone() };
+    assert_eq!(decide_pinned(&paths, &State::default(), &current), Ok(Decision::Current));
+    let no_commit = Pinned { commit: "x".into(), ..pinned };
+    assert!(decide_pinned(&paths, &State::default(), &no_commit).is_err());
+}

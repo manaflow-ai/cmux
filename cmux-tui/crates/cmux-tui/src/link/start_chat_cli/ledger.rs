@@ -23,7 +23,6 @@
 //! so two sends at once never lose each other's pins, and written to a
 //! temporary name and renamed.
 
-use std::collections::BTreeSet;
 use std::io::Write as _;
 use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _};
 use std::path::{Path, PathBuf};
@@ -241,20 +240,6 @@ impl Ledger {
         true
     }
 
-    /// Every machine a kept send of the account `account` ran on, or one of
-    /// its workspaces picked: what counts as that account's own machine when the
-    /// server names no creator. Another user's sends on this Mac, or another
-    /// team's, never do.
-    pub(crate) fn machines_of(&self, account: &str) -> BTreeSet<String> {
-        let account = account.to_lowercase();
-        self.entries
-            .iter()
-            .filter(|entry| entry.account == account)
-            .map(|entry| entry.machine_id.clone())
-            .chain(self.workspace_machines(&account))
-            .collect()
-    }
-
     /// The machine the Mac workspace `workspace` picked in `account`, once a send from it ran on one.
     pub(crate) fn workspace_machine(&self, workspace: &str, account: &str) -> Option<String> {
         let account = account.to_lowercase();
@@ -272,16 +257,6 @@ impl Ledger {
                 && binding.account == account
                 && binding.workspace != workspace
         })
-    }
-
-    /// The machines some workspace in `account` picked.
-    fn workspace_machines(&self, account: &str) -> BTreeSet<String> {
-        let account = account.to_lowercase();
-        self.workspaces
-            .iter()
-            .filter(|binding| binding.account == account)
-            .map(|binding| binding.machine_id.clone())
-            .collect()
     }
 
     /// `workspace` picks `machine` in `account` from now on.

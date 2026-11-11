@@ -37,11 +37,9 @@ JSON: {machine_id, ok, cloud_vm, edge_host, model_plane: {path, state},
 Exit 0 when ok, 1 when not.
 ";
 
-/// The machine-side command: as the work user when exec runs as root.
-const GUEST: &str = "c=/home/cmux/.cmux/bin/cmux-tui; [ -x \"$c\" ] || c=cmux-tui; \
-if [ \"$(id -u)\" = 0 ] && id cmux >/dev/null 2>&1; then \
-set -- setpriv --reuid=cmux --regid=cmux --init-groups env HOME=/home/cmux USER=cmux LOGNAME=cmux; \
-else set --; fi; \"$@\" \"$c\" acp --json machine-auth 2>/dev/null; true";
+/// The machine-side command, as the work user when exec runs as root (shared with the Cloud
+/// start's own check, `cmux_cloud_start_core::machine_route`).
+const GUEST: &str = cmux_cloud_start_core::machine_route::GUEST;
 
 /// `Some(exit code)` when `args` is `cloud machine-auth …`.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
@@ -173,23 +171,20 @@ fn reply_error(code: &str, message: &str, machine: &str) -> Value {
 pub(super) fn ask(runner: &mut dyn Runner, machine: &str, route: &Route) -> Result<Value, Value> {
     let result = step_result(&runner.cmux(&route.args(machine)))?;
     let stdout = result.get("stdout").and_then(Value::as_str).unwrap_or_default();
-    let report = stdout
-        .lines()
-        .rev()
-        .find_map(|line| serde_json::from_str::<Value>(line.trim()).ok().filter(Value::is_object));
-    match report {
-        Some(mut report) if report.get("agents").is_some() => {
+    use cmux_cloud_start_core::machine_route::{Reported, report};
+    match report(stdout) {
+        Reported::Report(mut report) => {
             if let Some(fields) = report.as_object_mut() {
                 fields.insert("machine_id".to_owned(), json!(machine));
             }
             Ok(report)
         }
-        None if stdout.trim().is_empty() => Err(reply_error(
+        Reported::Nothing => Err(reply_error(
             "machine_auth.unsupported",
             "This machine's cmux-tui does not report its model route yet. Update the machine, then try again.",
             machine,
         )),
-        _ => Err(reply_error(
+        Reported::Other => Err(reply_error(
             "machine_auth.invalid_reply",
             "The machine answered something other than its report.",
             machine,

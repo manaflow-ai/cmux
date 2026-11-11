@@ -354,6 +354,22 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&serde_json::json!({ "uploads": uploads }))
                     .map_err(|_| ERR_INVALID)?
             }
+            // The start's check of the machine's model route: the command to run there, and,
+            // given what it printed, the verdict.
+            b"cloud_machine_route" => {
+                #[derive(serde::Deserialize)]
+                struct Request {
+                    #[serde(default)]
+                    stdout: Option<String>,
+                }
+                use cmux_cloud_start_core::machine_route;
+                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                let verdict = request.stdout.as_deref().map(machine_route::verdict);
+                serde_json::to_vec(&serde_json::json!({
+                    "command": machine_route::GUEST, "verdict": verdict,
+                }))
+                .map_err(|_| ERR_INVALID)?
+            }
             b"cloud_folder_too_broad" => {
                 #[derive(serde::Deserialize)]
                 struct Request {

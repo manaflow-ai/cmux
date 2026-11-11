@@ -78,6 +78,7 @@ import {
   chatFolderChoices,
   chatOwnFolder,
   folderChipState,
+  startedCloudFolderName,
   folderMenu,
   type FolderChipState,
 } from "./folderlessCloud";
@@ -851,13 +852,18 @@ export function ComposerContext({
     noProject,
     cloud: !sandboxPicked && (cloudSide || summary?.hostKind === "cloud"),
   });
+  // A started Cloud chat in its machine's fresh folder names that folder, never No folder.
+  const startedCloudFolder = startedCloudFolderName(summaryFolder, { cloud: summaryOnCloud, started });
   const folderValue =
-    (folderState === "folder" && currentName
+    (startedCloudFolder !== undefined && folderState === "cloudFresh"
+      ? startedCloudFolder
+      : folderState === "folder" && currentName
       ? currentName
       : folderState === "folder" && currentFolder
         ? projectLabel(currentFolder)
         : t(FOLDER_CHIP_LABELS[folderState])) + extraCount;
-  const folderDetail = folderState === "cloudFresh" ? t(FOLDERLESS_CLOUD_LABELS.detail) : undefined;
+  const folderDetail =
+    folderState === "cloudFresh" && startedCloudFolder === undefined ? t(FOLDERLESS_CLOUD_LABELS.detail) : undefined;
   // A saved environment on this Mac is This Mac's; one on an SSH machine is Remote's.
   const offMac = !cloudSide && !sandboxPicked && (pickedOff || (savedPick !== undefined && savedPick.kind !== "local"));
   const whereName = sandboxPicked
