@@ -118,8 +118,10 @@ final class CreationInputCoordinator {
     func hasPendingCreation(in window: NSWindow?) -> Bool { window.flatMap { buffers[$0.windowNumber] }?.hasPendingCreation == true }
 
     /// The person closed provisional tab `tab` in `window` before the daemon made it: the keys held
-    /// for it are dropped and the rest go on (``CreationInputBuffer/cancel(tab:)``).
+    /// for it are dropped and the rest go on (``CreationInputBuffer/cancel(tab:)``). So are the keys its
+    /// terminal already sent to the daemon, when the daemon gives them back (``GivenBackInput/creationClosed(terminal:)``).
     func drop(tab: String, in window: NSWindow?) {
+        if let terminal = router?.services?.cache.existingTerminal(tab)?.io.creatingTerminalID { GivenBackInput.shared.creationClosed(terminal: terminal) }
         if let window, buffers[window.windowNumber]?.cancel(tab: tab) == true { scheduleFlush(in: window) }
     }
 
@@ -322,7 +324,7 @@ final class CreationInputCoordinator {
     /// wait for a focused terminal of the window that showed that terminal, never another window's.
     /// Keys from a terminal no window shows any more are dropped (never typed into a guess).
     func giveBack(_ bytes: Data, terminal terminalID: String) {
-        GivenBackInput.shared.deliver(adding: bytes, window: window(ofCreatingTerminal: terminalID), to: nil)
+        GivenBackInput.shared.deliver(adding: bytes, from: terminalID, window: window(ofCreatingTerminal: terminalID), to: nil)
         giveBack()
     }
 

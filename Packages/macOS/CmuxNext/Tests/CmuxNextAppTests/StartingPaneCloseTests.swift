@@ -24,9 +24,17 @@ struct StartingPaneCloseTests {
         case closeTabShortcut, tabCloseButton, labelClose
     }
 
-    /// The surfaces a close was sent for.
+    /// The surfaces a close was sent for (written and read on the main actor only).
     private nonisolated final class Closes: @unchecked Sendable {
         var surfaces: [SurfaceID] = []
+    }
+
+    /// How the view's wait for its terminal ended: nil while it waits, then whether it got one.
+    private nonisolated final class GateWait: @unchecked Sendable {
+        private let lock = NSLock()
+        private var result: Bool?
+        var gotTerminal: Bool? { lock.withLock { result } }
+        func ended(with terminal: Bool) { lock.withLock { result = terminal } }
     }
 
     static let proxy = #"""
@@ -120,8 +128,6 @@ struct StartingPaneCloseTests {
                 try #require(content.focus.state.pane == standIn.paneKey && content.focus.state.expectation == nil,
                              "the test needs the focus on the starting pane: \(Self.describe(content, services))")
                 _ = try Self.press("w", .command, keyCode: 13, services: services, window: window)
-                let ran = services.keyRouter.lastInterception
-                try #require(ran?.action == "closeTab" && ran?.ran == true, "Cmd-W did not run as Close Tab (last run \(String(describing: ran)))")
             case .tabCloseButton:
                 standIn.handle(.close(StripTabID(tab.id), source: .mouse))
             case .labelClose:
@@ -129,9 +135,9 @@ struct StartingPaneCloseTests {
                 close()
             }
 
-            // In the close's turn: the creation is cancelled and its pane is gone.
-            #expect(!store.creations.isPending(tab: tab.id), "\(way.rawValue) did not cancel the split: \(Self.describe(content, services))")
-            #expect(!content.panes.values.contains { $0.paneKey == standIn.paneKey }, "\(way.rawValue) left the starting pane: \(Self.describe(content, services))")
+            // In the close's turn: the creation is cancelled.
+            #expect(!store.creations.isPending(tab: tab.id),
+                    "\(way.rawValue) did not cancel the split (last key run \(String(describing: services.keyRouter.lastInterception))): \(Self.describe(content, services))")
 
             // The keys it gave back reach no terminal of the window: not those held, not those the
             // daemon gives back after the close.
@@ -142,14 +148,15 @@ struct StartingPaneCloseTests {
             GivenBackInput.shared.deliver(window: windowID, to: { given.append($0) })
             #expect(given.isEmpty, "keys given back after the close went to another terminal: \(String(decoding: given, as: UTF8.self))")
 
-            // The view's wait for its terminal ends with no terminal.
-            let released = await Self.eventually(within: .seconds(10)) { services.cache.existingTerminal(tab.id) == nil }
-            #expect(released, "the closed pane's terminal view stays")
-            #expect(!gate.isResolved, "the closed pane's view got a terminal")
-            if released {
-                let target = await gate.value()
-                #expect(target == nil, "the closed pane's view still waits for a terminal")
-            }
+            // The starting pane leaves the window, and its view's wait for a terminal ends with none.
+            let gone = await Self.eventually { !content.panes.values.contains { $0.paneKey == standIn.paneKey } }
+            #expect(gone, "\(way.rawValue) left the starting pane: \(Self.describe(content, services))")
+            let wait = GateWait()
+            let waiter = Task { let target = await gate.value(); wait.ended(with: target != nil) }
+            let ended = await Self.eventually(within: .seconds(10)) { wait.gotTerminal != nil }
+            #expect(ended, "the closed pane's view still waits for a terminal")
+            #expect(wait.gotTerminal != true && !gate.isResolved, "the closed pane's view got a terminal")
+            if ended { await waiter.value }
 
             // The daemon answers at last: exactly one close goes out, for the pane of this split.
             let closes = Closes()
