@@ -151,6 +151,7 @@ import {
 } from "./conversation/chatFind";
 import { ChatFindBar } from "./conversation/ChatFindBar";
 import { LIVE_THINKING, THINKING, WORKED, foldCovers, turnFooterFrom, retryTargetIn } from "./conversation/turns";
+import { ArrowDown } from "./conversation/icons";
 import { Slot } from "../../slots/Slot";
 import { jumpToBottomSlot } from "../../slots/jumpToBottom";
 import { installWheelGlide } from "./wheelGlide";
