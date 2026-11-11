@@ -25948,6 +25948,84 @@ mod tests {
         assert_eq!(hook_projected_agent(&mux, &terminal_id).unwrap().state, AgentState::Working);
     }
 
+    /// A Claude hook event for `terminal_id` in session `order-1`, stamped
+    /// as if its hook started at `observed_at_ms`.
+    fn ordered_hook(
+        terminal_id: &TerminalPublicId,
+        event: &str,
+        observed_at_ms: u64,
+    ) -> crate::JournalIngress {
+        let mut ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            event,
+            Some(&terminal_id.to_string()),
+            serde_json::json!({"session_id": "order-1"}),
+        )
+        .unwrap();
+        crate::agent_hooks::stamp_agent_hook_observed_at(&mut ingress, observed_at_ms);
+        ingress
+    }
+
+    #[test]
+    fn hook_order_the_roster_follows_the_last_sent_event_too() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-hook-order-roster-{}", crate::workspace_registry::new_uuid_v4()));
+        let mux = open_persistent_test_mux("hook-order-roster", &root);
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        // The journal takes the prompt after the Stop (two daemon threads).
+        for (key, event, observed_at_ms) in [
+            ("order-start", "SessionStart", 1_000),
+            ("order-stop", "Stop", 3_000),
+            ("order-prompt", "UserPromptSubmit", 2_000),
+        ] {
+            mux.append_journal_ingress(
+                &ordered_hook(&terminal_id, event, observed_at_ms),
+                "t",
+                key,
+            )
+            .unwrap();
+        }
+        assert_eq!(hook_projected_agent(&mux, &terminal_id).unwrap().state, AgentState::Idle);
+        // What the sidebar, tab badges and attention jump read.
+        let listed = mux.list_agents(None, None);
+        let row = listed.iter().find(|record| record.terminal_id == terminal_id);
+        assert_eq!(row.map(|record| record.state), Some(AgentState::Idle), "{listed:?}");
+        mux.shutdown();
+        drop(mux);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn hook_order_an_event_older_than_the_reorder_window_applies() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        mux.apply_agent_hook_record(&ordered_hook(&terminal_id, "SessionStart", 1_000), 1).unwrap();
+        mux.apply_agent_hook_record(&ordered_hook(&terminal_id, "Stop", 20_000), 2).unwrap();
+        // Started far earlier than the window allows a reorder: the clock
+        // stepped back, so the event is the newer one.
+        mux.apply_agent_hook_record(&ordered_hook(&terminal_id, "UserPromptSubmit", 2_000), 3)
+            .unwrap();
+        assert_eq!(hook_projected_agent(&mux, &terminal_id).unwrap().state, AgentState::Working);
+    }
+
+    #[test]
+    fn hook_order_a_blocking_or_lifecycle_event_is_never_skipped() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        mux.apply_agent_hook_record(&ordered_hook(&terminal_id, "SessionStart", 1_000), 1).unwrap();
+        mux.apply_agent_hook_record(&ordered_hook(&terminal_id, "Stop", 3_000), 2).unwrap();
+        // A dialog (parallel subagents of one session) must show.
+        mux.apply_agent_hook_record(&ordered_hook(&terminal_id, "PermissionRequest", 2_000), 3)
+            .unwrap();
+        assert_eq!(hook_projected_agent(&mux, &terminal_id).unwrap().state, AgentState::Blocked);
+        // The session's end always applies.
+        mux.apply_agent_hook_record(&ordered_hook(&terminal_id, "SessionEnd", 2_500), 4).unwrap();
+        assert!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].ended);
+    }
+
     #[test]
     fn hook_projection_does_not_relock_its_held_sequence_guard() {
         let mux = test_mux();
