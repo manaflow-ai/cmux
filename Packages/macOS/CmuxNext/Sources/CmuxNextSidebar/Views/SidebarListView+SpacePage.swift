@@ -84,6 +84,7 @@ struct SidebarSpacePages {
     var changedRows: [SidebarWorkspace] = []
     /// The metrics of the full layout the list shows (`SidebarListView.spliceBase`), read when it was made: the list's
     /// own `metrics` are the tokens of now, which a density or a font change in the turn of a switch already moved.
+    /// Nil when the list shows no full layout of its row caches: no page is kept from it (`spacePage`).
     var shownMetrics: SidebarLayoutMetrics?
 
     /// Keeps `page` (nil: nothing to keep) for `space`, and drops the pages of spaces the model no longer has.
@@ -119,6 +120,8 @@ extension SidebarListViewComponents {
     /// The space the list shows as a page: only a full layout of the model (`spliceBase`) at rest, with no change
     /// held and no drag, so the layout is the one a reload would make of the caches' sections. Each change of the
     /// layout in place writes the caches too: a row patch its row (`patchRowsNow`), a fold its section (`foldGroup`).
+    /// A row patch that puts the model's section or group in the caches for another arrangement than the shown one
+    /// (the reload that shows it has not run) clears `shownMetrics`: the list keeps no page until its next full layout.
     private func spacePage() -> SidebarSpacePage? {
         guard let base = spliceBase, let metrics = spacePages.shownMetrics, !holdsModelChange, drag == nil, settling == nil,
               landing == nil, external == nil, rowHold.isEmpty, leaving.isEmpty, !displayed.rows.isEmpty,
