@@ -552,6 +552,50 @@ fn a_swap_does_not_install_a_file_built_above_the_floor_of_this_start() {
     assert!(!failed_path(db_path).exists(), "the cleanup was stopped for this build");
 }
 
+/// The same rule for a swap whose transaction committed before a kill: the
+/// start that finishes it can be of another build (an update between the
+/// kill and the start), with a lower floor. The committed file left out
+/// records that this start reads, so it is not renamed over the registry:
+/// both files stay and the owner starts on the old one.
+#[test]
+fn a_committed_swap_is_not_installed_above_the_floor_of_this_start() {
+    let fixture = fixture("committed-floor", 1_100);
+    let Fixture { root, db_path, floor, head, .. } = &fixture;
+    let all = records_after(db_path, 0, *head);
+    assert!(all.len() as u64 > *head - *floor, "the fixture is wrong: no record below the floor");
+    assert_eq!(stage(db_path, *floor, &|| true), StageOutcome::Built);
+    // The swap without an owner, then its files moved back to where a kill
+    // after the commit leaves them: the new registry is the staging file.
+    assert!(swap_at_open(db_path, &|_| Ok(())), "no swap");
+    let (staging, previous) = (staging_path(db_path), previous_path(db_path));
+    std::fs::rename(db_path, &staging).unwrap();
+    std::fs::rename(&previous, db_path).unwrap();
+    // The start after the kill folds from the first record it finds.
+    START_FLOOR_FOR_TEST.with(|start| start.set(Some(0)));
+
+    assert!(
+        !swap_at_open(db_path, &|_| Ok(())),
+        "the start installed a committed file built at floor {floor}; it reads the journal \
+         after 0"
+    );
+    assert!(staging.is_file(), "the committed new registry is gone");
+    assert!(!previous.exists(), "the old registry was moved aside");
+    assert!(!failed_path(db_path).exists(), "the cleanup was stopped for this build");
+    assert_eq!(
+        records_after(db_path, 0, *head).len(),
+        all.len(),
+        "records at or below the floor of the build are gone"
+    );
+    // The owner starts on the old registry and reads every record.
+    drop(WorkspaceRegistry::open(&root.0, SESSION).unwrap());
+    assert!(!previous.exists(), "the owner start installed the committed file");
+    assert_eq!(
+        records_after(db_path, 0, *head).len(),
+        all.len(),
+        "the owner start lost records at or below the floor of the build"
+    );
+}
+
 /// The swap folds a log left by a killed owner into the registry first. A
 /// reader that holds the log (another process that reads the registry) makes
 /// that checkpoint busy: the swap waits for a later start. It must not throw
