@@ -229,6 +229,7 @@ run CMUX_CI_STEP_KEY=k >/dev/null && fail "notices accepted an argument"
 # The pin comes from webviews/package.json, not a copy in the script: another pin is the
 # version the step asks bun for, and no bun pin stops it before any bun runs.
 # A bun at that pin already in the step's .build, so nothing downloads.
+ARGS=(web)
 printf '{"devEngines": {"packageManager": [{"name": "npm", "version": "10.9.2"}, {"name": "bun", "version": "1.4.5"}]}}\n' >"$W/webviews/package.json"
 mkdir -p "$W/.build/tools/bun-1.4.5/bin"
 printf '#!/bin/bash\n[[ "$1" != --version ]] || { echo 1.4.5; exit 0; }\necho "bun-1.4.5 $(basename "$PWD") $*" >> "%s"\n' "$TMP/calls" >"$W/.build/tools/bun-1.4.5/bin/bun"
