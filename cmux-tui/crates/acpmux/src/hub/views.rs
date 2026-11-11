@@ -736,6 +736,8 @@ impl Hub {
         }
         // Since when work it started runs on past its own turn (`work_below.rs`).
         summary.set("subagentsWorkingSince", json!(self.work_below_since(session)));
+        // Other sessions' messages its Claude Code holds (`native_messaging.rs`): `acpmux pending`.
+        summary.set("heldMessages", super::native_messaging::held_messages(session));
         // How many open sub-sessions below it wait on the person, and since when (`asks_below.rs`).
         let waiting = self.subsessions_waiting(session);
         summary.set("subsessionsWaiting", json!(waiting.map_or(0, |(count, _)| count)));
