@@ -60,6 +60,17 @@ public final class TabSelectionMemory {
         set(tab, in: pane, standIn: standIn)
     }
 
+    /// Selects `tab` in `pane` for a jump that writes the selection itself, before any pane controller hears of
+    /// it (tab search, a pinned row, a notification, a link to a tab, `tab.focus`). `byPerson`: a person's own
+    /// action, not the CLI, the socket or a script. A person's jump is a gesture to the close-selection rule, as
+    /// a click on the tab is, and the rule must hear of the gesture before the selection changes: a mark that
+    /// comes after it is not read. Nothing when the pane selects `tab` already.
+    public func jump(to tab: String, in pane: String, byPerson: Bool) {
+        guard selected[pane] != tab else { return }
+        if byPerson { closeRule.personSelects(tab, in: pane) }
+        set(tab, in: pane)
+    }
+
     /// Selects `tab`, which this window just made in `pane`, now that the pane lists it (`tabs`). `replaced`: the
     /// tab whose place it took (what a New Tab page turned into); else the selected tab when that is a creation's
     /// stand-in `tabs` no longer lists. The close-selection rule keeps the two as one item.

@@ -64,11 +64,13 @@ the strip's scroll function (column-scroll.md).
   the tab before it", #38316). One rule for every tab kind (terminal, browser, agent, page,
   Markdown) and every way a tab closes (Cmd-W, the close button, a middle click, the context
   menu, Close Others, Close Tabs to the Right or Left, a group close, the CLI or MCP, a
-  terminal that exits): `cmux-focus-core` `close_focus::tab`, which the app
-  (`FocusAfterClose.tab` over `cmux_close_focus_tab_chrome`), the daemon's active tab
-  (`tree_edit::remove_surface`) and the cmux-tui client call. The daemon and cmux-tui keep no
-  openers or groups, so they run the positional steps only; the app's selection is the one
-  the person sees. See "Chrome's tab close rule" below.
+  terminal that exits). In the app it is the one close-selection rule ("One close-selection
+  rule" and "Tabs: the app's side" below): `cmux-focus-core::close_selection` through
+  `TabCloseSelection`. The daemon's active tab (`tree_edit::remove_surface`) and the cmux-tui
+  client call `close_focus::tab`: they keep no openers, so they run the positional steps only;
+  the app's selection is the one the person sees. Close Others and Close Tabs to the Right or
+  Left keep their own rule: the tab the person acted on, which survives. See "Chrome's tab
+  close rule" below.
 - Workspace: the one close-selection rule ("One close-selection rule" below): the workspace the
   person came from when he made the closed one, else the next row below, and the row above only
   when it was the last (`WindowRegistryStore.repairSelection` with the window manager's
@@ -144,7 +146,7 @@ successor), the strip's model sync to `ColumnScrollState`, and the sidebar's
 | `FocusAfterClose.pane` previousNeighbor | up to 4 columns x 3 panes, 6 panes, depth 6, incl. close + move to another or a new column in one snapshot | 49,341 states | 822,006 (557,595 closes) | ~60 s at load 600+ |
 | same, `CMUX_MODELCHECK_PANES=7` | 7 panes | 341,004 states | 4,024,915 | 63 s |
 | `FocusAfterClose.pane` mostRecent | as above | 48,180 states | 810,480 | |
-| `FocusAfterClose.tab` | 5 tabs, every hidden subset, depth 5 | 10,449 close sequences | | <1 s |
+| `FocusAfterClose.tab` (now removed: tabs pick with `TabCloseSelection`; not run again) | 5 tabs, every hidden subset, depth 5 | 10,449 close sequences | | <1 s |
 | `CloseSelection.workspace` with no relation held (the run was of its predecessor `FocusAfterClose.workspace`, now removed; not run again) | 5 workspaces, depth 5 | 600 close sequences | | <1 s |
 | `ListViewport` | 5 rows, 3 viewports, depth 3 | 1,025,508 states | 3,365,334 | 150 s |
 | `ColumnScrollState` (strip) | 4 columns, 3 widths, 2 viewports, depth 6 | 12,100 states | 73,766 | 5 s |
@@ -257,13 +259,15 @@ Tabs in a pane and workspaces in a window's sidebar follow the same rule after a
 
 - R0: closing an item that is not selected never moves the selection.
 - R1: closing the selected item selects, first match: an item it opened (the first after it,
-  else the nearest before it), an item its opener opened, its opener, its group's or section's
-  neighbor, else the next item, and the previous one only when it was the last.
+  else the nearest before it), an item its opener opened, its opener, else the next item, and
+  the previous one only when it was the last. No group or section is read (decision 2026-11-10:
+  Chrome 156 as observed gives the next tab, whatever its group; the callers pass no group map).
 - R2: a new item the person makes (Cmd-T, the plus button, New Workspace) keeps the item he came
-  from as its opener until the selection leaves the new item. A link's or a tab action's new tab
-  keeps its opener until R3 or R4 ends it. Nothing else has an opener: not an item made by
-  automation, a restore, a move or a drag. A new item in the foreground first forgets every
-  older relation of its strip, so one family is live at a time.
+  from as its opener. Its lifetime follows where it is put (below): after the selected item, until
+  R3 or R4 ends it, as a link's tab; at the end or the start, until the selection leaves the new
+  item (the quick look-up). A link's or a tab action's new tab keeps its opener until R3 or R4
+  ends it. Nothing else has an opener: not an item made by automation, a restore, a move or a
+  drag. A quick look-up in the foreground first forgets every older relation of its strip.
 - R3: a selection the person makes forgets every relation of the strip, unless the two items
   have the same opener (or both have none) or one is the other's opener. A typed navigation
   forgets them too, except the first one in a tab the person just made.
@@ -271,14 +275,17 @@ Tabs in a pane and workspaces in a window's sidebar follow the same rule after a
   its own opener, and its own relation ends.
 - R5: where a new item is put changes none of this.
 
-The decided difference is R2's lifetime. Chromium ends a new tab's opener when the selection
-leaves the tab only for a tab at the end of the strip (`AddTab`); a tab it puts in the middle
-("New Tab to the Right") keeps its opener as a link's tab does. cmux puts a new item after the
-selected one by default and uses the one lifetime wherever the item is put. Observed on Chrome
-156 for a tab in the middle: closed at once it returns to the tab the person came from, as in
-cmux; after a visit to that tab and back it still returns there (cmux: the next item); with
-link tabs of the same opener beside it, it selects the first of them (cmux: the opener). The
-caller chooses the lifetime (`kind`, `foreground`), so this needs no change of the module.
+R2's lifetime follows Chrome as observed (decision 2026-11-10; it replaces "one lifetime
+wherever the item is put"). Chromium ends a new tab's opener when the selection leaves the tab
+only for a tab at the end of the strip (`AddTab`); a tab it puts in the middle ("New Tab to the
+Right") keeps its opener as a link's tab does. cmux puts a new item after the selected one by
+default, so the default is the middle-tab lifetime: the caller passes a task opener, not
+reported as foreground. Observed on Chrome 156 for a tab in the middle, and the same in cmux:
+closed at once it returns to the tab the person came from; after a visit to that tab and back
+it still returns there; after a visit to an unrelated tab and back it selects the next item;
+with link tabs of the same opener beside it, it selects the first of them. A new item at the
+end or the start is the quick look-up (`quick`, foreground). The caller chooses the lifetime
+(`kind`, `foreground`), so this needs no change of the module.
 
 | Case | Strip, selected item in bold | Steps | Selected after |
 | --- | --- | --- | --- |
@@ -294,6 +301,43 @@ caller chooses the lifetime (`kind`, `foreground`), so this needs no change of t
 The table test is `cmux-tui/crates/cmux-focus-core/tests/close_selection.rs`: each row runs as
 tabs and as workspaces. The module lands with no caller; the workspaces move to it first, the
 tabs after.
+
+### Tabs: the app's side
+
+- State: one `TabCloseSelection` (CmuxNextBridge) for each window, owned by the window's
+  `TabSelectionMemory` (`closeRule`). One pane's tabs are one strip; a relation never crosses
+  panes. It holds the handle through `CloseSelection` (CmuxNextDesignTokens). A tab that takes
+  another's place (a stand-in's daemon tab, what a New Tab page turns into) is the same item.
+- `made`, a person's new tab: `NewTabSlot.target` reports the press (`expect`: the pane, the tab
+  it shows, the tabs it lists) only for a person's own run that may change the view. The pane's
+  next selection of a tab that was not listed, while it still shows the opener, makes the
+  relation: put after the current tab (the default) it is a task opener, not reported as
+  foreground; put at the end or the start it is the quick opener. Known gap: the expectation
+  ends at the pane's next selection change, so a create that fails or lands in another strip
+  leaves it until then.
+- `made`, a link's tab or a tab an action inside another tab opens: `BrowserPageRequests`
+  (`inheritsFromOpener`), a task opener, when the two tabs are in one pane.
+- `selected`: every change of `TabSelectionMemory` reports to the state. A person's gesture is
+  marked before the change: `PaneController.select` (a click, a shortcut, the palette) and
+  `TabSelectionMemory.jump` (tab search, a pinned row, a notification, a link to a tab,
+  `tab.focus`), each only in a person's own run (`ActionRunScope.isPersonsAction`). The CLI, the
+  socket, MCP and a script never make a gesture. The selection a close causes is not a gesture
+  and the rule does not hear of it (`closeSelects`).
+- A typed navigation in a browser tab forgets the pane's relations, except the first one in a
+  quick look-up tab (Chromium's code: a New Tab page at the end of the strip). A new tab after
+  the current one forgets on its first typed navigation, as Chromium's code does for a tab in
+  the middle; this row was not observed on Chrome.
+- `left`: when the close is committed (`TabSelectionMemory.resolve`, then `settle`). The press of
+  a close keeps the relation, so a cancelled or refused close keeps the tab's opener.
+- The pick: `TabSelectionMemory.resolve` asks `TabCloseSelection.successor` for every way a tab
+  leaves a pane. The strip's own pick at the press (`TabStripModel.closeSuccessor`), Cmd-W's
+  target and a group close ask the same state. Members of a collapsed group are not shown and
+  are skipped.
+- Cost: with no relation held and no new tab expected, a selection change is emptiness checks
+  and a close picks by position over the pane's tabs. With some held, a call asks about the tabs
+  of those relations and the pane's own tabs. No call walks a window or the session.
+- Tests: `TabCloseSelectionTests` (the table, both placements), `TabCloseEntryPointsTests` (each
+  way to close a tab, through the app), `TabCloseSelectsBeforeTests`, `CmdWTargetTests`.
 
 ### Workspaces: the app's side
 
