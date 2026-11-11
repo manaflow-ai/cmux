@@ -29,7 +29,10 @@ extension RemoteTmuxControlConnection {
             : Data()
         guard reservePendingPaneSeedBytes(reset.count, paneId: paneId) else { return nil }
         pendingPaneSeeds[paneId, default: []].append(
-            RemoteTmuxPendingPaneSeed(id: id, kind: kind, snapshot: reset)
+            RemoteTmuxPendingPaneSeed(
+                id: id, kind: kind, snapshot: reset,
+                dropsPreCaptureOutput: catchUp.seedStarted(id, forPane: paneId)
+            )
         )
         return id
     }
@@ -87,7 +90,8 @@ extension RemoteTmuxControlConnection {
     }
 
     func routePaneOutput(paneId: Int, data: Data) {
-        guard !absorbPaneOutputIntoPendingSeed(paneId: paneId, data: data) else { return }
+        guard !absorbPaneOutputIntoPendingSeed(paneId: paneId, data: data),
+              !catchUp.dropsOutput(forPane: paneId) else { return }
         observers.emitPaneOutput(paneId, data)
     }
 
@@ -112,69 +116,6 @@ extension RemoteTmuxControlConnection {
                 restartsLiveStream: completed.dropsPreCaptureOutput
             )
         )
-    }
-
-    /// Whether a catch-up started by ``catchUpAfterFallingBehind()`` is still waiting on tmux.
-    var isCatchingUpAfterFallingBehind: Bool {
-        pendingPaneSeeds.values.contains { $0.contains(where: \.dropsPreCaptureOutput) }
-    }
-
-    /// Repaints every pane from tmux once the stream has fallen a full read bound behind.
-    ///
-    /// Output that arrives faster than it can be parsed and drawn is stale by the time it
-    /// is drawn. A transport that held output through a network drop and then released it
-    /// at once is the common case: hundreds of megabytes of it would otherwise be fed to
-    /// every terminal before the user saw the current screen. A reconnect got there fast by
-    /// throwing the backlog away with the connection and seeding each pane again; this does
-    /// the same without leaving the connection. Every pane starts a full-history seed, as a
-    /// reconnect does, and its live output up to the capture is dropped, because the capture
-    /// already shows its result. Panes with a seed in progress keep it and stop retaining
-    /// their output too.
-    ///
-    /// Idle panes are repainted too: the backlog is still unparsed in the transport, so nothing
-    /// says which panes it belongs to. Each full-history capture replaces the pane's scrollback
-    /// with tmux's own history, as a reconnect does, so a pane keeps every line tmux kept.
-    ///
-    /// The capture replies queue behind the backlog in the stream, so the parser still reads
-    /// through it, but nothing else is done with the dropped bytes. Only one catch-up runs
-    /// at a time; a pause during one is kept in ``catchUpRequested``, and
-    /// ``startRequestedCatchUp()`` starts it when the last catch-up seed is gone.
-    func catchUpAfterFallingBehind() {
-        guard connectionState == .connected, enterReceived,
-              !isCatchingUpAfterFallingBehind else { return }
-        catchUpRequested = false
-        var joined = 0
-        for paneId in Array(pendingPaneSeeds.keys) {
-            for index in pendingPaneSeeds[paneId]!.indices
-            where !pendingPaneSeeds[paneId]![index].isCaptureInstalled {
-                let dropped = pendingPaneSeeds[paneId]![index].discardedOutput
-                    .reduce(0) { $0 + $1.count }
-                pendingPaneSeeds[paneId]![index].discardedOutput = []
-                pendingPaneSeeds[paneId]![index].bufferedLiveByteCount -= dropped
-                pendingPaneSeeds[paneId]![index].dropsPreCaptureOutput = true
-                releasePendingPaneSeedBytes(dropped)
-                joined += 1
-            }
-        }
-        var seeded = 0
-        var seenPaneIDs: Set<Int> = []
-        let paneIDs = windowsByID.keys.sorted().flatMap { windowId in
-            (windowsByID[windowId]?.paneIDsInOrder ?? []).filter { seenPaneIDs.insert($0).inserted }
-        }
-        // A pane still queued for its reconnect seed gets that seed instead. Unlike that queue,
-        // every capture goes out now: a pane whose capture waited its turn would draw the backlog.
-        let queuedForReconnect = Set(pendingReconnectPaneIDs)
-        for paneId in paneIDs where pendingPaneSeeds[paneId] == nil && !queuedForReconnect.contains(paneId) {
-            guard let seedID = capturePane(paneId: paneId, clearScrollback: true) else {
-                guard connectionState == .connected else { return }
-                continue
-            }
-            if let index = pendingPaneSeeds[paneId]?.firstIndex(where: { $0.id == seedID }) {
-                pendingPaneSeeds[paneId]![index].dropsPreCaptureOutput = true
-                seeded += 1
-            }
-        }
-        record("output-catch-up seeded=\(seeded) joined=\(joined)")
     }
 
     func failPaneSeedCommand(_ kind: CommandKind, errorLines: [String]) {
@@ -262,7 +203,7 @@ extension RemoteTmuxControlConnection {
         deferredPaneVisibleRepaints.removeAll(keepingCapacity: false)
         pendingReconnectSeedIDs.removeAll(keepingCapacity: false)
         pendingReconnectPaneIDs.removeAll(keepingCapacity: false)
-        catchUpRequested = false
+        catchUp.reset()
     }
 
     func discardPendingPaneSeeds(keeping livePanes: Set<Int>) {
@@ -280,7 +221,8 @@ extension RemoteTmuxControlConnection {
         deferredPaneSeedBudgetRecoveryPaneIDs.formIntersection(livePanes)
         deferredPaneVisibleRepaints.formIntersection(livePanes)
         pendingReconnectPaneIDs.removeAll { !livePanes.contains($0) }
-        for seedID in removedSeedIDs { resolveReconnectSeed(seedID) }
+        catchUp.retainPanes(livePanes)
+        for seedID in removedSeedIDs { catchUp.seedEnded(seedID); resolveReconnectSeed(seedID) }
         startRequestedCatchUp()
     }
 
@@ -292,7 +234,8 @@ extension RemoteTmuxControlConnection {
         pendingPaneVisibleRepaintSeedIDs[paneId] = nil
         deferredPaneVisibleRepaints.remove(paneId)
         pendingReconnectPaneIDs.removeAll { $0 == paneId }
-        for seedID in removedSeedIDs { resolveReconnectSeed(seedID) }
+        catchUp.paneRemoved(paneId)
+        for seedID in removedSeedIDs { catchUp.seedEnded(seedID); resolveReconnectSeed(seedID) }
         startRequestedCatchUp()
     }
 
@@ -309,6 +252,7 @@ extension RemoteTmuxControlConnection {
         {
             pendingReconnectSeedIDs.insert(followUpSeedID)
         }
+        catchUp.seedEnded(seedID)
         resolveReconnectSeed(seedID)
         startRequestedCatchUp()
     }
@@ -342,7 +286,7 @@ extension RemoteTmuxControlConnection {
               !pendingReconnectPaneIDs.isEmpty
         {
             let paneId = pendingReconnectPaneIDs.removeFirst()
-            guard paneIsLive(paneId) else { continue }
+            guard paneIsLive(paneId) else { catchUp.paneRemoved(paneId); continue }
             guard let seedID = seedPane(paneId: paneId, clearScrollback: true) else {
                 guard connectionState == .connected else { return }
                 // A live pane must never silently fall out of the reconnect
@@ -436,7 +380,7 @@ extension RemoteTmuxControlConnection {
         return true
     }
 
-    private func releasePendingPaneSeedBytes(_ count: Int) {
+    func releasePendingPaneSeedBytes(_ count: Int) {
         pendingPaneSeedByteCount = max(0, pendingPaneSeedByteCount - count)
         schedulePaneSeedBudgetRecoveryIfNeeded()
     }

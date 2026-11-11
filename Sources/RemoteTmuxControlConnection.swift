@@ -135,9 +135,9 @@ final class RemoteTmuxControlConnection {
     /// Stable pane queue for reconnect snapshots. Only a small fixed number are
     /// captured concurrently so retained history is bounded independently of pane count.
     var pendingReconnectPaneIDs: [Int] = []
-    /// The reader fell a bound behind while a catch-up could not start (one was still waiting on
-    /// tmux). The catch-up's last seed starts the next one. See ``requestCatchUpAfterFallingBehind()``.
-    var catchUpRequested = false
+    /// The catch-up after the reader fell a bound behind: whether one is asked for, and the seeds
+    /// and queued panes it waits on. See ``requestCatchUpAfterFallingBehind()``.
+    var catchUp = RemoteTmuxCatchUpCoordinator()
     /// Per-pane header-strip labels: the pane's EXPANDED `pane-border-format`
     /// (style tokens stripped) — exactly the text a native tmux client draws
     /// in that pane's header, custom formats included. Seeded by the
@@ -860,22 +860,6 @@ final class RemoteTmuxControlConnection {
             guard !Task.isCancelled else { return }
             await self?.handleStreamEnd(processGeneration: generation)
         }
-    }
-
-    /// Starts a catch-up for a reader that fell a bound behind, or keeps the request until the
-    /// catch-up in progress finishes. Before control mode is entered there is nothing to catch up:
-    /// the attach seeds capture every pane anyway.
-    func requestCatchUpAfterFallingBehind() {
-        guard enterReceived else { return }
-        catchUpRequested = true
-        catchUpAfterFallingBehind()
-    }
-
-    /// Starts a catch-up that was requested while another one waited on tmux, once none does.
-    /// Every way a seed leaves ``pendingPaneSeeds`` (finished, cancelled, its pane gone, or its
-    /// window dropped from the topology) ends here, so the request cannot outlive the catch-up.
-    func startRequestedCatchUp() {
-        if catchUpRequested { catchUpAfterFallingBehind() }
     }
 
     /// Appends captured stderr, bounded (by UTF-8 bytes) so a noisy/hostile remote
