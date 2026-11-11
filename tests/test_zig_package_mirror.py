@@ -19,6 +19,10 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+_fixture_spec = importlib.util.spec_from_file_location("git_fixture_env", ROOT / "tests/git_fixture_env.py")
+git_fixture_env = importlib.util.module_from_spec(_fixture_spec)
+_fixture_spec.loader.exec_module(git_fixture_env)
 spec = importlib.util.spec_from_file_location("zig_package_mirror", ROOT / "scripts/ci/zig_package_mirror.py")
 zpm = importlib.util.module_from_spec(spec)
 sys.modules["zig_package_mirror"] = zpm
@@ -79,7 +83,7 @@ class Detector(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
-        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        git_fixture_env.init_repo(self.root)
         (self.root / "src").mkdir()
         self.saved = (zpm.ROOT, zpm.LOCK, zpm.SOURCES)
         zpm.ROOT = self.root
