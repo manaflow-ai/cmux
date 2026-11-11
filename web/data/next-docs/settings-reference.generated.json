@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 625,
+  "count": 626,
   "sections": [
     {
       "id": "general",
@@ -5756,6 +5756,14 @@
           "group": "Passwords"
         },
         {
+          "key": "browser.vimKeys",
+          "title": "Vim Keys in Pages",
+          "help": "Outside a text field, f clicks a link by its label, Shift-F opens one in a new split, j and k scroll, gg and Shift-G go to the top and bottom.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Links"
+        },
+        {
           "key": "browser.wakeTabsOnHover",
           "title": "Wake Tabs on Hover",
           "help": "When the pointer rests on a tab or a workspace, its sleeping pages start to load before you click. Uses more memory.",
@@ -6689,7 +6697,7 @@
         {
           "key": "ssh.linkAllowedHosts",
           "title": "Always Allowed SSH Link Hosts",
-          "help": "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask.",
+          "help": "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and cmux peers never ask.",
           "kind": "string_list",
           "default": [],
           "group": "SSH Links"

@@ -19,7 +19,13 @@ from unittest.mock import patch
 
 import yaml
 
-import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "detect_ci_change_areas.py"
@@ -62,27 +68,13 @@ MACOS_JOBS = (
     "release-build",
 )
 
-spec = importlib.util.spec_from_file_location("detect_ci_change_areas", HELPER)
-assert spec and spec.loader
-module = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = module
-spec.loader.exec_module(module)
-
-WEB_SUBAREAS_HELPER = ROOT / "scripts" / "ci" / "web_subareas.py"
-web_subareas_spec = importlib.util.spec_from_file_location("web_subareas", WEB_SUBAREAS_HELPER)
-assert web_subareas_spec and web_subareas_spec.loader
-web_subareas = importlib.util.module_from_spec(web_subareas_spec)
-sys.modules[web_subareas_spec.name] = web_subareas
-web_subareas_spec.loader.exec_module(web_subareas)
-
-SELECT_PACKAGE_TESTS_HELPER = ROOT / "scripts" / "ci" / "select_package_tests.py"
-select_package_tests_spec = importlib.util.spec_from_file_location(
-    "select_package_tests", SELECT_PACKAGE_TESTS_HELPER
-)
-assert select_package_tests_spec and select_package_tests_spec.loader
-select_package_tests = importlib.util.module_from_spec(select_package_tests_spec)
-sys.modules[select_package_tests_spec.name] = select_package_tests
-select_package_tests_spec.loader.exec_module(select_package_tests)
+# Imported by name, never loaded by path: one module object per file, so a test that patches it
+# patches what every other test reads (tests/test_script_module_loads.py).
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import detect_ci_change_areas as module  # noqa: E402
+import web_subareas  # noqa: E402
+import select_package_tests  # noqa: E402
 
 TEST_EXECUTION_VALIDATOR = ROOT / "scripts" / "ci" / "validate_test_execution_registry.py"
 validator_spec = importlib.util.spec_from_file_location("validate_test_execution_registry", TEST_EXECUTION_VALIDATOR)
@@ -2618,19 +2610,27 @@ def test_repository_helpers_route_by_where_they_run() -> None:
     def route(path: str):
         return module.ci_helper_areas(path, ROOT, references, base_root=ROOT)
 
+    def assert_routes(path: str, expected) -> None:
+        # A file that names the helper and fails the walk open is named here,
+        # so the next data file or prose mention says which file to classify.
+        why: list[str] = []
+        actual = module.ci_helper_areas(path, ROOT, references, base_root=ROOT, why=why)
+        assert actual == expected, f"{path}: {actual} != {expected}; {'; '.join(why)}"
+
     # Runs only in reload-build.yml and the Iroh release gate, which no area gates.
-    assert route("scripts/ci/xcodebuild_noninteractive.py") == areas()
+    assert_routes("scripts/ci/xcodebuild_noninteractive.py", areas())
     # Runs only in its own dispatched workflow; pr_runner_pool.py names it
-    # in a docstring, which is not a call.
-    assert route("scripts/ci/owned_pool_rescue.py") == areas()
+    # in a docstring and .github/single-host-fallbacks.json in a fallback's
+    # prose, neither of which is a call.
+    assert_routes("scripts/ci/owned_pool_rescue.py", areas())
     # compile admission runs it: macOS.
-    assert route("scripts/ci/owned_build_state.py") == areas(macos=True)
+    assert_routes("scripts/ci/owned_build_state.py", areas(macos=True))
     # job_input_fingerprint.py lists it as a Mac job input (the seed replay in
     # cmux-next.yml), and a nightly test that runs off the Linux guards names
     # that script, so the walk fails open, as for owned_spm_scratch.py.
     assert route("scripts/ci/e2e_warm_derived_data.py") is None
     # Only the Release lane runs it.
-    assert route("scripts/ci/reuse_release_product.py") == areas(macos=True, release_build=True)
+    assert_routes("scripts/ci/reuse_release_product.py", areas(macos=True, release_build=True))
     # run_python_test_lane.py imports it, and ci.yml's routing job runs that.
     assert route("scripts/ci/test_execution_registry.py") is None
 
@@ -3112,11 +3112,11 @@ def test_cmux_next_does_not_run_full_suite_for_unrelated_packages() -> None:
     workflow = (ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8")
     pull = workflow[workflow.index("  pull_request:"):workflow.index("  push:")]
     assert "      - Packages/macOS/CmuxNext/**" in pull
-    spec = importlib.util.spec_from_file_location("cmux_next_route", ROOT / "scripts/ci/cmux_next_route.py")
-    assert spec is not None and spec.loader is not None
-    router = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = router
-    spec.loader.exec_module(router)
+    # The module every other test imports, not a second copy in sys.modules: a copy here made
+    # test_cmux_next_route.py's LinuxLaneTests patch it while route() read the first one.
+    if str(ROOT / "scripts/ci") not in sys.path:
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+    import cmux_next_route as router
     for path in (
         "Packages/macOS/CmuxPhonePush/Sources/CmuxPhonePush/PhonePushPayload.swift",
         "Packages/iOS/CmuxMobilePairedMac/Package.swift",

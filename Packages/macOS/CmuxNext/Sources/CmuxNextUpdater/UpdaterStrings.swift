@@ -87,6 +87,10 @@ nonisolated enum UpdaterStrings {
         format("updater.rollback.signature", "The kept cmux %@ is not signed by the cmux team, so it will not run.", version)
     }
 
+    static var rollbackBusy: String {
+        text("updater.rollback.busy", "Another build switch is already running. Wait for it to finish.")
+    }
+
     static var rollbackStoresUnknown: String {
         text("updater.rollback.storesUnknown", "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback.")
     }

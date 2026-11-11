@@ -17,6 +17,13 @@ import unittest
 from pathlib import Path
 
 import yaml
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -193,6 +200,18 @@ class GalleryHealthPushBase(unittest.TestCase):
         self.assertEqual(values["base_sha"], values["previous"])
         self.assertEqual(values["head_sha"], values["tip"])
 
+    def test_a_push_fetches_the_history_its_before_is_in(self) -> None:
+        """A push compares with `before`, which may be any depth back, so it fetches full history. GitHub's
+        `cond && a || b` gives b whenever a is falsy, and 0 is falsy: `push && 0 || 2` fetched depth 2 on
+        every push, and a multi-commit push lost its base (review of cmux#40994)."""
+        depth = str(step("Checkout")["with"]["fetch-depth"])
+        match = re.fullmatch(r"\$\{\{ github\.event_name == 'push' && (\S+) \|\| (\S+) \}\}", depth)
+        self.assertIsNotNone(match, depth)
+        when_push, otherwise = match.group(1), match.group(2)
+        self.assertNotIn(when_push, {"0", "false", "''", "null"}, "a falsy value here makes `||` take the right side")
+        self.assertEqual(int(when_push.strip("'")), 0)
+        self.assertEqual(int(otherwise.strip("'")), 2)
+
     def test_a_new_tip_or_the_nightly_has_no_base(self) -> None:
         self.assertEqual(self.resolve("push", "0" * 40)["base_sha"], "")
         self.assertEqual(self.resolve("workflow_dispatch", "")["base_sha"], "")
@@ -220,12 +239,12 @@ class GalleryHealthBrowserConsistency(unittest.TestCase):
                 script = work / name
                 script.write_text(contents)
                 script.chmod(0o755)
-            env = {
+            env = git_fixture_env.fixture_env({
                 "PATH": str(work / "bin") + os.pathsep + os.defpath,
                 "GITHUB_WORKSPACE": str(work), "GITHUB_ENV": str(env_file),
                 "RUNNER_TEMP": str(work), "TEST_BROWSER": browser, "TEST_LAUNCHES": str(launches),
                 "ALL": "true", "IDS": "", "SHARD": "0", "pass": "1",
-            }
+            })
             render = next(entry for entry in steps if entry.get("id") == "render")
             for entry in steps:
                 script = entry.get("run", "")
@@ -506,6 +525,82 @@ class GalleryHealthPathRouting(unittest.TestCase):
         self.assertIn("echo .github/workflows/gallery-health.yml", branch)
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         self.assertIn("github.event_name", workflow["concurrency"]["group"])
+
+
+def sparse_patterns() -> list[str]:
+    checkout = step("Checkout")["with"]
+    return [line.strip() for line in str(checkout["sparse-checkout"]).splitlines() if line.strip()]
+
+
+def in_sparse(path: str, patterns: list[str]) -> bool:
+    """Whether the job's allow-list checkout (non-cone: folders, files and `**` globs, no negation) has PATH."""
+    for pattern in patterns:
+        rel = pattern.lstrip("/")
+        if rel.endswith("/") and path.startswith(rel):
+            return True
+        if "*" in rel and unplaced_tool.glob_regex(rel).match(path):
+            return True
+        if rel == path:
+            return True
+    return False
+
+
+class GalleryHealthTime(unittest.TestCase):
+    """Leo, 2026-11-11: "what the heck is 30 minutes of 'gallery health'". Each shard's job is held to 10 minutes."""
+
+    def test_the_checkout_has_every_path_a_render_reads(self) -> None:
+        # The checkout takes only the folders a render reads (the full tree's blobs were ~60 s of every shard);
+        # each routed path is what a render reads, so each routed file must be in it, and so must the job's tools.
+        patterns = sparse_patterns()
+        checkout = step("Checkout")["with"]
+        self.assertIs(checkout["sparse-checkout-cone-mode"], False)
+        self.assertEqual(str(checkout["filter"]), "blob:none")
+        self.assertFalse(any(p.startswith("!") for p in patterns), "an allow-list: name what the job reads")
+        routed = triggers()["pull_request"]["paths"]
+        missing = [path for path in tracked() if triggered(path, routed) and not in_sparse(path, patterns)]
+        self.assertEqual(missing, [], "add these to the Checkout step's sparse-checkout")
+        for path in ("scripts/ci/api_call_log/env.sh", "scripts/ci/test_reds.py", "scripts/ci/ensure-system-chrome.sh",
+                     ".github/actions/playwright-apt-cache/action.yml", ".github/workflows/gallery-health.yml",
+                     "scripts/gallery-matrix/upload-set.ts", "webviews/package.json"):
+            self.assertTrue(in_sparse(path, patterns), path)
+        self.assertFalse(in_sparse("cmux-tui/Cargo.toml", patterns))
+        self.assertFalse(in_sparse("Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift", patterns))
+
+    def test_a_shard_past_its_case_budget_fails_naming_the_shard_count(self) -> None:
+        cap = step("Hold each shard within its time budget")
+        self.assertEqual(cap["env"]["SHARDS"], "${{ strategy.job-total }}")
+        self.assertIn("matrix.shard == 0", cap["if"])
+        self.assertIn("!cancelled()", cap["if"])
+        names = [entry.get("name") for entry in steps()]
+        # It counts before the base replay restores the base's webviews/ (review of #41296), goes on so the
+        # render still gives its verdict, and a later step fails the job.
+        self.assertLess(names.index("Hold each shard within its time budget"), names.index("Render the gallery and judge it"))
+        self.assertIs(cap["continue-on-error"], True)
+        fail = step("Fail past the case budget")
+        self.assertIn("steps.cap.outcome == 'failure'", fail["if"])
+        self.assertLess(names.index("Judge the red states against the base"), names.index("Fail past the case budget"))
+        self.assertIn("exit 1", fail["run"])
+        with tempfile.TemporaryDirectory(prefix="gallery-cap-") as tmp:
+            root = Path(tmp)
+            (root / "webviews/scripts/gallery").mkdir(parents=True)
+            (root / "bin").mkdir()
+            # A stand-in manifest.ts: bun writes N cases to --out.
+            (root / "bin/bun").write_text(
+                "#!/bin/sh\nwhile [ $# -gt 0 ]; do [ \"$1\" = --out ] && { python3 -c \"import json,sys; "
+                "json.dump([{}]*int(sys.argv[1]), open(sys.argv[2], 'w'))\" \"$CASES\" \"$2\"; }; shift; done\n")
+            (root / "bin/bun").chmod(0o755)
+
+            def run(cases: int) -> subprocess.CompletedProcess:
+                env = {**os.environ, "PATH": f"{root / 'bin'}:{os.environ['PATH']}", "RUNNER_TEMP": tmp,
+                       "CASES": str(cases), "SHARDS": "16", "MAX_CASES_PER_SHARD": cap["env"]["MAX_CASES_PER_SHARD"]}
+                return subprocess.run(["bash", "-c", cap["run"]], cwd=root, env=env, capture_output=True, text=True)
+
+            limit = 16 * int(cap["env"]["MAX_CASES_PER_SHARD"])
+            self.assertEqual(run(limit).returncode, 0, run(limit).stdout + run(limit).stderr)
+            over = run(limit + 1)
+            self.assertEqual(over.returncode, 1, over.stdout + over.stderr)
+            self.assertIn("::error", over.stdout)
+            self.assertIn("to 17 shards", over.stdout)
 
 
 if __name__ == "__main__":

@@ -13,8 +13,15 @@
 # It pins only when all of these hold, and otherwise prints `result=` and leaves
 # the pull request (scripts/cmux-next/publish-app-ffi-repin.sh) to the caller:
 #  - the tip's FFI sources are the release's (content, not commit: an unrelated
-#    commit on top changes nothing; a newer FFI change gives result=newer, and
-#    the run of the push that made it pins its own release);
+#    commit on top changes nothing), or the tip moved past them and the release
+#    is on the tip's history and newer than the current pin. That second case
+#    pins a release the tip is already ahead of: when FFI commits land faster
+#    than a release builds (20 to 45 minutes), no release ever had the tip's
+#    sources and the pin did not move for hours (2026-11-10 23:42 to 03:37 UTC;
+#    the release of a6741b51 was published at 01:08 and never pinned). The pin
+#    then follows one release behind, and the newer push's run pins its own.
+#    A release that is not on the tip's history, or not newer than the pin,
+#    gives result=newer and is not pinned;
 #  - the FFI only adds over the current pin, as the Swift build sees it
 #    (scripts/cmux-next/app_ffi_additive.py): the same packaging inputs
 #    (build-app-ffi.sh, module maps, cbindgen.toml, the release workflow and
@@ -85,25 +92,45 @@ for attempt in 1 2 3 4 5; do
   tip="$(git rev-parse HEAD)"
   inputs=()
   while IFS= read -r path; do inputs+=("$path"); done < <(bash scripts/cmux-next/check-app-ffi-pin.sh --list-inputs)
+  behind=0
   if ! git diff --quiet "$sha" "$tip" -- "${inputs[@]}"; then
-    finish newer "the FFI sources at ${tip:0:12} are not those of $tag; the release of the push that changed them is pinned by its own run"
+    git merge-base --is-ancestor "$sha" "$tip" 2>/dev/null \
+      || finish newer "the FFI sources at ${tip:0:12} are not those of $tag, and $tag is not on its history"
+    behind=1
   fi
   if ! pinned="$(current_pin 2>&1)" || [[ ! "$pinned" =~ ^[0-9a-f]{40}$ ]]; then
     finish pr "the pin at ${tip:0:12} is not canonical (${pinned:-empty}); the re-pin pull request rewrites it"
   fi
   [[ "$pinned" == "$sha" ]] && finish already "${tip:0:12} already pins $tag"
   have "$pinned" || finish pr "the current pin's source $pinned is not available, so its headers cannot be compared"
+  if (( behind )); then
+    # Never backwards: the release must come after the current pin. A shallow checkout is deepened to see it.
+    for _ in 1 2 3 4 5 6 7 8; do
+      git merge-base --is-ancestor "$pinned" "$sha" 2>/dev/null && break
+      [[ "$(git rev-parse --is-shallow-repository)" == true ]] || break
+      git fetch --quiet --deepen=50 "$remote" "$sha" 2>/dev/null || break
+    done
+    git merge-base --is-ancestor "$pinned" "$sha" 2>/dev/null \
+      || finish newer "the FFI sources at ${tip:0:12} are not those of $tag, and $tag is not newer than the current pin ${pinned:0:12}"
+  fi
   rc=0; additive="$(python3 -I scripts/cmux-next/app_ffi_additive.py "$pinned" "$sha" -- "${inputs[@]}" 2>&1)" || rc=$?
   echo "$additive"
   (( rc == 0 )) || finish pr "the FFI does not only add over the current pin ${pinned:0:12}; the re-pin pull request's app compile proves them first"
   bash scripts/cmux-next/repin-app-ffi.sh "$sha" "$checksum"
-  bash scripts/cmux-next/check-app-ffi-pin.sh --verify-release
+  if (( behind )); then
+    # The tip is ahead of this release by design, so only the release itself is proven here: the grace is a year.
+    bash scripts/cmux-next/check-app-ffi-pin.sh --verify-release --stale-grace 31536000
+    about="The release of ${sha:0:12}, which is on the history of the tip ${tip:0:12} (checksum $checksum). The tip's FFI sources moved on; the release of that newer push is pinned by its own run."
+  else
+    bash scripts/cmux-next/check-app-ffi-pin.sh --verify-release
+    about="The release of ${sha:0:12}, whose FFI sources the tip ${tip:0:12} has (checksum $checksum)."
+  fi
   paths=("$manifest")
   [[ -f "$pin_file" ]] && paths+=("$pin_file")
   git add -- "${paths[@]}"
   git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
     commit --quiet -m "chore(next): pin CCmuxAppFFI to $tag" \
-    -m "The release of ${sha:0:12}, whose FFI sources the tip ${tip:0:12} has (checksum $checksum). It keeps the packaging, directives and declarations of the pin before, ${pinned:0:12}." \
+    -m "$about It keeps the packaging, directives and declarations of the pin before, ${pinned:0:12}." \
     -m "scripts/cmux-next/pin-app-ffi-on-base.sh${GITHUB_RUN_ID:+: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID}"
   if [[ "${ENABLED:-}" != true ]]; then
     finish dry-run "would push $(git rev-parse --short HEAD) on ${tip:0:12} (the repository variable CMUX_NEXT_BASE_AUTOFIX is not 1)"
