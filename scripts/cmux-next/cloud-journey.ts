@@ -2020,6 +2020,23 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (r.code !== 0 || !r.stdout.includes("journey-ok")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
       return { value: null, detail: r.stdout.trim().split("\n").join(" ") };
     });
+    // What the machine booted and what its agents reach their model with, so a reply that fails ("Not logged in")
+    // names the image, the daemon and the model plane in the same log: the image the platform recorded, acpmux's and
+    // cmux-tui's versions, and each model-plane file's CMUX_CODEROUTER_URL origin (a URL, no credential) and which
+    // CMUX_CLAUDE_TEAM_* names it sets (names only). Never fails the journey.
+    const factsAt = Date.now();
+    try {
+      const image = (bound as { image?: Record<string, unknown> } | null)?.image ?? (created as { image?: Record<string, unknown> }).image ?? {};
+      const r = await exec([
+        `echo "acpmux=$(acpmux --version 2>/dev/null | head -1) cmux-tui=$(cmux-tui --version 2>/dev/null | head -1)"`,
+        `for f in /etc/cmux/model-plane.env "$HOME/.config/cmux/model-plane.env"; do if [ -f "$f" ]; then u=$(sed -n 's/^\\(export \\)\\{0,1\\}CMUX_CODEROUTER_URL=//p' "$f" | tr -d "\\"'" | sed -E 's#^(https?://[^/]+).*#\\1#' | head -1); t=$(grep -oE '^(export )?CMUX_CLAUDE_TEAM_[A-Z_]+' "$f" | sed 's/^export //' | tr '\\n' ','); echo "$f: CMUX_CODEROUTER_URL=\${u:-unset} team=\${t:-none}"; else echo "$f: absent"; fi; done`,
+      ].join("; "));
+      const facts = r.stdout.trim().split("\n").join(" | ");
+      const imageFacts = JSON.stringify(image).slice(0, 300);
+      J.record({ step: "machine facts", status: "pass", ms: Date.now() - factsAt, detail: `image ${imageFacts}; ${facts}`.slice(0, 600) });
+    } catch (e) {
+      J.record({ step: "machine facts", status: "skip", ms: Date.now() - factsAt, detail: `read failed: ${String((e as Error)?.message ?? e).slice(0, 300)}` });
+    }
 
     if (desktopLink) {
       // The team the platform decides rd_link for: --team, else the account's personal team (user.ensure).

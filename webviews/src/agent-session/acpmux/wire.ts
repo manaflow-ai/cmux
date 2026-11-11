@@ -88,7 +88,8 @@ const AGENT_LOGIN_START = "_acpmux/agent_login/start";
 /// A copy of `text` that holds its own characters. An engine's slice of a long string can point into the
 /// string it came from (a V8 sliced string), so a log entry of a message's first MAX_PAYLOAD_CHARS kept the whole
 /// message alive: a god chat's MB pages stayed in memory, uncounted by MAX_TEXT_CHARS. A JSON round trip builds a
-/// new flat string (a cut surrogate pair survives it as the same lone code unit).
+/// new flat string (a cut surrogate pair survives it as the same lone code unit). Only a cut message pays the copy,
+/// at most MAX_PAYLOAD_CHARS (test/acp-wire-log-retention.test.ts, and bench/stateGrowth.ts's chat-reopen scenario).
 export function ownCopy(text: string): string {
   return JSON.parse(JSON.stringify(text)) as string;
 }

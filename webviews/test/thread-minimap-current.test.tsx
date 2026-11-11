@@ -13,6 +13,7 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
   pretendToBeVisual: true,
   virtualConsole: new VirtualConsole(),
 });
+
 const scope = globalThis as Record<string, unknown>;
 const replacements: Record<string, unknown> = {
   window: dom.window,
@@ -68,6 +69,12 @@ dom.window.HTMLElement.prototype.scrollTo = function (this: HTMLElement, options
 } as typeof HTMLElement.prototype.scrollTo;
 
 const { act } = await import("react");
+// The minimap places its band in the frame after a scroll event, as a browser runs it.
+const scrolledFrame = (target: EventTarget) =>
+  act(async () => {
+    target.dispatchEvent(new dom.window.Event("scroll"));
+    await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
+  });
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 
@@ -111,7 +118,7 @@ test("the minimap marks every prompt on screen as current, at the resting length
     // Scrolled to the top, the first is, with the ones below it in the viewport.
     const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
     scroller.scrollTop = 0;
-    await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+    await scrolledFrame(scroller);
     expect(check()[0]).toBe(0);
   } finally {
     await act(async () => root.unmount());
