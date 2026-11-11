@@ -14,6 +14,17 @@ import select
 import termios
 import tty
 
+def _readable(fds, timeout=None):
+    """The FDS (fds or objects with fileno()) ready to read within TIMEOUT seconds (None: no limit), as
+    select.select's first list. Through poll(): select.select() refuses an fd at or above FD_SETSIZE (1024)."""
+    import select
+    poller = select.poll()
+    for f in fds:
+        poller.register(f, select.POLLIN)
+    got = {fd for fd, _ in poller.poll(None if timeout is None else min(max(0.0, timeout) * 1000, 2**31 - 1))}
+    return [f for f in fds if (f if isinstance(f, int) else f.fileno()) in got]
+
+
 def test_sigint_in_pty():
     """Test that Ctrl+C (SIGINT) works in a PTY"""
     print("Test 1: SIGINT via PTY (simulating Ctrl+C)")
@@ -208,7 +219,7 @@ print("TIMEOUT", flush=True)
         output = b""
         start = time.time()
         while time.time() - start < 2.0:
-            if select.select([proc.stdout], [], [], 0.1)[0]:
+            if _readable([proc.stdout], 0.1):
                 chunk = os.read(proc.stdout.fileno(), 1024)
                 if not chunk:
                     break

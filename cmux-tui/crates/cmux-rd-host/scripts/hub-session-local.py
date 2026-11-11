@@ -13,6 +13,19 @@ of an app that holds them).
 """
 import json, os, select, subprocess, sys, time
 
+
+def _readable(fds, timeout=None):
+    """The FDS (fds or objects with fileno()) ready to read within TIMEOUT seconds (None: no limit), as
+    select.select's first list. Through poll(): select.select() refuses an fd at or above FD_SETSIZE (1024)."""
+    import select
+    poller = select.poll()
+    for f in fds:
+        poller.register(f, select.POLLIN)
+    got = {fd for fd, _ in poller.poll(None if timeout is None else min(max(0.0, timeout) * 1000, 2**31 - 1))}
+    return [f for f in fds if (f if isinstance(f, int) else f.fileno()) in got]
+
+
+
 args = sys.argv[1:]
 if not args:
     sys.exit(__doc__)
@@ -44,7 +57,7 @@ host_key = host_line["key"]
 # The host's candidates (all of them, or what came within 3 s) go in the answer.
 candidates, deadline = [], time.time() + 3
 while time.time() < deadline:
-    ready, _, _ = select.select([host.stdout], [], [], max(0, deadline - time.time()))
+    ready = _readable([host.stdout], max(0, deadline - time.time()))
     if not ready:
         break
     line = json.loads(host.stdout.readline())
@@ -61,7 +74,7 @@ viewer.stdin.flush()
 report = None
 streams = {host.stdout: "host", viewer.stdout: "viewer"}
 while streams:
-    ready, _, _ = select.select(list(streams), [], [], 120)
+    ready = _readable(list(streams), 120)
     if not ready:
         print("timed out", file=sys.stderr)
         break

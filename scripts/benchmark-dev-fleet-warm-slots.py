@@ -22,6 +22,17 @@ DEFAULT_HELPER = HERE / "dev-fleet-warm-slot.py"
 GRAPH_NAMES = {"Package.swift", "Package.resolved", "project.pbxproj"}
 
 
+def _readable(fds, timeout=None):
+    """The FDS (fds or objects with fileno()) ready to read within TIMEOUT seconds (None: no limit), as
+    select.select's first list. Through poll(): select.select() refuses an fd at or above FD_SETSIZE (1024)."""
+    import select
+    poller = select.poll()
+    for f in fds:
+        poller.register(f, select.POLLIN)
+    got = {fd for fd, _ in poller.poll(None if timeout is None else min(max(0.0, timeout) * 1000, 2**31 - 1))}
+    return [f for f in fds if (f if isinstance(f, int) else f.fileno()) in got]
+
+
 def git(checkout: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", "-C", str(checkout), *args],
@@ -287,7 +298,7 @@ def task_from_reservation(
 
 def wait_for_warmer_ready(fd: int, timeout: float = 180.0) -> bool:
     """Wait for the helper-owned readiness pipe without filesystem polling."""
-    ready, _, _ = select.select([fd], [], [], timeout)
+    ready = _readable([fd], timeout)
     if not ready:
         return False
     try:

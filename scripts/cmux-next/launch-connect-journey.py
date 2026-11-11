@@ -63,6 +63,17 @@ FIRST_REGIONS = {"sidebar": [], "pane": ["connecting_view_shown", "workspace_con
 USABLE = ["workspace_content_shown"]
 
 
+def _readable(fds, timeout=None):
+    """The FDS (fds or objects with fileno()) ready to read within TIMEOUT seconds (None: no limit), as
+    select.select's first list. Through poll(): select.select() refuses an fd at or above FD_SETSIZE (1024)."""
+    import select
+    poller = select.poll()
+    for f in fds:
+        poller.register(f, select.POLLIN)
+    got = {fd for fd, _ in poller.poll(None if timeout is None else min(max(0.0, timeout) * 1000, 2**31 - 1))}
+    return [f for f in fds if (f if isinstance(f, int) else f.fileno()) in got]
+
+
 class Client:
     """One JSON Lines connection to the app's control socket or the daemon socket."""
 
@@ -174,7 +185,7 @@ class Launch:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return False
-            ready, _, _ = select.select([self.read_fd], [], [], remaining)
+            ready = _readable([self.read_fd], remaining)
             if not ready:
                 return False
             chunk = os.read(self.read_fd, 65536)

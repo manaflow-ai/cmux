@@ -37,6 +37,17 @@ for (;;) {}
 
 
 # CI installs these dependencies; missing dependencies there must fail, not skip.
+def _readable(fds, timeout=None):
+    """The FDS (fds or objects with fileno()) ready to read within TIMEOUT seconds (None: no limit), as
+    select.select's first list. Through poll(): select.select() refuses an fd at or above FD_SETSIZE (1024)."""
+    import select
+    poller = select.poll()
+    for f in fds:
+        poller.register(f, select.POLLIN)
+    got = {fd for fd, _ in poller.poll(None if timeout is None else min(max(0.0, timeout) * 1000, 2**31 - 1))}
+    return [f for f in fds if (f if isinstance(f, int) else f.fileno()) in got]
+
+
 @unittest.skipUnless(
     (shutil.which("bun") and shutil.which("bwrap"))
     or os.environ.get("GITHUB_ACTIONS") == "true",
@@ -124,7 +135,7 @@ class CodeModeCancellationTests(unittest.TestCase):
                     pass
             deadline = time.monotonic() + 5
             for fd in self.owned.values():
-                select.select([fd], [], [], max(0, deadline - time.monotonic()))
+                _readable([fd], max(0, deadline - time.monotonic()))
             for pid in self.owned:
                 try:
                     os.waitpid(pid, os.WNOHANG)
@@ -141,9 +152,7 @@ class CodeModeCancellationTests(unittest.TestCase):
         connections = {}
         deadline = time.monotonic() + 8
         while True:
-            readable, _, _ = select.select(
-                [self.server, *connections], [], [], max(0, deadline - time.monotonic())
-            )
+            readable = _readable([self.server, *connections], max(0, deadline - time.monotonic()))
             self.assertTrue(readable, "sandbox did not send its readiness request")
             for stream in readable:
                 if stream is self.server:
@@ -176,7 +185,7 @@ class CodeModeCancellationTests(unittest.TestCase):
         })
 
     def result(self):
-        readable, _, _ = select.select([self.process.stdout], [], [], 8)
+        readable = _readable([self.process.stdout], 8)
         self.assertTrue(readable, "cmux_exec did not return within 8 seconds")
         line = self.process.stdout.readline()
         self.assertTrue(line, "MCP exited without an execution result")
@@ -190,7 +199,7 @@ class CodeModeCancellationTests(unittest.TestCase):
         for pid, fd in self.owned.items():
             if pid == self.process.pid:
                 continue
-            readable, _, _ = select.select([fd], [], [], max(0, deadline - time.monotonic()))
+            readable = _readable([fd], max(0, deadline - time.monotonic()))
             self.assertTrue(readable, f"owned code-mode descendant {pid} survived cleanup")
         self.assertEqual(list(self.directory.glob("cmux-code-mode-proxy.*")), [])
 

@@ -59,6 +59,17 @@ PASTE = inner_osc_query.replace("\n", "\r").encode()
 EXPECTED = inner_osc_query.encode()  # after ICRNL, CR arrives as NL
 
 
+def _readable(fds, timeout=None):
+    """The FDS (fds or objects with fileno()) ready to read within TIMEOUT seconds (None: no limit), as
+    select.select's first list. Through poll(): select.select() refuses an fd at or above FD_SETSIZE (1024)."""
+    import select
+    poller = select.poll()
+    for f in fds:
+        poller.register(f, select.POLLIN)
+    got = {fd for fd, _ in poller.poll(None if timeout is None else min(max(0.0, timeout) * 1000, 2**31 - 1))}
+    return [f for f in fds if (f if isinstance(f, int) else f.fileno()) in got]
+
+
 def spin_worker():
     x = 0
     while True:
@@ -159,7 +170,7 @@ for iteration in range(1, ITERS + 1):
     received = bytearray()
     deadline = time.monotonic() + 35
     while time.monotonic() < deadline and not received.endswith(b"\x00DONE\x00"):
-        r, _, _ = select.select([reader_done_r], [], [], 1.0)
+        r = _readable([reader_done_r], 1.0)
         if reader_done_r in r:
             chunk = os.read(reader_done_r, 65536)
             if not chunk:

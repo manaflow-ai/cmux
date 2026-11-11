@@ -10,6 +10,17 @@ import time
 os.environ.setdefault("DEVELOPER_DIR", "/Applications/Xcode.app/Contents/Developer")
 
 
+def _readable(fds, timeout=None):
+    """The FDS (fds or objects with fileno()) ready to read within TIMEOUT seconds (None: no limit), as
+    select.select's first list. Through poll(): select.select() refuses an fd at or above FD_SETSIZE (1024)."""
+    import select
+    poller = select.poll()
+    for f in fds:
+        poller.register(f, select.POLLIN)
+    got = {fd for fd, _ in poller.poll(None if timeout is None else min(max(0.0, timeout) * 1000, 2**31 - 1))}
+    return [f for f in fds if (f if isinstance(f, int) else f.fileno()) in got]
+
+
 def sh(*args, check=True, timeout=120, capture=True):
     r = subprocess.run(list(args), capture_output=capture, text=True, timeout=timeout)
     if check and r.returncode != 0:
@@ -297,7 +308,7 @@ class Sim:
         t0 = time.monotonic()
         buf = ""
         while time.monotonic() - t0 < 10:
-            r, _, _ = select.select([self._video[0].stderr], [], [], 0.5)
+            r = _readable([self._video[0].stderr], 0.5)
             if r:
                 chunk = os.read(self._video[0].stderr.fileno(), 4096).decode(errors="replace")
                 if not chunk:

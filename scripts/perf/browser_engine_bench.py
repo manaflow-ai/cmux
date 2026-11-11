@@ -56,6 +56,17 @@ WEBKIT_PROCESS_MARKERS = ("com.apple.WebKit.WebContent", "com.apple.WebKit.Netwo
 # Process accounting (no extra tools: libproc through ctypes)
 
 
+def _readable(fds, timeout=None):
+    """The FDS (fds or objects with fileno()) ready to read within TIMEOUT seconds (None: no limit), as
+    select.select's first list. Through poll(): select.select() refuses an fd at or above FD_SETSIZE (1024)."""
+    import select
+    poller = select.poll()
+    for f in fds:
+        poller.register(f, select.POLLIN)
+    got = {fd for fd, _ in poller.poll(None if timeout is None else min(max(0.0, timeout) * 1000, 2**31 - 1))}
+    return [f for f in fds if (f if isinstance(f, int) else f.fileno()) in got]
+
+
 class _RUsageInfoV2(ctypes.Structure):
     _fields_ = [
         ("ri_uuid", ctypes.c_uint8 * 16),
@@ -466,7 +477,7 @@ class TaggedApp:
             nonlocal buffer
             sock.sendall((command + "\n").encode())
             while b"\n" not in buffer:
-                ready, _, _ = select.select([sock], [], [], 5)
+                ready = _readable([sock], 5)
                 if not ready:
                     raise BenchFailure(f"timed out on {command}")
                 chunk = sock.recv(8192)

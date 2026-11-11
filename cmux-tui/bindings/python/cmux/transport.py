@@ -15,6 +15,16 @@ from .errors import CmuxConnectionError, ProtocolError, TimeoutError
 DEFAULT_MAX_LINE_BYTES = 16 * 1024 * 1024
 
 
+def _ready(objs, events, timeout):
+    """The OBJS (sockets or fds) ready for EVENTS (select.POLLIN, select.POLLOUT) within TIMEOUT seconds (None: no
+    limit), as select.select's list. Through poll(): select.select() refuses an fd at or above FD_SETSIZE (1024)."""
+    poller = select.poll()
+    for o in objs:
+        poller.register(o, events)
+    got = {fd for fd, _ in poller.poll(None if timeout is None else min(max(0.0, timeout) * 1000, 2**31 - 1))}
+    return [o for o in objs if (o if isinstance(o, int) else o.fileno()) in got]
+
+
 class JsonLineConnection:
     """One bounded JSON-lines connection to a cmux Unix socket."""
 
@@ -177,12 +187,7 @@ class JsonLineConnection:
             if remaining_time <= 0:
                 raise TimeoutError("session socket write timed out")
             try:
-                _, writable, _ = select.select(
-                    [],
-                    [self._socket],
-                    [],
-                    remaining_time,
-                )
+                writable = _ready([self._socket], select.POLLOUT, remaining_time)
             except (OSError, ValueError) as error:
                 raise CmuxConnectionError(
                     f"socket write readiness check failed: {error}"
@@ -237,10 +242,9 @@ class JsonLineConnection:
                     if before_wait is not None:
                         before_wait()
                     try:
-                        readable, _, _ = select.select(
+                        readable = _ready(
                             [self._socket, self._wake_read],
-                            [],
-                            [],
+                            select.POLLIN,
                             self.timeout,
                         )
                     except (OSError, ValueError) as error:

@@ -36,6 +36,17 @@ IDENTIFIER_CHARS = frozenset(
 )
 
 
+def _readable(fds, timeout=None):
+    """The FDS (fds or objects with fileno()) ready to read within TIMEOUT seconds (None: no limit), as
+    select.select's first list. Through poll(): select.select() refuses an fd at or above FD_SETSIZE (1024)."""
+    import select
+    poller = select.poll()
+    for f in fds:
+        poller.register(f, select.POLLIN)
+    got = {fd for fd, _ in poller.poll(None if timeout is None else min(max(0.0, timeout) * 1000, 2**31 - 1))}
+    return [f for f in fds if (f if isinstance(f, int) else f.fileno()) in got]
+
+
 def closed_identifier(value: str, label: str, max_length: int) -> str:
     """Validate one controller identity before it can become local state."""
     if (
@@ -694,7 +705,7 @@ def _wait_cleanup_process(
     waiter.start()
     try:
         while True:
-            ready, _, _ = select.select([done_read, preempt_fd], [], [])
+            ready = _readable([done_read, preempt_fd])
             if done_read in ready:
                 with contextlib.suppress(OSError):
                     os.read(done_read, 1)
@@ -1140,7 +1151,7 @@ def close_preempt_channel(layout: Layout, fd: int | None) -> None:
 
 def consume_preempt(fd: int) -> bool:
     """Drain a pending foreground preemption notification if one exists."""
-    ready, _, _ = select.select([fd], [], [], 0)
+    ready = _readable([fd], 0)
     if not ready:
         return False
     consumed = False
@@ -1466,7 +1477,7 @@ def run_native(
                 stop_r, stop_w = os.pipe()
 
                 def watch_preempt() -> None:
-                    ready, _, _ = select.select([preempt_fd, stop_r], [], [])
+                    ready = _readable([preempt_fd, stop_r])
                     if stop_r in ready:
                         return
                     if preempt_fd in ready and consume_preempt(preempt_fd):
