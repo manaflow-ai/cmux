@@ -185,24 +185,36 @@ mod remote_cli_docs {
     /// `cmux vm …` as the `cmux cloud …` line the CLI runs (`vm` is `cloud`'s name, and the
     /// catalog names a Cloud action `cloud VERB`): a short verb is its Cloud verb (vm_short.rs:
     /// `vm status dev` runs `cloud machine-status`), any other Cloud verb keeps its name (vm.rs
-    /// `cloud_alias`). `None` for every other line, the VM API's own verbs under `vm` included.
-    fn vm_as_cloud(line: &[String]) -> Option<Vec<String>> {
+    /// `cloud_alias`). A short verb is one under `cloud` too. `Err` is why the CLI refuses a
+    /// short verb's words (vm_short.rs `misuse`). `None` for every other line, the VM API's
+    /// own verbs under `vm` included.
+    fn vm_as_cloud(line: &[String]) -> Option<Result<Vec<String>, &'static str>> {
         let command = line.get(1..)?;
         let cloud = match vm_short::parse(command) {
             Some(short) => {
+                if let Some(why) = vm_short::misuse(&short) {
+                    return Some(Err(why));
+                }
                 let mut cloud = strings(&["cloud", short.cloud_verb]);
                 cloud.extend(short.tail);
                 cloud
             }
             None => vm::cloud_alias(command)?,
         };
-        Some(std::iter::once("cmux".to_owned()).chain(cloud).collect())
+        Some(Ok(std::iter::once("cmux".to_owned()).chain(cloud).collect()))
     }
 
     fn missing_commands(text: &str, names: &HashSet<String>) -> Vec<String> {
         let mut missing = Vec::new();
         for line in command_lines(text, "cmux") {
-            let words = vm_as_cloud(&line).unwrap_or_else(|| line.clone());
+            let words = match vm_as_cloud(&line) {
+                Some(Ok(cloud)) => cloud,
+                Some(Err(why)) => {
+                    missing.push(format!("{} ({why})", line.join(" ")));
+                    continue;
+                }
+                None => line.clone(),
+            };
             let parser_words = words[1..]
                 .iter()
                 .filter(|word| !matches!(word.as_str(), "--json" | "--jsonl" | "--quiet"))
@@ -294,18 +306,27 @@ mod remote_cli_docs {
     }
 
     /// `cmux vm` lines resolve as the Cloud verbs they run: a short verb with the VM's name,
-    /// `exec`'s command after `--`, and a Cloud verb that has no short form. A stale one is
-    /// still rejected, in the document's own spelling.
+    /// `exec`'s command after `--`, and a Cloud verb that has no short form. A stale verb, a
+    /// flag the verb does not take and words the CLI refuses are still rejected, in the
+    /// document's own spelling.
     #[test]
     fn documented_vm_lines_resolve_as_the_cloud_verbs_they_run() {
         let names = action_names();
         let missing = missing_commands(
             "`cmux vm status dev`, `cmux vm exec dev -- uname -a`, \
              `cmux vm file-read --target vm:VM_ID --path /workspace/README.md`, \
-             `cmux vm deliberately-stale-action`",
+             `cmux vm deliberately-stale-action`, `cmux vm exec dev --comand x`, \
+             `cmux vm ls dev`",
             &names,
         );
-        assert_eq!(missing, vec!["cmux vm deliberately-stale-action"]);
+        assert_eq!(
+            missing,
+            vec![
+                "cmux vm deliberately-stale-action",
+                "cmux vm exec dev --comand x (flag --comand)",
+                "cmux vm ls dev (`cmux vm ls` lists every VM; it takes no name)",
+            ]
+        );
     }
 
     #[test]
