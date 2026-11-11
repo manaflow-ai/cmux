@@ -195,7 +195,7 @@ mod remote_cli_docs {
             if parser_words.len() < 2 {
                 continue;
             }
-            let action = action_name(&words, names);
+            let mut action = action_name(&words, names);
             // Cloud verbs are app actions whose existence is checked by the
             // socket. Require a catalog match rather than generic parsing.
             // Resource commands still resolve through the CLI parser.
@@ -203,8 +203,27 @@ mod remote_cli_docs {
             let parser = builtin_command(&parser_words)
                 || (parser_words[0] == "agents" && agents::command(&parser_words[1..]).is_ok())
                 || (parser_words[0] != "cloud" && parse(&parser_words, Surface::Cmux).is_ok());
+            // `cmux vm …` (#40272), routed as the CLI routes it: a short verb (`vm pause NAME`)
+            // runs the app's Cloud verb with its other words (vm_short.rs), and any other `vm`
+            // verb runs as `cloud …` (vm.rs `cloud_alias`). The Cloud verb must be in the
+            // catalog.
+            let line = words.join(" ");
+            let mut words = words;
             if action.is_none() && !parser {
-                missing.push(words.join(" "));
+                if let Some(short) = crate::cli::vm_short::parse(&parser_words) {
+                    words = ["cmux", "cloud", short.cloud_verb]
+                        .map(str::to_owned)
+                        .into_iter()
+                        .chain(short.tail)
+                        .collect();
+                    action = action_name(&words, names);
+                } else if let Some(alias) = crate::cli::vm::cloud_alias(&parser_words) {
+                    words = std::iter::once("cmux".to_owned()).chain(alias).collect();
+                    action = action_name(&words, names);
+                }
+            }
+            if action.is_none() && !parser {
+                missing.push(line);
             } else if let Some(action) = action {
                 let command_words = action.split_whitespace().count();
                 for flag in words
@@ -214,7 +233,7 @@ mod remote_cli_docs {
                     .map(|word| word.split('=').next().unwrap_or(word))
                 {
                     if !action_flag_allowed(&action, flag) {
-                        missing.push(format!("{} (flag {flag})", words.join(" ")));
+                        missing.push(format!("{line} (flag {flag})"));
                     }
                 }
             }

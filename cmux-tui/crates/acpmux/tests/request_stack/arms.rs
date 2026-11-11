@@ -224,6 +224,8 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_TAG, Run(json!({"sessionId": "$S", "set": {"lso": "1"}}))),
         (method::MUX_DETACH_PARENT, Run(json!({"sessionId": "$S"}))),
         (method::MUX_ARCHIVE, Run(json!({"sessionId": "$S", "archived": false}))),
+        // `false` brings back a log the memory store never archived: no disk, no host records.
+        (method::MUX_COLD_ARCHIVE, Run(json!({"sessionId": "$S", "archived": false}))),
         (method::MUX_SIDE, Run(json!({"sessionId": "$S", "chat": "lso-no-such-chat"}))),
         (
             method::MUX_HARNESS_ENABLE,
@@ -232,6 +234,9 @@ pub fn table() -> Vec<(&'static str, Ask)> {
                 "an in-process hub has no home, so folder profiles are off (invalid params)",
             ),
         ),
+        // Makes `~/Projects/lso-project` with `git init` and trusts it: this process's HOME is
+        // its hermetic scratch home (`support/daemon_env.rs`), never the person's.
+        (method::MUX_PROJECT_NEW, Run(json!({"name": "lso-project"}))),
         (method::MUX_AGENT_LOGIN_START, Skip("starts a real claude or codex sign-in")),
         (
             method::MUX_AGENT_LOGIN_FINISH,
@@ -370,6 +375,10 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (
             method::MUX_TEAM_ACK,
             Any(json!({"id": "x"}), "team messaging is off without a mesh relay (invalid params)"),
+        ),
+        (
+            method::MUX_REGISTER,
+            Any(json!({}), "an in-process caller has no peer pid (register.origin_refused)"),
         ),
         (method::MUX_RENAME, Run(json!({"sessionId": "$S", "newName": "renamed-s"}))),
         (
