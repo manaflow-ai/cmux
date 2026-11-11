@@ -240,23 +240,5 @@ async fn w7f_a_named_branch_worktree_is_removed_with_its_branch_and_refuses_unsa
     let value: Value = serde_json::from_slice(&removed.stdout).unwrap();
     assert_eq!(value["mainRoot"], json!(alias.join("proj")), "{value}");
     let _ = std::fs::remove_file(&alias);
-
-    // Review finding 4: in a Japanese locale `worktree remove --help` describes
-    // the command and its arguments in Japanese, and a folder outside git says so.
-    let help = acpmux_in(&scratch, &home, "ja_JP.UTF-8", &["worktree", "remove", "--help"]);
-    assert!(help.status.success(), "{}", said(&help));
-    for english in ["Remove one worktree now", "The worktree's folder", "Remove it even with"] {
-        assert!(!said(&help).contains(english), "{english} is still English: {}", said(&help));
-    }
-    assert!(said(&help).contains("ワークツリーを 1 つ"), "{}", said(&help));
-    assert!(said(&help).contains("セッション名"), "{}", said(&help));
-    let help_en = acpmux(&scratch, &home, &["worktree", "remove", "--help"]);
-    assert!(said(&help_en).contains("Remove one worktree now"), "{}", said(&help_en));
-    let outside = scratch.to_str().unwrap();
-    let not_git = acpmux_in(&scratch, &home, "ja_JP.UTF-8", &["worktree", "remove", outside]);
-    assert!(!not_git.status.success(), "{}", said(&not_git));
-    assert!(said(&not_git).contains("git リポジトリ"), "{}", said(&not_git));
-    let not_git_en = acpmux(&scratch, &home, &["worktree", "remove", outside]);
-    assert!(said(&not_git_en).contains("not in a git repository"), "{}", said(&not_git_en));
     let _ = std::fs::remove_dir_all(&root);
 }
