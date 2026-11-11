@@ -283,6 +283,68 @@ const armUnderLoad: Play = async (ctx) => {
   view.cmuxGalleryArrive = () => view.cmuxAcpmuxBridge?.receive(structuredClone(arrivedSnapshot));
 };
 
+/// A click whose layout is slow, as at load ~260 (Leo, 2026-11-10: "when things get slow this tool
+/// call expansion situatoin gets insanely f***ed"): the page is busy for `ms` right after React drew
+/// the click, before the browser lays out what opened, while the turn's next snapshot lands. The
+/// clicked line opens where it was clicked (foldAnchor.ts `notePlacement`).
+const slowClick = async (ctx: Parameters<Play>[0], line: HTMLElement, ms = 1_200) => {
+  const row = line.closest<HTMLElement>(".acpmux-row")!;
+  ctx.document.defaultView!.addEventListener(
+    "click",
+    () => {
+      const until = performance.now() + ms;
+      while (performance.now() < until);
+    },
+    { once: true },
+  );
+  const before = measure(ctx, line);
+  const head = row.getBoundingClientRect().top;
+  line.click();
+  ctx.document.defaultView?.cmuxGalleryArrive?.();
+  const id = line.getAttribute("data-tool-id") ?? line.getAttribute("data-tool-group");
+  const again = () =>
+    (id && row.isConnected
+      ? row.querySelector<HTMLElement>(`[data-tool-id="${id}"], [data-tool-group="${id}"]`)
+      : undefined) ?? line;
+  await settle(ctx, () => again().getAttribute("aria-expanded") === "true");
+  const after = measure(ctx, again());
+  expect(Math.abs(after.line - before.line) <= 2, "a slow render moved the clicked line", { before, after });
+  const moved = row.getBoundingClientRect().top - head;
+  expect(Math.abs(moved) <= 2, "a slow render moved the run's header", { moved });
+};
+
+/// At the bottom of the running turn: "Ran 2 commands" opened with a slow render, a third command
+/// joining it as it renders.
+const slowGroup: Play = async (ctx) => {
+  await armUnderLoad(ctx);
+  await slowClick(ctx, ctx.document.querySelector<HTMLElement>(GROUP)!);
+};
+
+/// The group open, then one of its commands opened with a slow render while the next snapshot lands.
+const slowCommandLine: Play = async (ctx) => {
+  await armUnderLoad(ctx);
+  const group = ctx.document.querySelector<HTMLElement>(GROUP)!;
+  await toggleAndSettle(ctx, group, "true");
+  await toEnd(ctx);
+  const command = [
+    ...ctx.document.querySelectorAll<HTMLElement>(
+      '[data-row-id="expand-at-bottom-run"] button.cv-tool.is-toggle[aria-expanded="false"]',
+    ),
+  ][0]!;
+  await slowClick(ctx, command);
+};
+
+/// Away from the bottom: an earlier turn's command opened with a slow render.
+const slowAway: Play = async (ctx) => {
+  await atBottom(ctx);
+  await settle(ctx);
+  const node = scroller(ctx);
+  const line = [...ctx.document.querySelectorAll<HTMLElement>(".cv-worked")].at(-2)!;
+  node.scrollTop += line.getBoundingClientRect().top - node.getBoundingClientRect().top - 160;
+  await settle(ctx);
+  await slowClick(ctx, line);
+};
+
 export default agentPaneEntry({
   id: "agent-pane.expand-at-bottom",
   title: "Opening a line at the bottom",
@@ -322,6 +384,21 @@ export default agentPaneEntry({
       note: "A running turn scrolled to the very bottom with “Ran 2 commands” shut by the reader. Opened while a third command joins the group: one motion, the bottom stays pinned, nothing overlaps.",
       snapshot: runningSnapshot,
       play: armUnderLoad,
+    },
+    "slow-render-group": {
+      note: "Play: the running turn's “Ran 2 commands” opened while the page takes 1.2 s to draw the click and a third command joins: it opens in place, the header stays, the view stops following.",
+      snapshot: runningSnapshot,
+      play: slowGroup,
+    },
+    "slow-render-command": {
+      note: "Play: a command inside the open group opened during a 1.2 s render while the next snapshot lands: the command opens under its line and stays open; nothing above it moves.",
+      snapshot: runningSnapshot,
+      play: slowCommandLine,
+    },
+    "slow-render-away": {
+      note: "Play: away from the bottom, an earlier turn's “Worked for” opened during a 1.2 s render: the line stays where it was clicked.",
+      snapshot: chat(rows, { title: "Fetch tests" }),
+      play: slowAway,
     },
     "expand-away": {
       note: "Away from the bottom an earlier turn's “Worked for” line opens down: the line and the view stay where they were.",

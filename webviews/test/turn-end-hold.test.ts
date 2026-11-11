@@ -1,10 +1,21 @@
 // A turn's end leaves open the folds over rows the reader has in view (conversation/turnEndHold.ts;
 // Leo, 2026-11-03: "sometimes when an agent completes a message while im scrolled up the entire chat
 // kinda hitches/shifts a bit?").
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { foldsToHold, oneKeyPerMessageRun, withHeldFolds } from "../src/agent-session/acpmux/conversation/turnEndHold";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+
+// This file covers the `runs` arm of liveTurnWork.experiment.ts: a running turn keeps its finished
+// runs in sight until it ends. The shipped `line` arm (one live line, as chatgpt.com draws a running
+// turn) is covered by live-turn-one-line.test.ts.
+const liveTurnArmsBefore = globalThis.cmuxExperiments;
+beforeAll(() => {
+  globalThis.cmuxExperiments = { ...liveTurnArmsBefore, "live-turn-work": "runs" };
+});
+afterAll(() => {
+  globalThis.cmuxExperiments = liveTurnArmsBefore;
+});
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -37,14 +48,15 @@ const ended = [
 const ids = (rows: AcpmuxRow[]) => rows.filter((each) => each.kind !== "date").map((each) => each.id);
 
 // The view while the turn ran: every row drawn.
-const running = turnView(ended.slice(0, -1), new Set(), { working: true });
+// Shaped on use, after beforeAll picks the `runs` arm.
+const runningView = () => turnView(ended.slice(0, -1), new Set(), { working: true });
 const hold = (inView: string[], open: ReadonlySet<string> = new Set()) =>
-  foldsToHold(ended, turnView(ended, open), running, undefined, inView, open);
+  foldsToHold(ended, turnView(ended, open), runningView(), undefined, inView, open);
 
 test("work in view stays open at the turn's end; the reader's place keeps its rows", () => {
   const folded = turnView(ended, new Set());
   expect(ids(folded)).not.toContain("t1");
-  expect(ids(running)).toContain("t1");
+  expect(ids(runningView())).toContain("t1");
   // While it ran, every row drew as it came, the short notes between the runs too (cmux#38339): the
   // reader saw the run "t1" and the reply.
   const held = hold(["t1", "answer"]);

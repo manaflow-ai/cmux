@@ -336,19 +336,7 @@ impl Snapshot {
             )?;
             (page, next.map(|next| after.map_or_else(|| next.clone(), |k| format!("{next}~{k}"))))
         };
-        let mut out = String::from("{");
-        if let Some(next) = next {
-            out.push_str(&format!("\"nextCursor\":{},", Value::String(next)));
-        }
-        out.push_str("\"sessions\":[");
-        for (n, text) in page.iter().enumerate() {
-            if n > 0 {
-                out.push(',');
-            }
-            out.push_str(text);
-        }
-        out.push_str("]}");
-        Ok(out)
+        Ok(page_text(next.map(|next| Value::String(next).to_string()), &page))
     }
 
     #[cfg(test)]
@@ -393,19 +381,7 @@ impl Snapshot {
             used = total;
             page.push(row);
         }
-        let mut text = String::from("{");
-        if let Some(next) = next {
-            text.push_str(&format!("\"nextCursor\":{next},"));
-        }
-        text.push_str("\"sessions\":[");
-        for (n, row) in page.iter().enumerate() {
-            if n > 0 {
-                text.push(',');
-            }
-            text.push_str(row);
-        }
-        text.push_str("]}");
-        Ok(text)
+        Ok(page_text(next.map(|next| next.to_string()), &page))
     }
 
     /// Every summary, parsed back.
@@ -430,6 +406,45 @@ impl Snapshot {
         made.entry(name).or_insert_with(|| Arc::new(make(self))).clone()
     }
 }
+
+/// A page's result text, `{"nextCursor":<next>,"sessions":[<rows>]}` (no `nextCursor` when
+/// `next` is `None`; `next` is already JSON), in one allocation of its exact size plus
+/// [`LINE_ROOM`], so the reply line is made in it (`server/list_reply.rs` `reply_line_in`).
+/// A page is megabytes: growing it by doubling, then copying it into its line, left three or
+/// four freed blocks of megabytes per page, which macOS's allocator keeps (270 MB of
+/// "Malloc Large (empty)" after 40 `ls` of 3000 rows, aws-m4pro-2, 2026-11-11).
+pub(crate) fn page_text<R: AsRef<str>>(next: Option<String>, rows: &[R]) -> String {
+    const CURSOR: &str = "\"nextCursor\":";
+    const SESSIONS: &str = "\"sessions\":[";
+    let rows_len: usize = rows.iter().map(|row| row.as_ref().len()).sum();
+    let size = 1
+        + next.as_ref().map_or(0, |next| CURSOR.len() + next.len() + 1)
+        + SESSIONS.len()
+        + rows_len
+        + rows.len().saturating_sub(1)
+        + 2;
+    let mut text = String::with_capacity(size + LINE_ROOM);
+    text.push('{');
+    if let Some(next) = next {
+        text.push_str(CURSOR);
+        text.push_str(&next);
+        text.push(',');
+    }
+    text.push_str(SESSIONS);
+    for (n, row) in rows.iter().enumerate() {
+        if n > 0 {
+            text.push(',');
+        }
+        text.push_str(row.as_ref());
+    }
+    text.push_str("]}");
+    debug_assert_eq!(text.len(), size);
+    text
+}
+
+/// Spare capacity a page keeps for its reply line's frame (`{"id":..,"jsonrpc":"2.0",
+/// "result":` and `}\n`), so the line is made in place for any id up to about 200 bytes.
+pub(crate) const LINE_ROOM: usize = 256;
 
 /// Row `key` of `text`: whole when it fits in `budget`, else trimmed to fit, its largest fields
 /// first (`reply_fit.rs`), or as [`too_large_stub`] when even the fields it keeps do not.
@@ -752,7 +767,7 @@ type Key = (bool, u64, u64, Vec<(String, &'static str)>);
 /// What a snapshot is reused under (only once every chat log is read).
 fn key(hub: &Hub) -> Key {
     let ready = *hub.logs_ready.borrow();
-    let writes = hub.remote_sessions.lock().unwrap_or_else(|e| e.into_inner()).writes;
+    let writes = hub.remote_sessions.read().writes;
     let peers = hub.peers.lock().unwrap_or_else(|e| e.into_inner());
     let mut states: Vec<_> = peers.values().map(|p| (p.name.clone(), p.state().as_str())).collect();
     drop(peers);
@@ -1460,7 +1475,7 @@ mod tests {
         hub.events.changed();
         assert!(Arc::ptr_eq(&guard.snapshot(&hub).await, &begun), "begun since: shared");
         let held = hold(&hub, minute).await;
-        hub.remote_sessions.lock().unwrap().writes += 1;
+        hub.remote_sessions.write().writes += 1;
         assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "a peer's row rebuilds");
         // A peer's link state is every one of its rows' `peerState`.
         let held = hold(&hub, minute).await;

@@ -7,6 +7,7 @@ import {
   cloudFolderGrants,
   cloudPageRefusal,
   cloudRunsHere,
+  composerAgentLocal,
   cloudStartFolder,
   cloudStartKeys,
   cloudStartSaid,
@@ -477,4 +478,15 @@ test("the pane builds its Cloud start from grantedCloudStart and hands every Clo
   expect(source).toMatch(/cloudFolderGrant\.granting\(\s*folder\.cwd,\s*pickFolder\(callNative, folder\.cwd/);
   expect(source).toMatch(/newTabProjectPick\(callNative, sandboxOfferable, cloudFolderGrant\.granting\)/);
   expect(source).not.toMatch(/oneCloudStart\(/);
+});
+
+test("a new chat with Cloud picked reads no sign-in of this Mac's agent; every other local chat does", () => {
+  // Run 42953585969: the runner's composer named UniiChat, signed out, and every Cloud send was kept.
+  expect(composerAgentLocal(true, "cloud", undefined)).toBe(false);
+  expect(composerAgentLocal(true, "persistent", undefined)).toBe(true);
+  expect(composerAgentLocal(true, "sandboxed", undefined)).toBe(true);
+  expect(composerAgentLocal(true, undefined, undefined)).toBe(true);
+  // A chat that started is wherever it runs: Cloud picked for it no longer moves its agent.
+  expect(composerAgentLocal(true, "cloud", "s1")).toBe(true);
+  expect(composerAgentLocal(false, "persistent", undefined)).toBe(false);
 });
