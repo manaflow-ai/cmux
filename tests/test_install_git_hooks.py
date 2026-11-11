@@ -77,6 +77,7 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/cmux-next/git_batch.py",
             "scripts/ci/base_merge_warning.py",
             "scripts/ci/github_release_download.py",
+            "scripts/ci/deadline_http.py",
         ):
             source, target = SOURCE / relative, root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -1121,6 +1122,61 @@ cat > node_modules/.bin/vp <<'VP'
         self.git("update-ref", "refs/remotes/origin/feat-cmux-next", new)
         rule.write_text("RULE = 'from the working tree'\n")
         return old, new
+
+    # 2026-11-10: about nine agents' pre-push hooks ran at once on one Mac (load average 300-770); every gate ran
+    # past its limit and no push finished. The hook now takes a turn: CMUX_PREPUSH_SLOTS at once on the Mac.
+    def queued_hooks(self, count, **settings):
+        """Run COUNT installed pre-push hooks at once, each with a web lint that takes 0.5 s and writes when it
+        started and ended; returns the (start, end) pairs in start order and the hooks' output."""
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        hook_dir = self.common_dir() / "cmux-git-hooks"
+        log = self.root / "lint-times"
+        (hook_dir / "web_lint_prepush.py").write_text(
+            "import os, time\n"
+            f"log = {str(log)!r}\n"
+            "started = time.time()\n"
+            "time.sleep(0.5)\n"
+            "with open(log, 'a') as out:\n"
+            "    out.write(f'{started} {time.time()}\\n')\n")
+        (hook_dir / "cmux_next_prepush_gate.py").write_text("")
+        (self.repo / "file").write_text("x\n")
+        head = self.commit_all("a commit to push")
+        queue = self.root / "queue"
+        queue.mkdir()
+        env = dict(self.env, CMUX_PREPUSH_QUEUE_DIR=str(queue), **settings)
+        logs = [open(self.root / f"hook-{index}.log", "w+") for index in range(count)]
+        for handle in logs:
+            self.addCleanup(handle.close)
+        # Output goes to files: the hooks are read one after another, and a full pipe would block one.
+        hooks = [subprocess.Popen([str(hook_dir / "pre-push"), "origin", "https://example.invalid/x.git"],
+                                  stdin=subprocess.PIPE, stdout=logs[index], stderr=subprocess.STDOUT, text=True,
+                                  cwd=self.repo, env=env) for index in range(count)]
+        for hook in hooks:
+            hook.stdin.write(f"refs/heads/topic {head} refs/heads/topic {'0' * 40}\n")
+            hook.stdin.close()
+        output = []
+        for hook, handle in zip(hooks, logs):
+            code = hook.wait(timeout=120)
+            handle.seek(0)
+            output.append(handle.read())
+            self.assertEqual(code, 0, output[-1])
+        times = sorted(tuple(float(part) for part in line.split()) for line in log.read_text().splitlines())
+        self.assertEqual(len(times), count)
+        return times, output
+
+    def test_pre_push_hooks_on_one_mac_check_one_after_another(self):
+        times, output = self.queued_hooks(3, CMUX_PREPUSH_SLOTS="1")
+        for (_, ended), (started, _) in zip(times, times[1:]):
+            self.assertLessEqual(ended, started, f"two hooks checked at once: {times}")
+        self.assertTrue(any("waiting for a turn" in text for text in output), output)
+        self.assertTrue(all("hook times: queue " in text for text in output), output)
+
+    def test_pre_push_queue_never_refuses_a_push_it_cannot_seat(self):
+        # Past the wait budget the hook checks anyway: a stuck holder must not stop every push on the Mac.
+        times, output = self.queued_hooks(2, CMUX_PREPUSH_SLOTS="1", CMUX_PREPUSH_QUEUE_WAIT_SECONDS="0")
+        self.assertEqual(len(times), 2)
+        self.assertTrue(all("pre-push: passed" in text for text in output), output)
 
     def test_pre_push_refreshes_a_stale_checks_copy_from_the_fetched_feat_cmux_next(self):
         _old, new = self.stale_install()

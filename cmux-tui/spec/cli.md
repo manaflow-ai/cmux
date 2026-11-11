@@ -1476,10 +1476,12 @@ the terminal itself: an agent that quit leaves the roster, and the daemon keeps
 its last harness session id and harness on the terminal's snapshot value
 (`extra.agent_session_id`, `extra.agent`; memory only, a daemon restart forgets
 it). With neither, the error is `agent.no_session`. They take the launcher
-from `terminal <t> process show`, drop a resume tail an earlier resume added, and append the harness's own resume
-arguments as separate argv words: `claude --resume <id>`, `codex resume <id>`,
-`gemini --resume <id>`, `opencode --session <id>`, `amp threads continue
-<id>`. `--cmd` replaces the recorded launcher; `--harness` names the harness
+from `terminal <t> process show`, but not the extra arguments the start
+passed (`-- ARGS` may hold the first prompt, which a resume must not send
+again; put launcher flags in `--cmd`), add this command's own `-- ARGS`, and
+append the harness's own resume arguments as separate argv words: `claude
+--resume <id>`, `codex resume <id>`, `gemini --resume <id>`, `opencode
+--session <id>`, `amp threads continue <id>`. `--cmd` replaces the recorded launcher; `--harness` names the harness
 when no record does. The agent reopens in the exited tab's pane unless `--pane`
 or `--split` say otherwise, with the old tab's name and folder; the exited tab
 is closed. The output adds `resumed: {terminal_id, tab_id, agent_session_id,

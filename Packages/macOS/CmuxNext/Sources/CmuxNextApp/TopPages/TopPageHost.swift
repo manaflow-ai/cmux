@@ -28,8 +28,7 @@ final class TopPageHost {
         case .home:
             // The docked Home (cx-ebm.59.5) is the home workspace itself; only classic Home is a top page.
             guard HomeDock.classic else { return nil }
-            guard let page = HomeMessagesPage.make(services: services, widthKey: window.state.id) else { return nil }
-            view = page
+            view = TopHomePageView(services: services, windowKey: { [weak window] in window?.state.id ?? "" })
         case .page(let id):
             guard let provider = TopPages.provider(id, services: services) else { return nil }
             let key = LocalPageTab.makeKey(id)
@@ -58,7 +57,7 @@ final class TopPageHost {
     /// a React page: its web content).
     func focus(_ route: TopPageRoute, in window: NSWindow?) {
         switch views[route] {
-        case let home as HomeMessagesPage: home.focusPrimaryInput()
+        case let home as TopHomePageView: home.focusPrimaryInput()
         case let page as InternalPageView: window?.makeFirstResponder(page.focusTarget)
         default: break
         }

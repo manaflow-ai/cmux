@@ -529,10 +529,17 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         // outbox is set aside (kept for a look, never read again) and this one starts empty.
         if cloned {
             let path = home().join("outbox.json");
-            if let Err(e) = std::fs::rename(&path, home().join("outbox.json.clone-boot"))
-                && e.kind() != std::io::ErrorKind::NotFound
+            let journal = crate::hub::outbox::journal_path(&path);
+            // The journal first: a start cut short between the two never reads the copied
+            // journal over an empty snapshot.
+            for (from, to) in
+                [(journal, "outbox.journal.clone-boot"), (path, "outbox.json.clone-boot")]
             {
-                tracing::warn!("copied machine's outbox not set aside: {e}");
+                if let Err(e) = std::fs::rename(&from, home().join(to))
+                    && e.kind() != std::io::ErrorKind::NotFound
+                {
+                    tracing::warn!("copied machine's outbox not set aside: {e}");
+                }
             }
         }
         let pending = hub.outbox.open(&home().join("outbox.json"));
@@ -543,7 +550,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         }
         hub.watches.open(&home().join("watches.json"));
     }
-    crate::hub::watches::Watches::start(&hub);
+    hub.start_watches();
     // The team hub's relay, when config.json names one (`server/mesh_relay.rs`).
     let mesh_relay = crate::server::mesh_relay::start_configured(&hub).await;
     // The hub carrier on the same hub and credential (`hub_carrier.rs`): this machine serves its
@@ -597,6 +604,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             record: none.join("trust.json"),
             agent_home: None,
             cmux_worktrees: None,
+            peer_scratch: None,
         }
     })));
     // Agents outlive this daemon unless the user opts out for this release.

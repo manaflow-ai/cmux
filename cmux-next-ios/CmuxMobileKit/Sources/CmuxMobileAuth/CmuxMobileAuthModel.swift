@@ -2,6 +2,7 @@
 import AuthenticationServices
 import CMUXAuthCore
 import CmuxAuthRuntime
+import CmuxMobileBilling
 import CmuxMobileModel
 import Foundation
 import Observation
@@ -436,6 +437,42 @@ public final class CmuxMobileAuthModel {
 
     /// The `cmux-mobile-api` base URL for live data (nil in mock mode or when unconfigured).
     public var apiBaseURL: URL? { isMock ? nil : apiBase }
+
+    /// The cmux web origin that sells and verifies App Store plans
+    /// (`<origin>/api/billing/apple/*`, `docs/billing/ios-in-app-purchases.md`):
+    /// only for accounts of the production Stack project, the one cmux.com
+    /// signs in to. Nil (no Plan row) in mock, DEBUG and staging builds.
+    public var billingAPIBase: URL? {
+        isMock ? nil : teamCreationRoute.billingOrigin
+    }
+
+    /// Builds the app's one App Store billing model over this account's Stack
+    /// session, or nil when the build has no billing origin (``billingAPIBase``)
+    /// or bundle id. The server derives each StoreKit product id from the
+    /// bundle id and offers none to a bundle it does not sell in, so the plans
+    /// screen then says plans are unavailable instead of showing a fake offer.
+    /// - Parameter bundleIdentifier: The app bundle id (`x-cmux-bundle-id`).
+    /// - Returns: The model; the caller starts it.
+    public func makeBillingModel(bundleIdentifier: String?) -> BillingModel? {
+        guard let origin = billingAPIBase, let coordinator,
+              let bundleIdentifier, !bundleIdentifier.isEmpty else { return nil }
+        let api = HTTPBillingAPI(
+            baseURL: origin.absoluteString,
+            bundleID: bundleIdentifier,
+            credentials: {
+                guard await coordinator.isAuthenticated else { return nil }
+                do {
+                    let pair = try await coordinator.coherentTokenPair()
+                    return BillingAPICredentials(accessToken: pair.accessToken, refreshToken: pair.refreshToken)
+                } catch AuthError.unauthorized {
+                    return nil
+                }
+            },
+            storeKitEnvironment: { await LiveStoreKitClient.appStoreEnvironment() },
+            session: URLSession(configuration: .default)
+        )
+        return BillingModel(api: api, store: LiveStoreKitClient(), analytics: nil)
+    }
 
     /// A current Stack access token (refreshed by the runtime when needed).
     /// `forceRefresh` mints a new one after the service rejected the last (401).

@@ -82,6 +82,12 @@ public final class AppStore {
     /// a screen opened on the placeholder follows the real workspace.
     public private(set) var workspaceAliases: [String: String] = [:]
 
+    /// The account's teams or Macs are still on their way (live data, nothing answered yet): an
+    /// empty list then means "loading", never "you have none".
+    public var awaitsAccountData: Bool {
+        teamDataState == .loading || (tracksMacData && accountMacCount == nil)
+    }
+
     /// Phases of a remote load.
     public enum LoadState: Hashable, Sendable {
         case loading, loaded, failed
