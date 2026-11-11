@@ -52,7 +52,7 @@ pub(super) fn send_request_error_with_delivery(
 
 pub(super) fn send_response(writer: &MessageWriter, response: Response) -> bool {
     crate::diagnostics::request_log::reply_follows(response.ok, response.error_code.as_deref());
-    serde_json::to_value(response).is_ok_and(|value| writer.send_control(&value).is_ok())
+    writer.send_control(&response.into_value()).is_ok()
 }
 
 /// Sends `response` with the stable `reason` of a conversation reject next to
@@ -67,7 +67,7 @@ pub(super) fn send_response_with_details(
     details: Option<Value>,
 ) -> bool {
     crate::diagnostics::request_log::reply_follows(response.ok, response.error_code.as_deref());
-    let Ok(mut value) = serde_json::to_value(response) else { return false };
+    let mut value = response.into_value();
     if let Some(reason) = reason {
         value.insert("reason", Value::String(reason));
     }
