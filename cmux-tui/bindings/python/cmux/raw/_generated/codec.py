@@ -146,6 +146,8 @@ MODEL_BY_PATH = {
     'types/ServerStatsDiskSegments': models.ServerStatsDiskSegments,
     'types/ServerStatsHistogram': models.ServerStatsHistogram,
     'types/ServerStatsHookQueue': models.ServerStatsHookQueue,
+    'types/ServerStatsJournalFollower': models.ServerStatsJournalFollower,
+    'types/ServerStatsJournalFollowers': models.ServerStatsJournalFollowers,
     'types/ServerStatsJournalWriter': models.ServerStatsJournalWriter,
     'types/ServerStatsLockDetail': models.ServerStatsLockDetail,
     'types/ServerStatsLockHolder': models.ServerStatsLockHolder,

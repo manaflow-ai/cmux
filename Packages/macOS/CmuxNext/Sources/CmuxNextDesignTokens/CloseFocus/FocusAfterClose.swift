@@ -3,7 +3,7 @@ import CCmuxLayoutReducerFFI
 /// The focus successor rules for every close kind (plans/cmux-next/close-focus.md), run by
 /// cmux-focus-core (cmux-tui/crates/cmux-focus-core, `close_focus`) over the app FFI's typed
 /// `cmux_close_focus_*` calls: one in-process call per close, no JSON. The focus reducer runs the
-/// pane rule there too; tab selection and window selection call these. Nothing else decides a
+/// pane rule there too; tab selection calls these (a window's workspace pick is `CloseSelection.workspace`). Nothing else decides a
 /// successor, and no rule is in Swift: these number the caller's ids for the call and map the
 /// answer back (the rules compare ids only by identity). The contract (C1-C4) and its model checks
 /// are in the crate's tests (`tests/focus_rules`, closefocus.tla's cases).
@@ -61,31 +61,6 @@ public nonisolated enum FocusAfterClose {
             if let parent = map.id(parent) { result[tab] = parent }
         }
         return result
-    }
-
-    /// The workspace a window shows after `shown` left it: the next one below in the sidebar's
-    /// visual order, else the one above. `old` is the order before, `surviving` the workspaces the
-    /// window still lists, and `orders` the sidebar's row orders before the close, most preferred
-    /// first (the rows as drawn, then the model's rows): the first that lists `shown` and has a
-    /// surviving neighbor among `old` picks it. `old` decides last.
-    public static func workspace<ID: Hashable>(shown: ID?, old: [ID], surviving: [ID], orders: [[ID]] = []) -> ID? {
-        var map = IDNumbering<ID>()
-        let shown = map.optional(shown)
-        let old = map.numbers(old)
-        let surviving = map.numbers(surviving)
-        let flat = orders.flatMap { map.numbers($0) }
-        let lengths = orders.map { UInt32($0.count) }
-        let pick = old.withUnsafeBufferPointer { old in
-            surviving.withUnsafeBufferPointer { surviving in
-                flat.withUnsafeBufferPointer { flat in
-                    lengths.withUnsafeBufferPointer { lengths in
-                        cmux_close_focus_workspace(shown, old.baseAddress, old.count, surviving.baseAddress, surviving.count,
-                                                   flat.baseAddress, lengths.baseAddress, lengths.count)
-                    }
-                }
-            }
-        }
-        return map.id(pick)
     }
 }
 

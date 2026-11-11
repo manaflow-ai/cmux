@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "fb6ce993b628bcd840529474268e1eed60f7cb198f132fff151d3b5aa8b32999";
+inline constexpr std::string_view kProtocolIrSha256 = "c9a8b4079643ab2ae73b51d2a6a8dc792b825fb7a95b6ba95bb5d41812017868";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -175,6 +175,8 @@ struct ServerStatsDiskSegmentKind;
 struct ServerStatsDiskSegments;
 struct ServerStatsHistogram;
 struct ServerStatsHookQueue;
+struct ServerStatsJournalFollower;
+struct ServerStatsJournalFollowers;
 struct ServerStatsJournalWriter;
 struct ServerStatsLockDetail;
 struct ServerStatsLockHolder;
@@ -5174,6 +5176,29 @@ struct ServerStatsHookQueue {
     friend bool operator==(const ServerStatsHookQueue&, const ServerStatsHookQueue&) = default;
 };
 
+struct ServerStatsJournalFollower {
+    std::uint64_t client{};
+    std::uint64_t connected_ms{};
+    bool keeps_hook_rows{};
+    bool keeps_report_rows{};
+    std::vector<std::string> kinds{};
+    std::optional<std::uint64_t> left_ms{};
+    std::optional<std::string> max_sensitivity{};
+    bool remote{};
+    std::string stream_id{};
+    friend bool operator==(const ServerStatsJournalFollower&, const ServerStatsJournalFollower&) = default;
+};
+
+struct ServerStatsJournalFollowers {
+    std::vector<ServerStatsJournalFollower> followers{};
+    std::uint64_t grace_ms{};
+    bool hook_rows_kept{};
+    std::optional<bool> journal_hook_keeps_rows{};
+    std::uint64_t keep_all_ms{};
+    bool report_rows_kept{};
+    friend bool operator==(const ServerStatsJournalFollowers&, const ServerStatsJournalFollowers&) = default;
+};
+
 enum class ServerStatsWriterPhase {
     idle,
     waiting_lock,
@@ -5304,6 +5329,7 @@ struct ServerStatsResult {
     ServerStatsConnections connections{};
     std::optional<ServerStatsDisk> disk{};
     std::optional<ServerStatsHookQueue> hook_queue{};
+    std::optional<ServerStatsJournalFollowers> journal_followers{};
     std::optional<ServerStatsJournalWriter> journal_writer{};
     std::optional<ServerStatsLocks> locks{};
     ServerStatsRegistryLock registry_lock{};
@@ -7433,6 +7459,18 @@ template <>
 struct Codec<ServerStatsHookQueue> {
     static Result<Json> encode(const ServerStatsHookQueue& value);
     static Result<ServerStatsHookQueue> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsJournalFollower> {
+    static Result<Json> encode(const ServerStatsJournalFollower& value);
+    static Result<ServerStatsJournalFollower> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsJournalFollowers> {
+    static Result<Json> encode(const ServerStatsJournalFollowers& value);
+    static Result<ServerStatsJournalFollowers> decode(const Json& value);
 };
 
 template <>

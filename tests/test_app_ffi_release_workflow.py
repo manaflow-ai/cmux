@@ -21,6 +21,7 @@ against a fake `gh` and `curl` that play each outcome.
 """
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import importlib.util
 import json
@@ -52,6 +53,16 @@ FAKE_GH = r"""#!/usr/bin/env bash
 # Fake gh: FAKE_CREATE is ok, 403 or noop. A created release is the directory $STATE/release.
 set -u
 rel="$STATE/release"
+# FAKE_READ_FAILS: the release reads (view and download, counted from 1) that
+# fail with a 502, as GitHub's did in run 42919934207, whether or not the
+# release exists; "all" fails every read.
+if [[ "$1 $2" == "release view" || "$1 $2" == "release download" ]]; then
+  reads=$(( $(cat "$STATE/reads" 2>/dev/null || echo 0) + 1 ))
+  echo "$reads" > "$STATE/reads"
+  if [[ "${FAKE_READ_FAILS:-}" == all || " ${FAKE_READ_FAILS:-} " == *" $reads "* ]]; then
+    echo "HTTP 502: Bad Gateway" >&2; exit 1
+  fi
+fi
 case "$1 $2" in
   "release view") [[ -d "$rel" ]] && exit 0; echo "release not found" >&2; exit 1 ;;
   "release create")
@@ -76,6 +87,10 @@ exit 2
 
 FAKE_CURL = r"""#!/usr/bin/env bash
 set -u
+# FAKE_CURL_FAILS: the downloads (counted from 1) that fail with a 502.
+calls=$(( $(cat "$STATE/curls" 2>/dev/null || echo 0) + 1 ))
+echo "$calls" > "$STATE/curls"
+if [[ " ${FAKE_CURL_FAILS:-} " == *" $calls "* ]]; then echo "curl: (22) The requested URL returned error: 502" >&2; exit 22; fi
 out=""
 while [[ $# -gt 0 ]]; do [[ "$1" == -o ]] && out="$2"; shift; done
 [[ -f "$STATE/release/CCmuxAppFFI.xcframework.zip" ]] || { echo "curl: (22) 404" >&2; exit 22; }
@@ -107,7 +122,8 @@ def condition(expression: str | None, context: dict, failed: bool) -> bool:
 
 
 class PublishJob(unittest.TestCase):
-    def run_publish(self, *, workflow_changed: bool, create: str = "ok", existing: bool = False) -> tuple[bool, str]:
+    def run_publish(self, *, workflow_changed: bool, create: str = "ok", existing: bool = False,
+                    read_fails: str = "", curl_fails: str = "") -> tuple[bool, str]:
         job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["publish"]
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
@@ -137,7 +153,7 @@ class PublishJob(unittest.TestCase):
                 "vars": {}, "runner": {"temp": str(temp_path)},
             }
             base_env = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "HOME": temp, "STATE": str(state),
-                        "FAKE_CREATE": create, "GITHUB_SHA": SHA, "GITHUB_REPOSITORY": REPO,
+                        "FAKE_CREATE": create, "FAKE_READ_FAILS": read_fails, "FAKE_CURL_FAILS": curl_fails, "GITHUB_SHA": SHA, "GITHUB_REPOSITORY": REPO,
                         "GITHUB_RUN_ID": RUN_ID, "GITHUB_SERVER_URL": "https://github.com",
                         "RUNNER_TEMP": temp, "GITHUB_OUTPUT": str(temp_path / "output"),
                         "GITHUB_STEP_SUMMARY": str(temp_path / "summary")}
@@ -186,6 +202,31 @@ class PublishJob(unittest.TestCase):
         passed, log = self.run_publish(workflow_changed=False, existing=True)
         self.assertTrue(passed, log)
 
+    def test_a_failed_read_of_a_published_release_is_asked_again(self):
+        # Run 42919934207 published the release, then one read in the last
+        # check failed (GitHub 502s) and the job said the release did not
+        # exist, which skipped the re-pin and left base red. Download 1 is the
+        # anonymous check; downloads 2 and 3 are the last check's first two tries.
+        passed, log = self.run_publish(workflow_changed=False, curl_fails="2 3")
+        self.assertTrue(passed, log)
+        self.assertIn("read 2 of release", log, log)
+        self.assertIn("exists with checksum", log, log)
+        self.assertNotIn("publish by hand", log.lower(), log)
+
+    def test_a_failed_read_before_the_create_is_asked_again(self):
+        # The create step's own read fails first; it asks again instead of
+        # taking the 502 for "no release" and creating over a published tag.
+        passed, log = self.run_publish(workflow_changed=False, existing=True, create="403", read_fails="1")
+        self.assertTrue(passed, log)
+        self.assertIn("already has the matching archive", log, log)
+
+    def test_a_release_that_never_reads_fails_loud_without_a_create(self):
+        # Six failed reads are not "no release": the create step stops there
+        # instead of creating, and still names the hand publish.
+        passed, log = self.run_publish(workflow_changed=False, existing=True, create="403", read_fails="all")
+        self.assert_fails_loud(passed, log)
+        self.assertIn("could not read release", log, log)
+        self.assertNotIn("HTTP 403", log, log)
 
 APP_TOKEN_ACTION = "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1"
 
@@ -757,6 +798,69 @@ class BuildSpeedAndSupersede(unittest.TestCase):
         self.assertTrue(checkout["uses"].startswith("actions/checkout@"))
         self.assertEqual(checkout["with"]["fetch-depth"], 0)
         self.assertEqual(checkout["with"]["filter"], "tree:0")
+
+
+
+def load_module(name: str, path: Path):
+    """A scripts/ci module by path, with scripts/ci importable for its own imports."""
+    sys.path.insert(0, str(path.parent))
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module  # dataclasses resolve their module through sys.modules
+    spec.loader.exec_module(module)
+    return module
+
+
+class BuildGoesAheadOfThePullRequestQueue(unittest.TestCase):
+    """The release build takes a Blacksmith slot ahead of the PR queue when no promote runner is idle, and the
+    promote pool once CI_NEXT_PROMOTE_POOL is set (2026-11-10: run 42833220418's build queued 66 minutes on
+    blacksmith-6vcpu-macos-26 behind pull request jobs, and the base stayed red 5 h 14 min)."""
+
+    PROMOTE = "glaeda-promote-trusted-std-xcode-26.6"
+    SMALL = "blacksmith-6vcpu-macos-26"
+
+    def runner(self, promote: str, event: str = "push", attempt: int = 1) -> str:
+        build = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["build"]
+        return evaluate(build["runs-on"], {
+            "github": {"repository_owner": "manaflow-ai", "event_name": event, "run_attempt": attempt},
+            "vars": {"CI_NEXT_PROMOTE_POOL": promote, "MACOS_RUNNER_26": self.SMALL,
+                     "RUNNER_POOLS": json.dumps({"macos_26": self.SMALL})}})
+
+    def snapshot(self, path: str) -> dict:
+        janitor = load_module("queue_janitor", ROOT / "scripts/ci/queue_janitor.py")
+        runs = [{"id": 1, "name": "app FFI release", "path": path}]
+        jobs = {1: [{"labels": [self.SMALL], "status": "queued", "created_at": "2026-11-10T14:21:18Z",
+                     "name": "build xcframework"}]}
+        now = dt.datetime(2026, 11, 10, 14, 30, tzinfo=dt.timezone.utc)
+        return janitor.pool_load_snapshot(runs, jobs, now=now)["pools"][self.SMALL]
+
+    def test_a_push_takes_the_promote_pool_once_it_is_set(self):
+        self.assertEqual(self.runner(self.PROMOTE), self.PROMOTE)
+
+    def test_with_no_promote_pool_a_push_takes_blacksmith(self):
+        self.assertEqual(self.runner(""), self.SMALL)
+
+    def test_a_rerun_or_a_dispatch_takes_blacksmith_even_with_the_promote_pool_set(self):
+        self.assertEqual(self.runner(self.PROMOTE, attempt=2), self.SMALL)
+        self.assertEqual(self.runner(self.PROMOTE, event="workflow_dispatch"), self.SMALL)
+
+    def test_its_queued_build_holds_the_label_against_pull_request_placements(self):
+        held = self.snapshot(".github/workflows/app-ffi-release.yml")
+        self.assertEqual((held["queued"], held["reserved_queued"]), (1, 1))
+        # Only this workflow's path: a look-alike file name reserves nothing.
+        for path in (".github/workflows/my-app-ffi-release.yml", ".github/workflows/app-ffi-release-shadow.yml",
+                     ".github/workflows/app-ffi-repin.yml"):
+            self.assertEqual(self.snapshot(path)["reserved_queued"], 0, path)
+
+    def test_the_cascade_gives_a_held_label_to_a_nightly_feed_not_to_a_pull_request_job(self):
+        cascade = load_module("next_macos_cascade", ROOT / "scripts/ci/next_macos_cascade.py")
+        held = (self.SMALL,)
+        # The build queued on 6 vCPU: the pool has room, and 12 vCPU takes nothing while any Mac job queues.
+        live, waiting = {cascade.LARGE: 0, self.SMALL: 0}, {self.SMALL: 1}
+        pr = cascade.cascade(["fast-tier"], live, waiting, reserved=held)
+        self.assertEqual(pr[self.SMALL], ())
+        nightly = cascade.cascade(["release-compile"], live, waiting, reserved=held, fresh=("release-compile",))
+        self.assertEqual(nightly[self.SMALL], ("release-compile",))
 
 
 if __name__ == "__main__":

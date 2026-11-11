@@ -62,6 +62,7 @@ extension DiffPageProvider {
 
     /// Answers a git op; nil for any other op.
     func gitCall(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue? {
+        if op == Self.pullRequestOp { return try await pullRequestCall(context: context) }
         guard Self.gitOps.contains(op) else { return nil }
         guard let git else { throw PageError.unknownOp(op) }
         if git.isRemote && (op.contains("commit") || op.contains("push") || op.contains("stage") || op.contains("unstage") || op.contains("revert")) {
@@ -110,9 +111,12 @@ extension DiffPageProvider {
     /// `config` listing the git ops, when this tab serves them.
     func withGit(_ config: JSONValue) -> JSONValue {
         guard git != nil, case .object(var members) = config, members["pick"] == nil else { return config }
-        let ops = git?.isRemote == true
+        var ops = git?.isRemote == true
             ? Self.gitOps.filter { $0.hasSuffix(".status") || $0.hasSuffix(".diff") || $0.hasSuffix(".fingerprint") }
             : Self.gitOps.union(git is any DiffGitReverting ? Self.revertOps : [])
+        if git?.isRemote == false, git is any DiffGitPullRequestRunning, onPullRequestOpened != nil {
+            ops.insert(Self.pullRequestOp)
+        }
         members["ops"] = .array((members["ops"]?.arrayValue ?? []) + ops.sorted().map(JSONValue.string))
         return .object(members)
     }

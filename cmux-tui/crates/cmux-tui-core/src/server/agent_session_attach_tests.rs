@@ -177,6 +177,19 @@ pub(super) struct Fixture {
     /// When set, `_acpmux/harnesses` answers this long after it is asked: a starting acpmux
     /// holds its catalog until its login shell read ends (`Hub::harnesses_reply`).
     pub(super) catalog_after: Option<Duration>,
+    /// `_acpmux/harnesses` asks the fake hangs up on (its connection closed, no answer) before it
+    /// answers one: an acpmux restarting under the start (the app's keyed restart).
+    pub(super) catalog_hang_ups: Arc<AtomicU64>,
+    /// When set, `_acpmux/status` reports a person key for this acpmux run (`personInstance`);
+    /// each catalog hang-up ([`Fixture::catalog_hang_ups`]) brings the run named `restarted`.
+    pub(super) keyed_run: Option<KeyedRun>,
+}
+
+/// The acpmux run the fake reports a person key for, and the run a restart brings.
+#[derive(Clone)]
+pub(super) struct KeyedRun {
+    pub(super) current: Arc<Mutex<&'static str>>,
+    pub(super) restarted: &'static str,
 }
 
 /// The fake's Cloud mobile floor: whether it reports one, the family a new session runs, and
@@ -244,6 +257,25 @@ fn serve(
             }
             // acpmux's catalog lists every family it runs, opencode included, so a family with
             // no phone mode resolves and is refused by the phone floor, not the catalog.
+            "_acpmux/harnesses"
+                if fixture.phone.is_some()
+                    && fixture
+                        .catalog_hang_ups
+                        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                        .is_ok() =>
+            {
+                if let Some(run) = &fixture.keyed_run {
+                    *run.current.lock().unwrap() = run.restarted;
+                }
+                // The test holds a clone of this stream: close it for every holder.
+                let _ = writer.shutdown(Shutdown::Both);
+                return;
+            }
+            "_acpmux/status" if fixture.keyed_run.is_some() => Some(json!({
+                "personKey": true,
+                "personInstance": *fixture.keyed_run.as_ref().unwrap().current.lock().unwrap(),
+                "ready": true, "agentHosts": true, "liveAgents": 0, "remoteSessions": 0,
+            })),
             "_acpmux/harnesses" if fixture.phone.is_some() => Some({
                 if let Some(delay) = fixture.catalog_after {
                     std::thread::sleep(delay);

@@ -20404,6 +20404,78 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/journal_followers": {
+        "ty": "object"
+      },
+      "/data/journal_followers/followers": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/journal_followers/followers/*": {
+        "ty": "object"
+      },
+      "/data/journal_followers/followers/*/client": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/journal_followers/followers/*/connected_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/journal_followers/followers/*/keeps_hook_rows": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/journal_followers/followers/*/keeps_report_rows": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/journal_followers/followers/*/kinds": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/journal_followers/followers/*/kinds/*": {
+        "ty": "string"
+      },
+      "/data/journal_followers/followers/*/left_ms": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/journal_followers/followers/*/max_sensitivity": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/journal_followers/followers/*/remote": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/journal_followers/followers/*/stream_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/journal_followers/grace_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/journal_followers/hook_rows_kept": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/journal_followers/journal_hook_keeps_rows": {
+        "ty": "boolean",
+        "required": true,
+        "nullable": true
+      },
+      "/data/journal_followers/keep_all_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/journal_followers/report_rows_kept": {
+        "ty": "boolean",
+        "required": true
+      },
       "/data/journal_writer": {
         "ty": "object",
         "required": true,
