@@ -1,0 +1,35 @@
+{
+  "envs": [["light", "none"], ["dark", "none"]],
+  "shots": [
+    {
+      "name": "hat-swap-mid",
+      "entry": "agent-pane.status-swap",
+      "variant": "at-rest",
+      "width": 640,
+      "height": 260,
+      "clip": ".acpmux-main",
+      "setup": "(async () => { document.querySelector('[data-stage=\"next\"]').click(); await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); for (const a of document.getAnimations()) { const t = a.effect.getTiming(); if (t.iterations === Infinity) continue; a.pause(); a.currentTime = Number(t.duration) * 0.5; } })()",
+      "arms": {
+        "roll-120-shipped": "",
+        "roll-80": ".acpmux-tick{--acpmux-tick-roll:80ms}",
+        "roll-180": ".acpmux-tick{--acpmux-tick-roll:180ms}",
+        "roll-soft-edges": ".acpmux-tick{-webkit-mask-image:linear-gradient(transparent,#000 25%,#000 75%,transparent);mask-image:linear-gradient(transparent,#000 25%,#000 75%,transparent)}",
+        "base-crossfade-slide": "@keyframes anim-old-in{from{opacity:0;translate:0 70%}}@keyframes anim-old-out{to{opacity:0;translate:0 -70%}}.acpmux-tick[data-slide]>.acpmux-tick__in{animation:anim-old-in 180ms var(--agent-ease-out) both}.acpmux-tick[data-slide]>.acpmux-tick__out{animation:anim-old-out 180ms var(--agent-ease-out) both}@keyframes anim-old-line-out{from{opacity:1;translate:0 0;filter:blur(0)}to{opacity:0;translate:0 -0.6em;filter:blur(2px)}}@keyframes anim-old-line-in{from{opacity:0;translate:0 0.6em;filter:blur(2px)}}.cv-shimmer__row:has(>.cv-roll-out){overflow:visible}.cv-roll-out{animation-name:anim-old-line-out!important}.cv-thinking[data-roll]{animation-name:anim-old-line-in!important}"
+      }
+    },
+    {
+      "name": "hat-swap-quarter",
+      "entry": "agent-pane.status-swap",
+      "variant": "at-rest",
+      "width": 640,
+      "height": 260,
+      "clip": ".acpmux-main",
+      "setup": "(async () => { document.querySelector('[data-stage=\"next\"]').click(); await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); for (const a of document.getAnimations()) { const t = a.effect.getTiming(); if (t.iterations === Infinity) continue; a.pause(); a.currentTime = Number(t.duration) * 0.25; } })()",
+      "arms": {
+        "roll-120-shipped": "",
+        "roll-soft-edges": ".acpmux-tick{-webkit-mask-image:linear-gradient(transparent,#000 25%,#000 75%,transparent);mask-image:linear-gradient(transparent,#000 25%,#000 75%,transparent)}",
+        "base-crossfade-slide": "@keyframes anim-old-in{from{opacity:0;translate:0 70%}}@keyframes anim-old-out{to{opacity:0;translate:0 -70%}}.acpmux-tick[data-slide]>.acpmux-tick__in{animation:anim-old-in 180ms var(--agent-ease-out) both}.acpmux-tick[data-slide]>.acpmux-tick__out{animation:anim-old-out 180ms var(--agent-ease-out) both}"
+      }
+    }
+  ]
+}
