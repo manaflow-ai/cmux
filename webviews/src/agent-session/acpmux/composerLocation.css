@@ -525,7 +525,7 @@
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-model .acpmux-picker-button,
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-effort .acpmux-picker-button,
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-access .acpmux-picker-button {
-  height: 28px;
+  height: var(--acpmux-composer-control, 28px);
   border-radius: 999px;
   color: var(--agent-muted);
 }
@@ -872,11 +872,14 @@
 .acpmux-composer-box:has(:focus-visible) {
   box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
 }
-/* Send, Stop and ↵ are the bar's 28 px, plain line glyphs in the secondary text color, as the mic is
+/* Send, Stop and ↵ are the bar's control size (28 px at Default, density's --acpmux-composer-control), plain line glyphs in the secondary text color, as the mic is
    (Leo 2026-10-21: no discs; the secondary text color, only a hover background). Stop's square and a
    ready Send are the secondary color, a step above an empty draft's 45% Send. Their hover pill is
    composerStates.css's. */
-.acpmux-composer-bar .acpmux-send { width: 28px; height: 28px; }
+.acpmux-composer-bar .acpmux-send {
+  width: var(--acpmux-composer-control, 28px);
+  height: var(--acpmux-composer-control, 28px);
+}
 .acpmux-composer-bar .acpmux-send:is(.acpmux-send-ready, .acpmux-cancel) { color: var(--agent-muted); }
 
 /* Permission cards use the same quiet material language as the composer: the composer's hairline,
@@ -1349,7 +1352,7 @@
    right-aligned group, so the row ends on the effort, the mode keeps the row's left. */
 .acpmux-composer.acpmux-composer .acpmux-composer-foot .acpmux-access { order: -2; }
 .acpmux-composer.acpmux-composer .acpmux-composer-foot .acpmux-context { order: -1; }
-.acpmux-composer.acpmux-composer.acpmux-composer .acpmux-composer-foot .acpmux-context-ring {
+.acpmux-composer.acpmux-composer.acpmux-composer:not([data-composer-look="codex"]) .acpmux-composer-foot .acpmux-context-ring {
   margin-inline: 0 var(--acpmux-ring-gap);
 }
 /* As Claude desktop's footer: the mode's name, the model and the effort as text alone (the plain
@@ -1422,18 +1425,8 @@
      gallery) both fall back to the interface scale. */
   --acpmux-density: var(--cmux-density-scale, var(--cmux-interface-scale, 1));
   --acpmux-density-text: var(--cmux-density-text-scale, var(--cmux-interface-scale, 1));
-  /* The shared type and grid steps the composer reads, restated at its density: a token computed on
-     :root keeps the page scale, so the composer redeclares the ones it uses. */
-  --text-caption: calc(11px * var(--acpmux-density-text));
-  --text-caption--line-height: calc(14px * var(--acpmux-density-text));
-  --text-detail: calc(12px * var(--acpmux-density-text));
-  --text-detail--line-height: calc(16px * var(--acpmux-density-text));
-  --text-body: calc(13px * var(--acpmux-density-text));
-  --text-body--line-height: calc(18px * var(--acpmux-density-text));
-  --text-control: var(--text-body);
-  --text-control--line-height: var(--text-body--line-height);
-  --text-title: calc(15px * var(--acpmux-density-text));
-  --text-title--line-height: calc(20px * var(--acpmux-density-text));
+  /* The grid steps the composer reads, restated at its density: a token computed on :root keeps the
+     page scale, so the composer redeclares the ones it uses. */
   --grid-composer-inset: calc(8px * var(--acpmux-density));
   --grid-composer-control: calc(28px * var(--acpmux-density));
   --grid-composer-block-inset: calc(10px * var(--acpmux-density));
@@ -1469,6 +1462,20 @@
      sits about 1 px over its line box's center at 14 px, so the prompt's line box drops that far
      and its ink centers on the box's middle, where the controls are. */
   --acpmux-text-drop: calc(var(--text-content, 14px) / 14);
+}
+/* The type steps the composer reads, at its density: only the composer's own subtree, not the dock's
+   toasts, asks and lists, which keep the transcript's sizes. */
+:is(.acpmux-composer, .nt-composer) {
+  --text-caption: calc(11px * var(--acpmux-density-text));
+  --text-caption--line-height: calc(14px * var(--acpmux-density-text));
+  --text-detail: calc(12px * var(--acpmux-density-text));
+  --text-detail--line-height: calc(16px * var(--acpmux-density-text));
+  --text-body: calc(13px * var(--acpmux-density-text));
+  --text-body--line-height: calc(18px * var(--acpmux-density-text));
+  --text-control: var(--text-body);
+  --text-control--line-height: var(--text-body--line-height);
+  --text-title: calc(15px * var(--acpmux-density-text));
+  --text-title--line-height: calc(20px * var(--acpmux-density-text));
 }
 .acpmux-composer-box[data-composer-grid] {
   display: grid;
@@ -1592,9 +1599,8 @@
 /* The context ring ends the quiet row, as Claude Code's does: no pill on hover or while its card
    shows (Leo 2026-10-21; the card is the feedback), the row's outline under keyboard focus. */
 /* One compact ring in the main and quiet rows (#24661): the base 22 px box, not the 24 px a scale
-   snap gave the quiet row. Its glyph (12 px, centered in the 22 px box) sits 22 px in from the box's
-   right, under the mic's glyph (composer-alignment-centers.test.ts): the row has no side padding
-   (#24216), so 11 px of end margin and half the box put it there. */
+   snap gave the quiet row. The Claude look draws it left of the model chip (its margins below, in the
+   ring-left rule); these margins are the main row's and the Codex look's. */
 .acpmux-composer-foot .acpmux-context-ring { width: 22px; height: 22px; margin-inline-start: 4px; margin-inline-end: 11px; }
 .acpmux-composer-foot .acpmux-context-ring:focus-visible { outline-offset: 0; }
 

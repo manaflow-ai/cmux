@@ -400,10 +400,10 @@
 :root,
 .nt-composer,
 .nt-popover {
-  /* The box is the chat composer's one-line height at the density (composerLocation.css,
-     --grid-composer-box: 48 px at Default), so New Tab's box and a chat's are one size (Austin
-     2026-11-11: standardize; Lawrence: the box was still too tall at the most compact density). */
-  --nt-input-pad-block: max(4px, calc((48px * var(--cmux-density-scale, var(--cmux-interface-scale, 1)) - var(--text-content--line-height)) / 2));
+  /* The prompt's room over and under its text: the content size (48 px at Default with 14 px text, the
+     chat composer's box), so it grows with the text, and smaller at a compact density, where the box
+     was too tall. */
+  --nt-input-pad-block: calc(var(--text-content) * min(1, var(--cmux-density-scale, 1)));
   --nt-composer-inset: max(0px, calc((var(--text-content--line-height) + 2 * var(--nt-input-pad-block) - 28px * var(--cmux-density-scale, var(--cmux-interface-scale, 1))) / 2));
 }
 /* The composer's control tokens (composerLocation.css), restated here so a page that loads only this

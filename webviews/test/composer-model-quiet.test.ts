@@ -8,9 +8,8 @@
 //     the capture showed. The gallery stage loads no pages/shared/desktop.css, so that sheet is put in
 //     the page as the app's pane has it, and what the shared ring then draws is measured: a 1 px
 //     hairline at 22%, not its own 1.5 px at 48%;
-//   - the context ring sits on the row's grid: on the buttons' center line, its glyph 15 px after the
-//     effort (the 8 px pill inset of #24138, the ring's padding and composerFooterShared.css's 2 px),
-//     not the 17 that read as a loose spinner;
+//   - the context ring sits on the row's grid: on the buttons' center line, left of the model button,
+//     its glyph just before the button;
 //   - the button, its labels and the mode use the composer's own font, the prompt's (the app's UI
 //     font), so a fallback can never come from the row itself;
 //   - the row keeps "Opus 5.5  Medium" while it fits (a 410 px composer: live-qa read "Opus Med" with
@@ -201,29 +200,25 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
     expect(outside, "no copy of it outside that query").toBeNull();
   });
 
-  test("the context ring sits on the row's grid, its glyph after the effort with no margin of its own", async () => {
+  test("the context ring sits on the row's grid, its glyph just before the model button", async () => {
     const page = await open("quiet-chips");
     const grid = await page.evaluate((selector) => {
       const button = document.querySelector<HTMLElement>(selector)!;
-      const effort = button.querySelector<HTMLElement>(".acpmux-model-detail:not(.acpmux-fit-label)")!;
       const ring = document.querySelector<HTMLElement>(".acpmux-composer-foot .acpmux-context-ring")!;
       const glyph = ring.querySelector("svg")!.getBoundingClientRect();
-      const text = document.createRange();
-      text.selectNodeContents(effort);
-      const words = text.getBoundingClientRect();
       const box = button.getBoundingClientRect();
       const ringBox = ring.getBoundingClientRect();
       return {
-        gap: glyph.left - words.right,
+        gap: box.left - glyph.right,
         centers: Math.abs((box.top + box.bottom) / 2 - (ringBox.top + ringBox.bottom) / 2),
       };
     }, BUTTON);
     await page.close();
-    // The button's 8 px pill inset (#24138), the ring's own padding and the 2 px of
-    // composerFooterShared.css, which outranks composerLocation.css's legacy margin: 15 px, not the
-    // 17 that read as a loose spinner beside the button (Leo 2026-10-21).
-    expect(grid.gap, "the ring's glyph follows the effort with no margin of its own").toBeLessThanOrEqual(16);
-    expect(grid.gap, "and never touches it").toBeGreaterThanOrEqual(6);
+    // The ring starts the right-aligned group, left of the model (composerLocation.css, the ring-left
+    // rule): half its box past the glyph and the ring gap, then the button's own pill inset (#24138).
+    // Close enough to read as one group, never on the button.
+    expect(grid.gap, "the ring's glyph sits just before the model button").toBeLessThanOrEqual(14);
+    expect(grid.gap, "and never on it").toBeGreaterThanOrEqual(2);
     expect(grid.centers, "on the buttons' center line").toBeLessThanOrEqual(0.5);
   });
 
