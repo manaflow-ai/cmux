@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43059562567",
+  "recorded_at": "2026-11-11T16:43:44Z",
+  "reason": "cmux-tui d7d1fa53d71e changes the image's cmux-tui (pinned 1c87920c5bb0)",
+  "dry_run": false,
+  "cmux_tui": "d7d1fa53d71e42f559f99d638c69afda9ce041d7",
+  "fixes": [
+    {
+      "sha": "d7d1fa53d71e42f559f99d638c69afda9ce041d7",
+      "mergedAt": "2026-11-11T16:17:32Z",
+      "subject": "cmux-tui: the output store's writer thread gets its own module (follow-up of #40819) (#41380)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T16:43:44Z",
+    "snapshot_id": "sh-e131adb4bf80496b9cf316f4443ce9b9",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43059562567): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "668fb8cbba43c349194c51da34f7f1ad0d8ec68b",
+    "image": "cloud-native-auto-d7d1fa53-43059562567-1",
+    "revision": "ci-43059562567-1",
+    "at": "2026-11-11T16:43:44Z"
+  },
+  "rolled_back": false
+}
