@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42980479183",
+  "recorded_at": "2026-11-11T07:42:37Z",
+  "reason": "cmux-tui a258c7920313 changes the image's cmux-tui (pinned 5da5e5e702a1)",
+  "dry_run": false,
+  "cmux_tui": "a258c7920313425608f3d7ea4d751145df2a98ee",
+  "fixes": [
+    {
+      "sha": "a258c7920313425608f3d7ea4d751145df2a98ee",
+      "mergedAt": "2026-11-11T07:19:56Z",
+      "subject": "acpmux: readers of the peer rows never take the writer lock (a published snapshot with one writer; the class behind #40935) (#41040)"
+    },
+    {
+      "sha": "3741ad055df4821994767b6112ae2831fb441c33",
+      "mergedAt": "2026-11-10T23:17:26-08:00",
+      "subject": "acpmux: the lib tests build on Windows again (Linux-only RSS read, Unix-only ssh stand-in tests) (#41066)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T07:42:37Z",
+    "snapshot_id": "sh-198e04778e4c4f869ee42a1bc5362ddc",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42980479183): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d4f2b6b7868461b85a4039d1e49f1e0372392644",
+    "image": "cloud-native-auto-a258c792-42980479183-1",
+    "revision": "ci-42980479183-1",
+    "at": "2026-11-11T07:42:37Z"
+  },
+  "rolled_back": false
+}
