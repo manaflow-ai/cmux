@@ -1482,14 +1482,21 @@ def signature(view: "FailedView | Unplaced") -> tuple[set[str], set[str], set[st
     return steps, tests, {error for _, error in step_errors(view)}
 
 
-def owned_unnamed(own: "test_reds.Result", view: "FailedView | Unplaced") -> "test_reds.Result":
-    """OWN (test_reds.read of a red's raw log) with its failures no parser names read from VIEW's failed sections
-    alone, when VIEW is placed: a step that passed is never this red's, whatever it printed (#41244's review F1, the
-    rule of #41241: evidence from passing steps never counts). An unplaced log keeps the whole log's reading."""
-    if view is UNPLACED:
+def owned_unnamed(own: "test_reds.Result", view: "FailedView | Unplaced",
+                  unplaced: "test_reds.Steps | None" = None) -> "test_reds.Result":
+    """OWN (test_reds.read of a red's raw log) with its failures no parser names read from VIEW's failed sections,
+    each on its own, when VIEW is placed: a step that passed is never this red's, whatever it printed (#41244's review
+    F1, the rule of #41241: evidence from passing steps never counts). An unplaced log has no step known to have
+    passed: UNPLACED, its every step split by the caller and none judged pass or fail by its text (test_reds.unjudged;
+    #41329's review follow-up F3), is read, each step on its own."""
+    if view is UNPLACED and unplaced is None:
         return own
-    own.truncated = [why for why in own.truncated if not why.startswith(test_reds.UNNAMED_WHY)]
-    own.unnamed = test_reds.read(view_text(view)).unnamed
+    steps = test_reds.read(unplaced if view is UNPLACED else view_text(view))
+    # A cut-short run in a failed step that printed no `##[error]` is read there too (the raw reading judged that step
+    # passed by its text): the reasons of both readings, the unnamed failures of the steps' alone.
+    own.truncated = [why for why in dict.fromkeys(own.truncated + steps.truncated)
+                     if not why.startswith(test_reds.UNNAMED_WHY)]
+    own.unnamed = steps.unnamed
     if own.unnamed:
         own.truncated.append(test_reds.unnamed_why(own.unnamed))
     return own
@@ -1578,10 +1585,9 @@ def unplaced_signature(job: dict, log: str) -> UnplacedSignature:
     # test_reds' one parser (failed_tests): bun's `FILE > TEST` too (#41158's review F1: unread, two different bun
     # failures with one `expect()` headline were the same red), and every source of a name counted alike, an
     # xcresult `FAILED:` line and each listing entry (#41129's review F2; #41158's review F2).
-    # A passing step's lines are no failing test's: the names are read from red_lines, as parse_log reads them
-    # (#41244's review F1).
+    # No step of an unplaced log is known to have passed: every step is read, each on its own (test_reds.unjudged).
     unnamed: list = []
-    tests = test_reds.failed_in(log, unnamed)
+    tests = test_reds.failed_in(test_reds.unjudged(log), unnamed)
     named = set(tests)
     errors: Counter = Counter()
     for line in output:
@@ -5615,7 +5621,7 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
     # the head's (test_reds.web_head_part; cmux#34111's replay (2), whose merge parent timed out a file).
     own = test_reds.read(test_reds.web_head_part(head_log) if WEB_TEST_JOB.fullmatch(name) else head_log)
     if not WEB_TEST_JOB.fullmatch(name):
-        own = owned_unnamed(own, view)
+        own = owned_unnamed(own, view, test_reds.unjudged(head_log) if view is UNPLACED else None)
     if own.crashes or (own.truncated and not chromium_without_diagnostics):
         raise Refused(f"'{name}': " + "; ".join(own.crashes + own.truncated[:1])[:800]
                       + " (a crash, a cut-short run or a failure no parser names is never a base red)")

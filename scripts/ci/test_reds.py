@@ -380,6 +380,17 @@ def step_sections(log: str) -> list[tuple[bool, list[str]]]:
     return found
 
 
+def unjudged(log: str) -> Steps:
+    """LOG split into its steps at each step's echo, none judged passed: a log whose lines no reader could place on
+    its steps (base_red_excuse's UNPLACED) has no step known to have passed, so every step's lines are read, each
+    as its own step (#41329's review follow-up F3)."""
+    raw = log.splitlines()
+    lines = log_lines(log)
+    starts = [n for n in sorted(echoed(lines)) if ECHO_START.match(lines[n])]
+    bounds = [0] + starts + [len(raw)]
+    return Steps(["\n".join(raw[a:b]) for a, b in zip(bounds, bounds[1:]) if b > a])
+
+
 def step_lines(log: str) -> list[tuple[bool, str]]:
     """lines_of, each with whether a step that passed printed it (step_sections)."""
     return [(passing, text) for passing, section in step_sections(log) for text in section]

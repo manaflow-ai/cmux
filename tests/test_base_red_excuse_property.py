@@ -115,13 +115,15 @@ def truth(steps: list) -> tuple[Counter, Counter, list]:
     keys = Counter((step["name"], step["conclusion"]) for step in steps if step["conclusion"] != "success")
     found = []
     for step in steps:
+        mine = []  # this step's: a retry supersedes its file's earlier attempts in its own step, never another's
         for block in step["blocks"]:
             if block.get("retry") is not None:
                 # run-webviews-tests.sh's contract: a file run again, alone, is judged by that run only, so every
-                # earlier failure of the file in the log (every bun block here runs one file) is superseded. A run
-                # with no file header ran no file: its results stay (read_bun drops only `FILE > ` names).
-                found = [failure for failure in found if failure[0] != "bun" or failure[3]]
-            found += [(*failure, bool(block.get("headerless"))) for failure in final_identities(block)]
+                # earlier failure of the file in the step (every bun block here runs one file) is superseded, recap
+                # titles and all. A run with no file header ran no file: its results stay.
+                mine = [failure for failure in mine if failure[0] != "bun" or failure[3]]
+            mine += [(*failure, bool(block.get("headerless"))) for failure in final_identities(block)]
+        found += mine
     named = Counter(ident for runner, ident, ok, _ in found if ok)
     return keys, named, [(runner, ident) for runner, ident, ok, _ in found if not ok]
 
@@ -186,6 +188,11 @@ def block_lines(block: dict) -> list[str]:
                 "FAILED tests/test_mod.py - fixture setup broke" for _, name, ok in failures]
         out.append(f"========================= {len(failures)} failed, {passes} passed in 0.12s "
                    "=========================")
+    elif runner == "bun" and block.get("silent"):
+        # A run that failed naming nothing (a module that would not load): ` 0 fail`, and the wrapper's `FAIL file`
+        # the only sign of its one unnamed failure (#41329's follow-up F2).
+        out += ["bun test v1.3.0", "test/pane.test.ts:", *(f"(pass) pane > ok {n} [0.10ms]" for n in range(passes)),
+                "error: Cannot find module './gone'", f" {passes} pass", " 0 fail", "FAIL test/pane.test.ts (exit 1)"]
     elif runner == "bun":
         recap = block.get("recap")
         out += bun_run(failures, passes, recap, headerless=bool(block.get("headerless")))
@@ -229,14 +236,15 @@ def render(steps: list, *, job_id: int, run_id: int, sha: str, placed: bool, con
         if n == len(listed) - 1:
             break
         own = steps[n - 1]
-        out.append(stamp + f"##[group]Run fixture-step-{n}")
+        # The runner's echo of the step's script, as a job log shows it: test_reds reads a step's bounds from it.
+        out += [stamp + f"##[group]Run fixture-step-{n}", stamp + "shell: /usr/bin/bash -e {0}", stamp + "##[endgroup]"]
         out.append(stamp + "compiling the package")
         if own["conclusion"] != "success" and inner:
             out.append(stamp + "##[group]Run python3 scripts/ci/run_inner.py")
             inner = False
         for block in own["blocks"]:
             out += [stamp + line for line in block_lines(block)]
-        if own["conclusion"] != "success":
+        if own["conclusion"] != "success" and not own.get("quiet"):
             out.append(stamp + "##[error]Process completed with exit code 1.")
     job = {"id": job_id, "run_id": run_id, "head_sha": sha, "name": JOB, "status": "completed",
            "conclusion": conclusion, "steps": listed}
@@ -255,11 +263,15 @@ def gen_block(rng: random.Random, unnamed_rate: float) -> dict:
     block = {"runner": runner, "failures": failures, "passes": rng.randint(0, 2), "retry": None, "recap": None}
     if runner == "bun" and rng.random() < 0.25:
         block["retry"] = [failure for failure in failures if rng.random() < 0.6]
+    if runner == "bun" and block["retry"] is None and rng.random() < 0.12:
+        # Nothing named, the wrapper's `FAIL file` alone (#41329's follow-up F2): one unnamed failure.
+        block.update(silent=True, failures=[(runner, rng.choice(NAMES), False)])
+        return block
     if runner == "bun" and rng.random() < 0.4:
-        # bun's closing recap, and in it a title that failed twice (#41222's review F1: two recap lines of one title
-        # beside `2 fail` are one identity). A recap-only block is never retried here: its titles name no file, so
-        # the wrapper's retry cannot drop them (read_bun keeps them: stricter, never an excuse).
-        block["recap"] = "both" if block["retry"] is not None else rng.choice(("both", "only"))
+        # bun's closing recap, and in it a title that failed twice (#41222's review F1: a title listed twice is two
+        # failures), alone or after the results, in a retried block too: the retry supersedes the attempt's recap
+        # titles with the rest of it (#41329's review F1 and its follow-up F1).
+        block["recap"] = rng.choice(("both", "only"))
         named = [failure for failure in failures if failure[2]]
         if named and rng.random() < 0.5:
             failures.append(rng.choice(named))
@@ -280,8 +292,11 @@ def gen_steps(rng: random.Random, unnamed_rate: float) -> list:
     steps = []
     for _ in range(rng.randint(1, 3)):
         conclusion = rng.choice(CONCLUSIONS)
-        blocks = [] if conclusion == "success" else [gen_block(rng, unnamed_rate) for _ in range(rng.randint(1, 2))]
-        steps.append({"name": rng.choice(STEP_NAMES), "conclusion": conclusion, "blocks": blocks})
+        blocks = [] if conclusion == "success" else [gen_block(rng, unnamed_rate) for _ in range(rng.randint(1, 3))]
+        # A failed step that prints no `##[error]` line (the jobs API alone says it failed): split text is never
+        # judged pass or fail again (#41329's follow-up F3).
+        quiet = conclusion != "success" and rng.random() < 0.2
+        steps.append({"name": rng.choice(STEP_NAMES), "conclusion": conclusion, "blocks": blocks, "quiet": quiet})
     if all(step["conclusion"] == "success" for step in steps):
         steps[0]["conclusion"] = "failure"
         steps[0]["blocks"] = [gen_block(rng, unnamed_rate)]

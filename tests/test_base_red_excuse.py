@@ -8784,7 +8784,8 @@ LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unpl
                           "web_test_verdict", "cut_short_web_verdict", "windows", "ws_check_verdict", "log"})
 RAW_NAME = re.compile(r"^(?:\w+_)?logs?$")
 # next_batch's expand_job may read its raw log only into these (keying a red as its own) and failed_view.
-NEXT_BATCH_RAW_SINKS = frozenset({"failed_view", "no_verdict", "read"})
+# unjudged: an unplaced log split by its echoes, no step judged (owned_unnamed; #41329's review follow-up F3).
+NEXT_BATCH_RAW_SINKS = frozenset({"failed_view", "no_verdict", "read", "unjudged"})
 
 
 def raw_log_reads(source, next_batch_source=None):
