@@ -19,15 +19,15 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 4
+          fetch-depth: 8
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
       - run: bun install --frozen-lockfile
-      - run: bunx playwright install --with-deps --only-shell chromium webkit
+      - run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$(git rev-parse --show-toplevel)/scripts/ci/pin-browser-test-font.sh"
       - name: Red, the test without the fix must fail
         run: |
-          git checkout -q HEAD~2 -- src/agent-session/acpmux/model.ts
+          git checkout -q f36a010f650a9 -- src/agent-session/acpmux/model.ts
           if bun test test/agent-pane-background-turns.test.ts; then echo "expected red"; exit 1; fi
           git checkout -q HEAD -- src/agent-session/acpmux/model.ts
       - name: Green, spacing suites
