@@ -49,6 +49,7 @@ use cmux_json::JsonSet as _;
 mod base;
 pub(super) mod fence;
 pub(super) mod fetch;
+mod folders;
 mod git_back;
 mod history;
 mod links;
@@ -214,6 +215,8 @@ struct Job {
     /// What is at the target, from its folder's listing, when every write
     /// is no-follow; None: asked right before the write.
     found: Option<Option<String>>,
+    /// In a folder this push made ([`folders`]): nothing of the machine's is on the way.
+    ours: bool,
 }
 
 /// What a push needs to save its record partway.
@@ -398,10 +401,37 @@ fn write_checked(
         return write_found(remote, &job.target, found.as_deref(), &job.file, &mut ignored);
     }
     let (parent, _) = remote::split(&job.target)?;
-    if through_link(remote, remote_root, parent, seen)? {
+    if !job.ours && through_link(remote, remote_root, parent, seen)? {
         return Err(LinkInTheWay.into());
     }
     write_with_progress(remote, &job.target, &job.file, &mut ignored)
+}
+
+/// A step before the writes (`prepare`: looking at each file; `folders`: making the new
+/// folders) as a seed's progress line on stderr, `{"progress":{"phase","objects",
+/// "objects_total"}}`, at most every [`PROGRESS_EVERY`] once it took that long: the card
+/// shows the step moving instead of "0 of N files" (`moves::seed` hands it on).
+#[derive(Default)]
+struct Throttled {
+    last: Option<std::time::Instant>,
+    said: bool,
+}
+
+impl Throttled {
+    fn report(&mut self, phase: &str, done: u64, total: u64) {
+        let now = std::time::Instant::now();
+        // A step that took less than a beat says nothing; one that spoke says its end.
+        let last = *self.last.get_or_insert(now);
+        let due = now.duration_since(last) >= PROGRESS_EVERY || (self.said && done >= total);
+        if !due {
+            return;
+        }
+        (self.last, self.said) = (Some(now), true);
+        eprintln!(
+            "{}",
+            json!({"progress": {"phase": phase, "objects": done, "objects_total": total}})
+        );
+    }
 }
 
 /// Prints a push's progress on stderr as JSON lines, at most every
@@ -740,7 +770,8 @@ pub(super) fn copy_folder_with_progress(
             remote.mkdir_all(parent)?;
         }
         let bytes = size(&file)?;
-        let job = Job { relative, target: at, file, sha256: String::new(), bytes, found: None };
+        let job =
+            Job { relative, target: at, file, sha256: String::new(), bytes, found: None, ours: false };
         if bytes > ALONE_BYTES { alone.push(job) } else { small.push(job) }
     }
     let mut written = 0u64;
@@ -1083,7 +1114,13 @@ fn push_inner(
     // What a pull compares the machine's branch and staged changes with.
     let git = if git_record { Some(git_back::base_of(&local)?) } else { None };
     let mut remote = Remote::connect_negotiated(socket)?;
+    // A folder this push makes holds nothing of the machine's ([`folders`]).
+    let fresh = remote.kind(remote_root)?.is_none();
     remote.mkdir_all(remote_root)?;
+    let mut folders = folders::Folders::default();
+    if fresh {
+        folders.mark_made(remote_root);
+    }
     // A store fetch of an earlier push may still be running there: it stops
     // before this push deletes or writes anything.
     let served = store::fetch_served(socket);
@@ -1177,8 +1214,11 @@ fn push_inner(
     }
     listings.clear();
 
-    let mut made: BTreeSet<String> = BTreeSet::new();
     let mut folder_links: BTreeMap<String, bool> = BTreeMap::new();
+    // How far the look at each file before the first write is: its hash and, outside
+    // folders this push makes, what the machine has there.
+    let mut checking = Throttled::default();
+    let checking_total = set.files.len() as u64;
     let mut tally = Tally {
         summary,
         next: Manifest { version: 1, files: BTreeMap::new(), git, links: BTreeMap::new() },
@@ -1192,7 +1232,10 @@ fn push_inner(
     // gathered and the machine fetches them after the loop.
     let via_store = store::usable(fetch_served);
     let (mut small, mut alone, mut deferred) = (Vec::new(), Vec::new(), Vec::new());
-    for (relative, file) in &set.files {
+    for (checked, (relative, file)) in set.files.iter().enumerate() {
+        if tally.progress.is_some() {
+            checking.report("prepare", checked as u64, checking_total);
+        }
         let target = format!("{remote_root}/{relative}");
         let (parent, _) = remote::split(&target)?;
         let sha256 = hash(file)?;
@@ -1205,9 +1248,12 @@ fn push_inner(
             tally.unchanged(relative, pushed, bytes);
             continue;
         }
+        // Inside a folder this push made, nothing of the machine's is in the
+        // way, and nothing is there yet ([`folders`]): no question to ask.
+        let ours = folders.ours(parent);
         // A symlink of the machine's on the way to it: the write would
         // land wherever that link points, so this Mac's file stays.
-        if through_link(&mut remote, remote_root, parent, &mut folder_links)? {
+        if !ours && through_link(&mut remote, remote_root, parent, &mut folder_links)? {
             set.skips.note(relative, skips::Why::SymlinkTaken);
             tally.step(bytes);
             continue;
@@ -1216,13 +1262,14 @@ fn push_inner(
         // way (one fs.list a folder, not one fs.stat a file): a symlink put
         // there since is refused by the machine itself. Otherwise the
         // connection that writes asks right before its write.
-        let found =
-            if remote.no_follow() { Some(listings.kind(&mut remote, &target)?) } else { None };
-        if made.insert(parent.to_string()) {
-            remote.mkdir_all(parent)?;
-        }
+        let found = match (remote.no_follow(), ours) {
+            (false, _) => None,
+            (true, true) => Some(None),
+            (true, false) => Some(listings.kind(&mut remote, &target)?),
+        };
+        folders.ensure(&mut remote, parent)?;
         let job =
-            Job { relative: relative.clone(), target, file: file.clone(), sha256, bytes, found };
+            Job { relative: relative.clone(), target, file: file.clone(), sha256, bytes, found, ours };
         if via_store {
             deferred.push(job);
         } else if bytes > ALONE_BYTES {
@@ -1231,6 +1278,16 @@ fn push_inner(
             small.push(job);
         }
     }
+    // The new folders below the ones this push made, several at once, a
+    // depth at a time ([`folders::make`]).
+    let waiting = folders.take_waiting();
+    let mut making = Throttled::default();
+    let reporting = tally.progress.is_some();
+    folders::make(socket, &waiting, connections(), &mut |done, total| {
+        if reporting {
+            making.report("folders", done, total);
+        }
+    })?;
     // Through the store, the machine fetches first; what it did not write
     // goes over the link below, like every other write.
     let fetched = if via_store {
