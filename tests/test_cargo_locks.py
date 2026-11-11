@@ -98,3 +98,24 @@ class CargoLocksTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StaleSpellingTests(unittest.TestCase):
+    """Both of cargo's stale-lock spellings under --locked are stale, never unchecked (router review F1 on #40921)."""
+
+    def test_judge_reads_both_spellings(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("cargo_locks", SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        spellings = (
+            "error: cannot update the lock file /w/Cargo.lock because --locked was passed to prevent this",
+            "error: the lock file /w/Cargo.lock needs to be updated but --locked was passed to prevent this",
+            "error: cannot create the lock file /w/Cargo.lock because --locked was passed to prevent this",
+        )
+        for message in spellings:
+            with self.subTest(message=message):
+                module.cargo = lambda args, cwd, env, message=message: (101, message + "\n")
+                self.assertEqual(module.judge(Path("/w"), "", {}), ("stale", ""))
+        module.cargo = lambda args, cwd, env: (101, "error: failed to get `x` as a dependency\n")
+        self.assertEqual(module.judge(Path("/w"), "", {})[0], "unchecked")

@@ -34,12 +34,16 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import os
+import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+# Both of cargo's spellings of a stale lock under --locked (check-cargo-locks.py STALE reads the same two).
 DRIFT = "cannot update the lock file"
+STALE = re.compile(r"cannot (?:update|create) the lock file .* because --locked was passed"
+                   r"|the lock file .* needs to be updated but --locked was passed")
 TIMEOUT = 120
 
 
@@ -88,7 +92,7 @@ def judge(repo: Path, root: str, env: dict[str, str]) -> tuple[str, str]:
         code, err = cargo(["update", "--workspace", "--locked", *network], repo / root, env)
         if code == 0:
             return "ok", ""
-        if DRIFT in err:
+        if DRIFT in err or STALE.search(err):
             return "stale", ""
         last = err.strip().splitlines()[-1] if err.strip() else f"exit {code}"
     return "unchecked", last
