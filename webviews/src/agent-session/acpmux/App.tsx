@@ -243,7 +243,7 @@ import { movedOn, sentIn as sentInHeld, useTrustHeldPrompts, whereHeldGoes, type
 import { routeCurrentTrustRefusal, routeOwnedTrustRefusal, type TrustRefusalOwner } from "./trustRefusalRoute";
 import { heldPrompts, type SendGesture } from "./heldPrompt";
 import { bindsHeldSendNow } from "./heldSendBinding";
-import { StartingSends, type StartingSend } from "./startingSends";
+import { StartingSends, startingQueueEntry, type StartingSend } from "./startingSends";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
@@ -6770,11 +6770,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // Prompts still waiting for a new chat to take them follow acpmux's queue, then the prompts the
     // folder's trust holds (trustHeld.ts).
     if (startingRows.length || heldRows.length)
-      withCommands.queue = [
-        ...snapshot.queue,
-        ...startingRows.map((row) => ({ id: row.id, prompt: row.text, sending: true })),
-        ...heldRows,
-      ];
+      withCommands.queue = [...snapshot.queue, ...startingRows.map(startingQueueEntry), ...heldRows];
     return withDraftFolder(withCommands, projectDraft);
   }, [
     snapshot,
