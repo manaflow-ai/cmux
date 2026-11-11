@@ -253,15 +253,25 @@ fn a_tool_without_delivery_is_guarded_whatever_delivery_it_names() {
     // foreground input off, so a target that activated itself kept focus.
     let r = rig();
     for (tool, args) in [
-        ("perform_action", json!({"window_id": "1", "element_id": "e1", "action": "press", "delivery": "foreground"})),
-        ("set_value", json!({"window_id": "1", "element_id": "e1", "value": "x", "delivery": "foreground"})),
+        (
+            "perform_action",
+            json!({"window_id": "1", "element_id": "e1", "action": "press", "delivery": "foreground"}),
+        ),
+        (
+            "set_value",
+            json!({"window_id": "1", "element_id": "e1", "value": "x", "delivery": "foreground"}),
+        ),
         ("scroll", json!({"window_id": "1", "x": 5, "y": 5, "dy": 3, "delivery": "foreground"})),
     ] {
         *r.desktop.focus.lock().unwrap() = Some(person());
         *r.desktop.steal_on_input.lock().unwrap() = Some(safari_front());
         let out = r.engine.call(&ctx(tool), tool, &args);
         assert!(!out.is_error, "{tool}: {:?}", out.body);
-        assert_eq!(out.body["focus"]["restored_from"], "com.apple.Safari", "{tool}: {:?}", out.body);
+        assert_eq!(
+            out.body["focus"]["restored_from"], "com.apple.Safari",
+            "{tool}: {:?}",
+            out.body
+        );
     }
 }
 
