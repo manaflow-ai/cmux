@@ -1827,7 +1827,6 @@ export default settingsPageEntry({
     "pages/settings/editors/NumberField.tsx",
     "pages/settings/editors/SearchTemplateEditor.tsx",
     "pages/settings/editors/ThemeRowEditor.tsx",
-    "pages/settings/editors/SegmentedEditor.tsx",
     "pages/settings/editors/Select.tsx",
     "pages/settings/editors/SoundEditor.tsx",
     "pages/settings/editors/StringMapEditor.tsx",

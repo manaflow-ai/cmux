@@ -393,8 +393,8 @@
   }
 }
 
-/* TRY (Lucas 2026-11-12, local build only): taller menu buttons, the comfortable control height,
-   each as wide as its value, as Aside's ("Google ⌃⌄"), right-aligned so its end never moves. */
+/* Menu buttons at the comfortable control height (Lucas 2026-11-12: "a bit fatter"), each as wide as
+   its value, as Aside's ("Google ⌃⌄"), right-aligned so its end never moves. */
 :root[data-settings-look="refined"] .settings .row-control .select .ui-select-button {
   width: auto;
   min-width: 0;

@@ -9,7 +9,6 @@ import type { Rendered } from "./testing";
 const restore = installDom();
 afterAll(() => restore());
 const { changeValue, click, fire, ops, renderPage, resetRow, rowElement, run, settle } = await import("./testing");
-const { fitsSegments } = await import("./editors/Editor");
 const { isDuration } = await import("./editors/DurationEditor");
 const { ROW_LEVELS } = await import("./rowLevelsData");
 const { PERSONALIZATION_KEYS } = await import("./components/PersonalizationCard");
@@ -29,7 +28,6 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
     case "toggle":
       return has("[role=switch]") ? null : "no switch";
     case "choice":
-      if (fitsSegments(row)) return has('input[type="radio"]', choices) ? null : "no segmented control";
       return has("select") && has("option", choices + (row.default === null ? 1 : 0)) ? null : "no menu";
     case "choice_or_number":
       return has('option[value="__custom__"]') ? null : "no Custom… choice";
@@ -287,15 +285,18 @@ describe("editors", () => {
     expect(row().querySelector("input.number")).toBeNull();
   });
 
-  // Lucas 2026-11-11: "Keep Sessions Running" wrapped to two lines inside its segment.
-  test("a choice whose labels do not fit segments is a menu; short ones stay segments", async () => {
-    const long = rowsByKey.get("app.quitBehavior")!;
-    expect(fitsSegments(long)).toBe(false);
-    expect(fitsSegments(rowsByKey.get("diff.layout")!)).toBe(true);
-    page = await renderPage({ path: `/settings/${homes.get(long.key)?.category ?? long.section}` });
-    const row = rowElement(page.container, long.key);
-    expect(row.querySelector('input[type="radio"]')).toBeNull();
-    expect(row.querySelector("select")).not.toBeNull();
+  // Lucas 2026-11-12: segments in a card read as "containers inside containers"; every choice is a
+  // menu, a short one too.
+  test("every choice row is a menu, a short one too", async () => {
+    for (const key of ["app.quitBehavior", "diff.layout"]) {
+      const choice = rowsByKey.get(key)!;
+      page = await renderPage({ path: `/settings/${homes.get(choice.key)?.category ?? choice.section}` });
+      const row = rowElement(page.container, choice.key);
+      expect(row.querySelector('input[type="radio"]')).toBeNull();
+      expect(row.querySelector("select")).not.toBeNull();
+      page.unmount();
+      page = null;
+    }
   });
 
   test("the hidden native select behind each menu is not a Tab stop", async () => {
