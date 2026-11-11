@@ -2771,11 +2771,19 @@ export function toggleTurnFold(
 /// A turn's fold opens with every line in it closed (Lucas, 2026-11-11): the runs of messages and of
 /// background work it holds are opened by key in `expanded`, not in the disclosure store, so a click
 /// on "Worked for" `id` clears their keys from `expanded`, in place. Any view's click (App.tsx).
+/// Every row of the turn counts, a received message too, and a run's line keyed by a folded copy of
+/// an edit run (`<id>:fold`, messageRuns.ts `openMessageRuns`).
 export function closeTurnRuns(rows: readonly AcpmuxRow[], expanded: Set<string>, id: string): void {
-  if (!id.startsWith(`${WORKED}-`)) return;
-  for (const inside of turnInsideIds(rows, id)) {
-    expanded.delete(messageRunRowId(inside));
-    expanded.delete(backgroundRunRowId(inside));
+  if (!id.startsWith(`${WORKED}-`) || expanded.size === 0) return;
+  const { key } = turnFoldKeys(rows, id);
+  const start = rows.findIndex((row) => `${WORKED}-${row.id}` === (key ?? id));
+  for (let at = start + 1; start >= 0 && at < rows.length; at += 1) {
+    const row = rows[at]!;
+    if (opensTurn(row) && !isUnsent(row)) break;
+    for (const line of [messageRunRowId(row.id), backgroundRunRowId(row.id)]) {
+      expanded.delete(line);
+      expanded.delete(`${line}${FOLDED}`);
+    }
   }
 }
 

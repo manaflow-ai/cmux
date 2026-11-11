@@ -570,9 +570,16 @@ test("closing a turn's fold closes the runs of messages inside it, opened by key
   const user = (id: string): AcpmuxRow => ({ id, version: 1, at: 1, kind: "user", text: "Ask them" });
   const note = (id: string): AcpmuxRow => ({ id, version: 1, at: 2, kind: "assistant", text: id });
   const rows = [user("u1"), note("m1"), note("m2"), user("u2"), note("m3")];
-  const expanded = new Set(["worked-u1", messageRunRowId("m1"), messageRunRowId("m3")]);
+  const expanded = new Set([
+    "worked-u1",
+    messageRunRowId("m1"),
+    `${messageRunRowId("m2")}:fold`,
+    messageRunRowId("m3"),
+  ]);
   const closed = toggleTurnFold(rows, expanded, "worked-u1");
   expect(closed.has(messageRunRowId("m1"))).toBe(false);
+  // A run's line keyed by a folded edit run's copy closes too.
+  expect(closed.has(`${messageRunRowId("m2")}:fold`)).toBe(false);
   // Another turn's run of messages keeps the reader's choice.
   expect(closed.has(messageRunRowId("m3"))).toBe(true);
 });
