@@ -607,7 +607,7 @@ mod tests {
         );
         assert!(blocked_dialog(&terminal, &agents, "").is_some());
         // Claude's own OSC 7501 report, when it says blocked, holds.
-        let mut reported = terminal.clone();
+        let mut reported = terminal;
         reported["extra"]["program_status"][0]["state"] = json!("blocked");
         assert!(blocked_dialog(&reported, &agents, DENIED_CLAUDE_2_1_322).is_some());
         // The agent's own report of blocked is never overruled by the screen.
@@ -724,6 +724,31 @@ mod tests {
             let dialog = blocked_dialog(&terminal, &agents, UNPARSED_DIALOG);
             assert!(dialog.is_some(), "{harness}: the block must hold");
         }
+    }
+
+    /// W6-BC review 3 (lead, fail closed): with no hook record left, only
+    /// an OSC 7501 `idle` of the agent ends a screen guess, never
+    /// `working`; and any OSC 7501 `blocked` of that app keeps the block,
+    /// even when a newer record of it says idle.
+    #[test]
+    fn w6bc_only_an_idle_report_and_no_blocked_report_ends_a_screen_guess() {
+        let agents = vec![record("plugin", "claude-code", "blocked", "1902")];
+        let with_status = |statuses: Value| {
+            json!({"id": "term_w6bc", "lifecycle": "running",
+                   "extra": {"program_status": statuses}})
+        };
+        let working = with_status(
+            json!([{"app": "claude-code", "state": "working", "updated_at_ms": "1637"}]),
+        );
+        assert!(blocked_dialog(&working, &agents, DENIED_CLAUDE_2_1_322).is_some());
+        let blocked_id = with_status(json!([
+            {"app": "claude-code", "id": "perm", "state": "blocked", "updated_at_ms": "1500"},
+            {"app": "claude-code", "state": "idle", "updated_at_ms": "1637"},
+        ]));
+        assert!(blocked_dialog(&blocked_id, &agents, DENIED_CLAUDE_2_1_322).is_some());
+        let idle =
+            with_status(json!([{"app": "claude-code", "state": "idle", "updated_at_ms": "1637"}]));
+        assert!(blocked_dialog(&idle, &agents, DENIED_CLAUDE_2_1_322).is_none());
     }
 
     /// W6-BC review: a footer hint (`? for shortcuts`) is no question.
