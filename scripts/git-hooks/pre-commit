@@ -452,21 +452,20 @@ web_packages_stale() { # package-dir
 # (scripts/webviews_bun_version.py, installed beside this hook) reads it: the
 # devEngines.packageManager entry named "bun", only as an exact major.minor.patch.
 # check-webviews-bun-version.sh calls the same reader, so the two cannot disagree.
-# No bun entry or any other pin is refused with a warning and treated as no pin.
-# Never fails.
+# Without the trusted reader, or with no pin it accepts, the hook cannot vouch
+# for a bun: it says why and how to fix it, and fails (the caller refuses).
 pinned_bun_version() {
     local pin status=0
-    [[ -f "$REPO_ROOT/webviews/package.json" ]] || return 0
     if [[ ! -f "$BUN_VERSION_READER" ]]; then
-        echo "pre-commit: the trusted copy of webviews_bun_version.py is missing; rerun scripts/install-git-hooks.sh. Using PATH's bun." >&2
-        return 0
+        echo "pre-commit: the trusted copy of webviews_bun_version.py is missing, so this hook cannot read the bun pin; run scripts/install-git-hooks.sh" >&2
+        return 1
     fi
     pin="$("$PYTHON3_BIN" -I "$BUN_VERSION_READER" "$REPO_ROOT/webviews/package.json" 2>&1)" || status=$?
-    if (( status == 0 )); then
-        printf '%s\n' "$pin"
-    else
-        echo "pre-commit: ${pin//[^[:print:]]/?}; ignoring the pin and using PATH's bun." >&2
+    if (( status != 0 )); then
+        echo "pre-commit: ${pin//[^[:print:]]/?}; declare an exact bun in webviews/package.json devEngines.packageManager" >&2
+        return 1
     fi
+    printf '%s\n' "$pin"
 }
 # Every bun and npm call runs through tool_env: BUN_OPTIONS is the caller's,
 # and bun prepends it to every command line, so a `--preload PATH` there made
@@ -479,10 +478,10 @@ tool_env() { # tool args...
     "$TOOL_ENV" -u BUN_OPTIONS "$tool" "$@"
 }
 # The bun the install runs, by absolute path: a bun at exactly the pinned
-# version from mise, asdf, PATH or ~/.bun comes first; otherwise PATH's bun.
-# Each candidate path is built only from the validated pin and passes
-# resolve_tool before even its --version runs.
-resolve_bun() { # pin (validated, or empty)
+# version from mise, asdf, PATH or ~/.bun. There is no other fallback: with none
+# at the pin it says how to install one and fails. Each candidate path is built
+# only from the validated pin and passes resolve_tool before even its --version runs.
+resolve_bun() { # pin (validated)
     local want="$1" entry root candidate path_bun mise_root asdf_root bun_root
     path_bun="$(resolve_tool bun || true)"
     if [[ -n "$want" ]]; then
@@ -501,7 +500,15 @@ resolve_bun() { # pin (validated, or empty)
             fi
         done
     fi
-    [[ -n "$path_bun" ]] && printf '%s\n' "$path_bun"
+    echo "pre-commit: no bun ${want:-(no pin)} in mise, asdf, PATH or ~/.bun outside this checkout; install it: curl -fsSL https://bun.sh/install | bash -s bun-v${want:-<version>}" >&2
+    return 1
+}
+# Stops the commit when the hook would have to install packages with a bun it
+# cannot vouch for; the lines before say why and what fixes it.
+refuse_bun_install() { # package
+    echo "pre-commit: refusing to install $1 packages with a bun this hook cannot vouch for (see above)." >&2
+    release_install_lock
+    exit 1
 }
 # Runs an install step in a package directory with its output kept. When it
 # fails, prints what ran and with which tool, so a broken bootstrap is never
@@ -558,8 +565,9 @@ if (( ${#STAGED_WEB_PATHS[@]} > 0 && ! SKIP_FORMATTERS )); then
                     [[ ! -x "$PACKAGE_DIR/node_modules/.bin/vp" && -d "$INSTALL_LOCK" ]] || break
                     "$TOOL_SLEEP" 1
                 done
-            elif [[ -f "$PACKAGE_DIR/bun.lock" ]] && BUN_PIN="$(pinned_bun_version)" \
-                && BUN_BIN="$(resolve_bun "$BUN_PIN")" && [[ -n "$BUN_BIN" ]]; then
+            elif [[ -f "$PACKAGE_DIR/bun.lock" ]]; then
+                BUN_PIN="$(pinned_bun_version)" || refuse_bun_install "$package"
+                BUN_BIN="$(resolve_bun "$BUN_PIN")" || refuse_bun_install "$package"
                 echo "pre-commit: installing $package packages for vp ($BUN_BIN install --frozen-lockfile --ignore-scripts)" >&2
                 bootstrap_run "$PACKAGE_DIR" "$BUN_BIN" install --frozen-lockfile --ignore-scripts || true
                 if [[ "$package" == webviews ]]; then

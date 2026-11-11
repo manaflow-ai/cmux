@@ -248,7 +248,8 @@ def file_digest(path):
 def declared_bun_version(root):
     # scripts/webviews_bun_version.py is the one reader of the pin (the pre-commit hook and
     # check-webviews-bun-version.sh use it too); it sits one folder up, here and in the
-    # installed hook copy. No valid bun pin keeps the old default.
+    # installed hook copy. No pin it accepts stops the key: a guessed version would key
+    # bundles to a toolchain nobody declared.
     import importlib.util
 
     reader_path = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "webviews_bun_version.py")
@@ -257,13 +258,14 @@ def declared_bun_version(root):
     spec.loader.exec_module(reader)
     try:
         return reader.bun_version(os.path.join(root, "webviews/package.json"))
-    except ValueError:
-        return "1.4.4"
+    except ValueError as error:
+        sys.exit(f"web-bundle-key: {error}")
 
 
 def toolchain_identity(root):
     # Keep these defaults in one place: workflows export the same values before computing keys.
-    bun = normalize_toolchain_version(os.environ.get("CMUX_WEB_BUN_VERSION", declared_bun_version(root)))
+    # CMUX_WEB_BUN_VERSION, when set, is used without reading the pin.
+    bun = normalize_toolchain_version(os.environ.get("CMUX_WEB_BUN_VERSION") or declared_bun_version(root))
     node = normalize_toolchain_version(os.environ.get("CMUX_WEB_NODE_VERSION", "24.22.1"))
     return f"bun={bun}\nnode={node}\n"
 
