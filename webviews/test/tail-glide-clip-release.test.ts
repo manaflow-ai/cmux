@@ -20,6 +20,7 @@ function frame() {
 
 class FakeAnimation extends EventTarget {
   playState: "running" | "paused" | "finished" | "idle" = "running";
+  currentTime: number | null = 0;
   constructor(
     readonly effect: { target: HTMLElement },
     readonly keyframes: Keyframe[],
@@ -190,5 +191,58 @@ describe("tail glide clip release", () => {
       deferEvents = false;
       frame();
     }
+  });
+  /// The reply grows by 40 px over two live rows that both glide down: the nearer needs 40 px of clip,
+  /// the farther (30 px further down) 10 px. Then the reader takes the view.
+  function grownOverTwo() {
+    const anchor = row("a", 0, 20);
+    const reply = row("r", 20, 40);
+    const near = row("n", 60, 30);
+    const far = row("f", 90, 30);
+    const rows = [anchor, reply, near, far];
+    const glide = createTailGlide();
+    glide.place(thread(rows), true, "a");
+    (reply as { offsetHeight: number }).offsetHeight = 80;
+    (near as { offsetTop: number }).offsetTop = 100;
+    (far as { offsetTop: number }).offsetTop = 130;
+    glide.place(thread(rows), true, "a");
+    glide.hold();
+    const clips = () => reply.animations.filter((animation) => "clipPath" in animation.keyframes[0]!);
+    return { glide, reply, near, far, clips };
+  }
+
+  test("a clip shared by two glides stays while the nearer still glides and the farther is dropped", () => {
+    const { glide, reply, near, far, clips } = grownOverTwo();
+    const [clip] = clips();
+    expect(clip!.keyframes[0]).toEqual({ clipPath: "inset(-4096px -4096px 40px -4096px)" });
+    reply.box = { top: 20, bottom: 100 };
+    near.box = { top: 100, bottom: 130 };
+    far.box = { top: 130, bottom: 160 };
+    glide.dropUnseen({ top: 0, bottom: 125 } as DOMRect);
+    expect(far.animations[0]!.playState).toBe("idle");
+    expect(near.animations[0]!.playState).toBe("paused");
+    // Still 40 px over the nearer row, held where it was.
+    expect(
+      clips()
+        .filter((each) => each.playState === "paused")
+        .map((each) => each.keyframes[0]),
+    ).toEqual([{ clipPath: "inset(-4096px -4096px 40px -4096px)" }]);
+  });
+
+  test("a clip goes on at the depth the rows left need when the row that set it is dropped", () => {
+    const { glide, reply, near, far, clips } = grownOverTwo();
+    const [clip] = clips();
+    clip!.currentTime = 30;
+    reply.box = { top: -120, bottom: -40 };
+    near.box = { top: -40, bottom: -10 };
+    far.box = { top: 0, bottom: 30 };
+    glide.dropUnseen({ top: 0, bottom: 200 } as DOMRect);
+    expect(near.animations[0]!.playState).toBe("idle");
+    expect(far.animations[0]!.playState).toBe("paused");
+    expect(clip!.playState).toBe("idle");
+    const left = clips().filter((each) => each.playState !== "idle");
+    expect(left.map((each) => [each.keyframes[0], each.playState, each.currentTime])).toEqual([
+      [{ clipPath: "inset(-4096px -4096px 10px -4096px)" }, "paused", 30],
+    ]);
   });
 });
