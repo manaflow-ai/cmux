@@ -41,3 +41,10 @@ agent or peer work ran to the end.
   cancel and free their side, and an older peer hears nothing (`tests/cancel_peer_link.rs`). The
   cancel frame carries its request's link epoch, so a reconnected link drops it (not tested
   across a reconnect).
+
+Follow-up (review F1 and F2 of #41285): a cancel of a request sent on two paths stops whichever
+copy runs on the peer (`server/dual_requests.rs` `cancel`: the copy that runs answers -32800 on
+its own connection, a later copy takes that answer and never runs), and the link sends the cancel
+on its shadow too when the shadow carried a copy. Cancelled ids are kept 600 s (the peer's request
+deadline) and at most 1024; every id that goes is logged by name on `acpmux::cancel`, and once one
+went, an answer for an unknown id logs "unknown id, possibly evicted cancel", never silence.

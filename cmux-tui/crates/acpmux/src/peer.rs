@@ -3361,7 +3361,8 @@ impl Drop for ForgetRetry<'_> {
 }
 
 impl PeerCancel {
-    /// `$/cancel_request` on the link the request went out on (a later link never carries it).
+    /// `$/cancel_request` on the link the request went out on (a later link never carries it),
+    /// and on its shadow too when the shadow carried a copy (`peer_dual.rs`).
     /// A full queue is waited out, never a reason to drop it (review F2 of #41285); a closed one
     /// means the link is gone, and is logged.
     fn send(self) {

@@ -2137,13 +2137,21 @@ async fn dispatch_request_with_identity(
                 // Another agent's message answers nothing the person was shown.
                 crate::suggestion_gate::withdraw(&hub.suggestion_gate, &s.id);
             }
-            let answer = heap(|| hub.prompt_with(&s, blocks, &client, steer, opts)).await;
-            // The turn ended (its read was decided) before the answer came back.
-            drop(reply_reader);
-            if let Some(saved) = saved {
-                saved.settle(hub, &answer).await;
-            }
-            answer
+            // A `$/cancel_request` of this request stops its prompt, and the prompt runs on to
+            // its turn's end, never dropped half way (`prompt_cancel.rs`).
+            let stop = super::prompt_cancel::PromptStop::new(hub, &s);
+            opts.on_accepted = stop.watch(opts.on_accepted.take());
+            let hub = hub.clone();
+            let run = async move {
+                let answer = heap(|| hub.prompt_with(&s, blocks, &client, steer, opts)).await;
+                // The turn ended (its read was decided) before the answer came back.
+                drop(reply_reader);
+                if let Some(saved) = saved {
+                    saved.settle(&hub, &answer).await;
+                }
+                answer
+            };
+            super::prompt_cancel::finish_on_cancel(run, stop).await
         }
         // ACP defines cancel as a notification; a client that sends it as a
         // request gets an empty result instead of a request forwarded to
