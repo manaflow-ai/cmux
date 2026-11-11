@@ -351,18 +351,34 @@ public final class ChiefSession {
         reconnect()
     }
 
-    /// Composer text of a Chief screen that went away, for the screen that replaces it.
-    private var carriedComposerText: String?
-
-    /// The leaving screen's unsent text (empty clears it).
-    public func carryComposerText(_ text: String) {
-        carriedComposerText = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
+    /// The composer of a Chief screen that went away, for the screen that replaces it.
+    public struct CarriedComposer: Equatable, Sendable {
+        /// Unsent text, nil when there was none.
+        public var text: String?
+        /// The field had the keyboard: a screen rebuilt in place (a new
+        /// store after a reconnect) keeps it, as if nothing was rebuilt.
+        public var focused: Bool
     }
 
-    /// The carried text, once.
-    public func takeCarriedComposerText() -> String? {
-        defer { carriedComposerText = nil }
-        return carriedComposerText
+    private var carriedComposer: CarriedComposer?
+
+    /// The leaving screen's unsent text (empty clears it) and whether its field was focused.
+    public func carryComposerText(_ text: String, focused: Bool = false) {
+        let kept = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
+        carriedComposer = kept == nil && !focused ? nil : CarriedComposer(text: kept, focused: focused)
+    }
+
+    /// Keeps the carried text but not its focus (the Chief route left).
+    public func dropCarriedComposerFocus() {
+        guard var carried = carriedComposer, carried.focused else { return }
+        carried.focused = false
+        carriedComposer = carried.text == nil ? nil : carried
+    }
+
+    /// The carried composer, once.
+    public func takeCarriedComposer() -> CarriedComposer? {
+        defer { carriedComposer = nil }
+        return carriedComposer
     }
 
     /// The coordinator's try ended (connected, refused or replaced): Try Again is offered again.

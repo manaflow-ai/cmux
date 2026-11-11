@@ -19,7 +19,9 @@ extension SidebarListViewComponents {
         let spliced = spliceInsertion()
         // One loose row closed or moved: taken out (and put back), the caches changed for it alone.
         let removed = spliced == nil ? spliceRemoval() : nil
-        if spliced == nil, removed == nil { rebuildRowCaches() }
+        // A space shown again with the rows it was left with: its kept layout and row caches (`SidebarSpacePage`).
+        let page = spliced == nil && removed == nil ? takeSpacePage() : nil
+        if spliced == nil, removed == nil, page == nil { rebuildRowCaches() }
         refreshHoverTab()
         if let drag, !drag.isValid(in: model) { cancelDrag() }
         // The rows changed under a held drag (a batch, an adopt, a close): its hit geometry is rebuilt at the next move.
@@ -35,8 +37,9 @@ extension SidebarListViewComponents {
         // rows apply (its anchor is gone); a kept one updates in place.
         if let shown = hoverCard.shownID { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(shown)) }
         // Without a drag the full layout is the model's under `options` (`displayLayout`): a one-row insert splices onto it.
-        let plain = shownDrag == nil && external == nil ? spliced?.options ?? removed?.options ?? options(includeGap: true) : nil
-        let layout = spliced?.layout ?? removed?.layout ?? plain.map { SidebarLayout.make(sections: listSections, metrics: metrics, options: $0) } ?? displayLayout()
+        let plain = shownDrag == nil && external == nil ? spliced?.options ?? removed?.options ?? page?.options ?? options(includeGap: true) : nil
+        let layout = spliced?.layout ?? removed?.layout ?? page?.layout
+            ?? plain.map { SidebarLayout.make(sections: listSections, metrics: metrics, options: $0) } ?? displayLayout()
         // Focus belongs to a displayed disclosure, so a structural reload clears it before
         // row reuse can configure the same view for a later fold.
         if let key = focusedFold, layout.row(for: key) == nil {
@@ -47,6 +50,8 @@ extension SidebarListViewComponents {
         SidebarPerfCounters.timed { applyKeepingViewport(layout, animated: animated) }
         (splicedRow, splicedOut) = (nil, nil)
         spliceBase = plain.map { (model.sectionsRevision, $0) } // after the apply, which forgets any other base
+        // The metrics and the model structure of that full layout, for the page kept from it.
+        spacePages.showsFullLayout(metrics: plain == nil ? nil : metrics, structure: model.structureRevision)
         if let settled { landSettled(settled) } else { followLanding() }
         inlineRename.follow()
         groupEditor.follow(groups)
@@ -84,6 +89,10 @@ extension SidebarListViewComponents {
                 }
             }
         }
+        setDrawnTints(ordered)
+    }
+    /// What the placed groups draw in (`drawnTints`), from the groups in the order the sections list them.
+    func setDrawnTints(_ ordered: [SidebarGroup]) {
         let sections = DesignSettings.shared.sidebarSections
         drawnTints = SidebarGroup.drawnTints(ordered, palette: sections.groupPalette, gradient: sections.groupGradient,
                                              wallpaper: DesignSettings.shared.groupWallpaperTint?.bands ?? [])
@@ -275,8 +284,8 @@ extension SidebarListViewComponents {
             // motion and replay it when realized later.
             for key in reopened { openingRows[key] = nil }
         }
-        // Without motion the rows that leave park first (as they would after the loop), so the rows that
-        // come take their views: a space switch reuses the old space's views, it makes none (space-switch-fast).
+        // Without motion the rows that leave park first (as they would after the loop), so the rows that come
+        // can take a parked view: their own, or with no spare left the oldest one, and make none (space-switch-fast).
         // RowMotion also snaps when sidebar movement is disabled (Reduce Motion or the sidebar switch),
         // even though `animate` is true. Park leaving views before that snap realizes replacements too.
         if (!animate || !Motion.sidebar.animatesMovement(in: window)), !adopting {
@@ -306,9 +315,11 @@ extension SidebarListViewComponents {
             let existing = rowViews[row.key]
             guard existing != nil || target.intersects(realize) else { continue }
             keep.insert(row.key)
-            // Without motion (a space switch, a page) any parked view of the kind serves, as a scroll's
-            // does: a space's rows then make no new views once the pool holds some (space-switch-fast).
-            let view = existing ?? dequeue(row.key, rebinding: !animate && !adopting)
+            // Without motion (a space switch, a page) any parked view of the kind serves, as a scroll's does. On a
+            // space switch a workspace row with no view of its own takes a spare first: a space shown for the first
+            // time makes no view and takes none of the space that leaves, which then has its own views when it
+            // shows again (space-switch-fast).
+            let view = existing ?? dequeue(row.key, rebinding: !animate && !adopting, spareFirst: spacePages.entering != nil)
             view.targetSize = target.size
             // A recycled view (a block's region from another time) takes its content at once, not on a spring.
             configure(view, row: row, animated: animate || (adopting && existing != nil))
