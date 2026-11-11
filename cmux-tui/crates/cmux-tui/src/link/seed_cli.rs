@@ -396,18 +396,10 @@ struct Machine<'a> {
 impl<'a> Machine<'a> {
     /// Refuses a machine too old for `fs-v1` (`machine_outdated`).
     fn read(socket: &'a Path) -> Result<Self, SeedError> {
-        let identity = machine_gate::identify(socket);
-        if identity.is_none() {
-            return Err(SeedError::new(
-                "sync_failed",
-                format!("the machine at {} did not answer", socket.display()),
-            ));
-        }
-        let lacks = |capability: &str| {
-            identity
-                .as_ref()
-                .and_then(|identity| machine_gate::outdated_identity(identity, &[capability]))
-        };
+        // The first contact after a lease waits for the link (`machine_gate::reach`).
+        let identity = machine_gate::reach(socket)
+            .map_err(|unreached| SeedError::new("sync_failed", unreached.to_string()))?;
+        let lacks = |capability: &str| machine_gate::outdated_identity(&identity, &[capability]);
         if let Some(outdated) = lacks(cmux_tui_core::fs_ops::FS_CAPABILITY) {
             // `machine_outdated` only for an older build: a current one that does not serve
             // `fs-v1` on this connection names it instead (an update would change nothing).
@@ -416,10 +408,7 @@ impl<'a> Machine<'a> {
         }
         let seeds = lacks(cmux_tui_core::git_seed::GIT_SEED_CAPABILITY).is_none();
         let holds = lacks(cmux_tui_core::git_seed::GIT_SEED_HOLD_CAPABILITY).is_none();
-        let id = identity
-            .as_ref()
-            .and_then(|identity| identity.get("session_id").and_then(Value::as_str))
-            .map(str::to_owned);
+        let id = identity.get("session_id").and_then(Value::as_str).map(str::to_owned);
         Ok(Self { socket, id, seeds, holds })
     }
 
@@ -445,7 +434,7 @@ pub(in crate::link) fn follow(
     let local = std::fs::canonicalize(local)?;
     let Some(mut kept) = record::load(&local, from_root)? else { return Ok(false) };
     let id = |socket: &Path| {
-        machine_gate::identify(socket)?.get("session_id")?.as_str().map(str::to_owned)
+        machine_gate::reach(socket).ok()?.get("session_id")?.as_str().map(str::to_owned)
     };
     if kept.machine.is_some() {
         let source = anyhow::Context::context(

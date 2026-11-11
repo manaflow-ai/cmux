@@ -1563,7 +1563,7 @@ export default agentPaneEntry({
       },
     },
     "video-reading": {
-      note: "A dropped screen recording while the host still reads its poster: its tile spins in the shape it will have, its × removes it, and a send waits for it a few seconds at most (composer/videoAttachments.ts).",
+      note: 'Leo, 2026-11-11: "if you\'re literally just pointing to a file path, why would it ever take time to load anything anyways?". A dropped screen recording while the host still reads its poster: its play tile, in the shape it will have, is ready to send as its path at once; the poster fills it when the read lands (composer/videoAttachments.ts).',
       snapshot: chat(finished),
       native: {
         "chat.attach.dropped": {
@@ -1578,7 +1578,7 @@ export default agentPaneEntry({
       nativeDelayMs: { "video.info": 3_600_000 },
       play: async (ctx) => {
         dropScreenshotAndVideo(ctx);
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image.acpmux-attachment-pending"));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-video.acpmux-attachment-video-unread"));
       },
     },
     "attachment-loading": {

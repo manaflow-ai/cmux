@@ -86,6 +86,14 @@ Also on every local run, the same way: "Runs-on variables declare their single-h
 hook) refuses each runs-on variable or single-host label the head reads with no declared fallback that the base did
 not already have (cmux#40221 merged two). CI runs it only with --advisory: warnings, never a red step.
 
+Also on every local run, the same way: "Every Cargo.lock matches its manifests" (cargo-locks.py check): when the push
+changes any Cargo.toml or Cargo.lock, every tracked Cargo.lock in the repository is resolved with
+`cargo update --workspace --locked` (index only, no build, seconds), not only the changed workspace's: a manifest
+reaches other workspaces' locks through path dependencies (2026-11-10: eb4f3eb1d94 changed cmux-tui/Cargo.toml, a
+direct push, and cmux-app-ffi's lock failed --locked on every pull request until #40883). It refuses only on cargo's
+own lock error. CI's rust workspaces plan job runs the same check, and the base autofix rewrites a stale lock on
+feat-cmux-next (base-autofix.sh --locks).
+
 Also on every local run, the same way: "Crash ratchet" (crash_ratchet_findings): the Rust classes of CI's crash
 ratchet (crash_ratchet.py: unwrap, expect, panic!/unreachable!/todo!/unimplemented!, process::exit/abort, outside
 test code), judged per crate over the files the push changes: a crate whose count rises in those files is refused
@@ -193,6 +201,13 @@ DEPS_CHECKER = "scripts/cmux-next/check-package-dependency-lists.py"
 # (CI step name, command, path prefixes that make it run). {root} is the tree, {pkg} its CmuxNext
 # package, {s} its scripts/cmux-next. Mirrors the job's steps; tests/test_cmux_next_prepush_gate.py
 # keeps this list in step with the workflow.
+# The exit codes each scanner's verdicts use (audited 2026-11-11): 0 for none and 1 for findings, all of them. Exit 2
+# is a refusal to judge in check-crash-safety.sh (not a git checkout), check-state-roots.sh, check-no-process-scan.py
+# and check-no-raw-spawn.py (a bad baseline row); any other code, or a signal, is no verdict either. A scanner whose
+# verdicts use other codes names them here.
+SCANNER_VERDICT_CODES: dict[str, tuple[int, ...]] = {}
+DEFAULT_VERDICT_CODES = (0, 1)
+
 SCANNERS = (
     ("Dialog buttons show their keys (u2647)", ["python3", "-I", "{s}/check-dialog-key-hints.py", "{root}"], (PKG + "/", "webviews/")),
     ("Main-thread concurrency", ["/bin/bash", "{s}/check-concurrency.sh", "{pkg}"], (PKG + "/", "Packages/Shared/")),
@@ -213,6 +228,8 @@ SCANNERS = (
      ["python3", "-I", "{s}/check-no-process-scan.py", "{root}"], SCOPES),
     ("No raw spawns in the daemon (cmux_process, reviews of pl-holder-11)",
      ["python3", "-I", "{s}/check-no-raw-spawn.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/raw-spawn-baseline.tsv")),
+    ("Every spawn has an owner (cmux_scope::Scope, cmux_process::Child; cmuxterm-hq#9096)",
+     ["python3", "-I", "{s}/check-spawn-owner.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/spawn-owner-baseline.tsv")),
     ("No app id special cases (zero first-party privilege, docs/app-store-platonic-ideal.md 5)",
      ["python3", "-I", "{s}/check-app-id-special-cases.py", "{root}"],
      (PKG + "/", "cmux-tui/", "first-party-apps/", "scripts/cmux-next/app-id-special-cases-baseline.tsv")),
@@ -263,11 +280,12 @@ FALLBACKS_DECLARATION = ".github/single-host-fallbacks.json"
 FALLBACKS_HINT = ("Declare each name in .github/single-host-fallbacks.json (variables.NAME or labels.LABEL: the "
                   "`fallback` that takes the job and `after_minutes`), then push. Check with "
                   "`python3 scripts/cmux-next/check-single-host-fallbacks.py`.")
-CARGO_LOCK_CHECK = "Cargo.lock matches its manifests (cargo metadata --locked)"
+CARGO_LOCK_CHECK = "Every Cargo.lock matches its manifests (scripts/cmux-next/cargo-locks.py)"
 CARGO_FILE = re.compile(r"(^|/)Cargo\.(toml|lock)$")
-CARGO_DRIFT = "cannot update the lock file"
-CARGO_HINT = ("Fix the lock: run `cargo metadata --offline --format-version 1 >/dev/null` in that workspace (it "
-              "rewrites Cargo.lock with no version changes), commit it, then push.")
+CARGO_LOCKS_SCRIPT = SCRIPTS + "/cargo-locks.py"
+CARGO_HINT = ("Fix the locks: run `scripts/cmux-next/cargo-locks.py fix` (it runs `cargo update --workspace` in each "
+              "stale workspace, which rewrites only what the manifests now need), commit the Cargo.lock files, then "
+              "push. A manifest change in one workspace can leave another workspace's lock stale (eb4f3eb1d94).")
 SIDEBAR_CHECK = "Sidebar look owner (plans/cmux-next/sidebar-owner.md)"
 SIDEBAR_VIEWS = "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/"
 # The sidebar package's code, not only Views/: a702 (9a2fceefbbb, 2026-10-25) changed the pinned section from tiles
@@ -307,6 +325,7 @@ RATCHET_BASELINES = {
     "process-scan-baseline.tsv": ((0,), 1),
     "state-roots-baseline.tsv": ((0,), 1),
     "raw-spawn-baseline.tsv": ((0,), 1),
+    "spawn-owner-baseline.tsv": ((0,), 1),
     "app-id-special-cases-baseline.tsv": ((0,), 1),
     "swift-type-scale-baseline.tsv": ((0, 1), 2),
 }
@@ -825,10 +844,12 @@ NO_VERDICT = re.compile(r"Traceback \(most recent call last\)|^timed out after \
 
 
 def no_verdict(code: int, out: str, codes: tuple[int, ...] | None = None) -> str | None:
-    """Why a check's run gave no verdict, or None when it gave one: it timed out (run()'s 124), crashed (a traceback),
-    or exited with a code outside CODES (the codes its verdicts use, when it has a fixed set)."""
+    """Why a check's run gave no verdict, or None when it gave one: it timed out (run()'s 124), was killed by a signal
+    (a negative code), crashed (a traceback), or exited with a code outside CODES (the codes its verdicts use)."""
     if code == 124:
         return "timed out"
+    if code < 0:
+        return f"was killed by signal {-code}"
     if NO_VERDICT.search(out):
         return "crashed"
     if codes is not None and code not in codes:
@@ -1413,58 +1434,45 @@ def ui_font(repo: Path, base: str, head: str, trusted_scripts: Path | None = Non
         return [line for line in head_lines if base_stopped or line not in set(base_lines)]
 
 
-def cargo_lock_drift(repo: Path, base: str, head: str) -> list[str]:
-    """Each Cargo workspace whose Cargo.lock no longer matches its manifests at head, when the push changes a
-    Cargo.toml or Cargo.lock in it.
+def cargo_lock_drift(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """Every tracked Cargo.lock that no longer matches its workspace's manifests at head, when the push changes any
+    Cargo.toml or Cargo.lock anywhere in the repository (scripts/cmux-next/cargo-locks.py check).
 
     2026-11-02: #31462 moved fs4 between two crates' Cargo.toml and put it under the wrong crate in Cargo.lock.
     Every --locked cargo step on feat-cmux-next then stopped ("cannot update the lock file"), the NEXT nightly
-    included, until #31717. It reads the pushing checkout itself (no tree is exported), so it runs only when
-    head is the checked-out HEAD and the workspace's Cargo files have no uncommitted edits; it refuses only on
-    cargo's own lock error and lets the push through on any other (no cargo, an uncached index, a timeout).
+    included, until #31717. 2026-11-10: eb4f3eb1d94 changed cmux-tui/Cargo.toml and cmux-tui/Cargo.lock only, and
+    the cmux-app-ffi and cmux-layout-reducer-ffi workspaces (their own locks, cmux-tui's crates by path) went stale;
+    this check then read only the lock of the workspace a changed file sat in, so it passed. Now any Cargo change
+    checks every lock: a manifest reaches other workspaces through path dependencies. It reads the pushing
+    checkout itself (no tree is exported), so it runs only when head is the checked-out HEAD and no Cargo file has
+    uncommitted edits; it refuses only on cargo's own lock error and lets the push through on any other (no cargo,
+    an uncached index, a timeout).
     """
-    changed = [p for p in changed_files(repo, base, head) if CARGO_FILE.search(p)]
-    if not changed or shutil.which("cargo") is None:
+    names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode("utf-8", "surrogateescape")
+    if not any(CARGO_FILE.search(p) for p in names.split("\0") if p) or shutil.which("cargo") is None:
         return []
     try:
         checked_out = git(repo, "rev-parse", "HEAD").decode().strip() == git(repo, "rev-parse", head).decode().strip()
     except subprocess.CalledProcessError:
         return []
     # Pathspecs here use git's default matching, where `*` also matches `/`.
-    locks = [p for p in git(repo, "ls-files", "-z", "--", "*Cargo.lock").decode().split("\0")
-             if p.rpartition("/")[2] == "Cargo.lock"]
-    roots = sorted({lock.rpartition("/")[0] for lock in locks
-                    if any(p.startswith(lock.rpartition("/")[0] + "/") or "/" not in lock for p in changed)})
-    if not roots:
-        return []
-    dirty = subprocess.run(["git", "-C", str(repo), "diff", "--quiet", "HEAD", "--",
-                            *(f"{root}/*Cargo.toml" if root else "*Cargo.toml" for root in roots),
-                            *(f"{root}/Cargo.lock" if root else "Cargo.lock" for root in roots)],
+    dirty = subprocess.run(["git", "-C", str(repo), "diff", "--quiet", "HEAD", "--", "*Cargo.toml", "*Cargo.lock"],
                            capture_output=True).returncode != 0
     if not checked_out or dirty:
         log("prepush-gate: Cargo.lock check skipped: the pushed head is not this checkout's clean HEAD")
         return []
-    # A toolchain the workspace pins but this host lacks is never installed for a lock check.
-    env = {**os.environ, "RUSTUP_AUTO_INSTALL": "0", "CARGO_TERM_COLOR": "never"}
-    found = []
-    for root in roots:
-        manifest = repo.resolve() / root / "Cargo.toml"
-        if not manifest.is_file():
-            continue
-        for network in ("--offline", None):
-            args = ["cargo", "metadata", "--locked", "--format-version", "1", "--manifest-path", str(manifest)]
-            try:
-                run = subprocess.run(args + ([network] if network else []), cwd=manifest.parent, env=env,
-                                     stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=60)
-            except (OSError, subprocess.TimeoutExpired):
-                break
-            if run.returncode == 0:
-                break
-            if CARGO_DRIFT in run.stderr:
-                found.append(f"{root + '/' if root else ''}Cargo.lock: does not match its manifests "
-                             f"(cargo metadata --locked: {CARGO_DRIFT})")
-                break
-    return found
+    script = check_script(repo, head, CARGO_LOCKS_SCRIPT, trusted_scripts)
+    if script is None:
+        return []  # a commit older than the shared check
+    with tempfile.TemporaryDirectory(prefix="cmux-cargo-locks-") as tmp:
+        check = Path(tmp) / "cargo-locks.py"
+        check.write_bytes(script)
+        # 30 workspaces resolve in parallel from the index (about 4 s); each cargo call has its own 120 s limit.
+        code, out = run(["python3", "-I", str(check), "check", "--repo", str(repo.resolve())], Path(tmp), timeout=300)
+    if code == 124:
+        log(f"prepush-gate: Cargo.lock check skipped: {out}")
+        return []
+    return [line.removeprefix("stale: ") for line in out.splitlines() if line.startswith("stale: ")]
 
 
 def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
@@ -1598,24 +1606,70 @@ def has_pyyaml(python: str) -> bool:
         return False
 
 
-def pyyaml_install_command(python: str, purelib: str | None = None, stdlib: str | None = None,
-                           apt: bool | None = None) -> str:
-    """The one command that makes PyYAML importable for PYTHON under `-I`, which ignores user site-packages, so
-    `pip install --user` never helps the hook. A venv or a site-packages this user can write: pip into it (with
-    --break-system-packages where the Python is marked externally managed, as Homebrew's is; that flag only lifts
-    pip's refusal, it writes this Python's own prefix). Otherwise the system's package (python3-yaml) where apt-get
-    exists, else pip into that Python with sudo."""
+# Where Debian and Ubuntu's python3-yaml lands: the one place `apt-get install` can put PyYAML for an interpreter.
+APT_DIST_PACKAGES = "/usr/lib/python3/dist-packages"
+
+
+def interpreter_sys_path(python: str) -> list[str]:
+    """PYTHON's sys.path as the hook runs it (-I, so no user site and no PYTHONPATH); [] when it does not answer."""
+    try:
+        done = subprocess.run([python, "-I", "-c", "import json, sys; print(json.dumps(sys.path))"],
+                              capture_output=True, text=True, timeout=30)
+        listed = json.loads(done.stdout) if done.returncode == 0 else []
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return []
+    return [p for p in listed if isinstance(p, str)] if isinstance(listed, list) else []
+
+
+# How pip may install into an interpreter (PEP 668), as one line run with `python -I -c PEP668_ROUTE [STDLIB PURELIB]`
+# (both paths or neither: the interpreter's own). Externally managed: not a venv (sys.prefix == sys.base_prefix; a
+# venv reads its base's stdlib, so it sees the base's marker, yet pip installs into the venv: Codex on #40966) and
+# STDLIB holds EXTERNALLY-MANAGED. It prints one route:
+#   pip       not externally managed, PURELIB writable: plain pip
+#   sudo-pip  not externally managed, PURELIB not writable by this user: pip with sudo
+#   break     externally managed, PURELIB writable (Homebrew): pip --break-system-packages (Codex on leo-workspace#4198)
+#   refuse    externally managed, PURELIB not writable (a system Python under /usr): no pip; say what to do
+# leo-workspace machines/host-baseline.json's PyYAML install runs this same text, and both repos' tests pin its sha256
+# (tests/test_ci_single_host_fallbacks.py PEP668_ROUTE_SHA256), so change both sides together.
+PEP668_ROUTE = 'import os, sys, sysconfig; p = sysconfig.get_paths(); s, w = sys.argv[1:3] if len(sys.argv) == 3 else (p["stdlib"], p["purelib"]); m = sys.prefix == sys.base_prefix and os.path.exists(os.path.join(s, "EXTERNALLY-MANAGED")); print(("break" if m else "pip") if os.access(w, os.W_OK) else ("refuse" if m else "sudo-pip"))'
+PEP668_ROUTES = ("pip", "sudo-pip", "break", "refuse")
+
+
+def pep668_route(python: str, stdlib: str | None = None, purelib: str | None = None) -> str:
+    """PEP668_ROUTE's answer for PYTHON, asked of PYTHON itself with -I. STDLIB and PURELIB override the paths PYTHON
+    reports (a missing one of the two is this interpreter's). A PYTHON that does not answer is judged by this
+    interpreter, with PYTHON's paths taken as this interpreter's."""
     paths = sysconfig.get_paths()
-    purelib = paths["purelib"] if purelib is None else purelib
-    stdlib = paths["stdlib"] if stdlib is None else stdlib
+    given = [] if stdlib is None and purelib is None else [
+        paths["stdlib"] if stdlib is None else stdlib, paths["purelib"] if purelib is None else purelib]
+    for asked, extra in ((python, given), (sys.executable, given or [paths["stdlib"], paths["purelib"]])):
+        try:
+            done = subprocess.run([asked, "-I", "-c", PEP668_ROUTE, *extra], capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if done.returncode == 0 and done.stdout.strip() in PEP668_ROUTES:
+            return done.stdout.strip()
+    return "refuse"
+
+
+def pyyaml_install_command(python: str, purelib: str | None = None, stdlib: str | None = None,
+                           apt: bool | None = None, syspath: list[str] | None = None) -> str:
+    """The one command that makes PyYAML importable for PYTHON under `-I`, which ignores user site-packages, so
+    `pip install --user` never helps the hook. apt's python3-yaml only where it reaches PYTHON: apt-get exists and
+    PYTHON's own sys.path (SYSPATH; read from PYTHON when None) holds APT_DIST_PACKAGES (Codex on #40880: a venv or
+    a custom Python on an apt host never sees it). Otherwise pip, run as -I so a PyYAML already in the user site does
+    not satisfy it, into PYTHON's own prefix, by pep668_route(): plain, with sudo, with --break-system-packages, or
+    no pip at all and what to do instead."""
     apt = shutil.which("apt-get") is not None if apt is None else apt
-    pip = f"{shlex.quote(python)} -m pip install"
-    if os.access(purelib, os.W_OK):
-        managed = os.path.exists(os.path.join(stdlib, "EXTERNALLY-MANAGED"))
-        return f"{pip}{' --break-system-packages' if managed else ''} {PYYAML_PIN}"
-    if apt:
+    if apt and APT_DIST_PACKAGES in (interpreter_sys_path(python) if syspath is None else syspath):
         return "sudo apt-get install -y python3-yaml"
-    return f"sudo {pip} {PYYAML_PIN}"
+    route = pep668_route(python, stdlib, purelib)
+    if route == "refuse":
+        return (f"{python} is externally managed (PEP 668) and this user cannot write its prefix: install PyYAML "
+                "6.0.3 with its own package manager, or rerun scripts/install-git-hooks.sh with a venv's python3 "
+                "first on PATH")
+    pip = f"{shlex.quote(python)} -I -m pip install {'--break-system-packages ' if route == 'break' else ''}{PYYAML_PIN}"
+    return f"sudo {pip}" if route == "sudo-pip" else pip
 
 
 FALLBACKS_STATUSES = ("found", "incomplete")
@@ -1670,7 +1724,8 @@ def single_host_fallback_problems(repo: Path, base: str, head: str, trusted_scri
         return []
     # The checker runs under this interpreter: the hook's own Python (its python3-path), as every other layer does.
     if not has_pyyaml(sys.executable):
-        return [f"PyYAML missing: run {pyyaml_install_command(sys.executable)}"]
+        fix = pyyaml_install_command(sys.executable)
+        return [f"PyYAML missing: {fix}" if "externally managed" in fix else f"PyYAML missing: run {fix}"]
     with tempfile.TemporaryDirectory(prefix="cmux-fallbacks-") as tmp:
         work = Path(tmp)
         (work / "check.py").write_bytes(script)
@@ -1937,7 +1992,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
     # Local only, like SwiftFormat: CI's own --locked cargo steps stay the backstop. Not in gate_own's runs over the
     # ranges a merge does not own (RESTRICT): the check reads only the checkout, never those ranges' heads.
     if (highlights_layer if only is None else "cargo-lock" in only) and restrict is None:
-        drift = cargo_lock_drift(repo, base, head)
+        drift = cargo_lock_drift(repo, base, head, trusted_scripts)
         if drift:
             reserved.append((CARGO_LOCK_CHECK, drift))
     if only is None or "sidebar" in only:
@@ -2075,8 +2130,18 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                         + "\n".join(head_out.splitlines()[-5:]))
                 if os.environ.get("CMUX_PREPUSH_GATE_DEBUG"):
                     log(f"--- {name} (head exit {head_code})\n{head_out}")
-                if no_verdict(base_code, base_out):
-                    base_out = ""  # never subtracted, here or in the dependency check's stale-line diff
+                # One rule for every scanner, before any subtraction (Codex on #40880): a run outside the scanner's
+                # verdict codes, a signal, a crash or a timeout is no verdict. At the head it refuses; at the base it
+                # subtracts nothing, here or in the dependency check's stale-line diff.
+                codes = SCANNER_VERDICT_CODES.get(name, DEFAULT_VERDICT_CODES) if jobs[name][0] == "cmd" else None
+                stopped = no_verdict(head_code, head_out, codes)
+                if stopped:
+                    found.append((name, [NoVerdict(f"{name} {stopped} at the pushed head instead of judging it, so the "
+                                                   f"push is refused: "
+                                                   f"{' '.join(head_out.strip().splitlines()[-2:])[:300]}")]))
+                    continue
+                if no_verdict(base_code, base_out, codes):
+                    base_out = ""
                 if name == DEPS_CHECK:
                     head_out, head_code = deps_findings(repo, base, head, base_out, head_out, head_code,
                                                         full_package=name in trees_for, cmd=jobs[name][1],
@@ -2084,10 +2149,6 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                 if head_code == 0:
                     continue  # passing on the head: what it prints is a warning tier, as in CI
                 fresh = new_records(base_out, head_out, name_base, name_head)
-                stopped = no_verdict(head_code, head_out)
-                if stopped:
-                    fresh = [NoVerdict(f"{name} {stopped} at the pushed head instead of judging it, so the push is "
-                                       f"refused: {' '.join(head_out.strip().splitlines()[-2:])[:300]}"), *fresh]
                 if fresh:
                     found.append((name, fresh))
         # Its scan after the scanners: it adds files to the trees (the modules that declare a changed file, deleted

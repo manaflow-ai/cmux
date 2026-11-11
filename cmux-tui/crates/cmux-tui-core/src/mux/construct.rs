@@ -448,6 +448,7 @@ impl Mux {
             terminal_respawns: terminal_respawn::TerminalRespawns::from_env(),
             daemon_shutdown_waker: Mutex::new(None),
             control_clients: crate::server::ClientRegistry::new(input_lane),
+            tree_reply_flight: Default::default(),
             #[cfg(unix)]
             agent_transfers: Default::default(),
             #[cfg(unix)]

@@ -1016,11 +1016,11 @@ def republisher():
 
 
 def decide_harness():
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("nightly_decide_tests", ROOT / "tests/test_ci_nightly_push_throttle.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    # Imported by name: the test module pytest (and test_nightly_next_arm64_only.py) already holds.
+    if str(ROOT / "tests") not in sys.path:
+        sys.path.insert(0, str(ROOT / "tests"))
+    import test_ci_nightly_push_throttle
+    return test_ci_nightly_push_throttle
 
 
 class RepublishSourceTests(unittest.TestCase):

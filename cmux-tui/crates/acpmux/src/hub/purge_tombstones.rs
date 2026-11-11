@@ -25,7 +25,7 @@
 //! The tombstones live on the peer instance (`Peer::purge_tombstones`), so
 //! they go with it: a removed or replaced peer's never reach another instance
 //! of the name. Every change starts from a peer Arc found current; callers use that Arc directly so
-//! a rows lock is never held while looking up `peers` again.
+//! the rows writer lock is never held while looking up `peers` again.
 
 use std::collections::HashSet;
 use std::sync::Mutex;
@@ -119,8 +119,7 @@ mod tests {
     fn rows(hub: &Hub, peer: &str) -> Vec<String> {
         let mut ids: Vec<String> = hub
             .remote_sessions
-            .lock()
-            .unwrap()
+            .read()
             .values()
             .filter(|r| r.peer == peer)
             .map(|r| r.receipt.mux_session_id.clone())

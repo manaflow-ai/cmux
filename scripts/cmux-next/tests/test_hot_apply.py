@@ -18,6 +18,15 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+import importlib.util  # noqa: E402
+
+# tests/git_fixture_env.py turns off git's background maintenance in temp repos.
+_git_fixture_env = importlib.util.spec_from_file_location(
+    "git_fixture_env",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "tests", "git_fixture_env.py"),
+)
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_env)
+_git_fixture_env.loader.exec_module(git_fixture_env)
 
 SCRIPT = Path(__file__).resolve().parent.parent / "hot-apply.py"
 ROOT = SCRIPT.parents[2]
@@ -188,9 +197,13 @@ class HotApplyRust(unittest.TestCase):
         self.assertEqual(code, 0, err)
         code, receipt, err = self.hot("rollback")
         self.assertEqual(code, 0, err)
-        self.assertEqual(receipt["steps"]["rust"]["acpmux"], [{"home": str(self.tmp / "home"), "restarted": True}])
-        # Once for the apply, once for the rollback, each on the home and never on the inherited socket.
-        self.assertEqual(log.read_text().splitlines(), [f"{self.tmp / 'home'}||daemon restart"] * 2)
+        self.assertEqual(receipt["steps"]["rust"]["acpmux"], [{"home": str(self.tmp / "home"), "restarted": True,
+                                                            "own_environment": False}])
+        # Once for the apply, once for the rollback, each on the home and never on the inherited socket: a
+        # status read of the running daemon (whose launch environment the restart reuses), then the restart.
+        home = self.tmp / "home"
+        self.assertEqual(log.read_text().splitlines(),
+                         [f"{home}||--json daemon status", f"{home}||daemon restart"] * 2)
 
     def test_a_binary_that_does_not_hash_to_its_published_sha_changes_nothing(self):
         self.publish(b"#!/bin/sh\necho tampered\n", self.new)

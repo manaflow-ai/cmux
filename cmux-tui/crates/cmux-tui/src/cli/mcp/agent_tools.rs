@@ -147,8 +147,8 @@ pub(super) const TOOLS: &[AgentTool] = &[
         verb: Verb::ChatState,
         title: "Read a chat's state",
         description: "What an agent chat of this cmux session is doing (`cmux agents chat \
-            state`): status, running, pending_permissions, queued, harness, model, mode. \
-            Changes nothing.",
+            state`): status, running, pending_permissions, held_messages (other sessions' \
+            messages its Claude Code holds), queued, harness, model, mode. Changes nothing.",
     },
     AgentTool {
         name: "agents_chat_interrupt",

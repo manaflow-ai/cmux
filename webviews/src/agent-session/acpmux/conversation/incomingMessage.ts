@@ -40,7 +40,14 @@
 // threads draw as received lines (inboxNotice.ts), its text for the agent never shows.
 import { clipMessagePreview as clip } from "./clipMessagePreview";
 import { inboxNotice, type InboxNotice } from "./inboxNotice";
-import { bareSender, provenanceAuthenticated, relayAddress, senderRecord, senderUnverified } from "./senderIdentity";
+import {
+  bareSender,
+  hostTokenVerified,
+  provenanceAuthenticated,
+  relayAddress,
+  senderRecord,
+  senderUnverified,
+} from "./senderIdentity";
 import { relayEnvelope, withoutRelayEnvelope, withoutRelayLabel, withoutRelayLabelOfMessage } from "./relayEnvelope";
 import {
   legacyNotice,
@@ -49,6 +56,8 @@ import {
   noticeRowText,
   provenanceNotice,
   renderedNotice,
+  shownNoticeBody,
+  shownSender,
   type AgentNotice,
 } from "./agentNotice";
 
@@ -451,7 +460,7 @@ function withSender(
   // With no sender record, acpmux's own proof in the provenance (a relay's record, a session it
   // stamped) verifies the sender, as acpmux's record would have (review of cmux#37653).
   const unverified =
-    !(record === undefined && provenanceAuthenticated(provenance)) &&
+    !(record === undefined && (provenanceAuthenticated(provenance) || hostTokenVerified(provenance))) &&
     senderUnverified(record, sender.declared || declared || provenance?.from === NAMED_SENDER);
   const harness = prompt.message.harness ?? record?.harness;
   // A relayed sender's chat is asked for by its whole relay address: the name acpmux gave it is cut
@@ -615,7 +624,14 @@ function promptOf(
     if (notice)
       return {
         kind: "message",
-        message: { name: notice.sender, notice, ...remote, ...harness, text: noticeBody(text), raw: text },
+        message: {
+          name: notice.sender,
+          notice,
+          ...remote,
+          ...harness,
+          text: shownNoticeBody(notice, noticeBody(text)),
+          raw: text,
+        },
       };
   }
   // A notice an older acpmux kept no provenance for, and tell-coordinator's page (agentNotice.ts
@@ -634,7 +650,14 @@ function promptOf(
     if (read && "notice" in read)
       return {
         kind: "message",
-        message: { name: read.notice.sender, notice: read.notice, ...remote, ...harness, text: read.body, raw: text },
+        message: {
+          name: read.notice.sender,
+          notice: read.notice,
+          ...remote,
+          ...harness,
+          text: shownNoticeBody(read.notice, read.body),
+          raw: text,
+        },
       };
     if (read)
       return { kind: "message", message: { name: read.sender, ...remote, ...harness, text: read.text, raw: text } };
@@ -954,17 +977,17 @@ function digestParts(text: string, messages: readonly unknown[]): DigestPart[] {
   const parts = [...rest.matchAll(DIGEST_PART)];
   if (!parts.length || parts[0]!.index !== 0) return [];
   return parts.map((part, index) => {
-    const sender = part[1]!.trim();
+    const sender = shownSender(part[1]!.trim());
     const end = parts[index + 1]?.index ?? rest.length;
     const body = withoutRelayEnvelope(rest.slice(part.index! + part[0].length, end)).trim();
     const sent = (messages[index] as { provenance?: Record<string, unknown> } | null)?.provenance;
     const notice = sent?.kind === "notice" || sent?.kind === "who_else" ? provenanceNotice(sent) : undefined;
-    if (notice) return { sender, notice, text: noticeBody(body) };
+    if (notice) return { sender, notice, text: shownNoticeBody(notice, noticeBody(body)) };
     // A notice an older acpmux kept no provenance for, or tell-coordinator's page, sent at a shell
     // (agentNotice.ts): read from its head, as a turn of its own reads it.
     const named = !sent || (sent.kind === "agent_message" && sent.from === NAMED_SENDER);
     const read = named ? (renderedNotice(body) ?? legacyNotice(body)) : undefined;
-    if (read && "notice" in read) return { sender, notice: read.notice, text: read.body };
+    if (read && "notice" in read) return { sender, notice: read.notice, text: shownNoticeBody(read.notice, read.body) };
     const signed = agentSigned(body, [sender]);
     return { sender: signed?.name ?? sender, text: signed?.text ?? body };
   });

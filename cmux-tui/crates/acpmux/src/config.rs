@@ -122,9 +122,27 @@ fn folder_identity(_path: &Path) -> Option<(u64, u64)> {
 /// Records [`home`] as the folder this daemon holds, once it holds its lock. A process that
 /// never calls it (a CLI command) checks no identity.
 pub fn hold_home() {
-    if let Some(identity) = folder_identity(&home()) {
+    let home = home();
+    if let Some(identity) = folder_identity(&home) {
         let _ = HELD_HOME.set(identity);
     }
+    if let Ok(Some(dir)) = crate::artifacts_fs::Dir::open(&home, Path::new("")) {
+        let _ = HELD_HOME_DIR.set(dir);
+    }
+}
+
+/// The held home ([`hold_home`]) as the open folder, not its path.
+static HELD_HOME_DIR: std::sync::OnceLock<crate::artifacts_fs::Dir> = std::sync::OnceLock::new();
+
+/// The held home as the folder this daemon locked, with `path` relative to it: a write made
+/// through it ([`crate::artifacts_fs::Dir::write`]) lands in that folder wherever it is now, so a
+/// home replaced after [`refuse_lost_home`] passed and before the write never gets it (the
+/// window that check leaves open by path). `None`: this process holds no home (a CLI command)
+/// or `path` is not under it; such a write goes by path.
+pub(crate) fn held_home_dir(path: &Path) -> Option<(&'static crate::artifacts_fs::Dir, PathBuf)> {
+    let dir = HELD_HOME_DIR.get()?;
+    let relative = path.strip_prefix(home()).ok()?;
+    Some((dir, relative.to_path_buf()))
 }
 
 /// Whether the held home ([`hold_home`]) is gone or another folder now: read from the folder
@@ -1501,6 +1519,10 @@ pub struct Config {
     /// the hot-reload watcher read the same ones.
     #[serde(skip)]
     pub profile_sources: ProfileSources,
+    /// What this process last read from or wrote to the file: a save writes only what changed
+    /// since, so another writer's change is kept (`config/save_merge.rs`).
+    #[serde(skip)]
+    pub saved: save_merge::SavedBase,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1822,6 +1844,8 @@ impl Config {
         cfg.profile_sources = sources.clone();
         cfg.cloud_host = crate::cloud_host::is_cloud_vm();
         cfg.path = Some(path);
+        let read = (!cfg.file_missing).then(|| cfg.on_disk_value().ok()).flatten();
+        cfg.saved = save_merge::SavedBase::new(read);
         Ok(cfg)
     }
 
@@ -1945,6 +1969,12 @@ impl Config {
         if let Some(parent) = path.parent() {
             private_state_dir(parent)?;
         }
+        save_merge::save_merged(path, &self.saved, self.on_disk_value()?, write)
+    }
+
+    /// The config as a save writes it: without what discovery, profile files and this run
+    /// added, with the config.json entries profile files replaced.
+    fn on_disk_value(&self) -> Result<serde_json::Value> {
         let mut on_disk = self.clone();
         on_disk
             .harnesses
@@ -1970,7 +2000,7 @@ impl Config {
                 on_disk.defaults.remove("claude");
             }
         }
-        write(path, serde_json::to_string_pretty(&on_disk)?.as_bytes())
+        Ok(serde_json::to_value(&on_disk)?)
     }
 
     pub fn profile(&self, name: &str) -> Option<&HarnessProfile> {
@@ -2070,6 +2100,7 @@ pub use discover::{
 };
 mod peer;
 pub use peer::PeerConfig;
+mod save_merge;
 mod store_config;
 pub use store_config::{StoreConfig, StoreMode};
 mod pool;
@@ -2104,5 +2135,7 @@ pub fn normalize_permission_mode(value: &str) -> Option<&'static str> {
     }
 }
 
+#[cfg(test)]
+mod save_merge_tests;
 #[cfg(test)]
 mod tests;
