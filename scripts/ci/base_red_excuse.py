@@ -3104,20 +3104,67 @@ def ws_check_fix_untouched(repo: str, base: str, sha: str, merge_base: str, pass
                       f"merge {base}")
 
 
+class FixedOnBase(Refused):
+    """A ws-check red that ws_check_red calls "fixed_on_base": still refused, since the PR needs CI at a head that has
+    the fix, but said as "fixed on base by <commit>: update the branch", never as "not excused" (main prints it as it
+    is)."""
+
+
+# 2026-11-11: merge_hold refused teamleaderleo/leo-workspace#4199 at e31e643a with "not excused: 'ws-check' is green on
+# main e5a6bed1b950, red on e31e643a6b26; not excused 'ws-check' test ...". Its one red, test_knowledge_tiers.py's
+# leo-asks room test, failed the same way at its merge-base e8873054 and was fixed on main by LW#4196; the PR touched
+# only tools/lane-gh. Main's newest verdict was a pass, and nothing past it was read, so a base red main had since fixed
+# read as the PR's own. Now a pass at or after the merge-base reads the merge-base's own verdict: when it failed every
+# test and line the head fails, the verdict is "fixed_on_base", named by the first green base commit after the
+# merge-base (best effort: the oldest green among the WS_CHECK_COMMITS read, back to the merge-base). ws_check_red is
+# the one verdict: merge_hold's message comes from it (judge, through ws_check), and the lane-gh broker's
+# update_branch guard reads it (--ws-check-verdict) to let a SHIP'd PR's base merge through only for "fixed_on_base".
+# Its kinds: "pass" (the head is green), "base_red" (every failure is red on the base too: excused), "fixed_on_base",
+# "head_only" (a failure the base does not show: the head's own red, or a flake the classifier cannot tell from one),
+# and "base_stale" (the base's newest verdict, a pass, is before the merge-base: re-check later).
+WS_CHECK_KINDS = ("pass", "base_red", "fixed_on_base", "head_only", "base_stale")
+
+
 def ws_check(repo: str, base: str, sha: str, github) -> list[str]:
-    """Audit lines excusing SHA's red ws-check status, one per failing test; Refused (with a line per test) else."""
+    """Audit lines excusing SHA's red ws-check status, one per failing test; Refused (with a line per test) else, and
+    FixedOnBase for a red the base has fixed since the PR's merge-base. The verdict is ws_check_red's."""
+    verdict = ws_check_red(repo, base, sha, github)
+    if verdict["kind"] in ("pass", "base_red"):
+        return verdict["audit"]
+    raise (FixedOnBase if verdict["kind"] == "fixed_on_base" else Refused)(verdict["message"])
+
+
+def ws_check_fix(repo: str, merge_base: str, tip: str, commits: list[str], github) -> str:
+    """The first base commit after MERGE_BASE whose ws-check status is a success: COMMITS (the base's, newest first)
+    walked back to MERGE_BASE, one status read each (no log). Best effort: when MERGE_BASE is not among them, the
+    oldest green one read; TIP (the base's newest verdict, a pass) when none reads green."""
+    fix = tip
+    for commit in commits:
+        if commit == merge_base:
+            break
+        status = ws_check_status(repo, commit, github)
+        if status is not None and status.get("state") == "success":
+            fix = commit
+    return fix
+
+
+def ws_check_red(repo: str, base: str, sha: str, github) -> dict:
+    """The one verdict on SHA's ws-check status against BASE: {"kind" (one of WS_CHECK_KINDS), "fix" (the fixing base
+    commit, for "fixed_on_base", else ""), "message" (what a refusal says), "audit" (the lines an excuse prints)}.
+    Refused when a status or log cannot be read, or the head has no result: never guessed."""
     kind, head = ws_check_verdict(repo, sha, github)
     if kind == "none":
         raise Refused(f"'{WS_CHECK}' has no result on {sha}: {head['why']}; never excused, wait for its verdict")
     if kind == "pass":
         # No failure is exit 0 (NoFailureExitsZero): a merge check may ask about every head, green ones included.
-        return [f"'{WS_CHECK}' passed on {sha}: no failure to excuse"]
+        said = f"'{WS_CHECK}' passed on {sha}: no failure to excuse"
+        return {"kind": "pass", "fix": "", "message": said, "audit": [said]}
     units = ws_check_units(head["steps"])
     diff = github.json(f"repos/{repo}/compare/{base}...{sha}?per_page=1")
     merge_base = ((diff.get("merge_base_commit") or {}).get("sha")) or ""
-    verdicts = ((commit["sha"], *ws_check_verdict(repo, commit["sha"], github))
-                for commit in github.json(f"repos/{repo}/commits?sha={base}&per_page={WS_CHECK_COMMITS}") or []
-                if isinstance(commit, dict) and isinstance(commit.get("sha"), str))
+    commits = [commit["sha"] for commit in github.json(f"repos/{repo}/commits?sha={base}&per_page={WS_CHECK_COMMITS}")
+               or [] if isinstance(commit, dict) and isinstance(commit.get("sha"), str)]
+    verdicts = ((commit, *ws_check_verdict(repo, commit, github)) for commit in commits)
     verdicts = (found for found in verdicts if found[1] != "none")
     newest = next(verdicts, None)
     if newest is None:
@@ -3125,23 +3172,57 @@ def ws_check(repo: str, base: str, sha: str, github) -> list[str]:
                       "compare with")
     tip, tip_kind, tip_verdict = newest
     tested = f"{base} {tip[:12]} ({tip_verdict['url'] or 'no run'})"
-    if tip_kind == "pass":
-        after = (merge_base == tip or (re.fullmatch(r"[0-9a-f]{40}", merge_base) and github.json(
-            f"repos/{repo}/compare/{merge_base}...{tip}?per_page=1").get("status") in ("ahead", "identical")))
-        why = (f"passes on {tested}, the newest {base} verdict: fixed on {base}; merge {base}" if after else
-               f"the newest {base} verdict, a pass at {tested}, is before the merge-base {merge_base[:12]}; "
-               f"re-check once a {base} commit at or after it has a ws-check verdict")
-        lines = [f"not excused '{WS_CHECK}' test '{step} :: {test}': {why}"
-                 for step, red in head["steps"].items() for test in sorted(red["tests"])]
-        lines += [f"not excused '{WS_CHECK}' step '{step}' (no test names): {why}"
-                  for step, red in head["steps"].items() if not red["tests"]]
-        raise Refused(f"'{WS_CHECK}' is green on {base} {tip[:12]}, red on {sha[:12]}\n" + "\n".join(lines))
-    window, when = [(tip, tip_verdict)], created({"created_at": tip_verdict["at"]})
-    at_merge_base: list[tuple[str, dict]] = []
 
     def has(verdict: dict, unit) -> bool:
         step, kind, item = unit
         return step in verdict["steps"] and item in verdict["steps"][step]["tests" if kind == "test" else "lines"]
+
+    if tip_kind == "pass":
+        header = f"'{WS_CHECK}' is green on {base} {tip[:12]}, red on {sha[:12]}\n"
+        after = (merge_base == tip or (re.fullmatch(r"[0-9a-f]{40}", merge_base) and github.json(
+            f"repos/{repo}/compare/{merge_base}...{tip}?per_page=1").get("status") in ("ahead", "identical")))
+        if not after:
+            why = (f"the newest {base} verdict, a pass at {tested}, is before the merge-base {merge_base[:12]}; "
+                   f"re-check once a {base} commit at or after it has a ws-check verdict")
+            lines = [f"not excused '{WS_CHECK}' test '{step} :: {test}': {why}"
+                     for step, red in head["steps"].items() for test in sorted(red["tests"])]
+            lines += [f"not excused '{WS_CHECK}' step '{step}' (no test names): {why}"
+                      for step, red in head["steps"].items() if not red["tests"]]
+            return {"kind": "base_stale", "fix": "", "message": header + "\n".join(lines), "audit": []}
+        # The merge-base's own verdict: a red it shares is a base red the base has fixed since (LW#4199).
+        mb_kind, mb_verdict = ("pass", {}) if merge_base == tip else ws_check_verdict(repo, merge_base, github)
+        mb = merge_base[:12]
+        if mb_kind == "fail" and all(has(mb_verdict, unit) for unit in units):
+            fix = ws_check_fix(repo, merge_base, tip, commits, github)
+            seen = (f"red at this PR's merge-base {mb} too ({mb_verdict['url'] or 'no run'}), green on {base} at "
+                    f"{fix[:12]}")
+            lines = [f"fixed on base '{WS_CHECK}' test '{step} :: {test}': {seen}"
+                     for step, red in head["steps"].items() for test in sorted(red["tests"])]
+            lines += [f"fixed on base '{WS_CHECK}' step '{step}' (no test names): {seen}"
+                      for step, red in head["steps"].items() if not red["tests"]]
+            said = (f"fixed on base by {fix[:12]}: update the branch: '{WS_CHECK}' on {sha[:12]} fails the same way "
+                    f"as at this PR's merge-base {mb}, and {base} is green since {fix[:12]} (newest verdict a pass at "
+                    f"{tested}); the PR needs CI at a head that has the fix\n")
+            return {"kind": "fixed_on_base", "fix": fix, "message": said + "\n".join(lines), "audit": []}
+        newest_pass = f"passes on {tested}, the newest {base} verdict"
+        note = (f"{newest_pass}; the merge-base {mb} has no ws-check verdict ({mb_verdict.get('why')}), so whether it "
+                f"was red there is unknown: merge {base}") if mb_kind == "none" else ""
+
+        def why(unit_list) -> str:
+            if note:
+                return note
+            if mb_kind == "fail" and all(has(mb_verdict, unit) for unit in unit_list):
+                return (f"red at this PR's merge-base {mb} too and fixed on {base}, but this head has a red of its "
+                        "own besides")
+            return f"{newest_pass}, and not red at this PR's merge-base {mb}; this head's own red"
+        lines = [f"not excused '{WS_CHECK}' test '{step} :: {test}': {why([(step, 'test', test)])}"
+                 for step, red in head["steps"].items() for test in sorted(red["tests"])]
+        lines += [f"not excused '{WS_CHECK}' step '{step}' (no test names): "
+                  f"{why([(step, 'line', line) for line in red['lines']])}"
+                  for step, red in head["steps"].items() if not red["tests"]]
+        return {"kind": "head_only", "fix": "", "message": header + "\n".join(lines), "audit": []}
+    window, when = [(tip, tip_verdict)], created({"created_at": tip_verdict["at"]})
+    at_merge_base: list[tuple[str, dict]] = []
 
     def on(unit) -> tuple[str, dict] | None:
         return next(((commit, verdict) for commit, verdict in window + at_merge_base if has(verdict, unit)), None)
@@ -3198,12 +3279,14 @@ def ws_check(repo: str, base: str, sha: str, github) -> list[str]:
                          f"{', '.join(sorted(commit[:12] for commit in found)) or tip[:12]} too"
                          + (" (the merge-base's included)" if at_merge_base and at_merge_base[0][0] in found else ""))
     if missing:
-        raise Refused(f"'{WS_CHECK}': {len(missing)} failure(s) not on {base}: {'; '.join(missing)[:600]}\n"
-                      + "\n".join(lines))
+        return {"kind": "head_only", "fix": "", "audit": [],
+                "message": f"'{WS_CHECK}': {len(missing)} failure(s) not on {base}: {'; '.join(missing)[:600]}\n"
+                           + "\n".join(lines)}
     via = (f"; at this PR's merge-base {merge_base[:12]} ({at_merge_base[0][1]['url'] or 'no run'}) for what the "
            "window does not show" if at_merge_base and any(on(unit)[0] == merge_base for unit in units) else "")
-    return [f"excused '{WS_CHECK}': every failure on {sha[:12]} is red on {base} too (newest {base} verdict "
-            f"{tested}{via})"] + lines
+    audit = [f"excused '{WS_CHECK}': every failure on {sha[:12]} is red on {base} too (newest {base} verdict "
+             f"{tested}{via})"] + lines
+    return {"kind": "base_red", "fix": "", "message": audit[0], "audit": audit}
 
 
 def list_base_runs(repo: str, base: str, workflow, github, base_runs: dict) -> None:
@@ -3796,6 +3879,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--run", type=int, action="append", default=[], help="a failed workflow run on the head")
     parser.add_argument("--check", action="append", default=[], help="a red required check on the head")
     parser.add_argument("--flake-state", help="tap-tests/v1 JSON; TAP_TESTS_STATE=off disables base-flake quarantine")
+    parser.add_argument("--ws-check-verdict", action="store_true",
+                        help="print ws_check_red's verdict on the head's ws-check as JSON (the lane-gh broker's "
+                             "update_branch guard reads it); exit 0 with it, else as a judge")
     args = parser.parse_args(argv)
     if PLACEHOLDER_SHA.fullmatch(args.sha) and os.environ.get("BASE_RED_EXCUSE_FIXTURE_SHA") != "1":
         print(f"not excused: --sha {args.sha} is a placeholder, not a commit; nothing was read", file=sys.stderr)
@@ -3805,13 +3891,22 @@ def main(argv: list[str] | None = None) -> int:
     if previous is not None:
         signal.alarm(limit)
     try:
-        audit = judge(args.repo, args.base, args.sha, args.run, GitHub(), checks=args.check,
-                      flake_state=test_reds.load_flake_state(args.flake_state, fetch=True))
+        if args.ws_check_verdict:
+            if args.repo not in WS_CHECK_REPOS:
+                raise Refused(f"{args.repo} has no '{WS_CHECK}' status to judge")
+            audit = [json.dumps(ws_check_red(args.repo, args.base, args.sha, rate_limit_aware(GitHub())),
+                                sort_keys=True)]
+        else:
+            audit = judge(args.repo, args.base, args.sha, args.run, GitHub(), checks=args.check,
+                          flake_state=test_reds.load_flake_state(args.flake_state, fetch=True))
     except rate_limited_classes() as error:
         print(f"rate-limited: {error}", file=sys.stderr)
         return 3
     except Infra as error:
         print(f"not excused: infra, not a verdict: {error}", file=sys.stderr)
+        return 1
+    except FixedOnBase as error:
+        print(str(error), file=sys.stderr)  # "fixed on base by <commit>: update the branch: ..."
         return 1
     except (Refused, KeyError, ValueError) as error:
         print(f"not excused: {error}", file=sys.stderr)
