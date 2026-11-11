@@ -703,6 +703,20 @@ def _line_comment_marker_length(
 
 
 _JAVASCRIPT_CONTROL_HEAD_KEYWORDS = frozenset({"if", "while", "for", "with"})
+# A `{` after one of these opens an expression (an object literal or a function body's value), so a slash after its
+# `}` divides; after a block keyword it opens a block, so a slash after its `}` starts a regex literal.
+_JAVASCRIPT_EXPRESSION_KEYWORDS = frozenset(
+    {"await", "delete", "in", "instanceof", "new", "of", "return", "throw", "typeof", "void", "yield"}
+)
+_JAVASCRIPT_BLOCK_KEYWORDS = frozenset({"do", "else", "finally", "try"})
+# Heads after whose `)` a `{` opens a block (a statement's body): the control heads, `switch` and `catch`.
+_JAVASCRIPT_BLOCK_HEAD_KEYWORDS = _JAVASCRIPT_CONTROL_HEAD_KEYWORDS | {"switch", "catch"}
+
+
+def _javascript_identifier_character(character: str) -> bool:
+    """Whether CHARACTER continues a JavaScript identifier (Unicode ID_Continue, `$` or `_`): `πif` is one name,
+    not `π` and the keyword `if`."""
+    return character in "_$" or character.isalnum() or ("a" + character).isidentifier()
 
 
 def _javascript_word_before(source: str, end: int, comments: bytearray) -> tuple[str, int]:
@@ -712,9 +726,20 @@ def _javascript_word_before(source: str, end: int, comments: bytearray) -> tuple
     while previous >= 0 and (source[previous].isspace() or comments[previous]):
         previous -= 1
     start = previous + 1
-    while start > 0 and source[start - 1].isascii() and (source[start - 1].isalnum() or source[start - 1] in "_$"):
+    while start > 0 and _javascript_identifier_character(source[start - 1]):
         start -= 1
     return source[start : previous + 1], start
+
+
+def _javascript_is_keyword_at(source: str, start: int, comments: bytearray) -> bool:
+    """Whether the word starting at START is a keyword by position: not a private name (`#if`) and not a member
+    name after `.` or `?.` (`x.if`, `x?.return`)."""
+    if start > 0 and source[start - 1] == "#":
+        return False
+    before = start - 1
+    while before >= 0 and (source[before].isspace() or comments[before]):
+        before -= 1
+    return not (before >= 0 and source[before] == ".")
 
 
 def _javascript_paren_closes_control_head(
@@ -740,18 +765,116 @@ def _javascript_paren_closes_control_head(
         index -= 1
     if index < 0:
         return None
-    word, start = _javascript_word_before(source, index, comments)
+    return _javascript_paren_head_keyword(source, index, comments) in _JAVASCRIPT_CONTROL_HEAD_KEYWORDS
+
+
+def _javascript_paren_head_keyword(source: str, open_paren: int, comments: bytearray) -> str:
+    """The statement keyword whose head the `(` at OPEN_PAREN opens (`if`, `for` also as `for await`, `switch`, ...),
+    or "" when that `(` follows no keyword: a call (`f(`, `πif(`, `this.#if(`, `x.if(`) or a group."""
+    word, start = _javascript_word_before(source, open_paren, comments)
     if word == "await":
         word, start = _javascript_word_before(source, start, comments)
         if word != "for":
-            return False
-    if word not in _JAVASCRIPT_CONTROL_HEAD_KEYWORDS:
+            return ""
+    if not word or not _javascript_is_keyword_at(source, start, comments):
+        return ""
+    return word
+
+
+def _javascript_matching_open(
+    source: str, close: int, opening: str, closing: str, executable: bytearray
+) -> int:
+    """The offset of the executable OPENING that the executable CLOSING at CLOSE ends, or -1 when it is not in
+    SOURCE."""
+    depth = 0
+    index = close
+    while index >= 0:
+        if executable[index]:
+            character = source[index]
+            if character == closing:
+                depth += 1
+            elif character == opening:
+                depth -= 1
+                if depth == 0:
+                    return index
+        index -= 1
+    return -1
+
+
+_JAVASCRIPT_JSX_ATTRIBUTE_CHARACTERS = frozenset("=-:.")
+
+
+def _javascript_brace_in_jsx_open_tag(
+    source: str, open_brace: int, executable: bytearray, comments: bytearray
+) -> bool:
+    """Whether the `{` at OPEN_BRACE is an attribute's (or a spread's) value inside a JSX open tag: walking back
+    over attribute names, `=`, strings and other braced values reaches `<Name` with nothing else between."""
+    index = open_brace - 1
+    while index >= 0:
+        character = source[index]
+        if not executable[index] or comments[index] or character.isspace():
+            index -= 1
+            continue
+        if character == "}":
+            index = _javascript_matching_open(source, index, "{", "}", executable)
+            if index < 0:
+                return False
+            index -= 1
+            continue
+        if _javascript_identifier_character(character) or character in _JAVASCRIPT_JSX_ATTRIBUTE_CHARACTERS:
+            index -= 1
+            continue
+        if character == "<":
+            after = index + 1
+            return after < open_brace and (source[after].isalpha() or source[after] in "_$")
         return False
-    before = start - 1
-    while before >= 0 and (source[before].isspace() or comments[before]):
-        before -= 1
-    # `x.if (...)` is a method call, not a statement head.
-    return not (before >= 0 and source[before] == ".")
+    return False
+
+
+def _javascript_brace_closes_block(
+    source: str, close: int, executable: bytearray, comments: bytearray
+) -> Optional[bool]:
+    """Whether the `}` at CLOSE ends a block (a slash after it starts a regex literal), not an object literal or
+    another expression (a slash after it divides), by the token before its `{`. None when the text cannot tell:
+    its `{` is not in SOURCE, or follows a `:` (a label's or a case's block, or an object's value), a `)` other than
+    a statement head's, a word, a string, or anything else not listed here."""
+    open_brace = _javascript_matching_open(source, close, "{", "}", executable)
+    if open_brace < 0:
+        return None
+    previous = open_brace - 1
+    while previous >= 0 and (source[previous].isspace() or comments[previous]):
+        previous -= 1
+    if previous < 0:
+        return True
+    character = source[previous]
+    if not executable[previous]:
+        # `${ {} / 2 }`: the `{` of a template's field opens an expression.
+        if character == "{" and previous > 0 and source[previous - 1] == "$":
+            return False
+        return None
+    if character in "{};":
+        return True
+    if character == ">" and previous > 0 and source[previous - 1] == "=" and executable[previous - 1]:
+        return True
+    if character == ")":
+        head_open = _javascript_matching_open(source, previous, "(", ")", executable)
+        if head_open < 0:
+            return None
+        if _javascript_paren_head_keyword(source, head_open, comments) in _JAVASCRIPT_BLOCK_HEAD_KEYWORDS:
+            return True
+        return None
+    if _javascript_identifier_character(character):
+        word, start = _javascript_word_before(source, previous + 1, comments)
+        if not _javascript_is_keyword_at(source, start, comments):
+            return None
+        if word in _JAVASCRIPT_EXPRESSION_KEYWORDS:
+            return False
+        if word in _JAVASCRIPT_BLOCK_KEYWORDS:
+            return True
+        return None
+    if character in "=([,?+-*/%<>&|^!~":
+        return False
+    return None
 
 
 def _javascript_regex_literal_starts_at(
@@ -762,9 +885,11 @@ def _javascript_regex_literal_starts_at(
 ) -> Optional[bool]:
     """Return whether a slash starts a JavaScript regex literal, or None when the text cannot tell.
 
-    The one undecidable case is a slash after a `}` that ends a block (`if (a) {} /x/.test(s)`, a regex) or an
-    object or function expression (`({}) / 2`, a division), and a `)` whose `(` the text does not hold. The lexer
-    never guesses there: it records the slash as unresolved (see `_lexical_positions_and_unresolved`).
+    A slash after a `}` starts a regex literal when the `}` ends a block (`if (a) {} /x/.test(s)`) and divides when
+    it ends an object (`a = {} / 2`), by the token before its `{` (`_javascript_brace_closes_block`). Undecidable:
+    a `}` whose `{` follows a `:` (a label's block or an object's value), a word or a `)` other than a statement
+    head's, and a `)` or `}` whose opener the text does not hold. The lexer never guesses there: it records the
+    slash as unresolved (see `_lexical_positions_and_unresolved`).
     """
     previous = index - 1
     while previous >= 0 and (
@@ -785,34 +910,26 @@ def _javascript_regex_literal_starts_at(
             and source[previous - 1] == "$"
         )
 
-    if character.isascii() and (character.isalnum() or character in "_$"):
-        token_start = previous
-        while token_start > 0:
-            candidate = source[token_start - 1]
-            if not (
-                candidate.isascii()
-                and (candidate.isalnum() or candidate in "_$")
-            ):
-                break
-            token_start -= 1
-        token = source[token_start : previous + 1]
-        before_token = token_start - 1
-        while before_token >= 0 and (
-            source[before_token].isspace() or comments[before_token]
-        ):
-            before_token -= 1
-        if before_token >= 0 and source[before_token] == ".":
+    if _javascript_identifier_character(character):
+        token, token_start = _javascript_word_before(source, previous + 1, comments)
+        if not _javascript_is_keyword_at(source, token_start, comments):
             return False
         return token in _JAVASCRIPT_REGEX_PREFIX_KEYWORDS
 
     if character == ")":
         return _javascript_paren_closes_control_head(source, previous, executable, comments)
     if character == "}":
-        # `<Tag a={b} />`: the slash of a self-closing JSX tag, not a regex literal (`/>/` after a block is
-        # never written that way).
-        if source.startswith("/>", index):
+        open_brace = _javascript_matching_open(source, previous, "{", "}", executable)
+        # `<Tag a={b} />`, `<Tag {...p} />`: the slash of a self-closing JSX tag, but only inside a JSX open tag
+        # (`if (ok) {} />x{/.test(s)` holds a regex literal).
+        if (
+            source.startswith("/>", index)
+            and open_brace >= 0
+            and _javascript_brace_in_jsx_open_tag(source, open_brace, executable, comments)
+        ):
             return False
-        return None
+        closes_block = _javascript_brace_closes_block(source, previous, executable, comments)
+        return None if closes_block is None else closes_block
     if character in "]'\"`.":
         return False
     if character == "<" and previous + 1 == index:
@@ -5346,13 +5463,13 @@ ATTRIBUTION_FIXTURES += [
     ),
 ]
 
-# A slash after a block's `}` may start a regex literal (after a block) or divide (after an object): the lexer does
-# not guess, and every line from there on names no function.
+# A slash after a `}` whose `{` follows a `:` may start a regex literal (a label's or a case's block) or divide (an
+# object's value): the lexer does not guess, and every line from there on names no function.
 ATTRIBUTION_FIXTURES.append(
     (
-        "js slash after a } is unresolved",
+        "js slash after a label's } is unresolved",
         "web/tests/b7.test.ts",
-        _js_attribution_fixture("    if (ok) { run(); }\n    /a{/.test(s);\n"),
+        _js_attribution_fixture("    label: { run(); }\n    /a{/.test(s);\n"),
         RULE_SLEEP_THEN_ASSERT,
         {7: f"{UNRESOLVED_SCOPE_PREFIX}: regex literal or division at 4:5>"},
     )
@@ -5395,7 +5512,7 @@ def _attribution_self_test() -> list[str]:
         if got != want:
             failures.append(f"ATTRIBUTION {label} ({rel}): expected {want}, got {got}")
     # An unresolved finding fails --strict with its own message, and no allowlist entry hides it.
-    unresolved_source = _js_attribution_fixture("    if (ok) { run(); }\n    /a{/.test(s);\n")
+    unresolved_source = _js_attribution_fixture("    label: { run(); }\n    /a{/.test(s);\n")
     with tempfile.TemporaryDirectory() as tmp:
         root = pathlib.Path(tmp)
         (root / "web/tests").mkdir(parents=True)
