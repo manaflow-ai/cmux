@@ -2,8 +2,10 @@
 // App's last edited turn). Each edit is diffed once while its change is the same object, not once per
 // tool call: a 50-call burst with 13 edits spent 43 ms in myers before (bench/tool-call-burst.bench.ts).
 import { expect, test } from "bun:test";
-import type { Tool } from "./model";
+import type { AcpmuxActivity } from "./model";
 import { toolFiles } from "./diff";
+
+type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
 const edit = (id: string, path: string, oldText: string, newText: string) =>
   ({
