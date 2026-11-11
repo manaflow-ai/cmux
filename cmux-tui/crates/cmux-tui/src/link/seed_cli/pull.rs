@@ -81,9 +81,9 @@ pub(in crate::link) fn bring_back(socket: &Path, local: &Path, remote: &str) -> 
 
 fn pull(socket: &Path, local: &Path, remote: &str, base: Base) -> Back {
     let failed = |error: SeedError| Back::Failed { code: error.code, error: error.message };
-    let Some(identity) = machine_gate::identify(socket) else {
-        let why = format!("the machine at {} did not answer", socket.display());
-        return failed(SeedError::new("sync_failed", why));
+    let identity = match machine_gate::reach(socket) {
+        Ok(identity) => identity,
+        Err(unreached) => return failed(SeedError::new("sync_failed", unreached.to_string())),
     };
     let fs = [cmux_tui_core::fs_ops::FS_CAPABILITY];
     if let Some(outdated) = machine_gate::outdated_identity(&identity, &fs) {

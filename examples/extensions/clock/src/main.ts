@@ -1,8 +1,9 @@
 /// <reference path="../../../../cmux-tui/crates/cmux-app-host/generated/cmux-app.d.ts" />
-// Clock: a New Tab widget (cmux.newtab.widget/1). The page mounts it while a New Tab page shows and
-// the person placed it (right-click the page > Edit New Tab > Add Widgets > Clock), and unmounts it
-// when the page hides. The timer below belongs to the mount (cmux.timer is floored at 1 s), so it
-// stops then too. Each tick that changes the time sends one scene update: the time's one Text node.
+// Clock: a New Tab widget (cmux.newtab.widget/1). An open New Tab page mounts it when the person
+// placed it (right-click the page > Edit New Tab > Add Widgets > Clock), keeps it through a switch to
+// another tab and back, and unmounts it when the page closes. The timer below belongs to the mount
+// (cmux.timer is floored at 1 s), so it stops then too; it can tick while the page is hidden, so a
+// tick is cheap. Each tick that changes the time sends one scene update: the time's one Text node.
 // The date is its own signal and changes once a day.
 
 interface Settings {

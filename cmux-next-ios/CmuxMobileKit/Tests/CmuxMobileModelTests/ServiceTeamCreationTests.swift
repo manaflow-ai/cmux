@@ -65,3 +65,21 @@ import Testing
         #expect(TeamCreationRoute(productionAccount: true, teamAPIBase: nil, mobileServiceBase: nil) == .unavailable)
     }
 }
+
+/// CMUX-38: Settings → Plan sells App Store plans through cmux.com's
+/// `/api/billing/apple/*`, which accepts only production Stack sessions, so only
+/// a production-account build gets a billing origin (and the Plan row).
+@Suite struct BillingOriginTests {
+    let web = URL(string: "https://cmux.com")!
+    let devMobile = URL(string: "https://cmux-mobile-api-dev.debussy.workers.dev")!
+
+    @Test func aProductionAccountBillsThroughCmuxCom() {
+        #expect(TeamCreationRoute(productionAccount: true, teamAPIBase: web, mobileServiceBase: nil).billingOrigin == web)
+    }
+
+    @Test func developmentAndStagingBuildsGetNoPlans() {
+        let localhost = URL(string: "http://localhost:3000")!
+        #expect(TeamCreationRoute(productionAccount: false, teamAPIBase: localhost, mobileServiceBase: devMobile).billingOrigin == nil)
+        #expect(TeamCreationRoute(productionAccount: false, teamAPIBase: nil, mobileServiceBase: nil).billingOrigin == nil)
+    }
+}

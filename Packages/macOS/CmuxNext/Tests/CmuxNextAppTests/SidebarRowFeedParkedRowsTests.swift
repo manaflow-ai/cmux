@@ -150,6 +150,53 @@ import Testing
         #expect(again == [a[7], b[9]], "rows mapped again: \(again.map(\.rawValue).sorted())")
     }
 
+    /// A parked workspace closes (or another window takes it) while its space is hidden. No row parks then and no
+    /// parked row hears a change, so nothing asked for the check of the parked rows: its row, its map closure and
+    /// its observation stayed until the next space switch. The next pass's fill asks for the check too.
+    @Test func aParkedRowOfAWorkspaceTheWindowLostIsForgottenByTheNextPass() {
+        let fixture = Fixture(), a = Fixture.space("a", 20), b = Fixture.space("b", 20)
+        fixture.show(a)
+        fixture.show(b)
+        fixture.frame()
+        fixture.held.remove(a[7]) // it closes while space a is hidden
+        fixture.show(b) // a pass of the shown space that parks nothing (a reorder, a new row)
+        fixture.frame()
+        let maps = fixture.maps
+        fixture.held.insert(a[7]) // the same id lists here again
+        fixture.show(a)
+        let again = a.filter { fixture.maps[$0] != maps[$0] }
+        #expect(again == [a[7]], "the row of the workspace the window lost was kept parked; rows mapped again: \(again.map(\.rawValue))")
+    }
+
+    /// A batch that can fail (the face rules could not read their reply).
+    final class Batch: SidebarRowBatch {
+        var runs = true
+        func begin() {}
+        func run() -> Bool { runs }
+    }
+
+    /// A row whose last batch could not run reads nothing that tells it to map again. Before the feed parked rows, a
+    /// space shown again mapped it (its row was new); a parked one stayed as it was (no title, or its old content).
+    @Test(arguments: [false, true]) func aParkedRowWhoseBatchCouldNotRunMapsWhenItsSpaceShowsAgain(mappedBefore: Bool) {
+        let batch = Batch(), frames = Fixture.Frames(), a = WorkspaceID("a0"), b = WorkspaceID("b0")
+        let feed = SidebarRowFeed(schedule: { frames.work.append($0) }, keeps: { _ in true })
+        var title = "first"
+        /// One pass of a window that shows the space of `id` alone; its row's title after the fill.
+        func show(_ id: WorkspaceID, inputs: Int) -> String? {
+            feed.beginPass(inputs: inputs)
+            let make = SidebarRowFeed.Make(batch: batch, stage: { 0 }, finish: { _ in SidebarWorkspace(id: id, machineID: .local, title: title) })
+            let row = feed.row(id, machine: .local, make: make)
+            return feed.fill([SidebarSection(kind: .machine(Self.machine), nodes: [.workspace(row)])]).flatMap(\.workspaces).first?.title
+        }
+        if mappedBefore { #expect(show(a, inputs: 0) == "first") }
+        (batch.runs, title) = (false, "second")
+        // The pass maps the row (it is new, or the inputs changed) and its batch cannot run.
+        #expect(show(a, inputs: 1) == (mappedBefore ? "first" : ""))
+        batch.runs = true
+        _ = show(b, inputs: 1) // space a hides: its row parks
+        #expect(show(a, inputs: 1) == "second", "the row parked after a batch that could not run was not mapped again")
+    }
+
     @Test func aParkedRowMappedWithOldInputsIsNotServed() {
         let fixture = Fixture(), a = Fixture.space("a", 20), b = Fixture.space("b", 20)
         fixture.show(a, inputs: 0)

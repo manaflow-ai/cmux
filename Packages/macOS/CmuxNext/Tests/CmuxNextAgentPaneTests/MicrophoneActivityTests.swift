@@ -10,9 +10,32 @@ import Testing
 @MainActor struct MicrophoneActivityTests {
     private final class Owner {}
 
+    /// A source that answers each read at once, on the main actor.
+    @MainActor private final class FakeSource: MicrophoneActivitySource {
+        var next = MicrophoneActivity.State.idle
+        var namesProcesses = true
+        var reads = 0
+        private var deliver: (@MainActor (MicrophoneActivity.SourceEvent) -> Void)?
+        var isListening: Bool { deliver != nil }
+
+        func start(_ deliver: @escaping @MainActor (MicrophoneActivity.SourceEvent) -> Void) {
+            self.deliver = deliver
+            requestRead()
+        }
+
+        func stop() { deliver = nil }
+
+        func requestRead() {
+            guard let deliver else { return }
+            reads += 1
+            deliver(.read(next, namesProcesses: namesProcesses))
+        }
+
+        func send(_ event: MicrophoneActivity.SourceEvent) { deliver?(event) }
+    }
+
     @Test func listenersRunOnlyWhileSomeoneWatches() {
-        let activity = MicrophoneActivity()
-        activity.read = { _ in .idle }
+        let activity = MicrophoneActivity(claims: DictationMicrophoneClaims(), source: FakeSource())
         #expect(!activity.isListening)
         let first = Owner(), second = Owner()
         activity.watch(first) { _ in }
@@ -25,16 +48,15 @@ import Testing
     }
 
     @Test func watchersHearEachChangeOnce() {
-        let activity = MicrophoneActivity()
-        var next = MicrophoneActivity.State.idle
-        activity.read = { _ in next }
+        let source = FakeSource()
+        let activity = MicrophoneActivity(claims: DictationMicrophoneClaims(), source: source)
         var heard: [MicrophoneActivity.State] = []
         let owner = Owner()
         activity.watch(owner) { heard.append($0) }
-        next = MicrophoneActivity.State(active: true, bundleId: "com.openai.codex", name: "ChatGPT")
+        source.next = MicrophoneActivity.State(active: true, bundleId: "com.openai.codex", name: "ChatGPT")
         activity.refresh()
         activity.refresh()
-        next = .idle
+        source.next = .idle
         activity.refresh()
         #expect(heard.map(\.active) == [false, true, false])
         #expect(heard[1].name == "ChatGPT")
@@ -42,11 +64,79 @@ import Testing
     }
 
     @Test func nothingIsReadWithNoWatcher() {
-        let activity = MicrophoneActivity()
-        var reads = 0
-        activity.read = { _ in reads += 1; return .idle }
+        let source = FakeSource()
+        let activity = MicrophoneActivity(claims: DictationMicrophoneClaims(), source: source)
         activity.refresh()
-        #expect(reads == 0)
+        #expect(source.reads == 0)
+    }
+
+    /// Before 14.2 a running device names no process: while cmux's own dictation holds the
+    /// microphone, no outside mark shows.
+    @Test func aDeviceReadingIsHiddenWhileOwnDictationHoldsTheMicrophone() {
+        let source = FakeSource(), claims = DictationMicrophoneClaims(), owner = Owner(), dictation = Owner()
+        source.next = MicrophoneActivity.State(active: true, bundleId: nil, name: nil)
+        source.namesProcesses = false
+        let activity = MicrophoneActivity(claims: claims, source: source)
+        activity.tellsProcessesApart = false
+        activity.watch(owner) { _ in }
+        #expect(activity.state.active)
+        claims.claim(dictation) {}
+        #expect(activity.state == .idle)
+        // The release re-reads: cmux's own input stopped, so the device no longer runs.
+        source.next = .idle
+        let reads = source.reads
+        claims.release(dictation)
+        #expect(source.reads == reads + 1)
+        #expect(activity.state == .idle)
+        activity.unwatch(owner)
+    }
+
+    /// Reads that run on CoreAudio's queue, and how many ran on the main thread.
+    /// Not main-actor isolated like the suite: CoreAudio's queue calls `record()`.
+    nonisolated private final class ReadLog: @unchecked Sendable {
+        private let lock = NSLock()
+        private var reads = 0, onMain = 0
+        func record() {
+            lock.withLock {
+                reads += 1
+                if Thread.isMainThread { onMain += 1 }
+            }
+        }
+        var counts: (reads: Int, onMain: Int) { lock.withLock { (reads, onMain) } }
+    }
+
+    /// The NIGHTLY 85b0999 hang (2026-11-10): a CoreAudio read that took 30 s ran on the main
+    /// thread. Here the read blocks until the test lets it go, and the main actor runs on: watching
+    /// returns at once, the watcher hears the read when it ends, and the refreshes asked for while
+    /// it blocked made one more read, not one each.
+    /// If the read ran on the main actor, `watch` would wait on the gate forever: the time limit
+    /// turns that into a failure.
+    @Test(.timeLimit(.minutes(1))) func aSlowCoreAudioReadNeverHoldsTheMainActor() async {
+        let gate = DispatchSemaphore(value: 0), log = ReadLog()
+        let outside = MicrophoneActivity.State(active: true, bundleId: "com.electron.wispr-flow", name: "Wispr Flow")
+        let source = CoreAudioMicrophoneSource(read: {
+            log.record()
+            gate.wait()
+            return (outside, namesProcesses: true)
+        }, listens: false)
+        let activity = MicrophoneActivity(claims: DictationMicrophoneClaims(), source: source)
+        activity.isAuthorized = { false }
+        let (changes, heard) = AsyncStream.makeStream(of: MicrophoneActivity.State.self)
+        let owner = Owner()
+        activity.watch(owner) { heard.yield($0) }
+        // The first read is blocked on the source's queue; the main actor still answers.
+        #expect(activity.state == .idle)
+        activity.refresh()
+        activity.refresh()
+        activity.refresh()
+        for _ in 0..<4 { gate.signal() }
+        for await state in changes where state.active { break }
+        #expect(activity.state.name == "Wispr Flow")
+        activity.unwatch(owner)
+        heard.finish()
+        let counts = log.counts
+        #expect(counts.onMain == 0)
+        #expect(counts.reads <= 2)
     }
 
     @Test func thePageEventCarriesTheApp() {
@@ -61,16 +151,22 @@ import Testing
     @MainActor private final class Rig {
         let activity: MicrophoneActivity
         let claims = DictationMicrophoneClaims()
-        var next = MicrophoneActivity.State(active: true, bundleId: "com.electron.wispr-flow", name: "Wispr Flow")
+        let source: FakeSource
+        var next: MicrophoneActivity.State {
+            get { source.next }
+            set { source.next = newValue }
+        }
         var authorized = true
         var opened: [DictationAudioLevelMeter] = []
         var closes = 0
         var asked = 0
 
         init() {
-            activity = MicrophoneActivity(claims: claims)
+            let source = FakeSource()
+            source.next = MicrophoneActivity.State(active: true, bundleId: "com.electron.wispr-flow", name: "Wispr Flow")
+            self.source = source
+            activity = MicrophoneActivity(claims: claims, source: source)
             activity.tellsProcessesApart = true
-            activity.read = { [unowned self] _ in self.next }
             activity.isAuthorized = { [unowned self] in
                 self.asked += 1
                 return self.authorized

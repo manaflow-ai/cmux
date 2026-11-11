@@ -233,7 +233,8 @@ fn pool_auth_gemini_and_grok_homes_and_api_keys_change_the_key() {
         ("gemini", "GEMINI_API_KEY", "GEMINI_CLI_HOME", ".gemini/oauth_creds.json"),
         ("grok", "XAI_API_KEY", "GROK_HOME", "auth.json"),
     ] {
-        let with = |name: &'static str, value: String| move |k: &str| (k == name).then(|| value.clone());
+        let with =
+            |name: &'static str, value: String| move |k: &str| (k == name).then(|| value.clone());
         let a = cache.fingerprint_with(family, &with(key, "fixture-key-a".into()), &home.0);
         let b = cache.fingerprint_with(family, &with(key, "fixture-key-b".into()), &home.0);
         assert_ne!(a, b, "{family}: a rotated {key}");
@@ -252,4 +253,20 @@ fn pool_auth_gemini_and_grok_homes_and_api_keys_change_the_key() {
     let before = cache.fingerprint_with("grok", &|_| None, &home.0);
     home.write(".grok/auth.json", json!({"token": "fixture"}));
     assert_ne!(before, cache.fingerprint_with("grok", &|_| None, &home.0), "grok login");
+}
+
+#[test]
+fn pool_auth_grok_account_switch_changes_the_key_but_refresh_does_not() {
+    let files = LoginFiles::new("grok-account");
+    let cache = AuthCache::default();
+    let at = ".grok/auth.json";
+    files.write(at, json!({"grok.com": {"user_id": "user-a", "access_token": "fixture-a"}}));
+    let before = files.fingerprint(&cache, "grok");
+    files.write(at, json!({"grok.com": {"user_id": "user-a", "access_token": "fixture-b"}}));
+    assert_eq!(before, files.fingerprint(&cache, "grok"), "a token refresh keeps the session");
+    files.write(at, json!({"grok.com": {"user_id": "user-b", "access_token": "fixture-c"}}));
+    let switched = files.fingerprint(&cache, "grok");
+    assert_ne!(before, switched, "another grok account");
+    std::fs::remove_file(files.0.join(at)).unwrap();
+    assert_ne!(switched, files.fingerprint(&cache, "grok"), "a logout");
 }

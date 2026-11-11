@@ -391,7 +391,8 @@
         "browser.defaultEngine",
         "browser.siteEngines",
         "browser.newTabPage",
-        "browser.showBookmarksBar"
+        "browser.showBookmarksBar",
+        "browser.vimKeys"
       ]
     },
     {
@@ -931,6 +932,13 @@
       ]
     },
     {
+      "agent": "userOnly",
+      "why": "Turn checkpoints save the person's whole Cloud machine to their snapshot storage after every turn: only the person turns that on.",
+      "keys": [
+        "cloud.turnCheckpoints"
+      ]
+    },
+    {
       "agent": "privacy",
       "why": "The person's consent to copy their own Claude login to their own Cloud machines: only theirs to give.",
       "keys": [
@@ -1240,8 +1248,10 @@
     },
     {
       "agent": "destructive",
+      "why": "The quit behavior ends sessions; confirmQuit off lets one Cmd-Q end them without asking.",
       "keys": [
-        "app.quitBehavior"
+        "app.quitBehavior",
+        "app.confirmQuit"
       ]
     },
     {
@@ -1277,6 +1287,13 @@
       "why": "Whether cmux's own pages open developer tools, which read and change their live content: the person's call.",
       "keys": [
         "developerTools.appPages"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether the person's Command Palette lists the debug commands: the person's call.",
+      "keys": [
+        "app.internalDeveloperMode"
       ]
     },
     {

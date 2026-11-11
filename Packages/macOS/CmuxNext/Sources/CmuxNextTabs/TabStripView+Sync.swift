@@ -133,7 +133,7 @@ extension TabStripView {
         let closing = cells.keys.contains { !ids.contains($0) && !dying.contains($0) && !departing.contains($0) }
         // A pane's last tab never shrinks out: its pane (or its workspace) closes as one (close cases B, C, D).
         let closesLastTab = removing && ordered.isEmpty
-        let structureAnimates = (!adding || Motion.tabs.animates(.newTab)) && !closesLastTab
+        let structureAnimates = (!adding || Motion.tabs.animates(.newTab, in: window)) && !closesLastTab
         let inGesture = drag != nil || groups.drag != nil || pendingDrop != nil
         let animated = hasSynced && !reduceMotion && animating && (structureAnimates || inGesture)
         // Added/closed cells move only outside a gesture; a sync that adds no tab never re-tokens the strip.

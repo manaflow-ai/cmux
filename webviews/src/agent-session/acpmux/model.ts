@@ -1311,6 +1311,9 @@ export type AcpmuxSnapshot = {
   /// Composer only: this new chat's first send starts it on a Cloud machine (Cloud picked as where
   /// it runs, `cloud.startChat`), not on this Mac. That machine decides the chat's start mode.
   startsOnCloud?: true;
+  /// Composer only, with `startsOnCloud`: the permission mode picked for that Cloud start
+  /// (cloudModePick.ts), which the send carries (`CloudStart.mode`).
+  cloudStartMode?: string;
   /// acpmux reconnects a Claude Code chat's failed MCP server for this connection: its `initialize`
   /// lists `_acpmux/mcp/reconnect` (an older acpmux does not), so Session Info's Connectors offer
   /// Reconnect.
@@ -1575,10 +1578,14 @@ export const gridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
 /// Whether `row` is the first drawn row of a turn the agent ran on its own that draws as its own
 /// turn (a reply or a tool run with no background line over it, backgroundTurns.ts
 /// `foldsBackground`): `prev`, the drawn row above, is neither its line nor one of its rows. O(1).
+/// Right under "Worked for" it opens nothing: that line is the turn's header and keeps its own room
+/// under its rule (transcriptGrid.ts MARK_WORKED), so a turn gap there doubled it (Leo, 2026-11-10:
+/// "too much space in between here").
 export const opensBackgroundTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined): boolean =>
   row.inBackground !== undefined &&
   (row.kind === "activity" || (row.kind === "assistant" && (row.text?.length ?? 0) > 0)) &&
   prev !== undefined &&
+  prev.kind !== WORKED &&
   prev.inBackground !== row.inBackground &&
   !(prev.kind === BACKGROUND_TURN && prev.background?.id === row.inBackground);
 const rowGridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
@@ -3476,11 +3483,15 @@ export function mergeRowRanges(ranges: RowRange[]): RowRange[] {
   return merged;
 }
 
+/// How uneven a scroll's next jump is against its last, as a share of it, that the views
+/// `scrollLeadRanges` builds ahead of a jump still cover (frame-time jitter of a paced fling).
+export const PREDICTED_JITTER = 0.05;
+
 /// The rows a transcript at `scrollTop` mounts while it moves `delta` per scroll: the view and
 /// `steps` scrolls of motion ahead of it, capped at `maxLead`. A scroll past the cap (a fling or a
 /// scrollbar drag that moves several viewports a frame) also mounts each view the next `steps`
-/// frames reach, with a margin for uneven frames: the rows between them and the capped lead are
-/// never on screen, so they are not built (cx-j33s4).
+/// frames reach (a jump past the cap itself, only the next one), with a margin for uneven frames:
+/// the rows between them are never on screen, so they are not built (cx-j33s4).
 /// A moving scroll within the cap also keeps `trail` px behind the view mounted: the rows the
 /// reader just passed, already drawn. Dropping them the moment they left the view made a quick
 /// reversal (up and down fast) scroll the compositor into bare background for a frame before its
@@ -3501,10 +3512,37 @@ export function scrollLeadRanges(
     const top = delta < 0 ? scrollTop - lead : scrollTop - behind;
     return [visibleLayoutRange(layoutModel, top, viewportHeight + lead + behind)];
   }
-  const ranges = [visibleLayoutRange(layoutModel, delta < 0 ? scrollTop - lead : scrollTop, viewportHeight + lead)];
-  const margin = Math.min(Math.abs(delta) / 4, viewportHeight / 2);
-  for (let step = 1; step <= steps; step += 1)
-    ranges.push(visibleLayoutRange(layoutModel, scrollTop + delta * step - margin, viewportHeight + 2 * margin));
+  // A scroll that moves past the cap in one frame lands past the capped lead too: the lead between
+  // the view and the next frame's view is never on screen, so only a scroll that can slow into it
+  // (a scrollbar drag of a few viewports a move) builds it. Faster, each frame mounts the view and
+  // the view the next frame reaches, not the rows it jumps over: a fling of tens of
+  // viewports a frame (a god session) built 5 viewports of rows a frame that no frame showed.
+  const jumping = Math.abs(delta) > maxLead;
+  const contiguous = jumping ? 0 : lead;
+  // A jump's rows a frame are a view the next frame leaves: one row of overscan, not a margin's worth.
+  const overscan = jumping ? 1 : undefined;
+  const ranges = [
+    visibleLayoutRange(
+      layoutModel,
+      delta < 0 ? scrollTop - contiguous : scrollTop,
+      viewportHeight + contiguous,
+      overscan,
+    ),
+  ];
+  // A jump builds one window ahead, so it takes a viewport of margin either side: a paced fling's
+  // frames vary by a fifth of a 5-viewport jump, past the half viewport a two-window lead used.
+  const margin = Math.min(Math.abs(delta) / 4, jumping ? viewportHeight : viewportHeight / 2);
+  // The next views are built only while their margin holds a frame's unevenness (a few percent of
+  // its jump): past that, the next frame lands outside the window it built as often as in it, and
+  // the view it lands on is built in its own commit anyway.
+  if (margin < Math.abs(delta) * PREDICTED_JITTER) return ranges;
+  // A jump builds only the next frame's view: the commit after it builds the one after that, and a
+  // second window ahead doubled the rows a frame built (and drew again as rows above them measured).
+  const predicted = jumping ? 1 : steps;
+  for (let step = 1; step <= predicted; step += 1)
+    ranges.push(
+      visibleLayoutRange(layoutModel, scrollTop + delta * step - margin, viewportHeight + 2 * margin, overscan),
+    );
   return mergeRowRanges(ranges);
 }
 import {

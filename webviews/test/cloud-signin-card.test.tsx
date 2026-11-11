@@ -9,8 +9,12 @@ import {
   autoSignIn,
   cloudAgentLogin,
   localApiKeyLogin,
+  loginAgent,
   loginFailure,
+  offersGateway,
   signInURL,
+  signsInByPage,
+  takesApiKey,
 } from "../src/agent-session/acpmux/cloudAgentLogin";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -279,6 +283,59 @@ test("a Cloud sign-in failure leads with Sign in to Claude, then Use an API key"
   expect(button("Switch model")!.classList.contains("cv-turn-error__primary")).toBe(false);
   // Without the Mac-token transfer there is no Set up credentials button.
   expect(button("Set up Claude Code credentials")).toBeUndefined();
+});
+
+/// acpmux's explanation when the machine's team has cmux's gateway (`claude_auth::compose_cloud`).
+const GATEWAY_ERROR =
+  "Claude is not signed in here. Click Set up Claude Code credentials on this message to sign it in from your Mac; the message is sent again. Or click Use cmux's gateway: this machine's team has an account there. (Claude said: Not logged in · Please run /login)";
+
+test("cmux's gateway is offered only where acpmux names it", () => {
+  expect(offersGateway(GATEWAY_ERROR)).toBe(true);
+  expect(offersGateway("Not logged in · Please run /login")).toBe(false);
+  expect(offersGateway(undefined)).toBe(false);
+  const refusal = Object.assign(new Error("refused"), { reason: "no_gateway" });
+  expect(loginFailure(refusal)).toBe("no_gateway");
+});
+
+test("one card, three ways in: Sign in to Claude, Use an API key, Use cmux's gateway", async () => {
+  const { client, calls, sent } = mockClient({ start: () => ({ gateway: true, restarted: true }) });
+  const { signIn } = signInFor(client);
+  await render({ route: cloudRoute, cloudSignIn: signIn, switchModel: () => undefined }, GATEWAY_ERROR);
+  expect(labels().slice(0, 4)).toEqual(["Sign in to Claude", "Use an API key", "Use cmux's gateway", "Switch model"]);
+  // The sign-in stays the one filled button; the others are links beside it.
+  expect(button("Sign in to Claude")!.classList.contains("cv-turn-error__primary")).toBe(true);
+  expect(button("Use cmux's gateway")!.classList.contains("cv-turn-error__offer-link")).toBe(true);
+  await act(async () => button("Use cmux's gateway")!.click());
+  await flush();
+  // acpmux's own start, for the gateway: no sign-in page, no key.
+  expect(calls).toEqual([["start", "claude@gateway", "chat-1"]]);
+  expect(button("Send again")).toBeDefined();
+  expect(sent).toEqual([]);
+});
+
+test("a team without the gateway says so, and Retry asks again", async () => {
+  const refused = () => {
+    throw Object.assign(new Error("no gateway"), { reason: "no_gateway" });
+  };
+  const { client, calls } = mockClient({ start: refused });
+  const { signIn } = signInFor(client);
+  await render({ route: cloudRoute, cloudSignIn: signIn }, GATEWAY_ERROR);
+  await act(async () => button("Use cmux's gateway")!.click());
+  await flush();
+  expect(host.textContent).toContain("cmux's gateway is not set up for this machine's team.");
+  await act(async () => button("Retry")!.click());
+  await flush();
+  expect(calls).toEqual([
+    ["start", "claude@gateway", "chat-1"],
+    ["start", "claude@gateway", "chat-1"],
+  ]);
+});
+
+test("no gateway link where acpmux does not name it", async () => {
+  const { client } = mockClient();
+  const { signIn } = signInFor(client);
+  await render({ route: cloudRoute, cloudSignIn: signIn });
+  expect(button("Use cmux's gateway")).toBeUndefined();
 });
 
 test("no sign-in where acpmux lacks agent_login, or on another failure", async () => {
@@ -858,4 +915,130 @@ test("an automatic page whose port acpmux did not name is not used", async () =>
   await flush();
   expect(onMachine).toEqual([]);
   expect(opened).toEqual([MANUAL]);
+});
+
+// Gemini CLI and the Grok CLI on a Cloud machine (Leo 2026-11-10: "a lot of this is just
+// integration code that you can just do"): the same card,
+// with each agent's own ways in. Gemini signs in there with an API key only; Grok with its device
+// flow only (a page on accounts.x.ai and a code), its key coming from the person's vault.
+const geminiRoute = { name: "Gemini CLI", harness: "gemini", hostKind: "cloud" as const };
+const grokRoute = { name: "Grok", harness: "grok", hostKind: "cloud" as const };
+
+test("Gemini and Grok are login agents, each with its own ways in", () => {
+  expect(loginAgent("gemini")).toBe("gemini");
+  expect(loginAgent("grok")).toBe("grok");
+  expect(loginAgent("cursor")).toBe("cursor");
+  expect(loginAgent("opencode")).toBeUndefined();
+  expect(loginAgent(undefined)).toBeUndefined();
+  expect([signsInByPage("cursor"), takesApiKey("cursor")]).toEqual([true, false]);
+  expect([signsInByPage("gemini"), takesApiKey("gemini")]).toEqual([false, true]);
+  expect([signsInByPage("grok"), takesApiKey("grok")]).toEqual([true, false]);
+  expect([signsInByPage("codex"), takesApiKey("codex")]).toEqual([true, true]);
+  // Grok's sign-in hosts open; look-alikes never do.
+  expect(signInURL("https://accounts.x.ai/device")).toBe("https://accounts.x.ai/device");
+  expect(signInURL("https://auth.x.ai/activate?user_code=WDJB-MJHT")).toBeDefined();
+  expect(signInURL("https://x.ai.evil.example/device")).toBeUndefined();
+  expect(signInURL("https://evil.x.ai/device")).toBeUndefined();
+  const { client } = mockClient();
+  const base = {
+    connected: true,
+    machineID: "vm",
+    sessionId: "chat-1",
+    supported: true,
+    gesture: async () => undefined,
+    openURL: () => undefined,
+    isCurrent: () => true,
+    currentClient: () => client as never,
+  };
+  expect(cloudAgentLogin({ ...base, harness: "gemini" })?.agent).toBe("gemini");
+  expect(cloudAgentLogin({ ...base, harness: "grok" })?.agent).toBe("grok");
+  expect(cloudAgentLogin({ ...base, harness: "grok", supported: false })).toBeUndefined();
+  // A chat on this Mac keeps its own card (Sign in again); no Gemini or Grok key card there.
+  expect(localApiKeyLogin({ ...base, machineID: undefined, harness: "gemini" })).toBeUndefined();
+});
+
+test("Gemini: Use an API key is the card's one filled button, and the key is saved for gemini", async () => {
+  const { client, calls, sent } = mockClient({ apiKey: () => ({ saved: true, restarted: true }) });
+  const { signIn, intents } = signInFor(client, { harness: "gemini" });
+  await render({ route: geminiRoute, cloudSignIn: signIn, switchModel: () => undefined });
+  expect(labels().slice(0, 2)).toEqual(["Use an API key", "Switch model"]);
+  expect(buttons().some((element) => element.textContent?.startsWith("Sign in to"))).toBe(false);
+  expect(button("Use an API key")!.classList.contains("cv-turn-error__primary")).toBe(true);
+  expect(button("Switch model")!.classList.contains("cv-turn-error__primary")).toBe(false);
+  await act(async () => button("Use an API key")!.click());
+  const input = host.querySelector<HTMLInputElement>('.cv-turn-signin__input[type="password"]')!;
+  await typeInto(input, "  AIzaTest123  ");
+  await act(async () => button("Save")!.click());
+  await flush();
+  expect(calls).toContainEqual(["apiKey", "gemini", "chat-1", "AIzaTest123"]);
+  // No start ever ran: Gemini has no sign-in page here.
+  expect(calls.some((call) => call[0] === "start")).toBe(false);
+  expect(host.textContent).toContain("Signed in.");
+  expect(host.innerHTML).not.toContain("AIzaTest123");
+  expect(sent).toEqual([]);
+  await act(async () => button("Send again")!.click());
+  await flush();
+  await flush();
+  expect(intents).toHaveLength(1);
+  expect(sent).toHaveLength(1);
+});
+
+test("Grok: one Sign in to Grok click opens its page with its device code; no Use an API key", async () => {
+  let approve!: (value: unknown) => void;
+  const opened: string[] = [];
+  const { client, calls } = mockClient({
+    start: () => ({
+      loginId: "login-grok",
+      url: "https://accounts.x.ai/device",
+      userCode: "WDJB-MJHT",
+      needsCode: false,
+    }),
+    finish: () => new Promise((resolve) => (approve = resolve)),
+  });
+  const { signIn } = signInFor(client, { harness: "grok", opened });
+  await render({ route: grokRoute, cloudSignIn: signIn, switchModel: () => undefined });
+  expect(labels().slice(0, 2)).toEqual(["Sign in to Grok", "Switch model"]);
+  expect(button("Use an API key")).toBeUndefined();
+  expect(button("Sign in to Grok")!.classList.contains("cv-turn-error__primary")).toBe(true);
+  await act(async () => button("Sign in to Grok")!.click());
+  await flush();
+  await flush();
+  expect(calls[0]).toEqual(["start", "grok", "chat-1"]);
+  expect(opened).toEqual(["https://accounts.x.ai/device"]);
+  expect(host.querySelector('[data-testid="cloud-signin-code"]')!.textContent).toBe("WDJB-MJHT");
+  expect(host.textContent).toContain("Enter this code on the page. Waiting for approval…");
+  expect(calls).toContainEqual(["finish", "login-grok", "chat-1", undefined]);
+  await act(async () => approve({ signedIn: true, restarted: true }));
+  await flush();
+  expect(host.textContent).toContain("Signed in.");
+});
+
+test("Grok on a team machine: the refusal is named, with no Retry", async () => {
+  const { client } = mockClient({
+    start: () => {
+      throw Object.assign(new Error("team machine"), { reason: "shared_machine" });
+    },
+  });
+  const { signIn } = signInFor(client, { harness: "grok" });
+  await render({ route: grokRoute, cloudSignIn: signIn });
+  await act(async () => button("Sign in to Grok")!.click());
+  await flush();
+  expect(host.querySelector(".cv-turn-signin__error")!.textContent).toBe(
+    "This is a shared team machine; sign-in is only available on your own machine.",
+  );
+  expect(button("Retry")).toBeUndefined();
+});
+
+test("Grok's start answered unsupported (an older acpmux) leaves the card as it was", async () => {
+  const { client } = mockClient({
+    start: () => {
+      throw Object.assign(new Error("unsupported"), { reason: "unsupported_agent" });
+    },
+  });
+  const { signIn } = signInFor(client, { harness: "grok" });
+  await render({ route: grokRoute, cloudSignIn: signIn });
+  await act(async () => button("Sign in to Grok")!.click());
+  await flush();
+  expect(host.querySelector(".cv-turn-signin__error")).toBeNull();
+  expect(button("Sign in to Grok")).toBeUndefined();
 });

@@ -13,6 +13,7 @@ use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use serde_json::value::RawValue;
 
 pub use accepts::{Accepted, accepts, effective_value, is_hex_color};
 pub use chat_roots::chat_root_is_valid;
@@ -21,7 +22,8 @@ pub use url::{is_http_origin, new_tab_page_url_is_valid};
 
 use crate::value::canonical;
 
-const EMBEDDED: &str = include_str!("../../../../../schemas/settings/settings-schema.json");
+/// A `static`, not a `const`: one copy, whose bytes the embedded rows borrow.
+static EMBEDDED: &str = include_str!("../../../../../schemas/settings/settings-schema.json");
 
 /// A text with the string catalog key it came from (nil for a product name).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -167,17 +169,45 @@ pub struct Row {
     /// Values Swift accepts / refuses (conformance samples).
     pub accepts: Vec<Value>,
     pub refuses: Vec<Value>,
-    /// The row as exported, compact JSON: ``Row::raw`` parses it. Kept as text
+    /// The row as exported, as JSON text: ``Row::raw`` parses it. Kept as text
     /// because every daemon holds the whole schema, and the rows as parsed
     /// values took about 6 MB of each one's idle heap.
-    raw: Box<str>,
+    raw: RowText,
+}
+
+/// A row's exported JSON text. The embedded schema's rows are slices of the
+/// text compiled into the binary (clean, shared pages); a copy of each row in
+/// the heap took 2 MB of every process that loads the schema (daemon, TUI,
+/// CLI). A schema parsed from other text keeps its rows as compact JSON.
+#[derive(Debug, Clone)]
+enum RowText {
+    Embedded(&'static str),
+    Owned(Box<str>),
+}
+
+impl RowText {
+    fn text(&self) -> &str {
+        match self {
+            Self::Embedded(text) => text,
+            Self::Owned(text) => text,
+        }
+    }
+}
+
+impl PartialEq for RowText {
+    /// The same row JSON, whichever text form holds it.
+    fn eq(&self, other: &Self) -> bool {
+        self.text() == other.text()
+            || serde_json::from_str::<Value>(self.text()).ok()
+                == serde_json::from_str::<Value>(other.text()).ok()
+    }
 }
 
 impl Row {
     /// The row as exported (for `settings.schema` and list replies).
     pub fn raw(&self) -> Value {
-        // The text is this row's own serialization (made in `row`), so it parses.
-        serde_json::from_str(&self.raw).unwrap_or_default()
+        // The text is this row's own JSON (checked in `row`), so it parses.
+        serde_json::from_str(self.raw.text()).unwrap_or_default()
     }
 }
 
@@ -197,10 +227,13 @@ pub struct Schema {
 }
 
 #[derive(Deserialize)]
-struct Document {
+struct Document<'a> {
     version: u64,
     sections: Vec<Section>,
-    rows: Vec<Value>,
+    /// Each row's text as it stands in the document: rows are parsed one at a
+    /// time, so loading never holds every row as values at once.
+    #[serde(borrow)]
+    rows: Vec<&'a RawValue>,
 }
 
 #[derive(Deserialize)]
@@ -231,29 +264,67 @@ struct RawRow {
     refuses: Vec<Value>,
 }
 
-/// SHA-256 of `rows` as compact JSON, lowercase hex.
-fn rows_hash(rows: &[Value]) -> Result<String, String> {
-    use sha2::{Digest, Sha256};
-    let bytes = serde_json::to_vec(rows).map_err(|error| error.to_string())?;
-    Ok(Sha256::digest(&bytes).iter().map(|byte| format!("{byte:02x}")).collect())
+/// SHA-256 of the rows as one compact JSON array, lowercase hex, fed one
+/// compact row at a time (the same bytes as the whole array serialized).
+struct RowsHash(sha2::Sha256);
+
+impl RowsHash {
+    fn new() -> Self {
+        use sha2::Digest;
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(b"[");
+        Self(hasher)
+    }
+
+    fn row(&mut self, index: usize, compact: &str) {
+        use sha2::Digest;
+        if index > 0 {
+            self.0.update(b",");
+        }
+        self.0.update(compact.as_bytes());
+    }
+
+    fn finish(mut self) -> String {
+        use sha2::Digest;
+        self.0.update(b"]");
+        self.0.finalize().iter().map(|byte| format!("{byte:02x}")).collect()
+    }
 }
 
 impl Schema {
     /// The schema compiled into this binary.
     pub fn embedded() -> &'static Schema {
         static SCHEMA: OnceLock<Schema> = OnceLock::new();
-        // crash-allow: the schema is compiled in; the behavior tests parse it on every run.
-        SCHEMA.get_or_init(|| Schema::parse(EMBEDDED).expect("the embedded settings schema parses"))
+        SCHEMA.get_or_init(|| {
+            let parsed = Schema::parse_keeping(EMBEDDED, |embedded, _| RowText::Embedded(embedded));
+            // crash-allow: the schema is compiled in; the behavior tests parse it on every run.
+            parsed.expect("the embedded settings schema parses")
+        })
     }
 
     /// Parses an export document.
     pub fn parse(text: &str) -> Result<Schema, String> {
-        let document: Document = serde_json::from_str(text).map_err(|error| error.to_string())?;
-        let schema_hash = rows_hash(&document.rows)?;
+        Schema::parse_keeping(text, |_, compact| RowText::Owned(compact.into_boxed_str()))
+    }
+
+    /// Parses `text`; `keep` picks each row's kept text from its text in
+    /// `text` and its compact JSON.
+    fn parse_keeping<'a>(
+        text: &'a str,
+        keep: impl Fn(&'a str, String) -> RowText,
+    ) -> Result<Schema, String> {
+        let document: Document<'a> =
+            serde_json::from_str(text).map_err(|error| error.to_string())?;
+        let mut hash = RowsHash::new();
         let mut rows = Vec::with_capacity(document.rows.len());
-        for raw in document.rows {
-            rows.push(row(raw)?);
+        for (index, raw) in document.rows.into_iter().enumerate() {
+            let value: Value =
+                serde_json::from_str(raw.get()).map_err(|error| error.to_string())?;
+            let compact = serde_json::to_string(&value).map_err(|error| error.to_string())?;
+            hash.row(index, &compact);
+            rows.push(row(value, keep(raw.get(), compact))?);
         }
+        let schema_hash = hash.finish();
         let by_key = rows.iter().enumerate().map(|(index, row)| (row.key.clone(), index)).collect();
         let by_path =
             rows.iter().enumerate().map(|(index, row)| (row.path.clone(), index)).collect();
@@ -283,8 +354,7 @@ impl Schema {
     }
 }
 
-fn row(raw: Value) -> Result<Row, String> {
-    let text = serde_json::to_string(&raw).map_err(|error| error.to_string())?.into_boxed_str();
+fn row(raw: Value, text: RowText) -> Result<Row, String> {
     let parsed: RawRow = serde_json::from_value(raw).map_err(|error| error.to_string())?;
     let range = || parsed.range.clone().ok_or_else(|| format!("{}: range missing", parsed.key));
     let kind = match parsed.kind.as_str() {
@@ -348,4 +418,48 @@ fn row(raw: Value) -> Result<Row, String> {
         refuses: parsed.refuses.into_iter().map(canonical).collect(),
         raw: text,
     })
+}
+
+#[cfg(test)]
+mod row_text_tests {
+    use super::*;
+
+    /// The hash before rows were parsed one at a time: SHA-256 of every row
+    /// value in one array, serialized compact.
+    fn rows_hash_reference(text: &str) -> String {
+        use sha2::{Digest, Sha256};
+        let document: Value = serde_json::from_str(text).expect("parses");
+        let rows = document["rows"].as_array().expect("rows").clone();
+        let bytes = serde_json::to_vec(&rows).expect("serializes");
+        Sha256::digest(&bytes).iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+
+    #[test]
+    fn the_schema_hash_equals_the_whole_array_hash() {
+        assert_eq!(Schema::embedded().schema_hash, rows_hash_reference(EMBEDDED));
+        let empty = r#"{"version":1,"sections":[],"rows":[]}"#;
+        assert_eq!(Schema::parse(empty).expect("parses").schema_hash, rows_hash_reference(empty));
+    }
+
+    #[test]
+    fn embedded_rows_keep_slices_of_the_compiled_text_not_heap_copies() {
+        let range = EMBEDDED.as_bytes().as_ptr_range();
+        let rows = &Schema::embedded().rows;
+        assert!(!rows.is_empty());
+        for row in rows {
+            let RowText::Embedded(text) = &row.raw else {
+                panic!("{}: an embedded row holds a heap copy", row.key);
+            };
+            let start = text.as_ptr();
+            assert!(range.contains(&start), "{}: not a slice of the embedded text", row.key);
+        }
+        // Another text keeps owned compact rows that give back the same values.
+        let parsed = Schema::parse(EMBEDDED).expect("parses");
+        assert_eq!(parsed.schema_hash, Schema::embedded().schema_hash);
+        for (owned, embedded) in parsed.rows.iter().zip(rows) {
+            assert!(matches!(owned.raw, RowText::Owned(_)));
+            assert_eq!(owned.raw(), embedded.raw(), "{}", owned.key);
+            assert_eq!(owned, embedded, "{}", owned.key);
+        }
+    }
 }

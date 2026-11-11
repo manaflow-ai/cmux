@@ -189,6 +189,12 @@ extension BrowserLinkClickSetting {
     public nonisolated static let middleClickDefault: BrowserLinkClickAction = .backgroundTab
 }
 
+extension BrowserVimKeysSetting {
+    /// `browser.vimKeys`.
+    public nonisolated static let configPath = ["browser", "vimKeys"]
+    public nonisolated static let fallback = true
+}
+
 extension LinkRouting {
     /// `browser.enabled`: Classic's Disable cmux Browser switch: false sends every link to the system and opens no browser tab for a web page.
     public nonisolated static let enabledPath = ["browser", "enabled"]
@@ -201,7 +207,7 @@ extension LinkRouting {
     public nonisolated static let signInPagesDefault = true
     /// `browser.openPullRequestsInGitHubPage`.
     public nonisolated static let pullRequestsInGitHubPagePath = ["browser", "openPullRequestsInGitHubPage"]
-    public nonisolated static let pullRequestsInGitHubPageDefault = true
+    public nonisolated static let pullRequestsInGitHubPageDefault = false
     /// `browser.openTerminalLinksInCmuxBrowser`: Classic's key: read when browser.openLinksInCmuxBrowser is absent (EffectiveSettings copies it over), never written by Settings. Listed so MDM profiles and team policies written for it still apply.
     public nonisolated static let legacyOpenPath = ["browser", "openTerminalLinksInCmuxBrowser"]
     public nonisolated static let legacyOpenDefault = true

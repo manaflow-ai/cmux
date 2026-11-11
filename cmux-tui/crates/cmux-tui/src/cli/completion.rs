@@ -108,17 +108,26 @@ fn script(rest: &[String], output: OutputMode) -> i32 {
         [] => {
             let message =
                 "cmux: completion needs a shell: zsh, bash or fish; run `cmux completion --help`";
-            return super::app::failure("usage.invalid", message, output, 2);
+            return usage_error(message, output);
         }
         [other, ..] => {
             let message = format!(
                 "cmux: completion takes zsh, bash or fish, not {other:?}; run `cmux completion --help`"
             );
-            return super::app::failure("usage.invalid", &message, output, 2);
+            return usage_error(&message, output);
         }
     };
     print!("{text}");
     0
+}
+
+/// A usage error in the CLI's error shape. `cli/app.rs` has this too, but it is unix-only and
+/// this module builds on every target.
+fn usage_error(message: &str, output: OutputMode) -> i32 {
+    let error = serde_json::json!({
+        "code": "usage.invalid", "message": message, "details": {}, "retryable": false,
+    });
+    super::wire::print_local_error(&error, output, 2)
 }
 
 /// The completions of the last word of `words` (the word being typed, maybe empty), with `help`
@@ -243,10 +252,10 @@ pub(super) fn verbs(scope: &str, help: &str) -> Vec<String> {
     let mut found = rows(help);
     let prefix = format!("cmux {scope} ");
     for line in help.lines() {
-        let Some(at) = line.find(&prefix) else { continue };
+        let Some((_, after)) = line.split_once(prefix.as_str()) else { continue };
         // `cmux vm ls | status | pause [NAME]` names three verbs: words joined by `|`.
         let mut joined = true;
-        for token in line[at + prefix.len()..].split_whitespace() {
+        for token in after.split_whitespace() {
             if token == "|" {
                 joined = true;
                 continue;

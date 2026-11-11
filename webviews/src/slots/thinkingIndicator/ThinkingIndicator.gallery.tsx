@@ -69,19 +69,19 @@ export default componentEntry<Props>({
     },
     "counting-dots": {
       props: { variant: "counting-dots" },
-      note: "Three dots light in turn with a rest beat.",
+      note: "A lit dot steps across three dim dots.",
     },
     "counting-dots-long": {
       props: { variant: "counting-dots", thoughtMs: 32_000 },
-      note: "Past 20 s of thinking a fourth dot fills the rest beat.",
+      note: "Past 20 s of thinking a fourth dot joins and the lit dot counts four.",
     },
     pulse: {
       props: { variant: "pulse" },
-      note: "One round mark swells and softens once per breath.",
+      note: "One round mark swells in once, then holds still.",
     },
     caret: {
       props: { variant: "caret" },
-      note: "A caret blinks after the word.",
+      note: "A caret steps ahead after the word; it never blinks.",
     },
     blocks: {
       props: { variant: "blocks" },

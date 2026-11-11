@@ -304,6 +304,8 @@ extension SettingsPageLayout {
     private static let developmentCategory = CategorySpec(
         id: "development", title: section(.development), symbol: "hammer",
         groups: [
+            // Debug commands in the Command Palette (DEV and NIGHTLY).
+            GroupSpec(group: "settings.group.internalDeveloperMode"),
             GroupSpec(group: "settings.group.macScreen"),
             GroupSpec(group: "settings.group.deviceHub"),
         ],

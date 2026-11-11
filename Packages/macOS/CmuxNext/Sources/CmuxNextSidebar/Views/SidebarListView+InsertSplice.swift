@@ -17,6 +17,7 @@ extension SidebarListViewComponents {
         // `listingEachWorkspaceOnce` left out a workspace an earlier section lists too, which the cache would take back.
         var before = insertion.section
         before.nodes.remove(at: insertion.node)
+        SidebarPerfCounters.add(.rowsWalked, shown.nodes.count)
         guard shown == before else { return nil }
         let o = options(includeGap: true)
         // The selection moves to the new row with the insert (Cmd-N): the layout reads it only to keep a selected row
@@ -45,6 +46,7 @@ extension SidebarListViewComponents {
               case let .workspace(listed) = shown.nodes[removal.node], listed.id == id else { return nil }
         var after = shown
         after.nodes.remove(at: removal.node)
+        SidebarPerfCounters.add(.rowsWalked, shown.nodes.count)
         guard after == removal.section else { return nil }
         // A move's target section, as the list would draw it before the row comes back.
         var target: SidebarSection?

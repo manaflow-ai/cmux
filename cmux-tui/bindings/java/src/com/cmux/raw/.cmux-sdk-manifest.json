@@ -762,8 +762,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "1748f36d9360902b9615f85913244a492b3f01feb921d749cff11e66bd1747ef",
-      "size": 82705
+      "sha256": "7fa53569be8b104632832614aab329da887b08c1bb33574459eae9b0bcbc5489",
+      "size": 82632
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1792,8 +1792,8 @@
     },
     {
       "path": "ListWorkspacesRequest.java",
-      "sha256": "d818bfe1ed1f1a5da2ef1cbfedca95c549f7b84c5bc215e296dafcd44390fc9d",
-      "size": 2630
+      "sha256": "a4735f78f37a7aee5b8be6476d16788e4a8786b42633067719758e76de7c1956",
+      "size": 2017
     },
     {
       "path": "LivePane.java",
@@ -2197,7 +2197,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "7e9753b595a93ee408a7f9f30a3dd1a6bdd0622d5cbe78de17b4140df0579d8f",
+      "sha256": "3fdec71d6757b9087de4c9f69297afa9bfd643270b46ff27b06e5161ca6016e7",
       "size": 8000
     },
     {
@@ -2611,6 +2611,21 @@
       "size": 1792
     },
     {
+      "path": "ServerStatsCommandConnections.java",
+      "sha256": "f945f9128d52394154839976984ff89cfb36a97db92cfc203a97db53a7eff633",
+      "size": 3433
+    },
+    {
+      "path": "ServerStatsCommandRow.java",
+      "sha256": "380264356999dea73a8769150c87103005513cfeb1a43151b3b41f3047b79307",
+      "size": 5300
+    },
+    {
+      "path": "ServerStatsCommands.java",
+      "sha256": "a3e76f51758bac30af93049261cda64e4ba80d2fa133a2ec763a6c1ca2b983af",
+      "size": 5348
+    },
+    {
       "path": "ServerStatsConnections.java",
       "sha256": "8358297e61670f5cf7032a0794a9dfda381d0a0dede752518f043992580b9f7d",
       "size": 4689
@@ -2659,6 +2674,16 @@
       "path": "ServerStatsHookQueue.java",
       "sha256": "e5be96e4b9a0de676d8aba316519b4188aaac0df581e334792a3edc1ffae689f",
       "size": 4044
+    },
+    {
+      "path": "ServerStatsJournalFollower.java",
+      "sha256": "ae5efddb7fcca03e25cc2951ac19286cf685df0e7bbb64e20bb181973ffd974e",
+      "size": 8221
+    },
+    {
+      "path": "ServerStatsJournalFollowers.java",
+      "sha256": "a86a7104ab8e66a58a36ea108dcfaf2d1b32465ff0ca96ca34f6e330a053a5cc",
+      "size": 6399
     },
     {
       "path": "ServerStatsJournalWriter.java",
@@ -2712,8 +2737,8 @@
     },
     {
       "path": "ServerStatsResult.java",
-      "sha256": "33fe999df76ed414568ef4a9bd9e9d93430d39cad14a022a1bd056e4fcaacaf4",
-      "size": 8708
+      "sha256": "a776f4771bf9ef87cf24f29db2e2b0373df5dc72cac22cf2e06c9daea48b58ed",
+      "size": 10236
     },
     {
       "path": "ServerStatsWritePath.java",
@@ -3432,8 +3457,8 @@
     },
     {
       "path": "Tree.java",
-      "sha256": "fac8af4cb087981501b55fe3df5e3e151f24227ff7a4d14d87d217d55db8f3fd",
-      "size": 7471
+      "sha256": "a7a9c62050ccd192f8d354c5da838b669063ade6efa8c1c5c9b40dbfba492618",
+      "size": 6909
     },
     {
       "path": "TreeChangedEvent.java",
@@ -3662,7 +3687,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "ba1ea0eac628452e4d44bf36bdbb7b20b34766dbdbbb531f7bbbe07db8d60c67",
+  "ir_sha256": "64b6943e7829ef9a3daee2da66c346cfb2a8a2f7cb50674beffb6d797e6ac7ae",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

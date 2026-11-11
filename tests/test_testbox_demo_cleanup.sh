@@ -10,6 +10,8 @@
 #  2. Without an hq checkout the demo starts nothing and names the public
 #     fallback instead of a personal default path.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../scripts/cmux-next/tests/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 demo="$root/scripts/blacksmith-testbox-demo.sh"
@@ -21,7 +23,7 @@ fail() { echo "FAIL: $*" >&2; if [[ -n "$log" && -f "$log" ]]; then cat "$log" >
 git_q() { git -c user.name=t -c user.email=t@e -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
 
 # A cmux-shaped checkout whose branch is pushed, as the demo requires.
-git_q init --bare "$work/origin.git"
+git_fixture_init --bare "$work/origin.git"
 repo="$work/repo"
 mkdir -p "$repo/scripts" "$repo/.github/workflows" "$repo/ghostty-next"
 cp "$bounded" "$repo/scripts/"
@@ -34,7 +36,7 @@ git_q -C "$repo" remote add origin "$work/origin.git"
 git_q -C "$repo" push origin demo-branch
 
 # An hq checkout on main with a fake wrapper whose behavior FAKE_WARMUP picks.
-git_q init --bare "$work/hq.git"
+git_fixture_init --bare "$work/hq.git"
 git_q clone "$work/hq.git" "$work/hq-seed"
 mkdir -p "$work/hq-seed/scripts"
 cat >"$work/hq-seed/scripts/testbox-warmup.sh" <<'SH'

@@ -2,6 +2,8 @@
   "roots": ["nightly.yml"],
   "workflows": {
     "nightly.yml": {
+      "runner-preflight": {
+        "Every routing label has an online runner": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly runner preflight fails a run whose routing label has no online runner", "note": "tests/test_nightly_runner_preflight.py runs scripts/ci/nightly_runner_preflight.py on the 2026-11-10 census and variables"}},
       "decide": {
         "Mint the routing token for early nightly controls": {"plumbing": true},
         "Place the light jobs on the all-nightly reservation while it has idle runners": {"pr": "cmux-next-guards.yml:ci-guard-group:Run the ci guard group and the routed groups", "note": "guards-local.sh runs test_ci_portable_job_placement.py and test_nightly_dedicated_mini.py, which cover the reservation placement, its bounded wait and the runs-on fallbacks"},
@@ -27,7 +29,7 @@
         "Move nightly-next": {"nightly_only": "moves nightly-next with release token (logic tested by tests/test_nightly_next_promotion_queue.py)"}},
       "refresh-compilation-cache": {
         "Clear stale git locks (self-hosted reused workspace)": {"plumbing": true},
-        "Select Xcode": {"plumbing": true}, "Compute Xcode compilation cache key": {"plumbing": true},
+        "Select Xcode": {"plumbing": true}, "Select the SDK of the selected Xcode": {"plumbing": true}, "Compute Xcode compilation cache key": {"plumbing": true},
         "Restore Xcode compilation cache": {"plumbing": true, "note": "local action: restores or saves a cache with actions/cache, WarpBuilds/cache or R2 and reports a receipt; no product check. Re-review this entry if the action gains a check"},
         "Install compilation dependencies": {"plumbing": true},
         "Build in-tree acpmux for the compilation cache": {"pr": "cmux-next.yml:cmux-scheme-compile:Build in-tree acpmux for the app bundle"},
@@ -39,7 +41,7 @@
         "Save Swift packages": {"plumbing": true, "note": "local action: restores or saves a cache with actions/cache, WarpBuilds/cache or R2 and reports a receipt; no product check. Re-review this entry if the action gains a check"}},
       "refresh-test-compilation-cache": {
         "Clear stale git locks (self-hosted reused workspace)": {"plumbing": true},
-        "Prepare admission build paths": {"plumbing": true}, "Select Xcode": {"plumbing": true},
+        "Prepare admission build paths": {"plumbing": true}, "Select Xcode": {"plumbing": true}, "Select the SDK of the selected Xcode": {"plumbing": true},
         "Compute the DerivedData seed fingerprint": {"plumbing": true},
         "Install compilation dependencies": {"plumbing": true},
         "Cache Swift packages": {"plumbing": true, "note": "local action: restores or saves a cache with actions/cache, WarpBuilds/cache or R2 and reports a receipt; no product check. Re-review this entry if the action gains a check"},
@@ -54,7 +56,8 @@
         "Record the reused helper's build commit": {"plumbing": true}},
       "build-nightly-ghostty-cli-helper": {
         "Reuse the original helper through build-nightly-app": {"plumbing": true},
-        "Clear stale git locks (self-hosted reused workspace)": {"plumbing": true}, "Install Zig": {"plumbing": true},
+        "Clear stale git locks (self-hosted reused workspace)": {"plumbing": true},
+        "Select the SDK of the selected Xcode": {"plumbing": true}, "Install Zig": {"plumbing": true},
         "Key the Ghostty CLI helper cache": {"plumbing": true, "note": "hashes the helper cache manifest inputs into the actions/cache key; no product check. tests/test_nightly_ghostty_helper_cache.py holds the key to the script's manifest"},
         "Build Ghostty CLI helper": {"nightly_only": "zig builds the Ghostty CLI helper for macOS (universal or arm64) and checks it with lipo on a Mac; ci-macos.yml swift-package-tests builds it only for pull requests into main (ci.yml's static-preflight skips feat-cmux-next)"},
         "Build the cmux-next source archive": {"nightly_only": "zig fetches every Ghostty and ghostty-next package on the macOS helper runner (network, minutes); a new package without a pinned license shows only here. The collector and verifier run on fixtures in cmux-next-guards.yml:static-checks:The nightly's Ghostty license checks pass on fixtures; cmux-next-source-archive.yml runs it for real on ghosttykit-pin/** pushes"},
@@ -68,7 +71,7 @@
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Restore the original unsigned nightly inputs": {"pr": "ci-guards.yml:workflow-guard-tests:Validate unsigned nightly resume provenance and routing"},
         "Clear stale git locks (self-hosted reused workspace)": {"plumbing": true},
-        "Checkout build ref (warm nightly-next builder)": {"plumbing": true}, "Select Xcode": {"plumbing": true},
+        "Checkout build ref (warm nightly-next builder)": {"plumbing": true}, "Select Xcode": {"plumbing": true}, "Select the SDK of the selected Xcode": {"plumbing": true},
         "Clear build outputs a persistent runner kept": {"plumbing": true},
         "Start Release DerivedData empty": {"plumbing": true},
         "Mark the kept Release DerivedData built (dedicated nightly-next builder)": {"plumbing": true},
@@ -196,7 +199,7 @@
         "Install the current signing keychain controls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate unsigned nightly resume provenance and routing"},
         "Initialize cmux-next notices submodule": {"plumbing": true},
         "Parse signing and notarize scripts with /bin/bash 3.2": {"pr": "signing-keychain-macos.yml:bash32-syntax:Parse every scripts/ci shell script with bash 3.2"},
-        "Select Xcode": {"plumbing": true}, "Restore prepared app": {"plumbing": true},
+        "Select Xcode": {"plumbing": true}, "Select the SDK of the selected Xcode": {"plumbing": true}, "Restore prepared app": {"plumbing": true},
         "Refuse a resumed build superseded by a published feed": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly version numbers per track"},
         "Install build deps": {"plumbing": true},
         "Derive Sparkle public key from private key": {"nightly_only": "derives key from Sparkle private key"},
@@ -223,7 +226,7 @@
         "Cleanup keychain": {"nightly_only": "deletes the signing keychain"}},
       "verify-signed-nightly": {
         "Add the workflow commit's new step scripts to an older build tree": {"plumbing": true, "note": "only runs when the build tree predates the step scripts it calls"},
-        "Initialize cmux-next notices submodule": {"plumbing": true}, "Select Xcode": {"plumbing": true},
+        "Initialize cmux-next notices submodule": {"plumbing": true}, "Select Xcode": {"plumbing": true}, "Select the SDK of the selected Xcode": {"plumbing": true},
         "Restore signed app": {"plumbing": true},
         "Verify version surfaces": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"},
         "Verify bundled CLI commands run from the bundle alone": {"nightly_only": "it runs the signed bundle's bin/cmux with an empty environment; pull requests build no app bundle, and the cmux-tui unit test vm_help_runs_in_process_without_a_cmux_vm_binary covers the in-process path"},
@@ -232,7 +235,7 @@
         "Run bundled Ghostty theme picker helper regression": {"nightly_only": "launches the bundled ghostty helper's theme picker; needs the Release cmux.app that only the nightly builds (xcodebuild Release on a Mac)"},
         "Verify signed app entitlements and the Computer Use helper ticket": {"nightly_only": "reads the Developer ID signature, entitlements and the Computer Use helper's stapled ticket of the signed Release app that only the nightly signs"}},
       "verify-final-dmg-nightly": {
-        "Initialize cmux-next notices submodule": {"plumbing": true}, "Select Xcode": {"plumbing": true},
+        "Initialize cmux-next notices submodule": {"plumbing": true}, "Select Xcode": {"plumbing": true}, "Select the SDK of the selected Xcode": {"plumbing": true},
         "Download final DMG (parallel ranges)": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts", "note": "tests/test_fetch_run_artifact.py runs the ranged fetch against a fake artifact service and blob host"},
         "Verify final DMG artifact": {"nightly_only": "statically verifies the notarized stapled final DMG and records its exact digest without launching app code"},
         "Launch smoke from a fresh home": {"nightly_only": "launches the final notarized DMG from a fresh home in the console session; only a release run has one (gate tested by tests/test_nightly_next_launch_smoke.py)"},
@@ -255,12 +258,12 @@
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Initialize cmux-next notices submodule": {"plumbing": true},
         "Parse signing and notarize scripts with /bin/bash 3.2": {"pr": "signing-keychain-macos.yml:bash32-syntax:Parse every scripts/ci shell script with bash 3.2"},
-        "Select Xcode": {"plumbing": true}, "Install create-dmg": {"plumbing": true},
+        "Select Xcode": {"plumbing": true}, "Select the SDK of the selected Xcode": {"plumbing": true}, "Install create-dmg": {"plumbing": true},
         "Continue the newest accepted pending notarization": {"nightly_only": "continues Apple notarization, signs DMG (logic run with fakes by tests/test_nightly_next_recovery.py)"},
         "Delete the stapled-app DMG signing keychain": {"nightly_only": "deletes the signing keychain"},
         "Generate the recovered Sparkle appcast": {"nightly_only": "signs appcast with Sparkle key"}},
       "verify-recovered-nightly-next": {
-        "Initialize cmux-next notices submodule": {"plumbing": true}, "Select Xcode": {"plumbing": true},
+        "Initialize cmux-next notices submodule": {"plumbing": true}, "Select Xcode": {"plumbing": true}, "Select the SDK of the selected Xcode": {"plumbing": true},
         "Verify recovered DMG artifact": {"nightly_only": "statically verifies the notarized stapled recovered DMG and records its exact digest without launching app code"},
         "Launch smoke from a fresh home": {"nightly_only": "launches the recovered notarized DMG from a fresh home in the console session; only a release run has one (gate tested by tests/test_nightly_next_launch_smoke.py)"}
       },
@@ -349,15 +352,17 @@
         "Leave notarization to a newer published build": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly signing jobs take a Blacksmith label with a moving queue"}},
       "generate-nightly-deltas": {
         "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
+        "Forget the kept clone's sparse-checkout mode": {"plumbing": true},
         "Claim the whole Mac for signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
         "Mint the release App token for this job's gh calls": {"nightly_only": "mints release GitHub App token"},
         "Send this job's gh calls as the release App, github.token as the fallback": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publish jobs send gh calls as the release App first"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
-        "Select Xcode": {"plumbing": true},
+        "Select Xcode": {"plumbing": true}, "Select the SDK of the selected Xcode": {"plumbing": true},
         "Generate deltas and revised appcast": {"nightly_only": "Sparkle key signs deltas (step env, after the claim; generate-nightly-deltas.sh tested by tests/test_generate_nightly_deltas.sh)"}},
       "republish-nightly-deltas": {
         "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
         "Clean this job's workdir on an owned Mac": {"pr": "ci-guards.yml:workflow-guard-tests:Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac"},
+        "Forget the kept clone's sparse-checkout mode": {"plumbing": true},
         "Claim the whole Mac for signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
         "Wipe this job's credentials and files from the owned Mac": {"pr": "ci-guards.yml:workflow-guard-tests:Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac"},
         "Mint the release App token that reads the Dev ring switch": {"nightly_only": "mints release GitHub App token"},
@@ -383,7 +388,7 @@
         "Check the run that published": {"nightly_only": "reads the run that published through the API (tests/test_nightly_next_tail_off_push_group.py runs check-source on real and forged runs)"},
         "Read the published build": {"nightly_only": "reads a published build's record, which only a publication or its dispatched post-publish run has (tests/test_nightly_next_tail_off_push_group.py round-trips the script)"}},
       "build-nightly-deltas": {
-        "Select Xcode": {"plumbing": true},
+        "Select Xcode": {"plumbing": true}, "Select the SDK of the selected Xcode": {"plumbing": true},
         "Build the deltas without the key": {"nightly_only": "diffs the published DMG against earlier releases' DMGs with BinaryDelta (tests/test_nightly_deltas_keyless_prebuild.py)"}},
       "published-in": {
         "Add the workflow commit's new step scripts to an older build tree": {"plumbing": true, "note": "only runs when the build tree predates the step scripts it calls"},
@@ -419,7 +424,7 @@
         "Pick an idle owned session runner": {"pr": "ci-guards.yml:workflow-guard-tests:Test the cmux NEXT nightly visual gate"}},
       "visual-gate-nightly": {
         "Clear stale git locks (self-hosted reused workspace)": {"plumbing": true},
-        "Select Xcode": {"plumbing": true},
+        "Select Xcode": {"plumbing": true}, "Select the SDK of the selected Xcode": {"plumbing": true},
         "Check the states": {"pr": "ci-guards.yml:workflow-guard-tests:Test the cmux NEXT nightly visual gate"},
         "Give this job its own bun": {"plumbing": true},
         "Claim a tour slot on this Mac": {"plumbing": true},

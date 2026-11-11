@@ -1513,17 +1513,17 @@ button.cv-subagent > :last-child {
    `slide` adds a short rise to the fold, `fade` keeps the height still and only fades. Reduce Motion,
    the host's switch and a page away leave and arrive at once (SubagentTray.tsx marks nothing). */
 .acpmux-running-tray[data-row-motion="slide"] li[data-arrived] > .acpmux-running-tray__row {
-  animation: acpmux-hat-row-rise var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out) both;
+  animation: acpmux-hat-row-rise var(--agent-motion-move, 180ms) var(--agent-ease-out) both;
 }
 .acpmux-running-tray[data-row-motion="slide"] li[data-leaving] > .acpmux-running-tray__row {
   translate: 0 calc(-1 * var(--ds-space-2));
-  transition: translate var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out);
+  transition: translate var(--agent-motion-move, 180ms) var(--agent-ease-out);
 }
 .acpmux-running-tray[data-row-motion="fade"] li[data-arrived] {
-  animation: cv-enter-fade var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both;
+  animation: cv-enter-fade var(--agent-motion-in) var(--agent-ease-out) both;
 }
 .acpmux-running-tray[data-row-motion="fade"] li[data-leaving] {
-  animation: acpmux-hat-row-fade-out var(--agent-motion-out, 80ms) var(--agent-ease-out, ease-out) both;
+  animation: acpmux-hat-row-fade-out var(--agent-motion-out, 80ms) var(--agent-ease-out) both;
 }
 @keyframes acpmux-hat-row-rise {
   from {
@@ -1570,12 +1570,22 @@ button.cv-subagent > :last-child {
     opacity: 0;
   }
 }
-/* Words that tick (trayMotion.tsx `Tick`): the old and the new share one cell; the old leave up as the
-   new rise in, on the message tokens. Reduce Motion's stylesheet cuts both to a frame. */
+/* Words that tick (trayMotion.tsx `Tick`): the old and the new share one cell, and a change rolls
+   them, as Claude Code's status line does (Leo, 2026-11-07: the hat's line handing over from thinking
+   to a tool call to another, "That animation, I like that"): the old words go up and out of the cell
+   as the new come up into it from below, both opaque, on one clock. The cell clips them, so at every
+   frame the two tile the line's height exactly: half of each line at the middle, never a frame with
+   no words and never two texts over each other (Leo, 2026-11-11: "there's breif moments where it just
+   looks like a blank tear that then switches", the cross-fade's middle, both texts faded and
+   half-clipped). Transform only, so the compositor plays it on a busy main thread too. Reduce Motion
+   and motion off change the words at once (trayMotionModel.ts `motionAllowed`). */
 .acpmux-tick {
   display: inline-grid;
   grid-template-columns: minmax(0, auto);
   overflow: hidden;
+  /* The roll's clock: the micro step (Leo, 2026-11-11: "it's too slow on the transitions"). The width
+     ease of a sliding tick (trayMotion.tsx) reads it too. */
+  --acpmux-tick-roll: var(--agent-motion-in);
 }
 .acpmux-tick > span {
   grid-area: 1 / 1;
@@ -1585,45 +1595,31 @@ button.cv-subagent > :last-child {
   white-space: nowrap;
 }
 .acpmux-tick__in {
-  animation: acpmux-tick-in var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both;
+  animation: acpmux-tick-roll-in var(--acpmux-tick-roll) var(--agent-ease-out) both;
 }
 .acpmux-tick__out {
-  animation: acpmux-tick-out var(--agent-motion-out, 80ms) var(--agent-ease-out, ease-out) both;
+  animation: acpmux-tick-roll-out var(--acpmux-tick-roll) var(--agent-ease-out) both;
 }
-@keyframes acpmux-tick-in {
+@keyframes acpmux-tick-roll-in {
   from {
-    opacity: 0;
+    translate: 0 100%;
   }
-}
-@keyframes acpmux-tick-out {
   to {
-    opacity: 0;
+    translate: 0 0;
   }
 }
-/* A sliding tick (trayMotion.tsx `Tick` slide; Leo, 2026-11-07, on the hat's line handing over from
-   thinking to a tool call to another: "That animation, I like that"): the old words slide up and out
-   as the new slide up from below, on one baseline, while the cell's width eases between them on the
-   same clock. The cell clips both, so neither draws outside the row. */
+@keyframes acpmux-tick-roll-out {
+  from {
+    translate: 0 0;
+  }
+  to {
+    translate: 0 -100%;
+  }
+}
+/* A sliding tick (trayMotion.tsx `Tick` slide): the same roll, while the cell's width eases from the
+   old words' to the new ones' on the roll's clock, so what follows them glides instead of jumping. */
 .acpmux-tick[data-slide] {
-  --acpmux-tick-slide: var(--agent-motion-move, 180ms);
-}
-.acpmux-tick[data-slide] > .acpmux-tick__in {
-  animation: acpmux-tick-slide-in var(--acpmux-tick-slide) var(--agent-ease-out, ease-out) both;
-}
-.acpmux-tick[data-slide] > .acpmux-tick__out {
-  animation: acpmux-tick-slide-out var(--acpmux-tick-slide) var(--agent-ease-out, ease-out) both;
-}
-@keyframes acpmux-tick-slide-in {
-  from {
-    opacity: 0;
-    translate: 0 70%;
-  }
-}
-@keyframes acpmux-tick-slide-out {
-  to {
-    opacity: 0;
-    translate: 0 -70%;
-  }
+  --acpmux-tick-slide: var(--acpmux-tick-roll);
 }
 /* A count ticking over (trayMotion.tsx `Tick` steadyCounts): only the number that changed rolls, the
    old one up and out as the new one rises into its place; tabular figures keep its width. */
@@ -1636,10 +1632,10 @@ button.cv-subagent > :last-child {
   grid-area: 1 / 1;
 }
 .acpmux-tick__roll-in {
-  animation: acpmux-tick-slide-in var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out) both;
+  animation: acpmux-tick-roll-in var(--acpmux-tick-roll) var(--agent-ease-out) both;
 }
 .acpmux-tick__roll-out {
-  animation: acpmux-tick-slide-out var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out) both;
+  animation: acpmux-tick-roll-out var(--acpmux-tick-roll) var(--agent-ease-out) both;
 }
 
 /* What a running agent did last, on the title's row (trayLatest.experiment.ts `inline`, the
@@ -1861,8 +1857,8 @@ button.cv-subagent > :last-child {
    (or it has keyboard focus); tucked, the hat leaves only a faint up chevron at the same place on the
    composer's top edge, in the accent while something runs, which brightens on hover. The control has
    no wide slab behind it (Leo, 2026-11-05: "the Tuck is a little bit ugly"): its compact glass
-   control and short bridge keep the buttons' wide hit areas while joining the composer hairline, as
-   Codex, ChatGPT and VS Code draw a divider's collapse control. */
+   control keeps the buttons' wide hit areas and sits on the composer's hairline, which runs up to its
+   rim on each side ("The line stops at the hat" below), as Codex draws a divider's collapse control. */
 .acpmux-running-tray[data-tucks] {
   position: relative;
 }
@@ -1948,9 +1944,8 @@ button.cv-subagent > :last-child {
   width: var(--acpmux-tray-pull-tab-width);
   height: 20px;
 }
-/* The tab's compact control floats over the composer's hairline. The bridge remains visible on both
-   sides of the glass control, so the line meets the bar instead of stopping short; the hit strip
-   (where it takes clicks) stays put. */
+/* The tab's compact control floats over the composer's hairline; the hit strip (where it takes
+   clicks) stays put. */
 .acpmux-tray-pull__tab,
 .acpmux-tray-pull + .acpmux-composer {
   --acpmux-tray-pull-tab-width: 96px;
@@ -1977,33 +1972,12 @@ button.cv-subagent > :last-child {
   transform: translateY(calc(-1 * var(--acpmux-tray-pull-lift)));
   transition: background-color var(--cmux-motion-micro, 120ms) var(--cv-actions-ease), box-shadow var(--cmux-motion-micro, 120ms) var(--cv-actions-ease);
 }
-/* A quiet bridge ties the hat to the composer's hairline: one device pixel in the shared glass edge,
-   8px out from each side of the pill, so the resting hat is visible without becoming a second card.
-   It hangs off the pill, so it moves out with the pill's width on the same clock and never runs
-   through the pill behind the chevron or the count. */
-.acpmux-tray-pull__hat::before,
-.acpmux-tray-pull__hat::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  width: var(--ds-space-2);
-  height: var(--cmux-hairline);
-  background: var(--glass-edge, color-mix(in srgb, var(--agent-muted) 45%, transparent));
-  transform: translateY(-50%);
-  transition: background-color var(--cmux-motion-micro, 120ms) var(--cv-actions-ease), opacity var(--cmux-motion-micro, 120ms) var(--cv-actions-ease);
-  opacity: 0.85;
-}
-.acpmux-tray-pull__hat::before {
-  right: 100%;
-}
-.acpmux-tray-pull__hat::after {
-  left: 100%;
-}
-.acpmux-tray-pull__tab:focus-visible > .acpmux-tray-pull__hat::before,
-.acpmux-tray-pull__tab:focus-visible > .acpmux-tray-pull__hat::after {
-  background: var(--agent-accent);
-  opacity: 1;
-}
+/* No line of the hat's own beside the pill (Leo, 2026-11-11: "did this line behind the count box get
+   removed yet?"). Its two 8px stubs hung at the pill's middle, which the pill's lift puts 2px over
+   the card's line, so beside the pill a second, shorter line ran parallel to the card's and read as
+   a line behind the count, poking out on both sides. The card's own line already runs up to the pill's rim
+   (below), so the pill and that line are the one shape; keyboard focus is the pill's outline.
+   test/composer-hat-line-gap.test.ts measures that nothing is drawn beside the pill over the line. */
 .acpmux-tray-pull__tab:hover > .acpmux-tray-pull__hat,
 .acpmux-tray-pull__tab:has([data-popup-open]) > .acpmux-tray-pull__hat {
   background: color-mix(in srgb, var(--glass-surface, Canvas) 30%, transparent);
@@ -2072,7 +2046,7 @@ button.cv-subagent > :last-child {
    glass rim i mean there's a line in the midle"). The pill floats over the top edge of the part under
    it, and its glass is clear enough that the composer's hairline and lit rim read straight through
    its middle. The part under the hat leaves a gap in that line exactly the pill's width, so the line
-   runs up to the pill's rim on each side and never behind it; the pill's glass, rim and bridges are
+   runs up to the pill's rim on each side and never behind it; the pill's glass and rim are
    unchanged. The gap is the pill's own width, worked out from the same tokens: the control's width
    and, while the slot shows, the 4px gap and the mark (the dot, or one tabular digit of the count's
    own type per character, `data-mark`, TrayPullTab.tsx). The card keeps its fill and shadow; only
@@ -2281,10 +2255,6 @@ button.cv-subagent > :last-child {
   color: var(--agent-accent);
   opacity: 0.8;
 }
-.acpmux-tray-pull[data-running] .acpmux-tray-pull__hat::before,
-.acpmux-tray-pull[data-running] .acpmux-tray-pull__hat::after {
-  background: color-mix(in srgb, var(--agent-accent) calc(62% * var(--glass-rim, 1)), transparent);
-}
 .acpmux-tray-pull__tab:hover .acpmux-tray-pull__hat > svg,
 .acpmux-tray-pull__tab:has([data-popup-open]) .acpmux-tray-pull__hat > svg,
 .acpmux-tray-pull__tab:focus-visible .acpmux-tray-pull__hat > svg {
@@ -2300,7 +2270,7 @@ button.cv-subagent > :last-child {
   color: var(--agent-muted);
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
-  transition: opacity var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out);
+  transition: opacity var(--agent-motion-move, 180ms) var(--agent-ease-out);
 }
 /* Open, a lone item's step fades out where it is (Leo, 2026-11-08, on the hat expanding: "some
    elements in between and then things don't balance out"): the line under the header says it. It
@@ -2388,7 +2358,7 @@ button.cv-subagent > :last-child {
 }
 .acpmux-running-tray__chevron-bottom > svg {
   rotate: 180deg;
-  transition: rotate var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out);
+  transition: rotate var(--agent-motion-move, 180ms) var(--agent-ease-out);
 }
 .acpmux-running-tray__chevron-bottom[data-open] > svg {
   rotate: 0deg;
@@ -2401,7 +2371,7 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__chevron {
   display: inline-flex;
   rotate: 180deg;
-  transition: rotate var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out);
+  transition: rotate var(--agent-motion-move, 180ms) var(--agent-ease-out);
 }
 .acpmux-running-tray__chevron[data-open] {
   rotate: 0deg;
@@ -2410,7 +2380,7 @@ button.cv-subagent > :last-child {
    that expands in place turns its chevron down while open, as the hat's own header does, on the move
    token (Leo, 2026-11-07: "my expansions and contractions would all look about the same"). */
 .acpmux-running-tray .acpmux-agent-line__chevron > svg {
-  transition: rotate var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out);
+  transition: rotate var(--agent-motion-move, 180ms) var(--agent-ease-out);
 }
 .acpmux-running-tray .acpmux-agent-line__button[aria-expanded="true"] .acpmux-agent-line__chevron > svg {
   rotate: 90deg;

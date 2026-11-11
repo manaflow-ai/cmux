@@ -126,8 +126,7 @@ class Fixture(unittest.TestCase):
         self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(config), HOME=str(self.root),
                         CMUX_LINT_TOOLS_DIR=str(TOOLS))
         git_fixture_env.without_auto_maintenance(self.env)
-        subprocess.run(["git", "init", "--quiet", "--bare", "--initial-branch=feat-cmux-next", str(self.origin)],
-                       env=self.env, check=True, capture_output=True)
+        git_fixture_env.init_repo(self.origin, "--bare", "--initial-branch=feat-cmux-next", env=self.env)
         self.repo.mkdir()
         self.git("init", "--quiet", "--initial-branch=feat-cmux-next")
         self.git("remote", "add", "origin", str(self.origin))
@@ -2348,12 +2347,13 @@ class HookTests(Fixture):
         checks = [p for p in tracked if "/" not in p[len("scripts/cmux-next/"):]
                   or p.startswith(("scripts/cmux-next/lint/", "scripts/cmux-next/arch_rules/"))]
         for relative in ("scripts/git-hooks", "scripts/install-git-hooks.sh", "scripts/web_lint_prepush.py",
-                         "scripts/ci/base_merge_warning.py", "scripts/ci/github_release_download.py", "scripts/web-lint.sh",
+                         "scripts/ci/base_merge_warning.py", "scripts/ci/github_release_download.py",
+                         "scripts/ci/deadline_http.py", "scripts/web-lint.sh",
                          "scripts/merge-xcstrings.py",
                          "scripts/merge-pbxproj.py", "scripts/merge-baseline.py", "scripts/merge-daemon-capabilities.py", "scripts/merge-insertions.py",
                          "scripts/ci/merge_main_resolver.py", "scripts/ci/validate_test_execution_registry.py",
                          "scripts/ci/test_execution_registry.py", "scripts/ci/workload_entrypoints.py",
-                         "scripts/normalize-pbxproj.py", *checks):
+                         "scripts/normalize-pbxproj.py", "scripts/webviews_bun_version.py", *checks):
             source, target = SOURCE / relative, self.repo / relative
             if not source.exists() or target.exists():
                 continue

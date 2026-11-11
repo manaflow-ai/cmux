@@ -77,6 +77,11 @@ public nonisolated struct SettingDescriptor: Sendable, Hashable, Identifiable {
 
 extension SettingDescriptor {
     public var isPaletteExposed: Bool { palette == .exposed && isShownInCmuxNext }
+    /// The Command Palette lists this row in a build with (`developerTools`, DEV and NIGHTLY) or without
+    /// developer tools: Settings > Development exists only with them, on the Settings page and in the palette.
+    public func isPaletteListed(developerTools: Bool) -> Bool {
+        isPaletteExposed && (developerTools || section != .development)
+    }
     /// cmux-next reads this key, so its Settings page and palette offer it.
     public var isShownInCmuxNext: Bool { consumers.contains(.cmuxNext) }
     /// The Settings page (web page and anchors) has a row for this key.

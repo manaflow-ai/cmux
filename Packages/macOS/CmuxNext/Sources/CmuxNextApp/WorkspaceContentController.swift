@@ -38,6 +38,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     let state: WindowState  // strong: queued content work can run after WindowController.teardown let the state go (#34062)
     private(set) var handles = LayoutHandleMap()
     private(set) var panes: [LayoutPaneID: PaneController] = [:]
+    /// Alone on its screen while its page has the whole screen (`LayoutMapping.Result.presenting`, view-only).
+    var presentedPane: LayoutPaneID? { didSet { if presentedPane != oldValue { applyCurrent() } } }
     private var retiredPanes: [LayoutPaneID: PaneController] = [:] // closed, kept for their teardown (retainContentView)
     private var observation: Task<Void, Never>?
     private var connectionObservation: Task<Void, Never>?
@@ -268,6 +270,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     func applyLayoutIfChanged() { apply(LayoutMapping.shared.map(workspace)) }
 
     private func apply(_ result: LayoutMapping.Result, force: Bool = false, _ file: StaticString = #fileID, _ line: UInt = #line) {
+        let result = presentedPane.map { result.presenting($0) } ?? result
         // Commands translate through the current handles even when the tree is unchanged (the
         // daemon's echo of an optimistic split renumbers only the new pane): no apply then.
         let topologyMoved = adoptHandles(result.handles)

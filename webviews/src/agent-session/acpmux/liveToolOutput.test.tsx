@@ -296,14 +296,17 @@ afterEach(() => {
   root = undefined;
   dom?.window.close();
   dom = undefined;
-  for (const [key, value] of saved) scope[key] = value;
+  for (const [key, value] of saved) {
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
   saved.clear();
 });
 
 function mount(): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>");
   for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
-    saved.set(key, scope[key]);
+    if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,

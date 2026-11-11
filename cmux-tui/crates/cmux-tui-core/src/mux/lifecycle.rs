@@ -64,6 +64,8 @@ impl Mux {
         self.agent_hook_children.lock().unwrap_or_else(|e| e.into_inner()).remove(terminal_id);
         self.agent_records.lock().unwrap().remove(terminal_id);
         self.agent_presence.lock().unwrap().remove(terminal_id);
+        self.agent_hooks_at_rest.forget_terminal(terminal_id);
+        self.agent_plugin_reports_at_rest.forget_terminal(terminal_id);
         self.agent_prompts.lock().unwrap().forget(terminal_id);
         self.output_store.forget(terminal_id);
         // Terminal lifecycle does not flow through `agent.*` journal events
@@ -99,6 +101,9 @@ impl Mux {
 
     pub fn shutdown(&self) {
         let screen_checkpoint = self.wants_shutdown_checkpoint();
+        // The agents' last report times, before anything stops: the journal
+        // writer still runs.
+        self.save_agent_activity(true);
         self.shutting_down.store(true, Ordering::Release);
         // An in-flight maintenance tick must not delay the rest of shutdown.
         self.stop_journal_maintenance();
@@ -106,6 +111,8 @@ impl Mux {
         self.shutdown_feed_client();
         #[cfg(unix)]
         self.stop_agent_chat_notices();
+        #[cfg(unix)]
+        self.stop_project_chats();
         self.begin_session_shutdown();
         self.terminal_respawns.wake_all();
         self.startup_adoption_gate.wake_all();
@@ -181,14 +188,18 @@ impl Mux {
         // In a drop no job can reach the mux any more (as no reader could),
         // so they end at once.
         self.finish_terminal_publications(terminal_reader_deadline);
+        // The readers stopped. A marker the full terminal lane still owes
+        // (journal_ingress/terminal_offer.rs) is offered now, ahead of the
+        // last barrier. The offer does not wait.
+        let mut owed_gaps = self.journal_ingress.offer_owed_terminal_gaps();
         if self.journal_ingress.is_current_writer_thread() {
             // The readers stopped: the store's last write is safe here too.
             self.output_store.shutdown(self);
-            if !terminal_gaps.is_empty() {
+            if !terminal_gaps.is_empty() || owed_gaps > 0 {
                 eprintln!(
                     "cmux-tui: {context} on the session journal writer could not durably record \
                      {} terminal output gap(s)",
-                    terminal_gaps.len()
+                    terminal_gaps.len() + owed_gaps
                 );
             }
             if let Err(error) = self.journal_ingress.close_and_join() {
@@ -212,8 +223,22 @@ impl Mux {
         // durable gap above. Fence the terminal ingress lane while this Mux
         // still owns the registry; the closed gate prevents a timed-out reader
         // from inserting output after the barrier.
-        if let Err(error) = self.flush_terminal_journal() {
+        let mut flushed = self.flush_terminal_journal();
+        if flushed.is_ok() && owed_gaps > 0 {
+            // The lane was full at the offer above. The barrier emptied it
+            // and the readers are stopped, so the owed markers have room now;
+            // one more barrier makes them durable.
+            owed_gaps = self.journal_ingress.offer_owed_terminal_gaps();
+            flushed = self.flush_terminal_journal();
+        }
+        if let Err(error) = flushed {
             eprintln!("cmux-tui: flush terminal journal during {context}: {error:#}");
+        }
+        if owed_gaps > 0 {
+            eprintln!(
+                "cmux-tui: {context} could not record {owed_gaps} terminal output gap marker(s) \
+                 in the session journal"
+            );
         }
         if screen_checkpoint {
             self.capture_shutdown_checkpoint();
@@ -227,6 +252,7 @@ impl Mux {
     /// is installed. Ordinary control clients may connect before this point.
     pub fn mark_server_lifecycle_ready(&self) {
         self.server_lifecycle_ready.store(true, Ordering::Release);
+        self.start_journal_follower_grace();
         // The first terminal must not pay for the host executable's install
         // (cx-b4sjc); unit tests start no daemon and install nothing.
         #[cfg(all(unix, not(test)))]
@@ -312,6 +338,8 @@ impl Mux {
         self.shutting_down.store(true, Ordering::Release);
         #[cfg(unix)]
         self.stop_agent_chat_notices();
+        #[cfg(unix)]
+        self.stop_project_chats();
         self.begin_session_shutdown();
         self.terminal_respawns.wake_all();
         self.startup_adoption_gate.wake_all();

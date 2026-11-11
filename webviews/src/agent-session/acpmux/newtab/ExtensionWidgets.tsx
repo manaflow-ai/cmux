@@ -5,11 +5,16 @@
 // the row's order, built-ins included) is the daemon's (`apps.panels.layout.set`), so it is the same on
 // every New Tab page.
 //
-// Cost (extensibility-DESIGN.md R1): nothing mounts while the page is hidden or no widget is placed.
-// The listing reads the daemon's catalog only; an app's VM starts at its widget's first mount, and every
-// mount ends when the page hides (visibilitychange), closes (pagehide) or unmounts, which also stops the
-// app's timers (they belong to the mount). A widget that fails or draws past the interface's limits
-// (`nodes`, `maxNodes`) shows its name and why in its cell; the page around it is untouched.
+// Cost (extensibility-DESIGN.md R1): nothing mounts while no widget is placed. The listing reads the
+// daemon's catalog only; an app's VM starts at its widget's first mount, and every mount ends when the
+// page closes (pagehide) or unmounts, which also stops the app's timers (they belong to the mount).
+// A switch to another tab and back is a reattach (shared-projections.md, rule 4): the page keeps its
+// listing and its mounts while it is hidden, so it asks the host nothing and draws the same widgets
+// when it shows again; a prewarmed spare has them in its first frame.
+// Known cost: a placed widget's mount, and the timers it started, live while the page is hidden too.
+// The bound for that belongs in the host (pause a hidden page's mounts, a state write), not in a
+// re-read when the page shows. A widget that fails or draws past the interface's limits (`nodes`,
+// `maxNodes`) shows its name and why in its cell; the page around it is untouched.
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import {
   appPanelsDevClient,
@@ -52,7 +57,7 @@ export type NewTabExtensionWidgets = {
   readonly available: readonly AppPanel[];
   /** The person's layout: widget ids (`app:<id>#<interface>`) and built-in names, in order. */
   readonly layout: readonly string[];
-  /** The placed widgets, mounted while the page shows. */
+  /** The placed widgets, mounted from the page's start to its close (shown or hidden). */
   readonly mounted: readonly MountedPanel[];
   /** The host keeps the layout (`apps.panels.layout.set`). Until it does (the Mac bridge passes
    * only Session Info through today), the row has no app widgets to add and no edit frames. */
@@ -67,14 +72,6 @@ const NO_WIDGETS: NewTabExtensionWidgets = {
   editable: false,
   setLayout: () => undefined,
 };
-
-function subscribeVisible(notify: () => void): () => void {
-  if (typeof document === "undefined") return () => undefined;
-  // ui-allow: the page's visibility decides whether app widgets are mounted at all.
-  document.addEventListener("visibilitychange", notify);
-  return () => document.removeEventListener("visibilitychange", notify);
-}
-const pageVisible = () => typeof document === "undefined" || document.visibilityState !== "hidden";
 
 /** The page's app widgets. `injected` is the gallery's or a test's client; the page host's otherwise
  * (none in a browser without the dev mock: no widgets, no calls). */
@@ -96,14 +93,13 @@ export function useNewTabExtensionWidgets(injected?: PageClient | null): NewTabE
         : undefined,
     [client],
   );
-  const visible = useSyncExternalStore(subscribeVisible, pageVisible, pageVisible);
   const view = useSyncExternalStore(
     owner?.subscribe ?? NOOP_SUBSCRIBE,
     owner?.getView ?? EMPTY_VIEW_READ,
     owner?.getView ?? EMPTY_VIEW_READ,
   );
   useEffect(() => {
-    if (!owner || !visible) return;
+    if (!owner) return;
     owner.start();
     const stop = () => owner.stop();
     // Native pane retirement can discard the document without unmounting React first.
@@ -112,10 +108,10 @@ export function useNewTabExtensionWidgets(injected?: PageClient | null): NewTabE
       globalThis.removeEventListener?.("pagehide", stop);
       owner.stop();
     };
-  }, [owner, visible]);
+  }, [owner]);
   return useMemo(
     () =>
-      owner && visible
+      owner
         ? {
             available: view.panels,
             layout: view.layout,
@@ -124,7 +120,7 @@ export function useNewTabExtensionWidgets(injected?: PageClient | null): NewTabE
             setLayout: (layout: readonly string[]) => owner.setLayout(layout),
           }
         : NO_WIDGETS,
-    [owner, visible, view],
+    [owner, view],
   );
 }
 const NOOP_SUBSCRIBE = () => () => undefined;
@@ -154,10 +150,10 @@ export function ExtensionWidgetCell({ widget }: { widget: MountedPanel }) {
       aria-label={panel.title}
     >
       {problem ? (
-        <span className="nt-ext-widget-notice" role="status">
+        <output className="nt-ext-widget-notice">
           <Icon name="status.warning" size={12} />
           <span>{nt(problem.kind === "failed" ? "extWidget.failed" : "extWidget.over", { name: panel.title })}</span>
-        </span>
+        </output>
       ) : (
         <SceneRenderer store={widget.store} dispatch={widget.dispatch} resolveAsset={widget.resolveAsset} />
       )}

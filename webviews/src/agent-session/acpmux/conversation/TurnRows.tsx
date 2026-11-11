@@ -55,7 +55,7 @@ import {
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { CloudSignIn } from "./CloudSignIn";
-import type { CloudSignIn as CloudSignInActions } from "../cloudAgentLogin";
+import { offersGateway, type CloudSignIn as CloudSignInActions } from "../cloudAgentLogin";
 import { usePaneLanguage, useT } from "../i18n";
 import {
   failureCopy,
@@ -819,6 +819,7 @@ function TurnFailure({
             rowId={retryRowId}
             prompt={prompt}
             keyOnly={teamMachine}
+            gateway={offersGateway(message)}
             actionsRef={actionsRef}
           />
         )}

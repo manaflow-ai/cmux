@@ -41,6 +41,11 @@
         "rule": "Every animation sits inside `@media (prefers-reduced-motion: no-preference)` and under the slot's motion gate, so Reduce Motion, static status indicators and animations off draw the variant's still frame."
       },
       {
+        "id": "no-breathing",
+        "enforced": true,
+        "rule": "No mark fades, blinks or pulses forever (an infinite loop whose keyframes move `opacity`, `visibility` or `scale`): a status mark is still, and a loop moves a mark from place to place instead. webviews test/no-breathing-dots.test.ts holds every shipped stylesheet to it."
+      },
+      {
         "id": "fixed-box",
         "enforced": false,
         "rule": "A variant fits the slot's box (`box`): the same block size as the default, and an inline size that never changes while it runs. Swapping variants never moves the transcript. Reviewed in the gallery entry, whose layout-shift gate fails a variant that moves."
@@ -80,7 +85,7 @@
           "step": "steps"
         },
         "reducedMotion": "Every loop stops and the variant draws its still frame: the word in the line's muted tone and the mark (if any) at full strength, as the default draws the word with no band. Under Reduce Motion, static status indicators (`data-status-indicators=\"static\"`) and animations off (`data-agent-motion=\"off\"`, `data-cmux-motion`).",
-        "stop": "The slot is drawn only while the turn thinks with no step named: the line changes to the call, \"Writing\" or the next state, or the turn ends, and the slot unmounts with its loops. A hidden page pauses it (`data-cmux-page-hidden`); the transcript unmounts rows outside its window."
+        "stop": "The slot is drawn only while the turn thinks with no step named: the line changes to the call, \"Writing\" or the next state, or the turn ends, and the slot unmounts with its loops (the built-in default keeps its one band mounted through a named step: the live line draws it in place). A hidden page pauses it (`data-cmux-page-hidden`); the transcript unmounts rows outside its window."
       },
       "defaultVariant": "default",
       "variants": [
@@ -94,21 +99,21 @@
         {
           "id": "counting-dots",
           "label": "Counting dots",
-          "docs": "Three dots after the word light up one after another with a rest beat; past twenty seconds a fourth dot fills the rest beat, so a long think reads as longer.",
+          "docs": "Three dim dots after the word and a lit dot stepping from one to the next; past twenty seconds a fourth dot joins and the lit dot counts four, so a long think reads as longer.",
           "source": "webviews/src/slots/thinkingIndicator/CountingDots.tsx",
           "styles": ["webviews/src/slots/thinkingIndicator/thinkingIndicator.css"]
         },
         {
           "id": "pulse",
           "label": "Pulse",
-          "docs": "One small round mark after the word swells and softens once per breath.",
+          "docs": "One small round mark after the word swells in once as the think starts, then holds still.",
           "source": "webviews/src/slots/thinkingIndicator/PulseMark.tsx",
           "styles": ["webviews/src/slots/thinkingIndicator/thinkingIndicator.css"]
         },
         {
           "id": "caret",
           "label": "Caret",
-          "docs": "A thin caret after the word blinks on and off, as a cursor waiting for the next words.",
+          "docs": "A thin caret after the word steps ahead a place at a time, as a cursor typing ahead of the next words; it never blinks.",
           "source": "webviews/src/slots/thinkingIndicator/CaretMark.tsx",
           "styles": ["webviews/src/slots/thinkingIndicator/thinkingIndicator.css"]
         },
