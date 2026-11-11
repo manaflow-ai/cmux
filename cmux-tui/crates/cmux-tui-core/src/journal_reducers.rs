@@ -915,6 +915,11 @@ impl AgentRoster {
         let mut screen_ended_hook_row = false;
         match source {
             AgentSource::Hook => {
+                // Hook order is decided above, with the session fence the
+                // projector shares (`crate::agent_hooks::hook_event_is_reordered`
+                // with `HookFence::last_observed_at_ms`). Do not add a second
+                // order check here: one keyed by another session id would
+                // let the roster and the agent rows disagree.
                 if let Some(existing) = self.entries.get(terminal_id)
                     && existing.agent_source() == AgentSource::Hook
                     && !timestamp_is_current(existing.updated_at_ms, updated_at_ms)
