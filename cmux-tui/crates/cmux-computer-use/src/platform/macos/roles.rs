@@ -440,17 +440,57 @@ pub fn service_equivalents(dump: &str) -> Vec<String> {
         let after = after.trim_start();
         // Only a dictionary value: "{ ... }".
         let Some(body_start) = after.strip_prefix('{') else { continue };
-        let Some(close) = body_start.find('}') else { break };
-        for entry in body_start[..close].split(';') {
-            let Some((_, value)) = entry.split_once('=') else { continue };
-            let value = unescape_dump(value.trim().trim_matches('"'));
+        let (values, consumed) = dump_dict_values(body_start);
+        for value in values {
             if is_key_equivalent(&value) && !out.contains(&value) {
                 out.push(value);
             }
         }
-        rest = &body_start[close..];
+        rest = &body_start[consumed..];
     }
     out
+}
+
+/// The values of one old-style plist dictionary body (after its "{"), with
+/// quoted strings read whole (";", "}" and escapes inside them), and how
+/// many bytes it took up to and including the closing "}".
+fn dump_dict_values(body: &str) -> (Vec<String>, usize) {
+    let mut values = Vec::new();
+    let mut in_value = false;
+    let mut current = String::new();
+    let mut chars = body.char_indices();
+    while let Some((i, c)) = chars.next() {
+        match c {
+            '"' => {
+                while let Some((_, q)) = chars.next() {
+                    match q {
+                        '\\' => {
+                            if let Some((_, e)) = chars.next() {
+                                current.push('\\');
+                                current.push(e);
+                            }
+                        }
+                        '"' => break,
+                        other => current.push(other),
+                    }
+                }
+            }
+            '=' => {
+                in_value = true;
+                current.clear();
+            }
+            ';' => {
+                if in_value {
+                    values.push(unescape_dump(current.trim()));
+                }
+                in_value = false;
+                current.clear();
+            }
+            '}' => return (values, i + 1),
+            other => current.push(other),
+        }
+    }
+    (values, body.len())
 }
 
 /// "\Uf704" in a property-list dump is U+F704.
@@ -566,4 +606,16 @@ pub fn breadth_first<N>(
         }
     }
     (slots, truncated)
+}
+
+/// Keyboard layouts whose keys match the ANSI key codes in keymap.rs. An
+/// unknown layout (none recorded) counts as U.S., the macOS default.
+pub fn is_ansi_layout(input_source_id: Option<&str>) -> bool {
+    match input_source_id {
+        None => true,
+        Some(id) => matches!(
+            id,
+            "com.apple.keylayout.US" | "com.apple.keylayout.ABC" | "com.apple.keylayout.USExtended" | "com.apple.keylayout.USInternational-PC"
+        ),
+    }
 }

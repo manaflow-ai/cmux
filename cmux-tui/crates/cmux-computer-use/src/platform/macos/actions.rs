@@ -445,17 +445,24 @@ pub(super) fn press_keys(
                 // A cut-off search could have missed a menu item of a denied
                 // app; that matters only while some app is denied.
                 let denies_any = d.denies_any();
-                // Read the Services shortcuts only while something is denied;
-                // before a successful read, every unmatched chord counts as one.
-                let service = denies_any
-                    && workspace::service_shortcuts()
-                        .is_none_or(|list| keymap::is_service_shortcut(code, flags, &list));
-                if (!complete && denies_any) || !roles::unmatched_chord_allowed(service, denies_any) {
-                    return Err(DesktopError::Unsupported(if service {
-                        "this shortcut runs a Service, which can hand the selection to an app on the Computer Use deny list; use the app's menu items in the tree".into()
+                if denies_any {
+                    // Read the Services shortcuts only while something is denied.
+                    let refusal = if !complete {
+                        Some("this app's menus are too deep to check this shortcut against the Computer Use deny list; use the app's menu items in the tree")
+                    } else if !workspace::ansi_layout() {
+                        Some("the Services shortcuts cannot be checked on this keyboard layout while an app is on the Computer Use deny list; use the app's menu items in the tree")
                     } else {
-                        "this app's menus are too deep to check this shortcut against the Computer Use deny list; use the app's menu items in the tree".into()
-                    }));
+                        match workspace::service_shortcuts() {
+                            None => Some("the Services shortcuts could not be read yet; try again in a moment, or use the app's menu items in the tree"),
+                            Some(list) if !roles::unmatched_chord_allowed(keymap::is_service_shortcut(code, flags, &list), true) => {
+                                Some("this shortcut runs a Service, which can hand the selection to an app on the Computer Use deny list; use the app's menu items in the tree")
+                            }
+                            Some(_) => None,
+                        }
+                    };
+                    if let Some(why) = refusal {
+                        return Err(DesktopError::Unsupported(why.into()));
+                    }
                 }
             }
         }

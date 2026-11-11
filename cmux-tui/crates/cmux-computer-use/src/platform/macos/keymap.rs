@@ -220,7 +220,8 @@ pub fn menu_item_matches(
                 return i.to_lowercase().eq(c.to_lowercase()) && menu_shift == has(Modifier::Shift);
             };
             let item_shift = menu_shift || (item_char_shift && !i.is_ascii_alphabetic());
-            let key_shift = has(Modifier::Shift) || (key_char_shift && !c.is_ascii_alphabetic());
+            // A chord's own character means what it says: "T" and "+" both carry Shift.
+            let key_shift = has(Modifier::Shift) || key_char_shift;
             item_code == key_code_ && item_shift == key_shift
         }
         (key, None) => match (key_code(key), virtual_key) {

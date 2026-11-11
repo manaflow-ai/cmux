@@ -511,6 +511,9 @@ fn shifted_punctuation_matches_its_menu_item() {
     assert!(m("cmd+t", "T", 0));
     assert!(!m("cmd+t", "T", keymap::MENU_SHIFT));
     assert!(m("cmd+shift+t", "T", keymap::MENU_SHIFT));
+    // An upper-case chord letter is a Shift chord, as the menu's Shift bit says.
+    assert!(m("cmd+T", "T", keymap::MENU_SHIFT));
+    assert!(!m("cmd+T", "T", 0));
     // "?" (Help) is shift+/.
     assert!(m("cmd+?", "?", 0));
     assert!(m("cmd+shift+/", "?", 0));
@@ -524,4 +527,23 @@ fn menu_items_fail_closed_while_the_app_name_index_builds() {
     assert!(roles::menu_item_blocked(&guard, &ctx, &pending));
     let open = PolicyGuard(crate::policy::PolicyConfig { denied_apps: vec![], ..Default::default() });
     assert!(!roles::menu_item_blocked(&open, &ctx, &pending));
+}
+
+#[test]
+fn the_services_check_knows_which_layouts_it_can_read() {
+    assert!(roles::is_ansi_layout(Some("com.apple.keylayout.US")));
+    assert!(roles::is_ansi_layout(Some("com.apple.keylayout.ABC")));
+    assert!(roles::is_ansi_layout(None));
+    assert!(!roles::is_ansi_layout(Some("com.apple.keylayout.German")));
+    assert!(!roles::is_ansi_layout(Some("com.apple.keylayout.Dvorak")));
+}
+
+#[test]
+fn the_services_dump_parser_reads_quoted_values_whole() {
+    let dump = r#"NSKeyEquivalent = { default = "@;"; de = "$@}"; fr = "@\""; };
+        NSKeyEquivalent = { default = "@K"; };"#;
+    let got = roles::service_equivalents(dump);
+    assert!(got.contains(&"@;".to_string()), "{got:?}");
+    assert!(got.contains(&"$@}".to_string()), "{got:?}");
+    assert!(got.contains(&"@K".to_string()), "{got:?}");
 }

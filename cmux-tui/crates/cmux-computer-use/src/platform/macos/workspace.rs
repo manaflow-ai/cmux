@@ -522,6 +522,15 @@ pub fn service_shortcuts() -> Option<Vec<(u16, u64)>> {
     st.last.as_ref().map(|(_, list)| list.clone())
 }
 
+/// Whether the current keyboard layout is one the key codes here are written
+/// for (U.S. or ABC): the Services check maps characters to ANSI key codes,
+/// so on another layout it cannot tell which physical key a service uses.
+pub fn ansi_layout() -> bool {
+    let id = Cf::preference("AppleCurrentKeyboardLayoutInputSourceID", "com.apple.HIToolbox")
+        .and_then(|v| v.as_string());
+    super::roles::is_ansi_layout(id.as_deref())
+}
+
 /// How often the Services shortcuts are re-read.
 const SERVICES_REFRESH: Duration = Duration::from_secs(30);
 /// How long `pbs -dump` may take.
@@ -538,24 +547,32 @@ fn read_service_shortcuts() -> Option<Vec<(u16, u64)>> {
         .stderr(std::process::Stdio::null())
         .spawn()
         .ok()?;
-    let mut stdout = child.stdout.take()?;
-    let reader = std::thread::spawn(move || {
+    let Some(mut stdout) = child.stdout.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return None;
+    };
+    // The output is read on a thread and handed over a channel, so the wait
+    // is one bounded recv_timeout; the child is killed and reaped on every
+    // path that does not see it finish.
+    let (tx, rx) = mpsc::channel::<Option<String>>();
+    let reader = std::thread::Builder::new().name("cu-pbs-read".into()).spawn(move || {
         let mut out = String::new();
-        stdout.read_to_string(&mut out).ok().map(|_| out)
+        let _ = tx.send(stdout.read_to_string(&mut out).ok().map(|_| out));
     });
-    let started = std::time::Instant::now();
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if started.elapsed() < PBS_TIMEOUT => std::thread::sleep(Duration::from_millis(20)), // bounded poll of a child process
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
+    let dump = match reader {
+        Ok(_) => rx.recv_timeout(PBS_TIMEOUT).ok().flatten(),
+        Err(_) => None,
+    };
+    let status = match dump {
+        Some(_) => child.wait().ok(),
+        None => {
+            let _ = child.kill();
+            let _ = child.wait();
+            None
         }
     };
-    let dump = reader.join().ok().flatten()?;
+    let (Some(dump), Some(status)) = (dump, status) else { return None };
     if !status.success() || !dump.contains("NSBundlePath") {
         return None;
     }
