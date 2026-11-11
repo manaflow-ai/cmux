@@ -658,7 +658,12 @@ export function NewTabScreen(props: Props) {
     props.onTouched?.();
   };
   const agents = useMemo(
-    () => snapshot.catalog.map((entry) => ({ id: entry.id, name: entry.name })),
+    () =>
+      snapshot.catalog.map((entry) => ({
+        id: entry.id,
+        name: entry.name,
+        ...(entry.family ? { family: entry.family } : {}),
+      })),
     [snapshot.catalog],
   );
   // A saved environment the picker picked names where the chat starts (askInEnvironment).

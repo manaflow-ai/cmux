@@ -37,9 +37,9 @@ impl Hub {
             .clone()
             .or_else(|| preset_cfg.as_ref().map(|p| p.harness.clone()))
             .or_else(|| cfg.default_harness.clone())
-            .ok_or_else(|| {
-                RpcError::invalid_params("no harnesses configured; add one to config.json")
-            })?;
+            // No agent asked and no default: no coding agent is here (a fresh Mac). Typed, so the
+            // pane offers Install rather than a config file.
+            .ok_or_else(|| crate::harness_install::none_installed(cfg))?;
         // A folder profile (H4) answers only a name the catalog does not know.
         let folder =
             cwd.and_then(|cwd| folder_profiles::resolve_for_session(cfg, &head, cwd, remote));
@@ -56,7 +56,10 @@ impl Hub {
             }
             None => {
                 let resolved = cfg.resolve_harness(&head).map_err(|e| {
-                    RpcError::invalid_params(self.with_model_hint(cfg, &head, model, e))
+                    // A coding agent this machine does not have is "not installed", typed.
+                    crate::harness_install::not_installed(cfg, &head).unwrap_or_else(|| {
+                        RpcError::invalid_params(self.with_model_hint(cfg, &head, model, e))
+                    })
                 })?;
                 if let Some(reason) = cfg.unavailable.get(&resolved) {
                     return Err(RpcError::invalid_params(format!(

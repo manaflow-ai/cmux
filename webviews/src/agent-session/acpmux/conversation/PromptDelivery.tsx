@@ -74,6 +74,8 @@ export function DeliveryFailure({ row }: { row: AcpmuxRow }) {
   const rowIds = sends?.runs.get(row.id)?.rowIds ?? [row.id];
   if (rowIds[rowIds.length - 1] !== row.id) return null;
   const cause = sendCause(delivery);
+  // Not installed: the composer's notice says so once, with Install, and sends these again.
+  if (cause === "not-installed" && sends?.missingHarness) return null;
   const trust = isTrustCause(cause);
   const retryWaits = trust ? sends?.trustBlock : undefined;
   const fix = trust ? sends?.trustFolder : undefined;

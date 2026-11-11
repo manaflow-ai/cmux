@@ -12,6 +12,9 @@ export type FailedSends = {
   trustBlock?: StringKey;
   /// Trust the chat's folder, when the folder is not trusted and this pane may answer for it.
   trustFolder?: () => void;
+  /// The composer's notice (MissingHarnessNotice.tsx) owns prompts refused because their agent is
+  /// not installed: one line with Install above the composer, no card on each prompt.
+  missingHarness?: boolean;
 };
 export const FailedSendsContext = createContext<FailedSends | undefined>(undefined);
 

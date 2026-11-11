@@ -444,11 +444,18 @@ pub fn spawn_failed(e: &anyhow::Error, harness: &str, program: &str, cwd: &Path)
              {harness}` checks it step by step. Then send again."
         )
     };
-    RpcError::internal(message).with_data(json!({
+    // The program is gone (an agent CLI uninstalled after acpmux found it): the same typed
+    // refusal as a chat asked of an agent that is not here, so the pane offers Install.
+    let missing = cwd.is_dir() && io.kind() == std::io::ErrorKind::NotFound;
+    let mut data = json!({
         "errorKind": kind::SPAWN_FAILED,
         "recovery": recovery,
-        "details": {"binary": program, "cwd": cwd},
-    }))
+        "details": {"binary": program, "cwd": cwd, "harness": harness},
+    });
+    if missing {
+        data["code"] = json!(crate::harness_install::NOT_INSTALLED);
+    }
+    RpcError::internal(message).with_data(data)
 }
 
 #[cfg(test)]
@@ -536,6 +543,14 @@ mod tests {
         let e = anyhow::Error::from(std::io::Error::from_raw_os_error(libc::ENOENT));
         let typed = spawn_failed(&e, "claude", "claude", &cwd);
         assert_eq!(kind_of(&typed), Some(kind::SPAWN_FAILED), "{typed:?}");
+        // A missing program is the typed "not installed" refusal the pane offers Install for.
+        let data = typed.data.as_ref().unwrap();
+        assert_eq!(data["code"], crate::harness_install::NOT_INSTALLED, "{data}");
+        assert_eq!(data["details"]["harness"], "claude", "{data}");
+        // A refused start that is not a missing program keeps no such code.
+        let e = anyhow::Error::from(std::io::Error::from(std::io::ErrorKind::PermissionDenied));
+        let typed = spawn_failed(&e, "claude", "claude", &cwd);
+        assert!(typed.data.as_ref().unwrap().get("code").is_none(), "{typed:?}");
     }
 
     /// A full disk a peer reported names that peer, never this machine's disk.

@@ -640,7 +640,8 @@ export function ComposerPickers({
     });
   };
   useEffect(() => {
-    if (setup?.phase.kind !== "ready") return;
+    // A failed start's notice (missingHarness.ts) starts its own chat when the harness is ready.
+    if (setup?.phase.kind !== "ready" || setup.pick.from === "notice") return;
     const { pick } = setup;
     // Once acpmux lists the harness (its rescan found the new CLI), the pick starts there as any
     // pick of another harness's model does; until then the setup waits (harnessSetup.ts bounds it).
