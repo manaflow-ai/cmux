@@ -289,13 +289,15 @@ impl Cache {
         models: &[LiveModel],
     ) -> std::io::Result<()> {
         // A probe that ends after the home was lost never makes it again (`config::mark_home_lost`).
+        // Through the folder this daemon holds (`home_fs`): a home replaced after the check never
+        // gets the list.
         crate::config::refuse_lost_home(&self.dir).map_err(std::io::Error::other)?;
-        std::fs::create_dir_all(&self.dir)?;
+        crate::home_fs::create_dir_all(&self.dir, 0o777)?;
         let path = self.path(harness);
         let tmp = path.with_extension("json.tmp");
         let body = serde_json::to_vec(&CacheFile { key: key.clone(), models })?;
-        std::fs::write(&tmp, body)?;
-        std::fs::rename(&tmp, &path)
+        crate::home_fs::write_synced(&tmp, &body)?;
+        crate::home_fs::rename(&tmp, &path)
     }
 }
 
@@ -386,8 +388,9 @@ impl AcpCache {
         models: &[(String, String)],
     ) -> std::io::Result<()> {
         // A probe that ends after the home was lost never makes it again (`config::mark_home_lost`).
+        // Through the folder this daemon holds (`home_fs`), as `Cache::store`.
         crate::config::refuse_lost_home(&self.dir).map_err(std::io::Error::other)?;
-        std::fs::create_dir_all(&self.dir)?;
+        crate::home_fs::create_dir_all(&self.dir, 0o777)?;
         let path = cache_path(&self.dir, harness);
         let tmp = path.with_extension("json.tmp");
         let file = AcpCacheFile {
@@ -397,8 +400,8 @@ impl AcpCache {
                 .map(|(id, name)| AcpModel { id: id.clone(), name: name.clone() })
                 .collect(),
         };
-        std::fs::write(&tmp, serde_json::to_vec(&file)?)?;
-        std::fs::rename(&tmp, &path)
+        crate::home_fs::write_synced(&tmp, &serde_json::to_vec(&file)?)?;
+        crate::home_fs::rename(&tmp, &path)
     }
 }
 

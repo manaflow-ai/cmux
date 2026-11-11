@@ -8,6 +8,7 @@ survived the timeout and kept running after the CI step had failed.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import pathlib
@@ -22,25 +23,20 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RUNNER = ROOT / "scripts" / "ci" / "run_with_timeout.py"
+# tests/process_gone.py by path: `python3 -I` puts no script folder on sys.path.
+_process_gone_spec = importlib.util.spec_from_file_location("process_gone", ROOT / "tests" / "process_gone.py")
+process_gone = importlib.util.module_from_spec(_process_gone_spec)
+_process_gone_spec.loader.exec_module(process_gone)
 
 
 def pid_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
+    """PID is live now: not gone and not a zombie."""
+    return process_gone.running(pid)
 
 
 def wait_for_exit(pid: int, seconds: float = 5.0) -> bool:
-    deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
-        if not pid_alive(pid):
-            return True
-        time.sleep(0.05)
-    return False
+    """PID has exited (a zombie not reaped yet counts) within SECONDS."""
+    return process_gone.died(pid, within=seconds)
 
 
 class RunWithTimeoutProcessTreeTests(unittest.TestCase):
