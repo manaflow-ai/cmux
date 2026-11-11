@@ -40,6 +40,12 @@ struct HomeMessagesR6AgentTests {
             calls.append("start:" + name)
             return startRefusal
         }
+
+        var skills: Result<[HomeChiefSlashSkill], HomeMessagesChiefRefusal> = .success([])
+        func slashSkills() async -> Result<[HomeChiefSlashSkill], HomeMessagesChiefRefusal> {
+            calls.append("skills")
+            return skills
+        }
     }
 
     private func turn(_ chief: FakeChief?, asked: ((ConversationID) -> Void)? = nil) -> HomeMessagesChiefTurn {
@@ -68,6 +74,29 @@ struct HomeMessagesR6AgentTests {
         }
         await #expect(throws: PageError.self) { try await turn(chief).call("chief.startAgent", conversation, userGesture: true) }
         await #expect(throws: PageError.self) { try await turn(chief).call("chief.startAgent", fields, userGesture: false) }
+    }
+
+    /// `/` in a Chief's message box (the user, 2026-11-09): the page asks the conversation's Chief
+    /// for its skills (`chief.engine.get` offered.skills) as the person types, with no click, and a
+    /// Chief that cannot answer says why.
+    @Test func skillsListTheConversationsChiefsSkillsWithoutAClick() async throws {
+        let chief = FakeChief()
+        chief.skills = .success([HomeChiefSlashSkill(name: "triage", description: "Sort the inbox", source: "chief")])
+        let answer = try await turn(chief).call("chief.skills", conversation, userGesture: false)
+        #expect(answer == .object(["skills": .array([.object([
+            "name": .string("triage"), "description": .string("Sort the inbox"), "source": .string("chief"),
+        ])])]))
+        #expect(chief.calls == ["skills"])
+        chief.skills = .failure(HomeMessagesChiefRefusal("the Chief is not running"))
+        do {
+            _ = try await turn(chief).call("chief.skills", conversation, userGesture: false)
+            Issue.record("a Chief that cannot answer must throw")
+        } catch let error as PageError {
+            #expect(error.code == HomeMessagesChiefTurn.refusedCode)
+            #expect(error.message == "the Chief is not running")
+        }
+        // Only the read goes without a click: the stop still needs one.
+        await #expect(throws: PageError.self) { try await turn(chief).call("chief.stop", conversation, userGesture: false) }
     }
 
     @Test func stopReachesTheConversationsChief() async throws {
