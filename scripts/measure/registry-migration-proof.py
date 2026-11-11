@@ -386,29 +386,42 @@ def served_roster(owner):
     return {"agents": len(agents), "ids_sha256": digest(names)}
 
 
+REFUSED_TRIES = 5
+
+
 def served(owner):
     """What the owner SERVES: the agent sessions of history.entries.list (the list of the app's
     History, vault and resume) and the agent roster of agent.list, asked over the socket.
     `pending` = the History fold was not at the head after the last try."""
     params = {"machine": "current", "session": "current", "kinds": ["agent"],
               "limit": HISTORY_LIST_LIMIT}
+    # A refusal is asked again (3 s apart): "one time" and "each time" are not the same fault.
+    refused = []
     for attempt in range(SERVED_TRIES):
         try:
             reply = ask(owner, "history.entries.list", params)
         except (OSError, ValueError) as error:
             return {"error": type(error).__name__}
         if reply.get("ok") is not True:
-            return refusal(reply)
+            refused.append(refusal(reply))
+            if len(refused) >= REFUSED_TRIES:
+                return {**refused[0], "refused_times": len(refused),
+                        "last_message": refused[-1]["message"]}
+            time.sleep(3)
+            continue
         result = reply.get("result") or {}
         pending = bool(result.get("pending_kinds"))
         if not pending or attempt == SERVED_TRIES - 1:
             entries = [entry for entry in result.get("entries") or [] if isinstance(entry, dict)]
             listed = len(entries)
             # At the limit the list is one page: the count then proves only "at least".
-            return {"agent_sessions": listed, "pending": pending,
-                    "one_page_only": listed >= HISTORY_LIST_LIMIT,
-                    "ids_sha256": digest(str(entry.get("id")) for entry in entries),
-                    "roster": served_roster(owner)}
+            value = {"agent_sessions": listed, "pending": pending,
+                     "one_page_only": listed >= HISTORY_LIST_LIMIT,
+                     "ids_sha256": digest(str(entry.get("id")) for entry in entries),
+                     "roster": served_roster(owner)}
+            if refused:
+                value["refused_first"] = {**refused[0], "times": len(refused)}
+            return value
         time.sleep(3)
     return {"error": "no answer"}
 
@@ -439,6 +452,8 @@ def head_served(steps):
         if "after_old" in step:
             if isinstance(step.get("new_after_old_served"), dict):
                 found[arm + "-then-new"] = step["new_after_old_served"]
+            if isinstance(step.get("new_after_old_served_2"), dict):
+                found[arm + "-then-new-2"] = step["new_after_old_served_2"]
             continue
         if "untouched" in step:
             continue
@@ -878,6 +893,9 @@ def old_arm(args, state, before, report, label, binary, migrated=True):
     step["new_after_old_served"] = again.get("served")
     step["after_new"] = roster_of(final)
     step["lost_after_new"] = compare(before, final)
+    # A second start of the head build: does it answer as the first one did?
+    second = start_stop(args, state, label + "-then-new-2")
+    step["new_after_old_served_2"] = second.get("served")
     if migrated:
         step["bases_equal_after_new"] = bases_of(final) == bases_of(report["after_swap"])
         control = next((item for item in report["steps"]
@@ -1054,7 +1072,8 @@ def table(report):
                                "served", "ready_s", "last_line", "staging_seen",
                                "built_before_the_kill", "staging_bytes_at_kill",
                                "after_restart", "new_after_old_ready_s",
-                               "served_after_dwell", "new_after_old_served", "log_lines",
+                               "served_after_dwell", "new_after_old_served",
+                               "new_after_old_served_2", "log_lines",
                                "schema_version", "exit", "changed", "removed", "added",
                                "untouched", "still_running_at_s", "files_before",
                                "at_start", "after_old", "after_new", "saved_its_roster_s",
@@ -1138,6 +1157,17 @@ def main():
     for name in ("kill-stage", "space", "in-place"):
         if name in args.arms:
             clone(args.state, scratch / name)
+    if "main" not in args.arms:
+        # The control arms only: the head build after an older build on a folder with no
+        # migration. With bin= of a build that has none of this change, the run says what
+        # that build does alone.
+        Path(args.report).write_text(json.dumps(report, indent=1))
+        answers = head_served(report["steps"])
+        refused = {arm: value for arm, value in answers.items()
+                   if "error" in value or "refused_first" in value}
+        say("RMP-VERDICT", {"control_only": True, "head_served": answers,
+                            "head_served_refused_in": refused})
+        return 1 if refused else 0
     ok = main_arm(args, args.state, before, report)
     if "kill-stage" in args.arms:
         kill_stage_arm(args, scratch / "kill-stage", before, report)
@@ -1235,6 +1265,9 @@ def main():
                         "head_served_differs_from_start_1_in": served_differs,
                         "head_served_differs_named_apart": apart,
                         "head_served_one_page_only_in": one_page,
+                        "head_served_refused_before_it_answered_in": {
+                            arm: value["refused_first"] for arm, value in answers.items()
+                            if "refused_first" in value},
                         "head_served_roster": rosters,
                         "head_served_roster_not_read_in": roster_unread,
                         "head_served_roster_differs_from_start_1_in": roster_differs,
