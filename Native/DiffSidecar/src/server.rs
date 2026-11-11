@@ -2105,6 +2105,9 @@ mod hostile_repository_tests;
 #[cfg(all(test, unix))]
 mod whitespace_tests;
 
+#[cfg(all(test, unix))]
+mod submodule_tests;
+
 #[cfg(test)]
 mod tests {
     use std::process::Command;
