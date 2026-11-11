@@ -78,8 +78,19 @@ impl MacDesktop {
         }
         let (app, win) = self.ax_window(t)?;
         let is_key = app.element("AXFocusedWindow").is_some_and(|f| f.same(&win));
-        let windows = app.elements("AXWindows").len();
-        if is_key || windows <= 1 {
+        // Count the windows keys could go to instead: standard, not minimized.
+        // Apps keep hidden helper windows (Safari lists 8 with one visible),
+        // and counting those refused keys to an app's only real window.
+        let windows = app
+            .elements("AXWindows")
+            .iter()
+            .filter(|w| {
+                w.string("AXSubrole").as_deref() == Some("AXStandardWindow")
+                    && w.bool("AXMinimized") != Some(true)
+            })
+            .count();
+        let target_is_standard = win.string("AXSubrole").as_deref() == Some("AXStandardWindow");
+        if is_key || (windows <= 1 && target_is_standard) {
             return Ok(Route::Pid { pid: t.window.pid, window: t.window.id });
         }
         Err(DesktopError::Unsupported(format!(
