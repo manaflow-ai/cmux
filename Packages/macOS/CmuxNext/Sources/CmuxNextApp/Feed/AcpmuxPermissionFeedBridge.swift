@@ -78,6 +78,8 @@ final class AcpmuxPermissionFeedBridge {
     private var reconnect: Task<Void, Never>?
     private var backoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
     private var nextID = 10
+    /// The session-list filters this connection's acpmux serves (its `initialize`).
+    private var listGate = AcpmuxSessionListGate(capabilities: [])
     /// Waiting requests by id; a reply is its `result` as JSON bytes (Sendable).
     private var replies: [Int: CheckedContinuation<Data?, Never>] = [:]
     /// Feed item id -> the prompt it carries. This launch only.
@@ -128,6 +130,7 @@ final class AcpmuxPermissionFeedBridge {
     /// The `initialize` reply: the person proof for its challenge as the SECOND request (acpmux
     /// `hub/person.rs`, transport unix), then `_acpmux/watch` over every session.
     private func initialized(_ result: [String: Any]?, on line: AcpmuxCheckedLine) {
+        listGate = AcpmuxSessionListGate(initialize: result)
         let challenge = ((result?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["personChallenge"] as? [String: Any]
         if let nonce = challenge?["nonce"] as? String, let id = challenge?["connection"] as? String,
            let proof = line.personProof(nonce: nonce, connection: id) {
@@ -182,12 +185,8 @@ final class AcpmuxPermissionFeedBridge {
                 logger.error("feed bridge: acpmux refused the person proof; phone answers stay refused")
             } else if id == 3, message["result"] != nil {
                 backoff.reset()
-                connection?.send(.acpmuxPendingSessions)
-            } else if id == 4, let result = message["result"] as? [String: Any] { // pending before this connection
-                for summary in result["sessions"] as? [[String: Any]] ?? []
-                    where (summary["pendingPermissions"] as? NSNumber)?.intValue ?? 0 > 0 {
-                    if let session = summary["sessionId"] as? String { Task { await self.postPending(of: session) } }
-                }
+                // Prompts pending before this connection (`pendingOnly` only from an acpmux that serves it).
+                Task { for session in await self.listGate.pendingSessionIDs(call: { await self.call($0, $1) }) { await self.postPending(of: session) } }
             } else if let waiter = replies.removeValue(forKey: id) {
                 let result = message["error"] == nil
                     ? try? JSONSerialization.data(withJSONObject: message["result"] as? [String: Any] ?? [:]) : nil

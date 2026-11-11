@@ -16,7 +16,7 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, sync_channel};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
@@ -24,6 +24,8 @@ use serde_json::{Value, json};
 #[path = "agent_message_acpmux.rs"]
 mod agent_message_acpmux;
 
+#[path = "agent_session_list_gate.rs"]
+pub(crate) mod list_gate;
 #[cfg(test)]
 #[path = "agent_session_list_gate_tests.rs"]
 mod list_gate_tests;
@@ -120,6 +122,8 @@ pub(crate) struct AcpmuxLink {
     /// A reply waited for past its call's timeout ([`AcpmuxLink::call_while_alive_or_late`]): `close`
     /// leaves the socket open for it, and the wait closes it when it ends.
     late: AtomicBool,
+    /// The capability ids this acpmux serves, read once (`list_gate`'s `capabilities`).
+    capabilities: OnceLock<Vec<String>>,
 }
 
 impl AcpmuxLink {
@@ -138,6 +142,7 @@ impl AcpmuxLink {
             next_id: AtomicU64::new(1),
             closed: Arc::new(AtomicBool::new(false)),
             late: AtomicBool::new(false),
+            capabilities: OnceLock::new(),
         });
         let pending = link.pending.clone();
         let closed = link.closed.clone();
