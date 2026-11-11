@@ -5582,6 +5582,14 @@ def _main() -> int:
                 failures.append((name, error))
     for name, error in sorted(failures):
         print(f"FAIL: {name}\n{error}", file=sys.stderr)
+    # One check per red test for the guard runner (scripts/ci/run_ci_guards.py), so a
+    # test red on the base excuses only itself, never another red the change adds.
+    # A test green here writes nothing: the base's missing entry charges a new red.
+    check_results = os.environ.get("CMUX_GUARD_CHECK_RESULTS")
+    if check_results and failures:
+        with open(check_results, "a", encoding="utf-8") as handle:
+            for name, _ in sorted(failures):
+                handle.write(f"0\ttests/test_ci_change_areas.py::{name}\n")
     if failures:
         print(f"{len(failures)} of {len(names)} tests failed", file=sys.stderr)
         return 1

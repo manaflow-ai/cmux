@@ -386,6 +386,7 @@ struct CloudStartSession {
         try Self.checked(account, now: cloud.account, request.asked(machine: name))
         guard cloud.hasCurrentList(within: Self.listFresh) else { throw ActionFailure(message: CloudStartSessionStrings.listUnread(request.asked(machine: name))) }
         if let named = machines.cloud.first(where: { $0.machine.title == name }) { return named }
+        if let refused = await cloud.agentCheck.newMachineRefusal(harness: request.agent, model: request.model, login: request.login, userID: cloud.auth.user?.id, teamID: cloud.auth.teamID, otherTeams: cloud.auth.loginScopes, dogfood: DevTools.isEnabled) { throw ActionFailure(message: refused.limitWords ?? CloudStartSessionStrings.loginRefused(Self.loginRefusal(refused.loginReason ?? .ffiFailed), request.asked(machine: name))) } // a new machine: the login rules' refusal or a used-up Claude limit before it is made
         do {
             return try await cloud.startSessionRuns.creating(name, account: account) { [machines] in
                 // Another ask's creation may have ended first.
