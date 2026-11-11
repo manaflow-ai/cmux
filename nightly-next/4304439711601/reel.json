@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "build": "4304439711601",
+  "notes": "notes/4304439711601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 41302,
+      "title": "Cloud pause: park on the server's yes, no serve respawn for a paused machine, bounded old-child wait",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41325,
+      "title": "base red: React Doctor's webviews baseline matches the tree it landed on",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41247,
+      "title": "acpmux: leave out repeated command lists from a restarted agent's initialize answers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41331,
+      "title": "acpmux: fix the lost_home_writes launch-roots flake (the chat text save raced the home replace)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41332,
+      "title": "ci(cmux-next): a red same-tree run reads its tree's newest publish; a publish restarts every tier it reported",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41127,
+      "title": "Agent pane allowlist: relay the methods the page already sends (run elsewhere, bg output and stop, cold archive, presets, prompt coach)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40282,
+      "title": "cmux NEXT: the selected tab is the content's color, a folder tab, by default",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41249,
+      "title": "base_red_excuse: guard jobs derived from the workflows; spawn-owner check keyed by its finding; green-since base merge",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41323,
+      "title": "noclobber lint: arrays and ${ } substitutions are never argv; shell files are read whole",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40826,
+      "title": "cmux NEXT nightly: downloads and unpacks by itself; Restart to Update is one fast click",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
