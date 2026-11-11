@@ -290,16 +290,5 @@ export class AcpWireLog {
   }
 }
 
-/**
- * A copy of `text` that holds its own characters. A slice of a long string shares the long one's
- * buffer (JavaScriptCore and V8 both), so the 16 KB cut of a 2 MB attach reply kept the whole reply
- * alive for as long as its entry stayed: the log's 2,000 entries held up to 2,000 frames whole,
- * past the MAX_TEXT_CHARS it counts (test/acp-wire-log-retention.test.ts, and the chat-reopen
- * scenario of bench/stateGrowth.ts). Only a cut message pays the copy, at most MAX_PAYLOAD_CHARS.
- */
-function ownCopy(text: string): string {
-  return JSON.parse(JSON.stringify(text)) as string;
-}
-
 /** The page's log. One agent pane is one page. */
 export const acpWire = new AcpWireLog();
