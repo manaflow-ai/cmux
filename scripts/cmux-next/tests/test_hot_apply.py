@@ -199,8 +199,11 @@ class HotApplyRust(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(receipt["steps"]["rust"]["acpmux"], [{"home": str(self.tmp / "home"), "restarted": True,
                                                             "own_environment": False}])
-        # Once for the apply, once for the rollback, each on the home and never on the inherited socket.
-        self.assertEqual(log.read_text().splitlines(), [f"{self.tmp / 'home'}||daemon restart"] * 2)
+        # Once for the apply, once for the rollback, each on the home and never on the inherited socket: a
+        # status read of the running daemon (whose launch environment the restart reuses), then the restart.
+        home = self.tmp / "home"
+        self.assertEqual(log.read_text().splitlines(),
+                         [f"{home}||--json daemon status", f"{home}||daemon restart"] * 2)
 
     def test_a_binary_that_does_not_hash_to_its_published_sha_changes_nothing(self):
         self.publish(b"#!/bin/sh\necho tampered\n", self.new)
