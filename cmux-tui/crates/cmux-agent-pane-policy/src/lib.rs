@@ -10,8 +10,9 @@
 //! `AgentPaneTransport.checkOne`, in its order), and relays only the object
 //! it returns ([`check::encode`]). The shared case files in `tests/cases` run
 //! against this crate (`tests/parity.rs`); `tests/swift.rs` checks the
-//! requests and params lists against the Swift host's tables
-//! (`AcpmuxPaneMethods.requests`, `knownParams`), and `tests/typescript.rs`
+//! requests and params lists and the click rule against the Swift host's
+//! (`AcpmuxPaneMethods.requests`, `knownParams`, `answerAllowed`), and
+//! `tests/typescript.rs`
 //! against what the page sends (webviews/src/agent-session/acpmux).
 //!
 //! Host-owned (state or disk; the Rust host that adopts this crate implements
@@ -40,8 +41,9 @@
 //!   times it (`policy.json` `click_window_ms`) and tells the check which
 //!   one it holds ([`Gesture`]: none, a key, a click). The check refuses an
 //!   answer method (`policy.json` `click_only`) that needs a gesture unless
-//!   the host holds a click; the host spends the click on a frame whose facts
-//!   say `needs_click` (`AgentPaneUserGestures.hasFreshAnswerGesture`);
+//!   the host holds a click; the host spends the person's gesture on a frame
+//!   whose facts say `needs_click` (`AgentPaneUserGestures
+//!   .hasFreshAnswerGesture`, `consume`);
 //! - gesture tickets, records and the mode confirmation sheet
 //!   (`AgentPaneUserGestures`, `AgentPaneModeConfirmation`), and the folder
 //!   harness sheet (`confirmHarnessEnable`: the user's Enable, the confirmed

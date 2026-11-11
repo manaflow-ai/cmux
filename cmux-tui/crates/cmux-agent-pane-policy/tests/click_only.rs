@@ -4,7 +4,7 @@
 //! itself refuses such a frame for a host that holds a key press or no
 //! gesture, so a host that never learned the rule cannot let one through.
 
-use cmux_agent_pane_policy::gesture::PermissionOptions;
+use cmux_agent_pane_policy::gesture::{PermissionOptions, needs_click};
 use cmux_agent_pane_policy::{
     Checked, FrameState, Gesture, PaneSessions, Refusal, check_frame, policy,
 };
@@ -108,12 +108,14 @@ fn a_click_only_answer_passes_on_a_click_and_its_facts_say_so() {
 }
 
 /// The crate is stricter than the Swift host here, on purpose. The Swift host
-/// gives a ticket for a permission answer or a plan build only after a click
-/// (`AgentPaneTransport.reserveGesture`), and then passes the ticketed frame
-/// with no second click. This check knows nothing of where a ticket came
-/// from, so a ticket is no click: the frame is refused and its ticket spent.
-/// The move of the Swift host onto this check must bring that ticket rule
-/// with it, and then change this test.
+/// gives a ticket for a permission answer or a plan build after a click, and
+/// for a permission answer also on the person's Return key on a question
+/// (`AgentPaneTransport.reserveGesture`, `takeQuestionKeyTicket`); it then
+/// passes the ticketed frame with no second click. This check knows nothing
+/// of where a ticket came from, so a ticket is no click: the frame is refused
+/// and its ticket spent, also the one the Return key gave (the `Key` arm
+/// below). The move of the Swift host onto this check must bring those ticket
+/// rules with it, and then change this test.
 #[test]
 fn a_ticket_is_no_click_which_differs_from_the_swift_host() {
     let ticketed = [
@@ -141,6 +143,24 @@ fn a_ticket_is_no_click_which_differs_from_the_swift_host() {
         };
         assert_eq!(facts.ticket.as_deref(), Some("t1"), "{method}");
         assert!(facts.needs_click, "{method}");
+    }
+}
+
+/// `policy.json` gives each click-only method a gesture rule (the first test
+/// of this file). Should an edit drop one, the rule fails closed: each frame
+/// of that method needs a click, where `needs_gesture` alone would call it
+/// free.
+#[test]
+fn a_click_only_method_with_no_gesture_rule_needs_a_click_on_each_frame() {
+    // (click_only, ruled, needs_gesture)
+    assert!(needs_click(true, false, false), "no rule: fail closed");
+    assert!(needs_click(true, false, true));
+    assert!(needs_click(true, true, true), "a granting answer");
+    assert!(!needs_click(true, true, false), "a deny keeps its rule and needs no click");
+    for ruled in [false, true] {
+        for needs_gesture in [false, true] {
+            assert!(!needs_click(false, ruled, needs_gesture), "no click-only method");
+        }
     }
 }
 

@@ -45,15 +45,22 @@ pub enum Gesture {
     /// Every gesture that is not a [`Gesture::Click`]: a key press, and a
     /// click older than `policy.json` `click_window_ms`.
     Key,
-    /// A host may say `Click` for two inputs only, each not older than
-    /// `click_window_ms`: the person's pointer click on the answer control
-    /// in the pane, or the host's own answer shortcut on the focused answer
-    /// card (a native shortcut the page does not get).
+    /// A host may say `Click` for two inputs only, each the person's own and
+    /// not older than `click_window_ms`: a pointer click on the answer
+    /// control in the pane, or the host's own answer shortcut on the focused
+    /// answer card (a native shortcut the page does not get as a key).
+    ///
+    /// A host that can not see which control of the page got the click says
+    /// `Click` for the person's pointer click inside the pane's page, and no
+    /// more than that: the Swift host does so (`AgentPaneView` records each
+    /// mouse press of the person in the web view, and its permission shortcut
+    /// without a look at the card's focus).
     ///
     /// A host must never say `Click` for: a key that the web page gets (the
-    /// person types while another process posts a click on Allow), an event
-    /// that a process made (posted input), or a gesture ticket. A ticket is
-    /// no click: see [`crate::check::check_frame`].
+    /// person types while another process posts a click on Allow; this is
+    /// also the Return key that answers a question), an event that a process
+    /// made (posted input), or a gesture ticket. A ticket is no click: see
+    /// [`crate::check::check_frame`].
     Click,
 }
 
@@ -76,6 +83,17 @@ impl Gesture {
 /// no gesture, so no click.
 pub fn is_click_only(method: &str) -> bool {
     contains(&policy().click_only, method)
+}
+
+/// Whether a frame goes on the person's click only. `click_only`: its method
+/// is one of `policy.json` `click_only`; `ruled`: the method has a gesture
+/// rule; `needs_gesture`: what that rule says for this frame.
+///
+/// A click-only method with no gesture rule is a fault in `policy.json`
+/// (tests/click_only.rs refuses the file). It fails closed here: each frame
+/// of such a method needs a click, also the one that would be a deny.
+pub fn needs_click(click_only: bool, ruled: bool, needs_gesture: bool) -> bool {
+    click_only && (needs_gesture || !ruled)
 }
 
 /// The permission options the daemon sent, read only from their fixed places

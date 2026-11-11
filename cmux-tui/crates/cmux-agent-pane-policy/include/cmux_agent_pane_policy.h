@@ -60,13 +60,18 @@ int32_t cmux_agent_pane_policy_check(const CmuxAgentPanePolicy *pane,
 /* cmux_agent_pane_policy_check with the person's gesture the host holds for
  * this frame: gesture 0 none, 1 key, 2 click (any other number: -2). A frame
  * of a "click_only" method that needs a gesture passes for 2 only; its facts
- * then say "needs_click": true and the host spends the click on it.
- * The host may send 2 for two inputs only, each not older than
- * "click_window_ms" (op "policy") on the host's own clock: the person's
+ * then say "needs_click": true and the host spends the person's gesture on
+ * it (one granting frame for each gesture; a "ticket" in the facts is still
+ * the host's to redeem).
+ * The host may send 2 for two inputs only, each the person's own and not
+ * older than "click_window_ms" (op "policy") on the host's own clock: a
  * pointer click on the answer control in the pane, or the host's own answer
- * shortcut on the focused answer card. Never 2 for a key that the web page
- * gets, for an event that a process made (posted input), or for a gesture
- * ticket: a ticket is no click. */
+ * shortcut on the focused answer card. A host that can not see which control
+ * of the page got the click sends 2 for the person's pointer click inside
+ * the pane's page, and no more than that (the Swift host does so). Never 2
+ * for a key that the web page gets (also not the Return key that answers a
+ * question), for an event that a process made (posted input), or for a
+ * gesture ticket: a ticket is no click. */
 int32_t cmux_agent_pane_policy_check_gesture(const CmuxAgentPanePolicy *pane,
                                              const uint8_t *text, size_t text_len,
                                              bool first, bool remote_wire, uint8_t gesture,

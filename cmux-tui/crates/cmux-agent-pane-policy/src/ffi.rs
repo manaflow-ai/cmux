@@ -169,7 +169,8 @@ impl Pane {
 ///
 /// - `policy`: the data the host reads once (`initialize`,
 ///   `maximum_frame_bytes`, `gesture_ticket_key`, `reply_shape_methods`,
-///   `question_answers`, `starting`, `handoff_records`, `path_keys`).
+///   `question_answers`, `starting`, `handoff_records`, `path_keys`,
+///   `click_only`, `click_window_ms`).
 /// - `refusal_frame` `{id, code, method?, root_requested?, detail?, reason?}`:
 ///   `{"frame": text}`, the error frame answering a refused request
 ///   ([`RefusalNote`] for `detail` and `reason`).

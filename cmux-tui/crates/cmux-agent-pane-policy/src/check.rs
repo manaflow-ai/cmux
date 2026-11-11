@@ -16,7 +16,7 @@
 use crate::data::policy;
 use crate::error::Refusal;
 use crate::frame::{Refused, allowlist_check, contains, raw_id, with_local_app_token};
-use crate::gesture::{Gesture, PermissionOptions, is_click_only, needs_gesture};
+use crate::gesture::{Gesture, PermissionOptions, is_click_only, needs_click, needs_gesture};
 use crate::params::{
     breaks_params_rule, requested_setting, session_refusal, stripping_prompt_meta,
     take_gesture_ticket,
@@ -197,7 +197,9 @@ pub struct Facts {
     pub needs_gesture: bool,
     /// The gesture the frame needs is a click (`policy.json` `click_only`):
     /// the check passed it only because the host holds one
-    /// ([`FrameState::gesture`]), and the host spends that click on it.
+    /// ([`FrameState::gesture`]). The host spends the person's gesture on
+    /// it, one granting frame for each gesture, and still redeems the
+    /// frame's `ticket` when it has one. Implies `needs_gesture`.
     pub needs_click: bool,
     pub needs_path_check: bool,
     pub setting: Option<Setting>,
@@ -353,14 +355,22 @@ pub fn check_frame(text: &str, state: &FrameState<'_>) -> Checked {
         }
         facts.ticket = taken.ticket;
         facts.needs_gesture = needs_gesture(&frame, |p, o| state.options.is_deny(p, o));
-        facts.needs_click = facts.needs_gesture && method.as_deref().is_some_and(is_click_only);
         // The click rule. An answer goes on the person's click only: a
-        // gesture that typing left does not answer.
+        // gesture that typing left does not answer. A click-only method
+        // with no gesture rule (a fault in policy.json) needs a click on
+        // each frame, so it is never free.
+        let click_only = method.as_deref().is_some_and(is_click_only);
+        let ruled = method.as_deref().is_some_and(|m| p.gesture_rules.contains_key(m));
+        facts.needs_click = needs_click(click_only, ruled, facts.needs_gesture);
+        facts.needs_gesture |= facts.needs_click;
         // DIFFERENCE TO THE SWIFT HOST: a ticket is no click here, so a
-        // click-only frame with a ticket and no click is refused; the Swift
-        // host passes it, because it gave the ticket after a click
-        // (`reserveGesture`). The move of the Swift host onto this check
-        // must bring that ticket rule with it (tests/click_only.rs
+        // click-only frame with a ticket and no click is refused. The Swift
+        // host passes such a frame on its ticket alone, in two cases: it
+        // gave the ticket after a click, or for the person's Return key on
+        // a question (`reserveGesture`, `takeQuestionKeyTicket`). This check
+        // refuses both, so on a host that uses it a question is answered by
+        // a click, not by Return. The move of the Swift host onto this
+        // check must bring those ticket rules with it (tests/click_only.rs
         // `a_ticket_is_no_click_which_differs_from_the_swift_host`).
         if facts.needs_click && state.gesture != Gesture::Click {
             let refused =
