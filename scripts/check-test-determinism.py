@@ -5246,6 +5246,27 @@ _ATTRIBUTION_CONSTRUCTS: list[tuple[str, str, str]] = [
     # The `)` of a call is an expression's end: the slash after it divides (inside the head), and the head's own
     # `)` still starts a regex literal.
     ("js division after a call's ) in an if head", "web/tests/b6.test.ts", "    if (f(x) / 2) /a{/.test(s);\n"),
+    # A keyword is a keyword only as a whole name (not the end of `πif`, not the private `#if`): a slash after
+    # the call `πif(x)` divides (review of #41341, F1).
+    ("js division after a call to a name ending in if", "web/tests/b8.test.ts", "    const r = { w: πif(x) / 2 };\n"),
+    ("js division after a call to a private #if", "web/tests/b9.test.ts",
+     "    const r = { w: this.#if(x) / 2 };\n"),
+    ("js division after a name ending in return", "web/tests/b10.test.ts",
+     "    const r = { w: πreturn / 2 }; const re = /\\}/;\n"),
+    # `/>` is a self-closing tag's only inside a JSX open tag; after a block's `}` it opens a regex literal (F3).
+    ("js regex literal starting /> after a block's }", "web/tests/b11.test.ts", "    if (ok) {} />foo{/.test(s);\n"),
+    # A `}` is a block's or an object's by the token before its `{`: after a block a slash starts a regex literal,
+    # after an object it divides.
+    ("js regex literal after an if block's }", "web/tests/b12.test.ts", "    if (ok) {} /a{/.test(s);\n"),
+    ("js regex literal after a switch block's }", "web/tests/b13.test.ts", "    switch (k) {} /a{/.test(s);\n"),
+    ("js regex literal after a finally block's }", "web/tests/b14.test.ts",
+     "    try {} finally {} /a{/.test(s);\n"),
+    ("js division after an assigned object's }", "web/tests/b15.test.ts",
+     "    const a = {} / 2; const re = /\\}/;\n"),
+    ("js division after a returned object's }", "web/tests/b16.test.ts",
+     "    const f = () => { return {} / 2; };\n"),
+    ("js division after an object's } in a template field", "web/tests/b17.test.ts",
+     "    const t = `${ {} / 2 }`; const re = /\\}/;\n"),
     ("swift multi-line string", "cmuxTests/A1Tests.swift", "        let json = \"\"\"\n        {\"a\": 1\n        \"\"\"\n"),
     ("swift raw string with quotes", "cmuxTests/A2Tests.swift", "        let s = #\"a \"{\" b\"#\n"),
     ("swift multi-line raw string", "cmuxTests/A3Tests.swift",
@@ -5345,6 +5366,10 @@ ATTRIBUTION_GUARDS: list[tuple[str, str, str, str, dict[int, str]]] = [
      _js_attribution_fixture("    const r = { w: f(x) / 2, h: g(y) / 3 };\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
     ("jsx self-closing tag after an attribute's }", "web/tests/g5.test.tsx",
      _js_attribution_fixture("    const el = <Tile size={2} />;\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
+    ("jsx self-closing tag after a spread's }", "web/tests/g6.test.tsx",
+     _js_attribution_fixture("    const el = <Tile a=\"x\" b={c} {...props} />;\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
+    ("js division after an optional member call named if", "web/tests/g7.test.ts",
+     _js_attribution_fixture("    const r = { w: x?.if(y) / 2 };\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
     ("jsx text: an apostrophe and a closing tag", "web/tests/g2.test.tsx",
      _js_attribution_fixture("    const el = cond && <p>Don't {name}</p>;\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
     ("python comment holding a triple quote", "tests/test_g3.py",
