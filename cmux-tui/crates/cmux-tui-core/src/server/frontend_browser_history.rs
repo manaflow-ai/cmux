@@ -331,3 +331,7 @@ mod insert_tests;
 #[cfg(test)]
 #[path = "frontend_browser_split_tests.rs"]
 mod split_tests;
+
+#[cfg(test)]
+#[path = "workspace_first_tab_tests.rs"]
+mod workspace_first_tab_tests;
