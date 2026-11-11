@@ -147,6 +147,30 @@ fn a_team_switch_takes_an_id_or_a_name() {
     assert_eq!(team(&[], None, Some("t1")), Err(Said::key("noTeams")));
 }
 
+/// `cloud start-session --team personal` (Leo, 2026-11-10: "did you guys not test these"): the
+/// person's own team, the one the team menu names Personal, in any case; an account with no
+/// Personal team refuses it as no such team. A team literally named `personal` is taken by name.
+#[test]
+fn personal_names_the_persons_own_team() {
+    let teams: Vec<Team> = serde_json::from_value(
+        json!([{"id": "t1", "name": "cmux"}, {"id": "t2", "name": "Personal"}]),
+    )
+    .unwrap();
+    assert_eq!(team(&teams, Some("t1"), Some("personal")), Ok(Some("t2".into())));
+    assert_eq!(team(&teams, Some("t1"), Some(" PERSONAL ")), Ok(Some("t2".into())));
+    assert_eq!(team(&teams, Some("t2"), Some("personal")), Ok(None), "already in it");
+    let shared: Vec<Team> = serde_json::from_value(json!([{"id": "t1", "name": "cmux"}])).unwrap();
+    assert_eq!(
+        team(&shared, Some("t1"), Some("personal")),
+        Err(Said::with("noSuchTeam", ["personal"]).invalid_target())
+    );
+    let named: Vec<Team> = serde_json::from_value(
+        json!([{"id": "t3", "name": "personal"}, {"id": "t2", "name": "Personal"}]),
+    )
+    .unwrap();
+    assert_eq!(team(&named, None, Some("personal")), Ok(Some("t3".into())));
+}
+
 #[test]
 fn set_up_github_says_the_app_or_the_fallback_and_why() {
     let named = Said::with("gitHubAppConfirmBody", ["Ada", "—"]);

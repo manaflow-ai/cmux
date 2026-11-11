@@ -145,7 +145,7 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "start-session",
-                "({target} | --name NAME) --agent AGENT [--model MODEL] [--cwd DIR | --from-folder PATH] [--login pass|machine|none]",
+                "({target} | --name NAME) --agent AGENT [--model MODEL] [--cwd DIR | --from-folder PATH] [--login pass|machine|none] [--mode MODE] [--team TEAM]",
                 "Start an agent session (claude, codex, ...) there",
                 "エージェントセッション（claude、codex など）を開始",
             ),
@@ -521,7 +521,8 @@ set は値を非表示の入力プロンプトまたは標準入力から読み�
 pub(super) const START_CHAT_USAGE: &str = "\
 usage: cmux cloud start-chat [--prompt TEXT] [--agent AGENT] [--model MODEL]
                              [--cwd DIR | --from-folder PATH [--allow-large]]
-                             [--login pass|machine|none] [--environment ENV]
+                             [--login pass|machine|none] [--mode MODE]
+                             [--team ID|NAME|personal] [--environment ENV]
                              [--name VM | --target vm:VM_ID]
                              [--wait] [--timeout SECONDS] [--make-room] [--json]
 
@@ -552,6 +553,12 @@ older name; both run the same start.
                      The agent's login there: yours from this Mac, the
                      machine's own, or none (default: the machine's login or
                      your earlier choice)
+  --mode MODE        The permission mode the chat starts in (bypassPermissions,
+                     ...); applied on your own machine only (default: the
+                     machine's own start mode)
+  --team ID|NAME|personal
+                     Switch to this team first (personal: your own team), so
+                     the chat runs in it; not with --environment
   --name VM          Use the VM with this name, or create it
   --target vm:VM_ID  Use this VM (`cmux vm ls`)
                      Neither: create a new small machine with a new name
