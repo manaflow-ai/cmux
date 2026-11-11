@@ -1468,7 +1468,9 @@
 2026-11-11T19:19:15.7613220Z 2026-11-11 11:17:25.471 swiftpm-testing-helper[14497:28934935] CGImageDestinationFinalize failed for output type 'public.tiff'
 2026-11-11T19:19:15.8211370Z ✔ Test run with 1232 tests in 226 suites passed after 199.320 seconds.
 2026-11-11T19:20:49.5079500Z ◇ Test case passing 1 argument code → "operation.failed" to aReplayedStartTheOwnerAnswersWithAnotherCodeKeepsTheLostJob(code:) started.
+2026-11-11T19:20:49.5080290Z ✔ Test aReplayedStartTheOwnerAnswersWithAnotherCodeKeepsTheLostJob(code:) with 2 test cases passed after 0.026 seconds.
 2026-11-11T19:20:49.5087100Z ◇ Test case passing 1 argument mode → "failed-read" to withdrawnRoutesAndFailedReadsNeverInventCompletion(mode:) started.
+2026-11-11T19:20:49.5087430Z ✔ Test withdrawnRoutesAndFailedReadsNeverInventCompletion(mode:) with 3 test cases passed after 0.018 seconds.
 2026-11-11T19:20:49.5280970Z error: failed to push some refs to '/var/folders/rm/4k_9mzpn37n048pd3y44cxlw0000gn/T/git-pr-FF74E5F8-FEB6-4E85-B3E6-CED49A6C7849/remote.git'
 2026-11-11T19:20:49.5284060Z ✘ Test createPRRefusesARepositoryDifferentFromTheChatSession() recorded an issue at AgentPaneGitPullRequestTests.swift:241:9: Expectation failed: ((reply["error"] as? [String: Any])?["message"] as? String → nil) == (AgentPaneGitPullRequest.sessionRepositoryMessage → "The pull request folder is not this chat's repository. Refresh the chat and try again.")
 2026-11-11T19:20:49.5284370Z ✘ Test createPRRefusesARepositoryDifferentFromTheChatSession() failed after 0.436 seconds with 1 issue.
@@ -1491,6 +1493,7 @@
 2026-11-11T19:20:53.7730630Z ✘ Suite WindowCleanupCoverageTests failed after 18.084 seconds with 1 issue.
 2026-11-11T19:20:53.8019150Z ◇ Test case passing 2 arguments status → 409, code → "cmux.artifacts.failed" to refusalsBecomeTheAppsCodes(status:code:) started.
 2026-11-11T19:20:53.8019570Z ◇ Test case passing 2 arguments status → 500, code → "cmux.artifacts.failed" to refusalsBecomeTheAppsCodes(status:code:) started.
+2026-11-11T19:20:53.8019870Z ✔ Test refusalsBecomeTheAppsCodes(status:code:) with 5 test cases passed after 0.001 seconds.
 2026-11-11T19:20:53.8201590Z ✘ Test run with 1205 tests in 259 suites failed after 80.586 seconds with 9 issues (including 8 known issues).
 2026-11-11T19:20:53.8205500Z ##[error]1 red tests: everySuiteThatOpensAWindowClosesWhatItLeaves() WindowCleanupCoverageTests.swift:37
 2026-11-11T19:20:53.8207280Z ##[error]shard 4 exited 1: ^(CmuxNextAgentPaneTests\.N|CmuxNextAppTests\.K|CmuxNextAppTests\.Se|CmuxNextAppTests\.SideO|CmuxNextAppTests\.SidebarN|CmuxNextAppTests\.Su|CmuxNextAppTests\.W|CmuxNextChromiumWarmupTests\.|CmuxNextPagesTests\.|CmuxNextUiLayerPreviewTests\.)
@@ -1592,6 +1595,7 @@
 2026-11-11T19:27:50.0777470Z ##[error]6 red tests: aFreshProfileListsNoTabsInsideTheSidebar() ClassicModeRemovedTests.swift:45; anOldFileThatListedTabsGetsTheSameSidebarQuietly() ClassicModeRemovedTests.swift:50; theZoneEndsAtTheOpenForwardButton() CornerHoverBandTests.swift:62; restoringAWidthBelowTheTitlebarMinimumClampsItSoNothingOverlaps() SidebarMinimumWidthTitlebarTests.swift:50; draggingToTheNarrowestWidthKeepsThePlusClearOfForward() SidebarMinimumWidthTitlebarTests.swift:63; thePriorityBellWidensTheMinimumAndStaysClearOfForward() SidebarMinimumWidthTitlebarTests.swift:115
 2026-11-11T19:27:50.0780710Z ##[error]shard 5 exited 1: ^(CmuxNextAgentPaneTests\.A[^cgt]|CmuxNextAgentPaneTests\.[^ACDEFHILMNPRSVWi]|CmuxNextAppTests\.C|CmuxNextAppTests\.S[^Sacehikloptuwy]|CmuxNextAppTests\.Si[^dglmn]|CmuxNextAppTests\.Sid[^e]|CmuxNextAppTests\.Side[^Ob]|CmuxNextAppTests\.Sideb[^a]|CmuxNextAppTests\.Sideba[^r]|CmuxNextAppTests\.SidebarL|CmuxNextAppTests\.SidebarM|CmuxNextAppTests\.SidebarW|CmuxNextAppTests\.Sidebar[^ABCDEFGHIKLMNOPQRSTUVW]|CmuxNextAppTests\.[^ABCDEFGHIJKLMNOPQRSTUVWXZ]|CmuxNextPopupsTests\.|CmuxNextSignpostsTests\.|CmuxNextWorkspaceRepairTests\.)
 2026-11-11T19:28:53.4280760Z ◇ Test case passing 1 argument section → .failed to statusHeaderShowsItsWholeNameAndCount(_:) started.
+2026-11-11T19:28:53.4283020Z ✔ Test statusHeaderShowsItsWholeNameAndCount(_:) with 6 test cases passed after 0.107 seconds.
 2026-11-11T19:28:53.4303270Z ✘ Test aForcedHangReachesTheServerWithStackCommitInstallAndMember() recorded an issue at HangReportingEndToEndTests.swift:53:9: Expectation failed: (sent.count.withLock { $0 } → 2) == 1
 2026-11-11T19:28:53.4304340Z ✘ Test aForcedHangReachesTheServerWithStackCommitInstallAndMember() failed after 2.630 seconds with 1 issue.
 2026-11-11T19:28:53.4304870Z ✘ Suite HangReportingEndToEndTests failed after 2.630 seconds with 1 issue.
@@ -1662,6 +1666,7 @@
 2026-11-11T19:32:09.7977450Z ✘ Test compactMenuCountsMatchAudit() failed after 0.014 seconds with 1 issue.
 2026-11-11T19:32:09.7978490Z ✘ Suite MainMenuPlacementTests failed after 0.123 seconds with 1 issue.
 2026-11-11T19:32:09.8190090Z ◇ Test case passing 1 argument failure → .installFailed("download failed") to retryFromABlockedLinkFailureDoesNotReplayItForTheNewAttempt(_:) started.
+2026-11-11T19:32:09.8194020Z ✔ Test retryFromABlockedLinkFailureDoesNotReplayItForTheNewAttempt(_:) with 3 test cases passed after 0.008 seconds.
 2026-11-11T19:32:09.8344790Z ━ Test theFooterIsOneRowWithNoPaddingUnderIt(_:) recorded a known issue with 1 argument c → compact 240 at SidebarFooterAlignmentTests.swift:118:13: Expectation failed: (line.height → 34.0) <= (rowHeight + 0.5 → 28.5)
 2026-11-11T19:32:09.8345990Z ━ Test theFooterIsOneRowWithNoPaddingUnderIt(_:) recorded a known issue with 1 argument c → compact 240 at SidebarFooterAlignmentTests.swift:122:13: Expectation failed: (reserve → 38.0) <= (rowHeight + Metrics.space2 + 0.5 → 32.5)
 2026-11-11T19:32:09.8347570Z ━ Test theFooterIsOneRowWithNoPaddingUnderIt(_:) recorded a known issue with 1 argument c → compact 120 at SidebarFooterAlignmentTests.swift:118:13: Expectation failed: (line.height → 34.0) <= (rowHeight + 0.5 → 28.5)
@@ -1701,6 +1706,7 @@
 2026-11-11T19:32:09.8558210Z ✘ Test thePinStartsOnAnUnpinnedRowsIconColumn(_:) with 3 test cases failed after 3.800 seconds with 1 issue.
 2026-11-11T19:32:09.8558450Z ✘ Suite SidebarUniformRowSpacingTests failed after 12.321 seconds with 5 issues.
 2026-11-11T19:32:09.8645870Z ◇ Test case passing 1 argument phase → .failed("cmux Cloud", reason: "no route") to aFinishedMoveLeavesTheMenuOpen(phase:) started.
+2026-11-11T19:32:09.8646420Z ✔ Test aFinishedMoveLeavesTheMenuOpen(phase:) with 4 test cases passed after 0.001 seconds.
 2026-11-11T19:32:09.8662140Z ◇ Test failedTellWithoutOutputIsStillMarkedFailed() started.
 2026-11-11T19:32:09.8662370Z ✔ Test failedTellWithoutOutputIsStillMarkedFailed() passed after 0.001 seconds.
 2026-11-11T19:32:09.8690490Z ✘ Test run with 1194 tests in 311 suites failed after 145.630 seconds with 27 issues (including 12 known issues).
@@ -1732,6 +1738,7 @@
 2026-11-11T19:32:44.1297150Z ◇ Test case passing 1 argument mode → "closed" to failedOrAbandonedPlacementReleasesTheQueuedCommands(mode:) started.
 2026-11-11T19:32:44.1297480Z ✔ Test failedOrAbandonedPlacementReleasesTheQueuedCommands(mode:) with 3 test cases passed after 0.475 seconds.
 2026-11-11T19:32:44.1299290Z ◇ Test case passing 1 argument first → .failed to onlyAFailedPlacementStopsTheOnesQueuedAfterIt(first:) started.
+2026-11-11T19:32:44.1299600Z ✔ Test onlyAFailedPlacementStopsTheOnesQueuedAfterIt(first:) with 2 test cases passed after 0.004 seconds.
 2026-11-11T19:32:44.1534250Z ✘ Test run with 1214 tests in 279 suites failed after 214.251 seconds with 12 issues.
 2026-11-11T19:32:44.1539430Z ##[error]1 red tests: thePaletteRowsCloseRunsCloseWorkspace() PinnedPageTests.swift:269
 2026-11-11T19:32:44.1540990Z ##[error]shard 11 exited 1: ^(CmuxNextAppTests\.B|CmuxNextAppTests\.E|CmuxNextAppTests\.P|CmuxNextAppTests\.Q|CmuxNextAppTests\.SS|CmuxNextAppTests\.Sa|CmuxNextAppTests\.SidebarP|CmuxNextCompatTests\.|CmuxNextLiveCodeTests\.)
@@ -1786,6 +1793,7 @@
 2026-11-11T19:34:53.9313740Z ✘ Test aRejectedTokenIsReplacedAndEveryOtherAnswerKeepsIt() failed after 0.963 seconds with 1 issue.
 2026-11-11T19:34:53.9314690Z ✘ Suite CloudMachineLoginTests failed after 1.587 seconds with 1 issue.
 2026-11-11T19:34:53.9402830Z ◇ Test case passing 1 argument status → .failed to aMachineInAnUnclearStateOffersBoth(status:) started.
+2026-11-11T19:34:53.9403430Z ✔ Test aMachineInAnUnclearStateOffersBoth(status:) with 2 test cases passed after 0.118 seconds.
 2026-11-11T19:34:53.9473980Z ✘ Test homeAboveItAndTheDisksRootAreRefused(folder:) recorded an issue with 1 argument folder → "/Users/me/" at CloudStartSessionFolderTests.swift:138:9: Expectation failed: expected error "/Users/me is your home folder, a folder above it or the disk's root, which is never copied to a Cloud machine. Pass a project folder with --from-folder." of type ActionFailure, but "/Users/me/ is your home folder, a folder above it or the disk's root, which is never copied to a Cloud machine. Pass a project folder with --from-folder." of type ActionFailure was thrown instead
 2026-11-11T19:34:53.9474320Z ✘ Test homeAboveItAndTheDisksRootAreRefused(folder:) with 4 test cases failed after 0.001 seconds with 1 issue.
 2026-11-11T19:34:53.9482810Z ✘ Suite CloudStartSessionFolderTests failed after 0.243 seconds with 1 issue.
@@ -1796,7 +1804,9 @@
 2026-11-11T19:34:53.9563130Z ##[error]shard 15 exited 1: ^(CmuxNextAppTests\.Cloud)
 2026-11-11T19:35:29.1285900Z ◇ Test case passing 1 argument error → connect /tmp/cmux-501/tui.sock failed: Connection refused to saysWhatHappenedInPlainWords(_:) started.
 2026-11-11T19:35:29.1287530Z ◇ Test case passing 1 argument error → cmux-tui server ensure failed: exit status 1 to saysWhatHappenedInPlainWords(_:) started.
+2026-11-11T19:35:29.1290010Z ✔ Test saysWhatHappenedInPlainWords(_:) with 6 test cases passed after 0.010 seconds.
 2026-11-11T19:35:29.1315070Z ◇ Test case passing 2 arguments raw → "failed", expected → .failed to statusParameterMapsToSidebarStatus(raw:expected:) started.
+2026-11-11T19:35:29.1315730Z ✔ Test statusParameterMapsToSidebarStatus(raw:expected:) with 6 test cases passed after 0.001 seconds.
 2026-11-11T19:35:29.2177750Z ✘ Test theHoverEndsWhenTheRoomGoesBackUnderAStillPointer() recorded an issue at UpdatedCardHoverPreviewTests.swift:327:9: Expectation failed: !((host → <CmuxNextSidebar.SidebarUpdatedCardHost: 0x7601011400>).isHovered → true → true)
 2026-11-11T19:35:29.2178450Z ✘ Test theHoverEndsWhenTheRoomGoesBackUnderAStillPointer() recorded an issue at UpdatedCardHoverPreviewTests.swift:328:9: Expectation failed: (island.pointer.last → true) == false
 2026-11-11T19:35:29.2178900Z ✘ Test theHoverEndsWhenTheRoomGoesBackUnderAStillPointer() failed after 0.311 seconds with 2 issues.
