@@ -63,6 +63,8 @@ CHROMIUM_CURRENCY_STEP = "Pinned Chromium against Chrome stable"
 
 import argparse
 import bisect
+import contextvars
+import copy
 import importlib.util
 import io
 import json
@@ -85,6 +87,13 @@ from typing import Callable, NamedTuple
 _http_spec = importlib.util.spec_from_file_location("deadline_http", Path(__file__).with_name("deadline_http.py"))
 deadline_http = importlib.util.module_from_spec(_http_spec)
 _http_spec.loader.exec_module(deadline_http)
+
+try:  # a failed job's log as this host's glaeda-gh kept it (no API call); absent, every log is read from GitHub
+    _glaeda_spec = importlib.util.spec_from_file_location("glaeda_log", Path(__file__).with_name("glaeda_log.py"))
+    glaeda_log = importlib.util.module_from_spec(_glaeda_spec)
+    _glaeda_spec.loader.exec_module(glaeda_log)
+except OSError:
+    glaeda_log = None
 
 _spec = importlib.util.spec_from_file_location("main_fix_evidence", Path(__file__).with_name("main_fix_evidence.py"))
 _evidence = importlib.util.module_from_spec(_spec)
@@ -127,17 +136,55 @@ def json_shape(route: str, found, *, paginate: bool = False, none: bool = False)
 SHAPE_CHARS = 200
 
 
+# One read per source per judgement (review of cmux#41151 at bfa0db5f, F1): an excuse path may ask a source twice (the
+# app FFI pin rule's whole-log and rollup readings each prove a published base pin: its release files and compile
+# evidence), and a second network read that fails (a 503) must never overturn a proof the first one made. judge()
+# opens one memo per judgement; every network read below (rate_limit_aware's json, blob and GraphQL reads, the
+# release files and the compile receipts) is answered from it after its first read, a failed one too: one source gives
+# one answer per judgement (a file one read found absent is never found on a second), and a 503 is not asked twice.
+# Outside a judgement (a direct call, a test of one reader) every read goes out, as before.
+JUDGEMENT_READS: contextvars.ContextVar = contextvars.ContextVar("judgement_reads", default=None)
+
+
+def read_once(key: tuple, read: Callable[[], object]):
+    """READ's answer, read once per judgement under KEY (JUDGEMENT_READS), or the exception it raised; each caller gets
+    its own copy, so no reader changes what another is answered."""
+    memo = JUDGEMENT_READS.get()
+    if memo is None:
+        return read()
+    if key not in memo:
+        try:
+            memo[key] = (True, read())
+        except (Refused, RateLimitedRead) as why:
+            memo[key] = (False, why)
+    ok, found = memo[key]
+    if not ok:
+        raise found
+    return copy.deepcopy(found)
+
+
+def once_key(name: str, args: tuple, kwargs: dict) -> tuple | None:
+    """read_once's key for a rate_limit_aware read NAME(ARGS, KWARGS), or None for one that is not kept: anything but
+    json, blob and a GraphQL query. A job's log is not kept: each job's log has one reader per judgement (read_head,
+    base_evidence, the guard and web readers), and it is no proof a second read could overturn."""
+    if name in ("json", "blob"):
+        return (name, repr(args), repr(sorted(kwargs.items())))
+    if name == "run" and args and isinstance(args[0], list) and args[0][:2] == ["api", "graphql"]:
+        return ("graphql", repr(args[0]))
+    return None
+
+
 def rate_limit_aware(github):
     """GITHUB with every rate-limited read raised as RateLimitedRead instead (above), and every `json` read that is not
     a JSON object or list Refused as unread (json_shape). Reads are looked up on each call, so a caller that replaces
-    one (the tests' fakes) is still read, and checked."""
+    one (the tests' fakes) is still read, and checked. Each network read is read once per judgement (read_once)."""
     class Aware:
         def __getattr__(self, name: str):
             attribute = getattr(github, name)
             if not callable(attribute):
                 return attribute
 
-            def read(*args, **kwargs):
+            def go(*args, **kwargs):
                 try:
                     found = attribute(*args, **kwargs)
                 except RateLimited as error:
@@ -145,6 +192,10 @@ def rate_limit_aware(github):
                 if name == "json" and args:
                     return json_shape(str(args[0]), found, paginate=bool(kwargs.get("paginate")), none=True)
                 return found
+
+            def read(*args, **kwargs):
+                key = once_key(name, args, kwargs)
+                return go(*args, **kwargs) if key is None else read_once(key, lambda: go(*args, **kwargs))
 
             return read
 
@@ -213,6 +264,11 @@ class GitHub(_evidence.GitHub):
         # versions reject coloured output without it. Either way, normalize bytes in Python.
         # A log section can open with a byte-order mark before its timestamp, which hides that line from every
         # reader that matches a stamp or a prefix (cmuxterm-hq run 42391652834's WS_CHECK_RESULT, 2026-11-07).
+        # This host's glaeda-gh keeps the same bytes for every failed job its daemon saw: read there first, with no
+        # API call (a replay of 200 verdicts read each log again: about 150 reads, and it stopped at 51 runs).
+        kept = glaeda_log.cached_job_log(repo, job.get("id")) if glaeda_log is not None else None
+        if kept is not None:
+            return kept.replace("\ufeff", "")
         try:
             return self.run(["api", ESCAPE_FLAG, route]).replace("\ufeff", "")
         except Refused as error:
@@ -652,9 +708,11 @@ SHA = re.compile(rf"(?P<artifact>\b{ARTIFACT}{NAMED}[0-9a-f]{{40}}\b)"
 # echoes the step's script, which spells these words out on every run, a real compile red included.
 # Fail closed: of compile-status's own lines, only "(fail)" is a real compile red; every other state (no result,
 # unavailable, mismatch, unreadable, pending, "last: ...", a pass it could not post) and a status it could not
-# post at all are no verdict.
+# post at all (GitHub refused it: 2026-11-11 02:38Z, a 403 rate limit on cmux-bot reddened #40351, #40942, #41007
+# and the base) are no verdict.
 NO_VERDICT = re.compile(r"^##\[error\]\s*(?:cmux-next/compile is not a pass for \S+ \((?!fail\))|"
-                        r"could not post the pending status|bad head sha |No build-fleet verdict for `)")
+                        r"could not post the (?:pending|handoff|overflow handoff) status|"
+                        r"bad head sha |No build-fleet verdict for `)")
 # The jobs that can end without a verdict: an unreadable log of one is never comparable either.
 NO_VERDICT_JOBS = frozenset({"cmux-next fleet Release compile", "cmux-next app compile (build fleet)"})
 # The shared generated-files check only reads the verdict produced by the Swift or daemon job that built
@@ -1697,7 +1755,7 @@ def compile_pass_at(repo: str, sha: str, github) -> str | None:
     if passed is not None:
         return f"the {COMPILE_PASS_STATUS} status"
     try:
-        receipt = compile_receipt(repo, sha)
+        receipt = read_once(("receipt", repo, sha), lambda: compile_receipt(repo, sha))
     except ReceiptUnreachable as down:
         # The receipts host is down or slow (cmux#40722, 2026-11-10: "TimeoutError: The read operation timed out"):
         # the poster's status above was the other way to know, and it holds no pass. Refused, naming both.
@@ -1794,7 +1852,7 @@ def inherited_compile_red(repo: str, base: str, sha: str, name: str, github) -> 
     """The audit line excusing NAME's compile red at SHA when the head's fleet receipt and its merge-base's both read
     "fail", else Refused. When the receipts host is unreachable, GitHub decides (github_compile_red)."""
     try:
-        head = compile_receipt(repo, sha)
+        head = read_once(("receipt", repo, sha), lambda: compile_receipt(repo, sha))
     except ReceiptUnreachable as down:
         return github_compile_red(repo, base, sha, name, github, down)
     if (head or {}).get("state") != "fail":
@@ -1805,7 +1863,7 @@ def inherited_compile_red(repo: str, base: str, sha: str, name: str, github) -> 
     if not re.fullmatch(r"[0-9a-f]{40}", merge_base):
         raise Refused(f"'{name}': no merge-base of {sha[:12]} with {base} to compare its compile receipt with")
     try:
-        at_base = compile_receipt(repo, merge_base)
+        at_base = read_once(("receipt", repo, merge_base), lambda: compile_receipt(repo, merge_base))
     except ReceiptUnreachable as down:
         return github_compile_red(repo, base, sha, name, github, down)
     if (at_base or {}).get("state") != "fail":
@@ -1815,7 +1873,8 @@ def inherited_compile_red(repo: str, base: str, sha: str, name: str, github) -> 
     now = ""
     if re.fullmatch(r"[0-9a-f]{40}", tip) and tip != merge_base:
         try:
-            now = f"; {base} {tip[:12]} reads {(compile_receipt(repo, tip) or {}).get('state') or 'no receipt'}"
+            at_tip = read_once(("receipt", repo, tip), lambda: compile_receipt(repo, tip)) or {}
+            now = f"; {base} {tip[:12]} reads {at_tip.get('state') or 'no receipt'}"
         except Refused:
             now = ""
     log_decider(f"'{name}' at {sha[:12]} was decided by the fleet's compile receipts")
@@ -2344,8 +2403,9 @@ def ffi_published_base_pin(repo: str, base: str, sha: str, github) -> tuple[str 
     if pin is None:
         return None, why
     tag = f"cmux-app-ffi-{pin}"
-    source = ffi_release_file(repo, tag, "SOURCE_SHA")
-    sums = ffi_release_file(repo, tag, "SHA256SUMS") if source is not None else None
+    source = read_once(("release", repo, tag, "SOURCE_SHA"), lambda: ffi_release_file(repo, tag, "SOURCE_SHA"))
+    sums = (read_once(("release", repo, tag, "SHA256SUMS"), lambda: ffi_release_file(repo, tag, "SHA256SUMS"))
+            if source is not None else None)
     if source is None or sums is None:
         return None, f"the pinned release {tag} is not published (its {'SOURCE_SHA' if source is None else 'SHA256SUMS'} is 404)"
     if source.strip() != pin:
@@ -5464,6 +5524,24 @@ def base_evidence(repo: str, base: str, name: str, run: dict, found: dict, githu
     return run, view, signature(view), step_errors(view)
 
 
+def one_judgement(function):
+    """FUNCTION (judge) run in one judgement's read memo (JUDGEMENT_READS): every source is read once, however many
+    excuse paths ask it. A judgement inside another (a derived status's parts) shares the outer one's."""
+    import functools
+
+    @functools.wraps(function)
+    def run(*args, **kwargs):
+        if JUDGEMENT_READS.get() is not None:
+            return function(*args, **kwargs)
+        token = JUDGEMENT_READS.set({})
+        try:
+            return function(*args, **kwargs)
+        finally:
+            JUDGEMENT_READS.reset(token)
+    return run
+
+
+@one_judgement
 def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: list[str] = (),
           flake_state: dict | None = None, purpose: str | None = None) -> list[str]:
     """Audit lines for every excused failure; raises Refused on the first that is not, or RateLimitedRead
