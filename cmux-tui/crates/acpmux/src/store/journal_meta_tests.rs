@@ -1619,3 +1619,41 @@ fn a_session_json_written_outside_the_store_is_never_patched_over() {
         .unwrap_or_default();
     assert!(aside > 0, "the image was not kept aside");
 }
+
+/// A transfer's swap that is undone (the folder renamed aside, then back, same identity) while
+/// the checkpoint kept the chat's image aside: that image never reached the folder's
+/// `session.json`, so the next change is a whole image, and the chat reads back after a kill.
+#[test]
+fn a_change_after_an_image_kept_aside_is_whole() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(84);
+    let store = open(home.path(), &journal);
+    let mut m = busy(CHAT);
+    store.save(&m).unwrap_or_else(|e| panic!("{e:#}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    change(&mut m, 0);
+    store.save(&m).unwrap_or_else(|e| panic!("{e:#}"));
+    let sessions = home.path().join("sessions");
+    let aside = sessions.join(format!(".{CHAT}.replacement-backup"));
+    std::fs::rename(sessions.join(CHAT), &aside).unwrap_or_else(|e| panic!("{e}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    std::fs::rename(&aside, sessions.join(CHAT)).unwrap_or_else(|e| panic!("{e}"));
+    change(&mut m, 1);
+    let before = written_meta();
+    store.save(&m).unwrap_or_else(|e| panic!("{e:#}"));
+    let next = written_meta() - before;
+    assert!(next > 20_000, "the change after a kept-aside image journaled a {next}-byte patch");
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    let store = open(home.path(), &killed);
+    let loaded = store
+        .load(CHAT)
+        .unwrap_or_else(|e| panic!("{e:#}"))
+        .unwrap_or_else(|| panic!("the chat is gone"));
+    assert_eq!(
+        serde_json::to_value(&loaded).unwrap_or_default(),
+        serde_json::to_value(&m).unwrap_or_default(),
+        "the chat read back after a kill is not its last image"
+    );
+}

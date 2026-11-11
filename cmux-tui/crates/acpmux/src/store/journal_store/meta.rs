@@ -857,6 +857,12 @@ impl Inner {
                 self.keep_aside_meta(id, pending.lsn, &image)
             })?;
             tracing::warn!(session = %id, kept = %kept.display(), "the chat's folder was removed or replaced outside the store: its metadata is kept aside");
+            // The folder's `session.json` never got this image, and the folder may come back
+            // (a failed transfer renames it back, same identity): no patch may name this record
+            // as its base, so the chat's next change journals a whole image.
+            if let Some(last) = self.order.lock_or_recover().images.get_mut(id) {
+                last.whole_next = true;
+            }
         }
         let mut order = self.order.lock_or_recover();
         if order.metas.get(id).is_some_and(|now| now.lsn == pending.lsn) {
