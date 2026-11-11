@@ -14,6 +14,7 @@
     "runElsewhere.untracked": {"comment":"Agent pane: caption over files git does not track, which stay on this machine","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"يبقى هنا: غير متتبع بواسطة git"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ostaje ovdje: git ga ne prati"}},"da":{"stringUnit":{"state":"needs_review","value":"Bliver her: ikke sporet af git"}},"de":{"stringUnit":{"state":"needs_review","value":"Bleibt hier: nicht von Git verfolgt"}},"en":{"stringUnit":{"state":"translated","value":"Stays here: not tracked by git"}},"es":{"stringUnit":{"state":"needs_review","value":"Se queda aquí: git no lo rastrea"}},"fr":{"stringUnit":{"state":"needs_review","value":"Reste ici : non suivi par git"}},"it":{"stringUnit":{"state":"needs_review","value":"Resta qui: non tracciato da git"}},"ja":{"stringUnit":{"state":"needs_review","value":"ここに残る: Gitで追跡されていません"}},"km":{"stringUnit":{"state":"needs_review","value":"នៅទីនេះ៖ git មិនបានតាមដាន"}},"ko":{"stringUnit":{"state":"needs_review","value":"여기에 남음: git이 추적하지 않음"}},"nb":{"stringUnit":{"state":"needs_review","value":"Blir her: ikke sporet av git"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zostaje tutaj: nieśledzone przez git"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Fica aqui: não rastreado pelo git"}},"ru":{"stringUnit":{"state":"needs_review","value":"Остаётся здесь: не отслеживается git"}},"th":{"stringUnit":{"state":"needs_review","value":"อยู่ที่นี่: git ไม่ได้ติดตาม"}},"tr":{"stringUnit":{"state":"needs_review","value":"Burada kalır: git izlemiyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Лишається тут: git не відстежує"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ở lại đây: git không theo dõi"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"保留在本地：未被 git 跟踪"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"保留在本機：git 未追蹤"}}}},
     "runElsewhere.more": {"comment":"Agent pane: how many more untracked files are not listed; {count} is a number","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"+{count} أخرى"}},"bs":{"stringUnit":{"state":"needs_review","value":"+još {count}"}},"da":{"stringUnit":{"state":"needs_review","value":"+{count} mere"}},"de":{"stringUnit":{"state":"needs_review","value":"+{count} weitere"}},"en":{"stringUnit":{"state":"translated","value":"+{count} more"}},"es":{"stringUnit":{"state":"needs_review","value":"+{count} más"}},"fr":{"stringUnit":{"state":"needs_review","value":"+{count} de plus"}},"it":{"stringUnit":{"state":"needs_review","value":"+altri {count}"}},"ja":{"stringUnit":{"state":"needs_review","value":"他{count}件"}},"km":{"stringUnit":{"state":"needs_review","value":"+{count} ទៀត"}},"ko":{"stringUnit":{"state":"needs_review","value":"+{count}개 더"}},"nb":{"stringUnit":{"state":"needs_review","value":"+{count} til"}},"pl":{"stringUnit":{"state":"needs_review","value":"+{count} więcej"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"+{count} mais"}},"ru":{"stringUnit":{"state":"needs_review","value":"ещё {count}"}},"th":{"stringUnit":{"state":"needs_review","value":"อีก {count} รายการ"}},"tr":{"stringUnit":{"state":"needs_review","value":"+{count} daha"}},"uk":{"stringUnit":{"state":"needs_review","value":"ще {count}"}},"vi":{"stringUnit":{"state":"needs_review","value":"+{count} nữa"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"另有 {count} 项"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"另有 {count} 項"}}}},
     "runElsewhere.stays": {"comment":"Agent pane: why a command cannot run on another machine; {why} is the reason","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"يبقى على هذا الجهاز: {why}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ostaje na ovom računaru: {why}"}},"da":{"stringUnit":{"state":"needs_review","value":"Bliver på denne maskine: {why}"}},"de":{"stringUnit":{"state":"needs_review","value":"Bleibt auf diesem Rechner: {why}"}},"en":{"stringUnit":{"state":"translated","value":"Stays on this machine: {why}"}},"es":{"stringUnit":{"state":"needs_review","value":"Se queda en este equipo: {why}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Reste sur cet ordinateur : {why}"}},"it":{"stringUnit":{"state":"needs_review","value":"Resta su questo computer: {why}"}},"ja":{"stringUnit":{"state":"needs_review","value":"このマシンに残る: {why}"}},"km":{"stringUnit":{"state":"needs_review","value":"នៅលើម៉ាស៊ីននេះ៖ {why}"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 머신에 남음: {why}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Blir på denne maskinen: {why}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zostaje na tym komputerze: {why}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Fica nesta máquina: {why}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Остаётся на этой машине: {why}"}},"th":{"stringUnit":{"state":"needs_review","value":"อยู่บนเครื่องนี้: {why}"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu makinede kalır: {why}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Лишається на цій машині: {why}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ở lại máy này: {why}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"保留在此机器上：{why}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"保留在此機器上：{why}"}}}},
+    "runElsewhere.unavailable": {"comment":"Agent pane: the Run on a bigger machine panel when the cmux host does not pass its request on to acpmux","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"لا يمكن لإصدار cmux هذا إرسال أوامر إلى جهاز آخر بعد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ova verzija cmuxa još ne može slati naredbe na drugi računar"}},"da":{"stringUnit":{"state":"needs_review","value":"Denne version af cmux kan endnu ikke sende kommandoer til en anden maskine"}},"de":{"stringUnit":{"state":"needs_review","value":"Diese cmux-Version kann noch keine Befehle an einen anderen Rechner senden"}},"en":{"stringUnit":{"state":"translated","value":"This cmux build can’t send commands to another machine yet"}},"es":{"stringUnit":{"state":"needs_review","value":"Esta versión de cmux aún no puede enviar comandos a otro equipo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Cette version de cmux ne peut pas encore envoyer de commandes à un autre ordinateur"}},"it":{"stringUnit":{"state":"needs_review","value":"Questa versione di cmux non può ancora inviare comandi a un altro computer"}},"ja":{"stringUnit":{"state":"needs_review","value":"この cmux ビルドはまだ別のマシンにコマンドを送れません"}},"km":{"stringUnit":{"state":"needs_review","value":"កំណែ cmux នេះមិនទាន់អាចផ្ញើពាក្យបញ្ជាទៅម៉ាស៊ីនផ្សេងបានទេ"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 cmux 빌드는 아직 다른 머신으로 명령을 보낼 수 없습니다"}},"nb":{"stringUnit":{"state":"needs_review","value":"Denne cmux-versjonen kan ikke sende kommandoer til en annen maskin ennå"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ta wersja cmux nie może jeszcze wysyłać poleceń na inny komputer"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Esta versão do cmux ainda não pode enviar comandos para outra máquina"}},"ru":{"stringUnit":{"state":"needs_review","value":"Эта сборка cmux пока не может отправлять команды на другую машину"}},"th":{"stringUnit":{"state":"needs_review","value":"cmux รุ่นนี้ยังส่งคำสั่งไปยังเครื่องอื่นไม่ได้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu cmux sürümü henüz başka bir makineye komut gönderemiyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Ця збірка cmux поки не може надсилати команди на іншу машину"}},"vi":{"stringUnit":{"state":"needs_review","value":"Bản cmux này chưa thể gửi lệnh sang máy khác"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"此 cmux 版本暂时无法将命令发送到另一台机器"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"此 cmux 版本暫時無法將指令傳送到另一台機器"}}}},
     "runElsewhere.disconnected": {"comment":"Agent pane: a run on another machine could not start because this chat lost its connection to the agent service","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"هذه المحادثة غير متصلة الآن. حاول مرة أخرى بعد قليل."}},"bs":{"stringUnit":{"state":"needs_review","value":"Ovaj razgovor trenutno nije povezan. Pokušaj ponovo za trenutak."}},"da":{"stringUnit":{"state":"needs_review","value":"Denne chat er ikke forbundet lige nu. Prøv igen om lidt."}},"de":{"stringUnit":{"state":"needs_review","value":"Dieser Chat ist gerade nicht verbunden. Versuche es gleich noch einmal."}},"en":{"stringUnit":{"state":"translated","value":"This chat is not connected right now. Try again in a moment."}},"es":{"stringUnit":{"state":"needs_review","value":"Este chat no está conectado ahora. Vuelve a intentarlo en un momento."}},"fr":{"stringUnit":{"state":"needs_review","value":"Cette conversation n’est pas connectée pour le moment. Réessayez dans un instant."}},"it":{"stringUnit":{"state":"needs_review","value":"Questa chat non è collegata al momento. Riprova tra poco."}},"ja":{"stringUnit":{"state":"needs_review","value":"このチャットは現在接続されていません。少ししてからもう一度お試しください。"}},"km":{"stringUnit":{"state":"needs_review","value":"ការជជែកនេះមិនបានភ្ជាប់ឥឡូវនេះទេ។ សូមព្យាយាមម្ដងទៀតបន្តិចទៀត។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 채팅은 지금 연결되어 있지 않습니다. 잠시 후 다시 시도하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Denne chatten er ikke tilkoblet akkurat nå. Prøv igjen om litt."}},"pl":{"stringUnit":{"state":"needs_review","value":"Ten czat nie jest teraz połączony. Spróbuj ponownie za chwilę."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Este chat não está conectado agora. Tente novamente em instantes."}},"ru":{"stringUnit":{"state":"needs_review","value":"Этот чат сейчас не подключён. Повторите попытку чуть позже."}},"th":{"stringUnit":{"state":"needs_review","value":"แชตนี้ยังไม่ได้เชื่อมต่อในขณะนี้ ลองอีกครั้งในอีกสักครู่"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu sohbet şu anda bağlı değil. Birazdan tekrar dene."}},"uk":{"stringUnit":{"state":"needs_review","value":"Цей чат зараз не підключено. Спробуйте ще раз за мить."}},"vi":{"stringUnit":{"state":"needs_review","value":"Cuộc trò chuyện này hiện chưa được kết nối. Hãy thử lại sau giây lát."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"此聊天当前未连接。请稍后再试。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"此聊天目前未連線。請稍後再試。"}}}},
     "runElsewhere.noMachine": {"comment":"Agent pane: no machine is connected to run the command on","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"لا يوجد جهاز متصل. اربط جهازًا في الأجهزة أولًا."}},"bs":{"stringUnit":{"state":"needs_review","value":"Nema povezanog računara. Prvo ga poveži u Računarima."}},"da":{"stringUnit":{"state":"needs_review","value":"Ingen tilsluttet maskine. Tilslut en i Maskiner først."}},"de":{"stringUnit":{"state":"needs_review","value":"Kein Rechner verbunden. Verbinde zuerst einen unter „Rechner“."}},"en":{"stringUnit":{"state":"translated","value":"No connected machine. Connect one in Machines first."}},"es":{"stringUnit":{"state":"needs_review","value":"No hay ningún equipo conectado. Conecta uno primero en Equipos."}},"fr":{"stringUnit":{"state":"needs_review","value":"Aucun ordinateur connecté. Connectez-en un d’abord dans Machines."}},"it":{"stringUnit":{"state":"needs_review","value":"Nessun computer collegato. Collegane uno prima in Macchine."}},"ja":{"stringUnit":{"state":"needs_review","value":"接続済みのマシンがありません。先に「マシン」で接続してください。"}},"km":{"stringUnit":{"state":"needs_review","value":"គ្មានម៉ាស៊ីនដែលបានភ្ជាប់ទេ។ សូមភ្ជាប់មួយនៅក្នុងម៉ាស៊ីនជាមុនសិន។"}},"ko":{"stringUnit":{"state":"needs_review","value":"연결된 머신이 없습니다. 먼저 머신에서 연결하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Ingen tilkoblet maskin. Koble til en i Maskiner først."}},"pl":{"stringUnit":{"state":"needs_review","value":"Brak połączonego komputera. Najpierw połącz jeden w sekcji Maszyny."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Nenhuma máquina conectada. Conecte uma primeiro em Máquinas."}},"ru":{"stringUnit":{"state":"needs_review","value":"Нет подключённых машин. Сначала подключите её в разделе «Машины»."}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่มีเครื่องที่เชื่อมต่อ เชื่อมต่อเครื่องในส่วนเครื่องก่อน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bağlı makine yok. Önce Makineler’den bir tane bağla."}},"uk":{"stringUnit":{"state":"needs_review","value":"Немає підключених машин. Спершу підключіть її в розділі «Машини»."}},"vi":{"stringUnit":{"state":"needs_review","value":"Chưa có máy nào được kết nối. Hãy kết nối một máy trong Máy trước."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"没有已连接的机器。请先在“机器”中连接一台。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"沒有已連線的機器。請先在「機器」中連線一台。"}}}},
     "runElsewhere.cancel": {"comment":"Agent pane: closes the run on another machine panel","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إلغاء"}},"bs":{"stringUnit":{"state":"needs_review","value":"Otkaži"}},"da":{"stringUnit":{"state":"needs_review","value":"Annuller"}},"de":{"stringUnit":{"state":"needs_review","value":"Abbrechen"}},"en":{"stringUnit":{"state":"translated","value":"Cancel"}},"es":{"stringUnit":{"state":"needs_review","value":"Cancelar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Annuler"}},"it":{"stringUnit":{"state":"needs_review","value":"Annulla"}},"ja":{"stringUnit":{"state":"needs_review","value":"キャンセル"}},"km":{"stringUnit":{"state":"needs_review","value":"បោះបង់"}},"ko":{"stringUnit":{"state":"needs_review","value":"취소"}},"nb":{"stringUnit":{"state":"needs_review","value":"Avbryt"}},"pl":{"stringUnit":{"state":"needs_review","value":"Anuluj"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Cancelar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отмена"}},"th":{"stringUnit":{"state":"needs_review","value":"ยกเลิก"}},"tr":{"stringUnit":{"state":"needs_review","value":"Vazgeç"}},"uk":{"stringUnit":{"state":"needs_review","value":"Скасувати"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hủy"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"取消"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"取消"}}}},
@@ -283,6 +284,9 @@
     "hat.questions.type": {"comment":"Agent pane: the composer hat's button that puts the cursor in the composer to answer the shown question in the person's own words","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"اكتب إجابة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Napišite odgovor"}},"da":{"stringUnit":{"state":"needs_review","value":"Skriv et svar"}},"de":{"stringUnit":{"state":"needs_review","value":"Antwort schreiben"}},"en":{"stringUnit":{"state":"translated","value":"Type an Answer"}},"es":{"stringUnit":{"state":"needs_review","value":"Escribir una respuesta"}},"fr":{"stringUnit":{"state":"needs_review","value":"Écrire une réponse"}},"it":{"stringUnit":{"state":"needs_review","value":"Scrivi una risposta"}},"ja":{"stringUnit":{"state":"needs_review","value":"回答を入力"}},"km":{"stringUnit":{"state":"needs_review","value":"វាយចម្លើយ"}},"ko":{"stringUnit":{"state":"needs_review","value":"직접 입력"}},"nb":{"stringUnit":{"state":"needs_review","value":"Skriv et svar"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wpisz odpowiedź"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Digitar uma resposta"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ввести ответ"}},"th":{"stringUnit":{"state":"needs_review","value":"พิมพ์คำตอบ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yanıt yaz"}},"uk":{"stringUnit":{"state":"needs_review","value":"Ввести відповідь"}},"vi":{"stringUnit":{"state":"needs_review","value":"Nhập câu trả lời"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"输入回答"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"輸入回答"}}}},
     "hat.questions.answerBelow": {"comment":"Agent pane: the composer hat's button for a question that needs more than one click (several questions, several picks, previews); it brings its full card under the hat into view","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أجب أدناه"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odgovorite ispod"}},"da":{"stringUnit":{"state":"needs_review","value":"Svar nedenfor"}},"de":{"stringUnit":{"state":"needs_review","value":"Unten beantworten"}},"en":{"stringUnit":{"state":"translated","value":"Answer Below"}},"es":{"stringUnit":{"state":"needs_review","value":"Responder abajo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Répondre ci-dessous"}},"it":{"stringUnit":{"state":"needs_review","value":"Rispondi sotto"}},"ja":{"stringUnit":{"state":"needs_review","value":"下で回答"}},"km":{"stringUnit":{"state":"needs_review","value":"ឆ្លើយខាងក្រោម"}},"ko":{"stringUnit":{"state":"needs_review","value":"아래에서 답변"}},"nb":{"stringUnit":{"state":"needs_review","value":"Svar nedenfor"}},"pl":{"stringUnit":{"state":"needs_review","value":"Odpowiedz poniżej"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Responder abaixo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ответить ниже"}},"th":{"stringUnit":{"state":"needs_review","value":"ตอบด้านล่าง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Aşağıda yanıtla"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відповісти нижче"}},"vi":{"stringUnit":{"state":"needs_review","value":"Trả lời bên dưới"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"在下方回答"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"在下方回答"}}}},
     "hat.questions.open": {"comment":"Agent pane: the composer hat's button for a question another chat this one started asked; it opens that chat, where it is answered","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"فتح الدردشة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Otvori chat"}},"da":{"stringUnit":{"state":"needs_review","value":"Åbn chat"}},"de":{"stringUnit":{"state":"needs_review","value":"Chat öffnen"}},"en":{"stringUnit":{"state":"translated","value":"Open Chat"}},"es":{"stringUnit":{"state":"needs_review","value":"Abrir chat"}},"fr":{"stringUnit":{"state":"needs_review","value":"Ouvrir le chat"}},"it":{"stringUnit":{"state":"needs_review","value":"Apri chat"}},"ja":{"stringUnit":{"state":"needs_review","value":"チャットを開く"}},"km":{"stringUnit":{"state":"needs_review","value":"បើកការជជែក"}},"ko":{"stringUnit":{"state":"needs_review","value":"채팅 열기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Åpne chat"}},"pl":{"stringUnit":{"state":"needs_review","value":"Otwórz czat"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Abrir chat"}},"ru":{"stringUnit":{"state":"needs_review","value":"Открыть чат"}},"th":{"stringUnit":{"state":"needs_review","value":"เปิดแชต"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sohbeti aç"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відкрити чат"}},"vi":{"stringUnit":{"state":"needs_review","value":"Mở cuộc trò chuyện"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"打开聊天"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"打開聊天"}}}},
+    "hat.questions.replyPlaceholder": {"comment":"Agent pane: the composer hat's reply field under another chat's question, for an answer in the person's own words (placeholder and accessibility label)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"ردّ بكلماتك"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odgovori svojim riječima"}},"da":{"stringUnit":{"state":"needs_review","value":"Svar med dine egne ord"}},"de":{"stringUnit":{"state":"needs_review","value":"In eigenen Worten antworten"}},"en":{"stringUnit":{"state":"translated","value":"Reply in your own words"}},"es":{"stringUnit":{"state":"needs_review","value":"Responde con tus palabras"}},"fr":{"stringUnit":{"state":"needs_review","value":"Répondre avec vos mots"}},"it":{"stringUnit":{"state":"needs_review","value":"Rispondi con parole tue"}},"ja":{"stringUnit":{"state":"needs_review","value":"自分の言葉で返信"}},"km":{"stringUnit":{"state":"needs_review","value":"ឆ្លើយតបដោយពាក្យរបស់អ្នក"}},"ko":{"stringUnit":{"state":"needs_review","value":"직접 답하기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Svar med egne ord"}},"pl":{"stringUnit":{"state":"needs_review","value":"Odpowiedz własnymi słowami"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Responda com suas palavras"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ответить своими словами"}},"th":{"stringUnit":{"state":"needs_review","value":"ตอบด้วยคำของคุณเอง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kendi sözlerinle yanıtla"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відповісти своїми словами"}},"vi":{"stringUnit":{"state":"needs_review","value":"Trả lời bằng lời của bạn"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"用自己的话回复"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"用自己的話回覆"}}}},
+    "hat.questions.recommended": {"comment":"Agent pane: the composer hat's quiet word on the answer button the agent recommended","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"مُوصى به"}},"bs":{"stringUnit":{"state":"needs_review","value":"Preporučeno"}},"da":{"stringUnit":{"state":"needs_review","value":"Anbefalet"}},"de":{"stringUnit":{"state":"needs_review","value":"Empfohlen"}},"en":{"stringUnit":{"state":"translated","value":"Recommended"}},"es":{"stringUnit":{"state":"needs_review","value":"Recomendado"}},"fr":{"stringUnit":{"state":"needs_review","value":"Recommandé"}},"it":{"stringUnit":{"state":"needs_review","value":"Consigliato"}},"ja":{"stringUnit":{"state":"needs_review","value":"おすすめ"}},"km":{"stringUnit":{"state":"needs_review","value":"បានណែនាំ"}},"ko":{"stringUnit":{"state":"needs_review","value":"추천"}},"nb":{"stringUnit":{"state":"needs_review","value":"Anbefalt"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zalecane"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Recomendado"}},"ru":{"stringUnit":{"state":"needs_review","value":"Рекомендуется"}},"th":{"stringUnit":{"state":"needs_review","value":"แนะนำ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Önerilen"}},"uk":{"stringUnit":{"state":"needs_review","value":"Рекомендовано"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đề xuất"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"推荐"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"推薦"}}}},
+    "hat.questions.reply": {"comment":"Agent pane: the composer hat's button that shows a reply field for an answer to another chat's question in the person's own words","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"ردّ"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odgovori"}},"da":{"stringUnit":{"state":"needs_review","value":"Svar"}},"de":{"stringUnit":{"state":"needs_review","value":"Antworten"}},"en":{"stringUnit":{"state":"translated","value":"Reply"}},"es":{"stringUnit":{"state":"needs_review","value":"Responder"}},"fr":{"stringUnit":{"state":"needs_review","value":"Répondre"}},"it":{"stringUnit":{"state":"needs_review","value":"Rispondi"}},"ja":{"stringUnit":{"state":"needs_review","value":"返信"}},"km":{"stringUnit":{"state":"needs_review","value":"ឆ្លើយតប"}},"ko":{"stringUnit":{"state":"needs_review","value":"답장"}},"nb":{"stringUnit":{"state":"needs_review","value":"Svar"}},"pl":{"stringUnit":{"state":"needs_review","value":"Odpowiedz"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Responder"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ответить"}},"th":{"stringUnit":{"state":"needs_review","value":"ตอบกลับ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yanıtla"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відповісти"}},"vi":{"stringUnit":{"state":"needs_review","value":"Trả lời"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"回复"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"回覆"}}}},
     "hat.tag.taste": {"comment":"Agent pane: the composer hat's tag on a question about taste (a design or product choice only the person can make)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"ذوق"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ukus"}},"da":{"stringUnit":{"state":"needs_review","value":"Smag"}},"de":{"stringUnit":{"state":"needs_review","value":"Geschmack"}},"en":{"stringUnit":{"state":"translated","value":"Taste"}},"es":{"stringUnit":{"state":"needs_review","value":"Gusto"}},"fr":{"stringUnit":{"state":"needs_review","value":"Goût"}},"it":{"stringUnit":{"state":"needs_review","value":"Gusto"}},"ja":{"stringUnit":{"state":"needs_review","value":"好み"}},"km":{"stringUnit":{"state":"needs_review","value":"រសជាតិ"}},"ko":{"stringUnit":{"state":"needs_review","value":"취향"}},"nb":{"stringUnit":{"state":"needs_review","value":"Smak"}},"pl":{"stringUnit":{"state":"needs_review","value":"Gust"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Gosto"}},"ru":{"stringUnit":{"state":"needs_review","value":"Вкус"}},"th":{"stringUnit":{"state":"needs_review","value":"รสนิยม"}},"tr":{"stringUnit":{"state":"needs_review","value":"Zevk"}},"uk":{"stringUnit":{"state":"needs_review","value":"Смак"}},"vi":{"stringUnit":{"state":"needs_review","value":"Gu thẩm mỹ"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"品味"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"品味"}}}},
     "hat.tag.irreversible": {"comment":"Agent pane: the composer hat's tag on a question about something that cannot be undone","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"لا رجعة فيه"}},"bs":{"stringUnit":{"state":"needs_review","value":"Nepovratno"}},"da":{"stringUnit":{"state":"needs_review","value":"Uigenkaldeligt"}},"de":{"stringUnit":{"state":"needs_review","value":"Unumkehrbar"}},"en":{"stringUnit":{"state":"translated","value":"Irreversible"}},"es":{"stringUnit":{"state":"needs_review","value":"Irreversible"}},"fr":{"stringUnit":{"state":"needs_review","value":"Irréversible"}},"it":{"stringUnit":{"state":"needs_review","value":"Irreversibile"}},"ja":{"stringUnit":{"state":"needs_review","value":"元に戻せない"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនអាចត្រឡប់វិញ"}},"ko":{"stringUnit":{"state":"needs_review","value":"되돌릴 수 없음"}},"nb":{"stringUnit":{"state":"needs_review","value":"Ugjenkallelig"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nieodwracalne"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Irreversível"}},"ru":{"stringUnit":{"state":"needs_review","value":"Необратимо"}},"th":{"stringUnit":{"state":"needs_review","value":"ย้อนกลับไม่ได้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Geri alınamaz"}},"uk":{"stringUnit":{"state":"needs_review","value":"Незворотно"}},"vi":{"stringUnit":{"state":"needs_review","value":"Không thể hoàn tác"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"不可撤销"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"不可撤銷"}}}},
     "hat.tag.outward": {"comment":"Agent pane: the composer hat's tag on a question about something people outside the team will see","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"خارجي"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prema van"}},"da":{"stringUnit":{"state":"needs_review","value":"Udadrettet"}},"de":{"stringUnit":{"state":"needs_review","value":"Nach außen"}},"en":{"stringUnit":{"state":"translated","value":"Outward"}},"es":{"stringUnit":{"state":"needs_review","value":"Hacia fuera"}},"fr":{"stringUnit":{"state":"needs_review","value":"Public"}},"it":{"stringUnit":{"state":"needs_review","value":"Verso l'esterno"}},"ja":{"stringUnit":{"state":"needs_review","value":"外部向け"}},"km":{"stringUnit":{"state":"needs_review","value":"ទៅខាងក្រៅ"}},"ko":{"stringUnit":{"state":"needs_review","value":"외부 공개"}},"nb":{"stringUnit":{"state":"needs_review","value":"Utadrettet"}},"pl":{"stringUnit":{"state":"needs_review","value":"Na zewnątrz"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Externo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Вовне"}},"th":{"stringUnit":{"state":"needs_review","value":"สู่ภายนอก"}},"tr":{"stringUnit":{"state":"needs_review","value":"Dışa dönük"}},"uk":{"stringUnit":{"state":"needs_review","value":"Назовні"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ra bên ngoài"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"对外"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"對外"}}}},
@@ -332,8 +336,8 @@
     "worktreeSetup.copiedCount": {"comment":"Agent pane: how many include files the worktree setup copied ({count} is the number)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"{count} copied"}},"ar":{"stringUnit":{"state":"needs_review","value":"تم نسخ {count}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Kopirano: {count}"}},"da":{"stringUnit":{"state":"needs_review","value":"{count} kopieret"}},"de":{"stringUnit":{"state":"needs_review","value":"{count} kopiert"}},"es":{"stringUnit":{"state":"needs_review","value":"{count} copiados"}},"fr":{"stringUnit":{"state":"needs_review","value":"{count} copiés"}},"it":{"stringUnit":{"state":"needs_review","value":"{count} copiati"}},"ja":{"stringUnit":{"state":"needs_review","value":"{count} 件コピー済み"}},"km":{"stringUnit":{"state":"needs_review","value":"បានចម្លង {count}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{count}개 복사됨"}},"nb":{"stringUnit":{"state":"needs_review","value":"{count} kopiert"}},"pl":{"stringUnit":{"state":"needs_review","value":"Skopiowano: {count}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{count} copiados"}},"ru":{"stringUnit":{"state":"needs_review","value":"Скопировано: {count}"}},"th":{"stringUnit":{"state":"needs_review","value":"คัดลอกแล้ว {count}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{count} kopyalandı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Скопійовано: {count}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã sao chép {count}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已复制 {count} 个"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已複製 {count} 個"}}}},
     "picker.forkNext": {"comment":"Agent pane: tooltip and accessible name of the fork mark on the composer's model button, after a started chat picked another agent's model; sending the next message forks the chat there ({harness} is the agent's name, e.g. Codex)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Your next message forks this chat to {harness}"}},"de":{"stringUnit":{"state":"translated","value":"Deine nächste Nachricht zweigt diesen Chat zu {harness} ab"}},"fr":{"stringUnit":{"state":"translated","value":"Votre prochain message dérive cette discussion vers {harness}"}},"ar":{"stringUnit":{"state":"translated","value":"رسالتك التالية ستفرّع هذه الدردشة إلى {harness}"}},"es":{"stringUnit":{"state":"translated","value":"Tu próximo mensaje bifurca este chat a {harness}"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"你的下一則訊息會將此對話分支到 {harness}"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"你的下一条消息会将此对话分支到 {harness}"}},"ko":{"stringUnit":{"state":"translated","value":"다음 메시지를 보내면 이 채팅이 {harness}(으)로 분기됩니다"}},"ja":{"stringUnit":{"state":"translated","value":"次のメッセージでこのチャットを {harness} に分岐します"}},"bs":{"stringUnit":{"state":"translated","value":"Vaša sljedeća poruka račva ovaj chat u {harness}"}},"da":{"stringUnit":{"state":"translated","value":"Din næste besked forgrener denne chat til {harness}"}},"it":{"stringUnit":{"state":"translated","value":"Il tuo prossimo messaggio dirama questa chat verso {harness}"}},"km":{"stringUnit":{"state":"translated","value":"សាររបស់អ្នកបន្ទាប់នឹងបំបែកការជជែកនេះទៅ {harness}"}},"nb":{"stringUnit":{"state":"translated","value":"Den neste meldingen din forgrener denne chatten til {harness}"}},"pl":{"stringUnit":{"state":"translated","value":"Twoja następna wiadomość rozgałęzi ten czat do {harness}"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Sua próxima mensagem ramifica este chat para {harness}"}},"ru":{"stringUnit":{"state":"translated","value":"Следующее сообщение ответвит этот чат в {harness}"}},"th":{"stringUnit":{"state":"translated","value":"ข้อความถัดไปของคุณจะแยกแชทนี้ไปยัง {harness}"}},"tr":{"stringUnit":{"state":"translated","value":"Sonraki mesajınız bu sohbeti {harness} için dallandırır"}},"uk":{"stringUnit":{"state":"translated","value":"Ваше наступне повідомлення відгалузить цей чат у {harness}"}},"vi":{"stringUnit":{"state":"translated","value":"Tin nhắn tiếp theo của bạn sẽ rẽ nhánh cuộc trò chuyện này sang {harness}"}}}},
     "picker.usedHere": {"comment":"Agent pane: the quiet mark on the model menu's agent tab and model row this started chat runs, beside a picked model of another agent","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"In this chat"}},"de":{"stringUnit":{"state":"translated","value":"In diesem Chat"}},"fr":{"stringUnit":{"state":"translated","value":"Dans cette discussion"}},"ar":{"stringUnit":{"state":"translated","value":"في هذه الدردشة"}},"es":{"stringUnit":{"state":"translated","value":"En este chat"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"在此對話中"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"在此对话中"}},"ko":{"stringUnit":{"state":"translated","value":"이 채팅에서 사용"}},"ja":{"stringUnit":{"state":"translated","value":"このチャットで使用"}},"bs":{"stringUnit":{"state":"translated","value":"U ovom chatu"}},"da":{"stringUnit":{"state":"translated","value":"I denne chat"}},"it":{"stringUnit":{"state":"translated","value":"In questa chat"}},"km":{"stringUnit":{"state":"translated","value":"ក្នុងការជជែកនេះ"}},"nb":{"stringUnit":{"state":"translated","value":"I denne chatten"}},"pl":{"stringUnit":{"state":"translated","value":"W tym czacie"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Neste chat"}},"ru":{"stringUnit":{"state":"translated","value":"В этом чате"}},"th":{"stringUnit":{"state":"translated","value":"ในแชทนี้"}},"tr":{"stringUnit":{"state":"translated","value":"Bu sohbette"}},"uk":{"stringUnit":{"state":"translated","value":"У цьому чаті"}},"vi":{"stringUnit":{"state":"translated","value":"Trong cuộc trò chuyện này"}}}},
-    "sentFrom.checked": {"comment":"Agent pane: tooltip line when acpmux confirmed where a prompt came from by the sender's process chain; app is the app it runs under","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أكّد acpmux ذلك: المرسل يعمل ضمن {app}"}},"bs":{"stringUnit":{"state":"needs_review","value":"acpmux je to potvrdio: pošiljalac radi pod {app}"}},"da":{"stringUnit":{"state":"needs_review","value":"acpmux bekræftede det: afsenderen kører under {app}"}},"de":{"stringUnit":{"state":"needs_review","value":"acpmux hat es bestätigt: der Absender läuft unter {app}"}},"en":{"stringUnit":{"state":"translated","value":"acpmux confirmed it: the sender runs under {app}"}},"es":{"stringUnit":{"state":"needs_review","value":"acpmux lo confirmó: el remitente se ejecuta en {app}"}},"fr":{"stringUnit":{"state":"needs_review","value":"acpmux l'a confirmé : l'expéditeur s'exécute sous {app}"}},"it":{"stringUnit":{"state":"needs_review","value":"acpmux lo ha confermato: il mittente è in esecuzione in {app}"}},"ja":{"stringUnit":{"state":"needs_review","value":"acpmux が確認済み: 送信元は {app} の下で動作しています"}},"km":{"stringUnit":{"state":"needs_review","value":"acpmux បានបញ្ជាក់៖ អ្នកផ្ញើដំណើរការក្រោម {app}"}},"ko":{"stringUnit":{"state":"needs_review","value":"acpmux가 확인함: 보낸 쪽은 {app}에서 실행 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"acpmux bekreftet det: avsenderen kjører under {app}"}},"pl":{"stringUnit":{"state":"needs_review","value":"acpmux to potwierdził: nadawca działa w {app}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"o acpmux confirmou: o remetente roda em {app}"}},"ru":{"stringUnit":{"state":"needs_review","value":"acpmux подтвердил: отправитель работает в {app}"}},"th":{"stringUnit":{"state":"needs_review","value":"acpmux ยืนยันแล้ว: ผู้ส่งทำงานภายใต้ {app}"}},"tr":{"stringUnit":{"state":"needs_review","value":"acpmux doğruladı: gönderen {app} altında çalışıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"acpmux підтвердив: відправник працює в {app}"}},"vi":{"stringUnit":{"state":"needs_review","value":"acpmux đã xác nhận: bên gửi chạy trong {app}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"acpmux 已确认：发送方运行在 {app} 中"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"acpmux 已確認：傳送方執行於 {app} 中"}}}},
-    "sentFrom.selfReported": {"comment":"Agent pane: tooltip line when only the sender itself said where a prompt came from; acpmux could not confirm it","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أبلغ عنه المرسل بنفسه؛ لم يتمكن acpmux من تأكيده"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pošiljalac je to sam naveo; acpmux to nije mogao potvrditi"}},"da":{"stringUnit":{"state":"needs_review","value":"Oplyst af afsenderen selv; acpmux kunne ikke bekræfte det"}},"de":{"stringUnit":{"state":"needs_review","value":"Vom Absender selbst angegeben; acpmux konnte es nicht bestätigen"}},"en":{"stringUnit":{"state":"translated","value":"Self-reported by the sender; acpmux could not confirm it"}},"es":{"stringUnit":{"state":"needs_review","value":"Lo indicó el propio remitente; acpmux no pudo confirmarlo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Déclaré par l'expéditeur ; acpmux n'a pas pu le confirmer"}},"it":{"stringUnit":{"state":"needs_review","value":"Dichiarato dal mittente; acpmux non ha potuto confermarlo"}},"ja":{"stringUnit":{"state":"needs_review","value":"送信元の自己申告です。acpmux は確認できませんでした"}},"km":{"stringUnit":{"state":"needs_review","value":"អ្នកផ្ញើរាយការណ៍ដោយខ្លួនឯង; acpmux មិនអាចបញ្ជាក់បានទេ"}},"ko":{"stringUnit":{"state":"needs_review","value":"보낸 쪽이 스스로 밝힌 정보이며 acpmux가 확인하지 못했습니다"}},"nb":{"stringUnit":{"state":"needs_review","value":"Oppgitt av avsenderen selv; acpmux kunne ikke bekrefte det"}},"pl":{"stringUnit":{"state":"needs_review","value":"Podane przez samego nadawcę; acpmux nie mógł tego potwierdzić"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Informado pelo próprio remetente; o acpmux não pôde confirmar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Со слов отправителя; acpmux не смог это подтвердить"}},"th":{"stringUnit":{"state":"needs_review","value":"ผู้ส่งแจ้งเอง acpmux ยืนยันไม่ได้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Gönderenin kendi beyanı; acpmux doğrulayamadı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Зі слів відправника; acpmux не зміг це підтвердити"}},"vi":{"stringUnit":{"state":"needs_review","value":"Do bên gửi tự báo; acpmux không xác nhận được"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"由发送方自行报告；acpmux 无法确认"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"由傳送方自行回報；acpmux 無法確認"}}}},
+    "sentFrom.checked": {"comment":"Agent pane: tooltip line when acpmux confirmed where a prompt came from by the sender's process chain; app is the app it runs under","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أكّد cmux ذلك: المرسل يعمل ضمن {app}"}},"bs":{"stringUnit":{"state":"needs_review","value":"cmux je to potvrdio: pošiljalac radi pod {app}"}},"da":{"stringUnit":{"state":"needs_review","value":"cmux bekræftede det: afsenderen kører under {app}"}},"de":{"stringUnit":{"state":"needs_review","value":"cmux hat es bestätigt: der Absender läuft unter {app}"}},"en":{"stringUnit":{"state":"translated","value":"cmux confirmed it: the sender runs under {app}"}},"es":{"stringUnit":{"state":"needs_review","value":"cmux lo confirmó: el remitente se ejecuta en {app}"}},"fr":{"stringUnit":{"state":"needs_review","value":"cmux l'a confirmé : l'expéditeur s'exécute sous {app}"}},"it":{"stringUnit":{"state":"needs_review","value":"cmux lo ha confermato: il mittente è in esecuzione in {app}"}},"ja":{"stringUnit":{"state":"needs_review","value":"cmux が確認済み: 送信元は {app} の下で動作しています"}},"km":{"stringUnit":{"state":"needs_review","value":"cmux បានបញ្ជាក់៖ អ្នកផ្ញើដំណើរការក្រោម {app}"}},"ko":{"stringUnit":{"state":"needs_review","value":"cmux가 확인함: 보낸 쪽은 {app}에서 실행 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"cmux bekreftet det: avsenderen kjører under {app}"}},"pl":{"stringUnit":{"state":"needs_review","value":"cmux to potwierdził: nadawca działa w {app}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"o cmux confirmou: o remetente roda em {app}"}},"ru":{"stringUnit":{"state":"needs_review","value":"cmux подтвердил: отправитель работает в {app}"}},"th":{"stringUnit":{"state":"needs_review","value":"cmux ยืนยันแล้ว: ผู้ส่งทำงานภายใต้ {app}"}},"tr":{"stringUnit":{"state":"needs_review","value":"cmux doğruladı: gönderen {app} altında çalışıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"cmux підтвердив: відправник працює в {app}"}},"vi":{"stringUnit":{"state":"needs_review","value":"cmux đã xác nhận: bên gửi chạy trong {app}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"cmux 已确认：发送方运行在 {app} 中"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"cmux 已確認：傳送方執行於 {app} 中"}}}},
+    "sentFrom.selfReported": {"comment":"Agent pane: tooltip line when only the sender itself said where a prompt came from; acpmux could not confirm it","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أبلغ عنه المرسل بنفسه؛ لم يتمكن cmux من تأكيده"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pošiljalac je to sam naveo; cmux to nije mogao potvrditi"}},"da":{"stringUnit":{"state":"needs_review","value":"Oplyst af afsenderen selv; cmux kunne ikke bekræfte det"}},"de":{"stringUnit":{"state":"needs_review","value":"Vom Absender selbst angegeben; cmux konnte es nicht bestätigen"}},"en":{"stringUnit":{"state":"translated","value":"Self-reported by the sender; cmux could not confirm it"}},"es":{"stringUnit":{"state":"needs_review","value":"Lo indicó el propio remitente; cmux no pudo confirmarlo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Déclaré par l'expéditeur ; cmux n'a pas pu le confirmer"}},"it":{"stringUnit":{"state":"needs_review","value":"Dichiarato dal mittente; cmux non ha potuto confermarlo"}},"ja":{"stringUnit":{"state":"needs_review","value":"送信元の自己申告です。cmux は確認できませんでした"}},"km":{"stringUnit":{"state":"needs_review","value":"អ្នកផ្ញើរាយការណ៍ដោយខ្លួនឯង; cmux មិនអាចបញ្ជាក់បានទេ"}},"ko":{"stringUnit":{"state":"needs_review","value":"보낸 쪽이 스스로 밝힌 정보이며 cmux가 확인하지 못했습니다"}},"nb":{"stringUnit":{"state":"needs_review","value":"Oppgitt av avsenderen selv; cmux kunne ikke bekrefte det"}},"pl":{"stringUnit":{"state":"needs_review","value":"Podane przez samego nadawcę; cmux nie mógł tego potwierdzić"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Informado pelo próprio remetente; o cmux não pôde confirmar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Со слов отправителя; cmux не смог это подтвердить"}},"th":{"stringUnit":{"state":"needs_review","value":"ผู้ส่งแจ้งเอง cmux ยืนยันไม่ได้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Gönderenin kendi beyanı; cmux doğrulayamadı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Зі слів відправника; cmux не зміг це підтвердити"}},"vi":{"stringUnit":{"state":"needs_review","value":"Do bên gửi tự báo; cmux không xác nhận được"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"由发送方自行报告；cmux 无法确认"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"由傳送方自行回報；cmux 無法確認"}}}},
     "sentFrom.selfReportedShort": {"comment":"Agent pane: quiet note after the sent-from chip under a prompt when acpmux could not confirm where it came from","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"بلاغ ذاتي"}},"bs":{"stringUnit":{"state":"needs_review","value":"samoprijavljeno"}},"da":{"stringUnit":{"state":"needs_review","value":"selvoplyst"}},"de":{"stringUnit":{"state":"needs_review","value":"selbst angegeben"}},"en":{"stringUnit":{"state":"translated","value":"self-reported"}},"es":{"stringUnit":{"state":"needs_review","value":"autodeclarado"}},"fr":{"stringUnit":{"state":"needs_review","value":"autodéclaré"}},"it":{"stringUnit":{"state":"needs_review","value":"autodichiarato"}},"ja":{"stringUnit":{"state":"needs_review","value":"自己申告"}},"km":{"stringUnit":{"state":"needs_review","value":"រាយការណ៍ដោយខ្លួនឯង"}},"ko":{"stringUnit":{"state":"needs_review","value":"자체 보고"}},"nb":{"stringUnit":{"state":"needs_review","value":"selvrapportert"}},"pl":{"stringUnit":{"state":"needs_review","value":"zgłoszone przez nadawcę"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"autodeclarado"}},"ru":{"stringUnit":{"state":"needs_review","value":"со слов отправителя"}},"th":{"stringUnit":{"state":"needs_review","value":"แจ้งเอง"}},"tr":{"stringUnit":{"state":"needs_review","value":"kendi beyanı"}},"uk":{"stringUnit":{"state":"needs_review","value":"зі слів відправника"}},"vi":{"stringUnit":{"state":"needs_review","value":"tự báo"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"自行报告"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"自行回報"}}}},
     "sentFrom.title": {"comment":"Agent pane: first tooltip line of the chip under a prompt sent with acpmux send from a harness or app; name is the harness (Claude desktop, Codex)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أُرسلت من {name}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Poslano iz {name}"}},"da":{"stringUnit":{"state":"needs_review","value":"Sendt fra {name}"}},"de":{"stringUnit":{"state":"needs_review","value":"Gesendet von {name}"}},"en":{"stringUnit":{"state":"translated","value":"Sent from {name}"}},"es":{"stringUnit":{"state":"needs_review","value":"Enviado desde {name}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Envoyé depuis {name}"}},"it":{"stringUnit":{"state":"needs_review","value":"Inviato da {name}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{name} から送信"}},"km":{"stringUnit":{"state":"needs_review","value":"បានផ្ញើពី {name}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{name}에서 보냄"}},"nb":{"stringUnit":{"state":"needs_review","value":"Sendt fra {name}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wysłano z {name}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Enviado de {name}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отправлено из {name}"}},"th":{"stringUnit":{"state":"needs_review","value":"ส่งจาก {name}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{name} üzerinden gönderildi"}},"uk":{"stringUnit":{"state":"needs_review","value":"Надіслано з {name}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Gửi từ {name}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"发送自 {name}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"傳送自 {name}"}}}},
     "transcript.pastedFrom": {"comment":"Agent pane: the label of a pasted block in the person's message that reads as another agent's output (a handoff or report the person pasted); name is that agent as the paste names it, such as Codex","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"ملصق من {name}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Zalijepljeno od {name}"}},"da":{"stringUnit":{"state":"needs_review","value":"Indsat fra {name}"}},"de":{"stringUnit":{"state":"needs_review","value":"Eingefügt von {name}"}},"en":{"stringUnit":{"state":"translated","value":"Pasted from {name}"}},"es":{"stringUnit":{"state":"needs_review","value":"Pegado de {name}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Collé depuis {name}"}},"it":{"stringUnit":{"state":"needs_review","value":"Incollato da {name}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{name} から貼り付け"}},"km":{"stringUnit":{"state":"needs_review","value":"បានបិទភ្ជាប់ពី {name}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{name}에서 붙여넣음"}},"nb":{"stringUnit":{"state":"needs_review","value":"Limt inn fra {name}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wklejone od {name}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Colado de {name}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Вставлено из {name}"}},"th":{"stringUnit":{"state":"needs_review","value":"วางจาก {name}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{name} kaynağından yapıştırıldı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Вставлено з {name}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Dán từ {name}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"粘贴自 {name}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"貼上自 {name}"}}}},
@@ -14745,127 +14749,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّر على cmux الوصول إلى acpmux لتفعيل هذه الأداة. حاول مرة أخرى."
+            "value": "تعذّر على cmux تفعيل هذه الأداة. حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux nije mogao doći do acpmux da omogući ovaj harness. Pokušajte ponovo."
+            "value": "cmux nije mogao omogućiti ovaj harness. Pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux kunne ikke nå acpmux for at aktivere denne harness. Prøv igen."
+            "value": "cmux kunne ikke aktivere denne harness. Prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux konnte acpmux nicht erreichen, um diesen Harness zu aktivieren. Versuche es erneut."
+            "value": "cmux konnte diesen Harness nicht aktivieren. Versuche es erneut."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux couldn't reach acpmux to enable this harness. Try again."
+            "value": "cmux couldn't enable this harness. Try again."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux no pudo conectar con acpmux para activar este harness. Inténtalo de nuevo."
+            "value": "cmux no pudo activar este harness. Inténtalo de nuevo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux n’a pas pu joindre acpmux pour activer ce harness. Réessayez."
+            "value": "cmux n’a pas pu activer ce harness. Réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux non è riuscito a raggiungere acpmux per attivare questo harness. Riprova."
+            "value": "cmux non è riuscito ad attivare questo harness. Riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux が acpmux に接続できず、このハーネスを有効にできませんでした。もう一度お試しください。"
+            "value": "cmux はこのハーネスを有効にできませんでした。もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux មិនអាចភ្ជាប់ទៅ acpmux ដើម្បីបើក harness នេះបានទេ។ សូមព្យាយាមម្តងទៀត។"
+            "value": "cmux មិនអាចបើក harness នេះបានទេ។ សូមព្យាយាមម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux가 acpmux에 연결하지 못해 이 하네스를 활성화할 수 없습니다. 다시 시도하세요."
+            "value": "cmux가 이 하네스를 켜지 못했습니다. 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux fikk ikke kontakt med acpmux for å aktivere denne harnessen. Prøv igjen."
+            "value": "cmux kunne ikke aktivere denne harnessen. Prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux nie mógł połączyć się z acpmux, aby włączyć ten harness. Spróbuj ponownie."
+            "value": "cmux nie mógł włączyć tego harnessu. Spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O cmux não conseguiu acessar o acpmux para ativar este harness. Tente novamente."
+            "value": "O cmux não conseguiu ativar este harness. Tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux не удалось связаться с acpmux, чтобы включить этот harness. Повторите попытку."
+            "value": "cmux не удалось включить этот harness. Попробуйте ещё раз."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux ติดต่อ acpmux เพื่อเปิดใช้ harness นี้ไม่ได้ โปรดลองอีกครั้ง"
+            "value": "cmux เปิดใช้ harness นี้ไม่ได้ ลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux, bu harness'ı etkinleştirmek için acpmux'a ulaşamadı. Yeniden deneyin."
+            "value": "cmux bu harness'ı etkinleştiremedi. Yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux не вдалося зв’язатися з acpmux, щоб увімкнути цей harness. Спробуйте ще раз."
+            "value": "cmux не вдалося ввімкнути цей harness. Спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux không thể kết nối acpmux để bật harness này. Hãy thử lại."
+            "value": "cmux không thể bật harness này. Hãy thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 无法连接 acpmux 来启用此 harness。请重试。"
+            "value": "cmux 无法启用此 harness。请重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 無法連線 acpmux 來啟用此 harness。請再試一次。"
+            "value": "cmux 無法啟用此 harness。請再試一次。"
           }
         }
       }
@@ -50441,127 +50445,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لم يبدأ acpmux جلسة"
+            "value": "لم يبدأ cmux جلسة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux nije pokrenuo sesiju"
+            "value": "cmux nije pokrenuo sesiju"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux startede ikke en session"
+            "value": "cmux startede ikke en session"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux hat keine Sitzung gestartet"
+            "value": "cmux hat keine Sitzung gestartet"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux did not start a session"
+            "value": "cmux did not start a session"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux no inició una sesión"
+            "value": "cmux no inició una sesión"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux n'a pas démarré de session"
+            "value": "cmux n'a pas démarré de session"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux non ha avviato una sessione"
+            "value": "cmux non ha avviato una sessione"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux がセッションを開始しませんでした"
+            "value": "cmux がセッションを開始しませんでした"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux មិនបានចាប់ផ្តើមសម័យទេ"
+            "value": "cmux មិនបានចាប់ផ្តើមសម័យទេ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux가 세션을 시작하지 않았습니다"
+            "value": "cmux가 세션을 시작하지 않았습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux startet ikke en økt"
+            "value": "cmux startet ikke en økt"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux nie uruchomił sesji"
+            "value": "cmux nie uruchomił sesji"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O acpmux não iniciou uma sessão"
+            "value": "O cmux não iniciou uma sessão"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux не запустил сеанс"
+            "value": "cmux не запустил сеанс"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux ไม่ได้เริ่มเซสชัน"
+            "value": "cmux ไม่ได้เริ่มเซสชัน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux bir oturum başlatmadı"
+            "value": "cmux bir oturum başlatmadı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux не запустив сеанс"
+            "value": "cmux не запустив сеанс"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux đã không khởi động phiên"
+            "value": "cmux đã không khởi động phiên"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux 未启动会话"
+            "value": "cmux 未启动会话"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux 未啟動工作階段"
+            "value": "cmux 未啟動工作階段"
           }
         }
       }
@@ -56775,6 +56779,7 @@
     "turn.timeline.hide": {"comment":"Agent pane: the same button while the turn's Timeline is open","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Hide timeline"}},"ar":{"stringUnit":{"state":"needs_review","value":"إخفاء المخطط الزمني"}},"bs":{"stringUnit":{"state":"needs_review","value":"Sakrij vremensku liniju"}},"da":{"stringUnit":{"state":"needs_review","value":"Skjul tidslinje"}},"de":{"stringUnit":{"state":"needs_review","value":"Zeitleiste ausblenden"}},"es":{"stringUnit":{"state":"needs_review","value":"Ocultar cronología"}},"fr":{"stringUnit":{"state":"needs_review","value":"Masquer la chronologie"}},"it":{"stringUnit":{"state":"needs_review","value":"Nascondi cronologia"}},"ja":{"stringUnit":{"state":"needs_review","value":"タイムラインを隠す"}},"km":{"stringUnit":{"state":"needs_review","value":"លាក់បន្ទាត់ពេលវេលា"}},"ko":{"stringUnit":{"state":"needs_review","value":"타임라인 숨기기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Skjul tidslinje"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ukryj oś czasu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ocultar linha do tempo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Скрыть хронологию"}},"th":{"stringUnit":{"state":"needs_review","value":"ซ่อนไทม์ไลน์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Zaman çizelgesini gizle"}},"uk":{"stringUnit":{"state":"needs_review","value":"Сховати хронологію"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ẩn dòng thời gian"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"隐藏时间线"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"隱藏時間軸"}}}},
     "turn.timeline.label": {"comment":"Agent pane: accessible name of a turn's Timeline, its tool calls as bars on one time axis","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tool calls over time"}},"ar":{"stringUnit":{"state":"needs_review","value":"استدعاءات الأدوات عبر الزمن"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pozivi alata kroz vrijeme"}},"da":{"stringUnit":{"state":"needs_review","value":"Værktøjskald over tid"}},"de":{"stringUnit":{"state":"needs_review","value":"Tool-Aufrufe im Zeitverlauf"}},"es":{"stringUnit":{"state":"needs_review","value":"Llamadas a herramientas en el tiempo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Appels d’outils dans le temps"}},"it":{"stringUnit":{"state":"needs_review","value":"Chiamate agli strumenti nel tempo"}},"ja":{"stringUnit":{"state":"needs_review","value":"時系列のツール呼び出し"}},"km":{"stringUnit":{"state":"needs_review","value":"ការហៅឧបករណ៍តាមពេលវេលា"}},"ko":{"stringUnit":{"state":"needs_review","value":"시간별 도구 호출"}},"nb":{"stringUnit":{"state":"needs_review","value":"Verktøykall over tid"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wywołania narzędzi w czasie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Chamadas de ferramentas ao longo do tempo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Вызовы инструментов во времени"}},"th":{"stringUnit":{"state":"needs_review","value":"การเรียกใช้เครื่องมือตามเวลา"}},"tr":{"stringUnit":{"state":"needs_review","value":"Zaman içinde araç çağrıları"}},"uk":{"stringUnit":{"state":"needs_review","value":"Виклики інструментів у часі"}},"vi":{"stringUnit":{"state":"needs_review","value":"Lệnh gọi công cụ theo thời gian"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"工具调用时间线"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"工具呼叫時間軸"}}}},
     "turn.timeline.thought": {"comment":"Agent pane: a Timeline bar for a stretch the agent spent thinking","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Thinking"}},"ar":{"stringUnit":{"state":"needs_review","value":"تفكير"}},"bs":{"stringUnit":{"state":"needs_review","value":"Razmišljanje"}},"da":{"stringUnit":{"state":"needs_review","value":"Tænker"}},"de":{"stringUnit":{"state":"needs_review","value":"Denken"}},"es":{"stringUnit":{"state":"needs_review","value":"Pensando"}},"fr":{"stringUnit":{"state":"needs_review","value":"Réflexion"}},"it":{"stringUnit":{"state":"needs_review","value":"Ragionamento"}},"ja":{"stringUnit":{"state":"needs_review","value":"思考"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងគិត"}},"ko":{"stringUnit":{"state":"needs_review","value":"생각 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Tenker"}},"pl":{"stringUnit":{"state":"needs_review","value":"Myślenie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Pensando"}},"ru":{"stringUnit":{"state":"needs_review","value":"Размышление"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังคิด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Düşünme"}},"uk":{"stringUnit":{"state":"needs_review","value":"Міркування"}},"vi":{"stringUnit":{"state":"needs_review","value":"Suy nghĩ"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"思考"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"思考"}}}},
+    "turn.timeline.model": {"comment":"Agent pane: the last Timeline row, the turn's time outside every tool call and thought (the model reading, deciding and writing), so the rows add up to the turn's total","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Model, no tool running"}},"ar":{"stringUnit":{"state":"needs_review","value":"النموذج، دون أداة قيد التشغيل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Model, bez alata u radu"}},"da":{"stringUnit":{"state":"needs_review","value":"Model, intet værktøj kører"}},"de":{"stringUnit":{"state":"needs_review","value":"Modell, kein Tool aktiv"}},"es":{"stringUnit":{"state":"needs_review","value":"Modelo, sin herramienta en curso"}},"fr":{"stringUnit":{"state":"needs_review","value":"Modèle, aucun outil en cours"}},"it":{"stringUnit":{"state":"needs_review","value":"Modello, nessuno strumento in esecuzione"}},"ja":{"stringUnit":{"state":"needs_review","value":"モデル(ツール実行なし)"}},"km":{"stringUnit":{"state":"needs_review","value":"ម៉ូដែល គ្មានឧបករណ៍កំពុងដំណើរការ"}},"ko":{"stringUnit":{"state":"needs_review","value":"모델, 실행 중인 도구 없음"}},"nb":{"stringUnit":{"state":"needs_review","value":"Modell, ingen verktøy kjører"}},"pl":{"stringUnit":{"state":"needs_review","value":"Model, bez działającego narzędzia"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Modelo, sem ferramenta em execução"}},"ru":{"stringUnit":{"state":"needs_review","value":"Модель, без инструментов"}},"th":{"stringUnit":{"state":"needs_review","value":"โมเดล ไม่มีเครื่องมือทำงาน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Model, çalışan araç yok"}},"uk":{"stringUnit":{"state":"needs_review","value":"Модель, без інструментів"}},"vi":{"stringUnit":{"state":"needs_review","value":"Mô hình, không công cụ nào chạy"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"模型(无工具运行)"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"模型(無工具執行)"}}}},
     "turn.timeline.failed": {"comment":"Agent pane: a tag on a Timeline row whose tool call failed","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Failed"}},"ar":{"stringUnit":{"state":"needs_review","value":"فشل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Neuspješno"}},"da":{"stringUnit":{"state":"needs_review","value":"Mislykkedes"}},"de":{"stringUnit":{"state":"needs_review","value":"Fehlgeschlagen"}},"es":{"stringUnit":{"state":"needs_review","value":"Falló"}},"fr":{"stringUnit":{"state":"needs_review","value":"Échec"}},"it":{"stringUnit":{"state":"needs_review","value":"Non riuscito"}},"ja":{"stringUnit":{"state":"needs_review","value":"失敗"}},"km":{"stringUnit":{"state":"needs_review","value":"បរាជ័យ"}},"ko":{"stringUnit":{"state":"needs_review","value":"실패"}},"nb":{"stringUnit":{"state":"needs_review","value":"Mislyktes"}},"pl":{"stringUnit":{"state":"needs_review","value":"Niepowodzenie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Falhou"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ошибка"}},"th":{"stringUnit":{"state":"needs_review","value":"ล้มเหลว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Başarısız"}},"uk":{"stringUnit":{"state":"needs_review","value":"Помилка"}},"vi":{"stringUnit":{"state":"needs_review","value":"Thất bại"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"失败"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"失敗"}}}},
     "turn.timeline.slowest": {"comment":"Agent pane: a tag on the Timeline row of the call that took longest","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Slowest"}},"ar":{"stringUnit":{"state":"needs_review","value":"الأبطأ"}},"bs":{"stringUnit":{"state":"needs_review","value":"Najsporiji"}},"da":{"stringUnit":{"state":"needs_review","value":"Langsomst"}},"de":{"stringUnit":{"state":"needs_review","value":"Am langsamsten"}},"es":{"stringUnit":{"state":"needs_review","value":"Más lento"}},"fr":{"stringUnit":{"state":"needs_review","value":"Le plus lent"}},"it":{"stringUnit":{"state":"needs_review","value":"Il più lento"}},"ja":{"stringUnit":{"state":"needs_review","value":"最も遅い"}},"km":{"stringUnit":{"state":"needs_review","value":"យឺតបំផុត"}},"ko":{"stringUnit":{"state":"needs_review","value":"가장 느림"}},"nb":{"stringUnit":{"state":"needs_review","value":"Tregest"}},"pl":{"stringUnit":{"state":"needs_review","value":"Najwolniejsze"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mais lento"}},"ru":{"stringUnit":{"state":"needs_review","value":"Самый долгий"}},"th":{"stringUnit":{"state":"needs_review","value":"ช้าที่สุด"}},"tr":{"stringUnit":{"state":"needs_review","value":"En yavaş"}},"uk":{"stringUnit":{"state":"needs_review","value":"Найдовший"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chậm nhất"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"最慢"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"最慢"}}}},
     "turn.timeline.more": {"comment":"Agent pane: the button under a long Timeline that draws its remaining {n} rows","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Show {n} more"}},"ar":{"stringUnit":{"state":"needs_review","value":"إظهار {n} أخرى"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikaži još {n}"}},"da":{"stringUnit":{"state":"needs_review","value":"Vis {n} mere"}},"de":{"stringUnit":{"state":"needs_review","value":"{n} weitere anzeigen"}},"es":{"stringUnit":{"state":"needs_review","value":"Mostrar {n} más"}},"fr":{"stringUnit":{"state":"needs_review","value":"Afficher {n} de plus"}},"it":{"stringUnit":{"state":"needs_review","value":"Mostra altri {n}"}},"ja":{"stringUnit":{"state":"needs_review","value":"さらに {n} 件を表示"}},"km":{"stringUnit":{"state":"needs_review","value":"បង្ហាញ {n} ទៀត"}},"ko":{"stringUnit":{"state":"needs_review","value":"{n}개 더 보기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Vis {n} til"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pokaż jeszcze {n}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mostrar mais {n}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Показать ещё {n}"}},"th":{"stringUnit":{"state":"needs_review","value":"แสดงอีก {n} รายการ"}},"tr":{"stringUnit":{"state":"needs_review","value":"{n} tane daha göster"}},"uk":{"stringUnit":{"state":"needs_review","value":"Показати ще {n}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hiện thêm {n}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"再显示 {n} 个"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"再顯示 {n} 個"}}}},
@@ -83523,7 +83528,7 @@
     },
     "project.new.name": {"comment":"Agent pane: the accessible name of New project's name field in a new chat's location strip: the new folder's name","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"اسم المشروع"}},"bs":{"stringUnit":{"state":"translated","value":"Naziv projekta"}},"da":{"stringUnit":{"state":"translated","value":"Projektnavn"}},"de":{"stringUnit":{"state":"translated","value":"Projektname"}},"en":{"stringUnit":{"state":"translated","value":"Project name"}},"es":{"stringUnit":{"state":"translated","value":"Nombre del proyecto"}},"fr":{"stringUnit":{"state":"translated","value":"Nom du projet"}},"it":{"stringUnit":{"state":"translated","value":"Nome del progetto"}},"ja":{"stringUnit":{"state":"translated","value":"プロジェクト名"}},"km":{"stringUnit":{"state":"translated","value":"ឈ្មោះគម្រោង"}},"ko":{"stringUnit":{"state":"translated","value":"프로젝트 이름"}},"nb":{"stringUnit":{"state":"translated","value":"Prosjektnavn"}},"pl":{"stringUnit":{"state":"translated","value":"Nazwa projektu"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Nome do projeto"}},"ru":{"stringUnit":{"state":"translated","value":"Название проекта"}},"th":{"stringUnit":{"state":"translated","value":"ชื่อโปรเจกต์"}},"tr":{"stringUnit":{"state":"translated","value":"Proje adı"}},"uk":{"stringUnit":{"state":"translated","value":"Назва проєкту"}},"vi":{"stringUnit":{"state":"translated","value":"Tên dự án"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"项目名称"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"專案名稱"}}}},
     "project.new.failedBecause": {"comment":"Agent pane: above a new chat's composer when New project could not make its folder; {reason} is acpmux's refusal","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"تعذّر إنشاء المشروع: {reason}"}},"bs":{"stringUnit":{"state":"translated","value":"Nije moguće napraviti projekt: {reason}"}},"da":{"stringUnit":{"state":"translated","value":"Kunne ikke oprette projektet: {reason}"}},"de":{"stringUnit":{"state":"translated","value":"Projekt konnte nicht erstellt werden: {reason}"}},"en":{"stringUnit":{"state":"translated","value":"Couldn’t make the project: {reason}"}},"es":{"stringUnit":{"state":"translated","value":"No se pudo crear el proyecto: {reason}"}},"fr":{"stringUnit":{"state":"translated","value":"Impossible de créer le projet : {reason}"}},"it":{"stringUnit":{"state":"translated","value":"Impossibile creare il progetto: {reason}"}},"ja":{"stringUnit":{"state":"translated","value":"プロジェクトを作成できませんでした: {reason}"}},"km":{"stringUnit":{"state":"translated","value":"មិនអាចបង្កើតគម្រោងបានទេ៖ {reason}"}},"ko":{"stringUnit":{"state":"translated","value":"프로젝트를 만들 수 없음: {reason}"}},"nb":{"stringUnit":{"state":"translated","value":"Kunne ikke opprette prosjektet: {reason}"}},"pl":{"stringUnit":{"state":"translated","value":"Nie udało się utworzyć projektu: {reason}"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Não foi possível criar o projeto: {reason}"}},"ru":{"stringUnit":{"state":"translated","value":"Не удалось создать проект: {reason}"}},"th":{"stringUnit":{"state":"translated","value":"สร้างโปรเจกต์ไม่ได้: {reason}"}},"tr":{"stringUnit":{"state":"translated","value":"Proje oluşturulamadı: {reason}"}},"uk":{"stringUnit":{"state":"translated","value":"Не вдалося створити проєкт: {reason}"}},"vi":{"stringUnit":{"state":"translated","value":"Không thể tạo dự án: {reason}"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"无法创建项目：{reason}"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"無法建立專案：{reason}"}}}},
-    "project.new.unavailable": {"comment":"Agent pane: New project's refusal reason when this Mac's acpmux is too old to make a project folder","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"لا يمكن لـ acpmux على هذا الـ Mac إنشاء مشاريع بعد"}},"bs":{"stringUnit":{"state":"translated","value":"acpmux na ovom Macu još ne može praviti projekte"}},"da":{"stringUnit":{"state":"translated","value":"acpmux på denne Mac kan ikke oprette projekter endnu"}},"de":{"stringUnit":{"state":"translated","value":"acpmux auf diesem Mac kann noch keine Projekte erstellen"}},"en":{"stringUnit":{"state":"translated","value":"this Mac’s acpmux can’t make projects yet"}},"es":{"stringUnit":{"state":"translated","value":"acpmux en este Mac aún no puede crear proyectos"}},"fr":{"stringUnit":{"state":"translated","value":"acpmux sur ce Mac ne peut pas encore créer de projets"}},"it":{"stringUnit":{"state":"translated","value":"acpmux su questo Mac non può ancora creare progetti"}},"ja":{"stringUnit":{"state":"translated","value":"この Mac の acpmux はまだプロジェクトを作成できません"}},"km":{"stringUnit":{"state":"translated","value":"acpmux លើ Mac នេះមិនទាន់អាចបង្កើតគម្រោងបានទេ"}},"ko":{"stringUnit":{"state":"translated","value":"이 Mac의 acpmux는 아직 프로젝트를 만들 수 없음"}},"nb":{"stringUnit":{"state":"translated","value":"acpmux på denne Mac-en kan ikke opprette prosjekter ennå"}},"pl":{"stringUnit":{"state":"translated","value":"acpmux na tym Macu nie może jeszcze tworzyć projektów"}},"pt-BR":{"stringUnit":{"state":"translated","value":"o acpmux deste Mac ainda não pode criar projetos"}},"ru":{"stringUnit":{"state":"translated","value":"acpmux на этом Mac пока не умеет создавать проекты"}},"th":{"stringUnit":{"state":"translated","value":"acpmux บน Mac เครื่องนี้ยังสร้างโปรเจกต์ไม่ได้"}},"tr":{"stringUnit":{"state":"translated","value":"bu Mac’teki acpmux henüz proje oluşturamıyor"}},"uk":{"stringUnit":{"state":"translated","value":"acpmux на цьому Mac поки не може створювати проєкти"}},"vi":{"stringUnit":{"state":"translated","value":"acpmux trên máy Mac này chưa thể tạo dự án"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"此 Mac 上的 acpmux 尚不能创建项目"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"此 Mac 上的 acpmux 尚無法建立專案"}}}},
+    "project.new.unavailable": {"comment":"Agent pane: New project's refusal reason when this Mac's acpmux is too old to make a project folder","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"لا يمكن لـ cmux على هذا الـ Mac إنشاء مشاريع بعد"}},"bs":{"stringUnit":{"state":"translated","value":"cmux na ovom Macu još ne može praviti projekte"}},"da":{"stringUnit":{"state":"translated","value":"cmux på denne Mac kan ikke oprette projekter endnu"}},"de":{"stringUnit":{"state":"translated","value":"cmux auf diesem Mac kann noch keine Projekte erstellen"}},"en":{"stringUnit":{"state":"translated","value":"this Mac’s cmux can’t make projects yet"}},"es":{"stringUnit":{"state":"translated","value":"cmux en este Mac aún no puede crear proyectos"}},"fr":{"stringUnit":{"state":"translated","value":"cmux sur ce Mac ne peut pas encore créer de projets"}},"it":{"stringUnit":{"state":"translated","value":"cmux su questo Mac non può ancora creare progetti"}},"ja":{"stringUnit":{"state":"translated","value":"この Mac の cmux はまだプロジェクトを作成できません"}},"km":{"stringUnit":{"state":"translated","value":"cmux លើ Mac នេះមិនទាន់អាចបង្កើតគម្រោងបានទេ"}},"ko":{"stringUnit":{"state":"translated","value":"이 Mac의 cmux는 아직 프로젝트를 만들 수 없음"}},"nb":{"stringUnit":{"state":"translated","value":"cmux på denne Mac-en kan ikke opprette prosjekter ennå"}},"pl":{"stringUnit":{"state":"translated","value":"cmux na tym Macu nie może jeszcze tworzyć projektów"}},"pt-BR":{"stringUnit":{"state":"translated","value":"o cmux deste Mac ainda não pode criar projetos"}},"ru":{"stringUnit":{"state":"translated","value":"cmux на этом Mac пока не умеет создавать проекты"}},"th":{"stringUnit":{"state":"translated","value":"cmux บน Mac เครื่องนี้ยังสร้างโปรเจกต์ไม่ได้"}},"tr":{"stringUnit":{"state":"translated","value":"bu Mac’teki cmux henüz proje oluşturamıyor"}},"uk":{"stringUnit":{"state":"translated","value":"cmux на цьому Mac поки не може створювати проєкти"}},"vi":{"stringUnit":{"state":"translated","value":"cmux trên máy Mac này chưa thể tạo dự án"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"此 Mac 上的 cmux 尚不能创建项目"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"此 Mac 上的 cmux 尚無法建立專案"}}}},
     "project.noFolder": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -104790,127 +104795,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "حدّث acpmux للإرسال من هنا: فهو لا يذكر مصدر هذا الاتصال"
+            "value": "حدّث cmux للإرسال من هنا: فهو لا يذكر مصدر هذا الاتصال"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ažurirajte acpmux da biste slali odavde: ne navodi odakle dolazi ova veza"
+            "value": "Ažurirajte cmux da biste slali odavde: ne navodi odakle dolazi ova veza"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Opdater acpmux for at sende herfra: den oplyser ikke, hvor denne forbindelse kommer fra"
+            "value": "Opdater cmux for at sende herfra: den oplyser ikke, hvor denne forbindelse kommer fra"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aktualisiere acpmux, um von hier zu senden: Es nennt nicht, woher diese Verbindung kommt"
+            "value": "Aktualisiere cmux, um von hier zu senden: Es nennt nicht, woher diese Verbindung kommt"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Update acpmux to send from here: it does not say where this connection comes from"
+            "value": "Update cmux to send from here: it does not say where this connection comes from"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Actualiza acpmux para enviar desde aquí: no indica de dónde viene esta conexión"
+            "value": "Actualiza cmux para enviar desde aquí: no indica de dónde viene esta conexión"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mettez acpmux à jour pour envoyer depuis ici : il n’indique pas d’où vient cette connexion"
+            "value": "Mettez cmux à jour pour envoyer depuis ici : il n’indique pas d’où vient cette connexion"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aggiorna acpmux per inviare da qui: non indica da dove proviene questa connessione"
+            "value": "Aggiorna cmux per inviare da qui: non indica da dove proviene questa connessione"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ここから送信するには acpmux を更新してください：この接続の送信元が示されていません"
+            "value": "ここから送信するには cmux を更新してください：この接続の送信元が示されていません"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ធ្វើបច្ចុប្បន្នភាព acpmux ដើម្បីផ្ញើពីទីនេះ៖ វាមិនប្រាប់ថាការតភ្ជាប់នេះមកពីណាទេ"
+            "value": "ធ្វើបច្ចុប្បន្នភាព cmux ដើម្បីផ្ញើពីទីនេះ៖ វាមិនប្រាប់ថាការតភ្ជាប់នេះមកពីណាទេ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "여기에서 보내려면 acpmux를 업데이트하세요: 이 연결이 어디에서 오는지 알려 주지 않습니다"
+            "value": "여기에서 보내려면 cmux를 업데이트하세요: 이 연결이 어디에서 오는지 알려 주지 않습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Oppdater acpmux for å sende herfra: den oppgir ikke hvor denne tilkoblingen kommer fra"
+            "value": "Oppdater cmux for å sende herfra: den oppgir ikke hvor denne tilkoblingen kommer fra"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zaktualizuj acpmux, aby wysyłać stąd: nie podaje, skąd pochodzi to połączenie"
+            "value": "Zaktualizuj cmux, aby wysyłać stąd: nie podaje, skąd pochodzi to połączenie"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Atualize o acpmux para enviar daqui: ele não informa de onde vem esta conexão"
+            "value": "Atualize o cmux para enviar daqui: ele não informa de onde vem esta conexão"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Обновите acpmux, чтобы отправлять отсюда: он не сообщает, откуда это подключение"
+            "value": "Обновите cmux, чтобы отправлять отсюда: он не сообщает, откуда это подключение"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "อัปเดต acpmux เพื่อส่งจากที่นี่: มันไม่ได้บอกว่าการเชื่อมต่อนี้มาจากที่ใด"
+            "value": "อัปเดต cmux เพื่อส่งจากที่นี่: มันไม่ได้บอกว่าการเชื่อมต่อนี้มาจากที่ใด"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Buradan göndermek için acpmux’u güncelleyin: bu bağlantının nereden geldiğini belirtmiyor"
+            "value": "Buradan göndermek için cmux’u güncelleyin: bu bağlantının nereden geldiğini belirtmiyor"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Оновіть acpmux, щоб надсилати звідси: він не повідомляє, звідки це з’єднання"
+            "value": "Оновіть cmux, щоб надсилати звідси: він не повідомляє, звідки це з’єднання"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cập nhật acpmux để gửi từ đây: nó không cho biết kết nối này đến từ đâu"
+            "value": "Cập nhật cmux để gửi từ đây: nó không cho biết kết nối này đến từ đâu"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "请更新 acpmux 以从这里发送：它没有说明此连接来自何处"
+            "value": "请更新 cmux 以从这里发送：它没有说明此连接来自何处"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "請更新 acpmux 以從這裡傳送：它沒有說明此連線來自何處"
+            "value": "請更新 cmux 以從這裡傳送：它沒有說明此連線來自何處"
           }
         }
       }
@@ -106242,127 +106247,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لم يُرسَل: لا رد من acpmux."
+            "value": "لم يُرسَل: لا رد من cmux."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nije poslano: acpmux ne odgovara."
+            "value": "Nije poslano: cmux ne odgovara."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ikke sendt: intet svar fra acpmux."
+            "value": "Ikke sendt: intet svar fra cmux."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nicht gesendet: keine Antwort von acpmux."
+            "value": "Nicht gesendet: keine Antwort von cmux."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Not sent: no answer from acpmux."
+            "value": "Not sent: no answer from cmux."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No enviado: acpmux no respondió."
+            "value": "No enviado: cmux no respondió."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Non envoyé : aucune réponse d’acpmux."
+            "value": "Non envoyé : aucune réponse d’cmux."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Non inviato: nessuna risposta da acpmux."
+            "value": "Non inviato: nessuna risposta da cmux."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "未送信: acpmux から応答がありません。"
+            "value": "未送信: cmux から応答がありません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនបានផ្ញើ៖ គ្មានចម្លើយពី acpmux ទេ។"
+            "value": "មិនបានផ្ញើ៖ គ្មានចម្លើយពី cmux ទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "보내지 못함: acpmux에서 응답이 없습니다."
+            "value": "보내지 못함: cmux에서 응답이 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ikke sendt: ingen svar fra acpmux."
+            "value": "Ikke sendt: ingen svar fra cmux."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie wysłano: brak odpowiedzi od acpmux."
+            "value": "Nie wysłano: brak odpowiedzi od cmux."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não enviado: sem resposta do acpmux."
+            "value": "Não enviado: sem resposta do cmux."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не отправлено: acpmux не ответил."
+            "value": "Не отправлено: cmux не ответил."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ยังไม่ได้ส่ง: ไม่มีการตอบกลับจาก acpmux"
+            "value": "ยังไม่ได้ส่ง: ไม่มีการตอบกลับจาก cmux"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gönderilmedi: acpmux yanıt vermedi."
+            "value": "Gönderilmedi: cmux yanıt vermedi."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не надіслано: acpmux не відповів."
+            "value": "Не надіслано: cmux не відповів."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chưa gửi: acpmux không phản hồi."
+            "value": "Chưa gửi: cmux không phản hồi."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "未发送：acpmux 没有响应。"
+            "value": "未发送：cmux 没有响应。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "未傳送：acpmux 沒有回應。"
+            "value": "未傳送：cmux 沒有回應。"
           }
         }
       }
@@ -107034,127 +107039,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "توقف بين cmux وacpmux."
+            "value": "انقطع الاتصال قبل إرساله."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zaustavljeno između cmuxa i acpmuxa."
+            "value": "Veza je prekinuta prije slanja."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stoppede mellem cmux og acpmux."
+            "value": "Forbindelsen blev afbrudt, før den blev sendt."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zwischen cmux und acpmux gestoppt."
+            "value": "Die Verbindung brach ab, bevor es gesendet wurde."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stopped between cmux and acpmux."
+            "value": "The connection dropped before it was sent."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se detuvo entre cmux y acpmux."
+            "value": "La conexión se cortó antes de enviarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arrêté entre cmux et acpmux."
+            "value": "La connexion a été coupée avant l’envoi."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fermato tra cmux e acpmux."
+            "value": "La connessione si è interrotta prima dell’invio."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux と acpmux の間で止まりました。"
+            "value": "送信前に接続が切れました。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បានឈប់នៅចន្លោះ cmux និង acpmux។"
+            "value": "ការតភ្ជាប់បានដាច់មុនពេលផ្ញើ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux와 acpmux 사이에서 멈췄습니다."
+            "value": "보내기 전에 연결이 끊겼습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stoppet mellom cmux og acpmux."
+            "value": "Tilkoblingen ble brutt før den ble sendt."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zatrzymano między cmux a acpmux."
+            "value": "Połączenie zostało zerwane przed wysłaniem."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Parou entre o cmux e o acpmux."
+            "value": "A conexão caiu antes do envio."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Остановлено между cmux и acpmux."
+            "value": "Соединение прервалось до отправки."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "หยุดระหว่าง cmux กับ acpmux"
+            "value": "การเชื่อมต่อขาดก่อนส่ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux ile acpmux arasında durdu."
+            "value": "Bağlantı gönderilmeden önce koptu."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Зупинено між cmux і acpmux."
+            "value": "З’єднання обірвалося до надсилання."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dừng giữa cmux và acpmux."
+            "value": "Kết nối bị ngắt trước khi gửi."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 cmux 与 acpmux 之间停止。"
+            "value": "发送前连接已断开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 cmux 與 acpmux 之間停止。"
+            "value": "傳送前連線已中斷。"
           }
         }
       }
@@ -107166,127 +107171,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لم يستلمه acpmux."
+            "value": "لم يستلمه cmux."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux ga nije preuzeo."
+            "value": "cmux ga nije preuzeo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux tog ikke imod den."
+            "value": "cmux tog ikke imod den."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux hat sie nicht angenommen."
+            "value": "cmux hat sie nicht angenommen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux did not take it."
+            "value": "cmux did not take it."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux no lo recibió."
+            "value": "cmux no lo recibió."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux ne l’a pas pris."
+            "value": "cmux ne l’a pas pris."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux non l’ha ricevuto."
+            "value": "cmux non l’ha ricevuto."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux が受け取りませんでした。"
+            "value": "cmux が受け取りませんでした。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux មិនបានទទួលយកទេ។"
+            "value": "cmux មិនបានទទួលយកទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux가 받지 않았습니다."
+            "value": "cmux가 받지 않았습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux tok ikke imot den."
+            "value": "cmux tok ikke imot den."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux go nie przyjął."
+            "value": "cmux go nie przyjął."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O acpmux não recebeu."
+            "value": "O cmux não recebeu."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux его не принял."
+            "value": "cmux его не принял."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux ไม่ได้รับไป"
+            "value": "cmux ไม่ได้รับไป"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux almadı."
+            "value": "cmux almadı."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux його не прийняв."
+            "value": "cmux його не прийняв."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux không nhận."
+            "value": "cmux không nhận."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux 没有接收。"
+            "value": "cmux 没有接收。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux 沒有接收。"
+            "value": "cmux 沒有接收。"
           }
         }
       }
@@ -107298,127 +107303,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "استلمه acpmux، لكن فشل دور الوكيل."
+            "value": "استلمه cmux، لكن فشل دور الوكيل."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux ga je preuzeo; agentov potez nije uspio."
+            "value": "cmux ga je preuzeo; agentov potez nije uspio."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux tog imod den; agentens tur mislykkedes."
+            "value": "cmux tog imod den; agentens tur mislykkedes."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux hat sie angenommen; der Durchlauf des Agenten ist fehlgeschlagen."
+            "value": "cmux hat sie angenommen; der Durchlauf des Agenten ist fehlgeschlagen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux took it; the agent's turn failed."
+            "value": "cmux took it; the agent's turn failed."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux lo recibió; el turno del agente falló."
+            "value": "cmux lo recibió; el turno del agente falló."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux l’a pris ; le tour de l’agent a échoué."
+            "value": "cmux l’a pris ; le tour de l’agent a échoué."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux l’ha ricevuto; il turno dell’agente non è riuscito."
+            "value": "cmux l’ha ricevuto; il turno dell’agente non è riuscito."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux は受け取りましたが、エージェントのターンが失敗しました。"
+            "value": "cmux は受け取りましたが、エージェントのターンが失敗しました。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux បានទទួលយក ប៉ុន្តែវេនរបស់ភ្នាក់ងារបានបរាជ័យ។"
+            "value": "cmux បានទទួលយក ប៉ុន្តែវេនរបស់ភ្នាក់ងារបានបរាជ័យ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux는 받았지만 에이전트의 턴이 실패했습니다."
+            "value": "cmux는 받았지만 에이전트의 턴이 실패했습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux tok imot den; agentens tur mislyktes."
+            "value": "cmux tok imot den; agentens tur mislyktes."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux go przyjął; tura agenta się nie powiodła."
+            "value": "cmux go przyjął; tura agenta się nie powiodła."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O acpmux recebeu; o turno do agente falhou."
+            "value": "O cmux recebeu; o turno do agente falhou."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux принял его; ход агента завершился ошибкой."
+            "value": "cmux принял его; ход агента завершился ошибкой."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux รับไปแล้ว แต่รอบของเอเจนต์ล้มเหลว"
+            "value": "cmux รับไปแล้ว แต่รอบของเอเจนต์ล้มเหลว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux aldı; ajanın turu başarısız oldu."
+            "value": "cmux aldı; ajanın turu başarısız oldu."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux прийняв його; хід агента не вдався."
+            "value": "cmux прийняв його; хід агента не вдався."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux đã nhận; lượt của tác nhân thất bại."
+            "value": "cmux đã nhận; lượt của tác nhân thất bại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux 已接收；智能体的回合失败。"
+            "value": "cmux 已接收；智能体的回合失败。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux 已接收；代理程式的回合失敗。"
+            "value": "cmux 已接收；代理程式的回合失敗。"
           }
         }
       }
@@ -107562,127 +107567,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "استلمه acpmux"
+            "value": "استلمه cmux"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux ga je preuzeo"
+            "value": "cmux ga je preuzeo"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux tog imod den"
+            "value": "cmux tog imod den"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux hat sie angenommen"
+            "value": "cmux hat sie angenommen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux took it"
+            "value": "cmux took it"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux lo recibió"
+            "value": "cmux lo recibió"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux l’a pris"
+            "value": "cmux l’a pris"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux l’ha ricevuto"
+            "value": "cmux l’ha ricevuto"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux が受信"
+            "value": "cmux が受信"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux បានទទួល"
+            "value": "cmux បានទទួល"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux가 받음"
+            "value": "cmux가 받음"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux tok imot den"
+            "value": "cmux tok imot den"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux przyjął"
+            "value": "cmux przyjął"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O acpmux recebeu"
+            "value": "O cmux recebeu"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux принял"
+            "value": "cmux принял"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux รับแล้ว"
+            "value": "cmux รับแล้ว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux aldı"
+            "value": "cmux aldı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux прийняв"
+            "value": "cmux прийняв"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux đã nhận"
+            "value": "cmux đã nhận"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux 接收"
+            "value": "cmux 接收"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux 接收"
+            "value": "cmux 接收"
           }
         }
       }
@@ -228131,127 +228136,127 @@
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "فشل طلب acpmux"
+            "value" : "فشل طلب cmux"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Zahtjev za acpmux nije uspio"
+            "value" : "Zahtjev za cmux nije uspio"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "acpmux-anmodningen mislykkedes"
+            "value" : "cmux-anmodningen mislykkedes"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Die acpmux-Anfrage ist fehlgeschlagen"
+            "value" : "Die cmux-Anfrage ist fehlgeschlagen"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux request failed"
+            "value" : "cmux request failed"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "La solicitud a acpmux falló"
+            "value" : "La solicitud a cmux falló"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Échec de la requête acpmux"
+            "value" : "Échec de la requête cmux"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Richiesta acpmux non riuscita"
+            "value" : "Richiesta cmux non riuscita"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "acpmux へのリクエストに失敗しました"
+            "value" : "cmux へのリクエストに失敗しました"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "សំណើ acpmux បានបរាជ័យ"
+            "value" : "សំណើ cmux បានបរាជ័យ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "acpmux 요청에 실패했습니다"
+            "value" : "cmux 요청에 실패했습니다"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "acpmux-forespørselen mislyktes"
+            "value" : "cmux-forespørselen mislyktes"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Żądanie acpmux nie powiodło się"
+            "value" : "Żądanie cmux nie powiodło się"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "A solicitação ao acpmux falhou"
+            "value" : "A solicitação ao cmux falhou"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Не удалось выполнить запрос acpmux"
+            "value" : "Не удалось выполнить запрос cmux"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "คำขอ acpmux ไม่สำเร็จ"
+            "value" : "คำขอ cmux ไม่สำเร็จ"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "acpmux isteği başarısız oldu"
+            "value" : "cmux isteği başarısız oldu"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Не вдалося виконати запит acpmux"
+            "value" : "Не вдалося виконати запит cmux"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Yêu cầu acpmux thất bại"
+            "value" : "Yêu cầu cmux thất bại"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "acpmux 请求失败"
+            "value" : "cmux 请求失败"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "acpmux 請求失敗"
+            "value" : "cmux 請求失敗"
           }
         }
       }
@@ -254826,6 +254831,7 @@
     "notice.received.one": {"comment":"Agent pane transcript: the head of a fold of one tool's notice (conversation/LaneNoticeBatch.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تم تلقي إشعار"}},"bs":{"stringUnit":{"state":"needs_review","value":"Primljena obavijest"}},"da":{"stringUnit":{"state":"needs_review","value":"Modtog en meddelelse"}},"de":{"stringUnit":{"state":"needs_review","value":"Einen Hinweis erhalten"}},"en":{"stringUnit":{"state":"translated","value":"Received a notice"}},"es":{"stringUnit":{"state":"needs_review","value":"Recibió un aviso"}},"fr":{"stringUnit":{"state":"needs_review","value":"A reçu une notification"}},"it":{"stringUnit":{"state":"needs_review","value":"Ha ricevuto un avviso"}},"ja":{"stringUnit":{"state":"needs_review","value":"お知らせを 1 件受信"}},"km":{"stringUnit":{"state":"needs_review","value":"បានទទួលសេចក្តីជូនដំណឹងមួយ"}},"ko":{"stringUnit":{"state":"needs_review","value":"알림 1개 수신"}},"nb":{"stringUnit":{"state":"needs_review","value":"Mottok en melding"}},"pl":{"stringUnit":{"state":"needs_review","value":"Odebrano powiadomienie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Recebeu uma notificação"}},"ru":{"stringUnit":{"state":"needs_review","value":"Получено уведомление"}},"th":{"stringUnit":{"state":"needs_review","value":"ได้รับประกาศ 1 รายการ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bir bildirim aldı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Отримано сповіщення"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã nhận một thông báo"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"收到了一条通知"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"收到了一則通知"}}}},
     "notice.received.other": {"comment":"Agent pane transcript: the head of a fold of tools' notices; {n} is how many (conversation/LaneNoticeBatch.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تم تلقي {n} إشعارات"}},"bs":{"stringUnit":{"state":"needs_review","value":"Primljeno obavijesti: {n}"}},"da":{"stringUnit":{"state":"needs_review","value":"Modtog {n} meddelelser"}},"de":{"stringUnit":{"state":"needs_review","value":"{n} Hinweise erhalten"}},"en":{"stringUnit":{"state":"translated","value":"Received {n} notices"}},"es":{"stringUnit":{"state":"needs_review","value":"Recibió {n} avisos"}},"fr":{"stringUnit":{"state":"needs_review","value":"A reçu {n} notifications"}},"it":{"stringUnit":{"state":"needs_review","value":"Ha ricevuto {n} avvisi"}},"ja":{"stringUnit":{"state":"needs_review","value":"{n} 件のお知らせを受信"}},"km":{"stringUnit":{"state":"needs_review","value":"បានទទួលសេចក្តីជូនដំណឹង {n}"}},"ko":{"stringUnit":{"state":"needs_review","value":"알림 {n}개 수신"}},"nb":{"stringUnit":{"state":"needs_review","value":"Mottok {n} meldinger"}},"pl":{"stringUnit":{"state":"needs_review","value":"Odebrano powiadomienia: {n}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Recebeu {n} notificações"}},"ru":{"stringUnit":{"state":"needs_review","value":"Получено уведомлений: {n}"}},"th":{"stringUnit":{"state":"needs_review","value":"ได้รับประกาศ {n} รายการ"}},"tr":{"stringUnit":{"state":"needs_review","value":"{n} bildirim aldı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Отримано сповіщень: {n}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã nhận {n} thông báo"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"收到了 {n} 条通知"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"收到了 {n} 則通知"}}}},
     "message.senderUnverified": {"comment":"Agent pane transcript: tooltip and accessible name of the small mark by a received message's sender when acpmux could not verify who sent it (the sender only named itself) (conversation/UnverifiedMark.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"المرسل غير موثّق"}},"bs":{"stringUnit":{"state":"translated","value":"Pošiljalac nije provjeren"}},"da":{"stringUnit":{"state":"translated","value":"Afsender ikke bekræftet"}},"de":{"stringUnit":{"state":"translated","value":"Absender nicht verifiziert"}},"en":{"stringUnit":{"state":"translated","value":"Sender not verified"}},"es":{"stringUnit":{"state":"translated","value":"Remitente no verificado"}},"fr":{"stringUnit":{"state":"translated","value":"Expéditeur non vérifié"}},"it":{"stringUnit":{"state":"translated","value":"Mittente non verificato"}},"ja":{"stringUnit":{"state":"translated","value":"送信者は未確認です"}},"km":{"stringUnit":{"state":"translated","value":"អ្នកផ្ញើមិនទាន់បានផ្ទៀងផ្ទាត់"}},"ko":{"stringUnit":{"state":"translated","value":"발신자가 확인되지 않음"}},"nb":{"stringUnit":{"state":"translated","value":"Avsender ikke bekreftet"}},"pl":{"stringUnit":{"state":"translated","value":"Nadawca niezweryfikowany"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Remetente não verificado"}},"ru":{"stringUnit":{"state":"translated","value":"Отправитель не проверен"}},"th":{"stringUnit":{"state":"translated","value":"ยังไม่ได้ยืนยันผู้ส่ง"}},"tr":{"stringUnit":{"state":"translated","value":"Gönderen doğrulanmadı"}},"uk":{"stringUnit":{"state":"translated","value":"Відправника не перевірено"}},"vi":{"stringUnit":{"state":"translated","value":"Người gửi chưa được xác minh"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"发件人未经验证"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"寄件者未經驗證"}}}},
+    "message.claimedNotProven": {"comment":"Agent pane transcript: first line of the unverified mark's tooltip and accessible name: the name or app a sender claimed, which acpmux could not prove; {name} is that name (conversation/UnverifiedMark.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"ادّعى أنه {name}، ولم يُثبَت ذلك"}},"bs":{"stringUnit":{"state":"needs_review","value":"Tvrdi da je {name}, nije dokazano"}},"da":{"stringUnit":{"state":"needs_review","value":"Udgiver sig for at være {name}, ikke bevist"}},"de":{"stringUnit":{"state":"needs_review","value":"Gibt sich als {name} aus, nicht bewiesen"}},"en":{"stringUnit":{"state":"translated","value":"Claimed to be {name}, not proven"}},"es":{"stringUnit":{"state":"needs_review","value":"Dice ser {name}, sin demostrar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Se présente comme {name}, non prouvé"}},"it":{"stringUnit":{"state":"needs_review","value":"Dichiara di essere {name}, non dimostrato"}},"ja":{"stringUnit":{"state":"needs_review","value":"{name} を名乗っていますが、確認されていません"}},"km":{"stringUnit":{"state":"needs_review","value":"អះអាងថាជា {name} មិនទាន់បញ្ជាក់"}},"ko":{"stringUnit":{"state":"needs_review","value":"{name}(이)라고 주장하지만 확인되지 않음"}},"nb":{"stringUnit":{"state":"needs_review","value":"Utgir seg for å være {name}, ikke bevist"}},"pl":{"stringUnit":{"state":"needs_review","value":"Podaje się za {name}, niepotwierdzone"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Diz ser {name}, não comprovado"}},"ru":{"stringUnit":{"state":"needs_review","value":"Называет себя {name}, не подтверждено"}},"th":{"stringUnit":{"state":"needs_review","value":"อ้างว่าเป็น {name} ยังไม่ได้พิสูจน์"}},"tr":{"stringUnit":{"state":"needs_review","value":"{name} olduğunu söylüyor, kanıtlanmadı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Називає себе {name}, не підтверджено"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tự nhận là {name}, chưa được chứng minh"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"自称是 {name},未经证实"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"自稱是 {name},未經證實"}}}},
     "message.senderProgram": {"comment":"Agent pane transcript: tooltip and accessible name of the small mark by a received message's sender when acpmux saw which program sent it but proved no agent; {program} is the program's name, maybe with its machine (conversation/UnverifiedMark.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"برنامج تحقّق منه acpmux: {program}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Program koji je acpmux provjerio: {program}"}},"da":{"stringUnit":{"state":"needs_review","value":"Program kontrolleret af acpmux: {program}"}},"de":{"stringUnit":{"state":"needs_review","value":"Von acpmux geprüftes Programm: {program}"}},"en":{"stringUnit":{"state":"translated","value":"Program checked by acpmux: {program}"}},"es":{"stringUnit":{"state":"needs_review","value":"Programa comprobado por acpmux: {program}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Programme vérifié par acpmux : {program}"}},"it":{"stringUnit":{"state":"needs_review","value":"Programma verificato da acpmux: {program}"}},"ja":{"stringUnit":{"state":"needs_review","value":"acpmux が確認したプログラム: {program}"}},"km":{"stringUnit":{"state":"needs_review","value":"កម្មវិធីដែល acpmux បានពិនិត្យ៖ {program}"}},"ko":{"stringUnit":{"state":"needs_review","value":"acpmux가 확인한 프로그램: {program}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Program kontrollert av acpmux: {program}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Program sprawdzony przez acpmux: {program}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Programa verificado pelo acpmux: {program}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Программа, проверенная acpmux: {program}"}},"th":{"stringUnit":{"state":"needs_review","value":"โปรแกรมที่ acpmux ตรวจสอบแล้ว: {program}"}},"tr":{"stringUnit":{"state":"needs_review","value":"acpmux tarafından denetlenen program: {program}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Програма, перевірена acpmux: {program}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chương trình được acpmux kiểm tra: {program}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"acpmux 已核对的程序：{program}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"acpmux 已核對的程式：{program}"}}}},
     "message.senderProgramOnHost": {"comment":"Agent pane transcript: a program that sent a message, and the machine its send named, in the program mark's tooltip; {name} is the program, {host} the machine (conversation/UnverifiedMark.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"{name} على {host}"}},"bs":{"stringUnit":{"state":"needs_review","value":"{name} na {host}"}},"da":{"stringUnit":{"state":"needs_review","value":"{name} på {host}"}},"de":{"stringUnit":{"state":"needs_review","value":"{name} auf {host}"}},"en":{"stringUnit":{"state":"translated","value":"{name} on {host}"}},"es":{"stringUnit":{"state":"needs_review","value":"{name} en {host}"}},"fr":{"stringUnit":{"state":"needs_review","value":"{name} sur {host}"}},"it":{"stringUnit":{"state":"needs_review","value":"{name} su {host}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{host} の {name}"}},"km":{"stringUnit":{"state":"needs_review","value":"{name} នៅលើ {host}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{host}의 {name}"}},"nb":{"stringUnit":{"state":"needs_review","value":"{name} på {host}"}},"pl":{"stringUnit":{"state":"needs_review","value":"{name} na {host}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{name} em {host}"}},"ru":{"stringUnit":{"state":"needs_review","value":"{name} на {host}"}},"th":{"stringUnit":{"state":"needs_review","value":"{name} บน {host}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{host} üzerinde {name}"}},"uk":{"stringUnit":{"state":"needs_review","value":"{name} на {host}"}},"vi":{"stringUnit":{"state":"needs_review","value":"{name} trên {host}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{host} 上的 {name}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{host} 上的 {name}"}}}},
     "message.senderProgramNotAgent": {"comment":"Agent pane transcript: the program mark's tooltip line saying acpmux proved no agent sent the message, only which program did (conversation/UnverifiedMark.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"لم يُثبت أنه وكيل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Nije dokazano da je agent"}},"da":{"stringUnit":{"state":"needs_review","value":"Ikke bevist at være en agent"}},"de":{"stringUnit":{"state":"needs_review","value":"Nicht als Agent nachgewiesen"}},"en":{"stringUnit":{"state":"translated","value":"Not proven to be an agent"}},"es":{"stringUnit":{"state":"needs_review","value":"No se ha probado que sea un agente"}},"fr":{"stringUnit":{"state":"needs_review","value":"Non prouvé comme agent"}},"it":{"stringUnit":{"state":"needs_review","value":"Non dimostrato come agente"}},"ja":{"stringUnit":{"state":"needs_review","value":"エージェントであることは証明されていません"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនទាន់បញ្ជាក់ថាជាភ្នាក់ងារ"}},"ko":{"stringUnit":{"state":"needs_review","value":"에이전트로 증명되지 않음"}},"nb":{"stringUnit":{"state":"needs_review","value":"Ikke bevist å være en agent"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie potwierdzono, że to agent"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não comprovado como agente"}},"ru":{"stringUnit":{"state":"needs_review","value":"Не подтверждено, что это агент"}},"th":{"stringUnit":{"state":"needs_review","value":"ยังไม่ได้พิสูจน์ว่าเป็นเอเจนต์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bir ajan olduğu kanıtlanmadı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Не доведено, що це агент"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chưa được chứng minh là tác tử"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"未证实是智能体"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"未證實是代理程式"}}}},

@@ -673,3 +673,34 @@ async fn a_shadow_that_ends_with_events_held_leaves_no_repeat() {
     assert_eq!(delivered(&mut rig.notices, 3).await, vec![6, 7, 8]);
     assert!(!rig.peer.dual_sessions.lock().unwrap().contains("s1"), "the link alone again");
 }
+
+/// Review F1 of #41285, the sending side: a request the shadow carried a copy of is cancelled
+/// on both paths. Its link's path is in doubt, so the cancel on the link alone may never reach
+/// the peer, while the shadow's copy runs there.
+#[tokio::test]
+async fn a_cancel_goes_on_every_path_that_carried_a_copy() {
+    let mut rig = rig().await;
+    answer_shadow_attach(&mut rig, &[]).await;
+    rig.peer.features.lock().unwrap().push(crate::request_cancel::FEATURE.to_owned());
+    let (cancel, cancelled) = oneshot::channel();
+    let peer = rig.peer.clone();
+    let asking = tokio::spawn(async move {
+        let ask = peer.request(method::MUX_STATS, json!({}));
+        crate::request_cancel::until_cancelled(cancelled, ask).await
+    });
+    let on_link = next_text(&mut rig.primary).await;
+    let on_shadow = next_text(&mut rig.shadow).await;
+    assert_eq!(on_link, on_shadow, "a copy on each path");
+    cancel.send(()).unwrap();
+    assert!(tokio::time::timeout(WAIT, asking).await.unwrap().unwrap().is_none());
+    let on_link_cancel = next_text(&mut rig.primary).await;
+    assert_eq!(on_link_cancel["method"], method::CANCEL_REQUEST);
+    assert_eq!(on_link_cancel["params"]["requestId"], on_link["id"]);
+    let on_shadow_cancel = reads_text_within(&mut rig.shadow, WAIT).await;
+    assert_eq!(
+        on_shadow_cancel.as_ref().map(|n| (n["method"].clone(), n["params"]["requestId"].clone())),
+        Some((json!(method::CANCEL_REQUEST), on_link["id"].clone())),
+        "the shadow, which carried a copy, carries its cancel: {on_shadow_cancel:?}"
+    );
+    assert!(rig.peer.dual_keys.lock().unwrap().is_empty(), "nothing waits on the shadow");
+}
