@@ -17,9 +17,9 @@
 // the app's own split of one picture, and a reader sees only the picture. Each item still drawn must
 // have moved by exactly that scroll; an item gone while the scroll alone would leave it in view is a
 // blank flash. The picture moves only while the reader's own scroll is under way: from the frame their
-// first wheel event acted on until the first frame the picture holds still after their last one. The
-// test reads that from the order of events, never from a clock, so a starved runner that stretches
-// frames, or delivers the wheel late, changes nothing it measures.
+// first wheel event acted on until the browser says that scroll has ended (`scrollend` after their last
+// wheel event). The test reads that from the order of events, never from a clock, so a starved runner
+// that stretches frames, skips one mid-scroll, or delivers the wheel late, changes nothing it measures.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
@@ -28,20 +28,28 @@ import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserL
 import { warmViteServer } from "./support/warmDevServer";
 
 /// One painted frame: its time, the offset and how far it rests from the end, the view's edges, how
-/// many wheel events the page had seen when it was read, and the screen top of each row and reply
-/// block in view.
+/// many wheel events the page had seen when it was read, whether the scroller's scroll had ended since
+/// the last of them, and the screen top of each row and reply block in view.
 type Sample = {
   t: number;
   top: number;
   fromEnd: number;
   wheels: number;
+  ended: boolean;
   /// The follow motion's translate on the thread, px: rows drawn off their layout by it.
   lag: number;
   view: [number, number];
   items: Record<string, number>;
 };
 type Probe = Window & {
-  __still: { samples: Sample[]; sampling: boolean; done: boolean; wheels: number; run?: Promise<unknown> };
+  __still: {
+    samples: Sample[];
+    sampling: boolean;
+    done: boolean;
+    wheels: number;
+    ended: boolean;
+    run?: Promise<unknown>;
+  };
   __streamingText: { run(options: { cadence: string }): Promise<unknown> };
 };
 /// An item that moved apart from the scroll, or vanished in view, between two painted frames.
@@ -76,11 +84,10 @@ await requireBrowserLane("streaming-parked-still.test.ts", async () => {
     // (paintedFrames.ts runs a painted frame's read before any input event's handlers). Frames before
     // it are of the followed view, the reader's input still on its way to the page.
     const from = Math.max(0, samples.findIndex((sample) => sample.wheels > 0) - 1);
-    // The first frame read after the last wheel event: from there, the first frame in which the
-    // picture holds still after it has moved is where the reader's scroll has settled.
-    const last = samples.findIndex((sample) => sample.wheels === wheels);
-    let moved = false;
-    let settled: number | undefined;
+    // The reader's scroll has settled at the first frame read after the scroller's `scrollend` that
+    // followed their last wheel event: the browser's own word that the scroll it eased in is done.
+    const found = samples.findIndex((sample) => sample.wheels === wheels && sample.ended);
+    const settled = found < 0 ? undefined : found;
     const t0 = samples[from]?.t ?? 0;
     for (let index = from + 1; index < samples.length; index += 1) {
       const before = samples[index - 1]!;
@@ -88,14 +95,9 @@ await requireBrowserLane("streaming-parked-still.test.ts", async () => {
       const scrolled = pictureScroll(before, now);
       const t = Math.round(now.t - t0);
       if (Object.keys(now.items).some((key) => key.startsWith("block:"))) blockFrames += 1;
-      const moving = Math.abs(scrolled) > 0.5;
-      if (settled === undefined && index >= last) {
-        if (moving) moved = true;
-        else if (moved) settled = index;
-      }
-      if (moving) {
+      if (Math.abs(scrolled) > 0.5) {
         offsetMoves += 1;
-        const after = settled !== undefined;
+        const after = settled !== undefined && index > settled;
         if (after) late.push({ t, px: round(scrolled) });
         if (after || scrolled > 0) unprompted.push({ t, px: round(scrolled) });
       }
@@ -165,16 +167,23 @@ await requireBrowserLane("streaming-parked-still.test.ts", async () => {
     await page.waitForTimeout(500);
     await page.evaluate(() => {
       const w = window as unknown as Probe;
-      w.__still = { samples: [], sampling: false, done: false, wheels: 0 };
+      w.__still = { samples: [], sampling: false, done: false, wheels: 0, ended: false };
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       // Each wheel event, before the page's own handlers see it (and after the read of the frame
       // painted before it, which paintedFrames.ts runs from its window capture first).
-      const wheel = () => (w.__still.wheels += 1);
+      const wheel = () => {
+        w.__still.wheels += 1;
+        w.__still.ended = false;
+      };
+      // The scroll the browser eased in for them has ended (or an offset the page wrote has landed).
+      const ended = () => (w.__still.ended = true);
       scroller.addEventListener("wheel", wheel, { capture: true, passive: true });
+      scroller.addEventListener("scrollend", ended, { passive: true });
       // Read after each frame paints (paintedFrames.ts), until the page is done.
       window.cmuxAfterPaint((t) => {
         if (w.__still.done) {
           scroller.removeEventListener("wheel", wheel, { capture: true });
+          scroller.removeEventListener("scrollend", ended);
           return false;
         }
         if (w.__still.sampling) {
@@ -204,6 +213,7 @@ await requireBrowserLane("streaming-parked-still.test.ts", async () => {
               ) || 0,
             fromEnd: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
             wheels: w.__still.wheels,
+            ended: w.__still.ended,
             view: [view.top, view.bottom],
             items,
           });
