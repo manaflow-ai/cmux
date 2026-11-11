@@ -32,7 +32,7 @@ nonisolated extension ContextMenuCatalog {
         ["name": "browserDevToolsDivider", "source": "CmuxNextBrowser/CEF/CEFDevToolsDivider.swift"],
         ["name": "browserProfileLink", "source": "CmuxNextApp/BrowserProfiles/BrowserProfileLinkMenu.swift"],
         ["name": "browserToolbar", "source": "CmuxNextApp/Handlers/BrowserToolbarHandlers.swift"],
-        ["name": "bookmarkFolder", "source": "CmuxNextBookmarks/Page/BookmarksBarPage.swift"],
+        ["name": "bookmarkFolder", "source": "CmuxNextBookmarks/UI/BookmarkFolderMenu.swift"],
         ["name": "titlebarHistory", "source": "CmuxNextHistory/TitlebarHistoryMenu.swift"],
         ["name": "notificationRow", "source": "CmuxNextApp/Notifications/Panel/NotificationsPanelController.swift"],
         ["name": "agentPaneMessage", "source": "CmuxNextAgentPane/AgentPaneContextMenu.swift"],
