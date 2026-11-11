@@ -716,7 +716,7 @@ import { askBtwQuestion, supportsBtwGuest } from "./btwCapability";
 import { SecondOpinionContext } from "./conversation/secondOpinion";
 import { canBeGuest, guestMention } from "./mentionItems";
 import { HELD_EFFORT_ID, HELD_FAST_ID, HELD_FAST_ON, isFastModeOption } from "./heldOptions";
-import { sendHeldFork } from "./forkHold";
+import { clearHeldFork, sendHeldFork } from "./forkHold";
 import { setSuggestedTasks } from "./offer/offersShown";
 import { OfferDefaultsContext, offerDefaults, offerPicks } from "./offer/offerChoice";
 import { offerWorktree } from "./offer/offerWorktree";
@@ -11614,6 +11614,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               // pane and goes to the fork, attachments and all (`chat.switchModel`). The composer keeps the
               // message, and the pick, when the fork or its send fails.
               if (snapshot.sessionId && surfaceRef.current !== "quick") {
+                // A chat that can no longer fork (its host lost the support) drops the pick, so the
+                // message goes to the chat as it is rather than failing each send.
+                if (!switchForks(snapshot)) clearHeldFork(snapshot.sessionId);
                 const forked = sendHeldFork(snapshot.sessionId, {
                   fork: (params) =>
                     callNative<string>("chat.switchModel", {

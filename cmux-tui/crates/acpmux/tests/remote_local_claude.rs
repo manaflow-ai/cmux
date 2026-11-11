@@ -175,3 +175,28 @@ async fn a_session_on_another_harness_keeps_web_control() {
     assert!(r.get("error").is_none(), "{r}");
     let _ = std::fs::remove_dir_all(&d);
 }
+
+/// A web model switch (a fork onto another harness, `hub/fork.rs` `Retarget`) of a chat the Mac
+/// started keeps the Mac's origin, so onto Claude it would run with the Mac's Claude permissions:
+/// refused as D13 refuses controlling such a chat, before any process starts. The Mac itself may.
+#[tokio::test]
+async fn a_web_switch_of_a_mac_chat_onto_claude_is_refused() {
+    let d = dir("switch");
+    let hub = hub(&d);
+    let mut local = Client::new(&hub, Origin::Local);
+    let mut web = Client::new(&hub, Origin::Web);
+    let s = local.new_session(&d, "ftarget").await;
+    assert!(local.prompt(&s, "hello").await.get("error").is_none());
+    let before = hub.sessions().len();
+    let p = json!({"sessionId": s, "cwd": d.join("work"), "mcpServers": [],
+        "_meta": {"acpmux": {"harness": "fakeclaude"}}});
+    let r = web.call("session/fork", p).await;
+    assert_eq!(reason(&r), "remote.local_claude_session", "{r}");
+    // A Claude adapter with no reviewed asking mode is refused before that, as `session/new` is.
+    let p = json!({"sessionId": s, "cwd": d.join("work"), "mcpServers": [],
+        "_meta": {"acpmux": {"harness": "fclaude"}}});
+    let r = web.call("session/fork", p).await;
+    assert!(r.get("error").is_some(), "{r}");
+    assert_eq!(hub.sessions().len(), before, "a refused switch made no chat");
+    let _ = std::fs::remove_dir_all(&d);
+}

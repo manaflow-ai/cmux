@@ -909,6 +909,18 @@ async fn web_starts_asking(
         if start.is_err() {
             return Err(no_reviewed_asking_mode());
         }
+        // D13 (`hub/web_control.rs` `local_claude_refusal`) on the chat the fork would be: a fork of a
+        // chat the Mac started keeps its origin (`hub/fork.rs` `retarget_to`), so onto Claude it would
+        // run with the Mac's Claude permissions, which a remote device never starts. A remote chain's
+        // fork runs in the sandbox like its parent; an unknown chat is the peer's to judge.
+        if let Ok(s) = super::session_key(params).and_then(|key| hub.resolve(key)) {
+            let mut would_be = s.meta();
+            would_be.harness = harness.to_owned();
+            would_be.family = None;
+            if let Some(e) = hub.local_claude_refusal(&would_be) {
+                return Err(e);
+            }
+        }
     }
     if m == method::SESSION_NEW
         && !vm_host_peer

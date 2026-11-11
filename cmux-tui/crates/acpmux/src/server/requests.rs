@@ -2151,6 +2151,12 @@ async fn dispatch_request_with_identity(
             let (new, warning) = if let Some(prompt) =
                 params.pointer("/_meta/acpmux/beforePromptId").and_then(Value::as_str)
             {
+                // A switch forks the chat as it is now; a fork before a prompt keeps its harness.
+                if retarget.is_some() {
+                    return Err(RpcError::invalid_params(
+                        "a fork before a prompt keeps the chat's harness: omit harness",
+                    ));
+                }
                 let request = params
                     .pointer("/_meta/acpmux/requestId")
                     .and_then(Value::as_str)
