@@ -87,9 +87,10 @@ nonisolated extension SidebarLayout {
         let slot = row.height + rowSpacing
         let nextFollows = at + 1 < rows.count && rows[at + 1].section == section.id && abs(rows[at + 1].y - (row.maxY + rowSpacing)) < 0.001
         let followsPrevious = at > 0 && rows[at - 1].section == section.id && abs(row.y - (rows[at - 1].maxY + rowSpacing)) < 0.001
-        // Another row of the section stays: a section left with only its header draws `make`'s empty placeholder (its
-        // nodes may still hold an archived or folded one).
-        guard nextFollows || (followsPrevious && rows[at - 1].key != .section(section.id)) else { return false }
+        // Another row of the section stays: a section left with only its header, or only one list's "Workspaces"
+        // heading, draws `make`'s empty placeholder and no heading (its nodes may still hold an archived or folded one).
+        guard nextFollows || (followsPrevious && rows[at - 1].key != .section(section.id)
+                              && rows[at - 1].key != .listHeader(.workspaces)) else { return false }
         replaceRows(at..<(at + 1), with: [], shiftingFollowingBy: -slot)
         // The section's later rows: a top-level row's node index, and a member's group index, count one node fewer.
         var i = at
