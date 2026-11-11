@@ -11,6 +11,7 @@ Source of truth: leo-workspace tools/ast_names.py. cmuxterm-hq and cmux carry by
 tests/process_gone.pin. Standard library only.
 """
 import ast
+import collections
 import re
 
 MODULES = ("os", "posix", "signal")
@@ -40,6 +41,15 @@ class Bindings:
         assigns = []
         self.defaults = set()  # id() of a parameter default in a def: def stop(pid, kill=os.kill) binds kill
 
+        def declare(node, scope):
+            """Every scope's global and nonlocal names, before any binding is read: a declaration applies to its
+            whole scope, so `import os; global os` binds the module's os, as `global os; import os` does."""
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, (ast.Global, ast.Nonlocal)):
+                    g, n = declared.setdefault(scope, (set(), set()))
+                    (g if isinstance(child, ast.Global) else n).update(child.names)
+                declare(child, child if isinstance(child, SCOPES) else scope)
+
         def walk(node, scope):
             for child in ast.iter_child_nodes(node):
                 self.scope[id(child)] = scope
@@ -56,10 +66,7 @@ class Bindings:
                         self.defaults.add(id(default))
                         assigns.append((ast.Assign(targets=[ast.Name(id=arg.arg, ctx=ast.Store())], value=default),
                                         child))
-                if isinstance(child, (ast.Global, ast.Nonlocal)):
-                    g, n = declared.setdefault(scope, (set(), set()))
-                    (g if isinstance(child, ast.Global) else n).update(child.names)
-                elif isinstance(child, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
+                if isinstance(child, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
                     assigns.append((child, scope))
                 elif isinstance(child, ast.Import):
                     for a in child.names:
@@ -82,6 +89,7 @@ class Bindings:
 
         self.root = tree
         self.scope[id(tree)] = tree
+        declare(tree, tree)
         walk(tree, tree)
         for _ in range(len(assigns) + 1):  # k = os.kill; j = k: until nothing new resolves
             grew = False
@@ -111,10 +119,12 @@ class Bindings:
         return grew
 
     def chain(self, scope):
+        """SCOPE, then the scopes a read in it falls through to: as in Python, a class body's names are seen in that
+        body only, not by the methods (or classes) inside it."""
         out = [scope]
         while out[-1] in self.parent:
             out.append(self.parent[out[-1]])
-        return out
+        return out[:1] + [s for s in out[1:] if not isinstance(s, ast.ClassDef)]
 
     def lookup(self, node, name):
         scope = self.scope.get(id(node), self.root)
@@ -203,3 +213,175 @@ def references(tree, names, targets):
             yield from visit(child, inner)
 
     yield from visit(tree, [])
+
+
+class _Holder(ast.AST):
+    """A node with NODE as its one child, so _walk judges NODE itself."""
+    _fields = ("node",)
+
+    def __init__(self, node):
+        super().__init__()
+        self.node = node
+
+
+FUNCTION_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+COMPREHENSIONS = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+ALL_SCOPES = (ast.Module, ast.ClassDef) + FUNCTION_SCOPES + COMPREHENSIONS
+
+
+class Scopes:
+    """Python's own scope rules for any name, for a lint that resolves values (a knob's literal, a constant) rather
+    than os.kill. scope_of(node) is the scope NODE is evaluated in; binds[scope] counts each name SCOPE binds itself;
+    owner(node, name) is the scope whose binding a read of NAME at NODE sees, or None when nothing in the source
+    binds it (a builtin, or a name only a star import could bring).
+
+    As Python does: a class body's names are seen in that body only, not by its methods or by a comprehension in it
+    (whose first iterable is still the class body's); decorators, defaults, annotations and a class's bases are
+    evaluated in the enclosing scope; global and nonlocal cover their whole scope, wherever they sit; a walrus in a
+    comprehension binds in the enclosing function or module. star[scope] is True when SCOPE has `from M import *`:
+    any name read through it may be one it bound, so a lint must count such a read as unresolved."""
+
+    def __init__(self, tree):
+        self.root = tree
+        self.parent = {}  # scope -> the scope it sits in
+        self.scope = {id(tree): tree}  # id(node) -> the scope NODE is evaluated in
+        self.binds = {tree: collections.Counter()}
+        self.globals, self.nonlocals = {}, {}
+        self._declare(tree, tree)  # before any binding: a declaration covers its whole scope
+        self.star = {}
+        self.walrus = set()  # id() of a walrus target
+        self._outside = []  # (scope, name) bound through nonlocal: counted where it lands, once all scopes are known
+        self._walk(tree, tree)
+        for scope, name in self._outside:
+            self.binds[self._enclosing_function(scope, name) or self.root][name] += 1
+
+    def _declare(self, node, scope):
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.Global):
+                self.globals.setdefault(scope, set()).update(child.names)
+            elif isinstance(child, ast.Nonlocal):
+                self.nonlocals.setdefault(scope, set()).update(child.names)
+            inner = child if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) else scope
+            self._declare(child, inner)
+
+    def _enclosing_function(self, scope, name):
+        """The nearest function around SCOPE (a class skipped) that binds NAME, for SCOPE's `nonlocal NAME`."""
+        s = self.parent.get(scope)
+        while s is not None and s is not self.root:
+            if isinstance(s, FUNCTION_SCOPES) and (self.binds[s][name] or name in self.nonlocals.get(s, ())):
+                return s if name not in self.nonlocals.get(s, ()) else self._enclosing_function(s, name)
+            s = self.parent.get(s)
+        return None
+
+    def _enter(self, node, outer):
+        self.parent[node] = outer
+        self.binds[node] = collections.Counter()
+
+    def _bind(self, scope, name):
+        if name in self.globals.get(scope, ()):
+            self.binds[self.root][name] += 1
+        elif name in self.nonlocals.get(scope, ()):
+            self._outside.append((scope, name))
+        else:
+            self.binds[scope][name] += 1
+
+    def _walk(self, node, scope):
+        for child in ast.iter_child_nodes(node):
+            self.scope[id(child)] = scope
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                self._bind(scope, child.name)
+                outer = list(child.decorator_list)
+                if isinstance(child, ast.ClassDef):
+                    outer += child.bases + [k.value for k in child.keywords]
+                else:
+                    outer += self._outer_of_args(child.args) + ([child.returns] if child.returns else [])
+                for o in outer:
+                    self.scope[id(o)] = scope
+                    self._walk_one(o, scope)
+                self._enter(child, scope)
+                if not isinstance(child, ast.ClassDef):
+                    self._bind_args(child, child.args)
+                for stmt in child.body:
+                    self.scope[id(stmt)] = child
+                    self._walk_one(stmt, child)
+            elif isinstance(child, ast.Lambda):
+                for o in self._outer_of_args(child.args):
+                    self.scope[id(o)] = scope
+                    self._walk_one(o, scope)
+                self._enter(child, scope)
+                self._bind_args(child, child.args)
+                self.scope[id(child.body)] = child
+                self._walk_one(child.body, child)
+            elif isinstance(child, COMPREHENSIONS):
+                first = child.generators[0].iter
+                self.scope[id(first)] = scope
+                self._walk_one(first, scope)
+                self._enter(child, scope)
+                for i, gen in enumerate(child.generators):
+                    for part in [gen.target] + ([gen.iter] if i else []) + gen.ifs:
+                        self.scope[id(part)] = child
+                        self._walk_one(part, child)
+                for part in ([child.key, child.value] if isinstance(child, ast.DictComp) else [child.elt]):
+                    self.scope[id(part)] = child
+                    self._walk_one(part, child)
+            else:
+                self._note(child, scope)
+                self._walk(child, scope)
+
+    def _walk_one(self, node, scope):
+        """NODE itself in SCOPE (a def, class, lambda or comprehension opens its own scope), then what is inside."""
+        self._walk(_Holder(node), scope)
+
+    @staticmethod
+    def _outer_of_args(a):
+        out = a.defaults + [d for d in a.kw_defaults if d]
+        for arg in a.posonlyargs + a.args + a.kwonlyargs + [a.vararg, a.kwarg]:
+            if arg is not None and arg.annotation is not None:
+                out.append(arg.annotation)
+        return out
+
+    def _bind_args(self, scope, a):
+        for arg in a.posonlyargs + a.args + a.kwonlyargs + [a.vararg, a.kwarg]:
+            if arg is not None:
+                self._bind(scope, arg.arg)
+
+    def _note(self, node, scope):
+        """Record what NODE itself binds or declares in SCOPE."""
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            target = scope
+            if isinstance(scope, COMPREHENSIONS) and id(node) in self.walrus:
+                while isinstance(target, COMPREHENSIONS):
+                    target = self.parent[target]  # PEP 572: a walrus in a comprehension binds outside it
+            self._bind(target, node.id)
+        elif isinstance(node, ast.NamedExpr):
+            self.walrus.add(id(node.target))
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            self._bind(scope, node.name)
+        elif isinstance(node, ast.alias):
+            if node.name == "*":
+                self.star[scope] = True
+            else:
+                self._bind(scope, (node.asname or node.name).split(".")[0])
+        elif isinstance(node, (ast.MatchAs, ast.MatchStar)) and node.name:
+            self._bind(scope, node.name)
+        elif isinstance(node, ast.MatchMapping) and node.rest:
+            self._bind(scope, node.rest)
+
+    def scope_of(self, node):
+        return self.scope.get(id(node), self.root)
+
+    def owner(self, node, name):
+        """The scope whose binding a read of NAME at NODE sees, or None."""
+        scope, first = self.scope_of(node), True
+        while scope is not None:
+            if not first and isinstance(scope, ast.ClassDef):
+                scope = self.parent.get(scope)  # a class body is not seen from a scope inside it
+                continue
+            if name in self.globals.get(scope, ()):
+                return self.root if self.binds[self.root][name] else None
+            if name in self.nonlocals.get(scope, ()):
+                return self._enclosing_function(scope, name)
+            if self.binds[scope][name]:
+                return scope
+            scope, first = self.parent.get(scope), False
+        return None

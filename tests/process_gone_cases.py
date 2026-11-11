@@ -109,6 +109,18 @@ class TheScannerFindsTheForms(unittest.TestCase):
                "def test_b():\n    import signal as os\n    def inner():\n        os.kill(p, 0)\n")
         self.assertEqual(self.hits(src), ["test_a", "test_b"])
 
+    def test_a_global_or_nonlocal_declared_after_the_binding_still_applies(self):
+        # review of #4404 (F1): an import bound before a later `global os` stayed local, so the module's os was never
+        # bound and test_b's probe passed. A declaration covers its whole scope, wherever it sits.
+        rows = [
+            ("global", "def setup():\n    import os\n    global os\ndef test_b():\n    os.kill(p, 0)\n", ["test_b"]),
+            ("nonlocal", "def outer():\n    os = None\n    def setup():\n        from os import kill as os\n"
+                         "        nonlocal os\n    def test_b():\n        os(p, 0)\n", ["outer"]),
+        ]
+        for label, src, want in rows:
+            with self.subTest(label):
+                self.assertEqual(self.hits(src), want)
+
     def test_a_kill_reference_that_escapes_is_flagged_unresolved(self):
         # review of #4398 (F2): a returned getattr(os, "kill") or one stored on an attribute or a class went unseen
         src = ("import os\n"
@@ -405,10 +417,15 @@ class TheHelpers(unittest.TestCase):
     def test_a_group_ps_lists_no_member_of_is_not_gone(self):
         # review of hq#9418 (F1): all([]) is True, so a group that refused signal 0 and that ps listed no member of
         # counted as zombies only, and gone
+        # (and cmux 0d3b4b7e's _live_group_members, where signal 0 reaches the group: no line listed read as no live
+        # member, so gone)
+        import contextlib
         live = subprocess.Popen(["sleep", "60"], start_new_session=True)
         try:
-            with FakePs("exit 0"), RefusesGroupSignalZero():
-                self.assertFalse(group_died(live.pid, within=0.3), "a live group counted as gone")
+            for refuses in (True, False):
+                with self.subTest(eperm=refuses), FakePs("exit 0"), \
+                        (RefusesGroupSignalZero() if refuses else contextlib.nullcontext()):
+                    self.assertFalse(group_died(live.pid, within=0.3), "a live group counted as gone")
         finally:
             live.kill()
             live.wait()
@@ -445,6 +462,30 @@ class TheHelpers(unittest.TestCase):
             for p in (live, proc):
                 p.kill()
                 p.wait()
+
+    def test_a_group_of_zombies_counts_as_died_where_signal_zero_still_reaches_it(self):
+        # cmux#41316: a member SIGKILLed with its parent gone stays a zombie until init reaps it, and signal 0 still
+        # finds its group ("process group outlived the gate" with nothing left running). On Linux nothing refuses
+        # signal 0 here, so True can only come from judging the members.
+        holder, pgid = zombie_group()
+        try:
+            self.assertTrue(group_died(pgid, within=5), "a group of zombies only")
+            self.assertIsNone(holder.poll(), "HOLDER ended, which would have reaped its child")
+        finally:
+            holder.kill()
+            holder.wait()
+            holder.stdout.close()
+
+    def test_a_group_with_a_member_unknown_is_not_gone(self):
+        # a member process_identity cannot tell (UNKNOWN) is never counted as DEAD, so the group is not gone
+        holder, pgid = zombie_group()
+        try:
+            with mock.patch.object(process_gone.process_identity, "status", lambda pid, timeout=None: "unknown"):
+                self.assertFalse(group_died(pgid, within=0.3))
+        finally:
+            holder.kill()
+            holder.wait()
+            holder.stdout.close()
 
     def test_a_group_is_gone_once_its_members_are_reaped(self):
         proc = subprocess.Popen(["sleep", "60"], start_new_session=True)

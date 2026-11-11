@@ -11,15 +11,15 @@ keeps the test's meaning.
     probe(pid)            process_identity.status(): ALIVE, DEAD (exited: gone, or a zombie) or UNKNOWN, now
     died(pid, within)     True once PID is DEAD, within WITHIN seconds
     running(pid)          True when PID is ALIVE now: the check for a process that must survive
-    group_died(pgid, ...) True once no process is left in the group
+    group_died(pgid, ...) True once no live process is left in the group (zombies are not live)
 
 The answers are process_identity's (beside this file): only the kernel's own "no such process" or a zombie state is
 DEAD, and UNKNOWN (a ps that fails, times out or prints nothing for a pid the kernel still has) is never counted as
 DEAD nor as ALIVE: died() keeps waiting through it and running() is False on it. On Linux died() waits on a pidfd;
-elsewhere (macOS: no pidfd, no /proc) it polls status(), so a zombie counts there too. A group's zombies count as
-members until they are reaped, so group_died() waits for the reap, except where signal 0 to the group is refused
-(macOS, for a group of zombies only): there a group whose members ps lists, all zombies, is gone, and a group ps lists
-no member of is UNKNOWN. Every ps call is bounded by the time the wait has left (PS_FLOOR at least).
+elsewhere (macOS: no pidfd, no /proc) it polls status(), so a zombie counts there too. A group is gone once signal 0
+finds no such group, or ps lists its members and process_identity says each is DEAD (a group of zombies is gone,
+reaped or not, as macOS's EPERM for it and cmux#41316's orphaned zombies need); a group ps lists no member of, or
+with a member UNKNOWN, is not. Every ps call is bounded by the time the wait has left (PS_FLOOR at least).
 
 Source of truth: leo-workspace tools/process_gone.py. cmuxterm-hq and cmux carry byte copies in tests/, pinned to a
 leo-workspace commit and sha256 in tests/process_gone.pin; change it there, then copy it over. It needs only the
@@ -87,22 +87,39 @@ def running(pid):
     return probe(pid) == ALIVE
 
 
-def _group_states(pgid, timeout):
-    """The one-letter states of process group PGID's members ([] when ps lists none), or None when ps cannot answer
-    within TIMEOUT (PS_FLOOR at least)."""
+def _group_members(pgid, timeout):
+    """The pids ps lists in process group PGID ([] when it lists none), or None when ps cannot answer within TIMEOUT
+    (PS_FLOOR at least)."""
     try:
-        out = subprocess.run(["ps", "-A", "-o", "pgid=,stat="], capture_output=True, text=True,
+        out = subprocess.run(["ps", "-A", "-o", "pid=,pgid="], capture_output=True, text=True,
                              timeout=max(timeout, PS_FLOOR))
     except (OSError, subprocess.SubprocessError):
         return None
     if out.returncode != 0:
         return None
-    return [stat[:1] for g, stat in (line.split(None, 1) for line in out.stdout.splitlines() if len(line.split()) >= 2)
-            if g == str(pgid)]
+    members = []
+    for line in out.stdout.splitlines():
+        fields = line.split()
+        if len(fields) >= 2 and fields[1] == str(pgid) and fields[0].isdigit():
+            members.append(int(fields[0]))
+    return members
+
+
+def _members_dead(pgid, deadline):
+    """True when ps lists at least one member of PGID and process_identity says every one is DEAD (a zombie is
+    DEAD). A ps that cannot answer, a listing with no member of a group the kernel still has, or any member ALIVE or
+    UNKNOWN is not proof, so False."""
+    members = _group_members(pgid, deadline - time.monotonic())
+    if not members:
+        return False
+    return all(probe(pid, deadline - time.monotonic()) == DEAD for pid in members)
 
 
 def group_died(pgid, within=WITHIN):
-    """True once process group PGID has no live member left, within WITHIN seconds."""
+    """True once process group PGID has no live member left, within WITHIN seconds. A zombie is a dead member: one
+    SIGKILLed with its parent gone stays a zombie until init (or a runner's subreaper) reaps it, and signal 0 still
+    finds its group (cmux#41316), and macOS refuses signal 0 with EPERM to a group of zombies only. So when signal 0
+    does not say "no such group", the members ps lists are judged one by one through process_identity."""
     deadline = time.monotonic() + within
     while True:
         try:
@@ -110,12 +127,9 @@ def group_died(pgid, within=WITHIN):
         except ProcessLookupError:
             return True
         except PermissionError:
-            # macOS answers EPERM for a group that holds only zombies (and for another user's group): its members'
-            # states say which. A ps that cannot answer, or lists no member of a group the kernel still has, says
-            # nothing (UNKNOWN), so the group is not gone.
-            states = _group_states(pgid, deadline - time.monotonic())
-            if states and all(s in ("Z", "X") for s in states):
-                return True
+            pass  # macOS, for a group of zombies only (or another user's group): the members say which
+        if _members_dead(pgid, deadline):
+            return True
         if time.monotonic() >= deadline:
             return False
         time.sleep(0.05)
