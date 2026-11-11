@@ -10,8 +10,6 @@ extension ChatsFeed {
     /// (WORKING-AND-LOADING-INDICATORS), whether or not a window shows Chats.
     /// Nil without a local acpmux environment.
     static func started(for services: AppServices) -> ChatsFeed? {
-        // The sidebar's Try pills open through the app's own tabs, with or without acpmux here.
-        SidebarTryOpener.install(services)
         guard let environment = QuitAgents.environment(services) else {
             // The showcase has no acpmux daemon, but the DEBUG pull-request fixture
             // still needs the real sidebar feed to publish its sample badges. With a

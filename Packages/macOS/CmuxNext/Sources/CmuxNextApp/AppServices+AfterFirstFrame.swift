@@ -11,6 +11,8 @@ extension AppServices {
     /// affect the initial layout, but constructing and priming them opens sockets and reads the
     /// chat index on the launch path.
     func startPostFrameFeeds() {
+        // The sidebar's Try pills open through the app's own tabs, with or without acpmux or settings.
+        SidebarTryOpener.install(self)
         guard let settings else { return }
         // An attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) keeps its owner's chat settings.
         let acpmux = QuitAgents.environment(self)

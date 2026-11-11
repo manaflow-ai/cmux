@@ -222,9 +222,15 @@ final class CaptureSceneRegistry {
             if let id = services.showcase.workspaces["infra"] {
                 tries[WorkspaceID(id)] = SidebarTry(label: "Run the demo", command: "make demo", verify: ["It prints 14 passing tests."])
             }
+            if SidebarSessionTree.shared.onTry == nil { SidebarTryOpener.install(services) }
             SidebarSessionTree.shared.captureTries = tries
             SidebarSessionTree.shared.tries = tries
-            return .object(["sidebar": .string("shown"), "tries": .number(Double(tries.count))])
+            let known = services.showcase.workspaces.map { "\($0.key)=\($0.value)" }.sorted()
+            return .object(["sidebar": .string("shown"), "tries": .number(Double(tries.count)),
+                            "opener": .bool(SidebarSessionTree.shared.onTry != nil),
+                            "showcase": .array(known.map(CmuxNextSettings.JSONValue.string)),
+                            "window_members": .array((services.windows.active.map { services.windows.registry.members(of: $0.state.id) } ?? [])
+                                .map(CmuxNextSettings.JSONValue.string))])
         case "settings":
             return await DebugAgentPane.handle(["action": .string("open_menu"), "label": .string("Effort")], services)
         case "history-narrow":
