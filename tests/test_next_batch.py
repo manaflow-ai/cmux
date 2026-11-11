@@ -695,7 +695,8 @@ class BaseReds(unittest.TestCase):
             {"id": 8, "name": "cmux app scheme compile (Debug)", "conclusion": "failure", "steps": steps},
         ]}
         controller.gh.gh.return_value = log_of(text)
-        self.assertEqual(controller.failing_on_base("b" * 40), {"cmux app scheme compile (Debug): error error: x"})
+        self.assertEqual(controller.failing_on_base("b" * 40), {"cmux app scheme compile (Debug): error error: x",
+                                                              "cmux app scheme compile (Debug): step Build"})
         self.assertIn("event=push", controller.gh.runs.call_args_list[0].args[1])
 
     def test_without_a_probe_the_newest_base_tier_run_stands_in_for_its_jobs(self):
@@ -714,7 +715,8 @@ class BaseReds(unittest.TestCase):
                      "conclusion": "failure", "steps": steps}]}
         controller.gh.api.side_effect = lambda route, **_: {"jobs": jobs[int(route.split("/runs/")[1].split("/")[0])]}
         controller.gh.gh.return_value = log_of(text)
-        self.assertEqual(controller.failing_on_base("b" * 40), {"cmux-next daemon tests: error error: y"})
+        self.assertEqual(controller.failing_on_base("b" * 40),
+                         {"cmux-next daemon tests: error error: y", "cmux-next daemon tests: step Build"})
         listed = controller.gh.runs.call_args_list[1].args[1]
         # Review of this change: where the base's own push run has a verdict for the job (coalescing off, or
         # a push that kept its scheme compile), an older base tier red is not inherited.
@@ -745,7 +747,8 @@ class BaseReds(unittest.TestCase):
         controller.gh.api.side_effect = lambda route, **_: {"jobs": jobs[int(route.split("/runs/")[1].split("/")[0])]}
         controller.gh.gh.return_value = log_of(text)
         # The daemon red is the older run's; generated files passed in the newest run, so its older red is not.
-        self.assertEqual(controller.failing_on_base("b" * 40), {"cmux-next daemon tests: error error: y"})
+        self.assertEqual(controller.failing_on_base("b" * 40),
+                         {"cmux-next daemon tests: error error: y", "cmux-next daemon tests: step Build"})
 
     def test_cancelled_base_tier_runs_never_count_toward_the_lookback(self):
         # The base tier kick cancels superseded base tier runs before a Mac job starts; more of them than
@@ -762,7 +765,8 @@ class BaseReds(unittest.TestCase):
                 2: [{"id": 8, "name": "cmux-next daemon tests", "conclusion": "failure", "steps": steps}]}
         controller.gh.api.side_effect = lambda route, **_: {"jobs": jobs[int(route.split("/runs/")[1].split("/")[0])]}
         controller.gh.gh.return_value = log_of(text)
-        self.assertEqual(controller.failing_on_base("b" * 40), {"cmux-next daemon tests: error error: y"})
+        self.assertEqual(controller.failing_on_base("b" * 40),
+                         {"cmux-next daemon tests: error error: y", "cmux-next daemon tests: step Build"})
 
     def test_a_stack_waits_once_for_the_bases_own_tree_run(self):
         controller = self.controller()
@@ -857,9 +861,11 @@ class BaseReds(unittest.TestCase):
                 "2026-10-19T03:02:21.5Z ##[error]Process completed with exit code 1."]) + "\n")
 
         controller.gh.api.return_value = {"jobs": [
-            {"id": 8, "name": "cmux-next swift test", "conclusion": "failure", "steps": steps}]}
+            {"id": 9, "name": "cmux-next swift test", "conclusion": "failure", "steps": steps}]}
         controller.gh.gh.return_value = run("Old")
         base = set(controller.failed_jobs(1, detail=True))
+        controller.gh.api.return_value = {"jobs": [
+            {"id": 8, "name": "cmux-next swift test", "conclusion": "failure", "steps": steps}]}
         controller.gh.gh.return_value = run("New")
         stack = set(controller.failed_jobs(2, detail=True))
         self.assertTrue(stack - base, f"a new failure read as inherited: head {stack}, base {base}")
