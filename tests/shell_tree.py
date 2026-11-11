@@ -18,10 +18,13 @@ is. scan_file() reads a shell file or a workflow's run block whole, so a here-do
 holds every review fixture, corpus() the shapes they missed, FILES whole files, and bash_writes() the differential
 check: what bash does with a fixture, beside what the tree reads in it.
 
-This file is the same, byte for byte, in manaflow-ai/cmux tests/, manaflow-ai/cmux-platform test/node/,
-manaflow-ai/cmuxterm-hq tests/ and teamleaderleo/leo-workspace tools/; each repo's noclobber sweep pins its SHA-256.
-Change it in all four at once. Run as a script it reads a JSON list of strings on stdin and prints the list of their
-scan_text(code(...)) (cmux-platform's TypeScript sweep runs it so); --corpus, --file-corpus, --files, --unparsed and
+The source is teamleaderleo/leo-workspace tools/shell_tree.py: change it there, and only there. manaflow-ai/cmux tests/,
+manaflow-ai/cmux-platform test/node/ and manaflow-ai/cmuxterm-hq tests/ vendor it byte for byte, each with a
+shell_tree.pin beside it naming the leo-workspace commit it was copied from and its SHA-256; each repo's sweep checks
+its copy against that pin, and leo-workspace's VendoredCopies test checks each copy against this file at that commit.
+
+Run as a script it reads a JSON list of strings on stdin and prints the list of their scan_text(code(...))
+(cmux-platform's TypeScript sweep runs it so); --corpus, --file-corpus, --files, --unparsed and
 --bash print corpus(), FILES, each file's scan_file(), each file's unparsed() and each text's bash_writes() as JSON.
 """
 from __future__ import annotations
@@ -71,6 +74,8 @@ WRAPPERS = {
     "setsid": ({"-c", "-f", "-w", "--ctty", "--fork", "--wait"}, set(), set(), 0),
 }
 KEYWORDS = {"!", "{", "}", "if", "then", "else", "elif", "do", "while", "until"}  # time is in WRAPPERS
+# The builtins that read NAME=value in their arguments after quote removal, as env does: export "X"=1 sets X.
+DECLARES = {"export", "declare", "typeset", "local", "readonly"}
 
 
 class Unparsed(Exception):
@@ -683,12 +688,16 @@ def unwrap(argv: list[str], assigned: list | None = None, where: list | None = N
     an env with no command); UNRESOLVED when a wrapper has an option this does not know or an -S string env would
     refuse, so a caller cannot tell what runs and fails closed.
 
-    Each NAME=value word read through goes on ASSIGNED as (index, word, spans): those before the command, after time,
-    and env's (and exec's, as the knob lint reads it); after another wrapper, NAME=value is the command's name. WHERE
-    gets (index, spans) for each word returned. INDEX is the ARGV word it comes from; SPANS is None for that whole
-    word, or for a word of an env -S string, per character the (start, end) range of ARGV[INDEX] it comes from.
-    NAMES holds the indexes of ARGV words that are never NAME=value, whatever their text (a quoted "X"=1)."""
-    argv, k, assigns = list(argv), 0, True
+    Each NAME=value word read through goes on ASSIGNED as (index, word, spans). Where a word is one depends on where
+    it sits, as bash reads it (ASSIGNMENT_WORDS): before the command, and after the time keyword, bash takes NAME=value
+    only with its name unquoted (NAMES holds the indexes of ARGV words that are not, as "X"=1 or X\\_Y=1), so a quoted
+    one is the command's name. env reads its words after quote removal, so any word with a = in it is env's,
+    whatever its quoting: env "X"=1 sets X. A word of env's whose value only a run can tell ("\0", as "$V") with no =
+    may be either, so the command is UNRESOLVED. After exec, and any other wrapper, NAME=value is the command's name.
+    WHERE gets (index, spans) for each word returned. INDEX is the ARGV word it comes from; SPANS is None for that
+    whole word, or for a word of an env -S string, per character the (start, end) range of ARGV[INDEX] it comes
+    from."""
+    argv, k, assigns = list(argv), 0, "shell"
     origin: list = [(i, None) for i in range(len(argv))]
 
     def named(j: int) -> bool:  # an ARGV word NAMES holds, as it is (no word of an -S string)
@@ -710,11 +719,14 @@ def unwrap(argv: list[str], assigned: list | None = None, where: list | None = N
         return True
 
     while k < len(argv):
-        if argv[k] in KEYWORDS or assigns and ASSIGNMENT.match(argv[k]) and not named(k):
+        if assigns == "shell" and (argv[k] in KEYWORDS or ASSIGNMENT.match(argv[k]) and not named(k)) or \
+                assigns == "env" and "=" in argv[k]:
             if assigned is not None and argv[k] not in KEYWORDS:
                 assigned.append((origin[k][0], argv[k], origin[k][1]))
             k += 1
             continue
+        if assigns == "env" and "\0" in argv[k]:
+            return UNRESOLVED  # "$V" may be NAME=value or the command
         base = argv[k].rsplit("/", 1)[-1]
         if base not in WRAPPERS:
             if where is not None:
@@ -725,11 +737,13 @@ def unwrap(argv: list[str], assigned: list | None = None, where: list | None = N
         k += 1
         while k < len(argv):
             opt = argv[k]
-            if base == "env" and (opt == "-" or ASSIGNMENT.match(opt) and not named(k)):
+            if base == "env" and (opt == "-" or "=" in opt and not opt.startswith("-")):
                 if assigned is not None and opt != "-":
                     assigned.append((origin[k][0], opt, origin[k][1]))
                 k += 1  # env's - (as -i) and its NAME=value words
                 continue
+            if "\0" in opt and not opt.startswith("-"):
+                return UNRESOLVED  # "$V": an option, NAME=value or the command, only a run can tell
             if not opt.startswith("-") or opt == "-":
                 break
             k += 1
@@ -739,10 +753,11 @@ def unwrap(argv: list[str], assigned: list | None = None, where: list | None = N
                 key, eq, val = opt.partition("=")
                 if key in ("--help", "--version"):
                     return None
-                names = [o for o in longs if o == key] or [o for o in longs if o.startswith(key)]
-                if len(names) != 1:
+                # Its own name: NAMES is the caller's (manaflow-ai/cmuxterm-hq#9393 review at 52412c22, F2).
+                matches = [o for o in longs if o == key] or [o for o in longs if o.startswith(key)]
+                if len(matches) != 1:
                     return UNRESOLVED
-                key = names[0]
+                key = matches[0]
                 if key == "--split-string":
                     if not eq:
                         if k >= len(argv):
@@ -781,7 +796,9 @@ def unwrap(argv: list[str], assigned: list | None = None, where: list | None = N
                     break
                 if c not in flags:
                     return UNRESOLVED
-        assigns = base in ("time", "env", "exec")  # env reads NAME=value after --, too
+        # bash's time keyword takes NAME=value after it as it does before a command; env reads its own after --, too.
+        # exec's NAME=value is the command's name (manaflow-ai/cmuxterm-hq#9393 review at 52412c22, F1).
+        assigns = "shell" if base == "time" else "env" if base == "env" else None
         k += operands
     return None
 
@@ -791,10 +808,14 @@ class Resolved:
     """What a command runs, read through its wrappers (unwrap()): WORDS, the command's words with its name first (an
     env -S string's words each a Word over the characters of the -S argument it comes from), each one's VALUE (quotes
     removed, "\0" for each part only a run can tell), and the NAME=value words read through (ASSIGNED, each with its
-    value). WORDS is None when it runs nothing, and UNRESOLVED when that cannot be told."""
+    value). WORDS is None when it runs nothing, and UNRESOLVED when that cannot be told. A declaration builtin's
+    (DECLARES) NAME=value arguments are in ASSIGNED too, as it reads them, after quote removal (export "X"=1 sets X);
+    its arguments whose value only a run can tell with no = in it (export "$V") are in UNKNOWN: each may be one. A
+    value whose name has "\0" in it is NAME=value with a name only a run can tell (env $'X'=1)."""
     words: list | None
     values: list
     assigned: list
+    unknown: list = field(default_factory=list)
 
 
 def _value(text: str, word: Word) -> tuple[str, list[tuple[int, int]]]:
@@ -884,7 +905,17 @@ def resolve(text: str, cmd: Command) -> Resolved:
     got = [(at(i, spans), raw) for i, raw, spans in assigned]
     if run is None or run is UNRESOLVED:
         return Resolved(run, [], got)
-    return Resolved([at(i, spans) for i, spans in where], run, got)
+    found = [at(i, spans) for i, spans in where]
+    unknown = []
+    if run[0] in DECLARES:
+        for word, value in zip(found[1:], run[1:]):
+            if value.startswith(("-", "+")) and "=" not in value:
+                continue  # an option: export -n, declare -x, declare +x
+            if "=" in value:
+                got.append((word, value))
+            elif "\0" in value:
+                unknown.append(word)
+    return Resolved(found, run, got, unknown)
 
 
 def assigned_names(text: str) -> list[str]:
@@ -896,7 +927,7 @@ def assigned_names(text: str) -> list[str]:
         for _, raw in run.assigned:
             name = re.sub(r"\[.*$", "", raw.split("=", 1)[0].rstrip("+"))
             out.append("?" if "\0" in name else name)
-        out += ["?"] * len(getattr(run, "unknown", []))
+        out += ["?"] * len(run.unknown)
     return out
 
 
@@ -1297,36 +1328,6 @@ ASSIGNMENT_WORDS = (
     ("time -p X_T=0 cmd", ["X_T"]),
 )
 
-# Where a NAME=value word sets NAME, as bash reads it: (text, the names it sets, "?" for one whose name only a run can
-# tell). Each row is what bash did with it (teamleaderleo/leo-workspace#4382 review at 311cf8e9, F1), and the
-# sweep's test runs bash on each to keep it so: before the command, bash takes NAME=value only with its name
-# unquoted, so "X"_Y=0 cmd runs a command named X_Y=0; env and the declaration builtins (DECLARES) read their
-# words after quote removal, so env "X"_Y=0 cmd and export X_"Y"=0 set X_Y. After exec, NAME=value is the command.
-ASSIGNMENT_WORDS = (
-    ("X_TIMEOUT=0 cmd", ["X_TIMEOUT"]),
-    ('"X_TIMEOUT"=0 cmd', []),
-    ('X_"TIMEOUT"=0 cmd', []),
-    ('"X"_Y=0 cmd', []),
-    ("X\\_Y=0 cmd", []),
-    ("$'X'=0 cmd", []),
-    ('env "X_TIMEOUT"=0 cmd', ["X_TIMEOUT"]),
-    ('env X_"TIMEOUT"=0 cmd', ["X_TIMEOUT"]),
-    ('env "X"_Y=0 cmd', ["X_Y"]),
-    ("env X\\_Y=0 cmd", ["X_Y"]),
-    ("env $'X'=0 cmd", ["?"]),
-    ('env -u HOME -- "X_T"=0 cmd', ["X_T"]),
-    ('export "X_TIMEOUT"=0; cmd', ["X_TIMEOUT"]),
-    ('export X_"TIMEOUT"=0; cmd', ["X_TIMEOUT"]),
-    ('export "X"_Y=0; cmd', ["X_Y"]),
-    ("export X\\_Y=0; cmd", ["X_Y"]),
-    ("export $'X'=0; cmd", ["?"]),
-    ('declare -x "X_T"=0; cmd', ["X_T"]),
-    ('f() { local -x "X_T"=0; cmd; }; f', ["X_T"]),
-    ('readonly "X_T"=0; export X_T; cmd', ["X_T"]),
-    ("exec X_T=0 cmd", []),
-    ("time -p X_T=0 cmd", ["X_T"]),
-)
-
 
 def _wrappers() -> list[tuple[str, bool]]:
     out = []
@@ -1473,7 +1474,9 @@ FILES = (
 # The differential detector: what bash does with a fixture, beside what the tree reads in it. bash_writes() runs it
 # in a scratch folder of its own; a sweep checks that every fixture bash writes a guessable name with is one the tree
 # flags and the corpus calls unsafe. Real /tmp names are never touched: each /tmp in the text is moved into the folder.
-MKTEMP_WORD = re.compile(r"(?<![\w./-])mktemp(?![\w.-])")
+# mktemp by its name or by any path (/usr/bin/mktemp: manaflow-ai/cmuxterm-hq#9393 review at 52412c22, F4).
+MKTEMP_WORD = re.compile(r"(?<![\w./-])(?:(?:/[\w.-]+)*/)?mktemp(?![\w.-])")
+TMPDIR_WORD = re.compile(r"(?<!\w)TMPDIR(?!\w)")
 TMP_PATH = re.compile(r"(?<![\w.])(?:/private)?/tmp(?![\w.-])")
 MKTEMP = """#!/bin/sh
 out=$(TMPDIR=%s %s "$@") || exit $?
@@ -1497,6 +1500,77 @@ MAX_BASH_PROCESSES = 48
 PROCESS_BUDGET = 64
 
 
+# Runs bash (argv[3:]) in a session of its own, writes its pid to argv[2], and waits for it and every process it
+# leaves: as the child subreaper (Linux), every orphan of the run is its child, a setsid one included, so it waits
+# until none is left. Past argv[1] seconds it kills every process below it, and exits 124. Elsewhere it kills bash's
+# process group and what /proc or ps shows below it.
+REAPER = r"""
+import ctypes, os, signal, subprocess, sys, time
+deadline = time.monotonic() + float(sys.argv[1])
+try:
+    ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0)  # PR_SET_CHILD_SUBREAPER
+except (AttributeError, OSError):
+    pass
+signal.pthread_sigmask(signal.SIG_BLOCK, [signal.SIGCHLD])
+bash = subprocess.Popen(sys.argv[3:], start_new_session=True)
+with open(sys.argv[2], "w") as f:
+    f.write(str(bash.pid))
+
+
+def below():
+    kids = {}
+    if os.path.isdir("/proc/self"):
+        for d in os.listdir("/proc"):
+            try:
+                with open("/proc/" + d + "/stat") as f:
+                    kids.setdefault(int(f.read().rsplit(")", 1)[1].split()[1]), []).append(int(d))
+            except (OSError, ValueError, IndexError):
+                continue
+    else:
+        ps = subprocess.run(["ps", "-Ao", "pid=,ppid="], stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                            timeout=10)
+        for line in ps.stdout.split("\n"):
+            if len(line.split()) == 2:
+                kids.setdefault(int(line.split()[1]), []).append(int(line.split()[0]))
+    out, todo = [], [os.getpid()]
+    while todo:
+        for pid in kids.get(todo.pop(), []):
+            out.append(pid)
+            todo.append(pid)
+    return out
+
+
+def reap(block):
+    try:
+        while os.waitpid(-1, 0 if block else os.WNOHANG)[0]:
+            block = False
+        return True
+    except ChildProcessError:
+        return False
+
+
+while reap(False):
+    left = deadline - time.monotonic()
+    if left <= 0:
+        try:
+            os.killpg(bash.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        while True:
+            for pid in below():
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except OSError:
+                    pass
+            if not reap(True):
+                os._exit(124)
+    signal.sigtimedwait([signal.SIGCHLD], min(left, 0.05))
+os._exit(0)
+"""
+# How long past its own deadline the reaper may take to stop before its own group is killed.
+REAPER_GRACE = 5
+
+
 class BashTimeout(RuntimeError):
     """A bash run past its time; its process group (PGID) is killed, and the message names the fixture."""
 
@@ -1516,8 +1590,11 @@ def bash_writes(text: str, timeout: float = 10, stats: dict | None = None) -> bo
     """Whether bash, running TEXT in a scratch folder (each /tmp in it moved there; PATH a folder of its own, whose
     mktemp makes its names there and logs them; TMPDIR unset, so ${TMPDIR:-...} defaults run), creates a file or folder
     no mktemp made; None when bash -n refuses TEXT or it would hold more than MAX_BASH_PROCESSES at once. Bash reads
-    no stdin (it is /dev/null). Past TIMEOUT its whole process group is killed and BashTimeout names TEXT. STATS, when
-    given, gets "runs" (0 or 1) and "peak": the most processes bash's session held when a mktemp ran (on Linux)."""
+    no stdin (it is /dev/null). TMPDIR is a folder of the run's own, so a mktemp that is not the fake makes its name
+    there, never in the real temp folder; the script's own TMPDIR is another name, still unset. Bash runs under REAPER,
+    which waits for every process the run leaves; past TIMEOUT it kills each one, a setsid one included
+    (manaflow-ai/cmuxterm-hq#9393 review at 52412c22, F3), and BashTimeout names TEXT. STATS, when given, gets "runs"
+    (0 or 1) and "peak": the most processes bash's session held when a mktemp ran (on Linux)."""
     if stats is not None:
         stats.update(runs=0, peak=0)
     if bash_processes(text) > MAX_BASH_PROCESSES:
@@ -1537,37 +1614,42 @@ def bash_writes(text: str, timeout: float = 10, stats: dict | None = None) -> bo
         with open(os.path.join(bindir, "mktemp"), "w") as f:
             f.write(MKTEMP % (tmp, shutil.which("mktemp"), log))
         os.chmod(os.path.join(bindir, "mktemp"), 0o700)
-        for tool in ("cat", "cp", "mkdir", "touch", "tee", "env", "nice", "nohup", "timeout", "stdbuf", "setsid"):
+        # bash and sh too, so a fixture that runs a shell inside a shell runs (manaflow-ai/cmux-platform#1274 review,
+        # F1): env -S "bash -c '...'" failed before it ran, so the differential check never saw it.
+        for tool in ("cat", "cp", "mkdir", "touch", "tee", "env", "nice", "nohup", "timeout", "stdbuf", "setsid",
+                     "bash", "sh"):
             os.symlink(shutil.which(tool), os.path.join(bindir, tool))
         open(os.path.join(work, "a"), "w").close()
         # Each mktemp is the fake by its own path, so env -i and command -p (the default PATH) never reach the real
         # one, which would make its name in the real temp folder (teamleaderleo/leo-workspace#4368 at cfd7897e, F4).
-        script = MKTEMP_WORD.sub(os.path.join(bindir, "mktemp"), TMP_PATH.sub(tmp, text))
+        script = TMPDIR_WORD.sub("SHELL_TREE_TMPDIR",
+                                 MKTEMP_WORD.sub(os.path.join(bindir, "mktemp"), TMP_PATH.sub(tmp, text)))
         if TMP_PATH.search(script.replace(root, "")) or "umask" in script:
             raise ValueError("a /tmp path or a umask is left in the script: " + script)
         with open(os.path.join(root, "script"), "w") as f:
             f.write(script)
-        env = {"PATH": bindir, "HOME": root, "USER": "u", "LC_ALL": "C"}
+        env = {"PATH": bindir, "HOME": root, "USER": "u", "LC_ALL": "C", "TMPDIR": tmp}
         peak_log = os.path.join(root, "peak")
         if stats is not None:
             env["SHELL_TREE_PEAK"] = peak_log
-        # Reading its output to the end waits for every process that holds it, process substitutions included; on
-        # the timeout the whole process group is stopped.
-        run = subprocess.Popen([bash, "--noprofile", "--norc", os.path.join(root, "script")], cwd=work, env=env,
-                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        # The reaper waits for every process the run leaves, process substitutions and setsid ones included, and
+        # past TIMEOUT kills them all. Its own group is killed if it outlives that by REAPER_GRACE.
+        pidfile = os.path.join(root, "pid")
+        run = subprocess.Popen([sys.executable, "-I", "-S", "-c", REAPER, str(timeout), pidfile, bash, "--noprofile",
+                                "--norc", os.path.join(root, "script")], cwd=work, env=env,
+                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                start_new_session=True, umask=0o022)
-        pgid = run.pid  # start_new_session: bash leads a group of its own, and only that group is killed
         if stats is not None:
             stats["runs"] = 1
         try:
-            run.communicate(timeout=timeout)
+            code = run.wait(timeout=timeout + REAPER_GRACE)
         except subprocess.TimeoutExpired:
-            try:
-                os.killpg(pgid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            run.communicate()
-            raise BashTimeout(text, timeout, pgid) from None
+            os.killpg(run.pid, signal.SIGKILL)
+            run.wait()
+            code = 124
+        if code == 124:
+            with open(pidfile) as f:
+                raise BashTimeout(text, timeout, int(f.read() or 0)) from None
         if stats is not None and os.path.exists(peak_log):
             with open(peak_log) as f:
                 stats["peak"] = max((int(n) for n in f.read().split()), default=0)
