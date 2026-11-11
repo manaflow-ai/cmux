@@ -249,7 +249,8 @@ fn an_event_on_an_unchanged_store_reads_nothing() {
     let changes = index.paths_changed(&wal(&codex));
     let read = thread_read_bytes() - before;
 
-    assert_eq!(read, 0, "read {read} bytes with nothing written");
+    // The counter's own read of `/proc` is all that may show; a store read is megabytes.
+    assert!(read < 1_024, "read {read} bytes with nothing written");
     assert!(changes.is_empty());
 }
 
