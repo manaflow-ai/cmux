@@ -75,13 +75,21 @@ pub(super) fn connect_and_attach(
     slot.lock().unwrap_or_else(|e| e.into_inner()).session = Some(resolved.clone());
     // Session status changes (`_acpmux/session_changed`) come only to
     // watchers; the reader keeps only this session's and its descendants'.
-    // The answer (every session's summary) never reaches the client: only
-    // the descendants it names are followed from now on.
-    let mut watch = json!({"enabled": true});
+    // The watch turns them on with a one-row page, then this machine's own
+    // list names the descendants (a peer's session is never one,
+    // `agent_session_children::descendants`). A whole watch answered every
+    // peer's sessions too: 31 MB on a Mac that mirrors ~10,000, on each attach.
+    // The list never reaches the client: only the descendants it names are
+    // followed from now on.
+    let mut watch = json!({"enabled": true, "limit": 1});
+    let mut own = json!({"localOnly": true});
     if let Some(author) = &author {
         watch.set_path(&["_meta", "acpmux", "author"], author.clone());
+        own.set_path(&["_meta", "acpmux", "author"], author.clone());
     }
-    let watched = link.call_whole_list("_acpmux/watch", watch, CALL_TIMEOUT);
+    let watched = link
+        .call("_acpmux/watch", watch, CALL_TIMEOUT)
+        .and_then(|_| link.call_whole_list("_acpmux/sessions", own, CALL_TIMEOUT));
     // A list read whole from bad pages would follow only some of the session's descendants,
     // and lose the changes of the rest; the client attaches again instead.
     if let Err(LinkError::BadList(_)) = &watched {
