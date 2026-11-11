@@ -16,6 +16,9 @@ export type PasteProbeOptions = {
   /// which an id (a UUID) shows as text the person can see is reported (issue 41016's second part).
   send?: boolean;
   watchMs?: number;
+  /// Waits for the person's own paste (a real Cmd-V, `debug.key {target: "page"}`) instead of making
+  /// one, so the engine's read of the pasteboard counts too: times from the key down.
+  real?: boolean;
   /// The last probe's result (or `{running: true}`), without starting one: a page call has only a
   /// few seconds to answer (CEF's DevTools evaluate), less than a probe takes.
   read?: boolean;
@@ -100,6 +103,8 @@ async function screenshot({ width = 3456, height = 2234, kind = "text" }: PasteP
   return new File([blob], "image.png", { type: "image/png" });
 }
 
+const readyImages = () => [...document.querySelectorAll<HTMLImageElement>(READY_IMG)];
+
 const since = (start: number) => Math.round(performance.now() - start);
 
 async function timed<T>(work: () => Promise<T>): Promise<number> {
@@ -126,17 +131,19 @@ export function pasteProbe(options: PasteProbeOptions): PasteProbeResult {
 async function runProbe(options: PasteProbeOptions): Promise<PasteProbeResult> {
   const prompt = document.querySelector<HTMLElement>(PROMPT);
   if (!prompt) return { error: "no composer prompt" };
-  const file = await screenshot(options);
-  const result: PasteProbeResult = { bytes: file.size };
+  const file = options.real ? undefined : await screenshot(options);
+  const result: PasteProbeResult = file ? { bytes: file.size } : {};
   const marks = await new Promise<Record<string, number>>((resolve) => {
-    const start = performance.now();
     const found: Record<string, number> = {};
+    let start = performance.now();
+    // Chips and tiles from an earlier paste are not this one's.
+    const before = { tiles: document.querySelectorAll(LOADING).length, ready: readyImages().length };
     let stall = 0;
-    let last = start;
+    let beatAt = start;
     const beat = window.setInterval(() => {
       const now = performance.now();
-      stall = Math.max(stall, now - last);
-      last = now;
+      stall = Math.max(stall, now - beatAt);
+      beatAt = now;
     }, 4);
     const deadline = window.setTimeout(() => finish(), 30_000);
     const finish = () => {
@@ -146,16 +153,34 @@ async function runProbe(options: PasteProbeOptions): Promise<PasteProbeResult> {
     };
     const check = () => {
       const at = since(start);
-      if (found.tile === undefined && document.querySelector(LOADING)) found.tile = at;
+      if (found.tile === undefined && document.querySelectorAll(LOADING).length > before.tiles) found.tile = at;
       const instant = document.querySelector<HTMLImageElement>(".acpmux-attachment-instant");
       if (found.instant === undefined && instant?.complete && instant.naturalWidth) found.instant = at;
-      const ready = document.querySelector<HTMLImageElement>(READY_IMG);
-      if (ready?.complete && ready.naturalWidth) {
+      if (readyImages().filter((image) => image.complete && image.naturalWidth).length > before.ready) {
         found.ready = at;
         finish();
       } else requestAnimationFrame(check);
     };
     prompt.focus();
+    if (!file) {
+      // From the Cmd-V's key down to the page's paste event: the engine's read of the pasteboard.
+      const keyDown = (event: KeyboardEvent) => {
+        if (event.key.toLowerCase() === "v" && event.metaKey) start = performance.now();
+      };
+      window.addEventListener("keydown", keyDown, true);
+      window.addEventListener(
+        "paste",
+        (event) => {
+          window.removeEventListener("keydown", keyDown, true);
+          found.dispatched = since(start);
+          const pasted = event.clipboardData?.files[0];
+          if (pasted) Object.assign(result, { bytes: pasted.size, type: pasted.type });
+          requestAnimationFrame(check);
+        },
+        { capture: true, once: true },
+      );
+      return;
+    }
     const data = new DataTransfer();
     data.items.add(file);
     prompt.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
@@ -163,7 +188,7 @@ async function runProbe(options: PasteProbeOptions): Promise<PasteProbeResult> {
     requestAnimationFrame(check);
   });
   Object.assign(result, marks);
-  if (options.send) {
+  if (options.send && !options.real) {
     const watched = watchIds(options.watchMs ?? 8000);
     // Return in the prompt, with the pasted image in it: the prompt goes as the person's does.
     prompt.focus();
@@ -175,12 +200,14 @@ async function runProbe(options: PasteProbeOptions): Promise<PasteProbeResult> {
     if (ids.length) result.ids = ids.slice(0, 20).join("\n");
   }
   // Each step of that path again, alone, now that the worker is warm.
-  result.preview_ms = await timed(() => prepareImageOffThread(file));
-  result.instant_ms = await timed(() => instantPreview(file));
+  if (file) {
+    result.preview_ms = await timed(() => prepareImageOffThread(file));
+    result.instant_ms = await timed(() => instantPreview(file));
+  }
   // The host's answers the composer asks for on a paste, by the composer's own path.
-  result.dropped_ms = await timed(() => callHost("chat.attach.dropped", { kind: "paste", names: [file.name] }));
+  result.dropped_ms = await timed(() => callHost("chat.attach.dropped", { kind: "paste", names: ["image.png"] }));
   result.source_ms = await timed(() =>
-    callHost("chat.attach.source", { kind: "paste", names: [file.name], gestureAt: Date.now() }),
+    callHost("chat.attach.source", { kind: "paste", names: ["image.png"], gestureAt: Date.now() }),
   );
   return result;
 }
