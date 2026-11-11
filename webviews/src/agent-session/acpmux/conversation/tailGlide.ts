@@ -127,9 +127,9 @@ export type TailGlide = {
 export function createTailGlide(): TailGlide {
   let last: Map<string, { row: HTMLElement; top: number }> | undefined;
   const playing = new Set<Animation>();
-  // The rows a glide moves, and the clip each glide uncovers on the row above it: the two end together.
+  // The rows a glide moves, and the clips each glide uncovers on the rows above it: they end together.
   const gliding = new Set<Element>();
-  const clips = new Map<Animation, Animation>();
+  const clips = new Map<Animation, Animation[]>();
   const stop = () => {
     for (const animation of playing) animation.cancel();
     playing.clear();
@@ -167,7 +167,7 @@ export function createTailGlide(): TailGlide {
         const box = row.getBoundingClientRect();
         if (box.bottom > view.top && box.top < view.bottom) continue;
         animation.cancel();
-        clips.get(animation)?.cancel();
+        for (const clip of clips.get(animation) ?? []) clip.cancel();
       }
     },
     place(thread, glide, anchor, track = true) {
@@ -186,8 +186,9 @@ export function createTailGlide(): TailGlide {
       if (look === "jump") return;
       // Only the rows from the anchor on: what lies above the view's top never shows.
       let below = false;
-      // The row above this one, and where its bottom is drawn as this pass's glides start.
-      let above: { row: HTMLElement; bottom: number } | undefined;
+      // The rows from the anchor down to this one, and where each one's bottom is drawn as this pass's
+      // glides start.
+      const placed: { row: HTMLElement; bottom: number }[] = [];
       const origin = thread.getBoundingClientRect().top;
       // How far from its layout top a row is drawn: a glide from an earlier pass may still carry it.
       const drawnOffset = (row: HTMLElement) =>
@@ -195,8 +196,9 @@ export function createTailGlide(): TailGlide {
       for (const [id, { row, top }] of now) {
         if (id === anchor) below = true;
         if (!below) continue;
-        const prior = above;
-        above = { row, bottom: row.offsetTop + drawnOffset(row) + row.offsetHeight };
+        const above = placed.length;
+        const here = { row, bottom: row.offsetTop + drawnOffset(row) + row.offsetHeight };
+        placed.push(here);
         if (id === anchor) continue;
         const was = before.get(id);
         if (!was || typeof row.animate !== "function") continue;
@@ -213,18 +215,25 @@ export function createTailGlide(): TailGlide {
         });
         keep(animation, row);
         const start = row.offsetTop + drawn - moved;
-        above.bottom = start + row.offsetHeight;
-        // Starting over the row above: cut that row's bottom back to this row's top, uncovered as
-        // this one glides off it. Only its bottom edge: what it draws past its other sides stays.
-        const covered = prior ? prior.bottom - start : 0;
-        if (prior && covered >= MIN_MOVE_PX && typeof prior.row.animate === "function") {
+        here.bottom = start + row.offsetHeight;
+        // Starting over the rows above (the reply's new line and a call that arrived under it, in one
+        // pass): cut each one's bottom back to this row's top, uncovered as this one glides off it.
+        // Only the bottom edge: what a row draws past its other sides stays. The walk stops at the
+        // first row this one does not cover, so it costs only the rows it starts over.
+        const uncovered: Animation[] = [];
+        for (let index = above - 1; index >= 0; index--) {
+          const prior = placed[index]!;
+          const covered = prior.bottom - start;
+          if (covered < MIN_MOVE_PX) break;
+          if (typeof prior.row.animate !== "function") continue;
           const clip = prior.row.animate(
             [{ clipPath: `inset(-100vh -100vw ${covered}px)` }, { clipPath: "inset(-100vh -100vw 0px)" }],
             { duration: ms, easing },
           );
           keep(clip);
-          clips.set(animation, clip);
+          uncovered.push(clip);
         }
+        if (uncovered.length) clips.set(animation, uncovered);
       }
     },
   };

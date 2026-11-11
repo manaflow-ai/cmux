@@ -28,10 +28,10 @@ export const composerHatStepScript = [
   {
     name: "a burst of steps: each lands at once while the last still moves",
     run: async (ctx: PlayContext) => {
+      // Not to the stage's last step: the hat names a bare "Bash" by what it does, not its tool.
       await ctx.click(stage("step"));
       await ctx.click(stage("step"));
-      await ctx.click(stage("step"));
-      await ctx.waitFor(() => latest(ctx) === "Bash");
+      await ctx.waitFor(() => latest(ctx) === "Edit trayMotion.tsx");
     },
   },
 ];
@@ -51,7 +51,7 @@ export default componentEntry<Props>({
       props: { start: "running" },
     },
     play: {
-      note: "One step hands over, then three land back to back.",
+      note: "One step hands over, then two land back to back.",
       props: { start: "running" },
       play: async (ctx: PlayContext) => {
         for (const step of composerHatStepScript) await step.run(ctx);

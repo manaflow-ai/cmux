@@ -100,3 +100,24 @@ test("a row gliding up never cuts the row above it", () => {
   thread.replaceChildren();
   played.length = 0;
 });
+
+test("the reply grows and a call arrives under it in one pass: both are uncovered as the live line glides off them", () => {
+  // Review of #41062 (F2): the live line glides back 48 px, over the call's 28 px and the reply's new 20.
+  row("prompt", 0, 40);
+  const reply = row("reply", 40, 100);
+  const live = row("live", 140, 28);
+  const glide = createTailGlide();
+  glide.place(thread, true, "prompt");
+  boxes.set(reply, { top: 40, height: 120 });
+  const call = row("call", 160, 28);
+  thread.append(live);
+  boxes.set(live, { top: 188, height: 28 });
+  glide.place(thread, true, "prompt");
+  expect(played.find((entry) => entry.node === live)!.keyframes[0]).toEqual({ translate: "0 -48px" });
+  const cut = (node: Element) => played.find((entry) => entry.node === node)?.keyframes[0];
+  expect(cut(call)).toEqual({ clipPath: "inset(-100vh -100vw 48px)" });
+  expect(cut(reply)).toEqual({ clipPath: "inset(-100vh -100vw 20px)" });
+  glide.stop();
+  thread.replaceChildren();
+  played.length = 0;
+});
