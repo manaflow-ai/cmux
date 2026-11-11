@@ -264,3 +264,44 @@ fn a_late_adopt_between_the_close_and_the_group_delete_keeps_the_group_for_the_u
     assert_eq!(group_of(&mux, &keep), json!(other));
     mux.shutdown();
 }
+
+/// The document item of workspace `workspace`, as `sidebar.get` gives it.
+fn item_of(mux: &Arc<Mux>, workspace: &str) -> Option<String> {
+    read(mux, "sidebar.get", json!({}))["items"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|item| item["body"]["ref"]["workspace_id"] == workspace)
+        .and_then(|item| item["id"].as_str().map(str::to_string))
+}
+
+/// The check on `sidebar.adopt` drops the closed ids only. Reopen Closed
+/// makes the workspace again with a new id (a closed id never opens again),
+/// so a reopen can not make the check refuse an open workspace: one adopt
+/// that names the reopened workspace and its closed id places the first and
+/// drops the second.
+#[test]
+fn an_adopt_places_a_reopened_workspace_and_drops_its_closed_id() {
+    let session = Session::new("group-adopt-reopened");
+    let mux = session.open();
+    let keep = empty_workspace(&mux, "keep");
+    let a = empty_workspace(&mux, "a");
+    mutate(&mux, "workspace.close", json!({"workspace": a}), "close-a");
+    let reopened = mutate(&mux, "closed.reopen", json!({}), "reopen-a");
+    let back = reopened["workspace_id"].as_str().expect("a workspace was reopened").to_string();
+    assert_ne!(back, a, "Reopen Closed gives the workspace a new id");
+
+    // The document lacks the open workspace (the case `adopt` is for).
+    let item = item_of(&mux, &back).expect("the reopened workspace has an item");
+    send(&mux, "sidebar.item.remove", json!({"id": item}), Some("remove-back"))
+        .unwrap_or_else(|error| panic!("sidebar.item.remove failed: {error:?}"));
+    assert!(!placed(&mux).contains(&json!(back)), "the document lacks the open workspace");
+
+    adopt_late(&mux, &[&a, &back], "adopt-both");
+
+    let shown = placed(&mux);
+    assert!(shown.contains(&json!(back)), "the open workspace is placed again: {shown:?}");
+    assert!(!shown.contains(&json!(a)), "its closed id is not placed: {shown:?}");
+    assert!(shown.contains(&json!(keep)), "{shown:?}");
+    mux.shutdown();
+}
