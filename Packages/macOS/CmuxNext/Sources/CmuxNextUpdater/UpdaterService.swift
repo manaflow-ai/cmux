@@ -126,6 +126,12 @@ public final class UpdaterService {
     /// The running bundle's keep for rollback (``keepRunningBuildForRollback()``).
     @ObservationIgnored var keptRunningBuild: KeepState?
     @ObservationIgnored var keepTask: Task<Void, Never>?
+    /// A rollback's swap is done and its quit runs: the quit cancels a staged update instead of
+    /// installing it (``prepareForQuit()``), which would relaunch forward (cmux#41013 review F2).
+    @ObservationIgnored var rollbackQuitPending = false
+    /// Runs its closure once when the next quit is refused (set by the App: the quit dialog's
+    /// Cancel). A rollback's quit uses it to put the running build back (``UpdateDropBack``).
+    @ObservationIgnored public var onNextQuitRefused: ((@escaping @MainActor () -> Void) -> Void)?
     /// Takes the windows off the screen as Sparkle commits to a relaunch the
     /// person asked for (set by the App: ``UpdateWindowHandoff/hide()``), not
     /// at the click. ``installAbandoned`` undoes it when the install ends

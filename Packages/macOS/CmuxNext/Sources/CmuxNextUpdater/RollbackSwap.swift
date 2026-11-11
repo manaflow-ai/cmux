@@ -46,6 +46,40 @@ nonisolated public struct RollbackSwap {
         return current
     }
 
+    /// Puts the build that was running back in place after a rollback's quit was refused (a quit
+    /// dialog's Cancel; cmux#41013 review F3). The app goes on running, so its own bundle must be
+    /// the one on disk again. The kept build goes back to the store with its record (`targetRecord`,
+    /// read before the swap), so Go back offers it as before.
+    public static func undo(current: URL, runningBuild: String, target: KeptVersion, targetRecord: KeptRecord?,
+                            store: KeptVersionStore) throws {
+        let files = FileManager.checked
+        let name = current.lastPathComponent, folder = current.deletingLastPathComponent()
+        let keptRunningFolder = store.root.appending(path: runningBuild, directoryHint: .isDirectory)
+        let keptRunning = keptRunningFolder.appending(path: name, directoryHint: .isDirectory)
+        // 1. The running build's copy (kept at the click) comes out of the store, beside the app.
+        let staged = folder.appending(path: "\(stagedPrefix)\(runningBuild)-\(UUID().uuidString)-\(name)", directoryHint: .isDirectory)
+        try files.moveItem(at: keptRunning, to: staged)
+        // 2. Atomic swap back. The kept build waits beside the app under a staged name until step 3,
+        // so a crash between the two leaves it where `recover(current:store:)` puts it back.
+        let backup = "\(stagedPrefix)\(target.build)-\(UUID().uuidString)-\(name)"
+        do {
+            try Self.retryingInterrupted {
+                _ = try files.replaceItemAt(current, withItemAt: staged, backupItemName: backup,
+                                            options: [.usingNewMetadataOnly, .withoutDeletingBackupItem])
+            }
+        } catch {
+            try? files.moveItem(at: staged, to: keptRunning)
+            throw error
+        }
+        // 3. The kept build goes back to its folder in the store, with its record.
+        let home = target.bundle.deletingLastPathComponent()
+        try files.createDirectory(at: home, withIntermediateDirectories: true)
+        try files.moveItem(at: folder.appending(path: backup, directoryHint: .isDirectory), to: target.bundle)
+        if let targetRecord { try? targetRecord.save(to: home.appending(path: KeptVersionStore.recordName)) }
+        // 4. The running build is running again: its copy's folder (only its record now) goes.
+        try? files.removeItem(at: keptRunningFolder)
+    }
+
     /// The kept bundle changed after the click checked it; nothing was swapped.
     struct Changed: Error, CustomStringConvertible {
         let build: String

@@ -20,6 +20,35 @@ nonisolated public struct RollbackInputs: Sendable {
     }
 }
 
+/// What a rollback's swap changed, so a refused quit can put it back
+/// (``UpdaterService/undoRollbackSwap(_:)``).
+struct RollbackSwapped {
+    let target: KeptVersion
+    /// The kept build's record, read before the swap removed its folder.
+    var targetRecord: KeptRecord?
+    /// The skip and picked build before the swap.
+    let skip: String?
+    let picked: String?
+}
+
+/// The keep's end or the quit's limit, whichever comes first (``UpdaterService/prepareForQuitAfterKeep(limit:)``).
+@MainActor
+final class KeepRace {
+    var continuation: CheckedContinuation<Void, Never>?
+    let timer = DemandTimer(owner: "UpdaterService.quitKeepLimit")
+    func finish() {
+        timer.cancel()
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
+/// A staged update waits that this app cannot cancel: a rollback would quit into it.
+struct StagedUpdateWaits: Error, CustomStringConvertible {
+    let build: String
+    var description: String { "the staged update \(build) would install as cmux quits" }
+}
+
 /// Where the running bundle's keep for rollback is.
 enum KeepState {
     case running, kept
@@ -159,21 +188,74 @@ extension UpdaterService {
     /// ``rollbackDecision`` allows it, and stops offering the build left behind. The swap runs on
     /// the files lane (it clones the running bundle). The caller relaunches
     /// (``UpdateDropBack/run(to:checkOnly:stateDirectories:)``).
-    func swapForRollback(to build: String?, inputs: RollbackInputs) async throws -> KeptVersion {
+    func swapForRollback(to build: String?, inputs: RollbackInputs) async throws -> RollbackSwapped {
         let target = try rollbackDecision(to: build, inputs: inputs).get()
         UpdateDropBack.mark("revert.decided")
+        // A staged update would install as the quit ends and relaunch forward (cmux#41013 review
+        // F2): it is cancelled first, and a rollback does not run while one it cannot cancel waits.
+        if let staged = stagedBuild(), !staged.isEmpty {
+            guard cancelStaged() else { throw StagedUpdateWaits(build: staged) }
+            log.append("rollback: cancelled the staged update \(staged), so the quit does not install it")
+        }
         revert = RevertProgress(step: .swapping, target: target.build, label: RevertTarget(kept: target).label)
         let bundle = Bundle.main.bundleURL, current = identity.build, store = keptVersions
         let limit = preferences.keepPreviousVersions, record = runningRecord()
-        try await work.run(.userVisible, mayBlock: .files) {
+        let swapped = RollbackSwapped(target: target, skip: defaults.string(forKey: Self.skipsBuildsThroughKey),
+                                      picked: defaults.string(forKey: Self.pickedBuildKey))
+        let targetRecord = try await work.run(.userVisible, mayBlock: .files) { () -> KeptRecord? in
+            let targetRecord = KeptRecord.read(from: target.bundle.deletingLastPathComponent().appending(path: KeptVersionStore.recordName))
             try RollbackSwap.perform(current: bundle, currentBuild: current, target: target, store: store, limit: limit, record: record)
+            return targetRecord
         }
         UpdateDropBack.mark("revert.swapped")
         defaults.set(identity.build, forKey: Self.skipsBuildsThroughKey)
         defaults.set(target.build, forKey: Self.pickedBuildKey)
         controller?.skipsBuildsThrough = identity.build
         log.append("rolled back \(identity.build) -> \(target.build)")
-        return target
+        return RollbackSwapped(target: target, targetRecord: targetRecord, skip: swapped.skip, picked: swapped.picked)
+    }
+
+    /// The rollback's quit was refused (cmux#41013 review F3): the running build goes back in place,
+    /// the kept build back to the store, and the skip and picked build back to what they were, so
+    /// cmux runs on as before the click. False when the swap back failed (the next launch opens
+    /// the kept build).
+    func undoRollbackSwap(_ swapped: RollbackSwapped) async -> Bool {
+        let bundle = Bundle.main.bundleURL, running = identity.build, store = keptVersions
+        do {
+            try await work.run(.userVisible, mayBlock: .files) {
+                try RollbackSwap.undo(current: bundle, runningBuild: running, target: swapped.target,
+                                      targetRecord: swapped.targetRecord, store: store)
+            }
+        } catch {
+            log.append("rollback: the quit was refused, and \(running) could not be put back: \(error); \(swapped.target.build) opens on the next launch")
+            return false
+        }
+        for (key, value) in [(Self.skipsBuildsThroughKey, swapped.skip), (Self.pickedBuildKey, swapped.picked)] {
+            if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
+        }
+        controller?.skipsBuildsThrough = swapped.skip
+        log.append("rollback: the quit was refused; \(running) is back in place and \(swapped.target.build) kept")
+        await refreshRevertOffer()
+        return true
+    }
+
+    /// The quit is decided: the keep that started when an update staged
+    /// (``keepRunningBuildForRollback()``) finishes first, up to `limit`, then ``prepareForQuit()``.
+    /// A quit right after staging must not end the process mid-keep, or the build this Mac came
+    /// from is lost to Go back (cmux#41013 review F4); the App arms its quit deadline after this.
+    public func prepareForQuitAfterKeep(limit: Duration = .seconds(20)) async {
+        if keptRunningBuild == .running, let keepTask {
+            log.append("quit: waiting for the keep of \(identity.build) for rollback")
+            let race = KeepRace()
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                race.continuation = continuation
+                // task-owner: the keep's end, or the limit's: the first resumes the quit, the other is a no-op.
+                Task { await keepTask.value; race.finish() }
+                race.timer.schedule(after: limit) { @MainActor in race.finish() }
+            }
+            if keptRunningBuild == .running { log.append("quit: the keep of \(identity.build) did not finish in \(limit); the next launch tidies it") }
+        }
+        prepareForQuit()
     }
 
     /// Restores the skip after a rollback at launch, and asks before installing while the build the

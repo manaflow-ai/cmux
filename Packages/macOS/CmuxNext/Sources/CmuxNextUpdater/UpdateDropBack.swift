@@ -53,9 +53,9 @@ public struct UpdateDropBack {
             let inputs = await updater.rollbackInputs(to: build, stateDirectories: stateDirectories)
             Self.mark("revert.inputs_read")
             updater.log.append("rollback: checked \(build ?? "the previous build") in \(started.duration(to: .now))")
-            let target = try await updater.swapForRollback(to: build, inputs: inputs)
-            try await restart(into: target)
-            return target
+            let swapped = try await updater.swapForRollback(to: build, inputs: inputs)
+            try await restart(into: swapped)
+            return swapped.target
         } catch {
             updater.buildSwitchProgress = nil
             updater.revert = RevertProgress(step: .failed, target: build, failure: Self.message(error))
@@ -70,14 +70,37 @@ public struct UpdateDropBack {
     /// 2026-11-11); the running daemon keeps every agent and the kept build reconnects to it. A helper
     /// that cannot start leaves cmux running and says how to finish (the next launch opens the
     /// picked build: the bundles are already swapped).
-    private func restart(into target: KeptVersion) async throws {
+    ///
+    /// A quit the person refuses (a quit dialog's Cancel; cmux#41013 review F3) stops the helper,
+    /// puts the running build back in place and the windows back on screen: cmux runs on as
+    /// before the click.
+    private func restart(into swapped: RollbackSwapped) async throws {
+        let target = swapped.target
         let label = RevertTarget(kept: target).label
         updater.revert = RevertProgress(step: .restarting, target: target.build, label: label)
         updater.buildSwitchProgress = BuildSwitchProgress(build: target.build, stage: .restart)
-        guard await Self.relaunchAfterExit(Bundle.main.bundleURL) else {
+        guard let helper = await Self.relaunchHelper(Bundle.main.bundleURL) else {
             updater.log.append("rollback: the relaunch helper did not start; \(target.build) opens on the next launch")
             throw RollbackRefusal.relaunchFailed(target)
         }
+        let updater = updater
+        updater.rollbackQuitPending = true
+        updater.onNextQuitRefused?({
+            updater.rollbackQuitPending = false
+            // Our own helper, by its handle: it ends before it opens anything.
+            if helper.isRunning { helper.terminate() }
+            updater.installAbandoned?()
+            updater.buildSwitchProgress = nil
+            // task-owner: the swap back, on the files lane; it ends by itself and shows on the card.
+            Task {
+                if await updater.undoRollbackSwap(swapped) {
+                    updater.revert = nil
+                } else {
+                    updater.revert = RevertProgress(step: .failed, target: target.build,
+                                                    failure: RollbackRefusal.relaunchFailed(target).message)
+                }
+            }
+        })
         updater.willRelaunch?()
         updater.hidesForRelaunch?()
         NSApplication.terminateFromRunLoop()
@@ -147,13 +170,18 @@ public struct UpdateDropBack {
     /// hook already recorded "keep sessions"). False when the helper could not start: nothing
     /// would reopen cmux, so it does not quit.
     public static func relaunchAfterExit(_ app: URL) async -> Bool {
+        await relaunchHelper(app) != nil
+    }
+
+    /// ``relaunchAfterExit(_:)``'s helper, running; nil when it could not start.
+    static func relaunchHelper(_ app: URL) async -> Process? {
         let command = RollbackSwap.relaunchCommand(pid: ProcessInfo.processInfo.processIdentifier, app: app)
         let helper = Process()
         helper.executableURL = URL(fileURLWithPath: command[0])
         helper.arguments = Array(command.dropFirst())
-        do { try await ProcessLauncher(label: "com.cmuxterm.next.relaunch", priority: .userBlocking).launched(helper) } catch { return false }
+        do { try await ProcessLauncher(label: "com.cmuxterm.next.relaunch", priority: .userBlocking).launched(helper) } catch { return nil }
         mark("revert.relaunch_helper")
-        return true
+        return helper
     }
 
     /// The Developer ID team of a valid signed bundle, every file checked, else nil (a kept build
