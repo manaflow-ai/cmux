@@ -442,6 +442,12 @@ pub enum Call {
         #[serde(default)]
         store: bool,
     },
+    /// `link start-chat trust`: this Mac's acpmux trust level for the folder a start would copy, read
+    /// before any machine is taken (the copy is trusted there only when this Mac trusts it).
+    StartChatTrust {
+        folder: String,
+        acpmux_home: String,
+    },
 }
 
 /// How the app runs one call: its arguments and how long it may take.
@@ -683,7 +689,40 @@ pub fn invocation(call: &Call) -> Invocation {
             }
             plain(args)
         }
+        // A local file read: a short fixed bound, so a stuck run never holds the start.
+        Call::StartChatTrust { folder, acpmux_home } => Invocation {
+            args: words(&[
+                "link",
+                "start-chat",
+                "trust",
+                "--folder",
+                folder,
+                "--acpmux-home",
+                acpmux_home,
+            ]),
+            timeout_seconds: Some(START_CHAT_TRUST_TIMEOUT_SECONDS),
+            min_timeout_seconds: None,
+        },
     }
+}
+
+/// How long `link start-chat trust` may take: it reads this Mac's trust files only.
+pub const START_CHAT_TRUST_TIMEOUT_SECONDS: u64 = 15;
+
+/// `link start-chat trust`'s answer: the level this Mac's acpmux answers for the folder
+/// (`trusted`, `untrusted` or `unknown`); none when the answer failed or names no level.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+pub struct StartChatTrust {
+    pub level: Option<String>,
+}
+
+/// The level an answer names, only from an ok answer.
+pub fn start_chat_trust(answer: &Answer, object: Option<&Map<String, Value>>) -> StartChatTrust {
+    let level = object
+        .filter(|_| answer.ok)
+        .and_then(|object| string(object, "level"))
+        .filter(|level| matches!(level.as_str(), "trusted" | "untrusted" | "unknown"));
+    StartChatTrust { level }
 }
 
 /// How an answer is read, by the verb that gave it.
@@ -694,6 +733,7 @@ pub enum Reading {
     MachineUpdate,
     StartChatPlan,
     StartChatCopy,
+    StartChatTrust,
     /// The answer object itself, else a bad answer's.
     Reservation,
 }
@@ -721,6 +761,11 @@ pub fn read(reading: Reading, output: &Output) -> Value {
             let (answer, copy) = start_chat_copy(answer, object.as_ref());
             reply.insert("answer".into(), to_value(&answer));
             reply.insert("copy".into(), to_value(&copy));
+        }
+        Reading::StartChatTrust => {
+            let trust = start_chat_trust(&answer, object.as_ref());
+            reply.insert("answer".into(), to_value(&answer));
+            reply.insert("trust".into(), to_value(&trust));
         }
         Reading::Reservation => {
             reply.insert("answer".into(), to_value(&answer));

@@ -147,6 +147,43 @@ fn a_copy_is_an_answer_only_with_an_absolute_folder_holding_the_chat() {
     );
 }
 
+/// `link start-chat trust`, read before any machine: a level only from an ok answer naming one of
+/// acpmux's three, so an unreadable answer never refuses a start the copy would have trusted.
+#[test]
+fn a_trust_answer_names_this_macs_level_else_none() {
+    let call = invocation(
+        &serde_json::from_value(
+            json!({"verb": "start-chat-trust", "folder": "/Users/me/paint", "acpmuxHome": "/Users/me/.acpmux"}),
+        )
+        .unwrap(),
+    );
+    assert_eq!(
+        call.args,
+        [
+            "link",
+            "start-chat",
+            "trust",
+            "--folder",
+            "/Users/me/paint",
+            "--acpmux-home",
+            "/Users/me/.acpmux"
+        ]
+    );
+    assert_eq!(call.timeout_seconds, Some(START_CHAT_TRUST_TIMEOUT_SECONDS));
+    let level = |stdout: &str| {
+        read(Reading::StartChatTrust, &output(stdout, "", 0))["trust"]["level"]
+            .as_str()
+            .map(str::to_owned)
+    };
+    for answer in ["trusted", "untrusted", "unknown"] {
+        let line = json!({"ok": true, "folder": "/Users/me/paint", "level": answer}).to_string();
+        assert_eq!(level(&line).as_deref(), Some(answer));
+    }
+    assert_eq!(level(r#"{"ok":true,"level":"maybe"}"#), None);
+    assert_eq!(level(r#"{"ok":false,"error_code":"trust_unreadable","level":"untrusted"}"#), None);
+    assert_eq!(level("crashed"), None);
+}
+
 #[test]
 fn each_verb_carries_its_arguments() {
     let call = |value: Value| invocation(&serde_json::from_value(value).unwrap());
