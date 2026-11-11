@@ -6,7 +6,7 @@ which replaces the classic app as an update.
 
 `.github/workflows/ios-review-gate.yml` answers "would Apple accept this build
 right now?" with one ranked list, in the run summary and in the
-`app-review-gate-report` artifact. Nothing is submitted until it is empty.
+`review-gate-report` artifact. Nothing is submitted until it is empty.
 
 ## How the production pipeline calls it
 
