@@ -8,10 +8,8 @@ import type { HomeDraft } from "./drafts";
 import type {
   HomeAttachment,
   HomeConversation,
-  HomeLocation,
   HomeMessage,
   HomePart,
-  HomeQuestion,
   HomeThreadObject,
   HomeThreadStats,
   HomeThreadStatus,
@@ -132,58 +130,17 @@ export function threadOf(message: HomeMessage): string | undefined {
   return root && root !== message.id ? root : undefined;
 }
 
-/** What a person reads for a work part (Swift `WorkRef.shownText`): its preview, else its title when
- * that is a name of its own. Undefined when it has neither: the session id is a machine name, never
- * shown (a Chief turn that ends without a reply posts such a part as its done marker). */
-export function workShownText(part: Extract<HomePart, { type: "work" }>): string | undefined {
-  const preview = part.preview?.trim();
-  if (preview) return preview;
-  const title = part.title.trim();
-  return !title || title === (part.session ?? part.title) ? undefined : title;
-}
-
-/** A question as plain text (Swift `AgentQuestion.transcriptText`): each prompt with its numbered
- * options, or with the chosen answers once answered. */
-export function questionText(question: HomeQuestion): string {
-  return question.items
-    .map((item) => {
-      if (question.state.kind === "answered") {
-        const chosen = question.state.selections[item.id];
-        const labels = (chosen?.optionIds ?? []).map((id) => item.options.find((o) => o.id === id)?.label ?? id);
-        if (chosen?.other) labels.push(chosen.other);
-        return `${item.prompt}\n✓ ${labels.join(", ")}`;
-      }
-      return [item.prompt, ...item.options.map((option, index) => `${index + 1}. ${option.label}`)].join("\n");
-    })
-    .join("\n\n");
-}
-
-/** A place's coordinates as the native copy writes them (`lat, lon`). */
-export const coordinates = (place: HomeLocation): string => `${place.latitude}, ${place.longitude}`;
-
-/** A part's plain text (Swift `MessagePart.plainText`): list previews, search, copy. */
 export function partText(part: HomePart): string {
   switch (part.type) {
     case "text":
     case "other":
       return part.text;
     case "work":
-      return workShownText(part) ?? "";
+      return part.preview ?? part.title;
     case "attachment":
       return part.name;
-    case "question":
-      return questionText(part);
-    case "link_preview":
-      return part.title ?? part.url;
-    case "location":
-      return part.label ?? coordinates(part);
-    case "widget":
-      return part.fallback;
   }
 }
-
-/** Whether a part shows anything (a work part without a preview is no bubble, Swift `HomeMapping.parts`). */
-export const partShows = (part: HomePart): boolean => part.type !== "work" || workShownText(part) !== undefined;
 
 export function messageText(message: HomeMessage): string {
   return message.parts.map(partText).join("\n");

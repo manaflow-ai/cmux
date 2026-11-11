@@ -192,7 +192,7 @@ extension SidebarListViewComponents {
             settling = SidebarSettlingDrop(drag: drag, revision: model.sectionsRevision, blocks: blocks)
             self.drag = nil
             // A drop is no focus change (hq-2d, cx-8quut): the reloads that show it anchor, and scroll only when the
-            // focused row moved or was pushed out of view (sidebar-focused-visible, `ListViewport.settle`).
+            // focused row moved or was pushed out of view (sidebar-focused-visible, `ListViewportChange.settle`).
             revealedActive = selectionRevealKey
             let sentBefore = doc.document?.lastIntentKey
             doc.drop(items, target)

@@ -162,7 +162,10 @@ test("a huge prompt whose drawn head measures short stays collapsed, never flipp
     expect(renders).toBeLessThan(10);
   } finally {
     act(() => root.unmount());
-    for (const [key, value] of saved) scope[key] = value;
+    for (const [key, value] of saved) {
+      if (value === undefined) delete scope[key];
+      else scope[key] = value;
+    }
   }
 });
 

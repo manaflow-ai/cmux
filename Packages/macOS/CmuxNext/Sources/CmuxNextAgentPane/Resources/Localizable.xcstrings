@@ -2758,127 +2758,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux daemon"
+            "value": "cmux daemon"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "خدمة acpmux"
+            "value": "خدمة cmux"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux servis"
+            "value": "cmux servis"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux-tjeneste"
+            "value": "cmux-tjeneste"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux-Dienst"
+            "value": "cmux-Dienst"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Servicio de acpmux"
+            "value": "Servicio de cmux"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Service acpmux"
+            "value": "Service cmux"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Servizio acpmux"
+            "value": "Servizio cmux"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux デーモン"
+            "value": "cmux デーモン"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "សេវា acpmux"
+            "value": "សេវា cmux"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux 데몬"
+            "value": "cmux 데몬"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux-tjeneste"
+            "value": "cmux-tjeneste"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usługa acpmux"
+            "value": "Usługa cmux"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Serviço do acpmux"
+            "value": "Serviço do cmux"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Служба acpmux"
+            "value": "Служба cmux"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "บริการ acpmux"
+            "value": "บริการ cmux"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux hizmeti"
+            "value": "cmux hizmeti"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Служба acpmux"
+            "value": "Служба cmux"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dịch vụ acpmux"
+            "value": "Dịch vụ cmux"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux 守护进程"
+            "value": "cmux 守护进程"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux 常駐程式"
+            "value": "cmux 常駐程式"
           }
         }
       }
@@ -34602,6 +34602,80 @@
             "state": "translated",
             "value": "請先推送此分支；提取要求會依據遠端儲存庫上的內容開啟。"
           }
+        }
+      }
+    },
+    "agentPane.error.gitPushUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": { "state": "translated", "value": "تعذّر دفع الفرع؛ أعد الاتصال بالمحادثة وحاول مرة أخرى." }
+        },
+        "bs": {
+          "stringUnit": { "state": "translated", "value": "Granu nije moguće poslati; ponovo povežite razgovor i pokušajte ponovo." }
+        },
+        "da": {
+          "stringUnit": { "state": "translated", "value": "Grenen kunne ikke pushes; forbind chatten igen, og prøv igen." }
+        },
+        "de": {
+          "stringUnit": { "state": "translated", "value": "Der Branch konnte nicht gepusht werden; verbinde den Chat erneut und versuche es noch einmal." }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The branch could not be pushed; reconnect the chat and try again."
+          }
+        },
+        "es": {
+          "stringUnit": { "state": "translated", "value": "No se pudo subir la rama; vuelve a conectar el chat e inténtalo de nuevo." }
+        },
+        "fr": {
+          "stringUnit": { "state": "translated", "value": "Impossible d'envoyer la branche ; reconnectez la conversation et réessayez." }
+        },
+        "it": {
+          "stringUnit": { "state": "translated", "value": "Impossibile eseguire il push del branch; riconnetti la chat e riprova." }
+        },
+        "ja": {
+          "stringUnit": { "state": "translated", "value": "ブランチをプッシュできませんでした。チャットを再接続して、もう一度お試しください。" }
+        },
+        "ko": {
+          "stringUnit": { "state": "translated", "value": "브랜치를 푸시할 수 없습니다. 채팅을 다시 연결한 후 다시 시도하세요." }
+        },
+        "nl": {
+          "stringUnit": { "state": "translated", "value": "De branch kon niet worden gepusht; verbind de chat opnieuw en probeer het nogmaals." }
+        },
+        "no": {
+          "stringUnit": { "state": "translated", "value": "Grenen kunne ikke pushes; koble til chatten på nytt og prøv igjen." }
+        },
+        "pl": {
+          "stringUnit": { "state": "translated", "value": "Nie można wypchnąć gałęzi; połącz ponownie czat i spróbuj jeszcze raz." }
+        },
+        "pt-BR": {
+          "stringUnit": { "state": "translated", "value": "Não foi possível enviar o branch; reconecte o chat e tente novamente." }
+        },
+        "ru": {
+          "stringUnit": { "state": "translated", "value": "Не удалось отправить ветку; переподключите чат и попробуйте снова." }
+        },
+        "sv": {
+          "stringUnit": { "state": "translated", "value": "Grenen kunde inte pushas; anslut chatten igen och försök igen." }
+        },
+        "th": {
+          "stringUnit": { "state": "translated", "value": "พุชสาขาไม่ได้ โปรดเชื่อมต่อแชทอีกครั้งแล้วลองใหม่" }
+        },
+        "tr": {
+          "stringUnit": { "state": "translated", "value": "Dal gönderilemedi; sohbeti yeniden bağlayıp tekrar deneyin." }
+        },
+        "uk": {
+          "stringUnit": { "state": "translated", "value": "Не вдалося надіслати гілку; повторно підключіть чат і спробуйте ще раз." }
+        },
+        "vi": {
+          "stringUnit": { "state": "translated", "value": "Không thể đẩy nhánh; hãy kết nối lại cuộc trò chuyện rồi thử lại." }
+        },
+        "zh-Hans": {
+          "stringUnit": { "state": "translated", "value": "无法推送分支；请重新连接聊天，然后重试。" }
+        },
+        "zh-Hant": {
+          "stringUnit": { "state": "translated", "value": "無法推送分支；請重新連線聊天，然後再試一次。" }
         }
       }
     },

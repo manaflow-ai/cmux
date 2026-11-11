@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """No guard under tests/ reads a job's runs-on, environment, env or secrets raw: it reads them through
-tests/workflow_jobs.py (resolve, runs_on_cells, environment_values, effective_env, effective_secrets).
+tests/workflow_jobs.py (resolve, runs_on_cells, environment_values, effective_env, effective_secrets). A guard
+that holds self-hosted jobs to a rule picks them with workflow_jobs.may_run_self_hosted; workflow_jobs has no
+raw runs-on accessor (its `runs_on` returned the text as written and is gone, #41133 F3).
 
 A raw read fails open. `job["runs-on"]` is one string, so `${{ matrix.runner }}` hides every cell from a
 route guard; `job["environment"]` is compared as written, so `Release` is not `release`; `job["env"]` misses

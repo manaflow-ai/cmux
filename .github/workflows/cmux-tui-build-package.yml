@@ -1283,7 +1283,7 @@ jobs:
             --version "$PYPI_VERSION" \
             --notices-dir dist/package-notices
           for wheel in dist/pypi-wheels/*.whl; do
-            python3 -m zipfile -l "$wheel" >"/tmp/$(basename "$wheel").list"
+            python3 -m zipfile -l "$wheel" >"$RUNNER_TEMP/$(basename "$wheel").list"
           done
           python3 - <<'PY'
           import glob

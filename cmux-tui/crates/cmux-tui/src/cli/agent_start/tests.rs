@@ -1253,6 +1253,47 @@ fn w5_no_stream_waits_out_the_fallback_and_an_invalid_cursor_is_dropped() {
     assert_eq!(cursor, None);
 }
 
+/// The wait keeps the daemon's cursor whole, so a cursor with a live position
+/// (`session-live-cursor-v1`) goes back as it came. The daemon then sends a look that resumes
+/// at rest no item, and the look waits out its fallback: before the live position, each resume
+/// got the record of every terminal with a live fact, and the wait woke on each look.
+#[test]
+fn w5_a_look_resumes_from_the_whole_cursor_and_no_item_is_no_change() {
+    let events = ScriptedEvents::new();
+    let mut cursor = None;
+    let at_most = Duration::from_secs(1);
+    let first = json!({"generation": "gen", "revision": "4", "live": "epoch.7"});
+    let snapshot = json!({"kind": "snapshot", "reset_reason": "initial", "cursor": first});
+    events.wake(&[snapshot], None, &mut cursor, at_most);
+    assert_eq!(cursor, Some(first.clone()));
+    // At rest the daemon sends nothing after that cursor.
+    let waited = events.wake(&[], None, &mut cursor, at_most);
+    assert_eq!(waited, at_most, "a resume with no item woke the wait");
+    assert!(!events.stopped_early.get());
+    assert_eq!(cursor, Some(first.clone()));
+    // A terminal's live fact after the cursor is a change, and its cursor is the next one.
+    let next = json!({"generation": "gen", "revision": "4", "live": "epoch.8"});
+    let live = json!({"kind": "delta", "cursor": next, "previous_revision": "4", "revision": "4"});
+    let waited = events.wake(&[live], None, &mut cursor, at_most);
+    assert!(waited < at_most / 2, "woke after {waited:?}");
+    assert_eq!(cursor, Some(next));
+    assert_eq!(*events.opened_from.borrow(), [None, Some(first.clone()), Some(first)]);
+}
+
+/// The other daemon of the pair: one with no live position (a build before
+/// `session-live-cursor-v1`). Its cursor has two fields, and the wait sends it back unchanged.
+#[test]
+fn w5_a_look_sends_a_two_field_cursor_back_unchanged() {
+    let events = ScriptedEvents::new();
+    let mut cursor = None;
+    let at_most = Duration::from_secs(1);
+    let first = json!({"generation": "gen", "revision": "4"});
+    let snapshot = json!({"kind": "snapshot", "reset_reason": "initial", "cursor": first});
+    events.wake(&[snapshot], None, &mut cursor, at_most);
+    events.wake(&[], None, &mut cursor, at_most);
+    assert_eq!(*events.opened_from.borrow(), [None, Some(first)]);
+}
+
 /// What sr2 prints before Claude Code starts: no input box yet.
 const LAUNCHER_BANNER: &str = "\
 sr2 route: gateway http://sr2-gateway.example:4016

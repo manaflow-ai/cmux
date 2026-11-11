@@ -112,7 +112,7 @@ type Live = ShareNudgeChat & { isWorking: boolean; turnsEnded?: number };
 
 async function mount(host: TipHost, start: Live) {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
-  for (const key of ["window", "document", "IS_REACT_ACT_ENVIRONMENT"]) saved.set(key, scope[key]);
+  for (const key of ["window", "document", "IS_REACT_ACT_ENVIRONMENT"]) if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true });
   const state: { current?: ShareNudgeState } = {};
   function Probe({ live }: { live: Live }) {

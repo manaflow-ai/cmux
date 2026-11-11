@@ -23,7 +23,7 @@ import { bezierAt, cssBezier, parseBezier, type CubicBezier } from "../../../ui/
 import { currentChatMetrics } from "../chatDisplay";
 import { cssTimeMs, foldMs } from "./fold";
 import { ARRIVAL_FRAME_LINES } from "./followChase";
-import { ghostOf } from "./turnFold";
+import { clippedBottom, ghostOf } from "./turnFold";
 import { LIVE_THINKING } from "./turns";
 import { isLineRow, type AcpmuxRow } from "../model";
 
@@ -70,7 +70,15 @@ export function endsTurn(before: readonly AcpmuxRow[] | undefined, after: readon
 }
 
 /// A row drawn at the swap: where its top was in the view, and its copy when the swap takes it away.
-type Drawn = { id: string; top: number; copy?: HTMLElement };
+/// `clip`: how much of its bottom a clip hid then (tailGlide.ts clips the row above a row gliding down
+/// under it at that row's drawn top), with `shown`, the bottom of what it drew.
+type Drawn = { id: string; top: number; copy?: HTMLElement; clip?: number; shown?: number };
+
+/// How far into the fold (0 to 1, of its progress) a copy of a row that goes has faded out.
+const COPY_GONE_AT = 0.6;
+
+/// A clip that hides `bottom` px of a row's bottom and nothing past its other edges (tailGlide.ts's).
+const clipBottom = (bottom: number) => `inset(-4096px -4096px ${bottom}px -4096px)`;
 
 /// The rows drawn when the turn ended, read before the swap renders.
 export type TurnEndCapture = {
@@ -115,7 +123,15 @@ export function captureTurnEnd(
   const rows = nodes.map((node) => {
     const box = node.getBoundingClientRect();
     const id = node.dataset.rowId!;
-    return { id, top: box.top, ...(!kept.has(id) && { copy: ghostOf(node) }) };
+    // A row clipped over the row gliding under it (tailGlide.ts) draws only down to that row's top:
+    // the fold goes on from what it drew, never from its whole box (one read, only while clipped).
+    const clip = clippedBottom(node);
+    return {
+      id,
+      top: box.top,
+      ...(clip > 0 && { clip, shown: box.bottom - clip }),
+      ...(!kept.has(id) && { copy: ghostOf(node) }),
+    };
   });
   return { rows, scrollTop: scroller.scrollTop, sessionId };
 }
@@ -143,10 +159,20 @@ const foldFrameBound = () => ARRIVAL_FRAME_LINES * currentChatMetrics().lineHeig
 
 /// The most a move of `px` over `ms` on `curve` moves in any one 120 Hz frame: every frame-long
 /// window, read at quarter-frame offsets, since a fold's first frame may land anywhere on the grid.
-function longestFoldFrame(px: number, ms: number, curve: CubicBezier): number {
+/// A window's ends are four quarter frames apart, so each step reads the curve once. It stops at the
+/// first window past `over` (the caller only asks whether the move fits). The straight line is read
+/// as it is: each frame moves the frame's share of the move.
+function longestFoldFrame(px: number, ms: number, curve: CubicBezier, over = Infinity): number {
+  if (curve[0] === curve[1] && curve[2] === curve[3]) return px * Math.min(1, FRAME_MS / ms);
+  const quarter = FRAME_MS / 4;
+  const ring = [0, 1, 2, 3].map((index) => bezierAt(curve, (index * quarter) / ms));
   let longest = 0;
-  for (let start = 0; start < ms; start += FRAME_MS / 4)
-    longest = Math.max(longest, px * (bezierAt(curve, (start + FRAME_MS) / ms) - bezierAt(curve, start / ms)));
+  for (let index = 0; index * quarter < ms; index += 1) {
+    const end = bezierAt(curve, ((index + 4) * quarter) / ms);
+    longest = Math.max(longest, px * (end - ring[index % 4]!));
+    if (longest > over) return longest;
+    ring[index % 4] = end;
+  }
   return longest;
 }
 
@@ -155,13 +181,41 @@ function longestFoldFrame(px: number, ms: number, curve: CubicBezier): number {
 function foldFits(px: number, ms: number, easing: string): boolean {
   const curve = parseBezier(easing);
   const move = Math.abs(px);
-  return !curve || ms <= 0 || move <= foldFrameBound() || longestFoldFrame(move, ms, curve) <= foldFrameBound() + 1e-9;
+  const most = foldFrameBound() + 1e-9;
+  return !curve || ms <= 0 || move <= foldFrameBound() || longestFoldFrame(move, ms, curve, most) <= most;
+}
+
+/// The first of `count` candidates that `fits`, or undefined: candidates that fit only follow ones
+/// that do not (a longer fold, or a curve leaned further toward the straight line, only slows its
+/// fastest frame), so it bisects, reading about log2(count) of them. The first is read first: most
+/// folds that need a search fit there.
+function firstFit(count: number, fits: (index: number) => boolean): number | undefined {
+  if (count <= 0) return undefined;
+  if (fits(0)) return 0;
+  if (!fits(count - 1)) return undefined;
+  let low = 1;
+  let high = count - 1;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (fits(middle)) high = middle;
+    else low = middle + 1;
+  }
+  return low;
 }
 
 /// The straight line, as a cubic-bezier(): its frames are all the same, the move over its frames.
 const LINEAR_BEZIER: CubicBezier = [1 / 3, 1 / 3, 2 / 3, 2 / 3];
 /// How finely the curve leans toward the straight line at the cap: 1/32 of the way a step.
 const LEAN_STEPS = 32;
+/// The timings found, by move (whole pixels, rounded up), settle and bound: a fold's passes ask again
+/// for the same moves. Kept to the latest few, so it stays small.
+const TIMINGS_KEPT = 64;
+const timings = new Map<string, { ms: number; easing: string }>();
+
+/// Forgets the timings found (the bench and tests time a search from cold).
+export function clearTurnEndFoldMemo(): void {
+  timings.clear();
+}
 
 /// The fold's length and curve for a move of `px`: the settle's (`ms` on `easing`), changed only as a
 /// long move needs to keep every 120 Hz frame under ARRIVAL_FRAME_LINES of a line. The settle runs
@@ -183,20 +237,48 @@ const LEAN_STEPS = 32;
 export function turnEndFoldTiming(px: number, ms: number, easing: string): { ms: number; easing: string } {
   const curve = parseBezier(easing);
   const most = foldFrameBound();
-  const move = Math.abs(px);
-  if (!curve || ms <= 0 || move <= most) return { ms, easing };
-  const fits = (length: number, on: CubicBezier) => longestFoldFrame(move, length, on) <= most + 1e-9;
+  if (!curve || ms <= 0 || Math.abs(px) <= most) return { ms, easing };
+  // Read for the whole pixels over the move: what fits them fits the move.
+  const move = Math.ceil(Math.abs(px));
+  const key = `${move} ${ms} ${easing} ${most}`;
+  const known = timings.get(key);
+  if (known) {
+    timings.delete(key);
+    timings.set(key, known);
+    return known;
+  }
+  const found = searchFoldTiming(move, ms, easing, curve, most);
+  timings.set(key, found);
+  if (timings.size > TIMINGS_KEPT) timings.delete(timings.keys().next().value!);
+  return found;
+}
+
+/// turnEndFoldTiming's search, for a move past the bound: each step bisects (`firstFit`), and each
+/// candidate stops at its first frame past the bound, so a move of any length reads a few hundred
+/// points of the curve, never tens of thousands (review of #40627: 9.6 ms for 274 px).
+function searchFoldTiming(
+  move: number,
+  ms: number,
+  easing: string,
+  curve: CubicBezier,
+  most: number,
+): { ms: number; easing: string } {
+  const over = most + 1e-9;
+  const fits = (length: number, on: CubicBezier) => longestFoldFrame(move, length, on, over) <= over;
   const cap = Math.ceil(4 * ms);
-  for (let length = ms; length < cap; length += FRAME_MS) {
-    const whole = Math.ceil(length);
-    if (fits(whole, curve)) return { ms: whole, easing };
-  }
+  // The settle's curve, a frame longer a step, up to the cap.
+  const lengths: number[] = [];
+  for (let length = ms; length < cap; length += FRAME_MS) lengths.push(Math.ceil(length));
+  const longer = firstFit(lengths.length, (index) => fits(lengths[index]!, curve));
+  if (longer !== undefined) return { ms: lengths[longer]!, easing };
   // The curve the browser plays is the CSS text's, so each lean is read back from it.
-  for (let step = 0; step <= LEAN_STEPS; step += 1) {
+  const leanText = (step: number) => {
+    if (step === 0) return easing;
     const lean = curve.map((value, index) => value + ((LINEAR_BEZIER[index]! - value) * step) / LEAN_STEPS);
-    const text = step === 0 ? easing : cssBezier(lean as unknown as CubicBezier);
-    if (fits(cap, parseBezier(text)!)) return { ms: cap, easing: text };
-  }
+    return cssBezier(lean as unknown as CubicBezier);
+  };
+  const lean = firstFit(LEAN_STEPS + 1, (step) => fits(cap, parseBezier(leanText(step))!));
+  if (lean !== undefined) return { ms: cap, easing: leanText(lean) };
   let length = Math.max(cap, Math.ceil((move * FRAME_MS) / most));
   while (!fits(length, LINEAR_BEZIER)) length += 1;
   return { ms: length, easing: cssBezier(LINEAR_BEZIER) };
@@ -236,7 +318,7 @@ function layoutTops(nodes: readonly HTMLElement[]): number[] {
 }
 
 /// What one row of the fold plays now: how far from its place it started, and its animations.
-type Moving = { delta: number; fades: boolean; animations: Animation[] };
+type Moving = { delta: number; fades: boolean; animations: Animation[]; clip?: number; end?: number };
 
 /// Plays the fold the swap after `capture` makes, from the pass that placed the new rows. Each row
 /// drawn then and drawn now slides from where it was to its place, a copy of each row the swap took
@@ -288,7 +370,7 @@ export function playTurnEnd(
   const copyMoves = new Map<HTMLElement, Moving>();
   /// Where each row's or copy's motion on the current clock starts (a top in the view, as `tops`),
   /// and its ink then: the swap's for the first clock, the drawn ones when the clock grows.
-  const starts = new Map<HTMLElement, { top?: number; opacity?: number }>();
+  const starts = new Map<HTMLElement, { top?: number; opacity?: number; shown?: number }>();
   /// Each row's and copy's laid-out top at the last pass: with its translate then, where it was drawn.
   const laid = new Map<HTMLElement, number>();
   const pass = () => {
@@ -333,10 +415,12 @@ export function playTurnEnd(
           if (top === undefined) return [];
           const style = (View ?? window).getComputedStyle(node);
           const y = style.translate === "none" ? 0 : Number.parseFloat(style.translate.split(" ")[1] ?? "") || 0;
-          return [{ node, top: top + y, opacity: Number.parseFloat(style.opacity) }];
+          const clip = moving.get(node)?.clip ? clippedBottom(node) : 0;
+          const shown = clip > 0 ? top + y + node.offsetHeight - clip : undefined;
+          return [{ node, top: top + y, opacity: Number.parseFloat(style.opacity), shown }];
         });
-        for (const { node, top, opacity } of drawn)
-          starts.set(node, { top, opacity: Number.isFinite(opacity) ? opacity : undefined });
+        for (const { node, top, opacity, shown } of drawn)
+          starts.set(node, { top, opacity: Number.isFinite(opacity) ? opacity : undefined, shown });
         startedAt = now();
       }
       // A longer move never shortens the clock: on the same curve, more time only slows each frame.
@@ -355,7 +439,14 @@ export function playTurnEnd(
       keyframes: () => Keyframe[][],
     ) => {
       const last = store.get(node);
-      if (!grew && last && Math.abs(last.delta - next.delta) < 0.5 && last.fades === next.fades) return;
+      if (
+        !grew &&
+        last &&
+        Math.abs(last.delta - next.delta) < 0.5 &&
+        last.fades === next.fades &&
+        Math.abs((last.clip ?? 0) - (next.clip ?? 0)) < 0.5
+      )
+        return;
       for (const animation of last?.animations ?? []) {
         animation.cancel();
         fold.animations.delete(animation);
@@ -363,6 +454,10 @@ export function playTurnEnd(
       next.animations = keyframes().map((frames) => play(node, frames));
       store.set(node, next);
     };
+    /// The rows that start clipped this pass: where each starts, the bottom it draws, its bottom at rest.
+    const covers: { top: number; bottom: number }[] = [];
+    /// Where each copy starts drawn (a top in the view, as `tops`).
+    const copyStarts = copies.map((copy) => startTop(copy, gone.find((entry) => entry.copy === copy)!.top));
     nodes.forEach((node, index) => {
       const before = was.get(node.dataset.rowId!);
       if (!before) {
@@ -373,18 +468,41 @@ export function playTurnEnd(
         return;
       }
       const delta = startTop(node, before.top) - tops[index]!;
-      if (Math.abs(delta) < 0.5 && !moving.has(node)) return;
-      restart(node, moving, { delta, fades: false, animations: [] }, () => [
+      // A row the tail glide clipped over the row gliding under it, when the turn ended (a reply's
+      // newest lines over the live line under lag, 117 px): its clip went with the glide, so its whole
+      // box drew at once over the live line's copy, fading where the line was drawn (agent-pane-
+      // stream-row-overlap: 103 px of the reply over "Writing"; Leo, 2026-11-11: "esp when it's
+      // lagging, there's a breif moment where ther'es overlapping text between the sent out text (from
+      // you) and the subequent tool calls/thinking"). It starts clipped where it drew then and opens on
+      // the fold's clock, and each copy it covers goes down out from under it on the same clock (below).
+      // It never starts drawn past the top of a copy under it either: the swap's own render can grow
+      // it (the reply's last lines revealed as the turn ends, 91 px), and the clip read at the swap
+      // came from the pass before that growth, so a clip from it alone left the row's newest line over
+      // the copy in the fold's first frame (agent-pane-stream-row-overlap, chromium lagging: 14 px).
+      const from = startTop(node, before.top);
+      const shown = starts.get(node)?.shown ?? before.shown;
+      const height = node.offsetHeight;
+      let clip = shown === undefined ? 0 : Math.max(0, from + height - shown);
+      for (const copyTop of copyStarts) if (copyTop > from) clip = Math.max(clip, from + height - copyTop);
+      if (clip >= 0.5) covers.push({ top: from, bottom: tops[index]! + height });
+      if (Math.abs(delta) < 0.5 && clip < 0.5 && !moving.has(node)) return;
+      restart(node, moving, { delta, fades: false, animations: [], clip }, () => [
         [{ translate: `0 ${delta}px` }, { translate: "0 0" }],
+        ...(clip >= 0.5 ? [[{ clipPath: clipBottom(Math.ceil(clip)) }, { clipPath: clipBottom(0) }]] : []),
       ]);
     });
     copies.forEach((copy, order) => {
-      const row = gone.find((entry) => entry.copy === copy)!;
-      const at = startTop(copy, row.top) - copyTops[order]!;
-      const end = look === "tuck" && line !== undefined ? line - copyTops[order]! : at;
+      const from = copyStarts[order]!;
+      const at = from - copyTops[order]!;
+      let end = look === "tuck" && line !== undefined ? line - copyTops[order]! : at;
+      // Under a clipped row (above): it ends no higher than that row's bottom at rest, so with the clip
+      // opening on the same clock, the row's drawn bottom never passes the copy's drawn top. The move
+      // is linear in the fold's progress on both, so where it holds at the first and last frame it
+      // holds on every frame between.
+      for (const cover of covers) if (cover.top < from) end = Math.max(end, cover.bottom - copyTops[order]!);
       const ink = starts.get(copy)?.opacity ?? 1;
       const last = copyMoves.get(copy);
-      if (!grew && last && Math.abs(last.delta - at) < 0.5) return;
+      if (!grew && last && Math.abs(last.delta - at) < 0.5 && Math.abs((last.end ?? at) - end) < 0.5) return;
       for (const animation of last?.animations ?? []) {
         animation.cancel();
         fold.animations.delete(animation);
@@ -397,15 +515,20 @@ export function playTurnEnd(
         timing.delay = (copies.length - 1 - order) * step;
         timing.duration = Math.max(ms / 2, ms - timing.delay);
       }
+      // The copy is gone by COPY_GONE_AT of the fold, while it still moves: the rows coming over its
+      // place draw over nothing. Faded on the whole clock, a copy still drew its text, faint, under a
+      // row arriving over it in the fold's last frames (agent-pane-stream-row-overlap, once a copy's
+      // text counted: 5.5 px under the reply at 94%, and the live line's copy 119 px at 87% under lag).
       const motion = play(
         copy,
         [
           { translate: `0 ${at}px`, opacity: ink },
+          { offset: COPY_GONE_AT, opacity: 0 },
           { translate: `0 ${end}px`, opacity: 0 },
         ],
         timing,
       );
-      copyMoves.set(copy, { delta: at, fades: true, animations: [motion] });
+      copyMoves.set(copy, { delta: at, fades: true, animations: [motion], end });
     });
     nodes.forEach((node, index) => laid.set(node, tops[index]!));
     copies.forEach((copy, order) => laid.set(copy, copyTops[order]!));

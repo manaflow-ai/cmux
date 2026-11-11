@@ -78,6 +78,7 @@ extension WindowManager {
     /// The launch window took its saved window's id (`adoptLaunchWindow`): what was asked for under the old id goes with it.
     func launchWindowAdopted(from old: String, as new: String) {
         guard old != new else { return }
+        registry.closeSelection.renamed(window: old, to: new)
         for (id, window) in claims.pending where window == old { claims.pending[id] = new }
         for (id, placement) in pendingPlacements where placement.window == old { pendingPlacements[id]?.window = new }
         if let frame = pendingFrames.removeValue(forKey: old) { pendingFrames[new] = frame }

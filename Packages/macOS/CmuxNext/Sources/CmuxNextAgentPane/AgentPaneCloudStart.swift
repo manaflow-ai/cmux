@@ -4,7 +4,7 @@ public import CmuxNextSettings
 public import Foundation
 import os
 
-/// `cloud.startChat {task, cwd?, harness?, model?, key}`: a new chat's first send with Cloud picked
+/// `cloud.startChat {task, cwd?, harness?, model?, mode?, key}`: a new chat's first send with Cloud picked
 /// as where it runs (the environment picker's Cloud row, Labs). The App picks or makes a Cloud
 /// machine sized for the chat, copies the chat's folder there, starts the chat there with this
 /// prompt and shows it, with no machine, size or environment prompt (``AgentPaneModel/onCloudStartChat``).
@@ -20,6 +20,9 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     public var home = false
     public var harness: String?
     public var model: String?
+    /// The permission mode the person picked for the chat before its first send; nil: the machine's
+    /// own start mode. The chat's machine applies it only when it is the caller's own (``seed(cwd:draft:)``).
+    public var mode: String?
     /// The selected Cloud environment id; nil lets workspace ensure resolve personal Default.
     public var environment: String?
     /// The warm machine reserved by this compose; Send binds it using ``key``.
@@ -71,7 +74,7 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
               task.count <= AgentPaneRequest.maximumSandboxTask,
               let key = params?["key"] as? String, UUID(uuidString: key) != nil,
               let harness = name("harness"), let model = name("model"), let environment = name("environment"),
-              let team = name("team") else { return nil }
+              let team = name("team"), let mode = name("mode") else { return nil }
         let reservationKey = params?["reservationKey"]
         if let reservationKey, (reservationKey as? String).flatMap(UUID.init(uuidString:)) == nil { return nil }
         let gestureTicket = params?["gestureTicket"]
@@ -83,6 +86,7 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         self.init(task: task, cwd: cwd as? String, harness: harness, model: model, key: key, environment: environment, reservationKey: reservationKey as? String, gestureTicket: gestureTicket as? String)
         self.home = home as? Bool ?? false
         self.team = team
+        self.mode = mode
         self.attachments = attachments
         let signedIn = params?["signedIn"]
         if let signedIn, !(signedIn is Bool) { return nil }
@@ -150,7 +154,7 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     /// the sending tab's composer held when the chat opened (typed after the Send), shown, never sent.
     public func seed(cwd: String?, draft: String? = nil) -> AgentPaneSeed {
         AgentPaneSeed(cwd: cwd, draft: draft, prompt: task, promptAttachments: attachments.isEmpty ? nil : attachments,
-                      promptBy: .person, harness: harness, model: model)
+                      promptBy: .person, harness: harness, model: model, mode: mode)
     }
 }
 
@@ -203,6 +207,9 @@ struct AgentPaneHandOff {
             }
         }
     }
+
+    /// The most a Cloud start or Sandboxed send waits for the send line, while it moves.
+    nonisolated static let lineDrainLimit: Duration = .seconds(60)
 
     private static let cloudLog = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
 
@@ -283,7 +290,9 @@ struct AgentPaneHandOff {
         guard model.sessionId == nil else { return AgentPaneModel.unsupported(method) }
         let notNow = AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")
         let transport = model.transport
-        guard await transport.lineDrained(within: .seconds(5)) else { return notNow }
+        // A start waits for the line while it moves (a busy daemon sends slowly); a fixed 5 s refused
+        // a slow but working line as `unavailable_now`. A line that stops moving still refuses.
+        guard await transport.lineDrained(quiet: .seconds(5), limit: Self.lineDrainLimit) else { return notNow }
         if let refusal = model.sandboxRuns.refusal { return AgentPaneReply.failure(code: refusal, message: refusal) }
         let replacements = transport.replacements
         guard replacements.beginSandbox() else { return notNow }
