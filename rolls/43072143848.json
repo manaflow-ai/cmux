@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43072143848",
+  "recorded_at": "2026-11-11T18:00:19Z",
+  "reason": "cmux-tui d2e801b9ca21 changes the image's cmux-tui (pinned 115898a6ffab)",
+  "dry_run": false,
+  "cmux_tui": "d2e801b9ca2113e5b1c8fb512d9b50cb15849be7",
+  "fixes": [
+    {
+      "sha": "d2e801b9ca2113e5b1c8fb512d9b50cb15849be7",
+      "mergedAt": "2026-11-11T09:36:22-08:00",
+      "subject": "Cloud: a DEV or NIGHTLY start carries the Codex login the way it carries Claude's (#41072)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T18:00:19Z",
+    "snapshot_id": "sh-d0ff01ff9a454b8abd0e172c45e5e157",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43072143848): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "86d11ae05029b8a9f89804fb7d170e36faeeecd8",
+    "image": "cloud-native-auto-d2e801b9-43072143848-1",
+    "revision": "ci-43072143848-1",
+    "at": "2026-11-11T18:00:19Z"
+  },
+  "rolled_back": false
+}
