@@ -541,8 +541,8 @@ CONTEXT_SETUP = {"terminalFocused": "terminal", "browserFocused": "chromium", "w
                  "omnibarFocused": "omnibar", "textBoxFocused": "omnibar", "agentPaneFocused": "chat", "signedOut": None}
 
 # What each checked action does, by exact catalog id (plans/cmux-next/action-surfaces.json). Exact ids, not prefixes:
-# a prefix also caught newWorkspaceGroup (makes a group, not a workspace), nextWorkspaceGroup (no move without groups)
-# and focusRightSidebar (focuses no pane), each then checked `wrong`. An id not listed is checked `n/a`.
+# a prefix also caught newWorkspaceGroup (makes a group, not a workspace) and nextWorkspaceGroup (no move without
+# groups), each then checked `wrong`. An id not listed is checked `n/a`.
 EXPECT = {
     **dict.fromkeys(["splitRight", "splitDown", "splitLeft", "splitUp", "newColumn", "newRow", "newPaneAutoLayout",
                      "splitBrowserRight", "splitBrowserDown"], "pane+"),

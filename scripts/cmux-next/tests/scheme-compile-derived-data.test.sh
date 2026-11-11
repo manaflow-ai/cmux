@@ -9,6 +9,8 @@
 # purpose; a fresh directory has no earlier modules to clear. A stub xcodebuild
 # records the -derivedDataPath it gets.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 # Under /tmp: clear-stale-scheme-build-state.sh accepts only /tmp paths and the
 # glaeda cache, so the kept-path retry case needs one.
