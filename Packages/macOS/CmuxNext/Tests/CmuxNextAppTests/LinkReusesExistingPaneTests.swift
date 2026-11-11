@@ -1,8 +1,8 @@
 import AppKit
-import CmuxNextBridge
-import CmuxNextLayout
+import CmuxNextActions
+import CmuxNextAgentPane
 @testable import CmuxNextApp
-@testable import CmuxNextDaemon
+import CmuxNextDaemon
 import CmuxNextTestSupport
 import Foundation
 import Testing
@@ -10,101 +10,76 @@ import Testing
 /// Aziz 2026-11-09: "when I open a browser link, it shouldn't open in a new pane if there already exists another
 /// pane. Mimic classic cmux behavior in cmux next." Classic cmux (`openTerminalBrowserLink`,
 /// `BrowserRightSidePaneResolver`) opens a link as a new tab in the pane already on the source's right; it only
-/// splits when nothing is there. cmux-next split below a right pane that held no browser yet (a terminal, a diff),
-/// so every first link beside a terminal made a new pane.
-@MainActor @Suite(.serialized, .closesItsWindows) struct LinkReusesExistingPaneTests {
-    static func hasDisplay() -> Bool { !NSScreen.screens.isEmpty }
+/// splits when nothing is there. cmux-next split below a right pane that held no browser yet (a terminal), so a
+/// link Cmd-clicked in one of two side-by-side terminals made a third pane. Runs ``LinkOpener`` against a
+/// same-tree cmux-tui daemon in a window wide enough that the old rule's lower split fits (480 pt source, 420 pt
+/// right pane: below that the old rule was a tab too, so the host's window decided, ClickedLinkFocusTests).
+@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"), .closesItsWindows)
+struct LinkReusesExistingPaneTests {
+    static let link = URL(string: "https://example.com/link-reuses-pane")!
 
-    /// What the faked `new-frontend-browser-tab` was asked.
-    @MainActor private final class Creates {
-        var made: [(pane: CmuxNextDaemon.PaneID, url: String, activate: Bool, split: ConversationTabSplit?)] = []
-    }
-
-    /// An agent chat docked left and, on its right, one terminal (a dev server's), on a daemon that makes a link's tab
-    /// in its split (`frontend-browser-tab-split-v1`); browser tab creates are faked (recorded, then refused). The
-    /// same window as ChatDockToolPlacementTests, whose right column the default main pane layout measures.
-    private struct Shown {
-        let services: AppServices
-        let window: NSWindow
-        let chat: PaneController
-        let right: PaneController
-        let creates: Creates
-
-        init() throws {
-            _ = NSApplication.shared
-            let services = AppServices(environment: AppEnvironment.current([:]))
+    /// Two terminals side by side (Cmd-D); a link opened from the left one (`openWeb`, as a terminal's Cmd-click
+    /// opens it) is a tab in the right terminal's pane, and the screen keeps its two panes.
+    @Test func aLinkBesideATerminalOpensAsATabInThePaneOnTheRight() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            let (content, left, right) = try await Self.twoTerminals(services)
             let store = services.daemon.store
-            let served: [DaemonCapability] = [.dockColumnRole, .frontendBrowserTabs, .frontendBrowserTabSplit, .splitClientKeys, .splitClientSplitID]
-            let list = served.map { "\"\($0.rawValue)\"" }.joined(separator: ",")
-            let json = #"{"app":"cmux-tui","protocol":1,"session":"link-reuse","generation":"g1","capabilities":["# + list + "]}"
-            let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
-            store.noteHandshake(identity)
-            store.connectionState = .connected(identity)
-            let dock = DockSnapshot(edge: .left, mode: .docked, role: .agentChat)
-            let columns = [ColumnSnapshot(id: 10, width: 0.5, layout: .leaf(1), dock: dock), ColumnSnapshot(id: 11, width: 1, layout: .leaf(2))]
-            let panes = [PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, title: "Chat")]),
-                         PaneSnapshot(id: 2, tabs: [TabSnapshot(surface: 2, title: "Server")])]
-            let screen = ScreenSnapshot(id: 1, layout: .leaf(1), columns: columns, panes: panes)
-            store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "Links", screens: [screen])]))
-            let creates = Creates()
-            self.creates = creates
-            let browserTabs = services.cache.browserTabs
-            browserTabs.serves = { _ in true }
-            browserTabs.cefUnavailable = { nil }
-            browserTabs.create = { _, pane, url, _, _, activate, _, split in
-                creates.made.append((pane, url, activate, split))
-                throw CancellationError()
+            let before = Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
+
+            #expect(services.linkOpener.openWeb(Self.link, from: left, background: false))
+
+            @MainActor func opened() -> TabModel? {
+                store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
+                    .first { !before.contains($0.id) && !ProvisionalTab.isProvisional($0.id) }
             }
-            let workspace = try #require(store.workspaces.first)
-            let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"links-window","workspace_key":"Links"}"#.utf8))
-            let state = WindowState(record: record)
-            let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 1600, height: 900), styleMask: [.borderless],
-                                  backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false
-            let content = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: state)
-            content.contentView.frame = NSRect(x: 0, y: 0, width: 1600, height: 900)
-            window.contentView = content.contentView
-            window.orderFrontRegardless()
-            content.applyCurrent()
-            content.contentView.layoutSubtreeIfNeeded()
-            self.services = services
-            self.window = window
-            chat = try #require(content.panes.values.first { $0.pane.handle == 1 })
-            right = try #require(content.panes.values.first { $0.pane.handle == 2 })
-            services.linkOpener.placement = { .splitRight }
+            try await PinnedPageTests.until({ opened() != nil }, report: { "the link opened no tab: " + Self.describe(content) })
+            let tab = try #require(opened())
+            #expect(right.pane.tabs.contains { $0.id == tab.id }, "the link's tab is not in the pane on the right: " + Self.describe(content))
+            #expect(content.panes.count == 2, "the link made a new pane: " + Self.describe(content))
+            #expect(!left.pane.tabs.contains { $0.id == tab.id }, "the link's tab stayed in the terminal it was clicked in")
         }
-
-        func close() { window.closeAfterTest() }
-    }
-
-    /// A link clicked in the chat (`openWeb`, as `AgentTabContent` and a terminal's Cmd-click open it) with a terminal
-    /// on the right: a tab made, shown, in that terminal's pane; no new pane below it.
-    @Test(.enabled("needs a display for pane geometry") { await Self.hasDisplay() }, .timeLimit(.minutes(1)))
-    func aLinkBesideATerminalOpensAsATabInThePaneOnTheRight() async throws {
-        let shown = try Shown()
-        defer { shown.close() }
-        let store = shown.services.daemon.store
-        let url = try #require(URL(string: "https://example.com/"))
-
-        #expect(shown.services.linkOpener.openWeb(url, from: shown.chat, background: false))
-
-        #expect(!store.pendingIntents.contains { if case .splitPane = $0 { true } else { false } },
-                "the link split a new pane below the terminal already on the right")
-        #expect(store.workspaces.first?.screens.first?.panes.count == 2, "a new pane showed")
-        for _ in 0..<20 where shown.creates.made.isEmpty { await Task.yield() }
-        let made = try #require(shown.creates.made.first, "no browser tab was asked of the daemon")
-        #expect(made.pane == shown.right.pane.handle, "the link's tab was not made in the pane on the right")
-        #expect(made.split == nil, "the link's tab was made in a new split: \(String(describing: made.split))")
-        #expect(made.activate, "the link's tab was made in the background, to be moved into a new pane")
     }
 
     /// A browser the person asks for that is not a link (a dock's Browser button, a New Tab page pick) keeps Leo's
     /// lower split beside a terminal (2026-10-31: split "when there's a terminal that gets opened when there's
-    /// already a browser, and vice versa"); only links reuse the pane.
-    @Test(.enabled("needs a display for pane geometry") { await Self.hasDisplay() })
-    func aBrowserThatIsNoLinkStillSplitsBelowATerminal() throws {
-        let shown = try Shown()
-        defer { shown.close() }
-        #expect(shown.services.linkOpener.target(from: shown.chat, kind: .browser) == .splitBelow(of: shown.right.layoutPaneID))
+    /// already a browser, and vice versa"); only links reuse the pane. Both read the same layout, and the second
+    /// proves the window is wide enough for the old rule to split.
+    @Test func onlyALinkReusesThePaneABrowserStillSplitsBelow() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            let (content, left, right) = try await Self.twoTerminals(services)
+            #expect(services.linkOpener.target(from: left, kind: .browser, link: true) == .pane(right.layoutPaneID),
+                    "a link beside the terminal splits: " + Self.describe(content))
+            #expect(services.linkOpener.target(from: left, kind: .browser) == .splitBelow(of: right.layoutPaneID),
+                    "the window is too narrow for the lower split, so this cannot tell the rules apart: " + Self.describe(content))
+        }
+    }
+
+    /// The window's first terminal, then Split Right (a terminal in the new pane), in an 1800 pt window; focus back on the left.
+    private static func twoTerminals(_ services: AppServices) async throws -> (WorkspaceContentController, PaneController, PaneController) {
+        let controller = try #require(services.windows.active)
+        controller.window?.setFrame(NSRect(x: 0, y: 0, width: 1800, height: 1000), display: false)
+        let content = try #require(controller.workspaceContent)
+        let model = try #require(services.daemon.store.workspaces.first?.screens.first?.panes.first)
+        let left = try #require(services.paneController(for: model))
+        PaneHandlers.focus(left.layoutPaneID, in: content)
+        try await PinnedPageTests.until({ content.focusedPane === left })
+        let panes = Set(content.panes.keys)
+        #expect(services.registry.perform("splitRight", invocation: ActionInvocation(origin: .user)))
+        func confirmed() -> PaneController? {
+            content.panes.first { !panes.contains($0.key) && $0.value.pane.tabs.contains { !ProvisionalTab.isProvisional(surface: $0.surface) } }?.value
+        }
+        try await PinnedPageTests.until({ confirmed() != nil }, report: { "the split did not confirm" })
+        let right = try #require(confirmed())
+        content.contentView.layoutSubtreeIfNeeded()
+        PaneHandlers.focus(left.layoutPaneID, in: content)
+        try await PinnedPageTests.until({ content.focusedPane === left })
+        services.linkOpener.placement = { .splitRight }
+        return (content, left, right)
+    }
+
+    private static func describe(_ content: WorkspaceContentController) -> String {
+        content.panes.values.map { pane in
+            "\(pane.layoutPaneID) \(Int(pane.view.bounds.width)) pt wide: \(pane.pane.tabs.map { "\($0.kind)" })"
+        }.sorted().joined(separator: "; ")
     }
 }
