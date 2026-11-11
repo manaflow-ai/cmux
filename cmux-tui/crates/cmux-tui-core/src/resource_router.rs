@@ -148,10 +148,11 @@ pub(crate) fn handle_parsed_resource_request(
     let id = request.envelope.id.clone();
     let operation = request.envelope.operation;
     let result = validate_operation_outcome(operation, dispatch_resource_request(mux, request));
-    serde_json::to_value(match result {
+    match result {
         Ok(result) => ResponseEnvelope::success(id, result),
         Err(error) => ResponseEnvelope::failure(id, error),
-    })
+    }
+    .into_value()
     .map_err(|error| {
         ResourceError::operation_failed(
             "response.encode",
