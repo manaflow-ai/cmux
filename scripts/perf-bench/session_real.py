@@ -77,6 +77,7 @@ Only on a fleet mini, never on a person's Mac: `make` starts hundreds of process
 """
 
 import argparse
+import tempfile
 import json
 import os
 import pwd
@@ -2162,7 +2163,7 @@ def build(args):
     state = os.path.join(to.path, "state", "tui")
     os.makedirs(state)
     home = OwnFolder(os.path.join(to.path, "build-home"), "build home")
-    sock = f"/private/tmp/session-real-{os.getpid()}.sock"
+    sock = os.path.join(tempfile.mkdtemp(prefix="session-real-", dir="/private/tmp"), "tui.sock")  # a mkdtemp dir: a guessable /tmp name could be planted by another account
     env = dict(os.environ, HOME=home.path, XDG_CONFIG_HOME=home.path + "/.config", XDG_STATE_HOME=home.path + "/.local/state",
                XDG_DATA_HOME=home.path + "/.local/share", XDG_CACHE_HOME=home.path + "/.cache",
                CMUX_TUI_CONFIG=os.path.join(home.path, "config.json"), SHELL="/bin/zsh")
