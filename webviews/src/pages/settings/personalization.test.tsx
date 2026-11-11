@@ -149,6 +149,25 @@ test("a jump marks its part current, and a second Change Background… lands on 
   page.unmount();
 });
 
+test("a jump to Theme, the first part, scrolls the page to its very top so its title shows", async () => {
+  const page = await renderPage({ path: "/settings/personalization?focus=personalization.sounds" });
+  await settle();
+  const content = page.container.querySelector<HTMLElement>(".content")!;
+  const tops: number[] = [];
+  content.scrollTo = ((options: ScrollToOptions) => void tops.push(options.top ?? -1)) as typeof content.scrollTo;
+  const scrolled: string[] = [];
+  const original = HTMLElement.prototype.scrollIntoView;
+  HTMLElement.prototype.scrollIntoView = function (this: HTMLElement) {
+    if (this.dataset.part) scrolled.push(this.dataset.part);
+  };
+  await act(async () => page.container.querySelector<HTMLElement>('[data-jump="theme"]')!.click());
+  await settle();
+  expect(tops).toEqual([0]);
+  expect(scrolled).toEqual([]);
+  HTMLElement.prototype.scrollIntoView = original;
+  page.unmount();
+});
+
 test("without art to pick, Background still draws the shuffle interval Appearance shows", async () => {
   const page = await renderPage({
     path: "/settings/personalization",

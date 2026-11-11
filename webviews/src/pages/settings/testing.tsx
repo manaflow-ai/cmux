@@ -117,6 +117,24 @@ export async function click(element: Element): Promise<void> {
   await settle();
 }
 
+/** Resets a row the way a person does now that rows have no Reset button: right-click its title,
+ * then Reset to Default (Use Theme Color on a color row). */
+export async function resetRow(container: ParentNode, key: string): Promise<void> {
+  const title = rowElement(container, key).querySelector(".row-title");
+  if (!title) throw new Error(`row ${key} has no title`);
+  await act(async () => {
+    title.dispatchEvent(
+      new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 60 }),
+    );
+  });
+  const items = [...document.querySelectorAll<HTMLButtonElement>("[role=menu] [role=menuitem]")];
+  const item = items.find(
+    (button) => button.textContent === "Reset to Default" || button.textContent === "Use Theme Color",
+  );
+  if (!item) throw new Error(`row ${key} has no reset item`);
+  await click(item);
+}
+
 /** The params of every `op` call the provider received, without the idempotency key. */
 export function ops(provider: MockSettingsProvider, op: string): unknown[] {
   return provider.log

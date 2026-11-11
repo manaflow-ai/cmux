@@ -10,7 +10,7 @@ import type {
   ProviderAccount,
 } from "./ops";
 import { minutesAgo } from "../../gallery/clock";
-import { categories, homes } from "./categories";
+import { categories } from "./categories";
 import { MockTeams } from "./mockTeams";
 import { mockThemeColors } from "./mockThemes";
 import { schema } from "./schema";
@@ -587,13 +587,13 @@ Object.assign(variants, {
     steps: [click(`${row("terminal.fontFamily")} [data-font-picker]`), wait("[data-font-option]")],
     note: "Terminal Font Family's list: the default first, then the fonts picked lately with a Recent tag, then every installed family, each drawn in its own face. Arrow keys preview live; Return picks, Escape reverts.",
   }),
-  // Unset surface rows rest on the window's values, dimmed under an "Inherits window" badge.
+  // Unset surface opacities rest on the window's values, drawn as their own; colors keep their badge.
   "surfaces-inherit-window": variant("appearance", {
     focus: "appearance.surfaces.sidebar.opacity",
     options: { values: { "appearance.backgroundOpacity": 0.8 } },
     host: { ...host, derived: { "appearance.backgroundOpacity": 0.8 } },
     steps: [wait(row("appearance.surfaces.sidebar.opacity"))],
-    note: "Surfaces: each unset opacity rests on the window's 80% and each unset color on the window's color, dimmed with an Inherits window badge; no row reads a truncated default label.",
+    note: "Surfaces: each unset opacity shows the window's 80% as its value and each unset color the window's color under an Inherits window badge; no row reads a truncated default label.",
   }),
   "backdrops-pending": variant("appearance", {
     options: { values: { "appearance.background": "system:/S/Sonoma.heic" } },
@@ -1060,11 +1060,6 @@ Object.assign(variants, {
       wait("[data-theme-files-error]"),
     ],
     note: "A name a shipped theme uses is refused inline; the name prompt stays open.",
-  }),
-  "changed-only": variant("general", {
-    options: { values: customValues },
-    steps: [click("[data-changed-only]"), wait("[data-search-results]")],
-    note: "Show Only Changed lists every changed setting across categories.",
   }),
   "font-picker": variant("appearance", {
     steps: [click(`${row("terminal.fontFamily")} .domain-button`), wait(".domain-panel")],
@@ -1644,30 +1639,6 @@ Object.assign(variants, {
   }),
 } satisfies Record<string, SettingsPageVariant>);
 
-// The Reset control never moves the row (P1 fix, Lawrence 2026-10-07): for a row of each editor
-// kind, start customized and press its Reset; the matrix measures layout shift (strict 0) and the
-// anchors (the row's title, the next row's title) on each.
-const RESET_SAMPLES: Record<string, string> = {
-  toggle: "history.terminalCommands",
-  segmented: "navigation.historyScope",
-  number: "layout.defaultColumnWidth",
-  url: "browser.newTabPage",
-  color: "layout.paneBorderColor",
-  sound: "notifications.sound",
-  "time-range": "notifications.quietHours",
-};
-for (const [kind, key] of Object.entries(RESET_SAMPLES))
-  variants[`play-reset-${kind}`] = variant(homes.get(key)!.category, {
-    focus: key,
-    options: { values: customValues },
-    note: `Reset on a ${kind} row: the control fades out in its reserved slot.`,
-    play: async (ctx) => {
-      // Input lands at the control's page position: bring the row into view first.
-      ctx.find({ selector: row(key) }).scrollIntoView({ block: "center" });
-      await ctx.click({ selector: `${row(key)} [data-reset]` });
-      await ctx.waitFor(() => !ctx.document.querySelector(`${row(key)} [data-reset]`));
-    },
-  });
 // One scroller (cx-jh7kq): a select opened near the bottom edge, then the content scrolled under
 // it. The pop-up stays at its row (or waits hidden while the row is out of view); the document
 // never scrolls, so the column never slides up under the window.
@@ -1694,11 +1665,6 @@ variants["play-section-change"] = variant("accounts", {
     await ctx.waitFor(() => ctx.document.querySelector('[data-section="advanced"]'));
   },
 });
-
-const resetAnchors = Object.values(RESET_SAMPLES).flatMap((key) => [
-  { selector: `${row(key)} .row-title` },
-  { selector: `${row(key)} + [data-row-key] .row-title` },
-]);
 
 const githubConnection = {
   title: "GitHub",
@@ -1779,7 +1745,7 @@ variants["github-connect-confirm"] = variant("accounts", {
 
 export default settingsPageEntry({
   id: "pages.settings",
-  anchors: [{ selector: "[data-settings-search]" }, { selector: '[data-section-link="general"]' }, ...resetAnchors],
+  anchors: [{ selector: "[data-settings-search]" }, { selector: '[data-section-link="general"]' }],
   title: "Settings",
   area: "Settings",
   height: 760,

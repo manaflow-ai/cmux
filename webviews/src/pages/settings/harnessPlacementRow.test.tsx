@@ -8,7 +8,7 @@ const { renderPage, settle, rowElement, changeValue } = await import("./testing"
 
 test("ordinary Settings shows all four placements and an explicit top-symbols choice survives reload", async () => {
   const page = await renderPage({
-    path: "/settings/agents",
+    path: "/settings/chat",
     setup: (provider) => provider.setHost({ ...provider.host, harness_placement: "left" }),
   });
   try {

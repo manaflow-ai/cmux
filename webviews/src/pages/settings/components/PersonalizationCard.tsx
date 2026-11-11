@@ -5,6 +5,7 @@
 // so this page writes the same keys through the same store calls and holds no setting of its own.
 import { useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
+import { JumpBar } from "./JumpBar";
 import { Button } from "../../../ui/Button";
 import { categoryById, type CategoryGroup } from "../categories";
 import { useSettingsRouter, useSettingsState } from "../context";
@@ -16,6 +17,7 @@ import { CHIEF_PET_ENABLED, CHIEF_PET_MASCOT, ChiefPetCard } from "./ChiefPetCar
 import { DensityCard } from "./DensityCard";
 import { GroupList } from "./GroupList";
 import { BACKDROP_ROWS, Backdrops, useBackdropsShown } from "./HostCards";
+import { useCurrentCard } from "../useCurrentCard";
 import { ACCENT_KEY, APP_THEME_KEY, THEME_KEY, ThemeStudio } from "./ThemeStudio";
 
 /** A part of the page: its jump-bar id, the categories that are the homes of what it draws (each
@@ -33,13 +35,14 @@ const BACKGROUND_ROWS = [
 ];
 
 export const PERSONALIZATION_PARTS: readonly Part[] = [
-  { id: "theme", homes: ["theme"], cardKeys: [THEME_KEY, APP_THEME_KEY, ACCENT_KEY], rows: [] },
+  // The theme's one home is this page (the Theme page's card moved here), so its part links nowhere.
+  { id: "theme", homes: [], cardKeys: [THEME_KEY, APP_THEME_KEY, ACCENT_KEY], rows: [] },
   { id: "background", homes: ["appearance"], cardKeys: [...BACKDROP_ROWS], rows: BACKGROUND_ROWS },
   { id: "chief", homes: ["chief"], cardKeys: [CHIEF_PET_ENABLED, CHIEF_PET_MASCOT], rows: [] },
   {
     id: "text",
-    // The density tiles are Appearance's; the chat text rows (Agents' whole Chat Text card) are Agents'.
-    homes: ["appearance", "agents"],
+    // The density tiles are Appearance's; the chat text rows (Chat's whole Chat Text card) are Chat's.
+    homes: ["appearance", "chat"],
     cardKeys: [...DENSITY_ROWS],
     rows: [
       "agentPane.display.font.ui",
@@ -66,11 +69,18 @@ export const PERSONALIZATION_KEYS: readonly string[] = [
 
 const FOCUS_PREFIX = "personalization.";
 
+/** The part that draws a key, for a key only this page draws (a search result opens that part). */
+export function personalizationPartOf(key: string): PartID | null {
+  return PERSONALIZATION_PARTS.find((part) => part.cardKeys.includes(key) || part.rows.includes(key))?.id ?? null;
+}
+
 /** `#/settings/personalization?focus=personalization.background` opens on that part (Change Background…). */
 export function personalizationPart(focus: string | null): PartID | null {
   const id = focus?.startsWith(FOCUS_PREFIX) ? focus.slice(FOCUS_PREFIX.length) : null;
   return PERSONALIZATION_PARTS.some((part) => part.id === id) ? (id as PartID) : null;
 }
+
+const PART_IDS: readonly PartID[] = PERSONALIZATION_PARTS.map((part) => part.id);
 
 const partTitle = (id: PartID) => t(`settingsPage.personalization.${id}`);
 
@@ -85,6 +95,10 @@ export function PersonalizationCard({
   const state = useSettingsState();
   const picker = useBackdropsShown();
   const parts = useRef(new Map<PartID, HTMLElement>());
+  // The jump bar's current part follows the scroll (useCurrentCard); a jump or a route's reveal
+  // holds its part until the person scrolls.
+  const root = useRef<HTMLDivElement>(null);
+  const [current, pin] = useCurrentCard(root, PART_IDS, "part");
   // The part the route names, read from the route itself: its href changes a render before the
   // section's `focus`, and the two must name the same part when the reveal runs.
   const href = useRouterState({ router, select: (routerState) => routerState.location.href });
@@ -95,12 +109,19 @@ export function PersonalizationCard({
   useEffect(() => {
     if (!state.readable || opened === null || revealed.current === href) return;
     revealed.current = href;
-    parts.current.get(opened)?.scrollIntoView?.({ block: "start" });
-  }, [href, opened, state.readable]);
+    pin(opened);
+    // The first part opens the page at its very top, with the page's title over it (Lucas
+    // 2026-11-11: Theme must show "Personalization" too); the others scroll their title to the top.
+    const scroller = root.current?.closest<HTMLElement>(".content");
+    if (opened === PART_IDS[0] && scroller) scroller.scrollTo?.({ top: 0 });
+    else parts.current.get(opened)?.scrollIntoView?.({ block: "start" });
+  }, [href, opened, state.readable, pin]);
   // A jump is the route's part (as a picked menu is Settings > Menus' focus), so the jump bar's
   // current part, Back and the host's next Change Background… all follow it.
-  const jump = (id: PartID) =>
+  const jump = (id: PartID) => {
+    pin(id);
     router.history.replace(sectionHref("personalization", `${FOCUS_PREFIX}${id}`, workspace));
+  };
   const rowsOf = (part: Part): CategoryGroup[] => {
     const keys = part.id === "background" && picker ? part.rows.filter((key) => !BACKDROP_ROWS.has(key)) : part.rows;
     const rows = keys.map((key) => rowsByKey.get(key)).filter((row) => row !== undefined);
@@ -133,22 +154,13 @@ export function PersonalizationCard({
     }
   };
   return (
-    <div className="personalization" data-card="personalization">
-      <nav className="personalization-jump" aria-label={t("settingsPage.personalization.jump")}>
-        {PERSONALIZATION_PARTS.map((part) => (
-          <Button
-            key={part.id}
-            type="button"
-            variant="ghost"
-            className="button personalization-jump-link"
-            data-jump={part.id}
-            aria-current={opened === part.id ? "true" : undefined}
-            onClick={() => jump(part.id)}
-          >
-            {partTitle(part.id)}
-          </Button>
-        ))}
-      </nav>
+    <div className="personalization" data-card="personalization" ref={root}>
+      <JumpBar
+        items={PERSONALIZATION_PARTS.map((part) => ({ id: part.id, label: partTitle(part.id) }))}
+        current={current}
+        label={t("settingsPage.personalization.jump")}
+        onJump={(id) => jump(id as PartID)}
+      />
       {PERSONALIZATION_PARTS.map((part) => (
         <section
           key={part.id}

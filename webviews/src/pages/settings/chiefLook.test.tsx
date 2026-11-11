@@ -8,7 +8,7 @@ import { installDom } from "./testDom";
 
 const restore = installDom();
 afterAll(() => restore());
-const { changeValue, click, fire, renderPage, settle } = await import("./testing");
+const { changeValue, fire, renderPage, settle } = await import("./testing");
 const { CHIEF_PET_MASCOTS } = await import("./components/ChiefPetCard");
 
 const look = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-card="chief-pet"]')!;
@@ -79,23 +79,6 @@ test("search renders Bubble Style in the Look card", async () => {
   const rows = [...result!.querySelectorAll("[data-row-key]")].map((row) => row.getAttribute("data-row-key"));
   expect(rows).toEqual(["home.chiefBubbleStyle", ...BUBBLE_COLORS]);
   expect(page.container.querySelector('[data-search-results] [data-group="settings.group.chiefChat"]')).toBeNull();
-  page.unmount();
-});
-
-test("Show Only Changed keeps unchanged pet rows out of the Look card", async () => {
-  const page = await renderPage({
-    path: "/settings/chief",
-    mock: { values: { "home.chiefBubbleStyle": "theme" } },
-  });
-  await click(page.container.querySelector<HTMLElement>("[data-changed-only]")!);
-  await settle();
-  const result = page.container.querySelector<HTMLElement>('[data-search-results] [data-card="chief-pet"]');
-  expect(result).not.toBeNull();
-  expect(result?.querySelector('[data-row-key="home.chiefBubbleStyle"]')).not.toBeNull();
-  expect(result?.querySelector('[data-row-key="home.chiefPetEnabled"]')).toBeNull();
-  expect(result?.querySelector('[data-row-key="home.chiefPetMascot"]')).toBeNull();
-  expect(result?.querySelectorAll(".chief-pet-choice")).toHaveLength(0);
-  expect(result?.querySelectorAll("[data-row-key]")).toHaveLength(1);
   page.unmount();
 });
 

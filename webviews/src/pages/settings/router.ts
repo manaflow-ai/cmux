@@ -142,8 +142,6 @@ export type SettingsLocation = {
   workspace: string | null;
   /** The sidebar search's text; empty when not searching. */
   query: string;
-  /** Whether the search lists only changed settings. */
-  changedOnly: boolean;
 };
 
 /**
@@ -171,7 +169,6 @@ export function parseLocation(href: string): SettingsLocation {
     focus,
     workspace: url.searchParams.get("workspace"),
     query: url.searchParams.get("q") ?? "",
-    changedOnly: url.searchParams.get("changed") === "1",
   };
 }
 
@@ -179,13 +176,12 @@ export function sectionHref(
   section: string,
   focus?: string | null,
   workspace?: string | null,
-  filter?: { query?: string; changedOnly?: boolean },
+  filter?: { query?: string },
 ): string {
   const query = new URLSearchParams();
   if (focus) query.set("focus", focus);
   if (workspace) query.set("workspace", workspace);
   if (filter?.query) query.set("q", filter.query);
-  if (filter?.changedOnly) query.set("changed", "1");
   const search = query.toString();
   return `/settings/${encodeURIComponent(section)}${search ? `?${search}` : ""}`;
 }
