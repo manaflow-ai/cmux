@@ -27,11 +27,19 @@
 //! a request's wait is that count times [`HOLD`]: 100 ms is 20 turns,
 //! 200 ms is 40. A place in the queue does not move with the host's load;
 //! the wall time does (the request's own CPU and disk work is in it), and
-//! this test was red on build hosts that ran other jobs. The wall times are
-//! still printed (`PERSON_REQUEST_LATENCY`, with the idle control) as facts
-//! for a reader; no assert reads them. Not counted: the request's own work,
-//! and its wait for the at most [`AGENT_OPEN_CALLERS`] chat tab creates in
-//! front of it (each of those takes the lock as a person's request does).
+//! this test was red on build hosts that ran other jobs (the host's load as
+//! the cause is an inference: no run made the wall-clock form red again).
+//! The wall times are still printed (`PERSON_REQUEST_LATENCY`, with the idle
+//! control) as facts for a reader; no assert reads them.
+//!
+//! So the assert bounds the request's place in the registry queue, not its
+//! answer time. Not counted, and no other test bounds these waits under
+//! load: the request's own work; the rest of the hold of the locker that has
+//! the lock at each take (up to one [`HOLD`] for each of the 7 to 8 takes of
+//! a chat tab create); the holds of the at most [`AGENT_OPEN_CALLERS`] chat
+//! tab creates in front of it (each of those takes the lock as a person's
+//! request does); the creation fence; the connection pin and the receipt
+//! drain; the state lock; and the 20 ms poll of `wait_while`.
 //!
 //! The priority is bounded the other way too: agents can send personal
 //! writes as well, so while 48 sessions keep them queued an ordinary
@@ -67,7 +75,10 @@ const P95_BUDGET_MS: f64 = 100.0;
 /// also share the interactive turns, and plain lockers get a turn after 4.
 /// So it answers in about 65 ms (p50) under this load, against 2 to 2.8 s
 /// before. 200 ms is 10x under the app's 2 s deadline; fewer registry takes
-/// per tab is its own follow-up. On the model's clock, as [`P95_BUDGET_MS`].
+/// per tab is its own follow-up. On the model's clock, as [`P95_BUDGET_MS`]:
+/// 40 turns of [`HOLD`]. Those wall times are history: as a wall-clock bound
+/// 200 ms left a chat tab about 30 turns for the busy sessions, so 40 turns
+/// is the less strict bound of the two.
 const P95_TAB_BUDGET_MS: f64 = 200.0;
 
 thread_local! {
