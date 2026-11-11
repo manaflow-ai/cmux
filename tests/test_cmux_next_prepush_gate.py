@@ -1686,6 +1686,91 @@ let package = Package(
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    CHROME_VECTORS = "schemas/theme/chrome-layer-colors.json"
+    CHROME_PALETTE = f"{PKG}/Sources/CmuxNextDesign/Palette.swift"
+
+    def test_a_chrome_colour_change_without_a_chrome_look_trailer_is_refused_even_with_a_skip_reason(self):
+        # #39984 dimmed the sidebar for a non-Leo issue (Leo 2026-11-11: "bro why is the sidebar now a different
+        # color?"): the recorded chrome colours change only on Leo's words.
+        before = self.remote_head()
+        self.write(self.CHROME_VECTORS, '{"cases": [{"theme": "dark", "sidebar": "#141414"}]}\n')
+        self.commit("sidebar: dim the list")
+
+        result = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="unrelated")
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("Chrome layer look", output)
+        self.assertIn("no `Chrome-Look-OK:` trailer", output)
+
+    def test_a_chrome_look_trailer_without_leo_is_refused(self):
+        # The Sidebar-Look trailer on #39984 quoted another person's issue; this one must quote Leo.
+        self.write(self.CHROME_VECTORS, '{"cases": [{"theme": "dark", "sidebar": "#141414"}]}\n')
+        self.commit('sidebar: dim the list\n\nChrome-Look-OK: issue 39956 "match the Codex sidebar"')
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("does not quote Leo", output)
+
+    def test_a_chrome_look_trailer_naming_leo_without_his_words_is_refused(self):
+        self.write(self.CHROME_VECTORS, '{"cases": [{"theme": "dark", "sidebar": "#141414"}]}\n')
+        self.commit("sidebar: dim the list\n\nChrome-Look-OK: Leo said it was fine")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("does not quote Leo", output)
+
+    def test_a_chrome_colour_change_quoting_leo_pushes(self):
+        self.write(self.CHROME_VECTORS, '{"cases": [{"theme": "dark", "sidebar": "#1E1E1E"}]}\n')
+        self.commit('chrome: one surface\n\nChrome-Look-OK: Leo 2026-11-11 "bro why is the sidebar now a different color?"')
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_chrome_token_source_hunk_naming_a_chrome_token_needs_the_trailer(self):
+        self.write(self.CHROME_PALETTE, "struct Palette {\n    // the window\n    static let windowBackground = 1\n"
+                   "    static let textPrimary = 2\n}\n")
+        self.commit('palette: start\n\nChrome-Look-OK: Leo 2026-11-11 "one surface with the chrome"')
+        self.write(self.CHROME_PALETTE, "struct Palette {\n    // the window\n    static let windowBackground = 3\n"
+                   "    static let textPrimary = 2\n}\n")
+        self.commit("palette: a darker window")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("palette: a darker window", output)
+        self.assertIn("no `Chrome-Look-OK:` trailer", output)
+
+    def test_a_chrome_token_source_change_away_from_chrome_tokens_needs_no_trailer(self):
+        lines = ["struct Palette {", "    static let windowBackground = 1"] + [f"    // {i}" for i in range(12)]
+        self.write(self.CHROME_PALETTE, "\n".join(lines + ["    static let textPrimary = 2", "}"]) + "\n")
+        self.commit('palette: start\n\nChrome-Look-OK: Leo 2026-11-11 "one surface with the chrome"')
+        self.write(self.CHROME_PALETTE, "\n".join(lines + ["    static let textPrimary = 4", "}"]) + "\n")
+        self.commit("palette: brighter text")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_later_commit_does_not_launder_an_earlier_chrome_change(self):
+        self.write(self.CHROME_VECTORS, '{"cases": [{"theme": "dark", "sidebar": "#141414"}]}\n')
+        self.commit("sidebar: dim the list")
+        self.write(self.CHROME_VECTORS, '{"cases": [{"theme": "dark", "sidebar": "#151515"}]}\n')
+        self.commit('sidebar: dim less\n\nChrome-Look-OK: Leo 2026-11-11 "one surface with the chrome"')
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("sidebar: dim the list", output)
+
     SIDEBAR_VIEW = f"{PKG}/Sources/CmuxNextSidebar/Views/RowView.swift"
 
     def test_a_sidebar_view_change_without_a_sidebar_look_trailer_is_refused_even_with_a_skip_reason(self):
