@@ -585,14 +585,7 @@ export class MockAcpmuxSocket {
           },
         };
       case FORK_OP:
-        // `live`: the whole chat as it is now; `harness` (and `model`): onto another harness, as a
-        // model switch in a started chat forks it in place (App.tsx `chat.switchModel`).
-        return this.fork(
-          target,
-          params.live === true ? Number.MAX_SAFE_INTEGER : Number(params.throughSeq),
-          typeof params.harness === "string" ? params.harness : undefined,
-          typeof params.model === "string" ? params.model : undefined,
-        );
+        return this.fork(target, Number(params.throughSeq));
       case "_acpmux/watch":
         return { sessions: this.sessions };
       // A session this daemon lists (mockFixture.ts `mockResolvable`), by link, id or HOST/NAME.
@@ -1083,7 +1076,7 @@ export class MockAcpmuxSocket {
   }
 
   /// A new session holding `target`'s events through `throughSeq`, under its own sequence.
-  private fork(target: string, throughSeq: number, harness?: string, model?: string): { sessionId: string } {
+  private fork(target: string, throughSeq: number): { sessionId: string } {
     const source = this.sessions.find((entry) => entry.sessionId === target);
     if (!source || !Number.isFinite(throughSeq)) throw new Error(`cannot fork ${target}`);
     const sessionId = `mock-session-${this.sessions.length + 1}`;
@@ -1096,8 +1089,6 @@ export class MockAcpmuxSocket {
     const turns = this.events.filter((entry) => entry.sessionId === sessionId && entry.kind === "turn_result").length;
     const created = {
       ...source,
-      ...(harness ? { harness } : {}),
-      ...(model ? { model } : {}),
       sessionId,
       status: "idle",
       unread: false,

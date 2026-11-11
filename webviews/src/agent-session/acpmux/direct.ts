@@ -12405,46 +12405,6 @@ export class AcpmuxDirectClient {
       this.forking = false;
     }
   }
-  /// A pick of another harness's model, sent (forkHold.ts; Leo 2026-11-11: "if i switch to a
-  /// different model in a chat, it should just be able to seamlesly within the same pane do stuff
-  /// and stop asking so much bullshit"): acpmux forks the open chat as it is now onto `harness`,
-  /// started on `model` (the caller sets the effort after), its history shown by reference and carried to the new agent
-  /// with its first prompt (`acp.session.fork {live, harness}`), and this pane opens the fork in
-  /// place: no review, no tab. Resolves the fork's id once it is the selected chat; rejects with
-  /// acpmux's reason when it refused, or when the reader opened another chat meanwhile (the fork is
-  /// then taken back), so the composer keeps the message.
-  async forkTo(target: { harness: string; model?: string }): Promise<string> {
-    const sessionId = this.actingSessionId;
-    // l10n-allow: the composer's promise only; the composer keeps the text, never shows this.
-    if (!this.canFork || !sessionId) throw new Error("chat cannot fork");
-    // l10n-allow: as above.
-    if (this.forking) throw new Error("a fork is already running");
-    this.forking = true;
-    const generation = this.selectionGeneration;
-    try {
-      const result = await this.request(FORK_OP, {
-        sessionId,
-        live: true,
-        harness: target.harness,
-        ...(target.model ? { model: target.model } : {}),
-      });
-      const forked = typeof result?.sessionId === "string" ? result.sessionId : "";
-      // l10n-allow: as above.
-      if (!forked) throw new Error("the fork made no chat");
-      if (generation !== this.selectionGeneration) {
-        this.takeBackFork(forked);
-        // l10n-allow: as above.
-        throw new Error("another chat was opened");
-      }
-      this.forking = false;
-      await this.select(forked);
-      // l10n-allow: as above.
-      if (this.selectedSessionId !== forked) throw new Error("the fork did not open");
-      return forked;
-    } finally {
-      this.forking = false;
-    }
-  }
   /// New side chat and `/side [prompt]` of a chat on another machine that opens side chats there
   /// (`sideChatOnMachine`): that machine forks the open chat through `throughSeq` (`live`: as it is
   /// now, its turn going on), tags the fork its side chat and sends it `prompt`, in one call, and
