@@ -432,6 +432,15 @@ def run_attempt_scenario(a, sock, marks, pid, result):
         raise SystemExit(f"attempt-download-error: the failure offers no Download Manually: {failure}")
 
 
+def read_feed_reads(path):
+    """The slow feed's appcast reads (``slow_feed.py``), oldest first."""
+    try:
+        with open(path) as f:
+            return [json.loads(line) for line in f if line.strip()]
+    except FileNotFoundError:
+        return []
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--app", required=True)
@@ -477,6 +486,9 @@ def main():
                          "narrow sidebar width and the What's New page its button opens, light and dark (cx-7rone)")
     ap.add_argument("--second-hop", action="store_true",
                     help="after the relaunch, publish a v3 and update the relaunched build again")
+    ap.add_argument("--feed-latency-ms", type=int, default=0,
+                    help="the appcast answers after this many ms (a feed on a real network); the timeline then "
+                         "counts the feed reads the install click waited on (click_feed_reads)")
     ap.add_argument("--click-at-stage", action="store_true",
                     help="click the moment the update stages, not after the staging work (the rollback keep) ends")
     ap.add_argument("--scenario", choices=SCENARIOS,
@@ -600,8 +612,12 @@ def main():
                 f.write(appcast)
         if a.notes:
             write_notes(feed, keys, i2, log)
-        server = subprocess.Popen([sys.executable, "-m", "http.server", str(a.port), "--bind", "127.0.0.1", "--directory", feed],
-                                  stdout=open(os.path.join(out, "server.log"), "w"), stderr=subprocess.STDOUT,
+        feed_reads = os.path.join(out, "feed-reads.ndjson")
+        if a.feed_latency_ms:
+            serve = [sys.executable, "-I", os.path.join(HERE, "slow_feed.py"), str(a.port), feed, str(a.feed_latency_ms), feed_reads]
+        else:
+            serve = [sys.executable, "-m", "http.server", str(a.port), "--bind", "127.0.0.1", "--directory", feed]
+        server = subprocess.Popen(serve, stdout=open(os.path.join(out, "server.log"), "w"), stderr=subprocess.STDOUT,
                                   stdin=subprocess.DEVNULL)
         marks = Marks(marks_path)
         if os.path.exists(sock):
@@ -869,6 +885,12 @@ def main():
                                                      "windows_*", "keep_previous_start", "keep_previous_end", "will_relaunch",
                                                      "main_window_closed.*", "main_window_closed.remaining_0", "will_terminate"]},
             "click_to_v1_exit_ms": t_exit * 1000 - click,
+            # How the click decided: from a read made before it (read_ahead) or by reading the feed (feed_read).
+            "click_decided": next((r["name"].split(".", 1)[1] for r in rows if r["pid"] == v1_pid
+                                   and r["name"].startswith("install_click.")), None),
+            # Appcast reads (--feed-latency-ms) that started between the click and v1's exit: the click's own.
+            "click_feed_reads": [round(r["start_ms"] - click) for r in read_feed_reads(feed_reads)
+                                 if click <= r["start_ms"] <= t_exit * 1000] if a.feed_latency_ms else None,
             "click_to_v2": {n: at(n, v2_pid) for n in ["process_start", "updater_created"] + RESTORED_MARKS},
         }
         result["timeline"] = timeline
