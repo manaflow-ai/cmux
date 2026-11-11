@@ -3,6 +3,8 @@
 # newest first, the title without its "(#1234)" suffix, the author and the
 # PR number; subjects without a PR keep their whole title and no pr.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 script="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/release-notes.py"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT

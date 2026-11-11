@@ -192,8 +192,7 @@ class PrePushGateTests(unittest.TestCase):
                         HOME=str(self.root), CMUX_LINT_TOOLS_DIR=str(TOOLS))
         git_fixture_env.without_auto_maintenance(self.env)
 
-        subprocess.run(["git", "init", "--quiet", "--bare", "--initial-branch=feat-cmux-next", str(self.origin)],
-                       env=self.env, check=True, capture_output=True)
+        git_fixture_env.init_repo(self.origin, "--bare", "--initial-branch=feat-cmux-next", env=self.env)
         self.repo.mkdir()
         self.git("init", "--quiet", "--initial-branch=feat-cmux-next")
         self.git("remote", "add", "origin", str(self.origin))
@@ -233,6 +232,12 @@ class PrePushGateTests(unittest.TestCase):
             # The What's New validator the highlights layer runs (origin/feat-cmux-next's copy for the hook).
             "scripts/whats-new/digest.py",
             "scripts/whats-new/validate.py",
+            # Context files two scanners read (the gate's CONTEXT): without them "Motion and colour tokens" and
+            # "Browser chrome icons" crashed alike in both trees, which the gate used to subtract as no finding. It
+            # now refuses a check that gave no verdict, so the fixture gives them their inputs.
+            "schemas/motion-scale/motion-scale.json",
+            f"{PKG}/Sources/CmuxNextIcons/IconName+Members.swift",
+            f"{PKG}/Sources/CmuxNextIcons/Resources/icon-catalog.json",
             *checks,
         ):
             source, target = SOURCE / relative, self.repo / relative
@@ -1067,7 +1072,7 @@ class PrePushGateTests(unittest.TestCase):
         # A branch cut from a contributor's fork (git checkout -b topic fork/contrib) pushed to origin: the fork's
         # commits are not on origin, so they are the push's own.
         fork = self.root / "fork.git"
-        subprocess.run(["git", "init", "--quiet", "--bare", str(fork)], env=self.env, check=True, capture_output=True)
+        git_fixture_env.init_repo(fork, "--bare", env=self.env)
         self.git("remote", "add", "fork", str(fork))
         self.git("checkout", "--quiet", "-b", "contrib")
         self.kit("ForkDebt", self.with_try("ForkDebt"))

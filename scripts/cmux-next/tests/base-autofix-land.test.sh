@@ -6,6 +6,8 @@
 # graph (any Packages/ change moves its inputs) was held on every run from 08:58 to 10:00 on
 # 2026-10-21, and the Mac settings exports never landed beside it.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 script="$here/../base-autofix-land.sh"
 tmp="$(mktemp -d)"
@@ -58,7 +60,7 @@ setup() {
   with_cap="${1:-}"
   rm -rf "$tmp/remote.git" "$tmp/bot" "$tmp/lane" "$tmp/tokens" "$tmp/again"
   : > "$tmp/tokens"; : > "$tmp/again"
-  git init -q --bare -b feat "$tmp/remote.git"
+  git_fixture_init --bare -b feat "$tmp/remote.git"
   git clone -q "$tmp/remote.git" "$tmp/lane" 2>/dev/null
   (cd "$tmp/lane" && git checkout -q -b feat \
     && mkdir -p Packages/macOS/CmuxNext/Sources/CmuxNextSettings schemas/settings \

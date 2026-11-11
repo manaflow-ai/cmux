@@ -140,6 +140,34 @@ export PATH="$PATH:/opt/homebrew/bin:$HOME/.bun/bin"
 IFS= read -r CMUX_PUSH_TOKEN
 TREE="/tmp/$NAME.tree"
 cd "$REPO"
+# Leftovers of runs that were killed, whose EXIT trap never ran: a tree is a full checkout (about 2 GB). Only this
+# script's own names, and only those older than 2 hours, so a push that runs now keeps its files. On 2026-11-10
+# this host went offline at 99% full.
+STALE=0
+while IFS= read -r old; do
+    case "$old" in
+        *.tree|*.tree.hooks) git worktree remove --force "$old" >/dev/null 2>&1 || rm -rf "$old" ;;
+        *) rm -f "$old" ;;
+    esac
+    STALE=$((STALE + 1))
+done < <(find /tmp/ -maxdepth 1 -name 'push-from-host-*' -mmin +120 2>/dev/null)
+git worktree prune >/dev/null 2>&1 || true
+(( STALE == 0 )) || echo "push-from-host: removed $STALE leftover file(s) of earlier pushes from /tmp on $HOSTNAME." >&2
+# The checkout below needs about 2 GB. Under 3 GB free it would stop half-written: refuse first. Under 20 GB: say
+# so on every push, while there is still room to act.
+FREE_KB="$(df -Pk /tmp 2>/dev/null | awk 'NR==2 {print $4}')"
+if [[ "$FREE_KB" =~ ^[0-9]+$ ]]; then
+    FREE_GB=$((FREE_KB / 1048576))
+    if (( FREE_KB < 3 * 1048576 )); then
+        echo "push-from-host: $HOSTNAME has $FREE_GB GB of disk free and a push needs a 2 GB checkout; nothing was" \
+            "pushed. Free disk there, or name another Mac with --host." >&2
+        exit 2
+    fi
+    if (( FREE_KB < 20 * 1048576 )); then
+        echo "push-from-host: WARNING: $HOSTNAME has only $FREE_GB GB of disk free (under 20 GB). This push goes on;" \
+            "free disk there before the pushes stop." >&2
+    fi
+fi
 cleanup() {
     cd "$REPO"
     git worktree remove --force "$TREE" >/dev/null 2>&1 || true
