@@ -87,6 +87,8 @@ TIP_SUITE_INPUTS = {"daemon": "tip_daemon_suite", "base": "base_tier"}
 MAX_MARKERS = 50
 # The run history read for the once-per-marker failed report: 100 runs a page.
 RUN_PAGES = 5
+# The marker artifacts of one key read per notify: 100 a page (fork markers are dropped after the read).
+ARTIFACT_PAGES = 5
 WORKFLOW = "cmux-next.yml"
 # A run in one of these states has not finished.
 OPEN = ("queued", "in_progress", "waiting", "pending", "requested")
@@ -414,6 +416,19 @@ def cancel_superseded_same_tree(api: Api, repo: str, branch: str, head: str,
     return cancelled
 
 
+def marker_artifacts(api: Api, repo: str, key: str) -> list:
+    """Every listed `cmux-next-tree-wait-<key>` artifact, newest first: up to ARTIFACT_PAGES pages of 100."""
+    artifacts: list = []
+    for page in range(1, ARTIFACT_PAGES + 1):
+        listing = api.get(f"repos/{repo}/actions/artifacts?name=cmux-next-tree-wait-{key}&per_page=100&page={page}")
+        listed = listing.get("artifacts") if isinstance(listing, dict) else None
+        listed = listed if isinstance(listed, list) else []
+        artifacts.extend(listed)
+        if len(listed) < 100:
+            break
+    return artifacts
+
+
 def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
            log: Callable[[str], None] = print,
            fetch_completion: Callable[[str], object | None] = fetch_completion, exclude_run: int = 0,
@@ -424,8 +439,7 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
             f"reporting run's conclusion; starting the tree jobs (ready)")
         state = "ready"
         reason = f"tree {key} is published ({TREE_BASE}/{key}/completion.json)"
-    listing = api.get(f"repos/{repo}/actions/artifacts?name=cmux-next-tree-wait-{key}&per_page=100")
-    artifacts = [artifact for artifact in listing.get("artifacts", [])
+    artifacts = [artifact for artifact in marker_artifacts(api, repo, key)
                  if isinstance(artifact, dict) and not artifact.get("expired")]
     # A fork's marker starts and cancels nothing (from_same_repository), so it is dropped before the MAX_MARKERS
     # cut: newer fork markers (GitHub lists the newest first) must not hide a same-repository one.
@@ -480,7 +494,8 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
             # dispatch_refs reads the marker's head_ref; GitHub records the run's branch. A mismatch is a marker
             # this run did not write for its own pull request: it starts nothing.
             log(f"marker {artifact.get('id')} (run {run_id}) names head branch {marker.get('head_ref')!r}, but its "
-                f"run is on {artifact['workflow_run'].get('head_branch')!r}; ignored")
+                f"run is on {artifact['workflow_run'].get('head_branch')!r}; deleted, nothing started")
+            api.delete(f"repos/{repo}/actions/artifacts/{artifact['id']}")
             continue
         pull = None
         try:

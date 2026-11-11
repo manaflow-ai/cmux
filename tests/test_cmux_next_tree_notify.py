@@ -94,10 +94,16 @@ class FakeApi:
         # run id -> its jobs (the jobs API); a run without an entry has a same-tree run's jobs, its Mac job queued.
         self.jobs = dict(jobs or {})
         self.cancelled: list[int] = []
+        self.artifact_pages: list[int] = []
 
     def get(self, path: str):
         if path.startswith(f"repos/o/r/actions/artifacts?name=cmux-next-tree-wait-{KEY}"):
-            return {"total_count": len(self.artifacts), "artifacts": self.artifacts}
+            # As GitHub pages it: per_page (at most 100), page 1 when not given.
+            query = dict(item.split("=", 1) for item in path.split("?", 1)[1].split("&"))
+            per_page, page = min(int(query.get("per_page", 30)), 100), int(query.get("page", 1))
+            self.artifact_pages.append(page)
+            return {"total_count": len(self.artifacts),
+                    "artifacts": self.artifacts[(page - 1) * per_page:page * per_page]}
         if path.startswith("repos/o/r/git/ref/heads/"):
             return {"object": {"sha": self.branch_head}}
         if path == "repos/o/r/pulls/7":
@@ -721,6 +727,29 @@ class SupersededSameTreeRuns(unittest.TestCase):
                 self.assertEqual(run(api), 0)
                 self.assertEqual(api.dispatched, [])
                 self.assertEqual(api.cancelled, [])
+
+    def test_the_marker_list_is_read_past_its_first_page(self):
+        """Review of #39736 (samtree-f1): the artifact list was read one page of 100 only, so a marker on page 2
+        (100 newer ones, here fork markers) was never dispatched or swept."""
+        markers = [pr_marker(**self.FORGED, run_id=1000 + index) for index in range(100)] + [pr_marker()]
+        api = FakeApi(markers, runs=[open_run(501, 1), open_run(502, 2), open_run(503, 3)],
+                      artifact_runs=[FORK_RUN] * 100 + [None])
+        self.assertEqual(run(api), 1)
+        self.assertEqual([body["ref"] for body in api.dispatched], ["lane/x"])
+        self.assertEqual(sorted(api.cancelled), [502, 503])
+        self.assertEqual(api.artifact_pages, [1, 2])
+
+    def test_one_page_of_markers_is_read_once(self):
+        api = FakeApi([pr_marker()])
+        self.assertEqual(run(api), 1)
+        self.assertEqual(api.artifact_pages, [1])
+
+    def test_a_marker_naming_another_head_branch_than_its_run_is_deleted(self):
+        """Review of #39736: such a marker can never start anything; it is deleted, not kept for 2 days."""
+        api = FakeApi([pr_marker(head_ref="lane/victim"), pr_marker()], artifact_runs=[{"head_branch": "lane/x"}, None])
+        self.assertEqual(run(api), 1)
+        self.assertEqual([body["ref"] for body in api.dispatched], ["lane/x"])
+        self.assertEqual(api.deleted, [100, 101])
 
     def test_an_unreadable_run_list_cancels_nothing_and_still_dispatches(self):
         class ListDown(FakeApi):
