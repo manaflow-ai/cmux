@@ -612,6 +612,59 @@ class NoclobberSweep(unittest.TestCase):
         # process made it cannot be told.
         self.assertEqual(mktemp_names() - before, set())
 
+    def test_an_env_word_is_read_in_each_quoting_as_bash_runs_it(self):
+        """Review of manaflow-ai/cmux#41371 (vendored copy), F1: env "X=1" mktemp /tmp/$USER.XXXXXX was flagged, since
+        a quoted name was refused where env, which gets its words after quote removal, sets it. Each row of
+        shell_tree.env_rows() runs with bash: `cmd` prints that it ran and the X names it got. The tree runs what bash
+        runs and sets what bash sets, or fails closed ("?", flagged); and with mktemp in cmd's place, a row where bash
+        runs mktemp is flagged only where the tree fails closed, and bash writes no guessable name with it."""
+        bindir = tempfile.mkdtemp(prefix="env-words-")
+        try:
+            with open(os.path.join(bindir, "cmd"), "w") as f:
+                f.write("#!/bin/sh\necho ran cmd\nenv\n")
+            os.chmod(os.path.join(bindir, "cmd"), 0o700)
+            ran_rows = []
+            for text in shell_tree.env_rows():
+                with self.subTest(text=text):
+                    for capability in shell_tree.needs(text):
+                        requires(capability)
+                    run = subprocess.run([shutil.which("bash"), "--noprofile", "--norc", "-c", text], cwd=bindir,
+                                         env={"PATH": bindir + ":/usr/bin:/bin"}, stdin=subprocess.DEVNULL,
+                                         capture_output=True, text=True, timeout=30)
+                    ran = "ran cmd" in run.stdout
+                    tree = shell_tree.runs(text)
+                    line = text[:-len("cmd")] + "mktemp /tmp/$USER.XXXXXX"
+                    if tree == "?":  # only a run can tell: fail closed
+                        self.assertTrue(flagged(code(line)), "an unresolved command exempts no template")
+                        continue
+                    self.assertEqual(tree == "cmd", ran, f"bash: {run.stdout[:80]!r} {run.stderr[:80]!r}")
+                    if ran:
+                        self.assertEqual(sorted(n for n in shell_tree.assigned_names(text) if n.startswith("X")),
+                                         sorted(set(re.findall(r"(?m)^(X\w*)=", run.stdout))), "the names set")
+                        self.assertFalse(flagged(code(line)), "env's NAME=value before mktemp's template")
+                        ran_rows.append(line)
+            self.assertGreater(len(ran_rows), 80)
+            verdicts = shell_tree.bash_verdicts(ran_rows, missing=missing)
+            self.assertEqual(shell_tree.no_oracle(ran_rows, verdicts), [])
+            self.assertEqual([t for t, wrote in zip(ran_rows, verdicts) if wrote is True], [], "bash wrote with these")
+        finally:
+            shutil.rmtree(bindir, ignore_errors=True)
+
+    def test_the_process_estimate_bounds_what_bash_holds(self):
+        """Review of manaflow-ai/cmux#41371 (vendored copy), F2: bash_processes() left out wrappers that stay a process
+        and the shells a -c string starts, so the scheduler (bash_verdicts, PROCESS_BUDGET) went over its budget. Each
+        of shell_tree.wrapper_chains() runs with bash, and the estimate is at least the most processes it held."""
+        if not os.path.exists("/proc/self/stat"):
+            self.skipTest("counting a session's processes reads /proc")
+        for text in shell_tree.wrapper_chains():
+            with self.subTest(text=text):
+                for capability in shell_tree.needs(text):
+                    requires(capability)
+                stats = {}
+                self.assertIs(shell_tree.bash_writes(text, stats=stats), False)
+                self.assertEqual(stats["runs"], 1)
+                self.assertLessEqual(stats["peak"], shell_tree.bash_processes(text))
+
     def test_a_shell_inside_a_shell_runs(self):
         """Review of manaflow-ai/cmux-platform#1274, F1: the scratch PATH had no bash and no sh, so a shell inside a
         shell failed before it ran, and bash could not check the tree there."""

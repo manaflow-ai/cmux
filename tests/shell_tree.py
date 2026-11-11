@@ -1005,8 +1005,30 @@ def programs(text: str) -> list[str]:
         if run.words is UNRESOLVED:
             out.append("?")
         elif run.words:
-            out.append("?" if "\0" in run.values[0] else run.values[0].rsplit("/", 1)[-1])
+            name = "?" if "\0" in run.values[0] else run.values[0].rsplit("/", 1)[-1]
+            out.append(name)
+            inner = shell_string(run.values) if name in SHELLS else None
+            if inner is not None:  # a shell's -c string runs too: its programs, at any depth (cmux#41371 review, F2)
+                try:
+                    out += programs(inner)
+                except Unparsed:
+                    out.append("?")
     return out
+
+
+def shell_string(values: list[str]) -> str | None:
+    """The text a shell's words (VALUES, its name first, quotes removed) run with -c: the first word that is no
+    option after an option group holding c (bash -c T, bash -ec T, sh -c -- T). None when there is none, and "" read
+    as nothing when only a run can tell it ("\0", as "$V"): its programs are unknown, and the caller's fallback counts."""
+    for i, word in enumerate(values[1:], 1):
+        if word.startswith("-") and not word.startswith("--") and "c" in word[1:]:
+            rest = [w for w in values[i + 1:] if w != "--"]
+            if not rest or "\0" in rest[0]:
+                return None
+            return rest[0]
+        if not word.startswith(("-", "+")):
+            return None  # a script file, not -c
+    return None
 
 
 def needs(text: str) -> list[str]:
@@ -1843,18 +1865,58 @@ class BashTimeout(OracleUnavailable):
 # The wrappers that stay as a process of their own around the command they run (timeout and GNU time wait for it;
 # setsid forks when it leads its group), and bash's coproc keyword's subshell. env, nice, nohup, stdbuf and exec run
 # the command in their own place.
-FORKING = {"timeout", "time", "setsid", "coproc keyword"}
+FORKING = {"timeout", "time", "setsid", "coproc keyword"} | SHELLS
 
 
 def bash_processes(text: str) -> int:
     """An upper bound on the processes bash holds at once running TEXT with no loop that forks in the background:
     bash and the fake mktemp with its substitution, one per (, backtick pair, | and &, and one per wrapper that stays a
-    process (FORKING, read by programs(): fifty nested `timeout 5` hold fifty; manaflow-ai/cmux#41371 review, F3)."""
+    process (FORKING, read by programs(): fifty nested `timeout 5` hold fifty; manaflow-ai/cmux#41371 review, F3), a
+    shell started inside it among them, and what that shell's -c string runs (programs() reads it): `timeout 5 bash -c
+    'timeout 5 ... mktemp'` holds both chains at once (manaflow-ai/cmux#41371 review of the vendored copy, F2)."""
     try:
         wrappers = sum(p in FORKING for p in programs(text))
     except Unparsed:
-        wrappers = len(re.findall(r"\b(?:timeout|time|setsid|coproc)\b", text))
+        wrappers = len(re.findall(r"\b(?:timeout|time|setsid|coproc|%s)\b" % "|".join(sorted(SHELLS)), text))
     return 4 + text.count("(") + text.count("`") // 2 + text.count("|") + text.count("&") + wrappers
+
+
+# Where a command's NAME=value word may stand, and each quoting of it (manaflow-ai/cmux#41371 review of the vendored
+# copy, F1: env "X=1" mktemp was flagged, since the quoted-name rule of shell assignment syntax was applied to env, which
+# gets its words after quote removal). env_rows() is every prefix with every quoting, before a command `cmd`; the
+# sweep runs each with bash and holds the tree to what bash runs and sets. ANSI-C $'...' is a part only a run can tell
+# here ("\0"), so the tree fails closed on it (UNRESOLVED, flagged) where bash would run cmd.
+ENV_PREFIXES = ("", "env", "env --", "env -u HOME", "nice env", "timeout 5 env", "command env", "env X_A=0",
+                "exec env", "time env", "nice -n 1 env -u HOME --")
+ENV_QUOTINGS = ("X_T=1", '"X_T=1"', "'X_T=1'", '"X_T"=1', 'X_"T"=1', "'X_T'=1", "X\\_T=1", "X_T\\=1", "X_T='1'",
+                '"X_"T=1', "$'X_T=1'")
+
+
+def env_rows() -> list[str]:
+    """Each ENV_PREFIXES with each ENV_QUOTINGS, before the command cmd."""
+    return [f"{p} {q} cmd".strip() for p in ENV_PREFIXES for q in ENV_QUOTINGS]
+
+
+# The wrapper steps a command may be read through, and wrapper_chains() of them (manaflow-ai/cmux#41371 review of the
+# vendored copy, F2: bash_processes() left out wrappers that stay a process, so six nested `timeout 5` were estimated
+# at 4 and held 8). The sweep runs each chain with bash and holds bash_processes() to at least the most processes the
+# run held at once.
+WRAPPER_STEPS = ("timeout 5", "timeout -k 1 5", "env", "env X_T=1", "env -u HOME", "nice", "nice -n 1", "stdbuf -oL")
+
+
+def wrapper_chains(seed: int = 41371) -> list[str]:
+    """Wrapper chains before a mktemp: every pair of the first four WRAPPER_STEPS, seeded random chains of 3 to 12
+    steps, and six nested `timeout 5`; each one alone, inside a substitution, and run again by a nested bash -c."""
+    import random
+    rnd = random.Random(seed)
+    chains = [f"{a} {b}" for a in WRAPPER_STEPS[:4] for b in WRAPPER_STEPS[:4]]
+    chains += [" ".join(rnd.choice(WRAPPER_STEPS) for _ in range(n)) for n in (3, 4, 6, 8, 12) for _ in range(3)]
+    chains.append(" ".join(["timeout 5"] * 6))
+    out = []
+    for chain in chains:
+        line = chain + " mktemp /tmp/$USER.XXXXXX"
+        out += [line, f"x=$({line})", f"{chain} bash -c '{line}'"]
+    return out
 
 
 def bash_writes(text: str, timeout: float = 10, stats: dict | None = None) -> bool | None:
