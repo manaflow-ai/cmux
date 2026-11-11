@@ -1348,14 +1348,16 @@ fn w5r_start_is_not_ready_on_a_screen_detection_record_alone() {
 
 /// W6-F: a daemon that keeps a real split tree on a screen of fixed size,
 /// as the session does: a split puts the new pane after its target at half
-/// of it, `split ratio set` moves one split, and each terminal reports its
-/// pane's size (the daemon's rect rule: the first side is `round(extent *
-/// ratio)`, clamped to leave both sides a cell).
+/// of it, `split ratio set` moves one split, `tab focus` moves the focus to
+/// the tab's pane, and each terminal reports its pane's size less the frame
+/// the client draws in the pane (the daemon's rect rule: the first side is
+/// `round(extent * ratio)`, clamped to leave both sides a cell).
 struct Room {
     size: (i64, i64),
     root: Value,
     tabs: Vec<Value>,
     terminals: Vec<Value>,
+    focused: String,
     next: u64,
 }
 
@@ -1364,13 +1366,27 @@ type Rect = (i64, i64, i64, i64);
 
 const ROOM_SCREEN: &str = "screen_d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1";
 const ROOM_SHELL_PANE: &str = "pane_5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e";
+/// The columns a pane's frame takes from its terminal: the client's border
+/// box and its default scrollbar column (`scrollbar.position = column`,
+/// app/frame_geometry.rs `pane_parts_for_rect`): a 48-column pane has a
+/// 45-column terminal.
+const ROOM_FRAME_COLUMNS: i64 = 3;
+/// The rows a pane's frame takes from its terminal: the border box's top and
+/// bottom rows.
+const ROOM_FRAME_ROWS: i64 = 2;
 
 impl Room {
-    /// The caller's shell in [`CALLER_PANE`] and, in any other pane of
-    /// `root`, a person's shell.
+    /// The caller's shell in [`CALLER_PANE`] (focused) and, in any other
+    /// pane of `root`, a person's shell.
     fn new(cols: i64, rows: i64, root: Value) -> Self {
-        let mut room =
-            Self { size: (cols, rows), root, tabs: Vec::new(), terminals: Vec::new(), next: 0 };
+        let mut room = Self {
+            size: (cols, rows),
+            root,
+            tabs: Vec::new(),
+            terminals: Vec::new(),
+            focused: CALLER_PANE.into(),
+            next: 0,
+        };
         let mut panes = Vec::new();
         room_leaves(&room.root, &mut panes);
         for pane in panes {
@@ -1384,6 +1400,15 @@ impl Room {
             }
         }
         room
+    }
+
+    /// An exited claude agent [`OLD`] (session [`SESSION`]) whose tab was
+    /// closed: its terminal record is kept, and no pane shows it.
+    fn with_exited_agent_without_a_pane(mut self) -> Self {
+        self.terminals.push(json!({"id": OLD, "lifecycle": "exited",
+            "tab_id": "tab_0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e", "cwd": "/w/proj",
+            "extra": {"agent_start": true, "agent": "claude", "agent_session_id": SESSION}}));
+        self
     }
 
     fn id(&mut self, prefix: &str) -> String {
@@ -1410,6 +1435,11 @@ impl Room {
         rects
     }
 
+    /// The terminal columns of `pane` (its width less the frame).
+    fn cols(&self, pane: &str) -> i64 {
+        self.rects()[pane].2 - ROOM_FRAME_COLUMNS
+    }
+
     fn pane_of_tab(&self, tab: &Value) -> Option<String> {
         self.tabs.iter().find(|record| record["id"] == *tab)?["pane_id"].as_str().map(Into::into)
     }
@@ -1433,7 +1463,7 @@ impl Room {
             .keys()
             .map(|pane| {
                 json!({"id": pane, "screen_id": ROOM_SCREEN,
-                "focused": pane == CALLER_PANE})
+                "focused": *pane == self.focused})
             })
             .collect();
         let terminals: Vec<Value> = self
@@ -1443,8 +1473,8 @@ impl Room {
                 let mut terminal = terminal.clone();
                 let rect = self.pane_of_tab(&terminal["tab_id"]).and_then(|pane| rects.get(&pane));
                 if let Some((_, _, cols, rows)) = rect {
-                    terminal["cols"] = json!(cols);
-                    terminal["rows"] = json!(rows);
+                    terminal["cols"] = json!(cols - ROOM_FRAME_COLUMNS);
+                    terminal["rows"] = json!(rows - ROOM_FRAME_ROWS);
                 }
                 terminal
             })
@@ -1488,6 +1518,12 @@ impl Room {
             "pane.run" => {
                 let name = text("name");
                 self.open_tab(&text("pane"), Some(name.as_str()))
+            }
+            "tab.focus" => {
+                if let Some(pane) = self.pane_of_tab(&params["tab"]) {
+                    self.focused = pane;
+                }
+                json!({})
             }
             "terminal.close" => {
                 let terminal = text("terminal");
@@ -1567,30 +1603,59 @@ fn room_set_ratio(node: &mut Value, split: &str, ratio: f64) {
     room_set_ratio(&mut node["second"], split, ratio);
 }
 
-/// Starts agents `a1`..`a{count}` from the caller's terminal in `room`, as
-/// a plain `agent start NAME` does, and returns the pane rects after each
-/// start.
-fn room_starts(room: Room, count: usize, options: &Options) -> Vec<RoomView> {
+/// One step a test drives against a [`Room`].
+enum RoomStep<'a> {
+    /// `agent start NAME` with these options.
+    Start(&'a str, &'a Options),
+    /// `terminal <t> resume` with these options.
+    Resume(&'a str, &'a Options),
+}
+
+/// Runs `steps` against `room` with `env` and returns the panes after each.
+fn room_run(room: Room, env: &Env, steps: &[RoomStep<'_>]) -> Vec<RoomView> {
     let room = std::rc::Rc::new(RefCell::new(room));
     let shared = std::rc::Rc::clone(&room);
     let daemon =
         Fake::new(move |operation, params, _count| shared.borrow_mut().answer(operation, params));
     let mut views = Vec::new();
-    for n in 1..=count {
-        let name = format!("a{n}");
-        let (report, exit) = run_with_clock(|clock| start(&daemon, &env(), clock, &name, options))
-            .expect("agent start");
+    for step in steps {
+        let (report, exit) = run_with_clock(|clock| match step {
+            RoomStep::Start(name, options) => start(&daemon, env, clock, name, options),
+            RoomStep::Resume(terminal, options) => {
+                resume(&daemon, env, clock, &ResumeTarget::Terminal((*terminal).into()), options)
+            }
+        })
+        .expect("agent start or resume");
         assert_eq!(exit, 0, "{report}");
+        let tabs_closed = daemon.sent("tab.close").len();
         let room = room.borrow();
-        views.push(RoomView { rects: room.rects(), agents: room.agent_panes() });
+        views.push(RoomView {
+            rects: room.rects(),
+            agents: room.agent_panes(),
+            report,
+            tabs_closed,
+        });
     }
     views
 }
 
-/// The panes after one start.
+/// Starts agents `a1`..`a{count}` from the caller's terminal in `room`, as
+/// a plain `agent start NAME` does, and returns the pane rects after each
+/// start.
+fn room_starts(room: Room, count: usize, options: &Options) -> Vec<RoomView> {
+    let names: Vec<String> = (1..=count).map(|n| format!("a{n}")).collect();
+    let steps: Vec<RoomStep<'_>> =
+        names.iter().map(|name| RoomStep::Start(name.as_str(), options)).collect();
+    room_run(room, &env(), &steps)
+}
+
+/// The panes after one start, and its report.
 struct RoomView {
     rects: std::collections::BTreeMap<String, Rect>,
     agents: Vec<String>,
+    report: Value,
+    /// The `tab close` requests of every step so far.
+    tabs_closed: usize,
 }
 
 impl RoomView {
@@ -1598,7 +1663,8 @@ impl RoomView {
         self.rects.get(pane).copied().unwrap_or_else(|| panic!("no pane {pane}: {:?}", self.rects))
     }
 
-    /// The column starts of the caller's space (the caller and its agents).
+    /// The column starts of the caller's space (the caller and its agents):
+    /// each column's x and pane width.
     fn columns(&self) -> Vec<(i64, i64)> {
         let mut columns: Vec<(i64, i64)> = std::iter::once(CALLER_PANE)
             .chain(self.agents.iter().map(String::as_str))
@@ -1613,22 +1679,28 @@ impl RoomView {
     }
 }
 
-/// The checks every start must pass (W6-F, lead decision "region"): the
-/// panes outside the caller's original space keep their exact rects; the
-/// caller keeps at least 40 columns while it had them; the columns of the
-/// caller's space have the same width; no new column is under 40 columns
-/// while the space had room; and the agents stacked in one column have
-/// the same height.
+/// The fewest terminal rows a stacked agent keeps (W6-F, review finding 4).
+const ROOM_MIN_AGENT_ROWS: i64 = 8;
+
+/// The checks every start must pass (W6-F, lead decision "region", review
+/// of 49b43fbf): the panes outside the caller's original space keep their
+/// exact rects; the caller keeps at least 40 terminal columns while it had
+/// them (`caller_before`, in terminal columns); the columns of the caller's
+/// space have the same width and no terminal of a second column is under
+/// 40 columns; from the second start on, every column that exists keeps
+/// its exact place and width (a new column never resizes existing columns);
+/// the agents stacked in one column have the same height, and none has
+/// fewer than [`ROOM_MIN_AGENT_ROWS`] terminal rows.
 fn assert_region_rules(views: &[RoomView], outside: &[(&str, Rect)], caller_before: i64) {
     for (n, view) in views.iter().enumerate() {
         let n = n + 1;
         for (pane, rect) in outside {
             assert_eq!(view.rect(pane), *rect, "start {n}: {pane} changed: {:?}", view.rects);
         }
-        let caller = view.rect(CALLER_PANE).2;
+        let caller = view.rect(CALLER_PANE).2 - ROOM_FRAME_COLUMNS;
         assert!(
             caller >= caller_before.min(40),
-            "start {n}: the caller has {caller} columns: {:?}",
+            "start {n}: the caller's terminal has {caller} columns: {:?}",
             view.rects
         );
         let columns = view.columns();
@@ -1637,7 +1709,20 @@ fn assert_region_rules(views: &[RoomView], outside: &[(&str, Rect)], caller_befo
             (widths.iter().min().copied().unwrap_or(0), widths.iter().max().copied().unwrap_or(0));
         assert!(wide - narrow <= 1, "start {n}: uneven columns {columns:?}: {:?}", view.rects);
         if columns.len() > 1 {
-            assert!(narrow >= 40, "start {n}: a column under 40: {columns:?}: {:?}", view.rects);
+            assert!(
+                narrow - ROOM_FRAME_COLUMNS >= 40,
+                "start {n}: a terminal under 40 columns: {columns:?}: {:?}",
+                view.rects
+            );
+        }
+        if let Some(before) = n.checked_sub(2).and_then(|index| views.get(index)) {
+            for column in before.columns() {
+                assert!(
+                    columns.contains(&column),
+                    "start {n}: the column {column:?} changed: {columns:?}: {:?}",
+                    view.rects
+                );
+            }
         }
         for (x, _) in &columns {
             let heights: Vec<i64> = view
@@ -1652,6 +1737,11 @@ fn assert_region_rules(views: &[RoomView], outside: &[(&str, Rect)], caller_befo
                 heights.iter().max().copied().unwrap_or(0),
             );
             assert!(high - low <= 1, "start {n}: uneven agent stack {heights:?}: {:?}", view.rects);
+            assert!(
+                heights.is_empty() || low - ROOM_FRAME_ROWS >= ROOM_MIN_AGENT_ROWS,
+                "start {n}: an agent under {ROOM_MIN_AGENT_ROWS} rows {heights:?}: {:?}",
+                view.rects
+            );
         }
     }
 }
@@ -1662,52 +1752,172 @@ fn caller_beside_shell(ratio: f64) -> Value {
         "second": {"kind": "leaf", "pane_id": ROOM_SHELL_PANE, "tab_ids": []}})
 }
 
+fn caller_alone() -> Value {
+    json!({"kind": "leaf", "pane_id": CALLER_PANE, "tab_ids": []})
+}
+
 fn plain_start() -> Options {
     Options { cmd: Some("sr2 claude".into()), ..Options::default() }
 }
 
 /// Bench round 5 orchestration row 8 (W6-F): from a 95-column pane,
 /// `split --right` and then agent starts left the caller 9 columns wide and
-/// the agents 15-16. The caller's space is 48 columns, too few for two
-/// columns of 40, so every agent stacks below it: the caller keeps its 48
-/// columns, the person's shell its 47, and the agents share one stack.
+/// the agents 15-16. The caller's pane is 48 columns, too few for two
+/// terminals of 40, so every agent stacks below it: the caller keeps its 48
+/// columns, the person's shell its 47, and the agents share one stack while
+/// each keeps 8 rows (the third and fourth open as tabs in the last agent's
+/// pane).
 #[test]
 fn w6f_agents_started_beside_a_narrow_caller_stack_and_keep_the_callers_width() {
     let room = Room::new(95, 40, caller_beside_shell(0.5));
     let shell = room.rects()[ROOM_SHELL_PANE];
     let caller = room.rects()[CALLER_PANE].2;
+    let caller_cols = room.cols(CALLER_PANE);
     let views = room_starts(room, 4, &plain_start());
-    assert_region_rules(&views, &[(ROOM_SHELL_PANE, shell)], caller);
+    assert_region_rules(&views, &[(ROOM_SHELL_PANE, shell)], caller_cols);
     for (n, view) in views.iter().enumerate() {
         assert_eq!(view.rect(CALLER_PANE).2, caller, "start {}: {:?}", n + 1, view.rects);
     }
 }
 
-/// W6-F: a 95-column caller takes one agent column (two columns of 40 fit);
-/// the second and later agents stack below the first agent, and the agent
-/// stack shares its height evenly.
+/// W6-F: a 95-column caller takes one agent column (two terminals of 40
+/// fit); the second and later agents stack below the first agent, and the
+/// agent stack shares its height evenly.
 #[test]
 fn w6f_a_wide_caller_takes_an_agent_column_then_stacks_the_rest() {
-    let room = Room::new(95, 40, json!({"kind": "leaf", "pane_id": CALLER_PANE, "tab_ids": []}));
+    let room = Room::new(95, 40, caller_alone());
+    let caller_cols = room.cols(CALLER_PANE);
     let views = room_starts(room, 4, &plain_start());
-    assert_region_rules(&views, &[], 95);
+    assert_region_rules(&views, &[], caller_cols);
     for (n, view) in views.iter().enumerate() {
         assert_eq!(view.columns().len(), 2, "start {}: {:?}", n + 1, view.rects);
     }
 }
 
-/// W6-F: a 140-column caller beside a person's 60-column pane shares its
-/// space in up to three columns of at least 40 (the caller's too), then
-/// stacks; the person's pane keeps its exact place through every start.
+/// W6-F (review of 49b43fbf, finding 1): a 140-column caller beside a
+/// person's 60-column pane takes one agent column (70 | 70); every later
+/// agent stacks below the last agent, so from the second start on the
+/// caller's column and the agent column keep their exact widths, and the
+/// person's pane keeps its exact place through every start.
 #[test]
 fn w6f_agent_columns_share_only_the_callers_space() {
     let room = Room::new(200, 40, caller_beside_shell(0.7));
     let shell = room.rects()[ROOM_SHELL_PANE];
     assert_eq!(shell, (140, 0, 60, 40));
+    let caller_cols = room.cols(CALLER_PANE);
     let views = room_starts(room, 4, &plain_start());
-    assert_region_rules(&views, &[(ROOM_SHELL_PANE, shell)], 140);
+    assert_region_rules(&views, &[(ROOM_SHELL_PANE, shell)], caller_cols);
     let columns: Vec<usize> = views.iter().map(|view| view.columns().len()).collect();
-    assert_eq!(columns, [2, 3, 3, 3], "{:?}", views.last().map(|view| &view.rects));
+    assert_eq!(columns, [2, 2, 2, 2], "{:?}", views.last().map(|view| &view.rects));
+    let first = views[0].columns();
+    assert_eq!(first, [(0, 70), (70, 70)], "{:?}", views[0].rects);
+    for (n, view) in views.iter().enumerate().skip(1) {
+        assert_eq!(view.columns(), first, "start {}: {:?}", n + 1, view.rects);
+    }
+}
+
+/// W6-F (review of 49b43fbf, finding 3): the 40-column rule counts the
+/// terminal, not the pane. A pane's frame (border box and the default
+/// scrollbar column) takes 3 of its columns, so a lone caller pane must be
+/// 86 columns wide (an 83-column terminal) before it takes an agent column:
+/// from 84 or 85 columns the first agent stacks below the caller.
+#[test]
+fn w6f_the_column_rule_counts_the_terminal_inside_the_pane_frame() {
+    for width in [84_i64, 85, 86, 87] {
+        let room = Room::new(width, 40, caller_alone());
+        let caller_cols = room.cols(CALLER_PANE);
+        let views = room_starts(room, 2, &plain_start());
+        assert_region_rules(&views, &[], caller_cols);
+        let expected = if width >= 86 { 2 } else { 1 };
+        for (n, view) in views.iter().enumerate() {
+            assert_eq!(
+                view.columns().len(),
+                expected,
+                "width {width}, start {}: {:?}",
+                n + 1,
+                view.rects
+            );
+        }
+    }
+}
+
+/// W6-F (review of 49b43fbf, finding 4): agents stack below the last agent
+/// only while each agent of the stack keeps [`ROOM_MIN_AGENT_ROWS`]
+/// terminal rows. In a 40-row column four agents get 10-row panes (8
+/// terminal rows); the fifth and sixth open as new tabs in the stack's last
+/// agent pane, and no pane moves.
+#[test]
+fn w6f_a_full_agent_stack_opens_the_next_agent_as_a_tab_in_its_last_pane() {
+    let room = Room::new(95, 40, caller_alone());
+    let caller_cols = room.cols(CALLER_PANE);
+    let views = room_starts(room, 6, &plain_start());
+    assert_region_rules(&views, &[], caller_cols);
+    let full = &views[3];
+    assert_eq!(full.agents.len(), 4, "{:?}", full.rects);
+    let last = full.agents.last().cloned().unwrap_or_default();
+    for (n, view) in views.iter().enumerate().skip(4) {
+        assert_eq!(view.rects, full.rects, "start {}: a pane moved", n + 1);
+        assert_eq!(view.agents, full.agents, "start {}", n + 1);
+        assert_eq!(view.report["placement"], "tab", "start {}: {}", n + 1, view.report);
+        assert_eq!(view.report["pane_id"], last.as_str(), "start {}: {}", n + 1, view.report);
+    }
+    for (n, view) in views.iter().enumerate().take(4) {
+        assert_eq!(view.report["placement"], "split", "start {}: {}", n + 1, view.report);
+    }
+}
+
+/// W6-F (review of 49b43fbf, finding 2): a start that does not know its
+/// caller (a `--session` call outside the caller's session socket) opens in
+/// the focused pane's space, and `agent start` focuses each new agent. The
+/// focused agent pane already is an agent column, so the second start
+/// stacks below it and no column changes width.
+#[test]
+fn w6f_a_start_without_a_known_caller_stacks_below_the_focused_agent() {
+    let room = Room::new(200, 40, caller_alone());
+    let caller_cols = room.cols(CALLER_PANE);
+    let unknown = Env { caller_terminal: None, ..env() };
+    let options = plain_start();
+    let steps = [
+        RoomStep::Start("a1", &options),
+        RoomStep::Start("a2", &options),
+        RoomStep::Start("a3", &options),
+    ];
+    let views = room_run(room, &unknown, &steps);
+    assert_region_rules(&views, &[], caller_cols);
+    for (n, view) in views.iter().enumerate() {
+        assert_eq!(view.columns(), [(0, 100), (100, 100)], "start {}: {:?}", n + 1, view.rects);
+    }
+}
+
+/// W6-F (review of 49b43fbf, finding 5): `resume` of an agent whose tab was
+/// closed has no pane to reopen in, so it opens in the caller's space as a
+/// start does: it takes the first agent column beside a 140-column caller,
+/// the next start stacks below it, and the person's pane never moves.
+#[test]
+fn w6f_resume_without_its_exited_pane_opens_in_the_callers_space() {
+    let room = Room::new(200, 40, caller_beside_shell(0.7)).with_exited_agent_without_a_pane();
+    let shell = room.rects()[ROOM_SHELL_PANE];
+    let caller_cols = room.cols(CALLER_PANE);
+    let resume_options = Options { wait: false, ..Options::default() };
+    let options = plain_start();
+    let steps = [
+        RoomStep::Resume(OLD, &resume_options),
+        RoomStep::Start("a2", &options),
+        RoomStep::Start("a3", &options),
+    ];
+    let views = room_run(room, &env(), &steps);
+    assert_region_rules(&views, &[(ROOM_SHELL_PANE, shell)], caller_cols);
+    let resumed = &views[0];
+    assert_eq!(resumed.report["placement"], "split", "{}", resumed.report);
+    assert_eq!(resumed.report["resumed"]["terminal_id"], OLD, "{}", resumed.report);
+    assert_eq!(resumed.report["resumed"]["tab_closed"], false, "{}", resumed.report);
+    let pane = resumed.report["pane_id"].as_str().unwrap_or_default();
+    assert_eq!(resumed.rect(pane), (70, 0, 70, 40), "{:?}", resumed.rects);
+    assert_eq!(resumed.columns(), [(0, 70), (70, 70)], "{:?}", resumed.rects);
+    for (n, view) in views.iter().enumerate() {
+        assert_eq!(view.columns(), resumed.columns(), "step {}: {:?}", n + 1, view.rects);
+    }
+    assert_eq!(views.last().map(|view| view.tabs_closed), Some(0), "no exited tab to close");
 }
 
 /// W6-F: `--pane P --split right` keeps its explicit meaning: it splits P
