@@ -32,6 +32,11 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
     "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
+# tests/guard_child_env.py, loaded by path like git_fixture_env: every spawned guard run gets its own step files.
+_guard_child_spec = _git_fixture_importlib.spec_from_file_location(
+    "guard_child_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "guard_child_env.py"))
+guard_child_env = _git_fixture_importlib.module_from_spec(_guard_child_spec)
+_guard_child_spec.loader.exec_module(guard_child_env)
 
 FAST_WORKFLOW = ROOT / ".github/workflows/ci-fast-guards.yml"
 
@@ -392,6 +397,7 @@ class PortableSubstitutes(unittest.TestCase):
             payload = Path(temp) / "ci-guard.sh"
             payload.write_text(text)
             return subprocess.run(["bash", str(self.PAYLOAD), str(payload)], cwd=temp,
+                                  env=guard_child_env.guard_child_env(temp),
                                   capture_output=True, text=True, timeout=60)
 
     def test_the_substitute_runs_the_real_payload(self) -> None:
