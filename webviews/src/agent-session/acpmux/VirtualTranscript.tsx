@@ -2800,19 +2800,18 @@ function TranscriptView({
     // measures every row at the width that held; a partial layout is never a base to keep rows from.
     void resizeSettled;
     const placedRange = lastPlaced.current;
+    const from = placedRange ? Math.max(0, placedRange.first - LIVE_RESIZE_ROWS) : 0;
+    const to = placedRange ? placedRange.last + LIVE_RESIZE_ROWS : 0;
+    // A chat whose rows all sit in that window is measured whole: that layout is not partial.
     const resizing =
       !fresh &&
       liveResize.current.live &&
       last &&
       last.width !== rowWidth &&
       last.sessionId === sessionId &&
-      placedRange
-        ? {
-            rows: last.rows,
-            layout: last.layout,
-            from: Math.max(0, placedRange.first - LIVE_RESIZE_ROWS),
-            to: placedRange.last + LIVE_RESIZE_ROWS,
-          }
+      placedRange &&
+      (from > 0 || to < rows.length)
+        ? { rows: last.rows, layout: last.layout, from, to }
         : undefined;
     const layout = layoutConversation(
       rows,
