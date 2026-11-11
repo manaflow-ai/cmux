@@ -172,7 +172,8 @@ public final class LiveSnapshotStore: @unchecked Sendable {
 
     /// The rest of each Mac whose rows `snapshot` holds only the first screen of, read off the
     /// main thread: the Mac's whole cached list, first rows first. A Mac whose tail is gone,
-    /// unreadable or another head's keeps its first rows, as a whole list of those.
+    /// unreadable or another head's keeps its first rows, as a whole list of those. An unreadable
+    /// tail is deleted; another head's (a save since `snapshot` was read) is left for that head.
     public func loadRest(_ snapshot: LiveSnapshot, accountID: String) async -> [String: LiveSnapshot.MacWorkspaces] {
         await withCheckedContinuation { continuation in
             queue.async { continuation.resume(returning: self.readRest(snapshot, accountID: accountID)) }
@@ -184,11 +185,14 @@ public final class LiveSnapshotStore: @unchecked Sendable {
         for (macID, list) in snapshot.workspaces where !list.isComplete {
             let url = tailFile(accountID, macID: macID)
             var rows = list.workspaces
-            if let data = try? Data(contentsOf: url), let tail = try? JSONDecoder().decode(Tail.self, from: data),
-               tail.format == Self.formatVersion, tail.token == list.tailToken {
-                rows += tail.rows
-            } else {
-                try? FileManager.default.removeItem(at: url)
+            if let data = try? Data(contentsOf: url) {
+                if let tail = try? JSONDecoder().decode(Tail.self, from: data), tail.format == Self.formatVersion {
+                    // Another token: a newer save's tail, named by the head now on disk. Not ours; it stays.
+                    if tail.token == list.tailToken { rows += tail.rows }
+                } else {
+                    // Unreadable or another format (writes are atomic): nothing will read it.
+                    try? FileManager.default.removeItem(at: url)
+                }
             }
             result[macID] = LiveSnapshot.MacWorkspaces(workspaces: rows, savedAt: list.savedAt, tailToken: list.tailToken)
         }

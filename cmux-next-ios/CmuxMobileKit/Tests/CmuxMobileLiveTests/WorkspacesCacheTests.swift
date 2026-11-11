@@ -155,10 +155,28 @@ enum CacheFixture {
         #expect(store.load(accountID: "user")?.linkedMacID == nil)
     }
 
-    @MainActor @Test func signOutDeletesTheCache() throws {
+    @Test func aStaleReadLeavesANewerSavesTail() async throws {
         let (store, directory) = CacheFixture.saved(500)
         defer { try? FileManager.default.removeItem(at: directory) }
-        LiveCoordinator.forgetSnapshots(store)
+        // Head A read; then the Mac answers and B is saved (a new tail token) before A's rest is read.
+        let headA = try #require(store.loadFirstScreen(accountID: "user"))
+        var rowsB = CacheFixture.rows(600)
+        rowsB[100].title = "saved by B"
+        store.save(CacheFixture.snapshot(rowsB), accountID: "user")
+        store.flush()
+        let rest = await store.loadRest(headA, accountID: "user")
+        // A gets only its head (its tail is gone), and B's tail stays for B's head.
+        #expect(rest["m1"]?.workspaces.count == headA.workspaces["m1"]?.workspaces.count)
+        let whole = try #require(store.load(accountID: "user")?.workspaces["m1"]?.workspaces)
+        #expect(whole.count == 600)
+        #expect(whole.contains { $0.title == "saved by B" })
+    }
+
+    @Test func signOutDeletesTheCache() throws {
+        let (store, directory) = CacheFixture.saved(500)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        // What sign-out runs (`AccountSignOut`, `LiveCoordinator.forgetSnapshots`).
+        store.removeAll()
         store.flush()
         #expect(store.loadFirstScreen(accountID: "user") == nil)
         #expect(!FileManager.default.fileExists(atPath: directory.path))
