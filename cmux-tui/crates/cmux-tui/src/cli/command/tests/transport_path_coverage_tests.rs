@@ -282,6 +282,11 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
             ],
             "git.commit",
         ),
+        // W7-F: a worktree on a named branch (new from --base, or an existing one).
+        (
+            vec!["git", "worktree", "create", "--path", "/repo", "--branch", "feat/login"],
+            "git.worktree.create",
+        ),
         (
             vec![
                 "terminal",
