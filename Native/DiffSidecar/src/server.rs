@@ -948,13 +948,10 @@ async fn run_git_patch_with_limit(
             .map(|()| diffed)
     }
     .await;
-    match result {
-        Ok(diffed) => Ok(diffed),
-        Err(_) => {
-            let _ = tokio::fs::remove_file(output_path).await;
-            Err(SessionOpenError::Failed)
-        }
+    if result.is_err() {
+        let _ = tokio::fs::remove_file(output_path).await;
     }
+    result.map_err(|_| SessionOpenError::Failed)
 }
 
 /// Streams one git command's stdout into `output`, enforcing the shared byte
