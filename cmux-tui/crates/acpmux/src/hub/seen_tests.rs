@@ -135,7 +135,11 @@ async fn a_person_idle_at_the_bottom_keeps_turns_unread_and_returns_to_where_the
     assert_eq!(hub.look_changed(&s, Look::Attending, Look::Idle, Some(last_input)), None);
     assert!(hub.shown(&s), "an idle client still shows the chat: process, recap, presence");
     assert!(!hub.attended(&s));
-    assert_eq!(s.meta().seen_seq, Some(last_input), "left off at the last input, not at the timeout");
+    assert_eq!(
+        s.meta().seen_seq,
+        Some(last_input),
+        "left off at the last input, not at the timeout"
+    );
 
     hub.append(&s, "mux", "note", json!({"seen": false}));
     hub.note_turn_end(&s);

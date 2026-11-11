@@ -79,11 +79,8 @@ impl Hub {
 
     /// An attached client starts or stops showing the chat (to a person who attends).
     pub fn set_visible(&self, session: &Session, visible: bool) {
-        let (before, after) = if visible {
-            (Look::Hidden, Look::Attending)
-        } else {
-            (Look::Attending, Look::Hidden)
-        };
+        let (before, after) =
+            if visible { (Look::Hidden, Look::Attending) } else { (Look::Attending, Look::Hidden) };
         self.look_changed(session, before, after, None);
     }
 

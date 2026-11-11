@@ -165,10 +165,9 @@ pub(super) fn view(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcE
     };
     let seen_through = match params.get("seenSeq") {
         None | Some(Value::Null) => None,
-        Some(v) => Some(
-            v.as_u64()
-                .ok_or_else(|| RpcError::invalid_params("seenSeq must be a log seq"))?,
-        ),
+        Some(v) => {
+            Some(v.as_u64().ok_or_else(|| RpcError::invalid_params("seenSeq must be a log seq"))?)
+        }
     };
     let author = crate::author::author(params)?;
     if author.is_some() && a_link(conn) {
