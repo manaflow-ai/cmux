@@ -105,6 +105,7 @@ pub mod listener_record;
 pub mod live_models;
 pub mod local_stream;
 pub mod login_env;
+pub mod lossy_lines;
 pub(crate) mod machine_info;
 pub mod machine_tunnel;
 pub mod machine_wake;
