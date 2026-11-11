@@ -346,6 +346,21 @@ impl PtyTerminalRuntime {
     /// Called in the serialized parser stream; publication happens after releasing VT locks.
     /// `None` is a real report too: the VT keeps its pwd across output until the
     /// shell clears it, so a change to `None` must reach the graph like any other.
+    /// [`PtyTerminalRuntime::record_directory`] of `term`'s pwd, after an
+    /// output chunk: the pwd is read into a `String` only when it changed.
+    pub(super) fn record_terminal_directory(&self, term: &Terminal) {
+        {
+            let previous = self.pwd.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if term.pwd_is(previous.as_deref()) {
+                if previous.is_some() {
+                    self.directory_reported.store(true, Ordering::Release);
+                }
+                return;
+            }
+        }
+        self.record_directory(term.pwd());
+    }
+
     pub(super) fn record_directory(&self, value: Option<String>) {
         if value.is_some() {
             self.directory_reported.store(true, Ordering::Release);
