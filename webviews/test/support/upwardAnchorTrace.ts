@@ -17,6 +17,8 @@ export type UpwardAnchorFrame = {
   topEdgeGap: number;
   bottomEdgeGap: number;
   rowBoxIds: string[];
+  /** The first row pair whose gap no spacing token explains: `previous>next gap/expected`. */
+  unexpectedPair: string | null;
 };
 
 /** Runs in the page with paintedFrames installed; it deliberately closes over no test state. */
@@ -45,6 +47,7 @@ export async function traceUpwardAnchors({
     footerRow: 6,
     footerSlot: 7,
     worked: 9,
+    card: 10,
   } as const;
 
   function gridPx(name: string): number {
@@ -61,6 +64,9 @@ export async function traceUpwardAnchors({
     // A turn's "Worked for" line, as every family folds a turn under it now (Codex parity): the room
     // under its rule is its own, so no gap follows it (transcriptGrid.ts MARK_WORKED, #37727).
     if (kind === "acpmux-worked") return transcriptMark.worked;
+    // An edited-files card (VirtualTranscript rowKind "editedFiles"; transcriptGrid.ts MARK_CARD): the
+    // run gap from the one-line rows and prose around it, a step row toward a footer or a prompt.
+    if (kind === "acpmux-editedFiles") return transcriptMark.card;
     if (
       row.classList.contains("acpmux-row--line") ||
       row.classList.contains("acpmux-row--after-step") ||
@@ -104,11 +110,20 @@ export async function traceUpwardAnchors({
     if (previous === transcriptMark.worked && next !== transcriptMark.prompt) return 0;
     if (previous === transcriptMark.worked) previous = transcriptMark.step;
     if (next === transcriptMark.worked) next = transcriptMark.step;
+    // transcriptGrid.ts: a card stands the run gap from steps and prose; else it is a step row.
+    const near = (mark: number) =>
+      mark === transcriptMark.step || mark === transcriptMark.message || mark === transcriptMark.card;
+    if ((previous === transcriptMark.card && near(next)) || (next === transcriptMark.card && near(previous)))
+      return run;
+    if (previous === transcriptMark.card) previous = transcriptMark.step;
+    if (next === transcriptMark.card) next = transcriptMark.step;
     if (
       (next === transcriptMark.footerRow || next === transcriptMark.footerSlot) &&
       previous === transcriptMark.message
     )
       return footer;
+    // A turn that ended on work: its footer row sits the footer gap under the run's last line.
+    if (next === transcriptMark.footerRow && previous === transcriptMark.step) return footer;
     if ((next === transcriptMark.indicator || next === transcriptMark.footerSlot) && previous === transcriptMark.prompt)
       return block;
     if (previous === transcriptMark.prompt || next === transcriptMark.prompt) return turn;
@@ -286,6 +301,9 @@ export async function traceUpwardAnchors({
           topEdgeGap,
           bottomEdgeGap,
           rowBoxIds: rowBoxGaps.flatMap((each) => [each.previous, each.next]),
+          unexpectedPair: unexpectedRowBoxGaps[0]
+            ? `${unexpectedRowBoxGaps[0].previous}>${unexpectedRowBoxGaps[0].next} ${unexpectedRowBoxGaps[0].gap.toFixed(1)}/${unexpectedRowBoxGaps[0].expected}`
+            : null,
         });
         previous = current;
         if (samples.length === commands.length) {
