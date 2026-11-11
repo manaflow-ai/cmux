@@ -264,10 +264,28 @@ jobs:
           # right side. The string '0' is truthy, so a push really fetches full history.
           fetch-depth: ${{ github.event_name == 'push' && '0' || '2' }}
           filter: blob:none
-          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          # Only what a render reads: the folders and files of the `paths` list above (every routed path
+          # is inside these; tests/test_ci_gallery_health_merge_ref.py keeps it so), and scripts/ and
+          # .github/ for this job's own tools. The whole tree minus verify/ fetched ~600 MB of blobs this
+          # job never opens (cmux-tui, Packages' Swift, web/, docs): ~60 s of every shard's ~8-minute job
+          # (2026-11-11 timing records). `git restore ... -- .` in the base replay keeps to these paths.
+          sparse-checkout-cone-mode: false
           sparse-checkout: |
-            /*
-            !/cmux-next-ios/verify/
+            /webviews/
+            /scripts/
+            /.github/
+            /config/vite-plus/
+            /schemas/
+            /design/icons/neko-candidates/
+            /Resources/ghostty/themes/
+            /Resources/cmux-themes/
+            /Resources/markdown-viewer/
+            /Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/
+            /Packages/macOS/CmuxNext/Sources/**/*.xcstrings
+            /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WebTheme.swift
+            /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift
+            /web/data/model-catalog/
+            /release-notes/next/highlights/
           persist-credentials: false
 
       - name: Resolve the head and the merge
@@ -469,6 +487,31 @@ jobs:
             --base-name "base ${BASE_SHA:0:12}" --annotate | tee "$RUNNER_TEMP/verdict.txt" || rc=$?
           grep -v '^::' "$RUNNER_TEMP/verdict.txt" >> "$GITHUB_STEP_SUMMARY" || true
           exit "$rc"
+
+      # Merge-time signal for the job's own time (cmuxterm-hq docs/handbook/fast-job-outgrows-its-budget.md):
+      # the gallery grows a few cases with most pull requests, and at a fixed shard count each shard's
+      # render grows with it, from ~15 to ~24 minutes in four days before anyone saw it (2026-11-07..11).
+      # A full render of 11,424 cases over 16 shards (714 a shard) ran its job in about 8.5 minutes at p90
+      # against a 10-minute budget (2026-11-11). The pull request that takes a shard past
+      # MAX_CASES_PER_SHARD fails here, naming the shard count that fits, so the matrix grows with the
+      # gallery instead of the job's time. Shard 0 only: one error, not sixteen.
+      - name: Hold each shard within its time budget
+        if: ${{ !cancelled() && matrix.shard == 0 && steps.entries.outcome == 'success' }}
+        env:
+          SHARDS: ${{ strategy.job-total }}
+          MAX_CASES_PER_SHARD: "800"
+        run: |
+          set -euo pipefail
+          cd webviews
+          bun scripts/gallery/manifest.ts --frame component --out "$RUNNER_TEMP/full-manifest.json"
+          cases=$(jq length "$RUNNER_TEMP/full-manifest.json")
+          per=$(( (cases + SHARDS - 1) / SHARDS ))
+          need=$(( (cases + MAX_CASES_PER_SHARD - 1) / MAX_CASES_PER_SHARD ))
+          echo "a full render is $cases cases: $per a shard over $SHARDS shards (at most $MAX_CASES_PER_SHARD)"
+          if [ "$per" -gt "$MAX_CASES_PER_SHARD" ]; then
+            echo "::error title=gallery health outgrows its shards::a full render is $cases cases, $per a shard over $SHARDS shards; past $MAX_CASES_PER_SHARD a shard's job runs over its 10-minute budget. Raise the matrix in .github/workflows/gallery-health.yml (and --shard-count) to $need shards."
+            exit 1
+          fi
 
       - name: Record what was rendered
         if: ${{ always() && steps.resolve.outcome == 'success' }}
