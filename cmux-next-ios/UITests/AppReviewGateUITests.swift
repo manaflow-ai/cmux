@@ -420,6 +420,9 @@ final class AppReviewGateUITests: XCTestCase {
         for (offset, control) in controls.prefix(limit).enumerated() {
             if offset > 0 {
                 app.terminate()
+                // A link the last control opened left Safari in front (beside
+                // cmux on iPad); closed, so this control's link shows anew.
+                XCUIApplication(bundleIdentifier: "com.apple.mobilesafari").terminate()
                 app = reach()
             }
             let target = resolve(control, in: app)
@@ -516,8 +519,10 @@ final class AppReviewGateUITests: XCTestCase {
         tree = tree.replacingOccurrences(of: #"0x[0-9a-fA-F]+"#, with: "", options: .regularExpression)
         tree = tree.replacingOccurrences(of: #"\{\{[^}]*\}, \{[^}]*\}\}"#, with: "", options: .regularExpression)
         let alerts = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.count
-        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari").state.rawValue
-        return "\(tree)|alerts:\(alerts)|safari:\(safari)"
+        // Only Safari in front counts: a Safari left running by an earlier
+        // link may move from background to suspended during a dead tap.
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari").state == .runningForeground
+        return "\(tree)|alerts:\(alerts)|safari-front:\(safari)"
     }
 
     /// Taps a control where a person would. A SwiftUI `Toggle` row is a
