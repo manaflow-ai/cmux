@@ -45,18 +45,74 @@ fn recovery_owner(root: &Path, agent_id: &str, outer_id: &str) -> bool {
     false
 }
 
-/// A test's hook right after a sweep read a durable marker, to run another writer there.
+/// A test's hook: given the agent id of the marker the sweep read.
 #[cfg(test)]
-pub(super) static SWEEP_PAUSE: std::sync::Mutex<Option<Arc<dyn Fn(&str) + Send + Sync>>> =
-    std::sync::Mutex::new(None);
+type PauseFn = Box<dyn FnMut(&str)>;
+/// Each agent id a hook was reached for.
+#[cfg(test)]
+type Reached = std::rc::Rc<std::cell::RefCell<Vec<String>>>;
+
+#[cfg(test)]
+thread_local! {
+    /// A test's hook right after a sweep read a durable marker, to run another writer there.
+    ///
+    /// One per test thread, not per process: the harness runs tests on parallel threads, and a
+    /// process-wide hook let one test's hook replace or clear another's before its sweep ran,
+    /// so the race it forced never happened. A sweep on another thread never sees it, which a
+    /// test catches through [`SweepPause::reached`].
+    static SWEEP_PAUSE: std::cell::RefCell<Option<(PauseFn, Reached)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The hook [`on_sweep_pause`] put on this thread; dropping it takes it off.
+#[cfg(test)]
+pub(super) struct SweepPause {
+    reached: Reached,
+}
+
+#[cfg(test)]
+impl SweepPause {
+    /// Each agent id the hook was reached for, in order.
+    pub(super) fn reached(&self) -> Vec<String> {
+        self.reached.borrow().clone()
+    }
+}
+
+#[cfg(test)]
+impl Drop for SweepPause {
+    fn drop(&mut self) {
+        SWEEP_PAUSE.with(|slot| slot.borrow_mut().take());
+    }
+}
+
+/// Runs `hook` right after every sweep on this thread reads a durable marker, until the
+/// returned guard drops.
+#[cfg(test)]
+pub(super) fn on_sweep_pause(hook: impl FnMut(&str) + 'static) -> SweepPause {
+    let reached = Reached::default();
+    SWEEP_PAUSE.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        assert!(slot.is_none(), "a sweep pause hook is already on this thread");
+        *slot = Some((Box::new(hook), std::rc::Rc::clone(&reached)));
+    });
+    SweepPause { reached }
+}
 
 fn sweep_pause(_agent_id: &str) {
     #[cfg(test)]
     {
-        let hook = SWEEP_PAUSE.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        if let Some(hook) = hook {
-            hook(_agent_id);
-        }
+        // Out of the slot while it runs, so the hook may itself run a sweep.
+        let Some((mut hook, reached)) = SWEEP_PAUSE.with(|slot| slot.borrow_mut().take()) else {
+            return;
+        };
+        reached.borrow_mut().push(_agent_id.to_owned());
+        hook(_agent_id);
+        SWEEP_PAUSE.with(|slot| {
+            let mut slot = slot.borrow_mut();
+            if slot.is_none() {
+                *slot = Some((hook, reached));
+            }
+        });
     }
 }
 
