@@ -10148,8 +10148,9 @@ peer, preset or MCP server param; `model` is only accepted with the additive
 pick of the chat's mode, only with `agent-session-start-mode-v1` (advertised with
 `agent-session-start-owner-cloud-v1`) and honored only on the caller's own Cloud VM, never for a
 phone's start: the start then names no policy, the daemon sets that mode once the agent is up, and
-a pick the agent does not take keeps the chat as acpmux started it, unless the pick asks before
-acting (that chat is ended and refused `agent_session.not_asking`); anywhere else it is ignored. An unknown param is
+a pick the agent does not take keeps the chat only while it runs the pick or an asking mode, else
+moves it to its family's asking default (ended and refused `agent_session.not_asking` when it
+cannot); anywhere else it is ignored. An unknown param is
 `agent_session.bad_request`. The machine kind decides first, read again at
 each start: a team VM (kind `team` in the root-owned `/etc/cmux/vm-kind` that
 cmux-host writes at a team enroll, or the team files root `/srv/team`,

@@ -48,9 +48,10 @@
 //! starts one on the person's Mac, and the daemon sets that mode once the
 //! agent is up (Leo, 2026-11-11, on the asking mode a Cloud chat started in:
 //! "but shouldnt the user be allowed to just go through with stuff?"). A pick
-//! the agent does not take leaves the chat as acpmux started it, unless the
-//! pick asks before acting: a chat never runs wider than the person asked, so
-//! that one is ended and refused. A phone's start, and any start off the
+//! the agent does not take keeps the chat only while it runs the pick or an
+//! asking mode; else it moves to its family's asking default, and is ended and
+//! refused when it cannot: a chat never runs wider than the person asked. A
+//! phone's start, and any start off the
 //! caller's own Cloud VM, ignores `mode` and keeps its rule above.
 //!
 //! acpmux runs on demand: when nothing listens on the socket, the daemon

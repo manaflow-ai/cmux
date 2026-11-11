@@ -50,6 +50,11 @@ public actor AgentSessionAttachClient {
     }
 
     public static let capability = DaemonCapability.agentSessionAttach.rawValue
+    /// `agent-session-start` takes the person's pick of the chat's `mode`, which the machine sets on
+    /// the caller's own Cloud VM only (cmux-tui agent_session_start.rs). Served only beside
+    /// `agent-session-start-owner-cloud-v1`, so a Mac's bundled daemon never lists it: not a
+    /// ``DaemonCapability`` (check-app-capability-references.py CONDITIONAL).
+    static let startModeCapability = "agent-session-start-mode-v1"
     /// A Cloud machine's running link id while its connect answer says the caller owns it, else nil
     /// (`CloudLinkSession.ownerLink`).
     public typealias OwnerLink = @Sendable () async -> Int?
@@ -96,7 +101,7 @@ public actor AgentSessionAttachClient {
         var vmKind = false
         /// `agent-session-start-model-v1`.
         var model = false
-        /// `agent-session-start-mode-v1`.
+        /// ``AgentSessionAttachClient/startModeCapability``.
         var startMode = false
         /// `agent-session-trust-vm-kind-v1`.
         var trustVMKind = false
@@ -783,7 +788,7 @@ public actor AgentSessionAttachClient {
                             keyedReason: identity.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue),
                             vmKind: identity.supports(DaemonCapability.agentSessionStartVMKind.rawValue),
                             model: identity.supports(DaemonCapability.agentSessionStartModel.rawValue),
-                            startMode: identity.supports(DaemonCapability.agentSessionStartMode.rawValue),
+                            startMode: identity.supports(Self.startModeCapability),
                             trustVMKind: identity.supports(DaemonCapability.agentSessionTrustVMKind.rawValue),
                             children: identity.supports(DaemonCapability.agentSessionChildren.rawValue),
                             fork: identity.supports(DaemonCapability.agentSessionFork.rawValue),

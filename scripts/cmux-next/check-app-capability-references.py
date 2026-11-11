@@ -99,6 +99,7 @@ CONDITIONAL = {
     "apps-v1": "only with cmux-app-host beside the binary (cmux-tui-core apps.rs advertised())",
     "fs-v1": "only on a cmux Cloud host: a root-owned image stamp and the model plane identity (cmux-tui link/cloud_fs.rs)",
     "agent-session-start-owner-cloud-v1": "only on a cmux Cloud VM with no team evidence (cmux-tui-core server/capabilities.rs serves_owner_cloud_start)",
+    "agent-session-start-mode-v1": "only beside agent-session-start-owner-cloud-v1 (cmux-tui-core server/capabilities.rs)",
 }
 
 # Capabilities of other servers that the app gates on with the same helpers.
