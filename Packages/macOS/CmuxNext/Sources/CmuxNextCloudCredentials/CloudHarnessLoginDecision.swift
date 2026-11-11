@@ -97,6 +97,8 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
     public var requestedByPerson = false
     /// The choice the person made before (``CloudHarnessLoginChoices``); nil when none.
     public var stored: Choice?
+    /// When the transfer's guest check passed beside the machine reads (``readMachine(on:machineID:teamID:userID:otherTeams:warmCopy:)``); nil when not run or failed.
+    public var guestCheckedAt: CloudCredentialTransfer.GuestCheck?
     /// A run that may show no prompt (`cmux cloud start-session`): it refuses where it would ask.
     public var headless = false
 
@@ -202,6 +204,20 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
             await warmCopy.claims?.registered(warmCopy.machine) // a claim's copy is in flight before the wait asks
             await warmCopy.cli.startChatWaitCopy(machine: warmCopy.machine, provider: provider.rawValue)
         }
+    }
+
+    /// The machine's reads through `api` (pinned to the machine's team), as a start and a warm's copy run them: the guest's kind
+    /// (again until a new guest binds) and the machine's own login (``CloudMachineLogin/read(on:machineID:teamID:userID:otherTeams:)``;
+    /// a login the provider rejects, a reused machine's expired token, is replaced like a missing one), and, for an owned machine's
+    /// Claude transfer, that transfer's guest check (``CloudCredentialTransfer/guestCheck(on:machineID:teamID:)``), all at once:
+    /// ``guestCheckedAt`` is when it passed, the transfer's first check when it starts within 2 s (one round trip less).
+    public mutating func readMachine(on api: CloudAPIClient, machineID: String, teamID: String?, userID: String, otherTeams: [String?],
+                                     warmCopy: (cli: CloudMoveCLI, machine: String, claims: CloudClaimedCopyRegistrations?)? = nil) async throws {
+        let owned = verdict, ahead = owned.readsMachine && owned.transferProvider == .claude && callerOwns == true
+        async let checked = ahead ? CloudCredentialTransfer.guestCheck(on: api, machineID: machineID, teamID: teamID) : nil
+        try await readMachine(exec: { (try? await api.exec(machineID, command: $0, timeoutMs: 20_000))?.stdout }, pause: CloudCredentialTransfer.guestCheckPause,
+                              warmCopy: warmCopy) { await CloudMachineLogin.read(on: api, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams) }
+        guestCheckedAt = await checked
     }
 
     /// ``readMachine(exec:pause:warmCopy:login:)`` with the warm copy's wait as `waitCopy` and the guest's budget on `clock`.

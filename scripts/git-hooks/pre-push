@@ -8,6 +8,11 @@
 #    copy is never feat-cmux-next's, and the gate warns on every push. Add one with
 #    `git config --add cmux.prePushExtra /abs/path/to/check` (it must be executable); remove them with
 #    `git config --unset-all cmux.prePushExtra`. A relative path is refused (it would run from the checkout).
+# 0a. Queue (always): at most CMUX_PREPUSH_SLOTS [2] hooks check at once on this Mac, whatever clone they push
+#    from; the rest wait their turn (a line names the wait). On 2026-11-10 about nine agents' hooks ran at once at
+#    load average 300-770: each `git worktree add` of a lint tree took 2-6 minutes, every gate ran past its limit
+#    and no push finished. The wait never refuses a push: past CMUX_PREPUSH_QUEUE_WAIT_SECONDS [1800] the hook
+#    runs anyway. A Mac that stays too loaded pushes through another one: scripts/cmux-next/push-from-host.sh.
 # 0b. Checks refresh (a push to feat-cmux-next): scripts/git-hooks/refresh_checks.py.
 # 1. Web lint (always): runs the web checks CI runs on what the push changes and
 #    refuses the push when they fail. Skip once with
@@ -59,7 +64,8 @@ finish() {
             "Retry it as AGENTS.md says (\"Retry a failed push\": git push -q, at most 3 retries, 30, 60, then 120 s apart)." >&2
     else
         echo "pre-push: refused in ${failed:-setup} (exit $status). A check that names a violation: fix it, do not retry" \
-            "unchanged. The gate's \"ran past its 600s limit\" only: retry as AGENTS.md says (\"Retry a failed push\")." >&2
+            "unchanged. The gate's \"ran past its ...s limit\" only: retry as AGENTS.md says (\"Retry a failed push\"), or push" \
+            "through an idle Mac: scripts/cmux-next/push-from-host.sh <branch>." >&2
     fi
 }
 trap finish EXIT
@@ -96,6 +102,77 @@ if [[ ! -r "$PYTHON_PATH_FILE" ]] || ! IFS= read -r PYTHON3_BIN < "$PYTHON_PATH_
     echo "pre-push: trusted Python interpreter metadata is missing; rerun scripts/install-git-hooks.sh." >&2
     exit 1
 fi
+
+# The queue (header, 0a). The hook runs again as the child of a python3 that holds one of the slot locks until
+# the child exits, as install-git-hooks.sh holds install.lock: only that parent has the lock file open (Python
+# opens it close-on-exec), so nothing a check starts can keep a slot after the hook ends. The locks are in /tmp,
+# not $TMPDIR: every agent has its own $TMPDIR, and the queue is for the whole Mac. The program is a -c argument
+# and free of single quotes (bash 5.1+ writes a here-document into a pipe first; see REFS_FILE above).
+if [[ -z "${CMUX_PREPUSH_QUEUE_HELD:-}" ]]; then
+    QUEUE_HOLDER='
+import fcntl
+import os
+import signal
+import subprocess
+import sys
+import time
+
+directory, command = sys.argv[1], sys.argv[2:]
+
+
+def number(name, default):
+    try:
+        return float(os.environ.get(name) or default)
+    except ValueError:
+        return float(default)
+
+
+slots = max(1, int(number("CMUX_PREPUSH_SLOTS", 2)))
+budget = number("CMUX_PREPUSH_QUEUE_WAIT_SECONDS", 1800)
+started = time.monotonic()
+held = None
+told = False
+while held is None:
+    for slot in range(slots):
+        path = os.path.join(directory, f"cmux-pre-push-queue.{os.getuid()}.{slot}.lock")
+        try:
+            lock = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)  # not inheritable (PEP 446)
+        except OSError:
+            continue
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            os.close(lock)
+            continue
+        held = lock
+        break
+    if held is not None:
+        break
+    waited = time.monotonic() - started
+    if waited >= budget:
+        print(f"pre-push: waited {waited:.0f}s for a turn (CMUX_PREPUSH_QUEUE_WAIT_SECONDS); checking now, beside "
+              "the other pushes.", file=sys.stderr, flush=True)
+        break
+    if not told:
+        told = True
+        print(f"pre-push: {slots} other push(es) on this Mac are being checked; waiting for a turn (up to "
+              f"{budget:g}s, CMUX_PREPUSH_SLOTS). Nothing is wrong with this push.", file=sys.stderr, flush=True)
+    time.sleep(0.2)  # a poll: flock has no wait over several files, and a slot frees when its holder exits
+waited = int(time.monotonic() - started)
+child = subprocess.Popen(command, env={**os.environ, "CMUX_PREPUSH_QUEUE_HELD": str(waited)})
+for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+    signal.signal(signum, lambda number, frame: child.send_signal(number))
+code = child.wait()
+sys.exit(code if code >= 0 else 128 - code)
+'
+    exec 3< "$REFS_FILE"
+    rm -f "$REFS_FILE"
+    exec "$PYTHON3_BIN" -I -c "$QUEUE_HOLDER" "${CMUX_PREPUSH_QUEUE_DIR:-/tmp}" "${BASH_SOURCE[0]}" "$@" <&3
+fi
+if [[ "$CMUX_PREPUSH_QUEUE_HELD" =~ ^[0-9]+$ ]]; then
+    PHASE_TIMES="queue ${CMUX_PREPUSH_QUEUE_HELD}s"  # the wait for a turn, first in the hook-times line
+fi
+unset CMUX_PREPUSH_QUEUE_HELD  # a push a check starts (none does today) queues for itself
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"

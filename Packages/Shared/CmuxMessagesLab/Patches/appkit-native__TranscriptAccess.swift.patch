@@ -54,7 +54,7 @@
              let msg = store.state.message(m.id)
              let sender = msg.map { msg in
                  msg.senderId == store.state.me ? NativeStrings.you
-@@ -94,11 +102,18 @@
+@@ -94,11 +102,16 @@
  /// A text position in the transcript: a row (by key) and a UTF-16 offset.
  struct TextPosition: Equatable { var key: String; var offset: Int }
  
@@ -69,14 +69,12 @@
 +    var axElements: [ID: MessageAccessibilityElement] = [:]
      unowned let controller: ChatController
 -    let layer = CAShapeLayer()
-+    /// Screen blend of P3 (2.6, 37.7, 85): over the incoming bubble (59, 59, 61) it gives
-+    /// Messages' highlight (61, 88, 126) and over its text (225) the selected text
-+    /// (225, 229, 235) (lossless still selected-text.png).
-+    static let highlightFill = Fixture.p3(2.6, 37.7, 85).cgColor
++    // cmux: the fill (MessagesLab's screen blend of P3 (2.6, 37.7, 85), Messages' dark highlight) is per row now,
++    // from the surface under it: SelectionHighlightStyle.
      private(set) var anchor: TextPosition?
      private(set) var focus: TextPosition?
      private var downPoint: CGPoint?
-@@ -106,15 +121,20 @@
+@@ -106,15 +119,20 @@
  
      init(controller: ChatController) {
          self.controller = controller
@@ -103,7 +101,7 @@
  
      // MARK: Selected message (a click on a bubble)
  
-@@ -178,8 +198,12 @@
+@@ -178,8 +196,12 @@
          guard let key = selectedKey, let demo = controller.demo else { return nil }
          for case let cell as RowCell in demo.collection.visibleCells where !cell.isHidden {
              guard let spec = cell.spec, spec.key == key, case let .part(p) = spec.kind else { continue }
@@ -118,7 +116,7 @@
          }
          return nil
      }
-@@ -218,11 +242,8 @@
+@@ -218,11 +240,8 @@
      /// when the point is not on text.
      @discardableResult
      func selectWord(at p: CGPoint) -> Bool {
@@ -132,7 +130,7 @@
          anchor = TextPosition(key: pos.key, offset: r.location)
          focus = TextPosition(key: pos.key, offset: NSMaxRange(r))
          downPoint = nil
-@@ -230,17 +251,42 @@
+@@ -230,15 +249,47 @@
          return true
      }
  
@@ -144,6 +142,13 @@
 +    /// the bubble and off the glyphs (scrawl 2026-10-18, "highlighting ... is broken").
 +    /// Markdown rows use their MarkdownLayout, long rows their tiled layout, plain rows
 +    /// their TextLayout; offsets are the display string's in every case.
++    /// cmux: the highlight's style for a text row: the blend that shows on its bubble (sent or received) in the
++    /// palette of the window view that draws it (SelectionHighlightStyle).
++    static func highlightStyle(_ spec: RowSpec, palette: PaletteBox?) -> SelectionHighlightStyle {
++        guard case let .part(p) = spec.kind else { return .screen }
++        return PaletteScope.with(palette) { SelectionHighlightStyle.style(on: p.outgoing ? Fixture.outgoing : Fixture.incoming) }
++    }
++
 +    static func geometry(_ spec: RowSpec) -> RowTextGeometry? {
 +        guard case let .part(p) = spec.kind, SelText.isText(p.part) else { return nil }
 +        return p.geometry(width: spec.width)
@@ -169,19 +174,17 @@
          }
 -        return out.sorted { $0.0 < $1.0 }
 +        return out
-     }
- 
++    }
++
 +    /// Rows with text, in transcript order (model index); bodies in window content coordinates.
 +    private func textRows() -> [(index: Int, key: String, geometry: RowTextGeometry, body: CGRect)] {
 +        guard let demo = controller.demo else { return [] }
 +        return textCells().map { ($0.index, $0.key, $0.geometry, $0.cell.convert(RowDraw.bodyRect($0.spec), to: demo)) }
 +            .sorted { $0.0 < $1.0 }
-+    }
-+
+     }
+ 
      /// The text position nearest to a point (window content coordinates).
-     func position(at p: CGPoint) -> TextPosition? {
-         let rows = textRows()
-@@ -251,68 +297,93 @@
+@@ -251,68 +302,93 @@
              let db = p.y < b.body.minY ? b.body.minY - p.y : max(0, p.y - b.body.maxY)
              return da < db
          }!
@@ -308,7 +311,7 @@
 +        let visible = (demo.bounds.minY - h - top)...(demo.bounds.maxY + h - top)
 +        let path = CGMutablePath()
 +        for rect in Self.highlightRects(sel, body: RowDraw.bodyRect(spec), geometry: g, visible: visible) { path.addRect(rect) }
-+        cell.setSelectionHighlight(path.isEmpty ? nil : path)
++        cell.setSelectionHighlight(path.isEmpty ? nil : path, style: Self.highlightStyle(spec, palette: demo.palette)) // cmux
 +    }
  }
  
