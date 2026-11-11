@@ -142,11 +142,28 @@ def passed_names(log: str | None) -> set[str]:
     return {m.group(1) for line in test_reds.lines_of(log) for m in [PASSED.match(line)] if m}
 
 
+# A binary's closing line, its counts rewritten when its flakes are taken out (without_failures).
+RESULT_COUNTS = re.compile(r"test result: FAILED\. (\d+) passed; (\d+) failed;")
+
+
 def without_failures(log: str, names: set[str]) -> str:
-    """The head's log with the FAILED lines of NAMES taken out: its crashes and cut-short binaries still count."""
+    """The head's log with the FAILED lines of NAMES taken out: its crashes and cut-short binaries still count. Each
+    binary's `test result:` line counts them as passed, so its total still matches the failures it names: test_reds
+    reads a total above its names as a failure no parser names (cmux#41244), which a flake that passed alone is not."""
     raw = log.splitlines()
-    return "\n".join(line for line, text in zip(raw, test_reds.lines_of(log))
-                     if not ((match := FAILED_LINE.match(text)) and match.group(1) in names))
+    kept, taken = [], 0
+    for line, text in zip(raw, test_reds.lines_of(log)):
+        if (match := FAILED_LINE.match(text)) and match.group(1) in names:
+            taken += 1
+            continue
+        if text.startswith("test result: "):
+            if taken and (counts := RESULT_COUNTS.search(line)):
+                passed, failed = int(counts.group(1)) + taken, max(int(counts.group(2)) - taken, 0)
+                state = "FAILED" if failed else "ok"
+                line = RESULT_COUNTS.sub(f"test result: {state}. {passed} passed; {failed} failed;", line, count=1)
+            taken = 0
+        kept.append(line)
+    return "\n".join(kept)
 
 
 def judge(head: str | None, retry: str | None, base: str | None, job: str) -> tuple[bool, list[str]]:

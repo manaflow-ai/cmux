@@ -39,6 +39,11 @@ fn the_servers_cap_refusal_names_the_busy_machines() {
     assert!(!cap.free_plan);
     assert!(refusal("cloud.quota.exceeded", None).is_some(), "upstream's spelling, no details");
     assert!(refusal("cmux.cloud.plan_required", None).is_none());
+    let vm_limit = json!({"limit": 20, "team_vms": 20, "orphans": 3});
+    assert!(
+        refusal("cloud.quota.vm_limit", Some(&vm_limit)).is_none(),
+        "the VM limit counts paused machines: Pause and Upgrade free nothing"
+    );
     assert!(
         refusal("cmux.cloud.quota_exceeded", Some(&json!({"resource": "snapshots"}))).is_none(),
         "another quota is not the machine cap"
