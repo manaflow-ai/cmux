@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42993256124",
+  "recorded_at": "2026-11-11T09:20:31Z",
+  "reason": "cmux-tui ef384ddbc64d changes the image's cmux-tui (pinned 7fc6f8dbf81b)",
+  "dry_run": false,
+  "cmux_tui": "ef384ddbc64d8e1e22e1f2cb98287cf1e7bef3b4",
+  "fixes": [
+    {
+      "sha": "ef384ddbc64d8e1e22e1f2cb98287cf1e7bef3b4",
+      "mergedAt": "2026-11-11T09:00:38Z",
+      "subject": "cmux-tui: a closed terminal has no agent record (the tombstone deletes it; the open prunes the old ones) (#41123)"
+    },
+    {
+      "sha": "299cb0071ad8926518ca18bdf1ac203ed3dd9cb0",
+      "mergedAt": "2026-11-11T00:51:05-08:00",
+      "subject": "carrier fault: probe accounts are the provisioner's accounts in no shared team (#40495)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T09:20:31Z",
+    "snapshot_id": "sh-b58c7b7f3d6e4b718254761ad09c1d45",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42993256124): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "691b109b1be3770b5755c3ecf7b54dcb707d98cb",
+    "image": "cloud-native-auto-ef384ddb-42993256124-1",
+    "revision": "ci-42993256124-1",
+    "at": "2026-11-11T09:20:31Z"
+  },
+  "rolled_back": false
+}
