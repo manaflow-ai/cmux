@@ -366,20 +366,21 @@ fn on_cloud(listed: Value) -> Result<Route, Value> {
 /// same list: the person's most recently used running chat VM, else a new one.
 #[test]
 fn cloud_picks_my_most_recently_used_running_chat_vm_and_never_asks() {
-    let vm = |id: &str, title: &str, status: &str, by: &str, created: &str, active: Option<&str>| {
-        json!({"machine_id": id, "title": title, "status": status, "created_by": by,
+    // All made by `user_a`.
+    let vm = |id: &str, title: &str, status: &str, created: &str, active: Option<&str>| {
+        json!({"machine_id": id, "title": title, "status": status, "created_by": "user_a",
                "created_at": created, "last_active_at": active})
     };
     // Leo's list, as the NIGHTLY's rows carry it (no `last_active_at`, no `account.user`).
     let leo = |rows: Vec<Value>| json!({"account": {"signed_in": true}, "machines": rows});
     let seven = vec![
-        vm("vm_e35", "chat-91c33c40", "paused", "user_a", "2026-11-04T07:25:51Z", None),
-        vm("vm_5e3", "cloud-devloop", "running", "user_a", "2026-11-05T06:20:17Z", None),
-        vm("vm_4e2", "Cloud Machine 2", "running", "user_a", "2026-11-05T06:49:14Z", None),
-        vm("vm_b11", "lease-lease_45_32acd657", "paused", "user_a", "2026-11-09T21:23:04Z", None),
-        vm("vm_d0c", "chat-800dd580cab0487c", "running", "user_a", "2026-11-10T02:16:41Z", None),
-        vm("vm_dff", "lease-lease_7c_9d87501b", "running", "user_a", "2026-11-10T23:39:21Z", None),
-        vm("vm_c4f", "chat-1ee79169fa414849", "running", "user_a", "2026-11-10T23:56:32Z", None),
+        vm("vm_e35", "chat-91c33c40", "paused", "2026-11-04T07:25:51Z", None),
+        vm("vm_5e3", "cloud-devloop", "running", "2026-11-05T06:20:17Z", None),
+        vm("vm_4e2", "Cloud Machine 2", "running", "2026-11-05T06:49:14Z", None),
+        vm("vm_b11", "lease-lease_45_32acd657", "paused", "2026-11-09T21:23:04Z", None),
+        vm("vm_d0c", "chat-800dd580cab0487c", "running", "2026-11-10T02:16:41Z", None),
+        vm("vm_dff", "lease-lease_7c_9d87501b", "running", "2026-11-10T23:39:21Z", None),
+        vm("vm_c4f", "chat-1ee79169fa414849", "running", "2026-11-10T23:56:32Z", None),
     ];
     // No use known: the newest running one, never the lease or the dev loop's machine.
     assert_eq!(on_cloud(leo(seven.clone())), Ok(Route::Cloud(Machine::Target("vm_c4f".into()))));
@@ -392,27 +393,28 @@ fn cloud_picks_my_most_recently_used_running_chat_vm_and_never_asks() {
 
     // Use known: the most recently used, though made earlier; a paused VM is never picked.
     let used = vec![
-        vm("vm-old", "chat-aa", "running", "user_a", "2026-11-01T00:00:00Z", Some("2026-11-10T12:00:00Z")),
-        vm("vm-new", "chat-bb", "running", "user_a", "2026-11-09T00:00:00Z", Some("2026-11-09T01:00:00Z")),
-        vm("vm-nap", "chat-cc", "paused", "user_a", "2026-11-10T00:00:00Z", Some("2026-11-10T23:00:00Z")),
+        vm("vm-old", "chat-aa", "running", "2026-11-01T00:00:00Z", Some("2026-11-10T12:00:00Z")),
+        vm("vm-new", "chat-bb", "running", "2026-11-09T00:00:00Z", Some("2026-11-09T01:00:00Z")),
+        vm("vm-nap", "chat-cc", "paused", "2026-11-10T00:00:00Z", Some("2026-11-10T23:00:00Z")),
     ];
     assert_eq!(on_cloud(leo(used.clone())), Ok(Route::Cloud(Machine::Target("vm-old".into()))));
     // A teammate's VM is never mine, when the list says who I am.
-    let me = |who: &str| json!({"account": {"signed_in": true, "user": who}, "machines": used.clone()});
+    let me =
+        |who: &str| json!({"account": {"signed_in": true, "user": who}, "machines": used.clone()});
     assert_eq!(on_cloud(me("user_a")), Ok(Route::Cloud(Machine::Target("vm-old".into()))));
     assert_eq!(on_cloud(me("user_b")), Ok(Route::Cloud(Machine::New)));
     // A tie breaks on the machine id, so it is still one answer.
     let tie = vec![
-        vm("vm-2", "chat-2", "running", "user_a", "2026-11-01T00:00:00Z", None),
-        vm("vm-1", "chat-1", "running", "user_a", "2026-11-01T00:00:00Z", None),
+        vm("vm-2", "chat-2", "running", "2026-11-01T00:00:00Z", None),
+        vm("vm-1", "chat-1", "running", "2026-11-01T00:00:00Z", None),
     ];
     assert_eq!(on_cloud(leo(tie)), Ok(Route::Cloud(Machine::Target("vm-1".into()))));
     // Machines made for something else, whatever their case: none qualifies, a new VM.
     let others = vec![
-        vm("vm-l", "lease-lease_1", "running", "user_a", "2026-11-01T00:00:00Z", None),
-        vm("vm-p", "Probe-VM", "running", "user_a", "2026-11-01T00:00:00Z", None),
-        vm("vm-d", "cloud-devloop", "running", "user_a", "2026-11-01T00:00:00Z", None),
-        vm("vm-f", "chat-ff", "failed", "user_a", "2026-11-01T00:00:00Z", None),
+        vm("vm-l", "lease-lease_1", "running", "2026-11-01T00:00:00Z", None),
+        vm("vm-p", "Probe-VM", "running", "2026-11-01T00:00:00Z", None),
+        vm("vm-d", "cloud-devloop", "running", "2026-11-01T00:00:00Z", None),
+        vm("vm-f", "chat-ff", "failed", "2026-11-01T00:00:00Z", None),
     ];
     assert_eq!(on_cloud(leo(others)), Ok(Route::Cloud(Machine::New)));
     assert_eq!(on_cloud(leo(vec![])), Ok(Route::Cloud(Machine::New)));
