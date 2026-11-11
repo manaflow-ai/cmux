@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42954733368",
+  "recorded_at": "2026-11-11T03:57:13Z",
+  "reason": "cmux-tui 38dd47965803 changes the image's cmux-tui (pinned 696a538a832d)",
+  "dry_run": false,
+  "cmux_tui": "38dd47965803dfab754647e73907bce177b85cbc",
+  "fixes": [
+    {
+      "sha": "38dd47965803dfab754647e73907bce177b85cbc",
+      "mergedAt": "2026-11-10T19:30:01-08:00",
+      "subject": "cmux-tui: every plan built from a topology projection journals only what the journal does not state"
+    },
+    {
+      "sha": "7f6aa0479c65c02bb3b0f438b2ed79623498ff59",
+      "mergedAt": "2026-11-10T19:30:00-08:00",
+      "subject": "cmux-tui tests: a tab or screen write journals its change, not the session (red)"
+    },
+    {
+      "sha": "d3435181e97cb81344ce1c8f667483452893b04d",
+      "mergedAt": "2026-11-10T19:30:00-08:00",
+      "subject": "cmux-tui-core: a journal stream reads the shared ring once more after it takes the ring epoch"
+    },
+    {
+      "sha": "b304be8525e2371ebc6c79e93cdb6130be76d5db",
+      "mergedAt": "2026-11-10T19:29:59-08:00",
+      "subject": "cmux-tui-core: a host loss reads and logs its breadcrumbs without the surface options lock"
+    },
+    {
+      "sha": "f9068a5bcfb8ba37a907e9edf4f8fba9860637b5",
+      "mergedAt": "2026-11-10T19:29:58-08:00",
+      "subject": "cmux-tui-core: test that a journal stream moving to the shared ring misses no record"
+    },
+    {
+      "sha": "fd4eae368cc80ad960d57a7b3a2b3e01f258b2d3",
+      "mergedAt": "2026-11-10T19:29:57-08:00",
+      "subject": "cmux-tui-core: test that a host loss logs without the surface options lock"
+    },
+    {
+      "sha": "44e267cc4661472d1d9a0c76a54f6106adbf5332",
+      "mergedAt": "2026-11-10T19:29:56-08:00",
+      "subject": "cmux-tui-core: a browser target adoption releases the cell-pixel lifecycle before its commit"
+    },
+    {
+      "sha": "2aca47fb49312c6e640925c5298b02346f7ebe87",
+      "mergedAt": "2026-11-10T19:29:56-08:00",
+      "subject": "cmux-tui-core: test that a failed browser target adoption rolls back without the cell-pixel lifecycle"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T03:57:13Z",
+    "snapshot_id": "sh-8a29ad38592f45eca9e4ec16b7c3d4cc",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42954733368): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "aa5178c673e94e87625988effafea748a780c2cb",
+    "image": "cloud-native-auto-38dd4796-42954733368-1",
+    "revision": "ci-42954733368-1",
+    "at": "2026-11-11T03:57:13Z"
+  },
+  "rolled_back": false
+}
