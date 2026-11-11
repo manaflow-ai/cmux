@@ -6,11 +6,61 @@
 // real Cmd-V, so it is not in these numbers.
 import { instantPreview } from "./composer/attachmentIntakeModel";
 import { prepareImageOffThread } from "./composer/imagePool";
+import { callHost } from "./composer/attachmentSources";
 
-export type PasteProbeOptions = { width?: number; height?: number; kind?: "text" | "noise" };
+export type PasteProbeOptions = {
+  width?: number;
+  height?: number;
+  kind?: "text" | "noise";
+  /// Then send the prompt (as Return does) and watch the transcript for `watchMs`: every frame in
+  /// which an id (a UUID) shows as text the person can see is reported (issue 41016's second part).
+  send?: boolean;
+  watchMs?: number;
+  /// The last probe's result (or `{running: true}`), without starting one: a page call has only a
+  /// few seconds to answer (CEF's DevTools evaluate), less than a probe takes.
+  read?: boolean;
+};
+
+const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
+/// The text the person can see in the page that holds a UUID, each with its element's class.
+function shownIds(): string[] {
+  const found: string[] = [];
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const text = node.textContent ?? "";
+    const parent = node.parentElement;
+    if (!parent || !UUID.test(text)) continue;
+    if (parent.closest("script,style,[aria-hidden='true'],.visually-hidden,.acpmux-attachment-voiceover-only"))
+      continue;
+    const box = parent.getBoundingClientRect();
+    if (box.width === 0 || box.height === 0) continue;
+    found.push(
+      `${parent.tagName.toLowerCase()}.${String(parent.className).split(" ").join(".")}: ${text.slice(0, 80)}`,
+    );
+  }
+  // An image that has not drawn yet shows its alt text in its place.
+  for (const image of document.querySelectorAll("img"))
+    if (UUID.test(image.alt) && !(image.complete && image.naturalWidth)) found.push(`img alt: ${image.alt}`);
+  return found;
+}
+
+/// Every frame for `ms` in which the page shows a UUID (`shownIds`), with its time.
+function watchIds(ms: number): Promise<string[]> {
+  return new Promise((resolve) => {
+    const start = performance.now();
+    const seen = new Map<string, number>();
+    const frame = () => {
+      for (const id of shownIds()) if (!seen.has(id)) seen.set(id, since(start));
+      if (performance.now() - start < ms) requestAnimationFrame(frame);
+      else resolve([...seen].map(([id, at]) => `${at} ms ${id}`));
+    };
+    requestAnimationFrame(frame);
+  });
+}
 
 /// Milliseconds from the paste to each thing the composer shows, and how long each step took.
-export type PasteProbeResult = Record<string, number | string | undefined>;
+export type PasteProbeResult = Record<string, number | string | boolean | undefined>;
 
 const PROMPT = ".acpmux-composer-prompt [contenteditable='true']";
 const LOADING = '.acpmux-md-inline-chip[data-state="loading"], .acpmux-attachment-pending';
@@ -58,10 +108,22 @@ async function timed<T>(work: () => Promise<T>): Promise<number> {
   return since(start);
 }
 
-export async function pasteProbe(
-  options: PasteProbeOptions,
-  call: ((method: string, params?: Record<string, unknown>) => Promise<unknown>) | undefined,
-): Promise<PasteProbeResult> {
+/// The probe running or done last, which `read` answers.
+let last: { running: true } | PasteProbeResult | undefined;
+
+/// Starts a probe and answers at once (`{started: true}`), or with `read`, answers the last one.
+export function pasteProbe(options: PasteProbeOptions): PasteProbeResult {
+  if (options.read) return last ?? { error: "no probe ran" };
+  if (last && "running" in last) return { error: "a probe is running" };
+  last = { running: true };
+  void runProbe(options).then(
+    (result) => (last = result),
+    (error: unknown) => (last = { error: String(error) }),
+  );
+  return { started: 1 };
+}
+
+async function runProbe(options: PasteProbeOptions): Promise<PasteProbeResult> {
   const prompt = document.querySelector<HTMLElement>(PROMPT);
   if (!prompt) return { error: "no composer prompt" };
   const file = await screenshot(options);
@@ -101,14 +163,24 @@ export async function pasteProbe(
     requestAnimationFrame(check);
   });
   Object.assign(result, marks);
+  if (options.send) {
+    const watched = watchIds(options.watchMs ?? 8000);
+    // Return in the prompt, with the pasted image in it: the prompt goes as the person's does.
+    prompt.focus();
+    prompt.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true }),
+    );
+    const ids = await watched;
+    result.ids_shown = ids.length;
+    if (ids.length) result.ids = ids.slice(0, 20).join("\n");
+  }
   // Each step of that path again, alone, now that the worker is warm.
   result.preview_ms = await timed(() => prepareImageOffThread(file));
   result.instant_ms = await timed(() => instantPreview(file));
-  if (call) {
-    result.dropped_ms = await timed(() => call("chat.attach.dropped", { kind: "paste", names: [file.name] }));
-    result.source_ms = await timed(() =>
-      call("chat.attach.source", { kind: "paste", names: [file.name], gestureAt: Date.now() }),
-    );
-  }
+  // The host's answers the composer asks for on a paste, by the composer's own path.
+  result.dropped_ms = await timed(() => callHost("chat.attach.dropped", { kind: "paste", names: [file.name] }));
+  result.source_ms = await timed(() =>
+    callHost("chat.attach.source", { kind: "paste", names: [file.name], gestureAt: Date.now() }),
+  );
   return result;
 }

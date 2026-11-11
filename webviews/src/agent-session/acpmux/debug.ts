@@ -438,8 +438,7 @@ export function createAcpmuxDebug(
 
     async pasteProbe(options = {}) {
       const { pasteProbe } = await import("./pasteProbe");
-      const automationHost = host.automation;
-      return pasteProbe(options, automationHost && ((method, params) => automationHost.call(method, params)));
+      return pasteProbe(options);
     },
     async idleProbe(options = {}) {
       const { idleProbe } = await import("./idleProbe");
