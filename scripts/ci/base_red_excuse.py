@@ -1351,7 +1351,7 @@ def signature(view: "FailedView | Unplaced") -> tuple[set[str], set[str], set[st
     text = view_text(view)
     steps = {step["name"] for step in view.job.get("steps") or []  # step-name: classify
              if step.get("conclusion") not in (None, "success", "skipped")}
-    tests = test_reds.failed_names(test_reds.lines_of(text))
+    tests = set(test_reds.failed_tests(test_reds.lines_of(text)))  # bun's too (#41158's review F1)
     return steps, tests, {error for _, error in step_errors(view)}
 
 
@@ -1362,7 +1362,7 @@ def step_errors(view: FailedView) -> set[tuple[str, str]]:
     text = view_text(view)
     scope = view.lines()
     skip = test_reds.echoed(test_reds.log_lines(text))
-    tests = test_reds.failed_names(test_reds.lines_of(text))
+    tests = set(test_reds.failed_tests(test_reds.lines_of(text)))
     job = view.job
     found: set[tuple[str, str]] = set()
     for n, line in enumerate(lines_of(text)):
@@ -1404,6 +1404,7 @@ class UnplacedSignature(NamedTuple):
     tests: Counter
     errors: Counter
     crashes: frozenset = frozenset()
+    unnamed: tuple = ()  # runner lines that say tests failed where that runner's tests went unnamed (failed_tests)
 
 
 def failed_step_keys(job: dict) -> Counter:
@@ -1426,21 +1427,13 @@ def unplaced_signature(job: dict, log: str) -> UnplacedSignature:
     failing-test line and error line appears in every line but the runner's echo of a script."""
     steps = failed_step_keys(job)
     output = test_reds.lines_of(log)
-    named = test_reds.failed_names(output)
-    # The failing tests by name, digits kept (never normalise_error's masking: test2() is not test3()), each counted
-    # once per line that names it; a listing's names (xcodebuild's `Failing tests:`) that no line names alone, once
-    # per listing that holds it (#41129's review F2: two listings of one test are not one).
-    tests: Counter = Counter()
-    for text in output:
-        tests.update(test_reds.failed_names([text]))
-    listed: Counter = Counter()
-    listing = False
-    for text in output:
-        if listing and (entry := test_reds.XCODEBUILD_FAILED.match(text)):
-            listed[entry.group(1)] += 1
-            continue
-        listing = text.strip() == test_reds.XCODEBUILD_FAILING
-    tests.update({name: listed[name] or 1 for name in named if name not in tests})
+    # The failing tests by name, digits kept (never normalise_error's masking: test2() is not test3()), counted by
+    # test_reds' one parser (failed_tests): bun's `FILE > TEST` too (#41158's review F1: unread, two different bun
+    # failures with one `expect()` headline were the same red), and every source of a name counted alike, an
+    # xcresult `FAILED:` line and each listing entry (#41129's review F2; #41158's review F2).
+    unnamed: list = []
+    tests = test_reds.failed_tests(output, unnamed)
+    named = set(tests)
     errors: Counter = Counter()
     for line in output:
         if line.startswith(test_reds.TAP_MARKER) or SUMMARY_RED.match(line):
@@ -1464,7 +1457,7 @@ def unplaced_signature(job: dict, log: str) -> UnplacedSignature:
         elif inside and line and not RATCHET_HIT.match(line):
             errors[f"ratchet: {line}"] += 1
     crashes = frozenset(first or second for first, second in CRASH.findall("\n".join(output)))
-    return UnplacedSignature(steps, tests, errors, crashes)
+    return UnplacedSignature(steps, tests, errors, crashes, tuple(dict.fromkeys(unnamed)))
 
 
 def unplaced_without_ffi_pin(head: UnplacedSignature) -> UnplacedSignature:
@@ -1492,6 +1485,10 @@ def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, f
     if not head.tests and not head.errors:
         raise Refused(f"'{name}': {UNPLACED_WHY}, and its log names no failing test or error line; nothing to "
                       "compare with the base")
+    for side, said in (("its", head.unnamed), (f"{where}'s", found.unnamed)):
+        if said:
+            raise Refused(f"'{name}': {UNPLACED_WHY}; compared whole, {side} log says tests failed and names none of "
+                          f"them ({said[0][:200]}), so no failure can be told from another")
     if head.steps != found.steps:
         raise Refused(f"'{name}': {UNPLACED_WHY}; compared whole, its failed steps ({step_keys_text(head.steps)}) are "
                       f"not {where}'s ({step_keys_text(found.steps)})")
@@ -3553,7 +3550,7 @@ def step_evidence(view: "FailedView | Unplaced", step_name: str) -> tuple[set[st
     texts = test_reds.lines_of("\n".join(lines))
     errors = {f"{repo_path(match[1])}:{match[2]}: {normalise_error(match[3])}"
               for text in texts if (match := COMPILE_ERROR.search(text))}
-    return set(test_reds.failed_names(texts)), errors
+    return set(test_reds.failed_tests(texts)), errors
 
 
 def one_step(job: dict, step_name: str, side: str) -> dict:

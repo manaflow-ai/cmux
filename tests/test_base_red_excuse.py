@@ -8751,6 +8751,42 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
             self.judge(kit(listing + ["** TEST FAILED **"] + listing, listing))
         self.assertIn("compared whole", self.judge(kit(listing, listing)))
 
+    def test_review_41158_f2_an_xcresult_line_and_each_listing_entry_both_count(self):
+        # #41158's review F2: a listing entry counted only when no line named its test alone, so with an xcresult
+        # `FAILED:` line naming it, two listings at the head matched the base's one.
+        failed = ["FAILED: CmuxMobileKit / KitTests / KitTests / reconnectsAfterSleep()"]
+        listing = ["Failing tests:", "KitTests.reconnectsAfterSleep()"]
+
+        def kit(head, base):
+            github = UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, head, base)
+            framed = github.log  # xcodebuild's tab before each entry, as in the #41129 F2 test above
+            github.log = lambda repo, job: framed(repo, job).replace("Z KitTests.", "Z \tKitTests.")
+            return github
+        with self.assertRaisesRegex(excuse.Refused, "failing tests are not .*more on this head: .*reconnectsAfterSleep"):
+            self.judge(kit(failed + listing + ["** TEST FAILED **"] + listing, failed + listing))
+        self.assertIn("compared whole", self.judge(kit(failed + listing, failed + listing)))
+
+    def test_review_41158_f1_bun_failures_are_named_in_a_whole_log_comparison(self):
+        # #41158's review F1: failed_names read no bun `(fail)` line, so a new head failure and an unrelated base
+        # flake, both under one `expect()` headline, gave empty test counters and the same error lines: excused.
+        def bun(test):
+            return ["bun test v1.3.0", "test/agent-pane.test.tsx:", "error: expect(received).toBe(expected)",
+                    "Expected: true", "Received: false", f"(fail) agent pane > {test} [1.20ms]", " 0 pass", " 1 fail"]
+        with self.assertRaisesRegex(excuse.Refused, "failing tests are not .*more on this head: .*keeps its draft"):
+            self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, bun("keeps its draft"), bun("scrolls to end")))
+        self.assertIn("compared whole", self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP,
+                                                                  bun("keeps its draft"), bun("keeps its draft"))))
+
+    def test_review_41158_f1_a_failure_count_no_test_is_named_by_is_never_compared_whole(self):
+        # The rest of #41158's review F1: a runner that says tests failed and whose failures no parser names leaves
+        # nothing to tell them apart, so the whole-log fallback refuses rather than excuse on the error lines alone.
+        for marker in (" 2 fail", "FAIL test/agent-pane.test.tsx (limit 120s)", "test result: FAILED. 3 passed; 1 failed",
+                       "FAILED (failures=1)", "Executed 4 tests, with 1 failure (0 unexpected) in 0.2 (0.3) seconds"):
+            with self.subTest(marker=marker):
+                said = ["error: expect(received).toBe(expected)", marker]
+                with self.assertRaisesRegex(excuse.Refused, "says tests failed and names none of them"):
+                    self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, said, said))
+
     def test_a_base_that_fails_more_is_not_enough_either(self):
         # Identity, never a subset: the comparison is the whole log, so what the base fails besides is not proof the
         # head's failures are only those (a red the base hides could be the PR's).
