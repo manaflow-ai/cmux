@@ -101,6 +101,12 @@
 }
 /* The key that takes a suggested placeholder (the composer's "Tab"): a quiet keycap after it. A
    long placeholder truncates its own text, so the keycap stays in a narrow pane. */
+/* A sent prompt's words fly from the field to their message (conversation/sendMorph.ts): the field
+   has emptied under their copy, and its placeholder waits for them to leave, so the field never
+   draws the placeholder and the sent words over each other. */
+.acpmux-shell[data-send-morphing] .acpmux-composer .acpmux-md-placeholder {
+  visibility: hidden;
+}
 .acpmux-md-placeholder.has-key:not([hidden]) {
   display: flex;
   align-items: center;

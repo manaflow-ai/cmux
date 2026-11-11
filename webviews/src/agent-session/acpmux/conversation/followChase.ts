@@ -31,7 +31,7 @@
 // thread is drawn (reader input: the reader's view moves only with their scroll). With Reduce Motion, the
 // host's motion switch off (`data-agent-motion`/`data-cmux-motion`) or a zero move token, `shift`
 // moves nothing and the view steps at once, as before.
-import { MOTION_MS } from "../../../motion/scale.generated";
+import { MOTION_MS, MOTION_SEND_MS } from "../../../motion/scale.generated";
 import { motionMode } from "../../../ui/motion/motionMode";
 import { currentChatMetrics } from "../chatDisplay";
 import { cssTimeMs } from "./fold";
@@ -86,9 +86,22 @@ const arrivalEase = (progress: number) => Math.sin((progress * Math.PI) / 2);
 /// move past about 70 px needs to keep each frame under ARRIVAL_FRAME_LINES (115 px: 110 ms), at the
 /// host's speed `scale` (the speed factor of `--agent-motion-move`; 0 with motion off). `floor`: the
 /// shortest step (a move during a step keeps that step's end, so its floor is the time left).
-export function arrivalStepMs(px: number, scale = 1, floor = MOTION_MS.quick * scale): number {
-  const frames = ((Math.PI / 2) * Math.abs(px)) / (ARRIVAL_FRAME_LINES * currentChatMetrics().lineHeight);
+export function arrivalStepMs(
+  px: number,
+  scale = 1,
+  floor = MOTION_MS.quick * scale,
+  frameLines = ARRIVAL_FRAME_LINES,
+): number {
+  const frames = ((Math.PI / 2) * Math.abs(px)) / (frameLines * currentChatMetrics().lineHeight);
   return Math.max(floor, (frames * 1000) / 120);
+}
+/// The reader's own send rises on the send motion (MOTION_SEND_MS, the clock its bubble and the
+/// composer's copy of it land on: sendMorph.ts), longer only as a move needs to keep each frame
+/// within CHASE_MAX_FRAME_LINES. On the arrival step a tall prompt (a raised composer's six lines,
+/// 270 px) rose for 320 ms, under the composer's copy that had landed at 180 ms (Leo, 2026-11-11:
+/// "when there's a composer thing raised then it gets sent ... if we can get it fast, MAYBE").
+export function sendStepMs(px: number, scale = 1, floor = MOTION_SEND_MS * scale): number {
+  return arrivalStepMs(px, scale, floor, CHASE_MAX_FRAME_LINES);
 }
 /// The most a landing frame moves, that at once and the chase's step in it together, in lines:
 /// under the 0.85 of a line that 95 in 100 of the stream's frames keep to (send-stream-motion.test.ts).
@@ -115,8 +128,9 @@ export type FollowChase = {
   /// bottom stack: the room under the last row and a line, VirtualTranscript); the rest moves at
   /// once. `held` keeps to `below` in every arm (Jump to latest just landed). False when it moved at
   /// once (motion off, nothing to move). `arrived`: the move is a row that came, not the reply's own
-  /// growth, and holds back up to CHASE_ARRIVAL_HOLD_LINES.
-  shift(thread: HTMLElement | null, moved: number, below?: number, held?: boolean, arrived?: boolean): boolean;
+  /// growth, and holds back up to CHASE_ARRIVAL_HOLD_LINES; `"sent"`: the rows the reader's own send
+  /// brought, which come home on the send's step (`sendStepMs`), not the arrival step.
+  shift(thread: HTMLElement | null, moved: number, below?: number, held?: boolean, arrived?: boolean | "sent"): boolean;
   /// What may lie under the bottom stack is now `below` px: a chase drawn further down rests there.
   fit(below: number): void;
   /// How far the thread is drawn from its layout (px, positive: drawn down), 0 at rest.
@@ -171,8 +185,9 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
   let chunk = { from: 0, at: 0, duration: CHUNK_S };
   /// A row that arrived: the arrival step in flight (from px, elapsed s, duration s), on ARRIVAL_EASE
   /// to 0 at its end. Anything else that moves the rows (the reply's growth, `land`, `hold`) hands
-  /// it back to the spring from where it is drawn and how fast it goes.
-  let arrival: { from: number; at: number; duration: number } | undefined;
+  /// it back to the spring from where it is drawn and how fast it goes. `sent`: a send's step, which
+  /// the passes landing during it keep (the sent row's measured height, the live line's).
+  let arrival: { from: number; at: number; duration: number; sent: boolean } | undefined;
   let frame: number | undefined;
   /// A send's rows, or anything in the `blocks` arm: it may pass under the glass composer while it
   /// settles, so `below` holds nothing back (the trail bound still does). Set by each `shift`: a
@@ -450,9 +465,11 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       // A move during a step (the arrived row's measured height a pass later) keeps that step's end,
       // longer only as its frames need, so a second pass never starts the motion over.
       const left = arrival ? (arrival.duration - arrival.at) * 1000 : undefined;
+      const sent = arrived === "sent" || arrival?.sent === true;
+      const stepMs = sent ? sendStepMs(x, scale, left) : arrivalStepMs(x, scale, left);
       arrival =
         arrived && !held && (arm === "blocks" || arm === "spring") && x !== 0 && arrivalLook(node)
-          ? { from: x, at: 0, duration: arrivalStepMs(x, scale, left) / 1000 }
+          ? { from: x, at: 0, duration: stepMs / 1000, sent }
           : undefined;
       draw();
       cancelRecheck();

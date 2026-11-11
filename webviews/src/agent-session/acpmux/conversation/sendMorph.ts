@@ -53,6 +53,8 @@ const ROW_MS = 1000;
 /// The composer's chips on screen by attachment id: the strip's slot and a chip placed in the text
 /// register here (`chipRef`; attachmentIntake.tsx, inlineAttachments.tsx).
 const chips = new Map<string, Element>();
+/// On the pane's shell while copies of the composer's words fly: the composer hides its placeholder.
+export const SEND_MORPH_ATTR = "data-send-morphing";
 let pending: Origin | undefined;
 let flight: Flight | undefined;
 /// A prompt's row that mounted in this commit before the transcript's send effect ran (a row drawn
@@ -262,6 +264,18 @@ const mixRect = (from: Rect, to: Rect, progress: number): Rect => ({
 /// 0 before `from`, 1 after `to`, linear between.
 const span = (progress: number, from: number, to: number) => Math.min(1, Math.max(0, (progress - from) / (to - from)));
 
+/// How far `row` is drawn back down the screen (px): the vertical `translate` it and each box up to
+/// `scroller` wear now (the send's glide on the thread, a tail glide on the row). O(depth) per frame.
+function drawnBack(row: HTMLElement, scroller: HTMLElement): number {
+  let back = 0;
+  for (let at: HTMLElement | null = row; at && at !== scroller; at = at.parentElement) {
+    const translate = getComputedStyle(at).translate;
+    if (!translate || translate === "none") continue;
+    back += Number.parseFloat(translate.split(" ")[1] ?? "") || 0;
+  }
+  return back;
+}
+
 /// `place`: the target's place among the row's previews, where a remounted one is found again.
 type Piece = {
   ghost: HTMLElement;
@@ -278,6 +292,9 @@ class Flight {
   readonly base: { left: number; top: number };
   readonly glass: HTMLElement;
   readonly typed?: HTMLElement;
+  shell?: HTMLElement;
+  /// The shell's glass opacity as it starts: 1 under a raised composer's words (below).
+  glassFrom = 0;
   content?: HTMLElement;
   row?: HTMLElement;
   bubble?: HTMLElement;
@@ -315,7 +332,14 @@ class Flight {
       pointerEvents: "none",
       contain: "strict",
     });
-    (scroller.closest(".acpmux-shell") ?? doc.body).appendChild(this.layer);
+    const shell = scroller.closest(".acpmux-shell");
+    (shell ?? doc.body).appendChild(this.layer);
+    // The composer has emptied under the words' copy: its placeholder stays out of the copy's way
+    // until the copies land (markdownField.css), so no frame draws two texts in one field.
+    if (this.origin.words && shell instanceof HTMLElement) {
+      shell.setAttribute(SEND_MORPH_ATTR, "");
+      this.shell = shell;
+    }
     const placed = this.layer.getBoundingClientRect();
     this.base = { left: placed.left, top: placed.top };
     // The bubble's glass: the sent bubble's own rules (conversation.css .cv-user__bubble in the pane).
@@ -323,6 +347,13 @@ class Flight {
     Object.assign(this.glass.style, { padding: "0", maxWidth: "none", opacity: "0" });
     const card = origin.card?.rect ?? origin.words?.rect;
     if (card) this.place(this.glass, card, origin.card?.radius ?? 0);
+    // A raised composer (a draft of more than a line) shrinks to its one line as it empties, before
+    // the sent row mounts: its words' copy would float over the transcript with no card under them,
+    // so the glass is drawn under them from the start.
+    if (style === "shell" && origin.card && origin.words && !origin.words.oneLine) {
+      this.glassFrom = 1;
+      this.glass.style.opacity = "1";
+    }
     if (origin.words) {
       this.typed = this.piece("text");
       this.typed.appendChild(origin.words.copy);
@@ -519,9 +550,15 @@ class Flight {
     const words = this.origin.words;
     const card = this.origin.card;
     this.rebind();
-    // Where the row draws them now (it may be rising), all read before any copy moves.
-    const to = this.bubble ? rectOf(this.bubble) : undefined;
-    const slots = this.copies.map((piece) => (piece.target ? rectOf(piece.target) : undefined));
+    // Where the row draws them now, all read before any copy moves. The row rises on the send's
+    // glide from behind the composer (followGlide.ts `sent`): aimed at where it is drawn, a copy hung
+    // over the composer for most of the clock, longer the taller the draft (Leo, 2026-11-11: "when
+    // there's a composer thing raised then it gets sent ... it's not good"). It aims at where the
+    // row rests instead, and at where it is drawn by the end, so it lands on it with no jump.
+    const lag = this.row ? drawnBack(this.row, this.scroller) * (1 - progress) : 0;
+    const resting = (rect: Rect): Rect => ({ ...rect, top: rect.top - lag });
+    const to = this.bubble ? resting(rectOf(this.bubble)) : undefined;
+    const slots = this.copies.map((piece) => (piece.target ? resting(rectOf(piece.target)) : undefined));
     if (to) {
       const glass = this.style === "shell" && card ? mixRect(card.rect, to, progress) : to;
       this.place(
@@ -530,7 +567,9 @@ class Flight {
         this.style === "shell" && card ? mix(card.radius, this.bubbleRadius, progress) : this.bubbleRadius,
       );
       // The shell's glass grows out of the card; the lift's fills in where the bubble is.
-      this.glass.style.opacity = String(this.style === "shell" ? span(progress, 0, 0.45) : progress);
+      this.glass.style.opacity = String(
+        this.style === "shell" ? mix(this.glassFrom, 1, span(progress, 0, 0.45)) : progress,
+      );
       const end = { left: to.left + this.pad.left, top: to.top + this.pad.top };
       const start = words?.rect ?? end;
       const left = mix(start.left, end.left, progress);
@@ -564,6 +603,7 @@ class Flight {
     if (this.clock) this.clock.oncancel = null;
     if (this.fade) this.fade.onfinish = null;
     this.layer.remove();
+    this.shell?.removeAttribute(SEND_MORPH_ATTR);
     for (const element of this.hidden) element.style.visibility = "";
     if (flight === this) flight = undefined;
   }
