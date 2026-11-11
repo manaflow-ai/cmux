@@ -159,6 +159,24 @@ class NewReds(unittest.TestCase):
             listed = self.run_again({red: False}, {red: True}, again, new_files=True)
             self.assertEqual(listed.stdout.splitlines(), [file])
 
+    def test_no_first_base_pass_means_no_flake_verdict_from_a_later_replay(self):
+        # #41414 review F2: a later base replay that fails a test proves the base flaps on it only when the first
+        # replay passed it. A missing or unreadable first result, or a first replay whose file timed out (it names no
+        # test), followed by a replay that names the test red, turned "no base result is the change's" into a pass.
+        red = "test/agent-pane-stream-row-overlap.test.ts > webkit: followed, no lag"
+        file = red.split(" > ")[0]
+        for first in ("unreadable", {file: False}, {f"{file} > other": False, file: False}):
+            done = self.run_again({red: False}, first, {red: False})
+            self.assertEqual(done.returncode, 1, f"{first}: {done.stdout}{done.stderr}")
+            self.assertIn(f"::error title=Webview test red on this change::{red}", done.stdout)
+            self.assertIn(f"webview test red step (new): {red}", done.stdout)
+            listed = self.run_again({red: False}, first, {red: False}, new_files=True)
+            self.assertEqual(listed.stdout.splitlines(), [file], first)
+        # A first replay whose file passed whole (it names no passing test) did pass it.
+        done = self.run_again({red: False}, {file: True}, {red: False})
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn(f"webview test red step (flaky): {red}", done.stdout)
+
     def test_a_whole_file_red_that_fails_on_another_base_replay_is_flaky(self):
         file = "test/reasoning-own-control.test.ts"
         done = self.run_again({file: False}, {file: True}, {file: False})
@@ -344,6 +362,83 @@ class OneCheckCannotMaskAnother(unittest.TestCase):
         done = self.compare(self.results(["hosted"]), {self.STEP: False})
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
         self.assertIn(f"::error title=Guard red on this change::{self.STEP} :: check_hosted", done.stdout)
+
+
+
+class ANewItemInABaseRedStepIsTheChanges(unittest.TestCase):
+    """cmux#41458: a step red on both sides was excused by its name alone. #41351 added a test no ci-guards.yml step
+    runs; "Validate every workflow guard is wired" named it beside two the base already left unwired, so the job said
+    "0 guard steps red on this change, 14 red on the base too" and passed (job 130668132153). A step red on both sides
+    is the change's when its head failure names something the base failure does not, and when that cannot be told."""
+
+    WIRED = "Validate every workflow guard is wired"
+
+    def step_results(self, root: Path, outputs: dict[str, str]) -> dict:
+        """Run one step per output under ROOT with the real runner, then write --results as run_ci_guards.py does."""
+        steps = []
+        for name, output in outputs.items():
+            script = root / f"{len(steps)}.sh"
+            script.write_text(f"cat <<'OUT'\n{output}\nOUT\nexit 1\n", encoding="utf-8")
+            steps.append(run_ci_guards.Step(name, f"bash {script}", {}, None))
+        unit = run_ci_guards.Unit("workflow-guard-tests", "ci", steps)
+        return run_ci_guards.run_steps(unit, steps, {"PATH": os.environ["PATH"], "HOME": str(root)}, "0" * 40,
+                                       keep_going=True)
+
+    def compare(self, head_outputs, base_outputs, *, base_failures=True):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = []
+            for side, outputs in (("head", head_outputs), ("base", base_outputs)):
+                root = Path(tmp) / ("w" if side == "head" else "w/.guard-base")
+                root.mkdir(parents=True, exist_ok=True)
+                results = self.step_results(root, {k: v.replace("<ROOT>", str(root)) for k, v in outputs.items()})
+                path = Path(tmp) / f"{side}.json"
+                run_ci_guards.write_step_results(path, results, root)
+                if side == "base" and not base_failures:
+                    run_ci_guards.failures_path(path).unlink()
+                paths.append(str(path))
+            return subprocess.run([sys.executable, str(SCRIPT), *paths], capture_output=True, text=True)
+
+    def outputs(self, unwired: list[str], seed: str) -> dict[str, str]:
+        found = {self.WIRED: (
+            "F\n" + "=" * 20 + "\nFAIL: test_every_guard_is_wired (__main__.Wired.test_every_guard_is_wired)\n"
+            f'  File "<ROOT>/tests/test_ci_workflow_guards_are_wired.py", line 171, in test_every_guard_is_wired\n'
+            "AssertionError: tests no workflow runs, so the invariants they assert are not enforced:\n  "
+            + "\n  ".join(unwired) + f"\nRan 4 tests in 0.{seed}s\nFAILED (failures=1)")}
+        # Thirteen more steps red on the base, whose output differs only in timings, temp paths, shas and the root.
+        for i in range(13):
+            found[f"base red step {i}"] = (
+                f"FAIL: test_lock_{i} (__main__.Locks)\n  File \"<ROOT>/tests/test_lock_{i}.py\", line {i + 3}\n"
+                f"AssertionError: /tmp/tmp{seed}x{i}k/Cargo.lock drifted at {seed * 7}{i:02x}abcdef\n"
+                f"  File \"{run_ci_guards.RUNNER_ROOT}/scripts/ci/run_ci_guards.py\", line {i}\n"
+                f"Ran 1 test in {seed}.{i}s")
+        return found
+
+    def test_a_new_unwired_test_in_a_step_already_red_on_the_base_is_the_changes(self):
+        old = ["tests/test_cargo_locks.py", "tests/test_ci_single_host_fallbacks.py"]
+        done = self.compare(self.outputs(old + ["tests/test_portable_jobs_bring_their_python.py"], "41"),
+                            self.outputs(old, "93"))
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn(f"::error title=Guard red on this change::{self.WIRED}", done.stdout)
+        self.assertIn(f"guard red step (new): {self.WIRED}", done.stdout)
+        self.assertIn("tests/test_portable_jobs_bring_their_python.py", done.stdout)
+        self.assertIn("1 guard steps red on this change, 13 red on the base too", done.stdout)
+        for i in range(13):
+            self.assertIn(f"guard red step (base): base red step {i}", done.stdout)
+
+    def test_the_same_failure_on_both_sides_stays_the_bases(self):
+        old = ["tests/test_cargo_locks.py", "tests/test_ci_single_host_fallbacks.py"]
+        done = self.compare(self.outputs(old, "41"), self.outputs(list(reversed(old)), "93"))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("0 guard steps red on this change, 14 red on the base too", done.stdout)
+        # Fewer items on the head than on the base: still the base's.
+        done = self.compare(self.outputs(old[:1], "41"), self.outputs(old, "93"))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+
+    def test_a_step_whose_failures_cannot_be_compared_is_not_excused(self):
+        old = ["tests/test_cargo_locks.py"]
+        done = self.compare(self.outputs(old, "41"), self.outputs(old, "93"), base_failures=False)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("14 guard steps red on this change, 0 red on the base too", done.stdout)
 
 
 if __name__ == "__main__":

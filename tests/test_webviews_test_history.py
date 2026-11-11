@@ -14,6 +14,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import zipfile
 
@@ -509,20 +510,28 @@ class Workflow(unittest.TestCase):
         return "\n".join(line[10:] for line in itertools.takewhile(
             lambda line: line.startswith(" " * 10) or not line.strip(), body))
 
-    def replay(self, head, results, rerun=None):
+    def compare_env(self):
+        import yaml
+        steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["react-apps-base-check"]["steps"]
+        return {k: str(v) for k, v in next(s for s in steps if s["name"] == "Run base reds and compare")["env"].items()}
+
+    def replay(self, head, results, rerun=None, elapsed=0, source="test\n"):
         """Run the compare step (and the head re-run step when it asks for one) with a stub test runner whose Nth call
-        writes RESULTS[N-1] ({} past the end). Returns (compare exit, compare output, rerun output, calls' files)."""
+        writes RESULTS[N-1] ({} past the end), ELAPSED seconds into the job. Returns (compare exit, compare output,
+        rerun output, calls' files)."""
         red = "test/agent-pane-stream-row-overlap.test.ts"
+        budget = {k: v for k, v in self.compare_env().items() if k in ("JOB_TIMEOUT_MINUTES", "REPLAY_RESERVE")}
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp, "repo")
             git_fixture_env.init_repo(repo)
             Path(repo, "webviews/test").mkdir(parents=True)
-            Path(repo, f"webviews/{red}").write_text("test\n", encoding="utf-8")
+            Path(repo, f"webviews/{red}").write_text(source, encoding="utf-8")
             env = git_fixture_env.fixture_env({
                 "PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin", "RUNNER_TEMP": temp,
                 "HEAD_RESULTS": str(Path(temp, "head.json")), "BASE_RESULTS": str(Path(temp, "base-results.json")),
                 "HEAD_RERUN": str(Path(temp, "head-rerun.json")), "KNOWN_REPLAY": "1",
-                "GITHUB_OUTPUT": str(Path(temp, "output"))})
+                "GITHUB_OUTPUT": str(Path(temp, "output")), **budget})
+            Path(temp, "job-started").write_text(f"{int(time.time()) - elapsed}\n", encoding="utf-8")
             subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, env=env)
             subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x"],
                            check=True, env=env)
@@ -572,6 +581,56 @@ class Workflow(unittest.TestCase):
         # A red the first replay already fails on the base replays no more.
         status, out, _, files = self.replay({red: False}, [{red: False}])
         self.assertEqual((status, files), (0, [[file]]), out)
+
+    def test_the_base_replays_fit_the_job_timeout(self):
+        # #41414 review F1: three base replays of a 900 s file plus the head re-run is 60 minutes, past the job's 55,
+        # and a job cut at its timeout gives the required check no verdict. The replays after the first share one
+        # budget, what is left of timeout-minutes less REPLAY_RESERVE for the head re-run and the verdict; this sums
+        # that worst case against timeout-minutes, as cmuxterm-hq#9496's test_skills_workflow_budget does.
+        import yaml
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["react-apps-base-check"]
+        env = self.compare_env()
+        timeout = int(job["timeout-minutes"]) * 60
+        self.assertEqual(int(env["JOB_TIMEOUT_MINUTES"]) * 60, timeout, "the budget must read this job's timeout-minutes")
+        runner = (ROOT / "scripts/ci/run-webviews-tests.sh").read_text(encoding="utf-8")
+        ceiling = int(re.search(r'maximum="\$\{CMUX_WEB_TEST_MAX_FILE_TIMEOUT:-(\d+)\}"', runner).group(1))
+        # The head re-run: its checkout, bun, install, bundles and browsers (3 to 11 min a shard), one file at the
+        # runner's ceiling, the verdict, and the checkout before the job's clock starts.
+        head_rerun = 11 * 60 + ceiling + 60 + 60
+        self.assertGreaterEqual(int(env["REPLAY_RESERVE"]), head_rerun)
+        # Before the replays: the base's setup (11 min) and the first replay of one file at the ceiling. The replays
+        # after it get only what is left, so the sum stays inside timeout-minutes; the first replay itself must fit.
+        before = 11 * 60 + ceiling
+        self.assertLess(before + int(env["REPLAY_RESERVE"]), timeout)
+        compare = self.step_script("Run base reds and compare")
+        self.assertIn('"$RUNNER_TEMP/job-started"', compare)
+        self.assertIn("JOB_TIMEOUT_MINUTES * 60", compare)
+        self.assertIn("REPLAY_RESERVE", compare)
+        self.assertIn('date +%s > "$RUNNER_TEMP/job-started"', self.step_script("Use the merge parent as the base"))
+
+    def test_a_replay_the_budget_cannot_fit_is_not_run_and_its_reds_stay_the_changes(self):
+        red = "test/agent-pane-stream-row-overlap.test.ts > webkit: followed, no lag"
+        file = red.split(" > ")[0]
+        timeout = int(self.compare_env()["JOB_TIMEOUT_MINUTES"]) * 60
+        reserve = int(self.compare_env()["REPLAY_RESERVE"])
+        # No time left after the first replay: no second one, and the red is the change's, not replayed (never excused).
+        status, out, _, files = self.replay({red: False}, [{red: True}, {red: False}], elapsed=timeout - reserve)
+        self.assertEqual(status, 1, out)
+        self.assertEqual(files[0], [file])
+        self.assertNotIn("replaying on the base again", out)
+        self.assertIn("not replayed", out)
+        self.assertIn(f"::error title=Webview test red on this change::{red}", out)
+        # 600 s left fits a file at the default 120 s limit, not one that declares 900 s.
+        status, out, _, files = self.replay({red: False}, [{red: True}, {red: False}], elapsed=timeout - reserve - 600)
+        self.assertEqual((status, files), (0, [[file], [file]]), out)
+        status, out, _, files = self.replay({red: False}, [{red: True}, {red: False}], elapsed=timeout - reserve - 600,
+                                            source="// cmux-web-test-timeout: 900\ntest\n")
+        self.assertEqual(status, 1, out)
+        self.assertIn("not replayed", out)
+        # A job long past its budget replays nothing more.
+        status, out, _, files = self.replay({red: False}, [{red: True}, {red: False}], elapsed=10**6)
+        self.assertEqual(status, 1, out)
+        self.assertNotIn("replaying on the base again", out)
 
     def test_the_head_rerun_keeps_a_base_replay_flake_flaky(self):
         # The re-run's verdict line is the replay's final one (base_red_excuse reads it): a name another base replay
