@@ -4782,7 +4782,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // as the message (CloudStartView) and comes back if the start fails (`cloudStartHeld`).
     return Boolean(started) && !fromPage;
   };
-  sendToCloudLatest.current = sendToCloud;
+  // The held send runs the render's latest `sendToCloud` (its offerable and checked), set after commit, not during render.
+  useLayoutEffect(() => {
+    sendToCloudLatest.current = sendToCloud;
+  });
   // The held send goes once Cloud is offered here; leaving Cloud, a chat opening here or another
   // New Tab drops it.
   // The check answered that a chat is starting in this tab: the held send can't go, so its notice
