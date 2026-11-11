@@ -60,7 +60,19 @@ class Messages(unittest.TestCase):
     def test_a_failed_lane_quotes_why(self):
         body = slack.lane_message("crash-class", "failure", "rust acpmux: exit: 4 -> 6", ENV)
         self.assertIn(":x: *Crash-risk scan* failed", text(body))
-        self.assertIn("```rust acpmux: exit: 4 -> 6```", text(body))
+        self.assertIn("```rust acpmux: exit: 4 -&gt; 6```", text(body))  # Slack shows &gt; as >
+
+    def test_a_pass_with_a_warning_is_not_a_clean_pass(self):
+        body = slack.lane_message("perf-budgets", "success", "step k-1 still queued after 3 h; no perf verdict", ENV)
+        self.assertIn(":warning: *Speed check (perf budgets)* passed, with a warning", text(body))
+
+    def test_details_cannot_break_the_code_block_or_ping_anyone(self):
+        fence = "`" * 3
+        body = slack.lane_message("soak", "failure", f"title {fence}x{fence} <@U1> <!channel> a & b", ENV)
+        self.assertEqual(text(body).count(fence), 2)
+        self.assertNotIn("<@U1>", text(body))
+        self.assertNotIn("<!channel>", text(body))
+        self.assertIn("&amp;", text(body))
 
     def test_long_details_are_clipped_under_slacks_block_limit(self):
         body = slack.lane_message("perf-budgets", "failure", "row\n" * 5000, ENV)
@@ -148,6 +160,9 @@ class EndToEnd(unittest.TestCase):
         code, out = self.run_cli("start", SLACK_CHANNEL="C0BROKEN")
         self.assertEqual(code, 0)
         self.assertIn("not_in_channel", out)
+        code, out = self.run_cli("start", SLACK_API_URL="http://127.0.0.1:9")  # nothing listens there
+        self.assertEqual(code, 0)
+        self.assertIn("::warning", out)
 
     def test_a_lane_without_the_runs_message_posts_nothing(self):
         self.assertEqual(self.run_cli("lane", "--lane", "soak", "--result", "success")[0], 0)

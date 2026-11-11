@@ -83,12 +83,24 @@ def start_message(env: dict) -> dict:
     return message(":crescent_moon: *cmux NEXT Stable* is testing tonight's build", env, {})
 
 
+FENCE = "`" * 3
+
+
+def escape(text: str) -> str:
+    """Text safe inside a Slack code block: Slack's control characters escaped (no mention or link can
+    fire), and no fence of its own to end the block early."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace(FENCE, "ʼʼʼ")
+
+
 def lane_message(lane: str, result: str, detail: str, env: dict) -> dict:
     name = NAMES.get(lane, lane)
-    line = f"{ICON.get(result, ICON['pending'])} *{name}* {WORD.get(result, result)}"
+    word, icon = WORD.get(result, result), ICON.get(result, ICON["pending"])
+    if result == "success" and detail.strip():  # passed with a caveat (a ::warning): never a clean pass
+        word, icon = "passed, with a warning", ":warning:"
+    line = f"{icon} *{name}* {word}"
     if detail.strip():
-        line += f"\n```{clip(detail, DETAIL_LIMIT - len(line) - 8)}```"
-    return {"text": f"{name} {WORD.get(result, result)}", "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": line}}]}
+        line += f"\n{FENCE}{clip(escape(detail), DETAIL_LIMIT - len(line) - 8)}{FENCE}"
+    return {"text": f"{name} {word}", "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": line}}]}
 
 
 def final_message(results: dict, details: dict, env: dict) -> dict:
@@ -115,11 +127,12 @@ def final_message(results: dict, details: dict, env: dict) -> dict:
 NOISE = ("Process completed with exit code", "The operation was canceled", "The job was not started")
 
 
-def reasons(annotations: list[dict]) -> str:
-    """The failure annotations of a job as lines: each gate writes its reason as an ::error."""
+def reasons(annotations: list[dict], level: str = "failure") -> str:
+    """A job's annotations of LEVEL as lines: each gate writes why it failed as an ::error, and a pass
+    with a caveat (perf measured nothing, crash reports unreadable) as a ::warning."""
     lines = []
     for note in annotations:
-        if note.get("annotation_level") != "failure":
+        if note.get("annotation_level") != level:
             continue
         text = (note.get("message") or "").strip()
         if not text or text.startswith(NOISE):
@@ -137,8 +150,8 @@ def github(path: str) -> object:
         return json.load(response)
 
 
-def job_reasons(job: str) -> str:
-    """Why job JOB of this run failed, from its annotations; empty when they cannot be read."""
+def job_reasons(job: str, level: str = "failure") -> str:
+    """Job JOB's annotations of LEVEL in this run; empty when they cannot be read."""
     repo, run = os.environ.get("GITHUB_REPOSITORY", ""), os.environ.get("GITHUB_RUN_ID", "")
     if not repo or not run or not os.environ.get("GITHUB_TOKEN"):
         return ""
@@ -147,8 +160,8 @@ def job_reasons(job: str) -> str:
         found = [j for j in jobs if j.get("name") == job]
         if not found:
             return ""
-        return reasons(github(f"/repos/{repo}/check-runs/{found[-1]['id']}/annotations?per_page=50"))
-    except (urllib.error.URLError, TimeoutError, ValueError, KeyError, AttributeError) as error:
+        return reasons(github(f"/repos/{repo}/check-runs/{found[-1]['id']}/annotations?per_page=50"), level)
+    except Exception as error:  # noqa: BLE001 - a report never fails the run
         warn(f"annotations of {job}: {error}")
         return ""
 
@@ -215,7 +228,11 @@ def main(argv: list[str]) -> int:
             ts = env.get("TS", "")
             if not ts:
                 return 0
-            detail = args.detail or (job_reasons(args.lane) if args.result == "failure" else "")
+            detail = args.detail
+            if not detail and args.result == "failure":
+                detail = job_reasons(args.lane)
+            elif not detail and args.result == "success":
+                detail = job_reasons(args.lane, "warning")
             body = lane_message(args.lane, args.result, detail, env)
             call("chat.postMessage", token, {"channel": env.get("CHANNEL_ID") or channel, "thread_ts": ts,
                                              "unfurl_links": False, **body})
@@ -233,8 +250,8 @@ def main(argv: list[str]) -> int:
                 call("chat.update", token, {"channel": where, "ts": ts, **body})
             else:
                 call("chat.postMessage", token, {"channel": channel, "unfurl_links": False, **body})
-    except (urllib.error.URLError, TimeoutError, RuntimeError, KeyError, ValueError) as error:
-        warn(f"{args.command}: {error}")
+    except Exception as error:  # noqa: BLE001 - Slack is a report: a dropped connection never fails the run
+        warn(f"{args.command}: {type(error).__name__}: {error}")
     return 0
 
 
