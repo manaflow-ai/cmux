@@ -1383,6 +1383,13 @@ def step_errors(view: FailedView) -> set[tuple[str, str]]:
 # identity cannot stand in for, and its error masks the pinned sha. ffi_pin_step_a judges it first, from this
 # signature as from a placed one (#40542 left every unplaced pin red refused, the base's own too: cmux#41086 on
 # 2026-11-11), and what else is red beside a pin it sets aside is then compared whole, without the pin's parts.
+# A Swift compiler diagnostic quotes its source (`53 |     static func f(_ error: Error) {`, `   | `- warning: ...`):
+# context, never an error line of its own. How often a warning is quoted depends on what the build recompiled, so
+# a whole-log count of it differs between two runs that fail the same way (cmux#41046's daemon tests on 2026-11-11:
+# 6 against the base's 11).
+SOURCE_EXCERPT = re.compile(r"^\s*\d*\s\|\s")
+
+
 class UnplacedSignature(NamedTuple):
     steps: frozenset
     tests: Counter
@@ -1405,7 +1412,7 @@ def unplaced_signature(job: dict, log: str) -> UnplacedSignature:
     tests.update(name for name in named if name not in tests)
     errors: Counter = Counter()
     for line in output:
-        if line.startswith(test_reds.TAP_MARKER) or SUMMARY_RED.match(line):
+        if line.startswith(test_reds.TAP_MARKER) or SUMMARY_RED.match(line) or SOURCE_EXCERPT.match(line):
             continue
         if ((ERROR.search(line)
              or ((marker := JOB_ERROR.get(job.get("name", ""))) is not None and marker.search(line))
