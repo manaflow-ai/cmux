@@ -12384,7 +12384,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                           ? {
                               cloudStatus: (
                                 <output className="acpmux-switch-notice">
-                                  <span role="status">{t("cloudStart.checkingTab")}</span>
+                                  <span>{t("cloudStart.checkingTab")}</span>
                                 </output>
                               ),
                             }
