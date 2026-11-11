@@ -3,17 +3,18 @@ public import CmuxNextDesign
 /// How the space switcher marks a space another window shows (`sidebar.spaceSwitcher`, design/spaces.md
 /// "The switcher (PR 3)"). Leo 2026-10-29: "there's also other ergo wrt new windows being like new spaces,
 /// incognito spaces, etc... this could legit make our thing more useful than chrome by having windows be
-/// switchable in this way". Every style keeps today's dots strip; `plain` is the strip as it was.
+/// switchable in this way". Every style keeps today's dots strip and the same click: the space comes into this
+/// window (`SpaceSwitcherLogic.click`), and its tooltip is the space's name alone (Leo 2026-11-11: "why does it
+/// say default in another window?"). The style only draws the hint.
 public nonisolated enum SpaceSwitcherStyle: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    /// A thin ring around the mark of a space another window shows. Click: Go to Window or Move Here;
-    /// Option-click: go to that window. The pick (design/spaces.md).
+    /// A thin ring around the mark of a space another window shows: a click brings it here. The pick (design/spaces.md).
     case ring
     /// A small window glyph at the mark's corner instead of the ring (the named chips' marker on the dots).
     case glyph
-    /// a space menu: the current space's mark opens every space with its window, Move Here / Go to
-    /// Window on the ones another window shows, and New Space / New Incognito Space at the end.
+    /// a space menu: the current space's mark opens every space by name (a pick brings it here), and New Space /
+    /// New Incognito Space at the end.
     case menu
-    /// Today's strip: no marker, a click switches this window.
+    /// No marker: every space looks alike, wherever it is shown.
     case plain
 
     public var tunableTitle: String {
@@ -27,10 +28,10 @@ public nonisolated enum SpaceSwitcherStyle: String, Sendable, CaseIterable, Hash
 
     public static let tunable = Tunable<SpaceSwitcherStyle>.choice(
         "sidebar.spaceSwitcher", .sidebar, "Space switcher",
-        help: "How the spaces strip shows a space another window shows: a ring, a window glyph, or a space menu from the current space; plain is the strip without a marker.",
+        help: "How the spaces strip hints at a space another window shows: a ring, a window glyph, or a space menu from the current space; plain draws no hint. A click always brings the space into this window.",
         default: .ring, code: "SpaceSwitcherStyle.tunable")
 
-    /// Whether the strip marks and offers another window's spaces at all.
+    /// Whether the strip draws a hint on another window's spaces (the click is the same in every style).
     public var marksOtherWindows: Bool { self != .plain }
 }
 

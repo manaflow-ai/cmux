@@ -2071,3 +2071,19 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   Gallery: `AARestartToUpdateGalleryTests` (each layout, ready and installing, dark and light). 09f49ddeb6f keeps
   `height(for:)` a one-argument function for its callers: no visual change. Sidebar-Look: Leo 2026-11-10, "the
   nightly automatically downloads and installs/unpacks and you simply click and it restarts with the new version".
+- 2026-11-11 (fix/spaces-one-window, for a590): the spaces strip is one window's switcher for every space. A click on
+  any dot shows its space in this window; a space another normal window shows moves here (`space.bringHere`), the
+  current space too when another window also shows it. The Go to Window / Move Here menu and Option-click's raise are
+  gone, and the dot's tooltip and VoiceOver label are the space's name alone ("in another window" is removed).
+  `sidebar.spaceSwitcher` keeps its hints (ring default, glyph, menu, plain); the `menu` style lists every space by
+  name. Look change: the tooltip text and no click menu; the dots draw as before. Gallery: `SpaceSwitcherGalleryTests`
+  (each style's tooltip and click). Regression: `SpaceSwitcherWindowMarksTests`, `SpaceBarMouseDownSwitchTests`.
+  Sidebar-Look: Leo 2026-11-11, "we wanted the different windows to be accessible through spaces, and it's
+  essentially all the same window in a way if you want it to be ... Wait, why does it say default in another window?"
+- 2026-11-11 (fix/spaces-one-window, for a590): New Space shows the new space's list at once and keeps it. Its first
+  workspace expects its pin at the press (`PersonalStore.expectPin`), so its row is never inserted into the old space's
+  list (no insert animation there, no remove when it migrated), and the window never falls back to the old space while
+  the pin mirrors: the one switch is the dot click's. Look change: the old list's stray insert and the bounce are gone.
+  Stills: tour `space-new-stays`. Regression: `SpaceNewStaysTests` (every frame the list applies), `ExpectedPinTests`.
+  Sidebar-Look: Leo 2026-11-11, "When you create a new one, it should just be at that one. It shouldn't just bounce
+  you back to your previously created one ... it also has a stupid animation on the sidebar".

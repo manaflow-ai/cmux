@@ -1,0 +1,12 @@
+{
+  "title": "New Space: shown at once, kept, the old space untouched (Leo 2026-11-11: \"When you create a new one, it should just be at that one\")",
+  "steps": [
+    {"title": "Launch", "wait": 3, "shot": false},
+    {"title": "A workspace in Default", "cmux": ["workspace", "new", "--name", "Greeting in three words"], "wait": 2, "shot": false},
+    {"title": "Default, before: its list", "cmux": ["workspace", "name:Greeting in three words", "focus"], "wait": 2},
+    {"title": "New Space, a moment after the press: the window already shows Work and its first workspace", "cmux": ["action", "run", "space.new", "--name", "Work"], "wait": 0.3},
+    {"title": "One second later: still Work, no row came or went in Default", "wait": 1},
+    {"title": "Four seconds later (the pin and the create long mirrored): still Work", "wait": 3},
+    {"title": "Back to Default: the same workspace as before, its list unchanged", "cmux": ["action", "run", "space.selectByNumber", "--index", "1"], "wait": 2}
+  ]
+}

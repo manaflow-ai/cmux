@@ -62,6 +62,32 @@ sidebar-owner.md. The reorder-to-first bug belongs to another agent and is not t
    CLI verb and an MCP tool. No exemption is allowed for them; `SpaceSurfacesTests` checks all
    three over every catalog action whose id starts with `space.` plus the named cross-domain ones.
    The color shortcuts (Space Color: Red, …) get their own verbs too.
+8. **It is all one window if you want it to be** (Leo 2026-11-11: "we wanted the different windows to
+   be accessible through spaces, and it's essentially all the same window in a way if you want it to
+   be"; "Did you open it in a new window?"; "why does it say default in another window?").
+   - A click on any space dot shows that space in this window. A space another normal window shows
+     comes here (`space.bringHere`: its workspaces move, a window left empty closes); this window's
+     own space too when another window also shows it. A click never raises another window and opens no
+     menu; Option-click is a click. Incognito never mixes (rule 2): an incognito space's dot shows its
+     window, and nothing moves into an incognito window.
+   - The dot's tooltip and VoiceOver label are the space's name (plus "current space" on the current
+     one), never where it is shown. `sidebar.spaceSwitcher` picks only the hint drawn on a space
+     another window shows (ring, window glyph, none) and the `menu` style's space menu, which lists
+     every space by name; the click is the same in every style. Gallery: `SpaceSwitcherGalleryTests`.
+   - An agent's or the CLI's open (`agent.openSessionWorkspace`, `agent.openSessionTab`, `cmux agent
+     open`, `cmux agent open-tab`) lands in the window the person works in (the active normal window,
+     else the most recent normal one). A tab whose workspace another window lists is brought into this
+     window first. Only an explicit window action (New Window, Open Space in New Window, Move to New
+     Window) makes a window.
+9. **A new space is born whole** (Leo 2026-11-11: "When you create a new one, it should just be at
+   that one. It shouldn't just bounce you back"; "it also has a stupid animation on the sidebar due to
+   that creating a new workspace within the existing thing"). New Space switches the window to the new
+   space in the press's turn, with the space's first workspace created in it: the app records that
+   workspace's pin to the space at the press (`PersonalStore.expectPin`, read by the room membership
+   as a pin until the daemon lists its own), so its row never shows in the space the person left, the
+   window never falls back while the pin mirrors, and the switch is the one a dot click makes. Every
+   new workspace expects its room's pin the same way. Switching back shows the workspace the space last
+   showed. Test: `SpaceNewStaysTests`; stills: tour `space-new-stays`.
 
 ## Keys
 

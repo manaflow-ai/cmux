@@ -44,8 +44,7 @@ extension WindowManager {
             // and the switch shows it as soon as the daemon mirrors it.
             state.enterProfile(profile)
             recordSaver.stateDidChange(state)
-            let create = startWorkspace(WorkspaceSpawn(), into: state.id)
-            Task { _ = try? await create() } // a failure releases the claim (`createFailed`)
+            let create = startWorkspace(WorkspaceSpawn(profile: profile), into: state.id); Task { _ = try? await create() } // born in the space (its pin expected at once); a failure releases the claim (`createFailed`)
             return
         }
         let remembered = state.profileWorkspaces[profile].flatMap { visible.contains($0) ? $0 : nil }
@@ -188,7 +187,7 @@ extension WindowManager {
 }
 
 // The switcher's window marks (design/spaces.md "The switcher (PR 3)"): a window's spaces strip reads every other
-// window's space through these, and its Go to Window / Move Here run here (`SpaceWindowMarks.install`).
+// window's space through these, and a click on such a space brings it here (`SpaceWindowMarks.install`).
 extension WindowManager: SpaceWindowSource {
     func spaceWindowsShowing() -> [SpaceWindowShowing] {
         let value = registry.value
@@ -202,10 +201,6 @@ extension WindowManager: SpaceWindowSource {
     }
 
     func spaceWindowIsIncognito(_ windowID: String) -> Bool { isIncognito(window: windowID) }
-
-    func spaceWindowBringToFront(_ windowID: String) {
-        if let controller = controller(for: windowID) { bringToFront(controller) }
-    }
 
     func spaceWindowBringHere(_ space: SidebarProfileKey, window windowID: String) {
         var invocation = ActionInvocation(target: ActionTargetRef(kind: .profile, id: space.rawValue), origin: .user)

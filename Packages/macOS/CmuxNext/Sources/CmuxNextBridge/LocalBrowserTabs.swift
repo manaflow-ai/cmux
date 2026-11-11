@@ -29,4 +29,16 @@ public final class LocalBrowserTabs {
 
     /// Every pane with tabs (reads every pane).
     public var all: [(pane: String, tabs: [LocalBrowserTab])] { panes.entries.map { ($0.key, $0.value) } }
+
+    /// Moves the tabs of `panes` (one workspace's panes) from this window's tabs into `target`'s, as the workspace moves
+    /// between windows: they are session-only and live nowhere else, so a move that left them behind would strand them,
+    /// and the emptied window's close would drop them. Moves nothing and returns false when `target` already has tabs
+    /// under one of those pane ids (ids repeat across machines): the workspace must not move then.
+    public func move(panes ids: [String], to target: LocalBrowserTabs) -> Bool {
+        guard target !== self else { return true }
+        let moving = ids.filter { !self[$0].isEmpty }
+        guard moving.allSatisfy({ target[$0].isEmpty }) else { return false }
+        for id in moving { (target[id], self[id]) = (self[id], []) }
+        return true
+    }
 }

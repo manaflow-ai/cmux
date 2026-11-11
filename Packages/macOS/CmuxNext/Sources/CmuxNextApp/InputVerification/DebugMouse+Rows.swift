@@ -14,7 +14,7 @@ extension DebugMouse {
         let services = controller.services
         let members = services.windows.registry.members(of: controller.state.id)
         let id = members.first(where: { $0 == name }) ?? members.first(where: { services.workspace(id: $0)?.name == name }), sidebar = controller.sidebar.container.sidebarView
-        guard let screen = id.flatMap({ sidebar.rowFrameOnScreen(for: SidebarWorkspaceID($0)) }) ?? sidebar.groupNameFrameOnScreen(named: name) else { return nil }
+        guard let screen = id.flatMap({ sidebar.rowFrameOnScreen(for: SidebarWorkspaceID($0)) }) ?? sidebar.groupNameFrameOnScreen(named: name) ?? sidebar.spaceDotFrameOnScreen(named: name) else { return nil }
         let center = window.convertPoint(fromScreen: NSPoint(x: screen.midX, y: screen.midY))
         return InputJournal.topLeftPoint(center, in: window, relativeTo: window)
     }

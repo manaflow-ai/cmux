@@ -154,6 +154,8 @@ final class ProfileBarView: NSView {
 
     /// The slots the tooltips and the accessibility elements were last made for.
     private var regionSlots: [NSRect] = []
+    /// Each space's tooltip, by space index, as last made (the gallery and the tests read it).
+    private(set) var spaceToolTips: [Int: String] = [:]
 
     // MARK: Drawing
 
@@ -261,8 +263,9 @@ final class ProfileBarView: NSView {
         var regions: [(rect: NSRect, text: String)] = drawnDotIndices.map { offset in
             let profile = model.profiles[offset]
             let name = profile.iconIsEmoji ? [profile.icon, profile.name].compactMap(\.self).joined(separator: " ") : profile.name
-            return (rects[offset], windowMarkLabel(name, for: profile))
+            return (rects[offset], name) // the space's name alone, wherever it is shown (Leo 2026-11-11)
         }
+        spaceToolTips = Dictionary(zip(drawnDotIndices, regions.map(\.text)), uniquingKeysWith: { first, _ in first })
         if plusIsDrawn { regions.append((rects[model.profiles.count], Strings.newProfile)) }
         setThemedToolTipRegions(regions)
     }
@@ -322,7 +325,7 @@ final class ProfileBarView: NSView {
         let index = interactionIndex(at: point)
         setPressed(index)
         let shown = model.activeProfileID
-        pressSwitched = index.map { switchOnPress($0, option: event.modifierFlags.contains(.option)) } ?? false
+        pressSwitched = index.map { switchOnPress($0) } ?? false
         pressOrigin = pressSwitched ? shown : nil
     }
 
@@ -343,7 +346,7 @@ final class ProfileBarView: NSView {
         if dropDot() { return }
         // A press that switched is done: its release is not a click on the space it made current.
         guard !pressSwitched, let pressed, pressed == interactionIndex(at: convert(event.locationInWindow, from: nil)) else { return }
-        activate(pressed, option: event.modifierFlags.contains(.option))
+        activate(pressed)
     }
 
     /// The bar is the pager's dots: a trackpad pages over it like over the
@@ -383,12 +386,12 @@ final class ProfileBarView: NSView {
     }
 
     /// A click on a mark (the release of a press that did not switch, or an accessibility press): the "+"
-    /// makes a space; a space switches here, or, when another window shows it, offers Go to Window / Move Here
+    /// makes a space; a space shows in this window, taken from the window that showed it
     /// (`SpaceSwitcherLogic.click`, `ProfileBarView+Windows`).
-    func activate(_ index: Int, option: Bool = false) {
+    func activate(_ index: Int) {
         if index == Self.plusIndex { return model.send(.newProfile) }
         guard model.profiles.indices.contains(index) else { return }
-        click(index, option: option)
+        click(index)
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
@@ -403,7 +406,7 @@ final class ProfileBarView: NSView {
         let rects = slotRects()
         var children: [NSAccessibilityElement] = model.profiles.enumerated().map { offset, profile in
             let active = profile.id == model.activeProfileID
-            let element = ProfileDotElement(label: windowMarkLabel(active ? Strings.profileCurrent(profile.name) : profile.name, for: profile),
+            let element = ProfileDotElement(label: active ? Strings.profileCurrent(profile.name) : profile.name,
                                             frame: rects[offset], parent: self) { [weak self] in self?.activate(offset) }
             element.setAccessibilityIdentifier("cmux.sidebar.space.\(profile.id.rawValue)")
             element.setAccessibilitySelected(active)

@@ -3,9 +3,10 @@ import AppKit
 import CmuxNextTestSupport
 import Testing
 
-/// The space switcher marks the spaces other windows show and offers Go to Window / Move Here on them
-/// (design/spaces.md "The switcher (PR 3)", `sidebar.spaceSwitcher`). Leo 2026-10-29: "this could legit make our thing
-/// more useful than chrome by having windows be switchable in this way". Incognito never mixes with normal content.
+/// The space switcher may hint at the spaces other windows show, and a click on any space shows it in this window,
+/// taking it from the window that showed it (design/spaces.md "The switcher (PR 3)", `sidebar.spaceSwitcher`). Leo
+/// 2026-11-11: "we wanted the different windows to be accessible through spaces, and it's essentially all the same
+/// window in a way if you want it to be". Incognito never mixes with normal content.
 @MainActor @Suite(.serialized, .closesItsWindows) struct SpaceSwitcherWindowMarksTests {
     static let keys = (0..<3).map { ProfileKey("space\($0)") }
 
@@ -30,28 +31,24 @@ import Testing
         #expect(shown[Self.keys[0]]?.windowID == "other")
     }
 
-    @Test func moveHereIsNeverOfferedAcrossIncognito() {
-        let normal = SpaceElsewhere(windowID: "w", incognito: false), incognito = SpaceElsewhere(windowID: "w", incognito: true)
-        #expect(SpaceSwitcherLogic.choices(for: normal, hereIsIncognito: false) == [.goToWindow, .moveHere])
-        #expect(SpaceSwitcherLogic.choices(for: incognito, hereIsIncognito: false) == [.goToWindow])
-        #expect(SpaceSwitcherLogic.choices(for: normal, hereIsIncognito: true) == [.goToWindow])
-    }
-
-    @Test func aClickOffersTheChoicesOptionGoesAndPlainSwitches() {
-        let other = SpaceElsewhere(windowID: "w", incognito: false)
-        func click(_ style: SpaceSwitcherStyle, _ space: ProfileKey, option: Bool = false, elsewhere: SpaceElsewhere? = other) -> SpaceClick {
-            SpaceSwitcherLogic.click(space, active: Self.keys[0], elsewhere: elsewhere, hereIsIncognito: false, style: style, option: option)
+    /// Every style switches this window: another normal window's space comes here, this window's own space too when
+    /// another window also shows it. Incognito never mixes: it takes the plain switch (whose rule shows its window).
+    @Test func aClickBringsTheSpaceHereInEveryStyle() {
+        let other = SpaceElsewhere(windowID: "w", incognito: false), incognito = SpaceElsewhere(windowID: "w", incognito: true)
+        func click(_ style: SpaceSwitcherStyle, _ space: ProfileKey, elsewhere: SpaceElsewhere? = other, hereIsIncognito: Bool = false) -> SpaceClick {
+            SpaceSwitcherLogic.click(space, active: Self.keys[0], elsewhere: elsewhere, hereIsIncognito: hereIsIncognito, style: style)
         }
-        #expect(click(.ring, Self.keys[1]) == .offer([.goToWindow, .moveHere]))
-        #expect(click(.ring, Self.keys[1], option: true) == .goToWindow)
-        #expect(click(.ring, Self.keys[1], elsewhere: nil) == .switchHere, "a space no other window shows switches as before")
-        #expect(click(.plain, Self.keys[1]) == .switchHere, "plain is today's strip")
-        #expect(click(.plain, Self.keys[1], option: true) == .switchHere)
-        #expect(click(.ring, Self.keys[0], elsewhere: nil) == .none)
-        #expect(click(.ring, Self.keys[0]) == .offer([.goToWindow, .moveHere]), "a ringed current space offers the choices too")
-        #expect(click(.ring, Self.keys[0], option: true) == .goToWindow)
+        for style in [SpaceSwitcherStyle.ring, .glyph, .plain] {
+            #expect(click(style, Self.keys[1]) == .pullHere, "\(style)")
+            #expect(click(style, Self.keys[0]) == .pullHere, "\(style): the current space another window also shows")
+            #expect(click(style, Self.keys[1], elsewhere: nil) == .switchHere, "\(style)")
+            #expect(click(style, Self.keys[0], elsewhere: nil) == SpaceClick.none, "\(style)")
+            #expect(click(style, Self.keys[1], elsewhere: incognito) == .switchHere, "\(style): an incognito space never moves")
+            #expect(click(style, Self.keys[1], hereIsIncognito: true) == .switchHere, "\(style): nothing moves into incognito")
+        }
         #expect(click(.menu, Self.keys[0]) == .spaceMenu)
-        #expect(SpaceSwitcherStyle.tunable.defaultValue == .ring, "the gallery's pick is the default for the new marker only")
+        #expect(click(.menu, Self.keys[1]) == .pullHere)
+        #expect(SpaceSwitcherStyle.tunable.defaultValue == .ring, "the gallery's pick is the default for the hint only")
     }
 
     // MARK: The bar
@@ -90,10 +87,10 @@ import Testing
             }
         }
 
-        func click(_ index: Int, option: Bool = false) {
+        func click(_ index: Int) {
             let slot = view.slotRects()[index], point = NSPoint(x: slot.midX, y: slot.midY)
             func event(_ type: NSEvent.EventType) -> NSEvent {
-                NSEvent.mouseEvent(with: type, location: view.convert(point, to: nil), modifierFlags: option ? [.option] : [],
+                NSEvent.mouseEvent(with: type, location: view.convert(point, to: nil), modifierFlags: [],
                                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
                                    eventNumber: 0, clickCount: 1, pressure: 1)!
             }
@@ -106,65 +103,69 @@ import Testing
         }
     }
 
-    @Test func clickingAnotherWindowsSpaceOffersGoToWindowAndMoveHere() throws {
+    /// Leo 2026-11-11: "we wanted the different windows to be accessible through spaces". A click on another window's
+    /// space brings it here: no menu, no other window raised.
+    @Test func clickingAnotherWindowsSpaceBringsItHere() {
         let bar = Bar(style: .ring)
         defer { bar.window.closeAfterTest() }
         bar.click(1)
-        let menu = try #require(bar.menus.first, "no menu opened: \(bar.intents)")
-        #expect(menu.items.map(\.title) == [Strings.goToSpaceWindow, Strings.moveSpaceHere])
-        #expect(bar.intents.isEmpty, "a click on another window's space switched at once: \(bar.intents)")
-        #expect(bar.opens == [true, false], "the sidebar chrome was not held revealed while the menu was open")
-        #expect(bar.litWhileOpen == 1, "the mark did not stay lit while its menu was open")
-        bar.choose(Strings.moveSpaceHere, in: menu)
-        bar.choose(Strings.goToSpaceWindow, in: menu)
-        #expect(bar.actions == [.moveHere(Self.keys[1]), .goToWindow(Self.keys[1])])
+        #expect(bar.menus.isEmpty, "a menu opened")
+        #expect(bar.actions == [.moveHere(Self.keys[1])] && bar.intents.isEmpty, "\(bar.actions) \(bar.intents)")
     }
 
-    @Test func optionClickGoesToThatWindow() {
-        let bar = Bar(style: .ring)
+    /// The `plain` style draws no hint and still brings the space here: the hint is drawing only.
+    @Test func thePlainStripAlsoBringsTheSpaceHere() {
+        let bar = Bar(style: .plain)
         defer { bar.window.closeAfterTest() }
-        bar.click(1, option: true)
-        #expect(bar.menus.isEmpty)
-        #expect(bar.actions == [.goToWindow(Self.keys[1])] && bar.intents.isEmpty)
+        bar.click(1)
+        #expect(bar.actions == [.moveHere(Self.keys[1])] && bar.intents.isEmpty && bar.menus.isEmpty)
     }
 
-    @Test func aSpaceNoOtherWindowShowsAndThePlainStripStillSwitch() {
+    @Test func aSpaceNoOtherWindowShowsSwitches() {
         let ring = Bar(style: .ring), plain = Bar(style: .plain)
         defer { ring.window.closeAfterTest(); plain.window.closeAfterTest() }
         ring.click(2)
-        plain.click(1)
-        #expect(ring.intents == [.switchProfile(Self.keys[2])] && ring.menus.isEmpty)
-        #expect(plain.intents == [.switchProfile(Self.keys[1])] && plain.menus.isEmpty)
+        plain.click(2)
+        #expect(ring.intents == [.switchProfile(Self.keys[2])] && ring.menus.isEmpty && ring.actions.isEmpty)
+        #expect(plain.intents == [.switchProfile(Self.keys[2])] && plain.menus.isEmpty && plain.actions.isEmpty)
     }
 
-    @Test func anIncognitoSpaceOffersOnlyGoToWindow() throws {
+    /// An incognito space lives in its own window (design rule 2): the click is the plain switch, never a move.
+    @Test func anIncognitoSpaceIsNeverMoved() {
         let bar = Bar(style: .ring)
         defer { bar.window.closeAfterTest() }
         bar.view.windowMarks.elsewhere = [Self.keys[1]: SpaceElsewhere(windowID: "incognito", incognito: true)]
         bar.click(1)
-        #expect(try #require(bar.menus.first).items.map(\.title) == [Strings.goToSpaceWindow])
+        #expect(bar.actions.isEmpty && bar.intents == [.switchProfile(Self.keys[1])] && bar.menus.isEmpty)
     }
 
-    @Test func theSpaceMenuListsEverySpaceAndEndsWithNewSpaces() throws {
+    @Test func theSpaceMenuNamesEverySpaceAndBringsItHere() throws {
         let bar = Bar(style: .menu)
         defer { bar.window.closeAfterTest() }
         bar.click(0)
         let menu = try #require(bar.menus.first)
         let titles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
-        #expect(titles == ["Space 0", Strings.spaceInAnotherWindow("Space 1"), "Space 2", Strings.newProfile, Strings.newIncognitoSpace])
+        #expect(titles == ["Space 0", "Space 1", "Space 2", Strings.newProfile, Strings.newIncognitoSpace])
         #expect(menu.items[0].state == .on, "the current space is not checked")
-        #expect(menu.items[1].submenu?.items.map(\.title) == [Strings.goToSpaceWindow, Strings.moveSpaceHere])
+        #expect(menu.items.allSatisfy { $0.submenu == nil }, "a row still opens window choices")
+        bar.choose("Space 1", in: menu)
         bar.choose("Space 2", in: menu)
         bar.choose(Strings.newIncognitoSpace, in: menu)
         #expect(bar.intents == [.switchProfile(Self.keys[2])])
-        #expect(bar.actions == [.newIncognitoSpace])
+        #expect(bar.actions == [.moveHere(Self.keys[1]), .newIncognitoSpace])
     }
 
-    @Test func theMarkSaysAnotherWindowShowsTheSpace() {
+    /// Leo 2026-11-11: "Wait, why does it say default in another window?" The tooltip and the VoiceOver label are the
+    /// space's name alone, wherever it is shown.
+    @Test func theMarkNamesTheSpaceAlone() {
         let bar = Bar(style: .ring)
         defer { bar.window.closeAfterTest() }
+        bar.view.windowMarks.elsewhere[Self.keys[0]] = SpaceElsewhere(windowID: "other", incognito: false)
+        bar.view.refresh()
         let labels = (bar.view.accessibilityChildren() ?? []).compactMap { ($0 as? NSAccessibilityElement)?.accessibilityLabel() }
-        #expect(labels.contains(Strings.spaceInAnotherWindow("Space 1")), "\(labels)")
-        #expect(labels.contains("Space 2"))
+        #expect(labels.contains("Space 1") && labels.contains("Space 2"), "\(labels)")
+        #expect(labels.contains(Strings.profileCurrent("Space 0")), "\(labels)")
+        #expect(!labels.contains { $0.localizedCaseInsensitiveContains("window") }, "\(labels)")
+        #expect(bar.view.spaceToolTips[1] == "Space 1" && bar.view.spaceToolTips[0] == "Space 0", "\(bar.view.spaceToolTips)")
     }
 }

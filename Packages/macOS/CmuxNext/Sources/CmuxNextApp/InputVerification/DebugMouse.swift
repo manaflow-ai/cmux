@@ -15,7 +15,7 @@ import CmuxNextSettings
 ///
 /// Params: `window` (id; default the first window); a point as `x`,`y`
 /// (window-local points from the top-left, as the journal records them) or
-/// `pane` (the center of that pane's content; `focused` names the focused pane) or `row` (a sidebar workspace row, `DebugMouse+Rows`) or `divider` (a pane
+/// `pane` (the center of that pane's content; `focused` names the focused pane) or `row` (a sidebar workspace row, group name or space dot, `DebugMouse+Rows`) or `divider` (a pane
 /// divider's center, `DebugMouse+Rows`); `action`: `click` (default),
 /// `double_click`, `down`, `up`, `drag` (to `to_x`,`to_y`
 /// or `to_edge` of the shown workspace, in `steps`), `move` (pointer motion with no button, for hover: tab and workspace

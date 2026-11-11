@@ -1,0 +1,16 @@
+{
+  "title": "Space dots: one window for every space (Leo 2026-11-11: \"it's essentially all the same window in a way if you want it to be\")",
+  "steps": [
+    {"title": "Launch", "wait": 3, "shot": false},
+    {"title": "Make space Work", "cmux": ["action", "run", "space.new", "--name", "Work"], "wait": 3, "shot": false},
+    {"title": "Back to the Default space", "cmux": ["action", "run", "space.selectByNumber", "--index", "1"], "wait": 2, "shot": false},
+    {"title": "A workspace in Default", "cmux": ["workspace", "new", "--name", "Greeting in three words"], "wait": 2, "shot": false},
+    {"title": "Show it", "cmux": ["workspace", "name:Greeting in three words", "focus"], "wait": 2, "shot": false},
+    {"title": "An explicit Move to New Window: a second window now shows Default too (the screenshot's case)", "cmux": ["action", "run", "moveWorkspaceToNewWindow"], "wait": 3},
+    {"title": "Hover the Default dot in the first window: the tooltip names the space alone", "rpc": {"method": "debug.mouse", "params": {"row": "Default", "action": "move"}}, "wait": 2.5, "display": true},
+    {"title": "Click the Default dot: the other window's Default workspaces come into this window, which closes it", "rpc": {"method": "debug.mouse", "params": {"row": "Default", "action": "click"}}, "wait": 3},
+    {"title": "Hover the Work dot: its tooltip", "rpc": {"method": "debug.mouse", "params": {"row": "Work", "action": "move"}}, "wait": 2.5, "display": true},
+    {"title": "The menu style (Debug sidebar.spaceSwitcher)", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.spaceSwitcher", "value": "menu"}}, "wait": 1, "shot": false, "optional": "debug.tunables is DEBUG only"},
+    {"title": "Click the current space's dot: the space menu names every space, then New Space and New Incognito Space", "rpc": {"method": "debug.mouse", "params": {"row": "Default", "action": "click"}}, "wait": 2, "display": true, "optional": "an open NSMenu tracks on the main thread; a runner whose control socket waits on it captures nothing"}
+  ]
+}
