@@ -418,10 +418,12 @@ pub(super) fn press_keys(
     // A chord a menu item or a Service can own (Command, Control or Option,
     // or a function key), in either delivery: the app's menus are searched
     // in AppKit's order. An enabled, unblocked first match is pressed through
-    // accessibility instead of posting the key: a posted chord loses its
-    // Shift (AppKit matches the event's characters, which a synthetic event
-    // fills without Shift, so cmd+shift+t reached TextEdit as cmd+t), and a
-    // posted key could be taken by a Service or a revalidated item.
+    // accessibility instead of posting the key, so no Service, other item or
+    // key-time revalidation can take it. A posted chord keeps its Shift on
+    // every route (checked on macOS 26.6 with TextEdit and Terminal, the app
+    // active or not: pid with or without the window fields, and the HID
+    // tap); Shift is lost only when the event carries a character string,
+    // which a chord with Command, Control or Option never does (carries_text).
     // The key route first: a menu item acts on the app's key window, so it
     // is pressed only when keys would reach the target window.
     // Not covered: a plain key with no modifier (only an app that registers
@@ -439,8 +441,9 @@ pub(super) fn press_keys(
         // The layout and Services are read only when the key would be posted
         // while something is denied.
         let checks = roles::needs_key_checks(&matches, denies_any) && complete;
-        let ansi_layout = !checks || workspace::ansi_layout();
-        let is_service = if checks && ansi_layout {
+        let shift = flags & keymap::FLAG_SHIFT != 0;
+        let layout_known = !checks || roles::layout_places(&combo.key, shift, workspace::keyboard_layout());
+        let is_service = if checks && layout_known {
             match workspace::service_shortcuts() {
                 None => roles::ServiceCheck::Unread,
                 Some(list) if keymap::is_service_shortcut(code, flags, &list) => roles::ServiceCheck::Match,
@@ -449,16 +452,7 @@ pub(super) fn press_keys(
         } else {
             roles::ServiceCheck::NoMatch
         };
-        let facts = roles::ChordFacts {
-            matches: &matches,
-            complete,
-            background: delivery == Delivery::Background,
-            command: combo.modifiers.contains(&Modifier::Meta),
-            shift: flags & keymap::FLAG_SHIFT != 0,
-            denies_any,
-            ansi_layout,
-            is_service,
-        };
+        let facts = roles::ChordFacts { matches: &matches, complete, denies_any, layout_known, is_service };
         match roles::decide_chord(&facts) {
             roles::ChordAction::PressItem(i) => {
                 items[i].0.perform("AXPress").map_err(|e| ax_error(e, "press the shortcut's menu item"))?;
@@ -466,14 +460,10 @@ pub(super) fn press_keys(
             }
             roles::ChordAction::Refuse(why) => {
                 // Name the menu item only when it is the reason.
-                let item = if why == roles::REFUSE_BLOCKED {
-                    matches.iter().find(|m| m.blocked)
-                } else if why == roles::REFUSE_DISABLED {
-                    matches.first()
-                } else {
-                    None
-                }
-                .filter(|m| !m.title.is_empty())
+                let item = (why == roles::REFUSE_BLOCKED)
+                    .then(|| matches.iter().find(|m| m.blocked))
+                    .flatten()
+                    .filter(|m| !m.title.is_empty())
                 .map(|m| format!(" (menu item {:?})", m.title))
                 .unwrap_or_default();
                 return Err(DesktopError::Unsupported(format!("{why}{item}")));

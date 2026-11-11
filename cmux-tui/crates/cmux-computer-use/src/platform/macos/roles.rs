@@ -643,22 +643,54 @@ pub fn breadth_first<N>(
     (slots, truncated)
 }
 
-/// Whether the keyboard layout's keys match the ANSI key codes in
-/// keymap.rs. With no current layout recorded, only a default install (no
-/// enabled input sources recorded either) counts as U.S.; anything else
-/// is unknown and fails closed.
-pub fn is_ansi_layout(input_source_id: Option<&str>, enabled_sources_recorded: bool) -> bool {
+/// How much of the ANSI key codes in keymap.rs a keyboard layout keeps.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Layout {
+    /// Every character key (U.S., ABC and their variants).
+    Ansi,
+    /// The letters and the unshifted digits; punctuation and the shifted
+    /// digits differ (British: Shift-3 is £, # is Option-3).
+    LettersDigits,
+    /// Unknown, or letters elsewhere (German, French, Dvorak).
+    Other,
+}
+
+/// The layout from its input source ID. With no current layout recorded,
+/// only a default install (no enabled input sources recorded either) counts
+/// as U.S.; anything else is unknown and fails closed.
+pub fn layout_of(input_source_id: Option<&str>, enabled_sources_recorded: bool) -> Layout {
     match input_source_id {
-        None => !enabled_sources_recorded,
-        Some(id) => matches!(
-            id,
+        None if !enabled_sources_recorded => Layout::Ansi,
+        None => Layout::Other,
+        Some(
             "com.apple.keylayout.US"
-                | "com.apple.keylayout.ABC"
-                | "com.apple.keylayout.USExtended"
-                | "com.apple.keylayout.USInternational-PC"
-                | "com.apple.keylayout.Australian"
-                | "com.apple.keylayout.Canadian"
-        ),
+            | "com.apple.keylayout.ABC"
+            | "com.apple.keylayout.USExtended"
+            | "com.apple.keylayout.USInternational-PC"
+            | "com.apple.keylayout.Australian"
+            | "com.apple.keylayout.Canadian",
+        ) => Layout::Ansi,
+        Some(
+            "com.apple.keylayout.British"
+            | "com.apple.keylayout.British-PC"
+            | "com.apple.keylayout.Irish"
+            | "com.apple.keylayout.IrishExtended",
+        ) => Layout::LettersDigits,
+        Some(_) => Layout::Other,
+    }
+}
+
+/// Whether the Services check can place `key` on `layout`: arrows, function
+/// keys, Return, Tab, Space, Escape, Delete and the navigation keys have the
+/// same codes on every layout; letters and unshifted digits need their ANSI
+/// positions; other characters need the whole ANSI layout.
+pub fn layout_places(key: &crate::keys::Key, shift: bool, layout: Layout) -> bool {
+    use crate::keys::Key;
+    match key {
+        Key::Char(c) if c.is_ascii_alphabetic() => layout != Layout::Other,
+        Key::Char(c) if c.is_ascii_digit() => layout == Layout::Ansi || (layout == Layout::LettersDigits && !shift),
+        Key::Char(_) => layout == Layout::Ansi,
+        _ => true,
     }
 }
 
@@ -684,14 +716,10 @@ pub struct ChordFacts<'a> {
     pub matches: &'a [ShortcutMatch],
     /// The menu search saw every item (no AX error, no branch cut).
     pub complete: bool,
-    pub background: bool,
-    /// The chord has Command.
-    pub command: bool,
-    /// The chord has Shift.
-    pub shift: bool,
     pub denies_any: bool,
-    /// The layout's keys are the ANSI codes posted.
-    pub ansi_layout: bool,
+    /// The Services check can place this chord's key on the current layout
+    /// (`layout_places`).
+    pub layout_known: bool,
     /// Whether the chord is a registered Services shortcut.
     pub is_service: ServiceCheck,
 }
@@ -700,24 +728,28 @@ pub const REFUSE_TOO_DEEP: &str = "this app's menus could not all be read to che
 pub const REFUSE_LAYOUT: &str = "this shortcut cannot be checked against the Computer Use deny list on this keyboard layout; use the app's menu items in the tree";
 pub const REFUSE_SERVICES_UNREAD: &str = "the Services shortcuts could not be read yet; try again in a moment, or use the app's menu items in the tree";
 pub const REFUSE_SERVICE: &str = "this shortcut runs a Service, which can hand the selection to an app on the Computer Use deny list; use the app's menu items in the tree";
-pub const REFUSE_DISABLED: &str = "the menu item for this shortcut is disabled right now";
 pub const REFUSE_BLOCKED: &str = "the menu item for this shortcut would reach an app on the Computer Use deny list";
 
 /// AppKit's routing, held to the deny list, as one rule for both deliveries:
-/// - The first enabled match is not blocked: press that item through AX. No
-///   key is posted, so no Service, other item or key-time revalidation can
-///   take the chord, and nothing after it needs reading.
-/// - It is blocked, or any (disabled) match is: refuse. A posted key is
-///   revalidated at key time, so a disabled item may run then. This holds
-///   with nothing denied too (protected apps: sign-in, security prompts,
-///   cmux Remote).
-/// - Only disabled matches, in the background with Command and Shift: report
-///   it (posted there, the chord loses its Shift and could reach the item
-///   without it). Without Shift it is posted like any key; the app ignores it
-///   as it would the person's.
-/// - Otherwise the key is posted: as typed with nothing denied; while
-///   something is denied only after a complete walk, on a layout whose keys
-///   are known, and when it is no Services shortcut (read).
+/// - The first enabled match is not blocked: press that item through AX
+///   (disabled matches before it, blocked or not, do not run). No key is
+///   posted, so no Service, other item or key-time revalidation can take
+///   the chord, and nothing after it needs reading.
+/// - The first enabled match is blocked: refuse.
+/// - No enabled match, but a disabled one is blocked: refuse. A posted key
+///   is revalidated at key time, so that item may run then. This holds with
+///   nothing denied too (protected apps: sign-in, security prompts, cmux
+///   Remote).
+/// - Otherwise the key is posted (the person's key would do the same; a
+///   posted chord keeps its Shift on every route, see press_keys): as typed
+///   with nothing denied; while something is denied only after a complete
+///   walk, when the layout lets the Services check place the key, and when
+///   it is no Services shortcut (read).
+///
+/// With nothing denied an incomplete walk is posted: what it may miss is a
+/// protected app's item (sign-in, security prompts, cmux Remote) deep in a
+/// menu with a key equivalent of its own; none is known, and refusing would
+/// refuse every unmatched chord in an app with deep menus.
 pub fn decide_chord(f: &ChordFacts) -> ChordAction {
     match pick_shortcut(f.matches) {
         ShortcutPick::Press(i) => return ChordAction::PressItem(i),
@@ -727,16 +759,13 @@ pub fn decide_chord(f: &ChordFacts) -> ChordAction {
     if f.matches.iter().any(|m| m.blocked) {
         return ChordAction::Refuse(REFUSE_BLOCKED);
     }
-    if f.background && f.command && f.shift && !f.matches.is_empty() {
-        return ChordAction::Refuse(REFUSE_DISABLED);
-    }
     if !needs_key_checks(f.matches, f.denies_any) {
         return ChordAction::Post;
     }
     if !f.complete {
         return ChordAction::Refuse(REFUSE_TOO_DEEP);
     }
-    if !f.ansi_layout {
+    if !f.layout_known {
         return ChordAction::Refuse(REFUSE_LAYOUT);
     }
     match f.is_service {

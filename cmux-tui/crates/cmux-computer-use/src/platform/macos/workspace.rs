@@ -574,12 +574,12 @@ fn start_services_refresh(st: &mut ServicesState) {
     }
 }
 
-/// Whether the current keyboard layout is one the key codes here are written
-/// for (U.S. or ABC): the Services check maps characters to ANSI key codes,
-/// so on another layout it cannot tell which physical key a service uses.
-/// This is the person's current layout setting; an app with a per-document
+/// How far the current keyboard layout keeps the ANSI key codes the Services
+/// check maps characters to (roles::layout_of): on another layout it cannot
+/// tell which physical key a service uses. This is the person's current
+/// layout setting; an app with a per-document
 /// input source can differ (a later TIS/UCKeyTranslate check would cover it).
-pub fn ansi_layout() -> bool {
+pub fn keyboard_layout() -> super::roles::Layout {
     // A long-lived process caches another app's preferences until it
     // synchronizes them: re-read HIToolbox's on every check, so a switch
     // from U.S. to German after launch is seen.
@@ -587,7 +587,7 @@ pub fn ansi_layout() -> bool {
     let id = Cf::preference("AppleCurrentKeyboardLayoutInputSourceID", "com.apple.HIToolbox")
         .and_then(|v| v.as_string());
     let enabled = Cf::preference("AppleEnabledInputSources", "com.apple.HIToolbox").is_some();
-    super::roles::is_ansi_layout(id.as_deref(), enabled)
+    super::roles::layout_of(id.as_deref(), enabled)
 }
 
 /// How often the Services shortcuts are re-read.
@@ -598,8 +598,9 @@ const SERVICES_STALE: Duration = Duration::from_secs(120);
 const SERVICES_RETRY: Duration = Duration::from_secs(15);
 /// How long `pbs -dump` may take.
 const PBS_TIMEOUT: Duration = Duration::from_secs(3);
-/// How long a chord waits for a Services read in flight.
-const SERVICES_WAIT: Duration = Duration::from_secs(6);
+/// How long a chord waits for a Services read in flight: a little more than
+/// the read's worst case (PBS_TIMEOUT for the output, PBS_TIMEOUT for the exit).
+const SERVICES_WAIT: Duration = Duration::from_secs(7);
 
 /// Runs a short command in its own process group and returns its output
 /// and whether it exited 0, or None when it did not finish within

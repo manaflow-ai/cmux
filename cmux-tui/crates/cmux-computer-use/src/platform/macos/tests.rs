@@ -527,15 +527,38 @@ fn menu_items_fail_closed_while_the_app_name_index_builds() {
 }
 
 #[test]
-fn the_services_check_knows_which_layouts_it_can_read() {
-    assert!(roles::is_ansi_layout(Some("com.apple.keylayout.US"), true));
-    assert!(roles::is_ansi_layout(Some("com.apple.keylayout.ABC"), true));
-    assert!(roles::is_ansi_layout(Some("com.apple.keylayout.Australian"), true));
-    assert!(!roles::is_ansi_layout(Some("com.apple.keylayout.German"), true));
-    assert!(!roles::is_ansi_layout(Some("com.apple.keylayout.Dvorak"), true));
+fn the_services_check_knows_which_keys_each_layout_places() {
+    use roles::Layout as L;
+    for id in ["com.apple.keylayout.US", "com.apple.keylayout.ABC", "com.apple.keylayout.Australian"] {
+        assert_eq!(roles::layout_of(Some(id), true), L::Ansi);
+    }
+    assert_eq!(roles::layout_of(Some("com.apple.keylayout.British"), true), L::LettersDigits);
+    assert_eq!(roles::layout_of(Some("com.apple.keylayout.British-PC"), true), L::LettersDigits);
+    assert_eq!(roles::layout_of(Some("com.apple.keylayout.German"), true), L::Other);
+    assert_eq!(roles::layout_of(Some("com.apple.keylayout.Dvorak"), true), L::Other);
     // Nothing recorded: U.S. only on a default install; otherwise fail closed.
-    assert!(roles::is_ansi_layout(None, false));
-    assert!(!roles::is_ansi_layout(None, true));
+    assert_eq!(roles::layout_of(None, false), L::Ansi);
+    assert_eq!(roles::layout_of(None, true), L::Other);
+    // Keys with the same code on every layout are placed on any layout,
+    // German and Dvorak included: alt+left, cmd+left, F5, ctrl+return.
+    for key in [Key::Left, Key::Right, Key::Up, Key::Down, Key::F(5), Key::Return, Key::Tab, Key::Space, Key::Escape, Key::Delete, Key::Backspace, Key::Home, Key::End, Key::PageUp, Key::PageDown] {
+        for shift in [false, true] {
+            assert!(roles::layout_places(&key, shift, L::Other), "{key:?}");
+        }
+    }
+    // Letters: ANSI and British; not German (Y and Z swap) or Dvorak.
+    let e = Key::Char('e');
+    assert!(roles::layout_places(&e, false, L::Ansi) && roles::layout_places(&e, true, L::LettersDigits));
+    assert!(!roles::layout_places(&e, false, L::Other));
+    // Digits: unshifted on British; shifted (Shift-3 is £ there) only on ANSI.
+    let three = Key::Char('3');
+    assert!(roles::layout_places(&three, false, L::LettersDigits));
+    assert!(!roles::layout_places(&three, true, L::LettersDigits));
+    assert!(roles::layout_places(&three, true, L::Ansi));
+    // Punctuation: only on ANSI.
+    let hash = Key::Char('\\');
+    assert!(roles::layout_places(&hash, false, L::Ansi));
+    assert!(!roles::layout_places(&hash, false, L::LettersDigits));
 }
 
 #[test]
@@ -561,73 +584,49 @@ fn chords_are_held_to_the_deny_list_in_both_deliveries() {
     use roles::{ChordAction as A, ChordFacts, ServiceCheck as S, ShortcutMatch as M};
     let m = |t: &str, enabled: bool, blocked: bool| M { title: t.into(), enabled, blocked };
     fn base(matches: &[M]) -> ChordFacts<'_> {
-        ChordFacts {
-            matches,
-            complete: true,
-            background: false,
-            command: false,
-            shift: false,
-            denies_any: true,
-            ansi_layout: true,
-            is_service: S::NoMatch,
-        }
+        ChordFacts { matches, complete: true, denies_any: true, layout_known: true, is_service: S::NoMatch }
     }
     let undo = [m("Undo", true, false)];
     let off = [m("Undo", false, false)];
-    // The first enabled, unblocked match is pressed through AX, in both
-    // deliveries, deny list or not, whatever the walk, layout and Services
+    // The first enabled, unblocked match is pressed through AX (both
+    // deliveries), deny list or not, whatever the walk, layout and Services
     // say (no key is posted, so nothing else can take the chord). This is
     // VS Code's shift+cmd+F while Spotlight's Service has the same chord.
-    for background in [false, true] {
-        for denies_any in [false, true] {
-            let f = ChordFacts {
-                background,
-                denies_any,
-                complete: false,
-                ansi_layout: false,
-                is_service: S::Match,
-                ..base(&undo)
-            };
-            assert_eq!(roles::decide_chord(&f), A::PressItem(0));
-        }
+    for denies_any in [false, true] {
+        let f = ChordFacts { denies_any, complete: false, layout_known: false, is_service: S::Match, ..base(&undo) };
+        assert_eq!(roles::decide_chord(&f), A::PressItem(0));
     }
-    // Disabled matches before it do not run.
+    // Disabled matches before it do not run, blocked or not.
     let earlier_off = [m("Launch Simulator", false, true), m("Undo", true, false)];
     assert_eq!(roles::decide_chord(&base(&earlier_off)), A::PressItem(1));
     // The first enabled match is blocked: refused, with nothing denied too
-    // (a protected app's item), in both deliveries.
+    // (a protected app's item).
     let blocked = [m("Open in Simulator", true, true)];
     for denies_any in [false, true] {
-        for background in [false, true] {
-            let f = ChordFacts { denies_any, background, ..base(&blocked) };
-            assert_eq!(roles::decide_chord(&f), A::Refuse(roles::REFUSE_BLOCKED));
-        }
+        assert_eq!(roles::decide_chord(&ChordFacts { denies_any, ..base(&blocked) }), A::Refuse(roles::REFUSE_BLOCKED));
     }
     // Only disabled matches, one blocked: a posted key is revalidated at key
     // time, so it is refused.
     let off_blocked = [m("Undo", false, false), m("Open in Simulator", false, true)];
-    assert_eq!(roles::decide_chord(&ChordFacts { denies_any: false, ..base(&off_blocked) }), A::Refuse(roles::REFUSE_BLOCKED));
-    // Only disabled matches, background with Command and Shift: reported as
-    // disabled (posted there, the Shift would be lost). Without Shift, posted
-    // (cmd+c with nothing selected), as Codex does.
     for denies_any in [false, true] {
-        let f = ChordFacts { denies_any, background: true, command: true, shift: true, ..base(&off) };
-        assert_eq!(roles::decide_chord(&f), A::Refuse(roles::REFUSE_DISABLED));
-        let f = ChordFacts { denies_any, background: true, command: true, ..base(&off) };
-        assert_eq!(roles::decide_chord(&f), A::Post);
+        assert_eq!(roles::decide_chord(&ChordFacts { denies_any, ..base(&off_blocked) }), A::Refuse(roles::REFUSE_BLOCKED));
     }
-    // Posted: nothing denied, as typed.
-    assert_eq!(roles::decide_chord(&ChordFacts { denies_any: false, complete: false, ansi_layout: false, is_service: S::Unread, ..base(&off) }), A::Post);
-    assert_eq!(roles::decide_chord(&ChordFacts { denies_any: false, ..base(&[]) }), A::Post);
-    // Posted while something is denied: the walk, the layout and Services.
-    assert!(roles::needs_key_checks(&off, true) && roles::needs_key_checks(&[], true));
-    assert!(!roles::needs_key_checks(&undo, true) && !roles::needs_key_checks(&off, false));
-    assert_eq!(roles::decide_chord(&ChordFacts { complete: false, ..base(&off) }), A::Refuse(roles::REFUSE_TOO_DEEP));
-    assert_eq!(roles::decide_chord(&ChordFacts { ansi_layout: false, ..base(&[]) }), A::Refuse(roles::REFUSE_LAYOUT));
-    assert_eq!(roles::decide_chord(&ChordFacts { is_service: S::Match, ..base(&[]) }), A::Refuse(roles::REFUSE_SERVICE));
-    assert_eq!(roles::decide_chord(&ChordFacts { is_service: S::Unread, ..base(&off) }), A::Refuse(roles::REFUSE_SERVICES_UNREAD));
-    assert_eq!(roles::decide_chord(&base(&off)), A::Post);
-    assert_eq!(roles::decide_chord(&base(&[])), A::Post);
+    // Only disabled matches, none blocked (cmd+c with nothing selected), or
+    // none at all (cmd+shift+t where no item has it): posted like the
+    // person's key once the checks pass; a posted chord keeps its Shift.
+    for matches in [&off[..], &[]] {
+        assert_eq!(roles::decide_chord(&base(matches)), A::Post);
+        // Nothing denied: posted as typed, whatever the walk, layout or Services say.
+        let f = ChordFacts { denies_any: false, complete: false, layout_known: false, is_service: S::Unread, ..base(matches) };
+        assert_eq!(roles::decide_chord(&f), A::Post);
+        // Something denied: the walk, the layout and Services, in that order.
+        assert!(roles::needs_key_checks(matches, true) && !roles::needs_key_checks(matches, false));
+        assert_eq!(roles::decide_chord(&ChordFacts { complete: false, ..base(matches) }), A::Refuse(roles::REFUSE_TOO_DEEP));
+        assert_eq!(roles::decide_chord(&ChordFacts { layout_known: false, ..base(matches) }), A::Refuse(roles::REFUSE_LAYOUT));
+        assert_eq!(roles::decide_chord(&ChordFacts { is_service: S::Match, ..base(matches) }), A::Refuse(roles::REFUSE_SERVICE));
+        assert_eq!(roles::decide_chord(&ChordFacts { is_service: S::Unread, ..base(matches) }), A::Refuse(roles::REFUSE_SERVICES_UNREAD));
+    }
+    assert!(!roles::needs_key_checks(&undo, true));
 }
 
 #[test]
