@@ -59,11 +59,14 @@ export function PersonalizationCard({
   const opened = personalizationPart(routeFocus);
   // A search result's key: its row reveals itself and takes focus, as on any category page.
   const key = routeFocus && !routeFocus.startsWith(FOCUS_PREFIX) && opened ? routeFocus : null;
-  // Each navigation reveals the part it names, once the owner's values arrive (the parts above it
-  // have their height): Change Background… (a new route each time, with `open`) and a jump alike.
+  // Each navigation reveals the part it names, once the owner's values and the host's lists arrive
+  // (the parts above it have their height: the host adds the Theme part's override lines and the
+  // Background part's picker, so a reveal before it landed ~180 px short as they grew above):
+  // Change Background… (a new route each time, with `open`) and a jump alike.
+  const hostLoaded = state.host !== null;
   const revealed = useRef<string | null>(null);
   useEffect(() => {
-    if (!state.readable || opened === null || revealed.current === href) return;
+    if (!state.readable || !hostLoaded || opened === null || revealed.current === href) return;
     revealed.current = href;
     pin(opened);
     // The first part opens the page at its very top, with the page's title over it (Lucas
@@ -74,7 +77,7 @@ export function PersonalizationCard({
     if (key && [...rows].some((row) => row.dataset.rowKey === key)) return;
     if (opened === PART_IDS[0] && scroller) scroller.scrollTo?.({ top: 0 });
     else parts.current.get(opened)?.scrollIntoView?.({ block: "start" });
-  }, [href, opened, key, state.readable, pin]);
+  }, [href, opened, key, state.readable, hostLoaded, pin]);
   // A jump is the route's part (as a picked menu is Settings > Menus' focus), so the jump bar's
   // current part, Back and the host's next Change Background… all follow it.
   const jump = (id: PartID) => {
