@@ -7139,7 +7139,7 @@ class FailingStepLogOnly(unittest.TestCase):
     # Each copy keeps STEP_NAMES_UNKNOWN too: step_owners requires a caller to pass it when it reads no workflow.
     # Its helpers are copied with it (_aligned_starts reads a StepNames' headers alone, so with STEP_NAMES_UNKNOWN a
     # copy places exactly what it placed before).
-    VENDORED_FINGERPRINT = "262d2f13a0af6f360630e7d4ba2a18451be143b0d2f25d70139852e200db471d"
+    VENDORED_FINGERPRINT = "c1f7aa56c1f3ddba55d0abe35e461b1148203468cfdd350965d8b2775fca771b"
 
     def test_the_code_vendored_into_base_red_watch_is_pinned(self):
         import hashlib
@@ -10053,6 +10053,89 @@ class WorkflowHeadersPlaceRealLogs(unittest.TestCase):
         added = (head[0], self.after(head[1], "FAIL: plist content", "FAIL: plist label"))
         with self.assertRaisesRegex(excuse.Refused, "more on this head: FAIL: plist label"):
             self.judge(self.github("hq-9191", added, self.fixture("hq-9191", "base")))
+
+
+class AlignedStartsIsLinear(unittest.TestCase):
+    """#41220's review F1: _aligned_starts rescanned the remaining headers from each candidate, so 10,000 same-second
+    headers over 3 steps took 17.6 s to come back ambiguous, inside merge_hold on every red. It is one pass per step
+    now, with the same answers as the frozen first version (scripts/ci/bench_aligned_starts.py, which times both)."""
+
+    @classmethod
+    def setUpClass(cls):
+        import bench_aligned_starts  # scripts/ci, on sys.path above
+        cls.bench = bench_aligned_starts
+
+    def both(self, job, log_text, names):
+        args = self.bench.reading_inputs(job, log_text)
+        return excuse._aligned_starts(*args, names), self.bench.frozen_aligned_starts(*args, names)
+
+    def test_twenty_thousand_same_second_headers_over_ten_steps_in_under_a_second(self):
+        import time
+        job, log_text, names = self.bench.same_second_case(20_000, 10)
+        began = time.perf_counter()
+        found = excuse._aligned_starts(*self.bench.reading_inputs(job, log_text), names)
+        self.assertLess(time.perf_counter() - began, 1.0)
+        self.assertIsNone(found)  # every header fits every step: ambiguous
+
+    def test_the_real_logs_read_the_same(self):
+        fixtures = ROOT / "tests/fixtures/base_red_excuse_step_mapping"
+        for case, path in (("cmux-41001", ".github/workflows/cmux-next.yml"),
+                           ("hq-9191", ".github/workflows/skills-tests.yml")):
+            workflow = (fixtures / f"{case}.yml").read_text()
+
+            class Blob:
+                def blob(self, repo, ref, wanted):
+                    return workflow
+            for side in ("head", "base"):
+                with self.subTest(case=case, side=side):
+                    job = dict(json.loads((fixtures / f"{case}-{side}-job.json").read_text()), head_sha=HEAD)
+                    log_text = (fixtures / f"{case}-{side}.log").read_text()
+                    names = excuse.workflow_step_names(REPO, job, path, Blob(), {})
+                    now, then = self.both(job, log_text, names)
+                    self.assertIsNotNone(now)
+                    self.assertEqual(now, then)
+
+    def test_random_small_logs_read_the_same(self):
+        import random
+        texts = ("Run a", "Run b", "Run a b", "Post job cleanup.")
+        placed = refused = 0
+        for seed in range(4000):
+            rng = random.Random(seed)
+            count = rng.randint(1, 5)
+            second, steps = 10, []
+            for n in range(count):
+                start = second + rng.randint(0, 1)
+                second = start + rng.randint(0, 2)
+                steps.append((f"Step {n}", rng.choice(("success", "success", "failure")), start, second))
+            job = {"steps": framed_steps(steps)}
+            names = excuse.StepNames({step["number"]: True for step in job["steps"][1:-1]})
+            names.headers = {step["number"]: (rng.choice(texts[:3] if rng.random() < .8 else texts[3:]),
+                                              rng.random() < .7, rng.random() < .5)
+                             for step in job["steps"][1:-1]}
+            lines = []
+            # Mostly each step's own header in its own times (failed: an error line too), then extras anywhere.
+            for step, (_, conclusion, start, end) in zip(job["steps"][1:-1], steps):
+                if rng.random() < .9:
+                    text, exact, _ = names.headers[step["number"]]
+                    own = text if text == "Post job cleanup." else "##[group]" + text + ("" if exact else " c")
+                    at = rng.uniform(start, end + .99)
+                    lines.append(("x", round(at, 3), own))
+                    if conclusion == "failure" or rng.random() < .2:
+                        lines.append(("x", round(min(at + .001, end + .999), 3), "##[error]boom"))
+            for _ in range(rng.randint(0, 4)):
+                at = rng.uniform(9.5, second + 1.5)
+                lines.append(("x", round(at, 3), rng.choice(
+                    ("##[group]" + rng.choice(texts[:3]), "Post job cleanup.", "##[error]boom", "##[endgroup]", "ok"))))
+            lines.sort(key=lambda line: line[1])
+            log_text = framed_log(lines, columns=rng.random() < .5)
+            with self.subTest(seed=seed):
+                now, then = self.both(job, log_text, names)
+                self.assertEqual(now, then)
+            placed += now is not None
+            refused += now is None
+        # Both answers are exercised, not only "nothing placed".
+        self.assertGreater(placed, 100)
+        self.assertGreater(refused, 100)
 
 
 if __name__ == "__main__":

@@ -1205,33 +1205,59 @@ def _aligned_starts(steps: list[dict], lines: list[str], texts: list[str], windo
     spans = [windows[k] for k in range(1, len(steps) - 1)]
     spans[-1] = (spans[-1][0], max(spans[-1][1], windows[-1][1]))  # "Complete job" prints into the last section
 
-    def fits(i: int, s: int) -> bool:
-        header = texts[starts[s]].removeprefix("##[group]")
-        text, exact, _ = expected[i]
-        return header == text if exact else header.startswith(text)
+    count = len(starts)
+    heads = [texts[n].removeprefix("##[group]") for n in starts]
 
-    def within(i: int, s: int) -> bool:
-        return low[s] is None or (spans[i][0] <= low[s] and high[s] < spans[i][1])
+    def fitting(i: int) -> list[bool]:
+        text, exact, _ = expected[i]
+        return [head == text for head in heads] if exact else [head.startswith(text) for head in heads]
+
+    def reach(i: int) -> list[int]:
+        """For each segment s, the first segment u >= s outside step I's times (COUNT when none): step I's own
+        header at s lets the next step's be at any t with s < t <= reach[s]."""
+        start, end = spans[i]
+        found = [count] * (count + 1)
+        for u in range(count - 1, -1, -1):
+            inside = low[u] is None or (start <= low[u] and high[u] < end)
+            found[u] = found[u + 1] if inside else u
+        return found
 
     # ways[s]: how many choices (0, 1, or 2 for "more than one") place steps 0..i with step i's own header at segment
-    # s; back[i][s] the segment of step i-1's in the one choice.
-    ways = {0: 1} if fits(0, 0) else {}
+    # s; back[i][s] the segment of step i-1's in the one choice. Each step is one pass over the headers (a difference
+    # array over the next step's segments, of counts and of segment-weighted counts, so a count of 1 names its one
+    # predecessor): O(steps x headers), never a rescan per candidate (#41220's review F1: 10,000 same-second headers
+    # over 3 steps took 17.6 s).
+    first = fitting(0)
+    ways = {0: 1} if first[0] else {}
     back: list[dict[int, int]] = [{}]
     for i in range(len(printing) - 1):
+        far = reach(i)
+        added = [0] * (count + 1)
+        weighed = [0] * (count + 1)
+        for s, n in ways.items():
+            top = min(far[s], count - 1)
+            if top >= s + 1:
+                added[s + 1] += n
+                added[top + 1] -= n
+                weighed[s + 1] += n * s
+                weighed[top + 1] -= n * s
+        fit = fitting(i + 1)
         nxt: dict[int, int] = {}
         came: dict[int, int] = {}
-        for s, count in ways.items():
-            t = s + 1
-            while t < len(starts) and within(i, t - 1):
-                if fits(i + 1, t):
-                    nxt[t] = min(2, nxt.get(t, 0) + count)
-                    came[t] = s
-                t += 1
+        total = weight = 0
+        for t in range(count):
+            total += added[t]
+            weight += weighed[t]
+            if total and fit[t]:
+                nxt[t] = min(2, total)
+                if total == 1:
+                    came[t] = weight
         ways, back = nxt, [*back, came]
         if not ways:
             return None
     last = len(printing) - 1
-    ends = {s: count for s, count in ways.items() if all(within(last, u) for u in range(s, len(starts)))}
+    far = reach(last)
+    ends = {s: n for s, n in ways.items() if far[s] == count}
     if sum(ends.values()) != 1:
         return None
     s = next(iter(ends))
