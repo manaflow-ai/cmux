@@ -109,12 +109,11 @@ async fn a_relay_open_with_no_answer_fails_retryably_within_the_connect_timeout(
     });
 
     let started = Instant::now();
-    let error = match connect_relay_socket_once(&endpoint, None, MAX_RELAY_CONTROL_MESSAGE_BYTES)
-        .await
-    {
-        Ok(_) => panic!("an unanswered relay upgrade opened"),
-        Err(error) => error.into_provider_error(),
-    };
+    let error =
+        match connect_relay_socket_once(&endpoint, None, MAX_RELAY_CONTROL_MESSAGE_BYTES).await {
+            Ok(_) => panic!("an unanswered relay upgrade opened"),
+            Err(error) => error.into_provider_error(),
+        };
     assert!(started.elapsed() <= RELAY_CONNECT_TIMEOUT + Duration::from_millis(100));
     assert!(error.to_string().contains("no answer within 10000 ms"), "{error}");
     assert!(error.is_retryable_carrier_failure(), "{error}");
