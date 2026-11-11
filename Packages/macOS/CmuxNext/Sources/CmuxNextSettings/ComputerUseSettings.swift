@@ -27,6 +27,16 @@ public nonisolated enum ComputerUseMode: String, Sendable, Hashable, CaseIterabl
     }
 }
 
+/// Whether agents may open a background app's menus (`computerUse.menus`). The raw values are the
+/// cmux Computer Use engine's (`cmux_computer_use::menus::MenuMode`).
+public nonisolated enum ComputerUseMenus: String, Sendable, Hashable, CaseIterable {
+    /// Pop-up and context menus of background apps open so an agent can choose an item (the default,
+    /// as Codex Computer Use does); the person's typing stays in their app while one is open.
+    case open
+    /// Nothing that opens a menu runs in the background.
+    case refuse
+}
+
 /// `computerUse.*` in cmux.json: what agents may do with the apps on this Mac through cmux
 /// Computer Use, which is built in (no helper to install).
 ///
@@ -39,6 +49,8 @@ public nonisolated enum ComputerUseMode: String, Sendable, Hashable, CaseIterabl
 /// - `showCursor` (on): the blue agent cursor shows where an agent acts.
 /// - `allowForeground` (off): agents may send input that takes focus or moves the real pointer.
 /// - `livePreview` (on): a chat shows a small live view of the app its agent uses.
+/// - `menus` (`open`): agents may open pop-up and context menus of background apps to choose an
+///   item; `refuse` keeps every menu closed. Menu bar menus never open in the background.
 ///
 /// `computerUse.enabled` and `computerUse.driver` are retired. An old file's
 /// `"enabled": false` still turns Computer Use off (mode `off`) until the person picks a mode
@@ -51,6 +63,7 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
     public static let allowForegroundPath = ["computerUse", "allowForeground"]
     public static let showCursorPath = ["computerUse", "showCursor"]
     public static let livePreviewPath = ["computerUse", "livePreview"]
+    public static let menusPath = ["computerUse", "menus"]
     /// Retired keys (`schemas/settings/retired-keys.json`); `enabledPath` is read once as the
     /// legacy value of `modePath`.
     public static let enabledPath = ["computerUse", "enabled"]
@@ -83,6 +96,7 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
     public var allowForeground = false
     public var showCursor = true
     public var livePreview = true
+    public var menus: ComputerUseMenus = .open
     public init() {}
 
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> Self {
@@ -101,6 +115,7 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
         if let value = reader.bool("allowForeground") { settings.allowForeground = value }
         if let value = reader.bool("showCursor") { settings.showCursor = value }
         if let value = reader.bool("livePreview") { settings.livePreview = value }
+        if let value = reader.choice("menus", ComputerUseMenus.self) { settings.menus = value }
         diagnostics = reader.diagnostics
         if let value = root.value(at: deniedAppsPath) {
             if let items = value.arrayValue, items.allSatisfy({ !($0.stringValue ?? "").isEmpty }) {
@@ -124,7 +139,7 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
     public func policyConfigJSON() -> Data {
         let config = PolicyConfig(mode: mode.rawValue, deniedApps: deniedApps, allowOwnMachines: allowOwnMachines,
                                   pauseOnTakeover: pauseOnTakeover, allowForeground: allowForeground,
-                                  showCursor: showCursor, cloudVm: false)
+                                  showCursor: showCursor, cloudVm: false, menus: menus.rawValue)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         // A struct of strings and booleans always encodes; an empty object is the engine's default.
@@ -139,6 +154,7 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
         let allowForeground: Bool
         let showCursor: Bool
         let cloudVm: Bool
+        let menus: String
     }
 }
 
@@ -202,6 +218,19 @@ nonisolated enum ComputerUseSettingsSchema {
                                             "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity."),
                    summary: SettingsText.keyed("settings.computerUse.livePreview.summary", "Shows the app an agent uses in its chat"),
                    defaults.livePreview, keywords: ["live preview", "preview", "agent activity", "screenshot", "chat"]),
+            SettingDescriptor(
+                ComputerUseSettings.menusPath, section: .general, group: group,
+                title: SettingsText.keyed("settings.computerUse.menus", "Menus in Background Apps"),
+                help: SettingsText.keyed("settings.computerUse.menus.help",
+                                         "Agents may open pop-up and context menus of apps in the background to choose an item. Menu bar menus never open in the background."),
+                summary: SettingsText.keyed("settings.computerUse.menus.summary", "Agents may open menus in background apps"),
+                kind: .choice([
+                    SettingChoice(ComputerUseMenus.open.rawValue, SettingsText.keyed("settings.computerUse.menus.open", "Open Menus")),
+                    SettingChoice(ComputerUseMenus.refuse.rawValue, SettingsText.keyed("settings.computerUse.menus.refuse", "Never Open Menus")),
+                ]),
+                default: .string(defaults.menus.rawValue),
+                keywords: ["computer use", "menu", "pop-up", "popup", "context menu", "right click", "background"]
+            ),
             toggle(ComputerUseSettings.allowForegroundPath,
                    SettingsText.keyed("settings.computerUse.allowForeground", "Allow Foreground Input"),
                    help: SettingsText.keyed("settings.computerUse.allowForeground.help",

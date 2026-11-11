@@ -54,6 +54,7 @@ test("Computer Use is its own category, and Agents no longer draws it", async ()
   for (const key of [
     "computerUse.mode",
     "computerUse.deniedApps",
+    "computerUse.menus",
     "computerUse.allowOwnMachines",
     "computerUse.pauseOnTakeover",
     "computerUse.showCursor",

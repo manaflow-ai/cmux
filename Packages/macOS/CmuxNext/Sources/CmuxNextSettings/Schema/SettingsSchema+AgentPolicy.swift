@@ -397,6 +397,7 @@ extension SettingsSchema {
         "computerUse.allowForeground": .userOnly,
         "computerUse.showCursor": .userOnly,
         "computerUse.livePreview": .userOnly,
+        "computerUse.menus": .userOnly,
         // How hard cmux pulls the person back from another app: theirs to pick, not an agent's.
         "notifications.dockBounce": .userOnly,
         // Privacy: whether banners show what agents said is the person's call.
