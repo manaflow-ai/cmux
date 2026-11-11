@@ -43,7 +43,7 @@ concurrency:
 jobs:
   bench:
     if: github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != ''
-    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(vars.CI_EVAL_STEP_GATEWAY), '"blacksmith-') && (contains(toJSON(vars.CI_EVAL_STEP_GATEWAY), '-macos-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'glaeda-gui-std-xcode-26.6') || contains(toJSON(vars.CI_EVAL_STEP_GATEWAY), '-windows-') && 'windows-2025' || contains(toJSON(vars.CI_EVAL_STEP_GATEWAY), '-arm"') && 'ubuntu-24.04-arm' || (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64')) || (vars.CI_EVAL_STEP_GATEWAY) }}
     timeout-minutes: 420
     steps:
       # No checkout: the gateway runner takes only thin cmux-ci clients (glaeda GATEWAY_JOBS), and this

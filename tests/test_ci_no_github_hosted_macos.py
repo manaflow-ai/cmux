@@ -39,6 +39,12 @@ FORK_BRANCH = re.compile(r"github\.repository_owner != 'manaflow-ai' && ('[A-Za-
 # "It's fine to sign on GitHub hosted tonight", while the only owned signer had no power). The variable is
 # compared with macos-26, never used as the label; unset, the jobs keep the trusted signer.
 HOSTED_SIGNING_SWITCH = re.compile(r"vars\.CI_NIGHTLY_MINI_SIGNER == 'macos-26' && 'macos-26'")
+# CI_BLACKSMITH_OFF's fork branch (scripts/ci/blacksmith_off.py, Leo 2026-11-10: "just stop using blacksmith
+# temporarily"): with the switch on, a fork's pull request event that would have taken Blacksmith macOS takes a
+# GitHub-hosted Mac, never an owned one. Unset, the switch's whole route is skipped.
+SWITCH_FORK_BRANCH = re.compile(
+    r"github\.event\.pull_request && github\.event\.pull_request\.head\.repo\.full_name != github\.repository"
+    r" && 'macos-(?:15|26)'")
 # A cmux-ci worker label (`cmux-ci run ... --label macos-27`) names the macOS version an owned fleet worker
 # runs; it is an argument to the fleet client, never a runs-on, so no GitHub-hosted image can serve it.
 CMUX_CI_LABEL = re.compile(r"--label[ =]['\"]?macos-[0-9A-Za-z.-]+")
@@ -49,6 +55,12 @@ SCRIPT_SUFFIXES = {".py", ".sh", ".rb", ".js", ".mjs", ".ts", ".json", ".yml", "
 # "<path relative to the repository root>:<exact line>" -> why it may name a GitHub-hosted Mac.
 # No job is exempt: every job has an owned or Blacksmith route, x86_64 included (Rosetta).
 EXEMPT: dict[str, str] = {
+    "scripts/ci/blacksmith_off.py:" + 'HOSTED_MACOS_15 = "macos-15"': (
+        "CI_BLACKSMITH_OFF's fork branch: a fork's pull request event may not take an owned Mac"
+    ),
+    "scripts/ci/blacksmith_off.py:" + 'HOSTED_MACOS_26 = "macos-26"': (
+        "CI_BLACKSMITH_OFF's fork branch: a fork's pull request event may not take an owned Mac"
+    ),
     "scripts/ci/resolve_runners.py:" + '            \'Expected an object of capability -> label, e.g. {"macos_26": "macos-15"}.\'': (
         "an example in the resolver's error message for a malformed fleet override; it selects no runner"
     ),
@@ -74,6 +86,7 @@ def workflow_hits(root: Path) -> list[str]:
                 content = strip_comment(line)
                 if not content:
                     continue
+                content = SWITCH_FORK_BRANCH.sub("", content)
                 if HOSTED_MACOS.search(CMUX_CI_LABEL.sub("", HOSTED_SIGNING_SWITCH.sub("", FORK_BRANCH.sub("", content)))):
                     hits.append(f"{path.relative_to(root)}:{number}:{line}")
     return hits

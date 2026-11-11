@@ -33,7 +33,7 @@ concurrency:
 jobs:
   matrix:
     if: github.repository_owner == 'manaflow-ai' && (github.event_name == 'schedule' || github.ref == 'refs/heads/main')
-    runs-on: ${{ fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(fromJSON(vars.RUNNER_POOLS).linux_8), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || (fromJSON(vars.RUNNER_POOLS).linux_8) }}
     timeout-minutes: 75
     environment:
       name: cmux-next-cloud-journey

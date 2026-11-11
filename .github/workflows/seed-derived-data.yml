@@ -39,7 +39,7 @@ env:
 
 jobs:
   decide:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || (github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4) }}
     timeout-minutes: 10
     permissions:
       actions: read
@@ -149,7 +149,7 @@ jobs:
       # (SEED_POOL_1..3, SEED_TRUSTED_POOL and its extra roots there), in
       # that order: {"include": [{"pool": ...}, {"pool": ..., "root": "2"}]}.
       matrix: ${{ fromJSON(needs.decide.outputs.matrix) }}
-    runs-on: ${{ matrix.pool }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(matrix.pool), '"blacksmith-') && (contains(toJSON(matrix.pool), '-macos-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'glaeda-std-xcode-26.6') || contains(toJSON(matrix.pool), '-windows-') && 'windows-2025' || contains(toJSON(matrix.pool), '-arm"') && 'ubuntu-24.04-arm' || (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64')) || (matrix.pool) }}
     # Two lanes per pool, one seed at a time in each, and never
     # cancel-in-progress. main takes several merges an hour and a cold seed
     # takes 15-20 minutes on Blacksmith (about an hour on the trusted pool), so
@@ -202,7 +202,7 @@ jobs:
 
       - name: Prepare admission build paths
         env:
-          MATRIX_POOL: ${{ matrix.pool }}
+          MATRIX_POOL: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(matrix.pool), '"blacksmith-') && (contains(toJSON(matrix.pool), '-macos-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'glaeda-std-xcode-26.6') || contains(toJSON(matrix.pool), '-windows-') && 'windows-2025' || contains(toJSON(matrix.pool), '-arm"') && 'ubuntu-24.04-arm' || (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64')) || (matrix.pool) }}
           TRUSTED_POOL: ${{ vars.CI_SEED_TRUSTED_POOL }}
         run: |
           set -euo pipefail

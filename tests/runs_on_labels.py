@@ -225,15 +225,25 @@ def _call(name: str, args: list[set]) -> set:
         return out
     if name in {"contains", "startswith", "endswith", "success", "failure", "always", "cancelled"}:
         return {True, False}
+    if name == "tojson" and len(args) == 1:
+        # A known string's JSON (the CI_BLACKSMITH_OFF wrapper reads `contains(toJSON(<runs-on>), '"blacksmith-')`).
+        return {Unknown("toJSON(...)") if isinstance(value, Unknown) else json.dumps(value) for value in args[0]}
     # format(), fromJSON(), join(), toJSON(), hashFiles(): an unknown value, possibly falsy.
     return {EMPTY, NULL, False, 0.0, Unknown(f"{name}(...)")}
 
 
+# scripts/ci/blacksmith_off.py's switch. Unset unless a caller asks (resolve_labels(blacksmith_off=True)): every check
+# reads today's routing, and tests/test_ci_blacksmith_off_switch.py reads the routing with the switch on.
+BLACKSMITH_OFF = "CI_BLACKSMITH_OFF"
+
+
 class _Evaluator:
-    def __init__(self, owner: str, variables: Mapping[str, str], silent: tuple[str, ...] = ()):
+    def __init__(self, owner: str, variables: Mapping[str, str], silent: tuple[str, ...] = (),
+                 blacksmith_off: bool = False):
         # One value per described variable: a variable reads the same everywhere in one evaluation.
         self.owner = owner
-        self.variables = {f"vars.{name}": {value} for name, value in variables.items()}
+        self.variables = {f"vars.{BLACKSMITH_OFF}": {"1" if blacksmith_off else EMPTY}}
+        self.variables.update({f"vars.{name}": {value} for name, value in variables.items()})
         # Context roots (needs, inputs, ...) read as '' only: every picker answered nothing.
         self.silent = silent
 
@@ -278,19 +288,20 @@ class _Evaluator:
 
 
 def resolve_labels(runs_on, owner: str = OWNER, variables: Mapping[str, Iterable[str]] | None = None,
-                   silent: Iterable[str] = ()) -> set:
+                   silent: Iterable[str] = (), blacksmith_off: bool = False) -> set:
     """Every label `runs_on` (a string, an expression or a list of them) can select for `owner`.
 
     `variables` gives the values a repository variable can hold (it may also be unset, '');
     any other variable is unknown. A context whose root is in `silent` (`needs`, `inputs`, ...)
     reads as '' only: the labels a job gets when every picker before it answered nothing.
+    `blacksmith_off` reads vars.CI_BLACKSMITH_OFF as '1' (scripts/ci/blacksmith_off.py); it is '' otherwise.
     """
     variables = variables or {}
     silent = tuple(silent)
     if isinstance(runs_on, list):
         out = set()
         for item in runs_on:
-            out |= resolve_labels(item, owner, variables, silent)
+            out |= resolve_labels(item, owner, variables, silent, blacksmith_off)
         return out
     if isinstance(runs_on, dict):
         raise ValueError(f"runs-on group/labels mappings are not modelled: {runs_on!r}")
@@ -305,7 +316,7 @@ def resolve_labels(runs_on, owner: str = OWNER, variables: Mapping[str, Iterable
     choices = [sorted({EMPTY, *variables[name]}) for name in names]
     out = set()
     for values in itertools.product(*choices):
-        out |= _Evaluator(owner, dict(zip(names, values)), silent)(tree)
+        out |= _Evaluator(owner, dict(zip(names, values)), silent, blacksmith_off)(tree)
     return out
 
 

@@ -44,7 +44,7 @@ jobs:
     # dark-mode default, symlinks into /usr/local/bin, launches the Mac app
     # through launchd, and leaves Postgres and a Next.js server on fixed ports.
     # On a reused runner every later job would inherit that.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'glaeda-std-xcode-26.6') || (github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 120
     env:
       CMUX_PORT: "3000"

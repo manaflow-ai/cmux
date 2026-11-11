@@ -106,7 +106,7 @@ jobs:
   blacksmith-mac:
     name: manual GUI perf (${{ inputs.tip_sha && inputs.tip_sha || 'none' }})
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.tip_sha != '' && inputs.parts != '' && github.repository == 'manaflow-ai/cmux' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.runner_class == 'blacksmith-6vcpu-macos-26' && fromJSON(vars.RUNNER_POOLS).macos_26 || inputs.runner_class == 'blacksmith-12vcpu-macos-26' && fromJSON(vars.RUNNER_POOLS).macos_26_large || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.runner_class == 'blacksmith-6vcpu-macos-26' && fromJSON(vars.RUNNER_POOLS).macos_26 || inputs.runner_class == 'blacksmith-12vcpu-macos-26' && fromJSON(vars.RUNNER_POOLS).macos_26_large || fromJSON(vars.RUNNER_POOLS).macos_26), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'glaeda-gui-std-xcode-26.6') || (github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.runner_class == 'blacksmith-6vcpu-macos-26' && fromJSON(vars.RUNNER_POOLS).macos_26 || inputs.runner_class == 'blacksmith-12vcpu-macos-26' && fromJSON(vars.RUNNER_POOLS).macos_26_large || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     permissions:
       contents: read
     timeout-minutes: 180
@@ -178,7 +178,7 @@ jobs:
           TIP_SHA: ${{ inputs.tip_sha }}
           PARTS: ${{ inputs.parts }}
           PRODUCT_SHA: ${{ inputs.product_sha }}
-          RUNNER_CLASS: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.runner_class == 'blacksmith-6vcpu-macos-26' && fromJSON(vars.RUNNER_POOLS).macos_26 || inputs.runner_class == 'blacksmith-12vcpu-macos-26' && fromJSON(vars.RUNNER_POOLS).macos_26_large || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+          RUNNER_CLASS: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.runner_class == 'blacksmith-6vcpu-macos-26' && fromJSON(vars.RUNNER_POOLS).macos_26 || inputs.runner_class == 'blacksmith-12vcpu-macos-26' && fromJSON(vars.RUNNER_POOLS).macos_26_large || fromJSON(vars.RUNNER_POOLS).macos_26), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'glaeda-gui-std-xcode-26.6') || (github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.runner_class == 'blacksmith-6vcpu-macos-26' && fromJSON(vars.RUNNER_POOLS).macos_26 || inputs.runner_class == 'blacksmith-12vcpu-macos-26' && fromJSON(vars.RUNNER_POOLS).macos_26_large || fromJSON(vars.RUNNER_POOLS).macos_26) }}
           CI_SHARED_CACHE_DIR: ${{ runner.temp }}/tipguard-cache
           # The Rust helpers' caches live in the kept directory too. optchat-chief stays keyed by commit:
           # its input key includes the rustc identity, which changes once rustup installs the toolchain
@@ -316,7 +316,7 @@ jobs:
   plan:
     name: perf cron plan
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && inputs.tip_sha == '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || (github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4) }}
     permissions:
       actions: read
       contents: read
@@ -384,7 +384,7 @@ jobs:
     needs: plan
     # Its own gateway label only (see the top of this file); unset, this job is skipped.
     if: ${{ needs.plan.outputs.action == 'part' && needs.plan.outputs.part != '' && vars.CI_PERF_CRON_GATEWAY != '' }}
-    runs-on: ${{ vars.CI_PERF_CRON_GATEWAY }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(vars.CI_PERF_CRON_GATEWAY), '"blacksmith-') && (contains(toJSON(vars.CI_PERF_CRON_GATEWAY), '-macos-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'glaeda-gui-std-xcode-26.6') || contains(toJSON(vars.CI_PERF_CRON_GATEWAY), '-windows-') && 'windows-2025' || contains(toJSON(vars.CI_PERF_CRON_GATEWAY), '-arm"') && 'ubuntu-24.04-arm' || (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64')) || (vars.CI_PERF_CRON_GATEWAY) }}
     permissions:
       contents: read
     # The plan sizes both timeouts from the part's run_seconds (perf-cron.py part_minutes: fleet-check, the
@@ -475,7 +475,7 @@ jobs:
     name: perf cron request ${{ needs.plan.outputs.sha }} ${{ needs.plan.outputs.part }}${{ needs.plan.outputs.worker != '' && format(' on {0}', needs.plan.outputs.worker) || '' }}
     needs: plan
     if: ${{ needs.plan.outputs.action == 'part' && needs.plan.outputs.part != '' && vars.CI_PERF_CRON_GATEWAY == '' && vars.CMUX_NEXT_PERF_CRON_CONTROLLER == '1' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || (github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux) }}
     permissions: {}
     timeout-minutes: 5
     steps:
@@ -496,7 +496,7 @@ jobs:
     name: perf cron starts frame pacing
     needs: plan
     if: ${{ needs.plan.outputs.frame_pacing == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || (github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4) }}
     permissions:
       actions: write
     timeout-minutes: 5
@@ -513,7 +513,7 @@ jobs:
     name: perf cron part (Linux)
     needs: plan
     if: ${{ needs.plan.outputs.action == 'part' && needs.plan.outputs.linux_part != '' }}
-    runs-on: ${{ needs.plan.outputs.linux_runner }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(needs.plan.outputs.linux_runner), '"blacksmith-') && (contains(toJSON(needs.plan.outputs.linux_runner), '-macos-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'glaeda-std-xcode-26.6') || contains(toJSON(needs.plan.outputs.linux_runner), '-windows-') && 'windows-2025' || contains(toJSON(needs.plan.outputs.linux_runner), '-arm"') && 'ubuntu-24.04-arm' || (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64')) || (needs.plan.outputs.linux_runner) }}
     permissions:
       contents: read
     # A part's benches run up to 30 minutes (cmd_run_linux_part's cap), after about 5 minutes of setup.
@@ -555,7 +555,7 @@ jobs:
           SHA: ${{ needs.plan.outputs.sha }}
           # The runner class this job runs on (the plan's linux_runner, also this job's runs-on): the Linux rows'
           # host, so a diff row is compared only with values of the same class.
-          RUNNER_CLASS: ${{ needs.plan.outputs.linux_runner }}
+          RUNNER_CLASS: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(needs.plan.outputs.linux_runner), '"blacksmith-') && (contains(toJSON(needs.plan.outputs.linux_runner), '-macos-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'glaeda-std-xcode-26.6') || contains(toJSON(needs.plan.outputs.linux_runner), '-windows-') && 'windows-2025' || contains(toJSON(needs.plan.outputs.linux_runner), '-arm"') && 'ubuntu-24.04-arm' || (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64')) || (needs.plan.outputs.linux_runner) }}
         run: |
           set -uo pipefail
           cp "$RUNNER_TEMP/perf-cron.py" scripts/cmux-next/perf-cron-tip.py
@@ -578,7 +578,7 @@ jobs:
     name: perf cron report
     needs: [plan, measure, linux]
     if: ${{ always() && needs.plan.result == 'success' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || (github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4) }}
     permissions:
       actions: write  # read the state, and start the next tick at once (Start the next part now)
       contents: read
