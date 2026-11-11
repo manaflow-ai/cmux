@@ -2,7 +2,7 @@ public import AppKit
 import CmuxNextWakeups
 
 /// The one toast presenter (R96). Toasts show on their window's overlay
-/// (`CmuxToastHosting`: the web toast stack on the R84 `WindowOverlayHost` in the app), at most
+/// (`CmuxToastHosting`: native views on the R84 `WindowOverlayHost` in the app, `CmuxToastOverlayHost`), at most
 /// three per window with the newest at the bottom (`CmuxToastStack`). Each
 /// ends after its duration on the injected clock; the pointer on a toast
 /// holds it. Cmd-Z runs the newest undo toast only when the focused
@@ -20,7 +20,7 @@ public final class CmuxToastCenter {
         var showsDetails = false
     }
 
-    /// Draws the toasts. The app sets its web host once at startup (its composition root), before
+    /// Draws the toasts. The app sets its native host once at startup (its composition root), before
     /// any toast shows; until then toasts are kept and timed but drawn nowhere.
     public var host: any CmuxToastHosting
     private let clock: any Clock<Duration>
@@ -84,8 +84,10 @@ public final class CmuxToastCenter {
         // successor takes its slot, and two different toasts never crossfade); one pushed over the
         // limit fades out while the rest restack.
         for old in replaced { end(old, .replaced, render: false) }
-        render(key)
+        // Its time starts before the host draws it: a toast that appears under a still pointer
+        // holds at once (the host reports the pointer from its draw).
         startTimer(serial)
+        render(key)
         if !repeats {
             NSAccessibility.post(element: window, notification: .announcementRequested, userInfo: [
                 .announcement: toast.message, .priority: NSAccessibilityPriorityLevel.high.rawValue,

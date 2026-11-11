@@ -98,11 +98,17 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
     };
     const edgeLeft = document.querySelector(edge)!.getBoundingClientRect().left;
     const found: Record<string, number | null> = {};
+    // Which element each block is, for the failure: its row id, its classes and its first words.
+    const what: Record<string, string> = {};
     for (const [name, selector] of Object.entries(blocks)) {
       const el = [...document.querySelectorAll(selector)].find(shown);
       found[name] = el ? Math.round(visibleLeft(el) - edgeLeft) : null;
+      if (el) {
+        const words = (el.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 40);
+        what[name] = `${el.getAttribute("data-row-id") ?? ""} .${[...el.classList].join(".")} "${words}"`;
+      }
     }
-    return { edgeLeft, found };
+    return { edgeLeft, found, what };
   }
 
   test("every block in the chat column starts on the column's left edge", async () => {
@@ -119,13 +125,16 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
           timeout: 30_000,
         });
-        const { edgeLeft, found } = await page.evaluate(offsets, frame);
+        const { edgeLeft, found, what } = await page.evaluate(offsets, frame);
         await page.close();
         const label = `${frame.entry}:${frame.variant} @${width}`;
         edges[label] = Math.round(edgeLeft);
         for (const [name, offset] of Object.entries(found)) {
           if (offset === null) missing.push(`${label} ${name}`);
-          else if (Math.abs(offset) > 1) offenders.push(`${label} ${name} ${offset > 0 ? "+" : ""}${offset}px`);
+          else if (Math.abs(offset) > 1) {
+            offenders.push(`${label} ${name} ${offset > 0 ? "+" : ""}${offset}px`);
+            console.log(`COLUMN_EDGES_OFFENDER ${label} ${name} ${offset}px: ${what[name]}`);
+          }
         }
       }
       // In a narrow pane the New Tab card and the chat's composer card stand at the same page edge.

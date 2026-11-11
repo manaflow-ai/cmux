@@ -72,11 +72,11 @@ await requireBrowserLane("status-swap-frames.test.ts", async () => {
     await vite?.close();
   });
 
-  async function open(name: string): Promise<Page> {
+  async function open(name: string, variant = "at-rest"): Promise<Page> {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browsers.get(name)!.newPage({ viewport: { width: 760, height: 320 } });
     await installPaintedFrames(page);
-    await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: "at-rest" })}`);
+    await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant })}`);
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 90_000,
     });
@@ -239,4 +239,84 @@ await requireBrowserLane("status-swap-frames.test.ts", async () => {
             for (const ms of line.swapMs) expect(ms, `${which}: change took ${ms}ms`).toBeLessThanOrEqual(160);
         }
       });
+
+  // Leo's recording (2026-11-11): "Thinking 1m · 1.7K tokens" turns to "Sending a message 1m · 1.7K
+  // tokens" and back to "Thinking 1m 5s · 2.5K tokens". The whole line rolls as one: on no frame does
+  // its time or token count appear, vanish or slide sideways at once (a pop: the set of counts drawn
+  // changed, or one moved more than 1px, in a frame where nothing on the line was rolling), and every
+  // frame shows words (the checks above).
+  for (const [name] of engines)
+    test(`${name}: Leo's Thinking, Sending a message, Thinking rolls as one line`, async () => {
+      const page = await open(name, "leo-sequence");
+      const report = await page.evaluate(async () => {
+        const line = () => document.querySelector<HTMLElement>('[data-status-swap="line"] .cv-worked--live');
+        type Seen = { counts: string[]; left: number[] };
+        let last: Seen | undefined;
+        const labels: string[] = [];
+        let pops = 0;
+        let frames = 0;
+        const examples: string[] = [];
+        const read = () => {
+          const node = line();
+          if (!node) return;
+          frames += 1;
+          const counts = [...node.querySelectorAll<HTMLElement>(":scope > .cv-worked__count")];
+          const moving = (element: Element) =>
+            element
+              .getAnimations()
+              .some(
+                (animation) =>
+                  animation.playState === "running" && animation.effect?.getTiming().iterations !== Infinity,
+              );
+          const seen = {
+            counts: counts.map((count) => (count.textContent ?? "").replace(/[\d.]+K?/g, "#").trim()),
+            left: counts.map((count) => Math.round(count.getBoundingClientRect().left)),
+          };
+          const text = node.querySelector(".cv-thinking")?.textContent ?? "";
+          const label = /Sending a message/.test(text)
+            ? "Sending a message"
+            : /Thinking/.test(text)
+              ? "Thinking"
+              : text;
+          if (labels.at(-1) !== label) labels.push(label);
+          if (last) {
+            const before = last;
+            // A count that slid sideways with no motion of its own, one that came with none, or one
+            // that went with no old copy rolling it out.
+            const slid = counts.some(
+              (count, index) =>
+                Math.abs(seen.left[index]! - (before.left[index] ?? seen.left[index]!)) > 1 && !moving(count),
+            );
+            const came =
+              counts.length > before.counts.length &&
+              counts.slice(before.counts.length).some((count) => !moving(count));
+            const went = counts.length < before.counts.length && !node.querySelector(".cv-roll-out[data-tail]");
+            if (slid || came || went) {
+              pops += 1;
+              if (examples.length < 6)
+                examples.push(
+                  `${slid ? "slid" : came ? "came" : "went"} at frame ${frames} (${label}): ${before.counts.join("|")} ${before.left.join(",")} -> ${seen.counts.join("|")} ${seen.left.join(",")}`,
+                );
+            }
+          }
+          last = seen;
+        };
+        // The line as the stage first draws it: Leo's sequence starts on "Thinking".
+        read();
+        const stop = window.cmuxAfterPaint(read);
+        const button = document.querySelector<HTMLElement>('[data-stage="next"]')!;
+        for (let change = 0; change < 3; change++) {
+          button.click();
+          for (let frame = 0; frame < 24; frame++) await window.cmuxPaintFrame();
+        }
+        stop();
+        return { frames, labels, pops, examples };
+      });
+      console.log(`STATUS_SEQUENCE_REPORT ${JSON.stringify({ engine: name, ...report })}`);
+      await page.close();
+      // The stage's three steps from its first, then the first again: Thinking (1.7K), Sending a
+      // message, Thinking (2.5K), Thinking (1.7K, the same words: only the count changes).
+      expect(report.labels).toEqual(["Thinking", "Sending a message", "Thinking"]);
+      expect({ pops: report.pops, examples: report.examples }).toEqual({ pops: 0, examples: [] });
+    });
 });
