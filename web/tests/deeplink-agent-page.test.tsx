@@ -38,6 +38,19 @@ mock.module("next-intl/server", () => ({
 const { default: DeeplinkPage } = await import(
   "../app/[locale]/(landing)/deeplink/[kind]/page"
 );
+const { AutoOpen } = await import(
+  "../app/[locale]/(landing)/deeplink/[kind]/auto-open"
+);
+
+/** The href of every AutoOpen in the element tree: what the page opens on load. */
+function autoOpened(node: ReactNode): string[] {
+  if (Array.isArray(node)) return node.flatMap(autoOpened);
+  if (isValidElement<{ children?: ReactNode; href?: string }>(node)) {
+    if (node.type === AutoOpen) return [node.props.href ?? ""];
+    return autoOpened(node.props.children);
+  }
+  return [];
+}
 
 /** Every string the element tree renders as text, however deeply nested. */
 function texts(node: ReactNode): string[] {
@@ -49,12 +62,18 @@ function texts(node: ReactNode): string[] {
   return [];
 }
 
-async function render(searchParams: Record<string, string | string[]>) {
-  const element = await DeeplinkPage({
-    params: Promise.resolve({ kind: "agent" }),
+async function page(
+  searchParams: Record<string, string | string[]>,
+  kind = "agent",
+) {
+  return DeeplinkPage({
+    params: Promise.resolve({ kind }),
     searchParams: Promise.resolve(searchParams),
   });
-  return texts(element);
+}
+
+async function render(searchParams: Record<string, string | string[]>) {
+  return texts(await page(searchParams));
 }
 
 describe("agent deeplink page", () => {
@@ -134,5 +153,24 @@ describe("agent deeplink page", () => {
       "This link is missing required parameters: session",
     );
     expect(rendered).toContain("cmux://agent");
+  });
+
+  test("a link that can open hands its native URL to the app on load", async () => {
+    const element = await page({ harness: "claude", session: "s1", host: "cosmic-gray" });
+
+    expect(autoOpened(element)).toEqual(["cmux://agent/claude/s1?host=cosmic-gray"]);
+  });
+
+  test("the other link kinds open on load with the URL their Open button carries", async () => {
+    const element = await page({ host: "dev.example.com", user: "alice" }, "ssh");
+
+    expect(autoOpened(element)).toEqual(["cmux://ssh?host=dev.example.com&user=alice"]);
+  });
+
+  test("a link that cannot open opens nothing on load", async () => {
+    expect(autoOpened(await page({ harness: "claude" }))).toEqual([]);
+    expect(autoOpened(await page({ id: "aid-0123456789abcdef0123" }))).toEqual([]);
+    expect(autoOpened(await page({ harness: "claude", session: ["s1", "s2"] }))).toEqual([]);
+    expect(autoOpened(await page({ host: "-oProxyCommand=x" }, "ssh"))).toEqual([]);
   });
 });
