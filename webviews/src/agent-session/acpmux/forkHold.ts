@@ -60,13 +60,17 @@ export function useHeldFork(sessionId: string | undefined): HeldFork | undefined
 }
 
 /// The composer's send in a chat with a held pick (Leo 2026-11-06: "it should only need to
-/// necessarily fork when you enter a message on that new model"): the message forks the chat to the
-/// pick's harness through Continue In… (`chat.handoff.prepare`, App.tsx), which lands the model on
+/// necessarily fork when you enter a message on that new model"). Where acpmux forks onto another
+/// harness (`forkOnto`, `chat.forkOnto` in App.tsx), the message forks the chat there at once: the
+/// fork opens in a tab of its own under a "Forked from" line with the chat's history above it, the
+/// model lands on it, and the message is its first prompt, with no review (Leo, 2026-11-11: "all it
+/// should be is like, you know, it looks like there's a line, and it's like, you know, forked from
+/// previous"). Else it forks through Continue In… (`chat.handoff.prepare`), which lands the model on
 /// the new chat and adds the message to its review. Undefined: nothing is held, the send goes on
-/// as usual. False: the composer keeps the message (the chat can't fork now: a turn or queue runs,
-/// a review is open; or it carries images, which the review's text can't hold). Else the promise
-/// the composer holds the message on: it clears once the review is ready, and keeps it when the
-/// fork fails.
+/// as usual. False: the composer keeps the message (Continue In… can't start now: a turn or queue
+/// runs, a review is open; or it carries images, which the review's text can't hold). Else the
+/// promise the composer holds the message on: it clears once the fork took it (or the review is
+/// ready), and keeps it when the fork fails.
 export function sendHeldFork(
   sessionId: string | undefined,
   text: string,
@@ -74,29 +78,34 @@ export function sendHeldFork(
     images,
     ready,
     prepare,
+    forkOnto,
     sent,
   }: {
     images: number;
     /// Continue In… can start now (canContinueIn).
     ready: boolean;
     prepare(params: Record<string, unknown>): Promise<string | undefined>;
+    /// Forks the chat onto the pick's harness and sends it the message (with the send's images),
+    /// resolving the fork; absent where acpmux can't fork onto another harness.
+    forkOnto?(params: HeldForkParams): Promise<string | undefined>;
     /// The fork started: the source chat's draft is cleared (the message went with the fork).
     sent?(sessionId: string): void;
   },
 ): false | Promise<string> | undefined {
   const pick = heldFork(sessionId);
   if (!pick) return undefined;
-  if (images > 0 || !ready) return false;
-  return prepare({
+  if (!forkOnto && (images > 0 || !ready)) return false;
+  const params: HeldForkParams = {
     harness: pick.harness,
     ...(pick.model ? { model: pick.model } : {}),
     ...(pick.effort ? { effort: pick.effort } : {}),
     ...(pick.fast ? { fast: true } : {}),
     message: text,
-  }).then(
+  };
+  return (forkOnto ? forkOnto(params) : prepare(params)).then(
     (target) => {
       // l10n-allow: a developer error for the composer's promise; the composer keeps the text, never shows this.
-      if (!target) throw new Error("chat.handoff.prepare made no review");
+      if (!target) throw new Error("the held pick's fork made no chat");
       clearHeldFork(pick.sessionId);
       sent?.(pick.sessionId);
       return target;

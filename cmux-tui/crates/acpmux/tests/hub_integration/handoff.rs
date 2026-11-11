@@ -711,3 +711,60 @@ async fn a_compacted_source_hands_off_its_summary_and_the_messages_since() {
     assert!(str_of(transcript, "/detail").starts_with("compaction summary"), "{transcript}");
     let _ = std::fs::remove_dir_all(&store);
 }
+
+/// A fork onto another harness (`_meta.acpmux.harness`, the pane's send with a held pick of
+/// another harness's model): the fork runs that harness, shows the chat's history under its
+/// `forked` line, which names both harnesses, and its new agent's first prompt carries the chat's
+/// transcript under a note that says it was forked from the chat (Leo, 2026-11-11).
+#[tokio::test]
+async fn a_fork_onto_another_harness_runs_it_and_briefs_its_agent() {
+    let (hub, _) = handoff_hub(None);
+    let mut c = connect(&hub).await;
+    let src = new_session(&mut c, "src").await;
+    c.request(method::SESSION_PROMPT, prompt(&src, "hello there", None)).await.unwrap();
+    let forked = c
+        .request(
+            method::SESSION_FORK,
+            json!({"sessionId": src, "_meta": {"acpmux": {"harness": "mirror"}}}),
+        )
+        .await
+        .unwrap();
+    let fork = str_of(&forked, "/sessionId").to_owned();
+    let meta = hub.resolve(&fork).unwrap().meta();
+    assert_eq!(meta.harness, "mirror");
+    assert_eq!(meta.parent_id.as_deref(), Some(src.as_str()));
+    assert!(meta.modes.is_none() && meta.agent_capabilities.is_none(), "the chat's agent's own");
+    let events = hub.events(&fork, 0, 10_000).unwrap();
+    let line = events.iter().find(|e| e.kind == "forked").expect("a forked record");
+    assert_eq!(line.msg["fromHarness"], "fake", "{}", line.msg);
+    assert_eq!(line.msg["toHarness"], "mirror", "{}", line.msg);
+    // The chat's history shows in the fork, before its line.
+    assert!(
+        events.iter().any(|e| e.kind == "user_message" && e.seq < line.seq),
+        "the chat's history under the fork's line"
+    );
+
+    c.request(method::SESSION_PROMPT, prompt(&fork, "and now?", None)).await.unwrap();
+    let sent: Vec<String> = hub
+        .events(&fork, line.seq, 10_000)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.dir == "out")
+        .map(|e| e.msg.to_string())
+        .collect();
+    let briefed = sent.iter().find(|m| m.contains("restored_transcript")).expect("a briefing");
+    assert!(briefed.contains("forked from fake chat src"), "{briefed}");
+    assert!(briefed.contains("hello there"), "the chat's transcript: {briefed}");
+
+    // A harness of the chat's own family is an ordinary fork.
+    let same = c
+        .request(
+            method::SESSION_FORK,
+            json!({"sessionId": src, "_meta": {"acpmux": {"harness": "fake"}}}),
+        )
+        .await
+        .unwrap();
+    let same = hub.resolve(str_of(&same, "/sessionId")).unwrap().meta();
+    assert_eq!(same.harness, "fake");
+    hub.shutdown_all().await;
+}

@@ -1365,6 +1365,9 @@ export type AcpmuxSnapshot = {
   clockOffsetMs?: number;
   /// acpmux serves `acp.session.fork` (operations.ts), so a turn can be forked from.
   canFork?: boolean;
+  /// acpmux forks onto another harness (operations.ts `FORK_HARNESS_OP`): a held pick of another
+  /// harness's model forks the chat there on send (forkHold.ts), with no review.
+  canForkOnto?: boolean;
   /// The chat's own machine (a Cloud or SSH chat) opens its side chats there: New side chat and
   /// `/side` (direct.ts `sideChatOnMachine`).
   sideChatOnMachine?: true;

@@ -100,6 +100,40 @@ impl Hub {
             None,
             start_later,
             None,
+            None,
+        ))
+        .await
+    }
+
+    /// [`Hub::fork`] onto another harness (`_meta.acpmux.harness`): the composer's pick of another
+    /// harness's model in a started chat forks it there (Leo, 2026-11-11: "you select a different
+    /// model ... That's implicitly you're forking it"). The fork shows the chat's history by
+    /// reference under its `forked` line, as any fork does, and its new agent gets acpmux's
+    /// transcript of the chat with its first prompt, under a note that says it was forked
+    /// (`Made::Fresh`). A harness of the chat's own family is an ordinary fork.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn fork_onto(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        name: Option<String>,
+        cwd: Option<PathBuf>,
+        session_env: std::collections::BTreeMap<String, String>,
+        workspace_id: Option<String>,
+        through: Option<u64>,
+        start_later: bool,
+        harness: Option<String>,
+    ) -> Result<Arc<Session>, RpcError> {
+        Box::pin(self.fork_with_boundary(
+            session,
+            name,
+            cwd,
+            session_env,
+            workspace_id,
+            through,
+            None,
+            start_later,
+            None,
+            harness,
         ))
         .await
     }
@@ -120,6 +154,7 @@ impl Hub {
         before: Option<(String, crate::store::ForkBefore)>,
         start_later: bool,
         sub: Option<SubsessionFork<'_>>,
+        onto: Option<String>,
     ) -> Result<Arc<Session>, RpcError> {
         let empty = before.as_ref().is_some_and(|(_, b)| b.through_seq.is_none());
         let (subsession, lineage, checked) = match sub {
@@ -129,6 +164,25 @@ impl Hub {
             None => (None, None, None),
         };
         let parent_meta = session.meta();
+        // The harness a fork onto another harness runs (`fork_onto`); none for one of the chat's
+        // own family, which forks as any fork does.
+        let onto = match onto {
+            Some(head) => {
+                let cfg = self.config.read().await;
+                let profile = cfg.resolve_harness(&head).map_err(RpcError::invalid_params)?;
+                let p = cfg.profile(&profile).ok_or_else(|| {
+                    RpcError::invalid_params(format!("no harness profile {profile:?}"))
+                })?;
+                let family = crate::config::derive_family(&profile, p);
+                let own = parent_meta.family.clone().unwrap_or_else(|| parent_meta.harness.clone());
+                (family != own && profile != parent_meta.harness).then(|| Onto {
+                    argv: p.argv.clone(),
+                    profile,
+                    family,
+                })
+            }
+            None => None,
+        };
         // Tests only: the parent's turn records its rules while the fork is being made.
         #[cfg(test)]
         {
@@ -243,6 +297,10 @@ impl Hub {
         let made = if empty {
             turn_count = 0;
             Made::Empty
+        } else if onto.is_some() {
+            // Another harness holds no copy of this one's conversation: its new agent reads
+            // acpmux's transcript of the chat with its first prompt.
+            Made::Fresh
         } else if let Some(through) = cut {
             // The fork resumes a copy of the agent's transcript through that turn.
             // The chat moved past that turn at its next event, which acpmux logs
@@ -420,15 +478,17 @@ impl Hub {
         // A fork into another folder takes that folder's guidance and instructions, sent with
         // its first turn even when the parent had already sent its own.
         let moved = !parent_meta.remote_origin && !same_folder(&cwd, &parent_meta.cwd);
+        // The harness the fork runs: its guidance is that harness's.
+        let fork_harness = onto.as_ref().map_or(&parent_meta.harness, |o| &o.profile);
         let cmux_context = if !parent_meta.remote_origin
             && (empty
                 || moved
+                || onto.is_some()
                 || (matches!(made, Made::Fresh) && parent_meta.cmux_context.is_none()))
         {
             let cfg = self.config.read().await;
-            let family = crate::context_inventory::family_for_folder(&cfg, &parent_meta.harness);
-            let parts =
-                crate::context_inventory::snapshot_for(&cfg, &cwd, &parent_meta.harness, false);
+            let family = crate::context_inventory::family_for_folder(&cfg, fork_harness);
+            let parts = crate::context_inventory::snapshot_for(&cfg, &cwd, fork_harness, false);
             // A native fork's agent keeps the parent's transcript, the old folder's
             // instructions in it: the new ones say those no longer apply.
             if moved && matches!(made, Made::Agent(..) | Made::ClaudeResume) {
@@ -611,6 +671,9 @@ impl Hub {
             delegator: None,
             cold: None,
         };
+        if let Some(o) = onto {
+            o.apply(&mut meta);
+        }
         if empty && !meta.remote_origin {
             let cfg = self.config.read().await;
             meta.cmux_preset_prompt = crate::context_inventory::preset_override(&meta, &cfg);
@@ -620,7 +683,19 @@ impl Hub {
         match made {
             Made::ClaudeResume => *new.fork_from.lock().unwrap() = Some(sid.clone()),
             // Its first prompt carries the chat's transcript (`hub/turns.rs`).
-            Made::Fresh => new.rehydrate.store(true, Ordering::SeqCst),
+            Made::Fresh => {
+                // A fork onto another harness: its agent is told it joins the chat here (Leo,
+                // 2026-11-11: "ChatGPT can have, like, a small little briefing of, like, you were
+                // forked from this chat").
+                let meta = new.meta();
+                if meta.harness != parent_meta.harness {
+                    *new.rehydrate_note.lock().unwrap_or_else(|e| e.into_inner()) = Some(format!(
+                        "this chat was forked from {} chat {} ({}) when the person switched to you; the conversation so far is below, the earlier replies are {}'s, not yours; carry on from where it ended; tool state was not restored",
+                        parent_meta.harness, parent_meta.name, session.id, parent_meta.harness
+                    ));
+                }
+                new.rehydrate.store(true, Ordering::SeqCst)
+            }
             Made::Copy(_) | Made::Agent(..) | Made::Empty => {}
         }
         if let Err(e) = self.write_meta(&new) {
@@ -771,6 +846,11 @@ impl Hub {
             m.harness_sandbox = Default::default();
         }
         let mut forked = json!({"parentId": session.id, "forkSeq": new.meta().fork_seq});
+        // A fork onto another harness names both, for its line (`fork_onto`).
+        if new.meta().harness != parent_meta.harness {
+            forked.set("fromHarness", json!(parent_meta.harness));
+            forked.set("toHarness", json!(new.meta().harness));
+        }
         if let Some((_, b)) = &before {
             forked.set("beforePromptId", json!(b.prompt_id));
             forked.set("promptSeq", json!(b.prompt_seq));
@@ -843,6 +923,41 @@ impl Hub {
             tracing::warn!(session = %new.id, "fork child start failed: {e}");
         }
         Ok(new)
+    }
+}
+
+/// The harness a fork onto another harness runs ([`Hub::fork_onto`]).
+struct Onto {
+    profile: String,
+    family: String,
+    argv: Vec<String>,
+}
+
+impl Onto {
+    /// The fork's meta on this harness: what the chat's agent reported of itself (its modes,
+    /// models, options, commands, capabilities, limits) and the chat's preset and store are its
+    /// harness's, not this one's; the new agent reports its own when it starts. It starts in its
+    /// harness's own mode under the chat's policy, never in a wider one.
+    fn apply(self, meta: &mut SessionMeta) {
+        meta.harness = self.profile;
+        meta.harness_argv = self.argv;
+        meta.family = Some(self.family);
+        meta.preset = None;
+        meta.model_request = None;
+        meta.agent_info = None;
+        meta.agent_capabilities = None;
+        meta.steering = false;
+        meta.html_previews = false;
+        meta.mode_set_by_cmux = None;
+        meta.modes = None;
+        meta.config_options = None;
+        meta.models = None;
+        meta.cmux_preset_prompt = None;
+        meta.usage_limits = None;
+        meta.available_commands = None;
+        meta.chat_store = None;
+        meta.preset_mode_approval = None;
+        meta.tools = Default::default();
     }
 }
 

@@ -1484,8 +1484,9 @@ function DefaultComposerChips({
       // able to switch to different harnesses, can expose as fork"): the chat menu's own path, its
       // review in this tab, then the new chat in a tab of its own. A pick of another harness's model
       // only holds it (forkHold.ts); the next message forks (Leo 2026-11-06: "it should only need to
-      // necessarily fork when you enter a message on that new model"), the composer's send.
-      {...(!startsChat && snapshot.canHandoff ? { fork: true } : {})}
+      // necessarily fork when you enter a message on that new model"), the composer's send: onto
+      // the pick's harness where acpmux forks there (`canForkOnto`), else through Continue In….
+      {...(!startsChat && (snapshot.canHandoff || snapshot.canForkOnto) ? { fork: true } : {})}
       {...(cwd ? { folder: cwd } : {})}
       // Sent from the pick's own handler: the host's Enable confirmation needs the gesture.
       onHarnessEnable={(folder, id) => void callNative("chat.harness.enable", { folder, id }).catch(() => undefined)}
@@ -8798,6 +8799,39 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               },
             );
           },
+          // A held pick of another harness's model, on send, where acpmux forks onto another harness
+          // (forkHold.ts `sendHeldFork`): the chat forks there as it is now, the fork opens in a tab
+          // of its own (its forked line, with the chat's history above it, drawn on the frame it
+          // opens), and the message is its first prompt. Resolves the fork once it is open; rejects
+          // when no fork was made, so the composer keeps the message and the pick.
+          "chat.forkOnto": async ({ harness, model, effort, fast, message, attachments, gesture }) => {
+            harnessSwitch.cancel();
+            const chat = client.selectedSession;
+            const forked = await client.forkOnto({
+              harness: String(harness),
+              ...(typeof model === "string" && model ? { model } : {}),
+              ...(typeof effort === "string" && effort ? { effort } : {}),
+              ...(fast === true ? { fast: true } : {}),
+            });
+            // l10n-allow: the composer's promise only; the fork's own toast says why.
+            if (!forked) throw new Error("no fork");
+            await openFork(forked, chat, "tab", {
+              open: openOwnTab,
+              selected: () => client.selectedSession,
+              select: (id) => client.select(id),
+              persist: persistSession,
+              focus: () => composerHandle.current?.focus(),
+            });
+            const text = typeof message === "string" ? message.trim() : "";
+            const files = Array.isArray(attachments) ? (attachments as ComposerAttachment[]) : [];
+            if (text || files.length)
+              void client.promptSide(forked, text, files, sendGestureParam(gesture)).catch((error: unknown) => {
+                const code = (error as { code?: unknown } | null)?.code;
+                if (typeof code === "string" && code.startsWith("transport."))
+                  notices.transient(translate("prompt.notSent", { reason: errorMessage(error) || code }));
+              });
+            return forked;
+          },
           "chat.handoff.get": () => client.refreshHandoff(),
           "chat.handoff.draft": ({ review }) => client.saveHandoff(review as HandoffReviewInput),
           "chat.handoff.start": async ({ review }) => {
@@ -11654,12 +11688,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               // it when the fork can't start (a turn running, a review open) or fails. Images can't
               // join the review's text, so a message with them stays too.
               if (snapshot.sessionId && surfaceRef.current !== "quick") {
-                // A chat that can no longer hand off (its host lost the support) drops the pick.
-                if (!snapshot.canHandoff) clearHeldFork(snapshot.sessionId);
+                // A chat that can no longer fork (its host lost the support) drops the pick.
+                if (!snapshot.canHandoff && !snapshot.canForkOnto) clearHeldFork(snapshot.sessionId);
                 const forked = sendHeldFork(snapshot.sessionId, text, {
                   images: chips?.length ?? 0,
                   ready: canContinueIn(snapshot),
                   prepare: (params) => callNative<string | undefined>("chat.handoff.prepare", params),
+                  ...(snapshot.canForkOnto && {
+                    forkOnto: (params) =>
+                      callNative<string | undefined>("chat.forkOnto", {
+                        ...params,
+                        attachments: shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
+                        ...(gesture ? { gesture } : {}),
+                      }),
+                  }),
                   // The composer leaves with the chat: its prompt is not the source chat's draft now.
                   sent: (source) => writePersistedDraft(source, ""),
                 });

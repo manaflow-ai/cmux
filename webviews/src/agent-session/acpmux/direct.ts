@@ -87,7 +87,8 @@ import { usageLimitsOf } from "./usageLimits";
 import { clampRunning, subsessionLimits } from "./subsessionLimits";
 import { agentName } from "./agents";
 import { forkHistoryTail, sameForkHistory } from "./forkTail";
-import { FORK_OP, servesOperation } from "./operations";
+import { FORK_HARNESS_OP, FORK_OP, servesOperation } from "./operations";
+import { HELD_EFFORT_ID, HELD_FAST_ID, HELD_FAST_ON } from "./heldOptions";
 import { postNative } from "./native";
 import {
   forgetTail,
@@ -2637,6 +2638,7 @@ export class AcpmuxDirectClient {
   private clockOffset?: number;
   /// acpmux lists `acp.session.fork` among the operations it serves.
   private canFork = false;
+  private canForkOnto = false;
   private handoffSupported = false;
   private readonly peerEvents = new PeerStateEvents();
   /// The `_acpmux/*` methods acpmux's `initialize` lists (`_meta.acpmux.extensions`).
@@ -3275,6 +3277,7 @@ export class AcpmuxDirectClient {
         AcpmuxDirectClient.DAEMON_PROBE_AFTER_MS,
       );
       this.canFork = servesOperation(initialized, FORK_OP);
+      this.canForkOnto = servesOperation(initialized, FORK_HARNESS_OP);
       const features = initialized?._meta?.acpmux?.features;
       this.features = new Set(
         Array.isArray(features) ? features.filter((value): value is string => typeof value === "string") : [],
@@ -9366,6 +9369,7 @@ export class AcpmuxDirectClient {
       // Only a peer runs on another clock; this computer's own sessions need no correction.
       ...(summary?.peer && this.clockOffset !== undefined ? { clockOffsetMs: this.clockOffset } : {}),
       canFork: this.canFork,
+      ...(this.canFork && this.canForkOnto ? { canForkOnto: true as const } : {}),
       ...(this.features.has(SIDE_CHAT_FEATURE) ? { sideChatOnMachine: true as const } : {}),
       canHandoff: this.handoffSupported,
       handoff: this.handoff.state,
@@ -12346,7 +12350,8 @@ export class AcpmuxDirectClient {
   /// stays there. `stay` keeps this chat open and only answers the fork, for its own tab: the pane
   /// shows its pending line meanwhile (ForkPendingLine), whose Cancel is `cancelFork`.
   /// `"live"`: the whole chat as it is now, also while its turn runs (Fork Conversation).
-  async fork(throughSeq: number | "live", from?: string, stay = false): Promise<string | undefined> {
+  /// `harness`: the fork runs that harness (`forkOnto`).
+  async fork(throughSeq: number | "live", from?: string, stay = false, harness?: string): Promise<string | undefined> {
     if (!this.canFork || !this.actingSessionId || this.forking) return undefined;
     this.forking = true;
     this.forkCancelled = false;
@@ -12360,7 +12365,10 @@ export class AcpmuxDirectClient {
       this.emit();
     }
     try {
-      const boundary = throughSeq === "live" ? { sessionId, live: true } : { sessionId, throughSeq };
+      const boundary = {
+        ...(throughSeq === "live" ? { sessionId, live: true } : { sessionId, throughSeq }),
+        ...(harness ? { _meta: { acpmux: { harness } } } : {}),
+      };
       const result = await this.request(FORK_OP, cancelToken ? { ...boundary, cancelToken } : boundary);
       if (this.forkCancelled) {
         if (result?.sessionId) this.takeBackFork(String(result.sessionId));
@@ -12389,6 +12397,35 @@ export class AcpmuxDirectClient {
         this.emit();
       }
     }
+  }
+  /// The open chat forked as it is now onto another harness (acpmux `Hub::fork_onto`), the pick's
+  /// model landed on the fork before its first prompt: a held pick of another harness's model, on
+  /// send (forkHold.ts; Leo, 2026-11-11: "you select a different model ... That's implicitly you're
+  /// forking it"). Its effort and Fast are best effort. Stays on this chat, as `fork`'s `stay`; the
+  /// caller opens the fork. A model the fork's agent refuses takes the fork back and throws, so the
+  /// composer keeps the message and the pick.
+  async forkOnto(pick: {
+    harness: string;
+    model?: string;
+    effort?: string;
+    fast?: boolean;
+  }): Promise<string | undefined> {
+    if (!this.canForkOnto) return undefined;
+    const forked = await this.fork("live", undefined, true, pick.harness);
+    if (!forked) return undefined;
+    if (pick.model) {
+      try {
+        await this.request("session/set_model", { sessionId: forked, modelId: pick.model });
+      } catch (error) {
+        this.takeBackFork(forked);
+        throw error;
+      }
+    }
+    const option = (configId: string, value: string) =>
+      this.request("session/set_config_option", { sessionId: forked, configId, value }).catch(() => undefined);
+    if (pick.effort) await option(HELD_EFFORT_ID, pick.effort);
+    if (pick.fast) await option(HELD_FAST_ID, HELD_FAST_ON);
+    return forked;
   }
   /// Cancel on the pending fork: acpmux stops it where it is, by the token its request named it
   /// with, and leaves nothing of it; one already made is taken back whole. Its answer opens

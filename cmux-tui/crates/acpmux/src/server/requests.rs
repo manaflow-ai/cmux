@@ -2177,6 +2177,15 @@ async fn dispatch_request_with_identity(
             let workspace_id = crate::session_env::workspace_id(mux_meta(&params), &env)?;
             let through = super::fork_through::through(&params);
             let start_later = super::fork_through::starts_later(&params);
+            // A fork onto another harness is this computer's person's alone: a remote device
+            // continues a chat on another harness through Continue In… (`handoff_prepare`), whose
+            // guard checks the new chat's policy.
+            let onto = super::fork_through::onto(&params);
+            if onto.is_some() && conn.origin.web_class() {
+                return Err(RpcError::invalid_params(
+                    "a fork onto another harness is refused from a remote connection",
+                ));
+            }
             let who = who(conn);
             let (new, warning) = if let Some(prompt) =
                 params.pointer("/_meta/acpmux/beforePromptId").and_then(Value::as_str)
@@ -2195,7 +2204,8 @@ async fn dispatch_request_with_identity(
                     if crate::hub::fork_cancel::cancelled() {
                         return Err(crate::hub::fork_cancel::cancelled_refusal());
                     }
-                    let fork = hub.fork(&s, name, cwd, env, workspace_id, through, start_later);
+                    let fork =
+                        hub.fork_onto(&s, name, cwd, env, workspace_id, through, start_later, onto);
                     let new = admitted.run(fork).await?;
                     Ok((new, admitted.warning.clone()))
                 };

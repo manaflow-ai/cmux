@@ -1753,6 +1753,7 @@ impl Hub {
             asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
             asks_landed: Notify::new(),
             rehydrate: AtomicBool::new(false),
+            rehydrate_note: StdMutex::new(None),
             forum_retell: AtomicBool::new(false),
             forum_retold: std::sync::Mutex::default(),
             forum_telling: std::sync::Mutex::default(),

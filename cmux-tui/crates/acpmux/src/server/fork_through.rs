@@ -19,8 +19,21 @@ use crate::no_panic::JsonExt;
 use crate::store::SessionStatus;
 
 /// Advertised in `initialize` as `_meta.acpmux.operations`.
-pub const FORK_OPERATIONS: [&str; 2] =
-    [method::ACP_SESSION_FORK, "acp.session.fork.beforePromptId"];
+pub const FORK_OPERATIONS: [&str; 3] =
+    [method::ACP_SESSION_FORK, "acp.session.fork.beforePromptId", FORK_HARNESS_OPERATION];
+
+/// A fork onto another harness (`_meta.acpmux.harness`, `Hub::fork_onto`): the pane's send with a
+/// held pick of another harness's model forks there only when acpmux lists it.
+pub const FORK_HARNESS_OPERATION: &str = "acp.session.fork.harness";
+
+/// The harness a `session/fork` forks onto (`_meta.acpmux.harness`), if it names one.
+pub(super) fn onto(params: &Value) -> Option<String> {
+    params
+        .pointer("/_meta/acpmux/harness")
+        .and_then(Value::as_str)
+        .filter(|h| !h.is_empty())
+        .map(str::to_owned)
+}
 
 /// `acp.session.fork` as the `session/fork` it becomes. Any other method
 /// stays as it is, less a `throughSeq`: only `acp.session.fork` names one.
@@ -71,7 +84,7 @@ fn remote_refusal(live: bool) -> &'static str {
 /// its sibling).
 fn carried_meta(params: &Value) -> serde_json::Map<String, Value> {
     let mut mux = serde_json::Map::new();
-    for key in ["via", "requireFullAccess", "name"] {
+    for key in ["via", "requireFullAccess", "name", "harness"] {
         if let Some(value) = params.pointer(&format!("/_meta/acpmux/{key}")) {
             mux.insert(key.into(), value.clone());
         }

@@ -538,6 +538,31 @@ test("a send with a held pick forks through Continue In…'s chat.handoff.prepar
   expect(heldFork("s1")?.harness).toBe("codex");
 });
 
+test("where acpmux forks onto another harness, the held pick's send forks there, with no review", async () => {
+  // Leo, 2026-11-11: "you select a different model ... That's implicitly you're forking it".
+  const { holdFork, heldFork, sendHeldFork } = await import("../src/agent-session/acpmux/forkHold");
+  const forks: Record<string, unknown>[] = [];
+  const cleared: string[] = [];
+  const prepare = async () => {
+    throw new Error("no review on a fork onto another harness");
+  };
+  const forkOnto = async (params: Record<string, unknown>) => (forks.push(params), "s3");
+  holdFork({ sessionId: "s1", harness: "codex", model: "gpt-6.1-sol", fast: true });
+  // A working chat forks as it is now, and images go with the message: neither keeps it.
+  await expect(
+    sendHeldFork("s1", "and now?", { images: 1, ready: false, prepare, forkOnto, sent: (id) => cleared.push(id) }),
+  ).resolves.toBe("s3");
+  expect(forks).toEqual([{ harness: "codex", model: "gpt-6.1-sol", fast: true, message: "and now?" }]);
+  expect(heldFork("s1")).toBeUndefined();
+  expect(cleared).toEqual(["s1"]);
+  // A fork that was not made rejects, so the composer keeps the message; the pick stays.
+  holdFork({ sessionId: "s1", harness: "codex" });
+  await expect(
+    sendHeldFork("s1", "again", { images: 0, ready: true, prepare, forkOnto: async () => undefined }),
+  ).rejects.toThrow();
+  expect(heldFork("s1")?.harness).toBe("codex");
+});
+
 type HandoffRecord = import("../src/agent-session/acpmux/handoff/protocol").Handoff;
 /// The review's record Continue In… drew for the new chat `s2`.
 const review = (text: string, checkpoint?: string) =>

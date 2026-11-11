@@ -5,6 +5,11 @@
 /// the new session, holding the source's events up to and including `throughSeq`.
 export const FORK_OP = "acp.session.fork";
 
+/// A fork onto another harness: `acp.session.fork` with `_meta.acpmux.harness` (acpmux
+/// `Hub::fork_onto`). The fork runs that harness, shows the chat's history under its forked line,
+/// and its new agent reads the chat's transcript with its first prompt.
+export const FORK_HARNESS_OP = "acp.session.fork.harness";
+
 /// Whether acpmux's `initialize` result lists `op` among the operations it serves
 /// (`_meta.acpmux.operations`). An acpmux that does not list it does not get asked.
 export function servesOperation(initialize: unknown, op: string): boolean {
