@@ -78,6 +78,10 @@ struct CmdNTopInGroupFramesTests {
         list.onApply = nil
         let after = Self.rows(list.displayed, model: model, home: home)
         let made = created()
+        let doc = services.sidebarDoc
+        print("settle-debug: items \(after.map { "\($0)=\(doc.item(workspace: $0) ?? "none")" })")
+        print("settle-debug: personal \(services.machines.local.store.personal.workspacesInOrder.map { String(describing: $0) })")
+        print("settle-debug: keys \(store.workspaces.map { "\($0.id)=\(String(describing: $0.key))" })")
         await launched.stop()
 
         let id = try #require(made, "no workspace was made")
