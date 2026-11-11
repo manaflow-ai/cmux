@@ -7,13 +7,21 @@ bare repository. So the test runs the script's real steps: the bundle, the hook,
 
   python3 scripts/cmux-next/tests/test_push_from_host.py
 """
+import importlib.util
 import os
 import subprocess
 import tempfile
 import time
 import unittest
-import uuid
 from pathlib import Path
+
+# tests/git_fixture_env.py turns off git's background maintenance in temp repos.
+_git_fixture_env = importlib.util.spec_from_file_location(
+    "git_fixture_env",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "tests", "git_fixture_env.py"),
+)
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_env)
+_git_fixture_env.loader.exec_module(git_fixture_env)
 
 SCRIPT = Path(__file__).resolve().parents[1] / "push-from-host.sh"
 TOKEN = "test-token-never-printed"
@@ -49,11 +57,16 @@ class PushFromHostTests(unittest.TestCase):
             (bin_dir / name).chmod(0o755)
         self.bin_dir = bin_dir
         config = self.root / "gitconfig"
-        config.write_text("[user]\n\tname = Fixture\n\temail = fixture@example.invalid\n[init]\n\tdefaultBranch = feat-cmux-next\n")
-        self.env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        # The fixture's own global config, with the helper's maintenance opt-out (it replaces the helper's file).
+        config.write_text("[user]\n\tname = Fixture\n\temail = fixture@example.invalid\n[init]\n\tdefaultBranch = feat-cmux-next\n"
+                          + git_fixture_env.CONFIG_FILE_OPT_OUT)
+        # No GIT_* from the caller (a pre-push hook's GIT_DIR would aim every git here at the caller's repository),
+        # then the helper's GIT_CONFIG_COUNT opt-out back on top.
+        self.env = git_fixture_env.fixture_env(
+            {key: value for key, value in os.environ.items() if not key.startswith("GIT_")})
         self.env.update(PATH=f"{bin_dir}:{self.env.get('PATH', '')}", GIT_CONFIG_GLOBAL=str(config),
                         GIT_CONFIG_NOSYSTEM="1", FAKE_HOST_HOME=str(self.host_home))
-        self.run_ok("git", "init", "--quiet", "--bare", str(self.origin))
+        git_fixture_env.init_repo(self.origin, "--bare", env=self.env)
         self.run_ok("git", "clone", "--quiet", str(self.origin), str(self.work))
         self.commit(self.work, "base.txt", "base\n", "base")
         self.git(self.work, "push", "--quiet", "origin", "HEAD:refs/heads/feat-cmux-next")
@@ -147,11 +160,15 @@ class PushFromHostTests(unittest.TestCase):
 
     # 2026-11-10: the push host went offline at 99% full. A killed run leaves its 2 GB checkout in /tmp.
     def test_a_push_removes_the_leftovers_of_old_runs_and_keeps_new_ones(self):
-        tag = uuid.uuid4().hex[:12]
-        old_tree = Path(f"/tmp/push-from-host-{tag}-1.tree")
-        old_bundle = Path(f"/tmp/push-from-host-{tag}-1.bundle")
-        fresh = Path(f"/tmp/push-from-host-{tag}-2.bundle")
-        old_tree.mkdir()
+        # The script sweeps /tmp/push-from-host-* on the host, so the leftovers live there; mkdtemp/mkstemp make
+        # each one fresh and exclusive, so no name is one another user could create first.
+        old_tree = Path(tempfile.mkdtemp(prefix="push-from-host-", suffix="-1.tree", dir="/tmp"))
+        handle, name = tempfile.mkstemp(prefix="push-from-host-", suffix="-1.bundle", dir="/tmp")
+        os.close(handle)
+        old_bundle = Path(name)
+        handle, name = tempfile.mkstemp(prefix="push-from-host-", suffix="-2.bundle", dir="/tmp")
+        os.close(handle)
+        fresh = Path(name)
         (old_tree / "file").write_text("x")
         old_bundle.write_text("x")
         fresh.write_text("x")
