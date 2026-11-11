@@ -90,6 +90,28 @@ def exit_with_verdict(results, what, may_skip=()):
 '''
 
 
+# A push's Mac jobs share one concurrency group per branch with cancel-in-progress off: the running job finishes, and
+# GitHub keeps one waiting job, cancelling the older waiting one when a newer push queues ("Canceling since a higher
+# priority waiting request for cmux-next-push-...-cmux-scheme-compile exists"). That cancel judged nothing, but it is
+# not a run that needs a re-run either: the newer push's job takes the slot and carries the verdict. A summary step
+# that reads such a job calls `superseded_push "WHAT"` only for a `cancelled` result, before its no verdict: it
+# returns 0 with a notice when this run is a push and the branch head has moved past it (one `git ls-remote`, no API
+# call), and 1 otherwise (not a push, the head unread or unmoved), so the step goes on to its no verdict.
+# Why: feat-cmux-next runs 43032789758 (c66b1b5a) and 43037486374 (cc4ec159), 2026-11-11: each scheme compile was
+# replaced while waiting, and `cmux-next crash ends the app` went red with "no verdict: crash gate: compile cancelled".
+SUPERSEDED_RULE = """\
+superseded_push() {  # scripts/ci/needs_verdict.py SUPERSEDED_RULE, copied verbatim (tests/test_needs_verdict.py)
+  local what=$1 head
+  [[ "${GITHUB_EVENT_NAME:-}" == push && -n "${GITHUB_SHA:-}" && -n "${GITHUB_REF:-}" ]] || return 1
+  head="$(git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 ls-remote \\
+    "${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-}.git" "$GITHUB_REF" 2>/dev/null \\
+    | awk 'NR==1{print $1}')" || head=""
+  [[ -n "$head" && "$head" != "$GITHUB_SHA" ]] || return 1
+  echo "::notice title=$what: superseded::not judged at $GITHUB_SHA: a newer push ($head) replaced its waiting job, and that push's run carries the verdict"
+}
+"""
+
+
 def classify(result: str | None, may_skip: bool = False) -> str:
     """PASS, FAIL or NONE for one entry."""
     value = (result or "").strip()

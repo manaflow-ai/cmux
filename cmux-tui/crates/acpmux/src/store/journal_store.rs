@@ -75,14 +75,15 @@ mod seal_tests;
 use checkpoint::{frozen_marker, read_checkpoint, remove_checkpoint_temporaries};
 pub(super) use fenced::FencedStorage;
 #[cfg(test)]
-pub(super) use meta::SETTLE_HOLD;
+pub(super) use meta::on_settle_hold;
 use repair::Replay;
 #[cfg(test)]
 pub(super) use repair::{FAIL_NEXT_WRITE_BACK, HELD_CAP, STOP_AFTER_CUT};
 
 /// The journal record kinds. (Kind 3, a `cancel` of a line the log refused, was used before the
 /// review of #34901 and never shipped: a refused line is never journaled now. Kind 4 is `meta`,
-/// `journal_store/meta.rs`; kind 5 was planned for S3 and never used.)
+/// `journal_store/meta.rs`; kind 5 was planned for S3 and never used; kind 7 is a `meta` change,
+/// `meta::KIND_META_PATCH`.)
 const KIND_LOG: u16 = 1;
 const KIND_FORGET: u16 = 2;
 /// A freeze (a failed sync of the store's files; its reason as text): the open that replays it
@@ -330,6 +331,9 @@ struct Order {
     /// Each chat's newest metadata image that its `session.json` does not hold yet (S3a,
     /// `journal_store/meta.rs`): reads see it first, the checkpoint writes it.
     metas: BTreeMap<String, meta::Pending>,
+    /// What this process last journaled of each chat's metadata: the base of its next change's
+    /// record, which holds only the fields that changed (`journal_store/meta.rs`).
+    images: HashMap<String, meta::LastImage>,
     /// The log segments whose verified bytes the open's repair wrote back over themselves: the
     /// next checkpoint syncs them before it retires their records. A killed daemon's writes may
     /// be in the page cache only, and a previous run's failed sync may have dropped pages that
@@ -940,6 +944,7 @@ impl Store for JournalStore {
             inner.acked.store(lsn, std::sync::atomic::Ordering::SeqCst);
             order.applied = lsn;
             order.metas.remove(id);
+            order.images.remove(id);
             order.repairs.get(id).cloned()
         };
         inner.touched();
