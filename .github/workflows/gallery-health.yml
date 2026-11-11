@@ -314,6 +314,9 @@ jobs:
           path: ${{ runner.temp }}/base-gallery
           retention-days: 1
           if-no-files-found: error
+          # A whole-workflow rerun runs this job again under the same run, where the first attempt's artifact
+          # of this name already exists: without this the upload fails and the rerun goes red.
+          overwrite: true
 
   health:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
