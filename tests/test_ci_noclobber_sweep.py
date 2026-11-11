@@ -25,10 +25,12 @@ reason, keyed by path and a piece of its line; an entry nothing matches fails, s
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -130,7 +132,7 @@ def code(line: str) -> str:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import shell_tree  # noqa: E402
 
-SHELL_TREE_SHA256 = "9ecf58397ea0af7144d376d2dbdded4706912bc28a4a7b28b78e2fd583d486ba"
+SHELL_TREE_SHA256 = "a126eed9fe948460408a4abe11fbc28338a6614a70e2e6620b8ddc3bb967713e"
 
 
 def without_templates(line: str) -> str:
@@ -169,15 +171,28 @@ def hits(root: Path = ROOT) -> list[tuple[str, int, str]]:
             text = (root / path).read_text()
         except (OSError, UnicodeDecodeError):
             continue
-        for n, line in enumerate(text.splitlines(), 1):
-            c = code(line)
-            if flagged(c):
-                out.append((path, n, c.strip()))
+        # The file is read whole where it is shell (shell_tree.scan_file), so a here-document, a continued line or
+        # a quote across lines keeps its context; the hit keeps the line's own text.
+        for n, (line, scan) in enumerate(zip(text.split("\n"), shell_tree.scan_file(path, text)), 1):
+            if NOCLOBBER.search(scan) or SHARED_TMP.search(scan):
+                out.append((path, n, code(line).strip() or line.strip()))
     return out
 
 
 def allowed(path: str, line: str) -> bool:
     return any(path == ap and piece in line for ap, piece in ALLOWED) or (not NOCLOBBER.search(line) and app_named(line))
+
+
+def scratch_hits(files) -> set[str]:
+    """The paths hits() flags in a scratch repository holding FILES ((path, text, is unsafe))."""
+    env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+    with tempfile.TemporaryDirectory() as tmp:
+        subprocess.run(["git", "init", "-q", tmp], check=True, env=env)
+        for path, text, _ in files:
+            (Path(tmp) / path).parent.mkdir(parents=True, exist_ok=True)
+            (Path(tmp) / path).write_text(text)
+        subprocess.run(["git", "-C", tmp, "add", "-A"], check=True, env=env)
+        return {p for p, _, _ in hits(Path(tmp))}
 
 
 class NoclobberSweep(unittest.TestCase):
@@ -238,7 +253,11 @@ class NoclobberSweep(unittest.TestCase):
                      # Review of manaflow-ai/cmux#41306 (block at 1f84d085): the outer word's template is only inside
                      # its substitution, and the write is on the outer mktemp; an unbalanced ) is not shell, so it
                      # exempts nothing.
-                     'mktemp "$(mktemp /tmp/a.XXXXXX)" > /tmp/out.$$', "mktemp /tmp/a.$$.XXXXXX)"):
+                     'mktemp "$(mktemp /tmp/a.XXXXXX)" > /tmp/out.$$', "mktemp /tmp/a.$$.XXXXXX)",
+                     # Review of manaflow-ai/cmux#41306 at 7e60a832, F1: an array's words read as a command; of
+                     # manaflow-ai/cmuxterm-hq#9338 at 0ea8b97f, F1: a process substitution in ${ } read as text.
+                     "paths=(mktemp ';' /tmp/out.$$.XXXXXX); printf secret > \"${paths[2]}\"",
+                     "mktemp ${TMPDIR:-<(printf secret > /tmp/out.$$)}/x.XXXXXX"):
             self.assertTrue(flagged(code(line)), line)
 
     def test_the_tree_walk_misses_nothing_in_the_corpus(self):
@@ -247,11 +266,21 @@ class NoclobberSweep(unittest.TestCase):
         misses = [(line, unsafe) for line, unsafe in shell_tree.corpus() if flagged(code(line)) != unsafe]
         self.assertEqual(misses, [], "(line, is unsafe) the sweep got wrong")
 
-    @unittest.skipUnless(shutil.which("bash"), "no bash to read the corpus")
     def test_the_corpus_is_shell(self):
+        self.assertTrue(shutil.which("bash"), "bash is needed to read the corpus; a host without it fails, never skips")
         bad = [line for line, _ in shell_tree.corpus() if line not in shell_tree.NOT_SHELL
                and subprocess.run(["bash", "-n", "-c", line], capture_output=True).returncode != 0]
+        bad += [path for path, text, _ in shell_tree.FILES if not path.endswith(".yml")
+                and subprocess.run(["bash", "-n"], input=text, capture_output=True, text=True).returncode != 0]
         self.assertEqual(bad, [])
+
+    def test_a_whole_file_is_read_in_context(self):
+        """Review of manaflow-ai/cmuxterm-hq#9338 at 0ea8b97f, F2: read line by line, a here-document's
+        `# $(...)` was a comment, though bash runs the substitution. hits() runs on each of shell_tree.FILES (here-
+        documents, continued lines, quotes across lines, case, arrays, a workflow's run block) in a scratch repo."""
+        files = shell_tree.FILES
+        found = scratch_hits(files)
+        self.assertEqual([p for p, _, unsafe in files if (p in found) != unsafe], [], "files the sweep got wrong")
 
     def test_shell_tree_is_the_shared_copy(self):
         """shell_tree.py is one file in four repos (its docstring); a change to it lands in all four, with this pin."""
