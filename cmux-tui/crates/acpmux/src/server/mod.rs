@@ -663,11 +663,11 @@ impl Conn {
         id: &Value,
         method: Option<&str>,
         claim: Option<&in_flight::Claim>,
-        result: &str,
+        result: Arc<String>,
         seen: u64,
         anyway: bool,
     ) -> Option<bool> {
-        let mut line = list_reply::reply_line(id, result);
+        let mut line = list_reply::reply_line_in(id, result);
         let bytes = line.len();
         let whole = bytes <= crate::rpc::MAX_MESSAGE_BYTES;
         if !whole {

@@ -343,3 +343,13 @@ cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileWorkspacesTests/WorkspacesTests.swif
 tests/browser-parity/sites/youtube-search.test.mjs	assert-on-duration	debt the widened gate first saw; remove once determinized
 tests/browser-parity/unit/budget.test.mjs	assert-on-duration	debt the widened gate first saw; remove once determinized
 tests/test_r2_cas.py	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/Shared/CmuxMessagesLab/Tests/MessagesLabHomeTests/HomeQuoteRebuildCostTests.swift	assert-on-duration	a clock difference held in a name, first seen when assert-on-duration followed names; move to a scaling ratio or a recorded clock
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/AgentSessionOpenLateDaemonTests.swift	assert-on-duration	a clock difference held in a name, first seen when assert-on-duration followed names; move to a scaling ratio or a recorded clock
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ClassicUpgradeHugeSimulationTests.swift	assert-on-duration	a clock difference held in a name, first seen when assert-on-duration followed names; move to a scaling ratio or a recorded clock
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudMoveTests.swift	assert-on-duration	a clock difference held in a name, first seen when assert-on-duration followed names; move to a scaling ratio or a recorded clock
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarHoverCardDwellTests.swift	assert-on-duration	a clock difference held in a name, first seen when assert-on-duration followed names; move to a scaling ratio or a recorded clock
+Packages/macOS/CmuxNext/Tests/CmuxNextControlTests/ActionRunCreatedTests.swift	assert-on-duration	a clock difference held in a name, first seen when assert-on-duration followed names; move to a scaling ratio or a recorded clock
+Packages/macOS/CmuxNext/Tests/CmuxNextErrorJournalTests/ErrorJournalDemandReadTests.swift	assert-on-duration	a clock difference held in a name, first seen when assert-on-duration followed names; move to a scaling ratio or a recorded clock
+tests/test_cmux_next_base_tier.py	assert-on-duration	a clock difference held in a name, first seen when assert-on-duration followed names; move to a scaling ratio or a recorded clock
+webviews/test/agent-pane-chat-unavailable.test.ts	assert-on-duration	a clock difference held in a name, first seen when assert-on-duration followed names; move to a scaling ratio or a recorded clock
+tests/test_base_red_excuse.py	assert-on-duration	a clock difference held in a name; cmux#41236 moves it to a scaling ratio, remove this line when it lands
