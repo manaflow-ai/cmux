@@ -70,6 +70,8 @@ mod host_notice_tests;
 #[cfg(test)]
 mod ledger_hub_tests;
 #[cfg(test)]
+mod owned_scope_bench;
+#[cfg(test)]
 mod peer_notice_cost_tests;
 #[cfg(test)]
 mod prompt_accept_tests;

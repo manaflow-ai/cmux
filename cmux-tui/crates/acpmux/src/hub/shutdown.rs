@@ -58,6 +58,9 @@ impl Hub {
         self.shutdown_plan.lock().unwrap_or_else(std::sync::PoisonError::into_inner).started
     }
 
+    /// The hub's own tasks end, after its agents (`daemon.rs`): none are owned yet.
+    pub(crate) async fn close_owned_tasks(&self) {}
+
     /// Fences new turns and automatic continuations before transports begin draining.
     pub(crate) fn begin_shutdown(&self) {
         self.start_shutdown();
