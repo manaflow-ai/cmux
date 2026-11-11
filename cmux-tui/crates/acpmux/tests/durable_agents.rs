@@ -691,6 +691,54 @@ async fn a_steer_its_turn_never_read_runs_next_after_an_update_restart() {
     assert_eq!(runs, 1, "the steer ran more than once: {:#?}", daemon.events(&session));
 }
 
+/// [`a_steer_its_turn_never_read_runs_next_after_an_update_restart`], when the turn ends while
+/// no daemon runs: the agent's `STEER_NO_TURN` answer is in the host's log when the next daemon
+/// adopts it, as it is when a shutdown cancels the daemon's watch of the answer before it came
+/// (`unread_steer.rs`). The steer still runs next, once.
+#[tokio::test]
+async fn a_steer_answered_unread_while_no_daemon_runs_runs_next_after_the_restart() {
+    let mut daemon = Daemon::claude_steering_with("steer-down", &["FAKE_STEER_NO_TURN_AT_END=1"]);
+    let session = new_session(&daemon).await;
+    let gate = daemon.home.join("gate");
+    make_fifo(&gate);
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": format!("gate: {}", gate.display())}]}),
+        )
+        .await;
+    daemon.wait_event(&session, "before-gate chunk", |e| chunk(e, "before-gate"));
+    let mut steerer = daemon.rpc().await;
+    steerer
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "a tell"}], "_meta": {"acpmux": {"steer": true}}}),
+        )
+        .await;
+    daemon.wait_event(&session, "the steer written to the agent", |e| {
+        e["kind"] == "session/prompt" && e["msg"]["params"]["_meta"]["steer"] == true
+    });
+
+    daemon.sigterm();
+    drop((client, steerer));
+    // The turn ends, and the steer is answered unread, while no daemon runs.
+    std::fs::write(&gate, b"go").unwrap();
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    let tell = |e: &Value| {
+        e["kind"] == "user_message" && e["msg"]["text"] == "a tell" && e["msg"]["steer"] != true
+    };
+    let turn =
+        daemon.wait_event(&session, "the steer run as a turn of its own", tell)["msg"]["turnId"]
+            .clone();
+    daemon.wait_event(&session, "the steer's turn result", |e| {
+        e["kind"] == "turn_result" && e["msg"]["turnId"] == turn
+    });
+    let runs = daemon.events(&session).iter().filter(|e| tell(e)).count();
+    assert_eq!(runs, 1, "the steer ran more than once: {:#?}", daemon.events(&session));
+}
+
 /// An update restarts acpmux while another agent's message runs as a turn of its own (an inbox
 /// notice). The daemon that started the notice writes `inbox_answered` when it ends, and a
 /// sender's resend of the message is answered from it. The adopting daemon ended the turn and
