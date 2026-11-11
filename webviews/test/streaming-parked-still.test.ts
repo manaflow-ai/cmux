@@ -18,12 +18,13 @@
 // have moved by exactly that scroll; an item gone while the scroll alone would leave it in view is a
 // blank flash. The picture moves only while the reader's own scroll is under way: from the frame their
 // first wheel event acted on until that scroll has ended: the browser's `scrollend` after their last
-// wheel event, and no step of the app's own easing of a notch (wheelGlide.ts) before the next frame is
-// read. A notch is the reader's distance, eased by the app over a motion step; each step writes the
-// offset, and Chromium fires `scrollend` after the first, so `scrollend` alone settled the scroll
-// mid-notch and counted the rest of the reader's own notch as late. Steps are counted, not flagged
-// per frame: a loaded Chromium can run the next frame's step before the last frame is read. The test reads that from the order of events, never from a clock, so a starved runner
-// that stretches frames, skips one mid-scroll, or delivers the wheel late, changes nothing it measures.
+// wheel event, and the last step of the app's own easing of a notch (wheelGlide.ts). A notch is the
+// reader's distance, eased by the app over a motion step; each step writes the offset, and Chromium
+// fires `scrollend` after the first, so `scrollend` alone settled the scroll mid-notch and counted the
+// rest of the reader's own notch as late. The test reads all of that from the order of events (steps
+// counted, wheels counted), never from a clock, so a starved runner that stretches frames, skips one
+// mid-scroll, runs the next step before the last frame is read, or delivers the wheel late, changes
+// nothing it measures.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
@@ -93,11 +94,10 @@ await requireBrowserLane("streaming-parked-still.test.ts", async () => {
     const from = Math.max(0, samples.findIndex((sample) => sample.wheels > 0) - 1);
     // The reader's scroll has settled at the first frame read after the scroller's `scrollend` that
     // followed their last wheel event (the browser's own word that the scroll it eased in is done),
-    // with no step of the app's easing of their notch before the next frame's read.
-    const found = samples.findIndex(
-      (sample, index) =>
-        sample.wheels === wheels && sample.ended && (samples[index + 1]?.eased ?? sample.eased) === sample.eased,
-    );
+    // and after the last step of the app's easing of their notch: no wheel comes after it, so nothing
+    // eases after it either, and any scroll from there on is not the reader's.
+    const eased = samples.at(-1)?.eased ?? 0;
+    const found = samples.findIndex((sample) => sample.wheels === wheels && sample.ended && sample.eased === eased);
     const settled = found < 0 ? undefined : found;
     const t0 = samples[from]?.t ?? 0;
     for (let index = from + 1; index < samples.length; index += 1) {
