@@ -34,16 +34,15 @@ import Testing
         let rows = rows([mac, cloud])
         let vm = try #require(rows[WorkspaceID("build-vm-ws")]), local = try #require(rows[WorkspaceID("This Mac-ws")])
         let content = try #require(vm.content)
-        // The machine mark is base's trailing one (#29833), not a leading icon.
-        #expect(content.machine?.name == "build-vm")
+        // A cloud mark by the name (2026-11-10), never the machine's name.
+        #expect(content.runsInCloud && content.machine == nil)
         #expect(content.icon == nil, "no icon before the title")
         #expect(content.detail == nil, "no second line")
         #expect(vm.height == local.height, "as tall as this Mac's one-line row")
-        // VoiceOver still says the computer.
-        #expect(content.machineLabel == "build-vm")
+        #expect(content.machineLabel == nil)
     }
 
-    /// Outside its machine's header (Pinned, a custom section) the mark still names the machine, and VoiceOver says it.
+    /// In Pinned or a custom section too, the row has its cloud mark and VoiceOver says Cloud, never the machine.
     @Test func aPinnedCloudRowKeepsItsMark() throws {
         let pinned = SidebarRowSection(kind: .custom(SidebarCustomSection(id: "pinned", title: "Pinned", showsTitle: true)),
                                        nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("pinned-vm-ws"), machineID: cloud.id,
@@ -52,10 +51,10 @@ import Testing
         let layout = SidebarLayout.make(sections: model.sections, metrics: .standard, options: model.listOptions())
         let row = try #require(layout.rows.first { $0.key == .workspace(WorkspaceID("pinned-vm-ws")) })
         let content = try #require(row.content)
-        #expect(content.machine?.name == "build-vm")
+        #expect(content.runsInCloud && content.machine == nil)
         let label = WorkspaceRowView.accessibilityText(SidebarWorkspace(id: WorkspaceID("pinned-vm-ws"), machineID: cloud.id, title: "deploy"),
                                                        content: content, tabCount: nil, presence: [])
-        #expect(label.contains("build-vm"))
+        #expect(label.contains(Strings.hoverCloud) && !label.contains("build-vm"))
     }
 
     @Test func anSSHRowKeepsItsMark() throws {
