@@ -250,13 +250,16 @@ class SingleHostFallbacks(unittest.TestCase):
         findings = self.scan({"callee.yml": self.PAIR, "caller.yml": callers})
         self.assertTrue([f for f in findings if "cannot be verified" in f], findings)
 
-    def count_work(self, wj, run):
-        """Calls of Workflows.input_values and of the resolve step for one run (the harness the PR body reports)."""
+    def count_work(self, wj, run, budget: int | None = None):
+        """Calls of Workflows.input_values and of the resolve step for one run (the harness the PR body reports). Past
+        `budget` calls in all the run fails at once, so a trace that explodes is a failure, not a hang."""
         counts = {"input_values": 0, "_resolve": 0}
 
         def counted(name, real):
             def wrapper(*args, **kwargs):
                 counts[name] += 1
+                if budget is not None and sum(counts.values()) > budget:
+                    raise AssertionError(f"more than {budget} calls: {counts}")
                 return real(*args, **kwargs)
             return wrapper
         with unittest.mock.patch.object(wj.Workflows, "input_values", counted("input_values", wj.Workflows.input_values)), \
@@ -304,6 +307,108 @@ class SingleHostFallbacks(unittest.TestCase):
         print(f"\nworkflow chain, {depth} workflows x 2 callers: {counts}", file=sys.stderr)
         self.assertEqual({r.name for r in found["r"].vars_read if r.field == "runs-on"}, {"TOP"})
         self.assertLessEqual(counts["input_values"] + counts["_resolve"], 2 * depth * 8, counts)
+
+    def default_chain(self, inputs: int, callers: int):
+        """`i0` .. `i<inputs-1>` of callee.yml, each defaulting to the next, the last to vars.LAST; runs-on reads i0;
+        `callers` jobs call it passing nothing."""
+        wj = checker.load_workflow_jobs()
+        declared = "".join(f"      i{n}: {{type: string, default: '${{{{ inputs.i{n + 1} }}}}'}}\n" for n in range(inputs - 1))
+        declared += f"      i{inputs - 1}: {{type: string, default: '${{{{ vars.LAST }}}}'}}\n"
+        callee = ("on:\n  workflow_call:\n    inputs:\n" + declared + "jobs:\n  a:\n    runs-on: ${{ inputs.i0 }}\n")
+        caller = "jobs:\n" + "".join(f"  c{n}:\n    uses: ./.github/workflows/callee.yml\n" for n in range(callers))
+        workflows = wj.Workflows({"callee.yml": wj.document(callee), "caller.yml": wj.document(caller)})
+        return wj, workflows, workflows.documents["callee.yml"]["jobs"]["a"]
+
+    def test_review_f2_a_default_chain_at_ten_callers_is_near_linear_in_inputs(self) -> None:
+        """Review F2 on #41015: at 10 callers, n inputs then 2n inputs in a default chain. The work must about double
+        (near linear in inputs, linear in callers); read through every caller at each level it was callers^inputs."""
+        callers, small = 10, 8
+        totals = {}
+        for inputs in (small, 2 * small):
+            wj, workflows, job = self.default_chain(inputs, callers)
+            found = {}
+            # resolve() traces runs-on twice (runs_on_cells, runs_on_values); x4 slack per trace.
+            budget = callers * inputs * 2 * 4
+            counts = self.count_work(wj, lambda: found.setdefault("r", wj.resolve(job, "a", "callee.yml", workflows)),
+                                     budget)
+            self.assertEqual({r.name for r in found["r"].vars_read if r.field == "runs-on"}, {"LAST"})
+            self.assertEqual(found["r"].unverifiable, frozenset())
+            totals[inputs] = sum(counts.values())
+            print(f"\ndefault chain, {callers} callers x {inputs} inputs: {counts}", file=sys.stderr)
+        ratio = totals[2 * small] / totals[small]
+        print(f"default chain, {callers} callers, inputs {small} -> {2 * small}: x{ratio:.2f}", file=sys.stderr)
+        self.assertLessEqual(ratio, 2.5, totals)
+
+    CALLS_NOTHING = "jobs:\n  c:\n    uses: ./.github/workflows/callee.yml\n"
+
+    def runner_default(self, default: str, extra: str = "") -> str:
+        """callee.yml whose `runner` defaults to `default` (YAML single-quoted) and whose runs-on reads it."""
+        return self.DEFAULTED % (f"      runner: {{type: string, default: '{default.replace(chr(39), chr(39) * 2)}'}}\n"
+                                 + extra)
+
+    def test_review_f1_an_input_named_inside_a_string_literal_is_not_read(self) -> None:
+        """Review F1 on #41015: the input reader was a regex over the expression, so `'inputs.runner'` (text) in
+        runner's own default read as a self-reference and the trace reported a loop it does not have. Inputs are
+        read by tokens now: a literal, a format() argument and a bracket form inside a literal read nothing."""
+        branches = "&& 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}"
+        for default in ("${{ 'inputs.runner' == 'x' " + branches,
+                        "${{ format('{0} inputs.runner', 'x') == 'y' " + branches,
+                        "${{ 'inputs[\"runner\"]' == 'x' " + branches,
+                        "${{ \"inputs.runner\" == 'x' " + branches):
+            with self.subTest(default=default):
+                files = {"callee.yml": self.runner_default(default), "caller.yml": self.CALLS_NOTHING}
+                _, _, resolved = self.resolve_callee(files)
+                self.assertEqual(resolved.unverifiable, frozenset())
+                self.assertEqual((resolved.runs_on, resolved.runs_on_unresolved),
+                                 ({"blacksmith-8vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"}, set()))
+                findings = self.scan(files)
+                self.assertFalse([f for f in findings if "cannot be verified" in f], findings)
+
+    def test_review_f1_a_real_input_beside_a_literal_is_read_and_only_that_input(self) -> None:
+        """`inputs.runner_count` is not `inputs.runner`, `github.event.inputs.note` is a property of another context,
+        and `inputs.size` inside a literal beside a real `inputs.runner` is text: only the real reads are traced."""
+        extra = ("      runner_count: {type: string}\n      size: {type: string}\n      note: {type: string}\n")
+        callee = self.runner_default("${{ inputs.runner_count == '2' && 'blacksmith-8vcpu-ubuntu-2404' || "
+                                     "'blacksmith-4vcpu-ubuntu-2404' }}", extra)
+        caller = ("jobs:\n  c:\n    uses: ./.github/workflows/callee.yml\n    with:\n"
+                  "      runner_count: ${{ vars.NEW_RC }}\n")
+        files = {"callee.yml": callee, "caller.yml": caller}
+        _, _, resolved = self.resolve_callee(files)
+        self.assertEqual(resolved.unverifiable, frozenset())
+        self.assertEqual({r.name for r in resolved.vars_read if r.field == "runs-on"}, {"NEW_RC"})
+        beside = self.DEFAULTED.replace("${{ inputs.runner }}",
+                                        "${{ inputs.runner != 'inputs.size' && inputs.runner || "
+                                        "github.event.inputs.note || 'blacksmith-4vcpu-ubuntu-2404' }}")
+        callee = beside % ("      runner: {type: string}\n" + extra)
+        caller = ("jobs:\n  c:\n    uses: ./.github/workflows/callee.yml\n    with:\n"
+                  "      runner: ${{ vars.NEW_X }}\n      size: ${{ vars.NOT_A_RUNNER }}\n"
+                  "      note: ${{ vars.NOT_A_RUNNER_EITHER }}\n")
+        files = {"callee.yml": callee, "caller.yml": caller}
+        _, _, resolved = self.resolve_callee(files)
+        self.assertEqual({r.name for r in resolved.vars_read if r.field == "runs-on"}, {"NEW_X"})
+        findings = self.scan(files)
+        self.assert_names(findings, "NEW_X")
+        self.assertFalse([f for f in findings if "NOT_A_RUNNER" in f], findings)
+
+    def test_review_f1_every_context_reader_parses_the_expression(self) -> None:
+        """The same class in the other readers over `${{ }}` text: a literal index inside a literal was rewritten to
+        dot form (the label `lab["el"]` came out `lab.el`), `'matrix.os'` made the field an unexpandable matrix read,
+        and `'secrets'` in a literal read every secret. Each reads by tokens now; real reads still count."""
+        wj = checker.load_workflow_jobs()
+        job = wj.document("jobs:\n  a:\n    runs-on: ${{ github.event_name == 'push' && 'lab[\"el\"]' || 'matrix.os' }}\n")
+        resolved = wj.resolve(job["jobs"]["a"], "a", "x.yml")
+        self.assertEqual((resolved.runs_on, resolved.runs_on_unresolved), ({'lab["el"]', "matrix.os"}, set()))
+        self.assertEqual(wj.secret_names({"env": {"A": "${{ 'secrets.X' == 'secrets' && secrets.REAL || '' }}"}}),
+                         {"REAL"})
+        for text, expected in (("${{ secrets['Y'] }}", {"Y"}), ('${{ secrets["Y"] }}', {"Y"}),
+                               ("${{ toJSON(secrets) }}", {wj.ALL_SECRETS}), ("${{ secrets[matrix.k] }}", {wj.ALL_SECRETS}),
+                               ("${{ SECRETS.y }}", {"Y"}), ("secrets.W != ''", {"W"})):
+            with self.subTest(text=text):
+                self.assertEqual(wj.secret_names({"if": text}), expected)
+        matrix = wj.document("jobs:\n  a:\n    strategy:\n      matrix:\n        os: [m1, m2]\n"
+                             "    runs-on: ${{ matrix['os'] }}-${{ 'matrix.os' }}\n")
+        self.assertEqual(wj.resolve(matrix["jobs"]["a"], "a", "x.yml").runs_on_cells, ["m1-${{ 'matrix.os' }}",
+                                                                                      "m2-${{ 'matrix.os' }}"])
 
     def test_the_resolver_records_each_variable_it_consumes_with_where_it_sits(self) -> None:
         """The checker reads its findings from workflow_jobs.resolve, which records every `vars` operand it consumed
