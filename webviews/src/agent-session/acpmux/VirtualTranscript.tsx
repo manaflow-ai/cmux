@@ -2414,6 +2414,10 @@ function TranscriptView({
   /// Until when rows that come move the followed view on a send's glide (`followGlide.sent`): the
   /// sent prompt's row and its reply's first rows can land a commit or two after the send itself.
   const sendRiseUntil = useRef(Number.NEGATIVE_INFINITY);
+  /// The latest send came while a turn ran (a steer): its row lands above the running work, an
+  /// arrival like any other (followChase's arrival step), not the send's rise from the composer.
+  const steered = useRef(false);
+  if (sends !== seenSends.current) steered.current = working;
   // Under the scrollbar fade (the host theme sets it, applyPaneTheme), the scrollbar fades in and
   // out with the scrolling marks (scrollers.ts).
   useEffect(() => (ref.current ? followShownScrollerFade(ref.current) : undefined), []);
@@ -3819,7 +3823,7 @@ function TranscriptView({
             const arrived = now - arrivedAt.current < ARRIVAL_PASS_MS;
             tailAnchor = chaseAnchor.current?.id;
             // A send's own rows rise on the send motion, one clock with the bubble's entrance.
-            chaseFollow(node, layout, rows, below, atOnce, held, arrived, sentRows);
+            chaseFollow(node, layout, rows, below, atOnce, held, arrived, sentRows && !steered.current);
             tailGlides = !atOnce && followChase.current?.arm !== "instant";
           }
         }
@@ -4488,7 +4492,8 @@ function TranscriptView({
       // Rows this commit added that the placement pass left unfollowed (a held follow): they rise on
       // the send's glide too.
       if (chasing) {
-        if (fromLatest) chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, false, false, false, true);
+        if (fromLatest)
+          chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, false, false, false, !steered.current);
       } else if (fromLatest && top - before > 0.5) followGlide.current?.sent(thread.current, top - before);
     }
     // The kept place is the latest message again: a relaunch opens there.
