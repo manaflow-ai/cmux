@@ -83,6 +83,9 @@ export type SwitchPort = {
   prewarm(harness: string, cwd?: string): void;
   /// The connection can take a prewarm hint (acpmux lists the method and calls it local).
   prewarmSupported(): boolean;
+  /// The folder a new chat of this pane starts in now (the start folder, startFolderModel.ts),
+  /// undefined for none: where a start the pane refused the folder of starts again.
+  startFolder?(): string | undefined;
   /// A new chat starts only with its first send (a chat on another machine, cx-k21v): a pick
   /// before it is remembered, and the send starts the session.
   startsOnSend?(): boolean;
@@ -292,8 +295,11 @@ export class HarnessSwitch {
     // becomes the folder of the next start, of this agent or another (cmux#40938).
     // A folder the pane refused (`transport.path_outside_roots`) is never carried either: only a
     // folder the person names again, which goes through the host's folder grant first, starts there.
-    const carried = previous && !refusedFolder(previous) ? previous.cwd : undefined;
-    const cwd = folder === null ? undefined : (folder ?? carried ?? shownSession?.cwd);
+    const carried = previous ? this.restartFolder(previous) : undefined;
+    const cwd =
+      folder === null || (folder === undefined && carried === null)
+        ? undefined
+        : (folder ?? carried ?? shownSession?.cwd);
     const held = Object.entries(options.options ?? {});
     if (previous && previous.harness === harness && previous.phase !== "failed" && previous.cwd === cwd) {
       if (options.model) void this.pickModel(options.model);
@@ -379,7 +385,7 @@ export class HarnessSwitch {
     // After a failure, sending is retrying with this prompt.
     const restarts = intent.phase === "failed";
     if (restarts) {
-      void this.switchTo(intent.harness, intent.cwd, { deferred: !intent.shown });
+      void this.switchTo(intent.harness, this.restartFolder(intent), { deferred: !intent.shown });
       intent = this.intent!;
     }
     const { promise, resolve, reject } = (() => {
@@ -552,10 +558,8 @@ export class HarnessSwitch {
   /// Retry after a failure: starts the harness again (the prompt stays in the composer).
   retry(): void {
     const intent = this.intent;
-    // Retry after the pane refused the folder starts with no folder (the host fills it), never the
-    // refused one again, which could only fail the same way (cmux#40938).
     if (intent?.phase === "failed")
-      void this.switchTo(intent.harness, refusedFolder(intent) ? null : intent.cwd, { deferred: !intent.shown });
+      void this.switchTo(intent.harness, this.restartFolder(intent), { deferred: !intent.shown });
   }
 
   /// The user went elsewhere (another session, a fork, a default new chat): the switch ends and
@@ -800,6 +804,16 @@ export class HarnessSwitch {
     }
     this.changed();
     intent.done.resolve(undefined);
+  }
+
+  /// Where a start that ended starts again (Retry, a send after its failure, the next pick that
+  /// names no folder): its own folder, unless the pane refused that one (`transport.path_outside_roots`).
+  /// Then the pane's start folder as it is now, or `null` (no folder, the host fills it), never the
+  /// refused folder again, which could only fail the same way (cmux#40938).
+  private restartFolder(intent: Intent): string | null | undefined {
+    if (!refusedFolder(intent)) return intent.cwd;
+    const start = this.port?.startFolder?.();
+    return start && start !== intent.cwd ? start : null;
   }
 
   private changed(): void {

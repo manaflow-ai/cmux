@@ -1,5 +1,6 @@
 import { translate } from "./i18n";
 import { rememberWorktreeSetup, type WorktreeSetupStart } from "./worktreeSetupStore";
+import { isStartableProject } from "./newtab/startedProject";
 
 // Where a chat starts (cx-nn3e). The host names a new chat's folder in the handshake (its
 // workspace's folder, else none: the chat starts in the workspace's private agent-home folder),
@@ -23,7 +24,8 @@ export type NewChatFolderInputs = {
 /// The folder a new chat starts in, for every start the pane makes (`chat.new`: the agent row, a
 /// harness or model pick in the chips, the slash command list, Enter, a page script), and every
 /// agent alike (decision 1 above; cmux#40938). The folder the caller names, unless that is only the
-/// tab's inherited folder; else the chat's start folder. The inherited folder is a terminal's folder:
+/// tab's inherited folder and no project (`~` or above, agent-home: isStartableProject); else the
+/// chat's start folder. The inherited folder is a terminal's folder:
 /// a chat never starts there by itself, so a tab at `~` never makes a chat start in the home folder,
 /// which the relay refuses until the person answered the home question ("This folder is outside the
 /// folders this pane may use"). Once they did, `~` is the start folder and is used.
@@ -31,7 +33,7 @@ export type NewChatFolderInputs = {
 /// agent-home folder), never the folder of an earlier start. `undefined`: a shown chat's switch,
 /// which keeps that chat's folder (harnessSwitch.ts).
 export function newChatFolder({ cwd, inherited, startFolder, fresh }: NewChatFolderInputs): string | null | undefined {
-  if (cwd && (cwd !== inherited || cwd === startFolder)) return cwd;
+  if (cwd && (cwd !== inherited || cwd === startFolder || isStartableProject(cwd))) return cwd;
   return fresh ? (startFolder ?? null) : undefined;
 }
 
