@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextDesign
 import Foundation
 import Darwin
 import Testing
@@ -243,6 +244,19 @@ struct PinnedPageTests {
         let deadline = ContinuousClock.now + timeout
         while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
         try #require(condition(), "timed out: \(report())", sourceLocation: sourceLocation)
+    }
+
+    /// The close question that shows in one of `services`' own windows. `CmuxDialogCenter.shared` is one for the test
+    /// process, and a suite that runs beside this one has its own app in it: the centre's first confirmation can be
+    /// that suite's. The two Cmd-W suites in one process each read, and cancelled, the other's question.
+    static func closeQuestion(of services: AppServices) -> CmuxDialogCenter.Record? {
+        let center = CmuxDialogCenter.shared
+        for controller in services.windows.controllers {
+            guard let window = controller.window, let id = center.dialogBlockingKeys(in: window), let record = center.record(id),
+                  record.spec.identifier == "cmux.dialog.confirmation" else { continue }
+            return record
+        }
+        return nil
     }
 
     /// The app's services on a fresh same-tree daemon, ready once the launch's restore is over and
