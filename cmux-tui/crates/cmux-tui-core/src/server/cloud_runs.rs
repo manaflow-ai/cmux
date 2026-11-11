@@ -555,20 +555,25 @@ mod tests {
 
     #[test]
     fn a_runs_child_never_records_the_persons_last_chat() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = std::env::temp_dir().join(format!("cloud-runs-child-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("cmux");
+        std::fs::write(&exe, "#!/bin/sh\necho \"$CMUX_LAST_CHAT_OFF|$*\"\n").unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
         let verbs = AppVerbs {
             exe: None,
             socket: PathBuf::from("/tmp/daemon.sock"),
             app_socket: Some(PathBuf::from("/tmp/app.sock")),
             elsewhere: Mutex::default(),
         };
-        let child = verbs.child(Path::new("/bin/cmux"), &["cloud", "start-chat"]);
-        let envs: Vec<_> = child.get_envs().collect();
-        assert!(
-            envs.contains(&(std::ffi::OsStr::new(NO_LAST_CHAT), Some(std::ffi::OsStr::new("1")))),
-            "{envs:?}"
+        let output =
+            verbs.child(&exe, &["cloud", "start-chat"]).stdout(Stdio::piped()).output().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).trim(),
+            "1|--json --app-socket /tmp/app.sock cloud start-chat"
         );
-        let args: Vec<_> = child.get_args().collect();
-        assert_eq!(args, ["--json", "--app-socket", "/tmp/app.sock", "cloud", "start-chat"]);
     }
 
     #[test]
