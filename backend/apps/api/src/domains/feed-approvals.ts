@@ -23,6 +23,18 @@ const POSTER = /^system:(connections|cloud):(.+)$/
  */
 export const approvalAnswerChannel = (channel: string): boolean => channel.startsWith(`${OWNER_CLASS.cloud}:`)
 
+/** The outbox item kind of a person's answer to an approval (approvalAnswered). */
+export const APPROVAL_ANSWERED = "integration.approval.answered"
+
+/**
+ * Whether an outbox item is a Cloud approval answer, which the outbox sends alone (owner-outbox.ts): CloudDO runs the
+ * approved create inside the send and a retryable failure throws the whole batch, so an item sent beside it would go
+ * again after its own delivery ended. Keyed by kind and target: every other item on a CloudDO channel (TeamDO's
+ * team.member_left.sockets) keeps its batch.
+ */
+export const soloOutboxItem = (row: { readonly kind: string; readonly target: { readonly class: string } | null }): boolean =>
+  row.kind === APPROVAL_ANSWERED && row.target?.class === OWNER_CLASS.cloud
+
 /** The posting owner of a system principal that may post approval requests, or null. */
 export const approvalPoster = (identity: string): { source: ApprovalSource; team: string } | null => {
   const m = POSTER.exec(identity)
@@ -48,5 +60,5 @@ export const approvalDecision = (item: FeedItem, decision: "allow" | "deny", sso
   if (!a) return []
   // The answering session's SSO team: the posting team checks it at answer time when it enforces SSO.
   const sso = decision === "allow" && ssoTeam ? { sso_team: ssoTeam } : {}
-  return [{ kind: "integration.approval.answered", entity: `approval:${a.request}`, payload: { request: a.request, decision, digest: a.digest, ...sso }, target: { class: OWNER_CLASS[a.source], name: a.team } }]
+  return [{ kind: APPROVAL_ANSWERED, entity: `approval:${a.request}`, payload: { request: a.request, decision, digest: a.digest, ...sso }, target: { class: OWNER_CLASS[a.source], name: a.team } }]
 }

@@ -4,6 +4,7 @@
 // reason and code (direct.ts copies acpmux's `data.reason` and `data.code` onto the error and the
 // prompt's delivery), never from its words; the words and the code stay for Details.
 import { translate } from "./i18n";
+import { PrefixFlatCache } from "./conversation/prefixFlatMap";
 import { DATE } from "./conversation/turns";
 import type { ComposerAttachment } from "./attachments";
 import type { AcpmuxRow } from "./model";
@@ -106,6 +107,14 @@ function withoutCode(message: string, code: string | undefined): string {
 export type FailedRun = { rowIds: readonly string[] };
 
 const failedPrompt = (row: AcpmuxRow) => row.kind === "user" && row.failed === true && !row.received && !row.incoming;
+type Failure = { id: string; key: string; joins: boolean };
+const NO_FAILURE: readonly Failure[] = [];
+const failedReads = new PrefixFlatCache<AcpmuxRow, Failure>((row, index, rows) => {
+  if (!failedPrompt(row)) return NO_FAILURE;
+  let before = index - 1;
+  while (before >= 0 && rows[before]!.kind === DATE) before -= 1;
+  return [{ id: row.id, key: runKey(row), joins: before >= 0 && failedPrompt(rows[before]!) }];
+});
 
 /// What makes two failures the same: acpmux's reason and the code, else the refuser's own words.
 function runKey(row: AcpmuxRow): string {
@@ -123,16 +132,13 @@ export function failedRuns(
 ): ReadonlyMap<string, FailedRun> {
   const runs = new Map<string, FailedRun>();
   let run: { key: string; rowIds: string[] } | undefined;
-  for (const row of rows) {
-    if (row.kind === DATE) continue;
-    if (!failedPrompt(row)) {
-      run = undefined;
-      continue;
-    }
-    const key = runKey(row);
-    if (run?.key !== key) run = { key, rowIds: [] };
-    run.rowIds.push(row.id);
-    runs.set(row.id, run);
+  // Only the failed prompts, from a pass that reads only the rows a snapshot changed
+  // (conversation/prefixFlatMap.ts); each says whether it follows another with only date lines between.
+  for (const failure of failedReads.read(rows).items) {
+    if (!failure.joins) run = undefined;
+    if (run?.key !== failure.key) run = { key: failure.key, rowIds: [] };
+    run.rowIds.push(failure.id);
+    runs.set(failure.id, run);
   }
   if (previous && previous.size === runs.size) {
     let same = true;

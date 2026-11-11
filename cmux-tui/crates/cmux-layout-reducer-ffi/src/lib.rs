@@ -77,6 +77,7 @@ mod imessage;
 pub mod input;
 pub mod scroll;
 pub mod shown_resize;
+pub mod sidebar_caps;
 pub mod sidebar_face;
 pub mod sidebar_mirror;
 pub mod tab_drag;
@@ -271,6 +272,22 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: harness_login::Inputs =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&harness_login::decide(&request)).map_err(|_| ERR_INVALID)?
+            }
+            b"cloud_capability_header" => {
+                use cmux_cloud_start_core::capability;
+                let request: capability::HeaderRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&capability::header(&request)).map_err(|_| ERR_INVALID)?
+            }
+            b"cloud_capability_answer" => {
+                use cmux_cloud_start_core::capability;
+                let request: capability::AnswerRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&capability::answer(request)).map_err(|_| ERR_INVALID)?
+            }
+            b"cloud_capability_drop" => {
+                cmux_cloud_start_core::capability::forget();
+                b"{}".to_vec()
             }
             b"cloud_start_refusal" => {
                 #[derive(serde::Deserialize)]
