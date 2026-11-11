@@ -183,13 +183,54 @@ def once_per_judgement(kind: str, key: Callable[..., tuple] | None = None):
     return wrap
 
 
+# gh api's flags that take a value (gh help api); a value is never read as the method, a field or the endpoint.
+GH_API_FIELD_FLAGS = ("-f", "-F", "--field", "--raw-field")
+GH_API_VALUE_FLAGS = ("-H", "--header", "-q", "--jq", "-t", "--template", "--hostname", "--cache", "-p", "--preview")
+
+
 def gh_read(args: list[str]) -> bool:
-    """Whether gh ARGS only reads: `gh api` with no other method than GET (a GraphQL query included), or `gh run view`."""
+    """Whether gh ARGS only reads, by the HTTP method gh sends (review of cmux#41312 at 67c48fb7, F1): `gh run view`;
+    `gh api` with an explicit GET (its fields are query parameters); `gh api` with no method and no body, which gh
+    sends as GET; or a GraphQL query. Any other explicit method writes, a field or --input with no method is gh's
+    POST, and a GraphQL mutation, a query from a file or stdin, or a call with no query writes. Only a read is kept
+    for the judgement (read_once), so a write always goes out."""
     if args[:2] == ["run", "view"]:
         return True
-    if args[:1] != ["api"] or any(arg in ("-X", "--method") or arg.startswith("--method=") for arg in args):
+    if args[:1] != ["api"]:
         return False
-    return not (args[1:2] == ["graphql"] and any(arg.startswith("query=mutation") for arg in args))
+    method, fields, body, endpoint = None, [], False, None
+    rest = iter(args[1:])
+    for arg in rest:
+        if arg in ("-X", "--method"):
+            method = next(rest, "")
+        elif arg.startswith("--method="):
+            method = arg.partition("=")[2]
+        elif arg.startswith("-X"):
+            method = arg[2:]
+        elif arg in GH_API_FIELD_FLAGS:
+            fields.append(next(rest, ""))
+        elif arg.startswith(("--field=", "--raw-field=")):
+            fields.append(arg.partition("=")[2])
+        elif arg.startswith(("-f", "-F")) and not arg.startswith("--"):
+            fields.append(arg[2:])
+        elif arg == "--input":
+            body = True
+            next(rest, None)
+        elif arg.startswith("--input="):
+            body = True
+        elif arg in GH_API_VALUE_FLAGS:
+            next(rest, None)
+        elif not arg.startswith("-") and endpoint is None:
+            endpoint = arg
+    if endpoint == "graphql":
+        queries = [field.partition("=")[2] for field in fields if field.startswith("query=")]
+        if body or len(queries) != 1 or (method is not None and method.upper() not in ("GET", "POST")):
+            return False
+        text = queries[0].lstrip()
+        return not text.startswith(("mutation", "@")) and text != "-"
+    if method is not None:
+        return method.upper() == "GET"
+    return not fields and not body
 
 
 def once_key(name: str, args: tuple, kwargs: dict) -> tuple | None:
@@ -3246,6 +3287,43 @@ def tip_suite_verdicts(repo: str, base: str, workflow, name: str, github, base_j
             yield run, found
 
 
+# A summary red from a replaced waiting job (2026-11-11): a push's Mac jobs wait in a per-branch concurrency group, and
+# a newer push replaces the waiting one ("Canceling since a higher priority waiting request for <group> exists"). Its
+# summary gate then wrote "no verdict" and ended red on feat-cmux-next runs 43032789758 and 43037486374 ('cmux-next
+# crash ends the app'), before scripts/ci/needs_verdict.py's SUPERSEDED_RULE turned that case into a notice. Such a
+# red judged nothing, so it is no base verdict: base_verdicts passes over it to an older run's. It is told by the
+# replacement annotation on a source job (SUPERSEDED_SOURCES) of the same run, read only for a red summary whose
+# source in that run was cancelled: one annotation read per such source, kept per job id.
+REPLACED_READS: dict[int, bool] = {}  # by source job id (an id never changes): whether it was replaced
+REPLACED_WAITING = "Canceling since a higher priority waiting request for "
+SUPERSEDED_SOURCES = {
+    "cmux-next crash ends the app": ("cmux app scheme compile (Debug)",),
+    GENERATED_VERDICT_JOB: ("cmux-next swift test", "cmux-next daemon tests"),
+    "cmux-next fast tier": ("cmux-next fast tier (build fleet)",),
+}
+
+
+def replaced_while_waiting(repo: str, jobs: list[dict], found: dict, github, cache: dict) -> str | None:
+    """The name of the source job whose replacement while waiting explains summary job FOUND's red in a base run
+    whose jobs are JOBS, or None. CACHE keeps each source job's answer by id."""
+    if found.get("conclusion") != "failure":
+        return None
+    for source in SUPERSEDED_SOURCES.get(str(found.get("name")), ()):
+        job = next((job for job in jobs if job.get("name") == source), None)
+        if job is None or job.get("conclusion") != "cancelled" or not isinstance(job.get("id"), int):
+            continue
+        if job["id"] not in cache:
+            try:
+                notes = github.json(f"repos/{repo}/check-runs/{job['id']}/annotations")
+            except Exception:  # an unread annotation keeps the red a verdict, as before
+                notes = []
+            cache[job["id"]] = any(isinstance(note, dict) and str(note.get("message") or "").startswith(REPLACED_WAITING)
+                                   for note in notes or [])
+        if cache[job["id"]]:
+            return source
+    return None
+
+
 def base_verdicts(repo: str, base: str, workflow, name: str, github, base_runs: dict, base_jobs: dict,
                   job_reads: dict, suites: SuiteChecks | None = None):
     """(run, job) for each completed BASE run with a verdict for job NAME, newest first, read lazily: the window of
@@ -3269,6 +3347,9 @@ def base_verdicts(repo: str, base: str, workflow, name: str, github, base_runs: 
                 continue
             base_jobs[candidate_run["id"]] = base_run_jobs(repo, candidate_run, github)
         found = next((found for found in base_jobs[candidate_run["id"]] if found.get("name") == name), None)
+        if found is not None and replaced_while_waiting(repo, base_jobs[candidate_run["id"]], found, github,
+                                                        REPLACED_READS):
+            continue
         if found is not None and found.get("conclusion") in VERDICTS and not refused_at_setup(found):
             seen.add(candidate_run["id"])
             yield candidate_run, found
@@ -4683,10 +4764,127 @@ UNITTEST_SUMMARY = re.compile(r"^FAILED \(([^)]*)\)$")
 # complete unittest summary would otherwise hide behind a failure the base shares (cmux#36219 F1).
 WS_CHECK_CRASH = re.compile(r"Segmentation fault|core dumped|Fatal Python error|\bKilled\b|\bAborted\b|"
                             r"MemoryError|died on signal|unexpected signal")
-# tools/ws_check_run.py's step line; since leo-workspace#3746 it also ends with the step's time (", 62.1 s").
-WS_CHECK_STEP_EXIT = re.compile(r" \(exit (-?\d+), ran \d+, skipped \d+, gh calls \d+(?:, [\d.]+ s)?\)$")
+# tools/ws_check_run.py's step line; since leo-workspace#3746 it also ends with the step's time (", 62.1 s"), and since
+# its units it carries the step's CPU first (", cpu 1.0 s, 30.0 s").
+WS_CHECK_STEP_EXIT = re.compile(r" \(exit (-?\d+), ran \d+, skipped \d+, gh calls \d+(?:, cpu [\d.]+ s)?(?:, [\d.]+ s)?\)$")
+# Since ws_check_run.py splits a step into its units (a suite each, a big suite in shards), each unit prints its own
+# group and result line labelled "STEP [UNIT]" ("... [test_ws_deploy_swap.py]", "... [test_lane_place.py 2/4]"), while
+# WS_CHECK_RESULT's `failed` names the STEP alone. Read as only "ws-check step FAILED: STEP (exit", every red split into
+# units was refused "has no 'ws-check step FAILED: STEP' line" though the log held it (leo-workspace#4322 at aa928f1c,
+# run 43011639090: `every other tools/test_*.py ... [test_ws_deploy_swap.py]`; #4297 at 7c9ae719, run 42997255537).
+WS_CHECK_UNIT = r"(?: \[[^\]\n]+\])?"
+WS_CHECK_SHARD = re.compile(r" \d+/\d+$")  # "[test_lane_place.py 2/4]": a big suite's shard
 # The checkout root a ws-check run's paths start with: fast-checks.yml's workspace, or ws-check-heads.yml's clone.
 WS_CHECK_ROOT = re.compile(r"(?:/[\w.-]+)*/_work/(?:cmuxterm-hq/cmuxterm-hq|_temp/lw)/")
+# A cmux-ci run's run-name (cmuxterm-hq fast-checks.yml): `Fast checks SNAPSHOT`, then ` tests REPO@SHA` (the tested
+# repo and commit) or ` job ID` (the lane-gh broker's cmux-ci job, 32 hex digits). LW#4369 at 4f84acf0 (2026-11-11):
+# the broker's merge-tested run 43048550008 was named `Fast checks 48b2f601... job 49c43a9c...`, which the run-name
+# match before this read as "the WS_CHECK_RESULT ... is from another checkout", though its receipt named that snapshot.
+WS_CHECK_RUN_NAME = r"Fast checks {}(?: tests \S+| job [0-9a-f]{{32}})?"
+# The broker cuts a hosted repo's snapshot to these paths of the tested tree (its fast_checks_hosts entry).
+WS_CHECK_HOSTS_FILE = "machines/lane-gh-broker.json"
+HEX40 = re.compile(r"[0-9a-f]{40}")
+
+
+def ws_check_mirror(repo: str) -> Path | None:
+    """This host's mirror of REPO (GH_MIRROR_ROOT, else ~/Projects/.wt-mirrors: wt's and gh_mirror_reads'), or None."""
+    owner, _, name = repo.partition("/")
+    root = Path(os.environ.get("GH_MIRROR_ROOT") or Path.home() / "Projects" / ".wt-mirrors")
+    mirror = root / owner / f"{name}.git"
+    return mirror if (mirror / "HEAD").is_file() and (mirror / "objects").is_dir() else None
+
+
+@once_per_judgement("git squash tree")
+def ws_check_squash_tree(repo: str, head: str, tip: str) -> str:
+    """The tree a merge-tested ws-check run of HEAD must have tested for HEAD to land on base tip TIP: HEAD merged with
+    TIP (the tree a pinned squash makes), cut to the paths its fast_checks_hosts entry names, as the lane-gh broker cuts
+    its snapshot (cmuxterm-hq tools/lane-gh-broker ci_snapshot and ci_merged_tree: HEAD's own tree when TIP has HEAD,
+    else `git merge-tree --write-tree TIP HEAD`). Read from git only: git_cache(REPO) over this host's mirror's objects
+    (ws_check_mirror), fetching a commit neither has. Refused when git cannot answer, the merge conflicts or the merged
+    tree names no paths: never guessed."""
+    git = git_cache(repo)
+    if git is None or not (HEX40.fullmatch(head) and HEX40.fullmatch(tip)):
+        raise Refused(f"no git repository for {repo} to merge {head[:12]} with {tip[:12]} in")
+    where = source_cache() / (repo.replace("/", "__") + ".git")
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "", "SSH_ASKPASS": ""}
+    mirror = ws_check_mirror(repo)
+    if mirror is not None:  # read through, never written: every object made here goes to the cache
+        env["GIT_ALTERNATE_OBJECT_DIRECTORIES"] = str(mirror / "objects")
+
+    def run(*args: str, text: str | None = None) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", "--git-dir", str(where), *args], capture_output=True, text=True, env=env,
+                              timeout=GIT_SECONDS, input=text, stdin=None if text is not None else subprocess.DEVNULL)
+
+    def shallow() -> bool:
+        said = run("rev-parse", "--is-shallow-repository")
+        return said.returncode != 0 or said.stdout.strip() != "false"  # an unanswered check counts as shallow
+
+    def unshallow() -> None:
+        if shallow() and (run("fetch", "-q", "--no-tags", "--filter=blob:none", "--unshallow", "origin", head,
+                              tip).returncode or shallow()):
+            raise Refused(f"git's {repo} cache is shallow (git_commit's one-commit fetches) and its whole history "
+                          f"could not be fetched, so {head[:12]} cannot be merged with {tip[:12]} by their history")
+
+    try:
+        for commit in (head, tip):
+            if run("cat-file", "-e", f"{commit}^{{commit}}").returncode:
+                # The whole history (no --depth): merge-tree needs the merge-base. No blobs until a merge reads them.
+                if run("fetch", "-q", "--no-tags", "--filter=blob:none", "origin", commit).returncode or \
+                        run("cat-file", "-e", f"{commit}^{{commit}}").returncode:
+                    raise Refused(f"git cannot read {repo} commit {commit[:12]} (not in this host's mirror or cache, "
+                                  "and its fetch failed)")
+        # Present is not complete: git_commit fills this cache one commit deep (`--depth=1`), so both commits can be
+        # here with their parents cut off, and merge-base or merge-tree then reads two unrelated histories (cmux#41386
+        # F1). Any shallow boundary may cut this merge's history, so the cache is made whole first, or nothing is said.
+        unshallow()
+        if run("merge-base", "--is-ancestor", head, tip).returncode == 0:
+            done = run("rev-parse", f"{head}^{{tree}}")
+            merged = done.stdout.strip() if not done.returncode else ""
+        else:
+            done = run("merge-tree", "--write-tree", "--no-messages", "--name-only", tip, head)
+            lines = done.stdout.splitlines()
+            if done.returncode == 1 and lines and HEX40.fullmatch(lines[0]):
+                files = [line for line in lines[1:] if line]
+                raise Refused(f"{head[:12]} does not merge cleanly with the base tip {tip[:12]} (conflicts in: "
+                              f"{', '.join(files[:5]) or 'unknown'}): no run tested the tree a squash would make")
+            merged = lines[0] if not done.returncode and lines else ""
+        if shallow():  # another reader's one-commit fetch cut the history while this merge read it
+            raise Refused(f"git's {repo} cache went shallow while {head[:12]} was merged with {tip[:12]}; judge again")
+        if not HEX40.fullmatch(merged):
+            raise Refused(f"git cannot merge {head[:12]} with {tip[:12]}: {done.stderr.strip()[-200:] or 'no tree'}")
+        shown = run("show", f"{merged}:{WS_CHECK_HOSTS_FILE}")
+        try:
+            entry = (json.loads(shown.stdout).get("fast_checks_hosts") or {}).get(repo) if not shown.returncode else None
+        except (ValueError, AttributeError):
+            entry = None
+        paths = entry.get("paths") if isinstance(entry, dict) else None
+        if not (isinstance(paths, list) and paths and all(isinstance(path, str) and path for path in paths)):
+            raise Refused(f"{head[:12]} merged with {tip[:12]} names no {repo} paths in {WS_CHECK_HOSTS_FILE}")
+        keep = [listed for path in paths if (listed := run("ls-tree", merged, "--", path).stdout.strip())]
+        made = run("mktree", text="\n".join(keep) + "\n") if keep else None
+        cut = made.stdout.strip() if made is not None and not made.returncode else ""
+    except (OSError, subprocess.SubprocessError) as error:
+        raise Refused(f"git cannot merge {head[:12]} with {tip[:12]}: {type(error).__name__}: {error}"[:300]) from None
+    if not HEX40.fullmatch(cut):
+        raise Refused(f"{head[:12]} merged with {tip[:12]} has none of {', '.join(paths)}")
+    return cut
+
+
+def ws_check_tested_tree(repo: str, base: str, sha: str, snapshot: dict, tip: str) -> None:
+    """Refused unless the head SHA's snapshot run (SNAPSHOT: {"run", "tree"}, ws_check_verdict) tested the tree a pinned
+    squash of SHA onto BASE's tip TIP makes (ws_check_squash_tree), compared by tree id only. A run that tested an older
+    base, another head, or names no tree is no verdict on what lands."""
+    where = f"'{WS_CHECK}' on {sha}: run {snapshot.get('run')}"
+    tested = snapshot.get("tree")
+    if not (isinstance(tested, str) and HEX40.fullmatch(tested)):
+        raise Refused(f"{where} names no tested tree in its receipt, so it cannot be held to {sha[:12]} merged with "
+                      f"{base}")
+    if not HEX40.fullmatch(tip or ""):
+        raise Refused(f"{where}: {base} has no tip to merge {sha[:12]} with")
+    want = ws_check_squash_tree(repo, sha, tip)
+    if tested != want:
+        raise Refused(f"{where} tested tree {tested[:12]}, not {sha[:12]} merged with {base}'s tip {tip[:12]} "
+                      f"({want[:12]}): it tested another base or head. Run ws-check again at this head")
 
 
 def ws_check_status(repo: str, sha: str, github) -> dict | None:
@@ -4783,21 +4981,35 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
             receipt = {}
         if not (isinstance(receipt, dict) and result.get("head") and receipt.get("source_sha") == result.get("head")
                 and str(receipt.get("run_id")) == link[1]
-                and re.fullmatch(r"Fast checks " + re.escape(str(result.get("head"))) + r"(?: tests \S+)?",
+                and re.fullmatch(WS_CHECK_RUN_NAME.format(re.escape(str(result.get("head")))),
                                  run.get("display_title") or "")):
             raise Refused(f"{where}: the WS_CHECK_RESULT of run {link[1]} is from another checkout")
+        # Which checkout or runner ran it says nothing; what it tested does. A head's snapshot run is held to its tree
+        # (ws_check_red: the head merged with the base tip, ws_check_squash_tree); a base commit's is read as before.
+        found["snapshot"] = {"run": link[1], "tree": receipt.get("source_tree")}
     if (int(named[1]), int(named[2])) != (len(failed), result.get("steps")) or not failed[0].startswith(named[3]):
         raise Refused(f"{where}: its status (\"{description}\") does not match run {link[1]}'s WS_CHECK_RESULT")
     steps = {}
     for step in failed:
-        end = next((n for n in range(at - 1, -1, -1) if lines[n].startswith(f"ws-check step FAILED: {step} (exit ")),
-                   None)
-        if end is None:
+        # The step's red result lines, one per red unit ("STEP" alone from a runner before units, else "STEP [UNIT]"),
+        # each read in its own group; the step's tests and lines are every red unit's together.
+        result = re.compile(re.escape(f"ws-check step FAILED: {step}") + f"({WS_CHECK_UNIT})" + r" \(exit ")
+        ends = [(n, m[1]) for n in range(at) if (m := result.match(lines[n]))]
+        if not ends:
             raise Refused(f"{where}: run {link[1]} has no 'ws-check step FAILED: {step}' line")
+        tests, printed = set(), set()
         try:
-            steps[step] = ws_check_step(lines, end, step)
+            for end, unit in ends:
+                red = ws_check_step(lines, end, step + unit)
+                # A test is named with its unit's suite ("[test_new.py] test_check (__main__.FastForward.test_check)"):
+                # every suite runs as __main__, so two suites' same-named tests read alike and one's red on the base
+                # excused the other's on the head (cmux#41298 F1). A shard number ("2/4") is dropped, since shards move.
+                suite = WS_CHECK_SHARD.sub("", unit.strip()[1:-1]) if unit else ""
+                tests |= {f"[{suite}] {test}" if suite else test for test in red["tests"]}
+                printed |= red["lines"]
         except Refused as error:
             raise Refused(f"{where}: run {link[1]}: {error}") from None
+        steps[step] = {"tests": frozenset(tests), "lines": frozenset(printed)}
     return "fail", dict(found, steps=steps)
 
 
@@ -4891,7 +5103,9 @@ def ws_check_red(repo: str, base: str, sha: str, github) -> dict:
     merge_base = ((diff.get("merge_base_commit") or {}).get("sha")) or ""
     commits = [commit["sha"] for commit in github.json(f"repos/{repo}/commits?sha={base}&per_page={WS_CHECK_COMMITS}")
                or [] if isinstance(commit, dict) and isinstance(commit.get("sha"), str)]
-    verdicts = ((commit, *ws_check_verdict(repo, commit, github)) for commit in commits)
+    if head.get("snapshot"):
+        ws_check_tested_tree(repo, base, sha, head["snapshot"], commits[0] if commits else "")
+    verdicts =((commit, *ws_check_verdict(repo, commit, github)) for commit in commits)
     verdicts = (found for found in verdicts if found[1] != "none")
     newest = next(verdicts, None)
     if newest is None:

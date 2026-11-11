@@ -3719,6 +3719,69 @@ sys.exit(1)
 """
 
 
+class GhReadByMethod(unittest.TestCase):
+    """gh_read (the gh reads GitHub.run keeps for the judgement) classifies by the HTTP method gh sends (review of
+    cmux#41312 at 67c48fb7, F1): an explicit GET reads, any other explicit method writes, a field or --input with no
+    method is gh's POST, and a GraphQL call reads only as a query. A write is never answered from the memo."""
+
+    R = f"repos/{REPO}/commits/{HEAD}"
+    QUERY = "query($owner: String!) { repository(owner: $owner, name: \"cmux\") { id } }"
+    TABLE = (
+        # REST with no method and no body: GET.
+        (["api", R], True),
+        (["api", "--allow-escape-sequences", f"repos/{REPO}/actions/jobs/7/logs"], True),
+        (["api", R, "--jq", ".sha"], True),
+        (["api", "-H", "Accept: application/vnd.github+json", R], True),
+        # An explicit GET reads, in every spelling; its fields are query parameters.
+        (["api", "-X", "GET", R], True),
+        (["api", "--method", "GET", R], True),
+        (["api", "--method=GET", R], True),
+        (["api", "-XGET", R], True),
+        (["api", "--method", "get", R], True),
+        (["api", "-X", "GET", "search/issues", "-f", "q=repo:o/r is:open"], True),
+        # Any other explicit method writes.
+        (["api", "-X", "POST", f"repos/{REPO}/actions/workflows/w.yml/dispatches", "-f", "ref=main"], False),
+        (["api", "--method", "PATCH", f"repos/{REPO}/pulls/1"], False),
+        (["api", "--method=PUT", f"repos/{REPO}/pulls/1/merge"], False),
+        (["api", "-XDELETE", f"repos/{REPO}/git/refs/heads/x"], False),
+        (["api", "-X", "POST", R], False),
+        # A field or --input with no method is gh's POST.
+        (["api", f"repos/{REPO}/issues/1/comments", "-f", "body=hi"], False),
+        (["api", f"repos/{REPO}/issues/1/comments", "-F", "body=@note.md"], False),
+        (["api", f"repos/{REPO}/issues/1/labels", "--field", "labels[]=x"], False),
+        (["api", f"repos/{REPO}/issues/1/labels", "--raw-field=labels[]=x"], False),
+        (["api", f"repos/{REPO}/issues/1/comments", "-fbody=hi"], False),
+        (["api", f"repos/{REPO}/statuses/{HEAD}", "--input", "status.json"], False),
+        (["api", f"repos/{REPO}/statuses/{HEAD}", "--input=-"], False),
+        # GraphQL: a query reads, a mutation writes, and a body gh_read cannot see is a write.
+        (["api", "graphql", "-f", f"query={QUERY}", "-f", "owner=manaflow-ai"], True),
+        (["api", "graphql", "-f", "query={ viewer { login } }"], True),
+        (["api", "graphql", "-F", f"query={QUERY}", "-F", "owner=manaflow-ai"], True),
+        (["api", "graphql", "-f", "query=mutation { addComment(input: {}) { clientMutationId } }"], False),
+        (["api", "graphql", "-f", "query=\n  mutation M { x }"], False),
+        (["api", "graphql", "-F", "query=mutation{x}"], False),
+        (["api", "graphql", "-F", "query=@query.graphql"], False),
+        (["api", "graphql", "--input", "body.json"], False),
+        (["api", "graphql", "-f", "owner=o"], False),
+        # Other gh commands: `gh run view` reads; anything else is not a read gh_read knows.
+        (["run", "view", "10", "--repo", REPO, "--job", "7", "--log"], True),
+        (["run", "rerun", "10", "--failed"], False),
+        (["pr", "merge", "1"], False),
+    )
+
+    def test_each_argv_shape_by_its_effective_method(self):
+        for args, read in self.TABLE:
+            with self.subTest(args=args):
+                self.assertIs(excuse.gh_read(args), read)
+
+    def test_the_clients_own_reads_are_reads(self):
+        owner, _, name = REPO.partition("/")
+        blob = ["api", "graphql", "-f", f"query={excuse.BLOB_QUERY}", "-f", f"owner={owner}", "-f", f"name={name}",
+                "-f", f"expression={HEAD}:Package.swift"]
+        self.assertTrue(excuse.gh_read(blob))
+        self.assertTrue(excuse.gh_read(["api", f"repos/{REPO}/commits/{HEAD}/status", "--jq", "."]))
+
+
 class OneReadPerJudgement(unittest.TestCase):
     """The real gh client at its wire (subprocess.Popen of gh, under main_fix_evidence.GitHub.run): in one judgement
     each read (`gh api` REST and GraphQL, a job's log) goes out once, however often it is asked, and a write every
@@ -5746,8 +5809,12 @@ class WsCheckGitHub:
                  "##[endgroup]", "ws-check step ok: .github/workflows/tools-tests.yml test: passing (exit 0, ran 3, "
                  "skipped 0, gh calls 0)"]
         for step, printed in red.items():
-            lines += [f"##[group]{step}", *printed, "##[endgroup]",
-                      f"ws-check step FAILED: {step} (exit 1, ran 4, skipped 0, gh calls 0{seconds})"]
+            # PRINTED is the step's lines, or {unit: lines} for a step split into units: each unit its own group and
+            # result line, labelled "STEP [UNIT]" (leo-workspace ws_check_run.py since its units).
+            for label, out in ([(f"{step} [{unit}]", out) for unit, out in printed.items()]
+                               if isinstance(printed, dict) else [(step, printed)]):
+                lines += [f"##[group]{label}", *out, "##[endgroup]",
+                          f"ws-check step FAILED: {label} (exit 1, ran 4, skipped 0, gh calls 0{seconds})"]
         lines.append("WS_CHECK_RESULT=" + json.dumps({"failed": failed, "head": sha, "ok": not failed, "steps": steps,
                                                        "suites": 9, "tests_ran": 400, "tests_skipped": 0}))
         self.logs[run_id * 10 + 1] = "\n".join(f"2026-11-05T04:39:27.9954759Z {line}" for line in lines)
@@ -5822,6 +5889,43 @@ class WsCheckPerTest(unittest.TestCase):
         # read as "names no exit code", no ws-check red could be excused (leo-workspace#3745).
         self.gh.verdict(HEAD, 1, {self.RELAY: self.relay_lint()}, seconds=", 62.1 s")
         self.gh.verdict(self.gh.TIP, 2, {self.RELAY: self.relay_lint()}, seconds=", 0.4 s")
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", self.judge()[0])
+
+    def test_a_step_split_into_units_is_read_from_each_units_lines(self):
+        # leo-workspace#4322 at aa928f1c (run 43011639090): ws_check_run.py labels each unit's group and result line
+        # "STEP [UNIT]" and ends it with its CPU (", cpu 16.4 s, 18.3 s)"), while WS_CHECK_RESULT names the STEP. Read
+        # only as "ws-check step FAILED: STEP (exit", the red was refused "has no 'ws-check step FAILED: ...' line"
+        # though the log held it, so no red split into units could be excused.
+        other = ".github/workflows/tools-tests.yml test: every other tools/test_*.py (a new suite runs without a step)"
+        red = {other: {"test_ws_deploy_swap.py": self.ws_deploy("test_old_releases_are_pruned"),
+                       "test_lane_place.py 2/4": self.ws_deploy("test_place")}}
+        self.gh.verdict(HEAD, 1, red, seconds=", cpu 16.4 s, 18.3 s")
+        self.gh.verdict(self.gh.TIP, 2, red, seconds=", cpu 15.0 s, 17.9 s")
+        audit = self.judge()
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", audit[0])
+        for suite, test in (("test_ws_deploy_swap.py", "test_old_releases_are_pruned"),
+                            ("test_lane_place.py", "test_place")):
+            self.assertIn(f"excused 'ws-check' test '{other} :: [{suite}] {test} (__main__.FastForward.{test})': "
+                          f"red on main {self.gh.TIP[:12]} too (https://github.com/{self.gh.HOST}/actions/runs/2)",
+                          audit)
+        # A test of one unit that main does not fail is still the head's own, whatever unit main's red is in.
+        self.gh.verdict(self.gh.TIP, 2, {other: {"test_ws_deploy_swap.py": self.ws_deploy("test_old_releases_are_pruned")}},
+                        seconds=", cpu 15.0 s, 17.9 s")
+        with self.assertRaisesRegex(excuse.Refused, r"1 failure\(s\) not on main: .*test_place"):
+            self.judge()
+
+    def test_a_same_named_test_in_another_suite_does_not_excuse_it(self):
+        # cmux#41298 F1: every suite runs as __main__, so test_new.py's and test_old.py's test_check both print
+        # "test_check (__main__.FastForward.test_check)". Read by name alone, main's red in test_old.py excused the
+        # head's new red in test_new.py. A test is named with its suite; only a shard number may differ.
+        other = ".github/workflows/tools-tests.yml test: every other tools/test_*.py (a new suite runs without a step)"
+        self.gh.verdict(HEAD, 1, {other: {"test_new.py": self.ws_deploy("test_check")}})
+        self.gh.verdict(self.gh.TIP, 2, {other: {"test_old.py": self.ws_deploy("test_check")}})
+        with self.assertRaisesRegex(excuse.Refused, r"1 failure\(s\) not on main: .*\[test_new\.py\] test_check"):
+            self.judge()
+        # The same suite in another shard is the same test.
+        self.gh.verdict(HEAD, 1, {other: {"test_lane_place.py 2/4": self.ws_deploy("test_check")}})
+        self.gh.verdict(self.gh.TIP, 2, {other: {"test_lane_place.py 3/4": self.ws_deploy("test_check")}})
         self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", self.judge()[0])
 
     def test_a_test_failing_on_main_too_is_excused_by_name(self):
@@ -5966,20 +6070,68 @@ class WsCheckPerTest(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "test_flaky"):
             self.judge()
 
-    def test_a_fast_checks_run_is_read_through_its_snapshot_receipt(self):
-        snapshot = "9" * 40
+    SQUASHED = "5" * 40  # the tree a squash of HEAD onto main's tip makes, cut to the hosted paths
+
+    def snapshot_runs(self, snapshot="9" * 40, tree=SQUASHED):
+        """HEAD's and main's ws-check runs through cmux-ci: each tested a snapshot commit, named in its receipt, HEAD's
+        with source_tree TREE; the squash tree (ws_check_squash_tree) of HEAD onto main's tip is SQUASHED."""
         for sha, run_id in ((HEAD, 1), (self.gh.TIP, 2)):
             self.gh.runs[run_id]["display_title"] = f"Fast checks {snapshot}"
             self.gh.jobs[run_id] = [dict(self.gh.jobs[run_id][1], name="checks", conclusion="failure")]
+            receipt = {"source_sha": snapshot, "run_id": str(run_id), "head_after": snapshot}
+            if sha == HEAD and tree is not None:
+                receipt["source_tree"] = tree
             self.gh.logs[run_id * 10 + 1] = (self.gh.logs[run_id * 10 + 1].replace(sha, snapshot)
-                                             + f"\n2026-11-05T04:39:28.0421097Z FAST_CHECKS_RECEIPT="
-                                             + json.dumps({"source_sha": snapshot, "run_id": str(run_id)}))
+                                             + "\n2026-11-05T04:39:28.0421097Z FAST_CHECKS_RECEIPT="
+                                             + json.dumps(receipt))
+        self.squashed = []
+
+        def squash(repo, head, tip):
+            self.squashed.append((repo, head, tip))
+            return self.SQUASHED if (head, tip) == (HEAD, self.gh.TIP) else "6" * 40
+        patch = unittest.mock.patch.object(excuse, "ws_check_squash_tree", squash, create=True)
+        patch.start()
+        self.addCleanup(patch.stop)
+        return snapshot
+
+    def test_a_fast_checks_run_is_read_through_its_snapshot_receipt(self):
+        snapshot = self.snapshot_runs()
         self.assertIn("every failure", self.judge()[0])
+        self.assertEqual(self.squashed, [(self.gh.REPO, HEAD, self.gh.TIP)])  # the head's run only, at main's tip
         # A title that also names the tested repo and commit (`Fast checks SOURCE tests REPO@TESTED`) is the same run.
         self.gh.runs[1]["display_title"] = f"Fast checks {snapshot} tests teamleaderleo/leo-workspace@{HEAD}"
         self.assertIn("every failure", self.judge()[0])
         self.gh.runs[1]["display_title"] = "Fast checks " + "8" * 40
         with self.assertRaisesRegex(excuse.Refused, "is from another checkout"):
+            self.judge()
+
+    def test_the_brokers_merge_tested_run_from_another_checkout_is_accepted_by_its_tree(self):
+        # LW#4369 at 4f84acf0 (2026-11-11): the broker's run 43048550008, `Fast checks SNAPSHOT job ID`, tested the head
+        # merged with main's tip and was refused as "from another checkout". Its tree is what lands: it counts.
+        snapshot = self.snapshot_runs()
+        self.gh.runs[1]["display_title"] = f"Fast checks {snapshot} job 49c43a9c14094ce1b147dbfea24afa01"
+        self.assertIn("every failure", self.judge()[0])
+
+    def test_a_merge_tested_run_against_an_older_base_is_refused(self):
+        # Its tree is the head merged with an older main: not what a squash onto main's tip makes now.
+        snapshot = self.snapshot_runs(tree="6" * 40)
+        self.gh.runs[1]["display_title"] = f"Fast checks {snapshot} job 49c43a9c14094ce1b147dbfea24afa01"
+        with self.assertRaisesRegex(excuse.Refused, f"run 1 tested tree 666666666666, not {HEAD[:12]} merged with "
+                                                    f"main's tip {self.gh.TIP[:12]} .*another base or head"):
+            self.judge()
+
+    def test_a_run_naming_no_tested_tree_is_refused(self):
+        self.snapshot_runs(tree=None)
+        with self.assertRaisesRegex(excuse.Refused, "names no tested tree in its receipt"):
+            self.judge()
+
+    def test_a_head_that_does_not_merge_with_the_base_tip_is_refused(self):
+        self.snapshot_runs()
+
+        def conflicted(repo, head, tip):
+            raise excuse.Refused(f"{head[:12]} does not merge cleanly with the base tip {tip[:12]} (conflicts in: x)")
+        with unittest.mock.patch.object(excuse, "ws_check_squash_tree", conflicted, create=True), \
+                self.assertRaisesRegex(excuse.Refused, "does not merge cleanly"):
             self.judge()
 
     def merge_base_case(self, merge_base_red, *, tip=None):
@@ -6056,6 +6208,117 @@ class WsCheckPerTest(unittest.TestCase):
         # a cmux head asked about no red is no failure (NoFailureExitsZero), never the ws-check path
         self.assertEqual(excuse.judge(REPO, "feat-cmux-next", HEAD, [], gh),
                          [f"no red run or check named on {HEAD}: no failure to excuse"])
+
+
+class WsCheckSquashTree(unittest.TestCase):
+    """ws_check_squash_tree in a real git repository: the tree a pinned squash of the head onto the base tip makes, cut
+    to leo-workspace's hosted paths, whichever checkout or runner made the run. Compared by tree, never by path."""
+    REPO = "teamleaderleo/leo-workspace"
+
+    # Every fixture git call has an identity, so a commit or a squash merge never depends on the host's git config.
+    IDENTITY = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+                "GIT_COMMITTER_EMAIL": "t@t"}
+
+    def git(self, *args, cwd=None, text=None):
+        return subprocess.run(["git", *args], cwd=cwd or self.work, check=True, capture_output=True, text=True,
+                              input=text, env=git_fixture_env.fixture_env({**os.environ, **self.IDENTITY})).stdout.strip()
+
+    def commit(self, files, message):
+        for name, body in files.items():
+            path = Path(self.work, name)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(body)
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", message)
+        return self.git("rev-parse", "HEAD")
+
+    def setUp(self):
+        top = tempfile.TemporaryDirectory(prefix="bre-squash-")
+        self.addCleanup(top.cleanup)
+        self.work = Path(top.name, "work")
+        git_fixture_env.init_repo(self.work, "-b", "main")
+        hosts = json.dumps({"fast_checks_hosts": {self.REPO: {"repo": "manaflow-ai/cmuxterm-hq",
+                                                               "paths": ["tools", "machines"]}}})
+        self.old = self.commit({"machines/lane-gh-broker.json": hosts, "tools/a.py": "a\n", "tools/b.py": "b\n",
+                                "notes/n.md": "not hosted\n"}, "base")
+        self.tip = self.commit({"tools/b.py": "b2\n"}, "main moves")
+        self.git("checkout", "-q", "-b", "pr", self.old)
+        self.head = self.commit({"tools/a.py": "a2\n", "notes/n.md": "pr note\n"}, "the PR")
+        self.git("checkout", "-q", "-b", "other", self.old)
+        self.other = self.commit({"tools/a.py": "a3\n"}, "another PR")
+        self.git("checkout", "-q", "-b", "clash", self.old)
+        self.clash = self.commit({"tools/b.py": "b3\n"}, "conflicts with main")
+        self.top = Path(top.name)
+        cache = Path(top.name, "cache")
+        git_fixture_env.init_repo(cache / "teamleaderleo__leo-workspace.git", "--bare")
+        self.git("push", "-q", str(cache / "teamleaderleo__leo-workspace.git"), "main", "pr", "other", "clash")
+        for patch in (unittest.mock.patch.dict(os.environ, {excuse.SOURCE_CACHE_ENV: str(cache),
+                                                            "GH_MIRROR_ROOT": str(Path(top.name, "no-mirrors"))}),):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def squashed(self, head, tip):
+        """What a pinned squash of HEAD onto TIP lands, cut as the broker cuts its snapshot: tools and machines only."""
+        self.git("checkout", "-q", "--detach", tip)
+        self.git("merge", "-q", "--squash", head)
+        self.git("commit", "-q", "-m", "squash")
+        landed = self.git("rev-parse", "HEAD")
+        return self.git("mktree", text="\n".join(self.git("ls-tree", landed, "--", path)
+                                                   for path in ("tools", "machines")) + "\n")
+
+    def test_a_run_from_another_checkout_with_the_same_head_and_base_is_accepted(self):
+        self.assertEqual(excuse.ws_check_squash_tree(self.REPO, self.head, self.tip), self.squashed(self.head, self.tip))
+
+    def test_a_run_against_an_older_base_is_refused(self):
+        older = excuse.ws_check_squash_tree(self.REPO, self.head, self.old)
+        self.assertNotEqual(older, excuse.ws_check_squash_tree(self.REPO, self.head, self.tip))
+        with self.assertRaisesRegex(excuse.Refused, "tested another base or head"):
+            excuse.ws_check_tested_tree(self.REPO, "main", self.head, {"run": "7", "tree": older}, self.tip)
+        excuse.ws_check_tested_tree(self.REPO, "main", self.head, {"run": "7", "tree": self.squashed(self.head, self.tip)},
+                                    self.tip)
+
+    def test_a_run_of_a_different_head_is_refused(self):
+        theirs = excuse.ws_check_squash_tree(self.REPO, self.other, self.tip)
+        with self.assertRaisesRegex(excuse.Refused, "tested another base or head"):
+            excuse.ws_check_tested_tree(self.REPO, "main", self.head, {"run": "7", "tree": theirs}, self.tip)
+
+    def test_a_conflicted_merge_is_refused(self):
+        with self.assertRaisesRegex(excuse.Refused, r"does not merge cleanly .*conflicts in: tools/b\.py"):
+            excuse.ws_check_squash_tree(self.REPO, self.clash, self.tip)
+
+    def test_a_cache_git_commit_filled_shallow_still_merges_by_the_whole_history(self):
+        # dep-fleet-6 on cmux#41386 at 0000f4c0 (F1): git_commit fills the shared cache one commit deep, so both
+        # commits are present while their history is not. Present is not complete: the merge needs the merge-base.
+        shallow = self.top / "shallow-cache"
+        self.git("config", "uploadpack.allowFilter", "true")
+        self.git("config", "uploadpack.allowAnySHA1InWant", "true")
+        remote = lambda repo: self.work.as_uri()  # noqa: E731
+        with unittest.mock.patch.dict(os.environ, {excuse.SOURCE_CACHE_ENV: str(shallow)}), \
+                unittest.mock.patch.object(excuse, "git_remote", remote):
+            self.assertEqual(excuse.git_commit(self.REPO, self.head), self.head)
+            self.assertEqual(excuse.git_commit(self.REPO, self.tip), self.tip)
+            cache = shallow / "teamleaderleo__leo-workspace.git"
+            self.assertEqual(self.git("rev-parse", "--is-shallow-repository", cwd=cache), "true")
+            self.assertEqual(excuse.ws_check_squash_tree(self.REPO, self.head, self.tip),
+                             self.squashed(self.head, self.tip))
+
+    def test_a_shallow_cache_whose_history_cannot_be_fetched_is_refused(self):
+        shallow = self.top / "shallow-cache"
+        self.git("config", "uploadpack.allowFilter", "true")
+        self.git("config", "uploadpack.allowAnySHA1InWant", "true")
+        with unittest.mock.patch.dict(os.environ, {excuse.SOURCE_CACHE_ENV: str(shallow)}):
+            with unittest.mock.patch.object(excuse, "git_remote", lambda repo: self.work.as_uri()):
+                excuse.git_commit(self.REPO, self.head)
+                excuse.git_commit(self.REPO, self.tip)
+            gone = (self.top / "gone.git").as_uri()
+            with unittest.mock.patch.object(excuse, "git_remote", lambda repo: gone), \
+                    self.assertRaisesRegex(excuse.Refused, "shallow"):
+                excuse.ws_check_squash_tree(self.REPO, self.head, self.tip)
+
+    def test_a_commit_git_cannot_read_is_refused(self):
+        with unittest.mock.patch.object(excuse, "git_remote", lambda repo: str(Path(self.work, "missing.git"))), \
+                self.assertRaisesRegex(excuse.Refused, "git cannot read .* commit 777777777777"):
+            excuse.ws_check_squash_tree(self.REPO, "7" * 40, self.tip)
 
 
 class WsCheckFixedOnBase(unittest.TestCase):
@@ -7597,7 +7860,7 @@ class FailingStepLogOnly(unittest.TestCase):
     # leo-workspace tools/failed_steps_log.py (base-red-watch reads job logs there and cannot import this script); each
     # copy's test pins the same fingerprint. A change here updates this value and both copies.
     # Each copy keeps STEP_NAMES_UNKNOWN too: step_owners requires a caller to pass it when it reads no workflow.
-    VENDORED_FINGERPRINT = "b25a8e4f61d1d373e53ae5fe0797484f4adf9c6cf104dda2d1472f1e8af5a61a"
+    VENDORED_FINGERPRINT = "4fa56d9a188f4792111ea17fd85ac3f1e32e17a0e4c64e35f7825a41030dc241"
 
     def test_the_code_vendored_into_base_red_watch_is_pinned(self):
         import hashlib
@@ -11379,6 +11642,60 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
         no_tests = ast.literal_eval(re.search(r"^NO_TESTS = (\(.*\))$", replay, re.M).group(1))
         for prefix in [prefix for prefix in no_tests if prefix.startswith("cmux-next checks")]:
             self.assertTrue(any(name.startswith(prefix) for name in names), prefix)
+
+
+class ReplacedWaitingBaseRed(unittest.TestCase):
+    """A base summary red whose source job a newer push replaced while it waited judged nothing: base_verdicts passes
+    over it to an older run's verdict (feat-cmux-next runs 43032789758 and 43037486374, 'cmux-next crash ends the
+    app': "no verdict: crash gate: compile cancelled")."""
+
+    CRASH, COMPILE = "cmux-next crash ends the app", "cmux app scheme compile (Debug)"
+    REPLACED = ("Canceling since a higher priority waiting request for "
+                "cmux-next-push-refs/heads/feat-cmux-next-cmux-scheme-compile exists")
+
+    class Runs:
+        def __init__(self, jobs, notes):
+            self.jobs, self.notes, self.routes = jobs, notes, []
+
+        def json(self, route, *, paginate=False):
+            self.routes.append(route)
+            if route.endswith("/jobs?filter=latest&per_page=100"):
+                run = int(route.split("/actions/runs/", 1)[1].split("/", 1)[0])
+                return [{"jobs": [dict(job) for job in self.jobs if job["run_id"] == run]}]
+            if "/actions/workflows/7/runs?" in route:  # the tip suite's dispatches (tip_suite_verdicts): none here
+                return {"workflow_runs": []}
+            if route.endswith("/annotations"):
+                return self.notes.get(int(route.split("/check-runs/", 1)[1].split("/", 1)[0]), [])
+            raise AssertionError(route)
+
+    def verdicts(self, compile_conclusion, note, crash="failure"):
+        step = [{"name": "Read the crash gate result", "status": "completed", "conclusion": crash}]
+        jobs = [{"id": 1, "run_id": 20, "name": self.CRASH, "conclusion": crash, "steps": step},
+                {"id": 2, "run_id": 20, "name": self.COMPILE, "conclusion": compile_conclusion, "steps": []},
+                {"id": 3, "run_id": 19, "name": self.CRASH, "conclusion": "success",
+                 "steps": [dict(step[0], conclusion="success")]}]
+        github = self.Runs(jobs, {2: [{"annotation_level": "failure", "message": note}]})
+        runs = [{"id": 20, "event": "push", "status": "completed", "conclusion": "cancelled"},
+                {"id": 19, "event": "push", "status": "completed", "conclusion": "success"}]
+        with unittest.mock.patch.object(excuse, "REPLACED_READS", {}):
+            found = list(excuse.base_verdicts(REPO, "feat-cmux-next", 7, self.CRASH, github, {7: runs}, {}, {}))
+        return [(run["id"], job["conclusion"]) for run, job in found], github.routes
+
+    def test_a_red_from_a_replaced_compile_is_passed_over(self):
+        found, routes = self.verdicts("cancelled", self.REPLACED)
+        self.assertEqual(found, [(19, "success")])
+        self.assertEqual(sum(route.endswith("/annotations") for route in routes), 1)
+
+    def test_any_other_red_stays_a_verdict(self):
+        for conclusion, note, crash in (("cancelled", "The job running on runner x has exceeded the maximum execution "
+                                         "time of 60 minutes.", "failure"),
+                                        ("failure", self.REPLACED, "failure"), ("success", self.REPLACED, "failure"),
+                                        ("cancelled", self.REPLACED, "success")):
+            with self.subTest(compile=conclusion, note=note[:20], crash=crash):
+                found, routes = self.verdicts(conclusion, note, crash)
+                self.assertEqual(found, [(20, crash), (19, "success")])
+                if conclusion != "cancelled" or crash != "failure":
+                    self.assertFalse(any(route.endswith("/annotations") for route in routes))
 
 
 if __name__ == "__main__":

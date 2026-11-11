@@ -316,7 +316,9 @@ fn push(found: &mut Vec<Repo>, more: &mut bool, folder: &Path, path: PathBuf, li
         *more = true;
         return;
     }
-    let name = path.strip_prefix(folder).map_or_else(|_| path.display().to_string(), |rest| rest.display().to_string());
+    let name = path
+        .strip_prefix(folder)
+        .map_or_else(|_| path.display().to_string(), |rest| rest.display().to_string());
     found.push(Repo { name, path });
 }
 
