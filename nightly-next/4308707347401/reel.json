@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "build": "4308707347401",
+  "notes": "notes/4308707347401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 41220,
+      "title": "base_red_excuse: place composite and same-second logs by the workflow's step headers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41326,
+      "title": "tests: wait for a process's real state instead of probing it with signal 0, and lint every probe",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41336,
+      "title": "noclobber lint: shell_tree keeps bash's quoting and line state, reads through wrappers; allowances approve only their own hit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41345,
+      "title": "tests: the three sleep-then-assert findings feat-cmux-next gained, waited on their events",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41442,
+      "title": "cmux-remote: the batched relay sender's latency and batching are checked on a paused clock; relay tests trust their CA per test",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41114,
+      "title": "acpmux session-list filters go only to a daemon that serves them (feed bridge pendingOnly, attach localOnly)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40918,
+      "title": "test(streaming-parked-still): read the reader's scroll from the picture and the order of events, not a clock",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41440,
+      "title": "cmux-next tests: each close test reads the question of its own app's window",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41401,
+      "title": "Agent pane: a row's entrance starts on the frame that first draws it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41338,
+      "title": "acpmux tests: attached peer notices carry the row's qualifiedSessionId; fix the codex-bridge fork flake",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41408,
+      "title": "Cloud start: refuse an over-limit folder before leasing, release stranded machines (Rust step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41361,
+      "title": "acpmux: a cancel stops whichever dual-sent copy runs; cancelled ids age out with a log",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41425,
+      "title": "test: orphan test_*.py files that fail on feat-cmux-next are fixed or skipped against #41322; history skips fetch or say needs history",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41433,
+      "title": "cmux-next: a pane lays out again when its page starts or stops to show in Chromium",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41383,
+      "title": "check-test-hooks: resolve the file's aliases, read thread_local!( ), report what it cannot see",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
