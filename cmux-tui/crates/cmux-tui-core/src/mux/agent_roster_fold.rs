@@ -278,11 +278,14 @@ impl Mux {
         ) else {
             return Ok(());
         };
-        if HookFence::reordered(
-            previous_fence.as_ref(),
+        // One agent's hooks run one after another, but an event the hook
+        // could not queue goes on its own connection with its own daemon
+        // thread, so the journal can take it out of order. The hook's start
+        // time orders what the agent did; the journal sequence orders transport.
+        if crate::agent_hooks::hook_event_is_reordered(
             &ingress.kind,
-            &agent_session_id,
             observed_at_ms,
+            HookFence::last_observed_at_ms(previous_fence.as_ref(), &agent_session_id),
         ) {
             return Ok(());
         }

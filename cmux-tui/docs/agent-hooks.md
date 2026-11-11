@@ -26,18 +26,33 @@ hook queues its event behind the agent's earlier ones. A hook that cannot
 queue (no private queue directory, a full disk, or a platform without the
 queue) sends its event on its own connection, and the session serves each
 connection on its own thread, so the journal can then take a `Stop` before
-the prompt that came first. Each event carries when its hook started
-(`observed_at_ms`, from the clock of the machine the hook runs on). The
+the prompt that came first. Each event carries when its hook handed it over
+(`observed_at_ms`, ms since the epoch, from the clock of the machine the hook
+runs on). The hook sets it after its repository-readiness wait, so a
+`PreToolUse` event can carry a time up to 30 s after the hook started. The
 agent's state, in the agent rows and in the roster that the sidebar, tab
-badges and attention jump read, follows the latest-started event of its
-session: an event of the same session that started earlier than the latest
-applied one, by at most 5 s (the reorder window), is kept in the journal
-but does not change the state. The session's start and end, and an event
-that shows a dialog, a question, a plan review or an error, always apply.
-Limits: two events that start in the same millisecond keep journal order;
-an event that started more than 5 s earlier applies (a clock stepped back);
-for an agent on a remote host, a step of that host's clock within 5 s can
-drop the state of the event after it until the agent's next event.
+badges and attention jump read, follows the latest-stamped event of its
+session: an event of the same session stamped earlier than the latest
+applied one, by at most 5 s (the reorder window), is kept in the journal but
+does not change the state. The session's start and end, and an event that
+shows a dialog, a question, a plan review or an error, always apply
+(parallel subagents of one session can each raise a dialog; the next later
+event clears it). An event with no stamp (an older hook helper) applies in
+journal order.
+
+Limits:
+
+- Two events stamped in the same millisecond keep journal order.
+- An event stamped more than 5 s earlier applies, since a clock stepped back
+  is likelier than a reorder that long.
+- The times come from the machine that runs the agent. When that clock
+  steps back by up to 5 s (by NTP, say), every event the agent sends until
+  the clock passes its latest stamp again is dropped from the state; the
+  next event after that sets it. For an agent on this machine that is the
+  local clock.
+- After a session restart, the agent rows order by journal sequence until
+  the agent's next stamped event; the roster replays the journal and keeps
+  the order.
 
 ## Agents in a tmux session started elsewhere
 

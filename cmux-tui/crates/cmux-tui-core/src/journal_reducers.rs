@@ -366,18 +366,13 @@ pub(crate) struct HookFence {
     #[serde(default)]
     pub(crate) ended_at_ms: Option<u64>,
     /// The latest hook start (`observed_at_ms`) among the applied events of
-    /// `session_id`, for [`HookFence::reordered`]. It resets when another
-    /// session takes the terminal.
+    /// `session_id`, for [`crate::agent_hooks::hook_event_is_reordered`]. It
+    /// resets when another session takes the terminal. Restored projections
+    /// start it at `None`: after a restart the order falls back to the journal
+    /// sequence until the next stamped event.
     #[serde(default)]
-    pub(crate) latest_observed_at_ms: Option<u64>,
+    pub(crate) observed_at_ms: Option<u64>,
 }
-
-/// How far apart two hook starts of one session may be for the later-sent
-/// one to be journaled first. One agent's hooks run one after another, and a
-/// hook hands its event over within its own run, so a reorder is at most a
-/// few seconds; an event that started even earlier comes from a clock that
-/// stepped back and is newer, not reordered.
-pub(crate) const HOOK_REORDER_WINDOW_MS: u64 = 5_000;
 
 pub(crate) enum JournalHookTransition {
     Ignore,
@@ -495,40 +490,14 @@ impl HookFence {
         }
     }
 
-    /// Whether an event of kind `kind` that [`Self::journal_transition`]
-    /// gave to `session_id`, its hook started at `observed_at_ms`, came after
-    /// a later-started event of the same session that was already applied:
-    /// it must not set the agent's state, by at most
-    /// [`HOOK_REORDER_WINDOW_MS`]. The journal keeps it. One agent's hooks run
-    /// one after another, but an event the hook could not queue goes on its
-    /// own connection, which the daemon serves on its own thread. The
-    /// projector and the roster both ask this, so they agree.
-    ///
-    /// Never skipped: the session's start and end, and an event that shows a
-    /// dialog, a question, a plan review or an error (parallel subagents of
-    /// one session can each raise one; the next later event clears it).
-    pub(crate) fn reordered(
-        current: Option<&Self>,
-        kind: &str,
-        session_id: &str,
-        observed_at_ms: Option<u64>,
-    ) -> bool {
-        if matches!(
-            kind,
-            "agent.session.started"
-                | "agent.session.ended"
-                | "agent.approval.requested"
-                | "agent.question.requested"
-                | "agent.plan_review.requested"
-                | "agent.error.reported"
-        ) {
-            return false;
-        }
-        let last = current
+    /// When the hook of the latest applied event of `session_id` started
+    /// (`observed_at_ms`), for
+    /// [`crate::agent_hooks::hook_event_is_reordered`]; `None` when another
+    /// session holds the fence or no applied event said.
+    pub(crate) fn last_observed_at_ms(current: Option<&Self>, session_id: &str) -> Option<u64> {
+        current
             .filter(|fence| fence.session_id == session_id)
-            .and_then(|fence| fence.latest_observed_at_ms);
-        let (Some(seen), Some(last)) = (observed_at_ms, last) else { return false };
-        seen < last && last - seen <= HOOK_REORDER_WINDOW_MS
+            .and_then(|fence| fence.observed_at_ms)
     }
 
     /// The fence after applying an event of `session_id` at `sequence`. The
@@ -545,9 +514,8 @@ impl HookFence {
         let same = current.filter(|fence| fence.session_id == session_id);
         let carried = same.and_then(|fence| fence.ended_at_ms);
         let ended_at_ms = if ended { observed_at_ms.or(carried) } else { carried };
-        let latest_observed_at_ms =
-            observed_at_ms.max(same.and_then(|fence| fence.latest_observed_at_ms));
-        Self { session_id, sequence, ended, ended_at_ms, latest_observed_at_ms }
+        let observed_at_ms = observed_at_ms.max(same.and_then(|fence| fence.observed_at_ms));
+        Self { session_id, sequence, ended, ended_at_ms, observed_at_ms }
     }
 
     /// Decide one direct hook-source report. Internal hook markers are not
@@ -893,7 +861,11 @@ impl AgentRoster {
             ) else {
                 return Vec::new();
             };
-            if HookFence::reordered(current, event.kind, &session_id, observed_at_ms) {
+            if crate::agent_hooks::hook_event_is_reordered(
+                event.kind,
+                observed_at_ms,
+                HookFence::last_observed_at_ms(current, &session_id),
+            ) {
                 return Vec::new();
             }
             let next = HookFence::next(
@@ -1463,7 +1435,7 @@ mod tests {
                 sequence: 2,
                 ended: false,
                 ended_at_ms: None,
-                latest_observed_at_ms: None
+                observed_at_ms: None
             }
         );
 
@@ -1502,7 +1474,7 @@ mod tests {
                 sequence: 1,
                 ended: false,
                 ended_at_ms: None,
-                latest_observed_at_ms: None
+                observed_at_ms: None
             }
         );
         let completed = session_payload("old");
@@ -1534,7 +1506,7 @@ mod tests {
                 sequence: 4,
                 ended: false,
                 ended_at_ms: None,
-                latest_observed_at_ms: None
+                observed_at_ms: None
             }
         );
     }

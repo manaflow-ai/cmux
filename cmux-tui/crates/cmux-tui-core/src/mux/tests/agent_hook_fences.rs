@@ -649,6 +649,17 @@ fn append_ordered_hook(
     event: &str,
     observed_at_ms: u64,
 ) {
+    append_hook(mux, terminal_id, event, Some(observed_at_ms));
+}
+
+/// One hook event of session `order-1`, stamped with when its hook started
+/// when `observed_at_ms` is set (an older hook helper sends no stamp).
+fn append_hook(
+    mux: &Arc<Mux>,
+    terminal_id: &TerminalPublicId,
+    event: &str,
+    observed_at_ms: Option<u64>,
+) {
     let mut ingress = crate::agent_hooks::agent_hook_journal_ingress(
         "claude",
         event,
@@ -656,13 +667,35 @@ fn append_ordered_hook(
         serde_json::json!({"session_id": "order-1"}),
     )
     .unwrap();
-    crate::agent_hooks::stamp_agent_hook_observed_at(&mut ingress, observed_at_ms);
+    if let Some(observed_at_ms) = observed_at_ms {
+        crate::agent_hooks::stamp_agent_hook_observed_at(&mut ingress, observed_at_ms);
+    }
     let key = format!("hook-order-{}", crate::workspace_registry::new_uuid_v4());
     mux.append_journal_ingress(&ingress, "test", &key).unwrap();
 }
 
-fn hook_order_state(mux: &Arc<Mux>, surface: SurfaceId) -> Option<AgentState> {
-    settled(mux).list_agents(Some(surface), None).first().map(|record| record.state)
+/// The agent's state in both readers: the roster (`list_agents`: sidebar,
+/// tab badges, attention jump) and the public agent rows (the hook
+/// projector). They must agree; `None` means the terminal has no agent row.
+fn assert_hook_order_state(
+    mux: &Arc<Mux>,
+    surface: SurfaceId,
+    terminal_id: &TerminalPublicId,
+    expected: Option<AgentState>,
+) {
+    let roster = settled(mux).list_agents(Some(surface), None).first().map(|record| record.state);
+    assert_eq!(roster, expected, "roster");
+    let rows = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .public_agent_projections(Some(terminal_id), None)
+        .unwrap();
+    assert_eq!(
+        rows.first().map(|row| row.state.clone()),
+        expected.map(|state| state.as_str().to_string()),
+        "agent rows: {rows:?}"
+    );
 }
 
 #[test]
@@ -676,17 +709,10 @@ fn hook_order_events_journaled_out_of_send_order_keep_the_last_sent_state() {
     append_ordered_hook(&mux, &terminal_id, "SessionStart", 1_000);
     append_ordered_hook(&mux, &terminal_id, "Stop", 3_000);
     append_ordered_hook(&mux, &terminal_id, "UserPromptSubmit", 2_000);
-    assert_eq!(hook_order_state(&mux, surface.id), Some(AgentState::Idle));
-    let rows = mux
-        .workspace_registry
-        .lock()
-        .unwrap()
-        .public_agent_projections(Some(&terminal_id), None)
-        .unwrap();
-    assert_eq!(rows.first().map(|row| row.state.as_str()), Some("idle"), "{rows:?}");
+    assert_hook_order_state(&mux, surface.id, &terminal_id, Some(AgentState::Idle));
     // The next prompt the hooks send still applies.
     append_ordered_hook(&mux, &terminal_id, "UserPromptSubmit", 4_000);
-    assert_eq!(hook_order_state(&mux, surface.id), Some(AgentState::Working));
+    assert_hook_order_state(&mux, surface.id, &terminal_id, Some(AgentState::Working));
 }
 
 #[test]
@@ -698,7 +724,7 @@ fn hook_order_an_event_older_than_the_reorder_window_applies() {
     append_ordered_hook(&mux, &terminal_id, "Stop", 20_000);
     // Far earlier than a reorder can be: the clock stepped back.
     append_ordered_hook(&mux, &terminal_id, "UserPromptSubmit", 2_000);
-    assert_eq!(hook_order_state(&mux, surface.id), Some(AgentState::Working));
+    assert_hook_order_state(&mux, surface.id, &terminal_id, Some(AgentState::Working));
 }
 
 #[test]
@@ -709,5 +735,29 @@ fn hook_order_a_dialog_is_never_skipped() {
     append_ordered_hook(&mux, &terminal_id, "SessionStart", 1_000);
     append_ordered_hook(&mux, &terminal_id, "Stop", 3_000);
     append_ordered_hook(&mux, &terminal_id, "PermissionRequest", 2_000);
-    assert_eq!(hook_order_state(&mux, surface.id), Some(AgentState::Blocked));
+    assert_hook_order_state(&mux, surface.id, &terminal_id, Some(AgentState::Blocked));
+}
+
+#[test]
+fn hook_order_a_session_end_is_never_skipped() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    append_ordered_hook(&mux, &terminal_id, "SessionStart", 1_000);
+    append_ordered_hook(&mux, &terminal_id, "UserPromptSubmit", 3_000);
+    // Journaled after a later-started event, but the session ended: the row goes.
+    append_ordered_hook(&mux, &terminal_id, "SessionEnd", 2_000);
+    assert_hook_order_state(&mux, surface.id, &terminal_id, None);
+}
+
+#[test]
+fn hook_order_an_unstamped_event_after_stamped_ones_applies() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    append_ordered_hook(&mux, &terminal_id, "SessionStart", 1_000);
+    append_ordered_hook(&mux, &terminal_id, "Stop", 3_000);
+    // An older hook helper sends no start time: journal order decides.
+    append_hook(&mux, &terminal_id, "UserPromptSubmit", None);
+    assert_hook_order_state(&mux, surface.id, &terminal_id, Some(AgentState::Working));
 }

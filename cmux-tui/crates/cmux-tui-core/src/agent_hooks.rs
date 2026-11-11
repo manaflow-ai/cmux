@@ -257,6 +257,42 @@ pub(crate) fn journal_plugin_exit_journal_ingress(
     })
 }
 
+/// How far apart two hook starts of one session may be for the later-sent
+/// one to be journaled first. One agent's hooks run one after another, and a
+/// hook hands its event over within its own run, so a reorder is at most a
+/// few seconds; an event that started even earlier comes from a clock that
+/// stepped back and is newer, not reordered.
+pub(crate) const HOOK_REORDER_WINDOW_MS: u64 = 5_000;
+
+/// Whether a hook event of kind `kind` whose hook started at `observed_at_ms`
+/// came after a later-started event of the same session (`last_observed_at_ms`)
+/// that was already applied, so it must not set the agent's state. The
+/// journal keeps it either way. The agent projection and the roster both ask
+/// this, so they agree.
+///
+/// Never skipped: the session's start and end, and an event that shows a
+/// dialog or an error (parallel subagents of one session can each raise one;
+/// the next later event clears it).
+pub(crate) fn hook_event_is_reordered(
+    kind: &str,
+    observed_at_ms: Option<u64>,
+    last_observed_at_ms: Option<u64>,
+) -> bool {
+    if matches!(
+        kind,
+        "agent.session.started"
+            | "agent.session.ended"
+            | "agent.approval.requested"
+            | "agent.question.requested"
+            | "agent.plan_review.requested"
+            | "agent.error.reported"
+    ) {
+        return false;
+    }
+    let (Some(seen), Some(last)) = (observed_at_ms, last_observed_at_ms) else { return false };
+    seen < last && last - seen <= HOOK_REORDER_WINDOW_MS
+}
+
 const MAX_TOOL_TARGET_PATH_BYTES: usize = 1024;
 
 /// The file a tool call targets, copied from the tool input before it is
