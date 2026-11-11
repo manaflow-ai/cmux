@@ -21,7 +21,7 @@ test("each image takes the size told for its name; other files take none", () =>
     { name: "b.png", width: 900, height: 2880 },
     { name: "a.png", width: 2880, height: 1800 },
   ]);
-  expect(hostShapes([png("a.png"), zip("c.zip"), png("b.png")])).toEqual([
+  expect(hostShapes([png("a.png"), zip("c.zip"), png("b.png")], "paste")).toEqual([
     { width: 2880, height: 1800 },
     undefined,
     { width: 900, height: 2880 },
@@ -34,34 +34,41 @@ test("a movie takes the size told for its name, never an unnamed one", () => {
     { name: "Screen Recording.mov", width: 1920, height: 1080 },
     { width: 1512, height: 982 },
   ]);
-  expect(hostShapes([mov("Screen Recording.mov")])).toEqual([{ width: 1920, height: 1080 }]);
+  expect(hostShapes([mov("Screen Recording.mov")], "paste")).toEqual([{ width: 1920, height: 1080 }]);
   tell([{ width: 1512, height: 982 }]);
-  expect(hostShapes([mov("clip.mov")])).toEqual([undefined]);
+  expect(hostShapes([mov("clip.mov")], "paste")).toEqual([undefined]);
 });
 
 test("a pasted bitmap with no file name sizes the paste's only image", () => {
   tell([{ name: null, width: 1512, height: 982 }]);
-  expect(hostShapes([png("image.png")])).toEqual([{ width: 1512, height: 982 }]);
+  expect(hostShapes([png("image.png")], "paste")).toEqual([{ width: 1512, height: 982 }]);
 });
 
 test("an unnamed size never goes to one of several images", () => {
   tell([{ width: 1512, height: 982 }]);
-  expect(hostShapes([png("one.png"), png("two.png")])).toEqual([undefined, undefined]);
+  expect(hostShapes([png("one.png"), png("two.png")], "paste")).toEqual([undefined, undefined]);
 });
 
 test("what was told is used once: a later gesture never takes it", () => {
   tell([{ name: "a.png", width: 2880, height: 1800 }]);
-  expect(hostShapes([png("a.png")])).toEqual([{ width: 2880, height: 1800 }]);
-  expect(hostShapes([png("a.png")])).toEqual([undefined]);
+  expect(hostShapes([png("a.png")], "paste")).toEqual([{ width: 2880, height: 1800 }]);
+  expect(hostShapes([png("a.png")], "paste")).toEqual([undefined]);
 });
 
 test("a stale record, or none (an older host), sizes nothing", () => {
   tell([{ name: "a.png", width: 2880, height: 1800 }], Date.now() - 60_000);
-  expect(hostShapes([png("a.png")])).toEqual([undefined]);
-  expect(hostShapes([png("a.png")])).toEqual([undefined]);
+  expect(hostShapes([png("a.png")], "paste")).toEqual([undefined]);
+  expect(hostShapes([png("a.png")], "paste")).toEqual([undefined]);
 });
 
 test("a size that is not a positive number is none", () => {
   tell([{ name: "a.png", width: 0, height: 1800 }]);
-  expect(hostShapes([png("a.png")])).toEqual([undefined]);
+  expect(hostShapes([png("a.png")], "paste")).toEqual([undefined]);
+});
+
+test("a drop never takes what a paste told, and an unnamed size never sizes a drop", () => {
+  tell([{ name: "a.png", width: 2880, height: 1800 }]);
+  expect(hostShapes([png("a.png")], "drop")).toEqual([undefined]);
+  scope.__cmuxAttachShapes = { kind: "drop", at: Date.now(), shapes: [{ width: 1512, height: 982 }] };
+  expect(hostShapes([png("image.png")], "drop")).toEqual([undefined]);
 });

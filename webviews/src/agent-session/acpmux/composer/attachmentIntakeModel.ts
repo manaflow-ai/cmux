@@ -204,11 +204,16 @@ const HOST_SHAPES_LIFETIME_MS = 2000;
 /// takes them: each image's by name, or the one unnamed (a pasted bitmap) for a gesture's only
 /// image. Undefined for each file the host told nothing of (an older host, a Chromium page's drop
 /// the page saw first): its tile reads its header (sizeFromHeader).
-export function hostShapes(files: readonly (File | MadeFile)[]): ({ width: number; height: number } | undefined)[] {
+export function hostShapes(
+  files: readonly (File | MadeFile)[],
+  kind: DroppedKind | undefined,
+): ({ width: number; height: number } | undefined)[] {
   const told = (globalThis as { __cmuxAttachShapes?: HostShapes }).__cmuxAttachShapes;
   const none = files.map(() => undefined);
   if (!told || !Array.isArray(told.shapes)) return none;
   delete (globalThis as { __cmuxAttachShapes?: HostShapes }).__cmuxAttachShapes;
+  // Only this gesture's: a drop never takes what a paste told.
+  if (!kind || told.kind !== kind) return none;
   if (typeof told.at !== "number" || Math.abs(Date.now() - told.at) > HOST_SHAPES_LIFETIME_MS) return none;
   const sized = (shape: (typeof told.shapes)[number] | undefined) =>
     shape && Number(shape.width) > 0 && Number(shape.height) > 0
@@ -222,7 +227,8 @@ export function hostShapes(files: readonly (File | MadeFile)[]): ({ width: numbe
     if (!isImageFile(file)) return undefined;
     const named = told.shapes!.find((shape) => shape.name === file.name);
     if (named) return sized(named);
-    return images.length === 1 && unnamed.length === 1 ? sized(unnamed[0]) : undefined;
+    // A bitmap with no file comes only in a paste.
+    return kind === "paste" && images.length === 1 && unnamed.length === 1 ? sized(unnamed[0]) : undefined;
   });
 }
 
@@ -466,7 +472,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     const batch = { scope: current.scope };
     // In the paste's or drop's own task, so React draws them before the next frame.
     // The host told each image's size before the page got the gesture: its chip draws at its shape now.
-    const told = hostShapes(files);
+    const told = hostShapes(files, kind);
     const shown: PendingAttachment[] = files.map((file, index) => ({
       id: again ?? crypto.randomUUID(),
       name: file.name,

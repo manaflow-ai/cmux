@@ -27,10 +27,11 @@ enum AgentPaneGestureShapes {
     static let videoExtensions: Set<String> = ["mov", "mp4", "m4v"]
 
     /// `urls`' image and video sizes, oriented as they are displayed; other files, unreadable ones,
-    /// and files on a volume that is not local (a header read there can stall) give none.
+    /// and files whose header read could stall give none: on a volume that is not local, or in iCloud
+    /// Drive or a File Provider folder and not downloaded (its first read fetches the whole file).
     static func shapes(of urls: [URL]) -> [Shape] {
         urls.prefix(maxFiles).compactMap { url in
-            guard url.isFileURL, (try? url.blockingResourceValues(forKeys: [.volumeIsLocalKey]).volumeIsLocal) != false else { return nil }
+            guard url.isFileURL, isHere(url) else { return nil }
             if videoExtensions.contains(url.pathExtension.lowercased()) {
                 return videoSize(url).map { Shape(name: url.lastPathComponent, width: $0.width, height: $0.height) }
             }
@@ -38,6 +39,16 @@ enum AgentPaneGestureShapes {
             else { return nil }
             return shape(of: source, name: url.lastPathComponent)
         }
+    }
+
+    /// Whether `url`'s bytes are on this Mac now: on a local volume, and downloaded when it is a cloud file.
+    static func isHere(_ url: URL) -> Bool {
+        guard let values = try? url.blockingResourceValues(
+            forKeys: [.volumeIsLocalKey, .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey])
+        else { return false }
+        if values.volumeIsLocal == false { return false }
+        if values.isUbiquitousItem == true, values.ubiquitousItemDownloadingStatus != .current { return false }
+        return true
     }
 
     /// A QuickTime or MP4 movie's picture size from its first picture track's header (`tkhd`), turned
@@ -96,6 +107,9 @@ enum AgentPaneGestureShapes {
     /// The bitmap a paste with no file carries (a screenshot copied to the clipboard): its bytes, read
     /// once, whether they are a PNG, and its size from their header.
     static func pastedBitmap(on pasteboard: NSPasteboard) -> (data: Data, png: Bool, shape: Shape?)? {
+        // Text copied from a spreadsheet, slide or document carries a picture of itself too: that
+        // paste is the text, and its picture is never drawn or written.
+        if pasteboard.availableType(from: [.string, .rtf, .html]) != nil { return nil }
         for type in [NSPasteboard.PasteboardType.png, .tiff] {
             guard let data = pasteboard.data(forType: type) else { continue }
             let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary)

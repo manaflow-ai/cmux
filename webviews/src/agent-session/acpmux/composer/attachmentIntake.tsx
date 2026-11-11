@@ -286,7 +286,18 @@ export function PendingTile({
   const mark = (
     <>
       {look === "chip-bar" && <PasteLoadingMark look="glass-bar" size={16} upload={undefined} />}
-      {upload && <span className="acpmux-attachment-upload">{upload}</span>}
+      {upload ? (
+        <span className="acpmux-attachment-upload">{upload}</span>
+      ) : (
+        // A file streaming to a chat on another machine before the host says how far it is: a ring once
+        // it passes 400 ms (Leo, 2026-10-24: "why don't you put a spinner on the attachment rather than
+        // this placeholder that doesn't do anything"). A file on this Mac is a path and never uploads.
+        chip.uploading && (
+          <span className="acpmux-attachment-upload">
+            <PasteLoadingMark look="glass-ring" size={14} upload={undefined} className="acpmux-attachment-spinner" />
+          </span>
+        )
+      )}
     </>
   );
   if (chip.image)
