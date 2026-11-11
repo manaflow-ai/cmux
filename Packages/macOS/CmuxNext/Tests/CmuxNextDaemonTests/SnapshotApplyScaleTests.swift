@@ -91,7 +91,7 @@ import Testing
             // The work itself: no workspace snapshot compared and no workspace list rebuilt on main.
             #expect(store.snapshotWorkspacesWalkedOnMain == before.0, "main compared workspace snapshots at \(count) workspaces")
             #expect(store.workspaceListWalkedOnMain == before.1, "main walked the workspace list at \(count) workspaces")
-            #expect(store.workspaces[count / 2].screens.first?.panes.first?.tabs.first?.title == "r8-19")
+            #expect(store.workspaces[count / 2].screens.first?.panes.first?.tabs.first?.titleText == "r8-19")
         }
         let small = Self.median(costs[100] ?? [])
         let mid = Self.median(costs[1000] ?? [])
