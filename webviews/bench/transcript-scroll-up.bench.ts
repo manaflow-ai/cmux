@@ -170,7 +170,7 @@ async function run(name: string, engine: BrowserType) {
         (event: { value: typeof traceEvents }) => void traceEvents.push(...event.value),
       );
       await tracing.send("Tracing.start", {
-        categories: "toplevel,devtools.timeline,disabled-by-default-devtools.timeline,blink.user_timing",
+        categories: `toplevel,devtools.timeline,disabled-by-default-devtools.timeline,blink.user_timing${process.env.TRACE_WHY === "1" ? ",disabled-by-default-devtools.timeline.invalidationTracking" : ""}`,
         transferMode: "ReportEvents",
       });
     }
@@ -303,6 +303,18 @@ async function run(name: string, engine: BrowserType) {
                     : event.name;
             by.set(detail, (by.get(detail) ?? 0) + (event.dur ?? 0));
           }
+        // TRACE_WHY=1: what invalidated the style and layout this task redid, by reason and node.
+        if (process.env.TRACE_WHY === "1") {
+          const why = new Map<string, number>();
+          for (const event of traceEvents)
+            if (event.tid === tid && event.ts >= task.ts - 20_000 && event.ts < end && /InvalidationTracking/.test(event.name)) {
+              const data = (event.args?.data ?? {}) as Record<string, unknown> & { selectors?: { selector?: string }[] };
+              const what = `${event.name.replace("InvalidationTracking", "")} ${String(data.reason ?? "")} ${String(data.changedAttribute ?? data.changedClass ?? data.changedPseudo ?? data.invalidatedSelectorId ?? "")} ${(data.selectors ?? []).map((each) => each.selector).join("|").slice(0, 80)} ${String(data.nodeName ?? "").replace(/ id='[^']*'/, "").replace(/ class='([^' ]*)[^']*'/, " .$1").slice(0, 60)}`;
+              why.set(what, (why.get(what) ?? 0) + 1);
+            }
+          for (const [what, count] of [...why.entries()].sort((a, b) => b[1] - a[1]).slice(0, 14))
+            console.log(`transcript-scroll-up trace why ${count}x ${what}`);
+        }
         console.log(
           `transcript-scroll-up trace task ${Math.round(task.dur! / 1000)} ms: ${[...by.entries()]
             .sort((a, b) => b[1] - a[1])
