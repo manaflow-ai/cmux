@@ -4,8 +4,10 @@
 
 use serde_json::Value;
 
-/// Whether `summary` (`Hub::session_summary`) shows the turn's prompt sent to its agent.
+/// Whether `summary` (`Hub::session_summary`) shows the turn's prompt sent to its agent: the
+/// status turns `running` only once the prompt, rules block included, is built (`turns.rs`).
+/// A turn that shows is not enough (`wait --until running` resolves on it): it shows before
+/// its prompt is built, and a rule posted in that moment goes in with the held prompt.
 pub fn prompt_sent(summary: &Value) -> bool {
-    let status = summary["status"].as_str().unwrap_or_default();
-    status == "running" || status == "waiting" || !summary["turn"].is_null()
+    summary["status"] == "running"
 }
