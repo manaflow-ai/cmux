@@ -116,7 +116,9 @@ final class CaptureSceneRegistry {
             return await renderCloudMachineDisconnected(params, definition: definition, windowID: targetWindowID)
         }
 
-        let turn = await DebugAgentPane.handle(["action": .string("seed_rows"), "fixture": .string("worked-turn")], services)
+        // The sidebar-try scene ends its turn with a wrap-up Try, so the chat's box shows beside the pill.
+        let fixture = definition.name == Self.sidebarTryScene ? "worked-turn-try" : "worked-turn"
+        let turn = await DebugAgentPane.handle(["action": .string("seed_rows"), "fixture": .string(fixture)], services)
         guard case .object(let turnReport) = turn,
               (turnReport["rows"]?.intValue ?? 0) > 0 else {
             return .object(["error": .string("worked agent turn did not seed"), "scene": .string(definition.name), "turn": turn])

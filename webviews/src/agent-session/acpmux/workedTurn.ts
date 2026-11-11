@@ -187,3 +187,41 @@ export function workedTurnRows(at: number): AcpmuxRow[] {
     },
   ] as AcpmuxRow[];
 }
+
+/// The worked turn ended by the agent's `wrap_up` with a Try, Verify steps and a report: the
+/// chat's wrap-up box with Try, for `seed_rows` with `fixture: "worked-turn-try"` and the
+/// `sidebar-try` capture scene, which shows it beside the sidebar's Try pill.
+export function workedTurnTryRows(at: number): AcpmuxRow[] {
+  const tryIt = { label: "Open try-agent-work build", url: `http://127.0.0.1:${17_320}/try-agent-work` };
+  const [user, activity, summary] = workedTurnRows(at) as [AcpmuxRow, AcpmuxRow, AcpmuxRow];
+  const wrapUp = {
+    recap:
+      "GETs now retry 408, 429 and gateway errors up to three times with jittered backoff; POSTs retry only when asked. All 14 tests pass.",
+    try: tryIt,
+    verify: ["Click Try: it opens here.", "Tick each step as you check it."],
+    report: "/Users/preview/src/web/artifacts/retry/report.html",
+  };
+  return [
+    user,
+    {
+      ...activity,
+      toolCount: 4,
+      items: [
+        ...(activity.items ?? []),
+        {
+          kind: "tool" as const,
+          text: "wrap_up",
+          tool: {
+            id: "worked-wrap-up",
+            title: "mcp__acpmux__wrap_up",
+            kind: "other",
+            status: "completed",
+            inputSummary: JSON.stringify(wrapUp),
+          },
+        },
+      ],
+    },
+    summary,
+    { id: "worked-turn-summary", version: 1, at: at + 50_000, kind: "turnSummary", status: "completed", durationMs: 50_000, toolCount: 4 },
+  ] as AcpmuxRow[];
+}

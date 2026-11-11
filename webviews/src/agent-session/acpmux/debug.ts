@@ -28,7 +28,8 @@ export type FlingOptions = { nominal_ms?: number; wait?: boolean };
 
 export type AcpmuxDebug = {
   /// Replaces the transcript with `count` synthetic rows, with the worked turn of
-  /// workedTurn.ts when `fixture` is "worked-turn", or with received agent messages
+  /// workedTurn.ts when `fixture` is "worked-turn" (ended by a wrap-up with a Try when
+  /// "worked-turn-try"), or with received agent messages
   /// (incomingFixture.ts) when it is "incoming", or with a turn linking a synthetic pull request page
   /// (linkFixture.ts) when it is "link", or with a turn organized as Claude Code desktop
   /// draws one (organizationFixture.ts) when it is "organization", or with a run of shell calls
@@ -163,6 +164,7 @@ export function createAcpmuxDebug(
       const {
         syntheticRows,
         workedTurnRows,
+        workedTurnTryRows,
         incomingRows,
         linkRows,
         organizationRows,
@@ -189,6 +191,8 @@ export function createAcpmuxDebug(
           ? subagentTrayRows(trayStep(count), trayOrigin(count), agents ?? 2)
           : fixture === "worked-turn"
             ? workedTurnRows(Date.now() - 60_000)
+            : fixture === "worked-turn-try"
+              ? workedTurnTryRows(Date.now() - 60_000)
             : fixture === "incoming"
               ? incomingRows(Date.now() - 120_000)
               : fixture === "link"
