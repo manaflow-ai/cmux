@@ -244,3 +244,56 @@ fn a_batch_is_guarded_once() {
     assert_eq!(out.body["focus"]["restored_from"], "com.apple.Safari");
     assert_eq!(r.desktop.restores().len(), 1);
 }
+
+#[test]
+fn a_tool_without_delivery_is_guarded_whatever_delivery_it_names() {
+    // perform_action, set_value, scroll and launch_app have no delivery: they
+    // always act in the background and are authorized that way. Naming
+    // "delivery": "foreground" on them skipped the focus guard, even with
+    // foreground input off, so a target that activated itself kept focus.
+    let r = rig();
+    for (tool, args) in [
+        ("perform_action", json!({"window_id": "1", "element_id": "e1", "action": "press", "delivery": "foreground"})),
+        ("set_value", json!({"window_id": "1", "element_id": "e1", "value": "x", "delivery": "foreground"})),
+        ("scroll", json!({"window_id": "1", "x": 5, "y": 5, "dy": 3, "delivery": "foreground"})),
+    ] {
+        *r.desktop.focus.lock().unwrap() = Some(person());
+        *r.desktop.steal_on_input.lock().unwrap() = Some(safari_front());
+        let out = r.engine.call(&ctx(tool), tool, &args);
+        assert!(!out.is_error, "{tool}: {:?}", out.body);
+        assert_eq!(out.body["focus"]["restored_from"], "com.apple.Safari", "{tool}: {:?}", out.body);
+    }
+}
+
+#[test]
+fn a_batch_is_unguarded_only_when_every_step_asks_for_foreground() {
+    let r = rig();
+    r.engine.set_config(PolicyConfig { allow_foreground: true, ..PolicyConfig::default() });
+    // One step that names foreground on a tool without delivery, one background
+    // step: guarded (it used to skip the guard for the whole batch).
+    *r.desktop.steal_on_input.lock().unwrap() = Some(safari_front());
+    let out = r.engine.call(
+        &ctx("b1"),
+        "batch",
+        &json!({"window_id": "1", "actions": [
+            {"action": "set_value", "element_id": "e1", "value": "x", "delivery": "foreground"},
+            {"action": "type_text", "text": "hi"},
+        ]}),
+    );
+    assert_eq!(out.body["focus"]["restored_from"], "com.apple.Safari", "{:?}", out.body);
+    // Every step foreground on tools that take it: raised on purpose, not guarded.
+    *r.desktop.focus.lock().unwrap() = Some(person());
+    *r.desktop.steal_on_input.lock().unwrap() = Some(safari_front());
+    let restores = r.desktop.restores().len();
+    let out = r.engine.call(
+        &ctx("b2"),
+        "batch",
+        &json!({"window_id": "1", "actions": [
+            {"action": "click", "element_id": "e1", "delivery": "foreground"},
+            {"action": "type_text", "text": "hi", "delivery": "foreground"},
+        ]}),
+    );
+    assert!(!out.is_error, "{:?}", out.body);
+    assert!(out.body.get("focus").is_none(), "{:?}", out.body);
+    assert_eq!(r.desktop.restores().len(), restores);
+}
