@@ -381,4 +381,32 @@ import Testing
         commit()
         #expect(grants == 1)
     }
+
+    /// A press attaches the page, then makes the page view first responder, which asks for focus in the same turn. The
+    /// window is a child again only after the next commit, so the grant waits for it (review finding 1, #this PR).
+    @Test func aFocusGrantRightAfterAPressAttachWaitsForTheNextCommit() {
+        let (hosting, commit, _) = shownPage()
+        hosting.resizeMotion(active: true)
+        hosting.resizeMotion(active: true)
+        hosting.resizeMotion(active: false)
+        #expect(hosting.isDetached, "one share of the motion never ended")
+        #expect(hosting.personReachedPage())
+        #expect(hosting.pageTakesFocus(), "the grant waits: the window is not ordered in yet")
+        commit()
+        #expect(!hosting.pageTakesFocus(), "after the commit the grant goes ahead")
+    }
+
+    /// A refused attach is not retried once per scroll event: the owed path retries it (review finding 2).
+    @Test func aRefusedLeftoverAttachIsNotRetriedOnEveryEvent() {
+        let hosting = hostedPage()
+        hosting.resizeMotion(active: true)
+        fake.accepts = false
+        #expect(!hosting.personReachedPage())
+        let after = calls.count
+        for _ in 0..<5 { hosting.personReachedPage() }
+        #expect(calls.count == after, "no fork call per event while the attach is owed")
+        fake.accepts = true
+        hosting.trackerDidRead()
+        #expect(!hosting.isDetached, "the owed path attaches it")
+    }
 }

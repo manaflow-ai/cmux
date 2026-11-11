@@ -203,7 +203,7 @@ final class CEFLayerHosting {
         self.browser = browser
         if attachOwed { attachIfOwed() }
         // A tab of a page window left detached at rest shows: the person is about to use it.
-        if isDetached, !inResizeMotion, firstFrameHold == .none { _ = reattachLeftover(.show) }
+        if isDetached, !attachOwed, !inResizeMotion, firstFrameHold == .none { _ = reattachLeftover(.show) }
         let wanted = isEnabled()
         if wanted == (page != nil) {
             syncDeadline()
@@ -354,7 +354,9 @@ final class CEFLayerHosting {
     @discardableResult
     func pageTakesFocus() -> Bool {
         guard inResizeMotion else {
-            return firstFrameHold == .none && isDetached && reattachLeftover(.focus)
+            // Attached in this turn by a press: the window is a child again only after the next commit.
+            if reattachedAwaitingCommit { return true }
+            return firstFrameHold == .none && isDetached && !attachOwed && reattachLeftover(.focus)
         }
         motionKeepsAttached = true
         return isDetached && setDetached(false)
@@ -383,7 +385,8 @@ final class CEFLayerHosting {
     /// - Returns: Whether a detached page was attached now.
     @discardableResult
     func personReachedPage() -> Bool {
-        guard isDetached || attachOwed || firstFrameHold != .none else { return false }
+        // A page whose attach the fork refused is retried by the owed path (``attachIfOwed()``), not once per event.
+        guard (isDetached && !attachOwed) || firstFrameHold != .none else { return false }
         return reattachLeftover(.pointer)
     }
 
@@ -405,8 +408,16 @@ final class CEFLayerHosting {
         firstFrameHold = .none
         let wasDetached = isDetached
         attach()
-        return wasDetached && !isDetached
+        guard wasDetached, !isDetached else { return false }
+        // The fork orders the window in at its next observer: a focus grant in this turn would move no keys, so
+        // ``pageTakesFocus()`` keeps the ask until after the next commit (as for a motion's attach).
+        reattachedAwaitingCommit = true
+        afterCommit { [weak self] in self?.reattachedAwaitingCommit = false }
+        return true
     }
+
+    /// A leftover detached page was attached in this turn; cleared after the next commit.
+    private(set) var reattachedAwaitingCommit = false
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef-hosting")
 
