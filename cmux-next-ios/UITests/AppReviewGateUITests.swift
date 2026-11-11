@@ -186,23 +186,34 @@ final class AppReviewGateUITests: XCTestCase {
         XCTAssertTrue(field.waitForExistence(timeout: 20), "Chief must open with a message box; on screen: \(onScreen(app))")
         capture("chief-01-open", app)
         guard field.exists else { return }
+        // A message is judged by itself, never by a count of cells: the
+        // transcript is a collection view, whose cells are only the rows on
+        // screen, and the keyboard that comes up for the draft takes half of
+        // that screen, so the count can fall while a message is added.
         let messages = app.cells.matching(NSPredicate(format: "identifier BEGINSWITH %@", "conversation.message."))
-        // The seeded history settles before the count is read.
+        // The seeded history settles before the send.
         _ = messages.firstMatch.waitForExistence(timeout: 10)
-        let before = messages.count
+        let draft = "App Review check: hello"
         field.tap()
-        field.typeText("App Review check: hello")
+        field.typeText(draft)
         let send = app.buttons["conversation.composer.send"]
         XCTAssertTrue(send.waitForExistence(timeout: 5), "Chief must have a Send button")
         XCTAssertTrue(send.isEnabled, "Send must be enabled with a draft")
         send.tap()
         capture("chief-02-sent", app)
-        let sent = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in messages.count >= before + 1 }, object: nil)
-        XCTAssertEqual(XCTWaiter.wait(for: [sent], timeout: 10), .completed, "the sent message must show; on screen: \(onScreen(app))")
-        // The mock Chief reads, types, then replies within about 4 s.
-        let replied = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in messages.count >= before + 2 }, object: nil)
+        let mine = messages.matching(NSPredicate(format: "label CONTAINS %@", draft)).firstMatch
+        XCTAssertTrue(mine.waitForExistence(timeout: 10),
+                      "the sent message must show; app alert: \(app.alerts.firstMatch.exists ? app.alerts.firstMatch.label : "none"); transcript: \(transcript(messages)); on screen: \(onScreen(app))")
+        // The mock Chief reads, types, then replies within about 4 s: a
+        // message from Chief below the one sent.
+        let fromChief = messages.matching(NSPredicate(format: "label BEGINSWITH %@", "Chief"))
+        let replied = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            guard mine.exists else { return false }
+            let sentBottom = mine.frame.maxY
+            return fromChief.allElementsBoundByIndex.contains { $0.exists && $0.frame.minY >= sentBottom - 1 }
+        }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [replied], timeout: 20), .completed,
-                       "Chief's reply must show after a send (mock Chief); on screen: \(onScreen(app))")
+                       "Chief's reply must show after a send (mock Chief); transcript: \(transcript(messages)); on screen: \(onScreen(app))")
         capture("chief-03-reply", app)
         gateNote("chief-live-reply-unjudged", "the reply came from the mock Chief; a live Chief reply needs the reviewer's live account")
     }
@@ -568,6 +579,17 @@ final class AppReviewGateUITests: XCTestCase {
                 return String(line[range.lowerBound...].prefix(60))
             }
         return "state \(app.state.rawValue), alerts \(alerts), elements \(lines.prefix(14).joined(separator: " | "))"
+    }
+
+    /// The transcript's message rows on screen, top to bottom: id and the
+    /// start of the spoken label.
+    @MainActor
+    private func transcript(_ messages: XCUIElementQuery) -> String {
+        messages.allElementsBoundByIndex
+            .filter(\.exists)
+            .sorted { $0.frame.minY < $1.frame.minY }
+            .map { "\($0.identifier.replacingOccurrences(of: "conversation.message.", with: "")): \($0.label.prefix(40))" }
+            .joined(separator: " | ")
     }
 
     @MainActor

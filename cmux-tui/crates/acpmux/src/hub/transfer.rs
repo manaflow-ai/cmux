@@ -1018,7 +1018,7 @@ mod tests {
         }));
         let writer = Arc::new(std::sync::Mutex::new(None::<std::thread::JoinHandle<()>>));
         let spawned = writer.clone();
-        let hook: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(move |agent| {
+        let hook = super::super::transfer_in::on_sweep_pause(move |agent| {
             if agent != "agent-0009" {
                 return;
             }
@@ -1030,11 +1030,12 @@ mod tests {
             }));
             let _ = finished.recv_timeout(std::time::Duration::from_millis(300));
         });
-        *super::super::transfer_in::SWEEP_PAUSE.lock().unwrap() = Some(hook);
         hub.recover_staged_replacements();
+        // The sweep on this thread read the failed import's marker, and only that one.
+        assert_eq!(hook.reached(), ["agent-0009"]);
+        drop(hook);
         let handle = writer.lock().unwrap().take();
         handle.expect("the sweep never read the marker").join().unwrap();
-        *super::super::transfer_in::SWEEP_PAUSE.lock().unwrap() = None;
         assert!(
             root.join(&id).join("session.json").exists(),
             "the sweep removed the retry's store"

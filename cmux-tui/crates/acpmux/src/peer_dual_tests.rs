@@ -384,7 +384,10 @@ async fn a_load_the_switch_cut_off_is_sent_again_on_the_next_link() {
     for switched in [true, false] {
         let (reply, mut waiting) = oneshot::channel();
         peer.pending.lock().await.insert("7".to_owned(), reply);
-        peer.switch_retry.lock().unwrap().insert("7".to_owned(), (line.to_owned(), 2));
+        peer.switch_retry
+            .lock()
+            .unwrap()
+            .insert("7".to_owned(), (line.to_owned(), Arc::new(AtomicU64::new(2))));
         peer.switched.store(switched, Ordering::SeqCst);
         peer.fail_link_requests(&mut out_rx).await;
         assert_eq!(peer.pending.lock().await.contains_key("7"), switched);
@@ -617,9 +620,9 @@ async fn a_load_made_right_after_a_switch_is_sent_once() {
     }
     {
         let mut retry = peer.switch_retry.lock().unwrap();
-        retry.insert("7".to_owned(), (old.to_owned(), 2));
+        retry.insert("7".to_owned(), (old.to_owned(), Arc::new(AtomicU64::new(2))));
         // Sent on link 3 already, by its caller.
-        retry.insert("8".to_owned(), (new.to_owned(), 3));
+        retry.insert("8".to_owned(), (new.to_owned(), Arc::new(AtomicU64::new(3))));
     }
     peer.resend_switched(3).await;
     let again = out_rx.try_recv().expect("the old link's load goes again");
@@ -672,4 +675,136 @@ async fn a_shadow_that_ends_with_events_held_leaves_no_repeat() {
     }
     assert_eq!(delivered(&mut rig.notices, 3).await, vec![6, 7, 8]);
     assert!(!rig.peer.dual_sessions.lock().unwrap().contains("s1"), "the link alone again");
+}
+
+/// Review F1 of #41285, the sending side: a request the shadow carried a copy of is cancelled
+/// on both paths. Its link's path is in doubt, so the cancel on the link alone may never reach
+/// the peer, while the shadow's copy runs there.
+#[tokio::test]
+async fn a_cancel_goes_on_every_path_that_carried_a_copy() {
+    let mut rig = rig().await;
+    answer_shadow_attach(&mut rig, &[]).await;
+    rig.peer.features.lock().unwrap().push(crate::request_cancel::FEATURE.to_owned());
+    let (cancel, cancelled) = oneshot::channel();
+    let peer = rig.peer.clone();
+    let asking = tokio::spawn(async move {
+        let ask = peer.request(method::MUX_STATS, json!({}));
+        crate::request_cancel::until_cancelled(cancelled, ask).await
+    });
+    let on_link = next_text(&mut rig.primary).await;
+    let on_shadow = next_text(&mut rig.shadow).await;
+    assert_eq!(on_link, on_shadow, "a copy on each path");
+    cancel.send(()).unwrap();
+    assert!(tokio::time::timeout(WAIT, asking).await.unwrap().unwrap().is_none());
+    let on_link_cancel = next_text(&mut rig.primary).await;
+    assert_eq!(on_link_cancel["method"], method::CANCEL_REQUEST);
+    assert_eq!(on_link_cancel["params"]["requestId"], on_link["id"]);
+    let on_shadow_cancel = reads_text_within(&mut rig.shadow, WAIT).await;
+    assert_eq!(
+        on_shadow_cancel.as_ref().map(|n| (n["method"].clone(), n["params"]["requestId"].clone())),
+        Some((json!(method::CANCEL_REQUEST), on_link["id"].clone())),
+        "the shadow, which carried a copy, carries its cancel: {on_shadow_cancel:?}"
+    );
+    assert!(rig.peer.dual_keys.lock().unwrap().is_empty(), "nothing waits on the shadow");
+}
+
+/// The shadow `peer` copies to from now, on the link it is on, with its queue's reader.
+async fn bare_shadow(peer: &Arc<Peer>) -> dual::ShadowRun {
+    let (run, frames) = peer.shadow_start(Via::Url).await;
+    assert!(frames.is_empty(), "no chat to attach: {frames:?}");
+    run
+}
+
+/// Review F2 of #41361: a cancel of a request the shadow carried a copy of, while the shadow's
+/// queue is full, still reaches the shadow once there is room: it is never dropped, so the
+/// shadow's copy does not run on unstopped.
+#[tokio::test]
+async fn a_cancel_to_a_saturated_shadow_still_goes_out() {
+    let (tx, _notices) = mpsc::channel(16);
+    let peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+    let link = peer.link_epoch();
+    let mut run = bare_shadow(&peer).await;
+    // Copies fill the shadow's queue; the first is the one the client cancels.
+    let mut copies: i64 = 0;
+    loop {
+        let line = Message::request(copies + 1, method::MUX_STATS, json!({})).to_line();
+        let key = Value::from(copies + 1).to_string();
+        peer.dual_copy(line, Some(&key), link);
+        if !peer.dual_keys.lock().unwrap().contains(&key) {
+            // This copy found the queue full: it went on the link alone.
+            break;
+        }
+        copies += 1;
+    }
+    assert!(copies > 0, "the queue took copies");
+    let cancel = Message::notification(method::CANCEL_REQUEST, json!({"requestId": 1})).to_line();
+    let on_link = peer.dual_copy(cancel, None, link);
+    assert!(on_link.contains(method::CANCEL_REQUEST), "the link carries its cancel");
+    // The shadow reads what it queued, then the cancel, once there was room for it.
+    let mut read = Vec::new();
+    loop {
+        match tokio::time::timeout(WAIT, run.rx.recv()).await {
+            Ok(Some(line)) => {
+                let v: Value = serde_json::from_str(&line).unwrap();
+                if v["method"] == method::CANCEL_REQUEST {
+                    assert_eq!(v["params"]["requestId"], json!(1));
+                    break;
+                }
+                read.push(v);
+            }
+            _ => panic!("the shadow never got the cancel; it read {} copies", read.len()),
+        }
+    }
+    assert_eq!(read.len(), copies as usize, "every copy, then the cancel");
+}
+
+/// Review F3 of #41361: a request bound to its link's connection (an attach), sent again on
+/// the next link after a path switch, is cancelled on the link that carries it now: a cancel
+/// tagged with the old link's epoch would be dropped, and the resent copy run on.
+#[tokio::test]
+async fn a_cancel_after_a_resend_goes_on_the_link_that_carries_the_request() {
+    let (tx, _notices) = mpsc::channel(16);
+    let peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+    peer.connected.store(true, Ordering::SeqCst);
+    peer.open.store(true, Ordering::SeqCst);
+    peer.features.lock().unwrap().push(crate::request_cancel::FEATURE.to_owned());
+    let mut out = peer.out_rx.lock().await.take().unwrap();
+    let (cancel, cancelled) = oneshot::channel();
+    let asking = peer.clone();
+    let task = tokio::spawn(async move {
+        let ask = asking.request(method::MUX_ATTACH, json!({"sessionId": "s1"}));
+        crate::request_cancel::until_cancelled(cancelled, ask).await
+    });
+    let first = tokio::time::timeout(WAIT, out.recv()).await.unwrap().unwrap();
+    let request: Value = serde_json::from_str(&first.line).unwrap();
+    // The link switched paths before it answered: the next link carries it.
+    peer.link_ended();
+    let next = peer.link_epoch();
+    assert_ne!(first.epoch, next);
+    peer.resend_switched(next).await;
+    let again = tokio::time::timeout(WAIT, out.recv()).await.unwrap().unwrap();
+    assert_eq!((again.epoch, again.key.as_deref()), (next, first.key.as_deref()));
+    cancel.send(()).unwrap();
+    assert!(tokio::time::timeout(WAIT, task).await.unwrap().unwrap().is_none());
+    let note = tokio::time::timeout(WAIT, out.recv()).await.unwrap().unwrap();
+    let v: Value = serde_json::from_str(&note.line).unwrap();
+    assert_eq!(v["method"], method::CANCEL_REQUEST);
+    assert_eq!(v["params"]["requestId"], request["id"]);
+    assert_eq!(note.epoch, next, "the cancel goes on the link that carries the request now");
+}
+
+/// Review F4 of #41361: a late success the shadow reads for a cancelled request is dropped
+/// as late and logged, as the link's is, never in silence.
+#[tokio::test]
+async fn a_late_success_on_the_shadow_for_a_cancelled_request_is_dropped_as_late() {
+    let (tx, _notices) = mpsc::channel(16);
+    let peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+    let mut run = bare_shadow(&peer).await;
+    peer.cancelled.lock().unwrap().remember("9".to_owned(), method::MUX_STATS.to_owned());
+    let late = json!({"jsonrpc": "2.0", "id": 9, "result": {"from": "shadow"}}).to_string();
+    let frames = peer.shadow_frame(&mut run, &late).await;
+    assert!(frames.is_empty());
+    let cancelled = peer.cancelled.lock().unwrap();
+    assert_eq!(cancelled.dropped, 1, "the shadow's late answer is dropped as late, and logged");
+    assert!(cancelled.is_empty(), "its id is taken");
 }
