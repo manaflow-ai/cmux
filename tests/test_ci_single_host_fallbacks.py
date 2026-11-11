@@ -162,6 +162,47 @@ class SingleHostFallbacks(unittest.TestCase):
         caller = "jobs:\n  c:\n    uses: ./.github/workflows/callee.yml\n    with:\n      runner: ${{ vars.NEW_Y }}\n"
         self.assert_names(self.scan({"callee.yml": self.CALLEE % "inputs['runner']", "caller.yml": caller}), "NEW_Y")
 
+    def test_codex_repro_a_caller_fromjson_matrix_reaches_runs_on_through_an_input(self) -> None:
+        """Codex on #40894: a caller whose matrix is `${{ fromJSON(vars.NEW_X) }}` passes matrix.runner to a callee's
+        inputs.runner, which its runs-on reads. The scan read the matrix only when the callee's own runs-on held an
+        unexpanded matrix, never the caller's, so the variable the runner comes from gave no finding."""
+        caller = ("jobs:\n  c:\n    strategy:\n      matrix: ${{ fromJSON(vars.NEW_X) }}\n"
+                  "    uses: ./.github/workflows/callee.yml\n    with:\n      runner: ${{ matrix.runner }}\n")
+        self.assert_names(self.scan({"callee.yml": self.CALLEE % "inputs.runner", "caller.yml": caller}), "NEW_X")
+        bracket = caller.replace("matrix.runner", "matrix['runner']").replace("vars.NEW_X", 'vars["NEW_X"]')
+        self.assert_names(self.scan({"callee.yml": self.CALLEE % "inputs['runner']", "caller.yml": bracket}), "NEW_X")
+
+    def test_a_variable_in_a_condition_inside_a_matrix_value_is_read(self) -> None:
+        """Codex on #40894: a matrix value `${{ vars.NEW_X == 'big' && 'a' || 'b' }}` resolves to its literal branches,
+        so the variable its condition reads was dropped with the condition, in the job's own matrix and in a caller's."""
+        value = "${{ vars.NEW_X == 'big' && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}"
+        own = (f"jobs:\n  a:\n    strategy:\n      matrix:\n        include:\n          - runner: \"{value}\"\n"
+               "    runs-on: ${{ matrix.runner }}\n")
+        self.assert_names(self.scan({"x.yml": own}), "NEW_X")
+        caller = (f"jobs:\n  c:\n    strategy:\n      matrix:\n        runner: [\"{value}\"]\n"
+                  "    uses: ./.github/workflows/callee.yml\n    with:\n      runner: ${{ matrix.runner }}\n")
+        self.assert_names(self.scan({"callee.yml": self.CALLEE % "inputs.runner", "caller.yml": caller}), "NEW_X")
+        # A caller's input the callee reads only in a condition still reaches its runs-on.
+        callee = ("on:\n  workflow_call:\n    inputs:\n      big: {type: string}\n"
+                  "jobs:\n  a:\n    runs-on: ${{ inputs.big == 'yes' && 'blacksmith-8vcpu-ubuntu-2404' || "
+                  "'blacksmith-4vcpu-ubuntu-2404' }}\n")
+        caller = "jobs:\n  c:\n    uses: ./.github/workflows/callee.yml\n    with:\n      big: ${{ vars.NEW_Y }}\n"
+        self.assert_names(self.scan({"callee.yml": callee, "caller.yml": caller}), "NEW_Y")
+
+    def test_the_resolver_records_each_variable_it_consumes_with_where_it_sits(self) -> None:
+        """The checker reads its findings from workflow_jobs.resolve, which records every `vars` operand it consumed
+        resolving a field: the file, the job and the key path it sits at, and the field that consumed it."""
+        wj = checker.load_workflow_jobs()
+        caller = ("jobs:\n  c:\n    strategy:\n      matrix: ${{ fromJSON(vars.NEW_X) }}\n"
+                  "    uses: ./.github/workflows/callee.yml\n    with:\n      runner: ${{ matrix.runner }}\n")
+        documents = {"callee.yml": wj.document(self.CALLEE % "inputs.runner"), "caller.yml": wj.document(caller)}
+        resolved = wj.resolve(documents["callee.yml"]["jobs"]["a"], "a", "callee.yml", wj.Workflows(documents))
+        found = {(r.name, r.file, r.job, r.path, r.field) for r in resolved.vars_read}
+        self.assertIn(("NEW_X", "caller.yml", "c", "strategy.matrix", "runs-on"), found)
+        own = wj.document("jobs:\n  a:\n    environment: ${{ vars.ENV_X }}\n    runs-on: ${{ vars['RUN_X'] }}\n")
+        found = {(r.name, r.path, r.field) for r in wj.resolve(own["jobs"]["a"], "a", "x.yml").vars_read}
+        self.assertEqual(found, {("ENV_X", "environment", "environment"), ("RUN_X", "runs-on", "runs-on")})
+
     def test_a_variable_inside_fromjson_or_a_needs_dependent_expression_is_read(self) -> None:
         for runs_on, name in (("fromJSON(vars.NEW_X).mac", "NEW_X"),
                               ("fromJSON(needs.setup.outputs.map)[vars.NEW_X]", "NEW_X"),
