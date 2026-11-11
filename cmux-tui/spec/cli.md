@@ -1498,7 +1498,8 @@ the dialog; their installed hooks must still have it, and none may be a
 newest own report of that agent's live session (its hook record of the same
 harness and session, then its OSC 7501 records newer than that; the daemon
 keeps one agent record per terminal, so after a plugin guess only the OSC
-7501 report is left) is idle or working; and the bottom 16 non-blank rows of the screen show its input box,
+7501 report is left) is idle (never working), and no OSC 7501 record of
+that agent says blocked; and the bottom 16 non-blank rows of the screen show its input box,
 with no dialog options and no startup dialog. The plugin can read a screen
 just before the agent redraws it and then not read it again. Then `wait
 --until idle` is idle and `send` is not refused; `agent list` and the

@@ -241,6 +241,27 @@ pub(in crate::cli) fn own_report_state(
         .or(own_state)
 }
 
+/// Whether any program status record (OSC 7501) of the `harness` app in
+/// `terminal` says blocked: a record id per dialog can stay blocked while a
+/// newer record of the same app says idle.
+pub(in crate::cli) fn any_status_blocked(terminal: &Value, harness: &str) -> bool {
+    let harness = super::super::agent_vocabulary::harness_name(harness);
+    terminal
+        .pointer("/extra/program_status")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|record| {
+            let app = record.get("app").and_then(Value::as_str);
+            app.map(super::super::agent_vocabulary::harness_name).as_deref()
+                == Some(harness.as_str())
+        })
+        .any(|record| {
+            record.get("state").and_then(Value::as_str).and_then(AgentState::from_record)
+                == Some(AgentState::Blocked)
+        })
+}
+
 /// Harnesses whose approval hook is verified to fire when the permission
 /// dialog shows (Claude Code's and Codex's `PermissionRequest`), not only
 /// when a tool starts. Muse's `PermissionRequest` and Rovo Dev's

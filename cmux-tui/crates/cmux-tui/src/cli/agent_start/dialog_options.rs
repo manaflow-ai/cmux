@@ -308,8 +308,9 @@ pub(in crate::cli) fn dialog_json(kind: &str, msg: Option<&str>, screen: &str) -
 /// A `blocked` that only a screen guess gives (the screen-detection plugin)
 /// is `None` only when all of these hold: the harness's hooks report its
 /// dialogs (`roster::hooks_report_dialogs`), the newest own report of that
-/// agent's live session (`roster::own_report_state`) is idle or working,
-/// and the bottom rows of `screen` show its input box with no dialog
+/// agent's live session (`roster::own_report_state`) is idle (never
+/// working), no OSC 7501 record of that agent says blocked
+/// (`roster::any_status_blocked`), and the bottom rows of `screen` show its input box with no dialog
 /// options and no startup dialog. The plugin can read a screen just before
 /// the agent redraws it and then not read it again. Otherwise the block
 /// holds: an agent whose hooks report no dialog, or no own report, never
@@ -326,10 +327,9 @@ pub(in crate::cli) fn blocked_dialog(
     let screen_guess = matches!(row.source.as_str(), "plugin" | "detected");
     let own_report_ended = screen_guess
         && roster::hooks_report_dialogs(&row.harness)
-        && matches!(
-            roster::own_report_state(terminal, agents, &row.harness),
-            Some(roster::AgentState::Idle | roster::AgentState::Working)
-        );
+        && roster::own_report_state(terminal, agents, &row.harness)
+            == Some(roster::AgentState::Idle)
+        && !roster::any_status_blocked(terminal, &row.harness);
     if own_report_ended
         && readiness::composer_visible(&bottom_rows(screen).join("\n"))
         && options(screen).is_empty()
