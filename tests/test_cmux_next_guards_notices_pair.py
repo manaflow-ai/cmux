@@ -83,6 +83,8 @@ class Checkout:
                               text=True).stdout.strip()
         git_fixture_env.clone_repo(source.as_uri(), self.path, "--no-checkout", "--depth=1", "--filter=blob:none",
                                    f"--upload-pack={UPLOAD_PACK}")
+        # clone does not keep --upload-pack: the lazy blob fetches below need it too.
+        subprocess.run(["git", "-C", str(self.path), "config", "remote.origin.uploadpack", UPLOAD_PACK], check=True)
         subprocess.run(["git", "-C", str(self.path), "sparse-checkout", "set", "--no-cone", *SPARSE], check=True)
         subprocess.run(["git", "-C", str(self.path), "checkout", "-q", "--detach", head], check=True)
 
