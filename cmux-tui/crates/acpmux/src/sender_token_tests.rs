@@ -1,21 +1,21 @@
 use super::*;
 
+#[cfg(unix)]
 fn home() -> tempfile::TempDir {
     tempfile::tempdir().unwrap()
 }
 
+// `ensure` makes no token where it cannot check a file's owner and mode (not unix).
+#[cfg(unix)]
 #[test]
 fn the_daemon_makes_one_owner_only_token_and_keeps_it() {
     let dir = home();
     ensure(dir.path()).unwrap();
     let token = read_trusted(&path_in(dir.path())).expect("a trusted token");
     assert_eq!(token.len(), 64);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mode = std::fs::metadata(path_in(dir.path())).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0o600);
-    }
+    use std::os::unix::fs::PermissionsExt;
+    let mode = std::fs::metadata(path_in(dir.path())).unwrap().permissions().mode();
+    assert_eq!(mode & 0o777, 0o600);
     // A restart keeps it.
     ensure(dir.path()).unwrap();
     assert_eq!(read_trusted(&path_in(dir.path())).as_deref(), Some(token.as_str()));

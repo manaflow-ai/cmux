@@ -6,6 +6,11 @@
 //! (reviews of #41064 at 8cc17ed2, F2, and 814a7eba, F1).
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// No agent starts here: the daemon is a stand-in socket.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use acpmux::client::Client;
 use serde_json::{Value, json};
 use std::path::PathBuf;
