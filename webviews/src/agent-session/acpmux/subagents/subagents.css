@@ -1570,12 +1570,22 @@ button.cv-subagent > :last-child {
     opacity: 0;
   }
 }
-/* Words that tick (trayMotion.tsx `Tick`): the old and the new share one cell; the old leave up as the
-   new rise in, on the message tokens. Reduce Motion's stylesheet cuts both to a frame. */
+/* Words that tick (trayMotion.tsx `Tick`): the old and the new share one cell, and a change rolls
+   them, as Claude Code's status line does (Leo, 2026-11-07: the hat's line handing over from thinking
+   to a tool call to another, "That animation, I like that"): the old words go up and out of the cell
+   as the new come up into it from below, both opaque, on one clock. The cell clips them, so at every
+   frame the two tile the line's height exactly: half of each line at the middle, never a frame with
+   no words and never two texts over each other (Leo, 2026-11-11: "there's breif moments where it just
+   looks like a blank tear that then switches", the cross-fade's middle, both texts faded and
+   half-clipped). Transform only, so the compositor plays it on a busy main thread too. Reduce Motion
+   and motion off change the words at once (trayMotionModel.ts `motionAllowed`). */
 .acpmux-tick {
   display: inline-grid;
   grid-template-columns: minmax(0, auto);
   overflow: hidden;
+  /* The roll's clock: the micro step (Leo, 2026-11-11: "it's too slow on the transitions"). The width
+     ease of a sliding tick (trayMotion.tsx) reads it too. */
+  --acpmux-tick-roll: var(--agent-motion-in, 120ms);
 }
 .acpmux-tick > span {
   grid-area: 1 / 1;
@@ -1585,45 +1595,31 @@ button.cv-subagent > :last-child {
   white-space: nowrap;
 }
 .acpmux-tick__in {
-  animation: acpmux-tick-in var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both;
+  animation: acpmux-tick-roll-in var(--acpmux-tick-roll) var(--agent-ease-out, ease-out) both;
 }
 .acpmux-tick__out {
-  animation: acpmux-tick-out var(--agent-motion-out, 80ms) var(--agent-ease-out, ease-out) both;
+  animation: acpmux-tick-roll-out var(--acpmux-tick-roll) var(--agent-ease-out, ease-out) both;
 }
-@keyframes acpmux-tick-in {
+@keyframes acpmux-tick-roll-in {
   from {
-    opacity: 0;
+    translate: 0 100%;
   }
-}
-@keyframes acpmux-tick-out {
   to {
-    opacity: 0;
+    translate: 0 0;
   }
 }
-/* A sliding tick (trayMotion.tsx `Tick` slide; Leo, 2026-11-07, on the hat's line handing over from
-   thinking to a tool call to another: "That animation, I like that"): the old words slide up and out
-   as the new slide up from below, on one baseline, while the cell's width eases between them on the
-   same clock. The cell clips both, so neither draws outside the row. */
+@keyframes acpmux-tick-roll-out {
+  from {
+    translate: 0 0;
+  }
+  to {
+    translate: 0 -100%;
+  }
+}
+/* A sliding tick (trayMotion.tsx `Tick` slide): the same roll, while the cell's width eases from the
+   old words' to the new ones' on the roll's clock, so what follows them glides instead of jumping. */
 .acpmux-tick[data-slide] {
-  --acpmux-tick-slide: var(--agent-motion-move, 180ms);
-}
-.acpmux-tick[data-slide] > .acpmux-tick__in {
-  animation: acpmux-tick-slide-in var(--acpmux-tick-slide) var(--agent-ease-out, ease-out) both;
-}
-.acpmux-tick[data-slide] > .acpmux-tick__out {
-  animation: acpmux-tick-slide-out var(--acpmux-tick-slide) var(--agent-ease-out, ease-out) both;
-}
-@keyframes acpmux-tick-slide-in {
-  from {
-    opacity: 0;
-    translate: 0 70%;
-  }
-}
-@keyframes acpmux-tick-slide-out {
-  to {
-    opacity: 0;
-    translate: 0 -70%;
-  }
+  --acpmux-tick-slide: var(--acpmux-tick-roll);
 }
 /* A count ticking over (trayMotion.tsx `Tick` steadyCounts): only the number that changed rolls, the
    old one up and out as the new one rises into its place; tabular figures keep its width. */
@@ -1636,10 +1632,10 @@ button.cv-subagent > :last-child {
   grid-area: 1 / 1;
 }
 .acpmux-tick__roll-in {
-  animation: acpmux-tick-slide-in var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out) both;
+  animation: acpmux-tick-roll-in var(--acpmux-tick-roll, 120ms) var(--agent-ease-out, ease-out) both;
 }
 .acpmux-tick__roll-out {
-  animation: acpmux-tick-slide-out var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out) both;
+  animation: acpmux-tick-roll-out var(--acpmux-tick-roll, 120ms) var(--agent-ease-out, ease-out) both;
 }
 
 /* What a running agent did last, on the title's row (trayLatest.experiment.ts `inline`, the
