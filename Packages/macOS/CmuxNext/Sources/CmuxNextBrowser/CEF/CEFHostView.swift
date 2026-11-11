@@ -98,7 +98,8 @@ final class CEFHostView: NSView {
     override func viewWillStartLiveResize() {
         super.viewWillStartLiveResize()
         liveResizeWillStart?()
-        layerHosting.windowLiveResize(active: true)
+        // Only a resize a person drags (a mouse button down) detaches the page; a display change also starts one.
+        layerHosting.windowLiveResize(active: true, byPerson: NSEvent.pressedMouseButtons != 0)
         updateBackground()
     }
 

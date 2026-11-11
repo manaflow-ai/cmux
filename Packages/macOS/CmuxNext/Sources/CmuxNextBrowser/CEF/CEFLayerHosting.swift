@@ -110,8 +110,10 @@ final class CEFLayerHosting {
     /// The resize deadline the fork has for this page window: 0, the fork's default, until
     /// ``syncDeadline()`` gives another.
     private var appliedDeadlineMs: Int32 = 0
-    /// The window is in a live resize (``windowLiveResize(active:)``).
+    /// The window is in a live resize (``windowLiveResize(active:byPerson:)``).
     private var inLiveResize = false
+    /// A person drives the live resize (``windowLiveResize(active:byPerson:)``); true outside one.
+    private var liveResizeByPerson = true
     /// Tab containers that told a resize-sync drag of the view's pane and have not told its end
     /// (``paneResizeDrag(active:)``): every tab of a pane shares this page window.
     private(set) var paneDragHolders = 0
@@ -272,10 +274,17 @@ final class CEFLayerHosting {
     /// waits up to `liveResizeDeadlineMs` (capped like every deadline, ``CEFResizeSyncDeadline``) for its frame at the
     /// new size (Chromium waited up to 500 ms there); after it a hosted page goes back to its pane deadline and a page
     /// window to none.
-    func windowLiveResize(active: Bool) {
+    ///
+    /// `byPerson`: a person drives it (a mouse button is down on the window's edge). AppKit also starts a live resize
+    /// for a one-shot frame change, such as `_adjustWindowToScreen` after a display change; that resize has no frames to
+    /// save, and detaching for it cost a 2.3 s main-thread hang in NIGHTLY 23c9f5a (2026-11-11 01:22:39Z: the
+    /// detach's window notification ran Chromium's display observer into SkyLight's `SLDisplayUsesForceToGray`, which
+    /// `stat`s the home folder and waited on the disk). Such a resize keeps the page attached, as a key resize does.
+    func windowLiveResize(active: Bool, byPerson: Bool = true) {
         guard active != inLiveResize else { return }
         let was = inResizeMotion
         inLiveResize = active
+        liveResizeByPerson = active ? byPerson : true
         syncDeadline()
         if inResizeMotion != was { motionChanged() }
     }
@@ -355,7 +364,8 @@ final class CEFLayerHosting {
 
     private func motionChanged() {
         if inResizeMotion {
-            motionKeepsAttached = holdsFocus()
+            // A live resize nobody drives (a display change's frame adjustment) moves the page once: no detach.
+            motionKeepsAttached = holdsFocus() || (motionHolders == 0 && !liveResizeByPerson)
             if !motionKeepsAttached { setDetached(true) }
         } else {
             motionKeepsAttached = false

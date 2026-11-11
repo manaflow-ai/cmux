@@ -32,9 +32,17 @@ extension AgentChatAppOps {
 }
 
 extension AppProviderChangeFeed {
-    /// `agent_chat.changed` whenever the chats `agent_chat.list` answers change (``AgentLaneStore/agentChats(now:)``),
-    /// so a thread list reloads on the event instead of polling.
+    /// `agent_chat.changed` whenever the chats `agent_chat.list` answers may have changed (a lane changed, or the
+    /// capture fixture turned on or off), so a thread list reloads on the event instead of polling. It observes the
+    /// store's ``AgentLaneStore/revision`` and the fixture flag, O(1) a change: the list itself is built only when a
+    /// script reads it (`agent_chat.list`), never on the main thread for each agent step.
     @MainActor public static func agentChats(_ store: AgentLaneStore = .shared) -> AppProviderChangeFeed {
-        AppProviderChangeFeed(family: "agent_chat") { store.agentChats(now: .distantPast) }
+        AppProviderChangeFeed(family: "agent_chat") { AgentChatsVersion(lanes: store.revision, fixture: SidebarTunables.laneFixture.value) }
     }
+}
+
+/// What ``AppProviderChangeFeed/agentChats(_:)`` observes: the lane store's revision and the capture fixture flag.
+struct AgentChatsVersion: Equatable, Sendable {
+    let lanes: UInt64
+    let fixture: Bool
 }
