@@ -2306,6 +2306,7 @@ pub mod peer_text;
 mod pending;
 mod place;
 mod processes;
+mod prompt_cancel;
 mod workflow_activity;
 mod workflow_runs;
 mod worktrees;
