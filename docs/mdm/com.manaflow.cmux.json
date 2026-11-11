@@ -645,6 +645,12 @@
       "title" : "Download Announcements",
       "type" : "boolean"
     },
+    "app.confirmQuit" : {
+      "default" : true,
+      "description" : "Cmd-Q asks first when quitting would end working agents or open terminals. A quit that keeps the sessions running never asks.",
+      "title" : "Ask Before Quitting Ends Agents or Terminals",
+      "type" : "boolean"
+    },
     "app.globalHotKey" : {
       "default" : false,
       "description" : "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front.",
@@ -2015,7 +2021,7 @@
       "type" : "boolean"
     },
     "browser.openPullRequestsInGitHubPage" : {
-      "default" : true,
+      "default" : false,
       "description" : "A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way.",
       "title" : "Open Pull Requests in cmux GitHub Page",
       "type" : "boolean"
@@ -3611,7 +3617,7 @@
       "type" : "boolean"
     },
     "notifications.attention.moveToTop" : {
-      "default" : false,
+      "default" : true,
       "description" : "A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane.",
       "title" : "Move the Workspace to the Top",
       "type" : "boolean"
