@@ -62,7 +62,9 @@ afterEach(async () => {
     else scope[key] = value;
   }
   saved.clear();
-  globalThis.cmuxExperiments = armsBefore;
+  // A key set to undefined is still a key the leak detector counts as added.
+  if (armsBefore === undefined) delete globalThis.cmuxExperiments;
+  else globalThis.cmuxExperiments = armsBefore;
 });
 
 const calls = (kind = "execute"): AcpmuxActivity[] =>
