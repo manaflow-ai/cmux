@@ -43,22 +43,25 @@ package nonisolated final class HomeNeedsYouCapture: @unchecked Sendable { // cr
         var resolved = false
         var infoReads: [String] = []
         var posted: [String: String] = [:]
+        var ops: [String] = []
     }
 
     package let socket: String
     private let listener: Int32
     private let listenerSource: any DispatchSourceRead
     private let state = Mutex(State())
-    /// One feed op on the app's local daemon: its name and its params as a JSON object.
-    private let send: @Sendable (String, Data) -> Void
+    /// One feed op on the app's local daemon: its name and its params as a JSON object; what it answered.
+    private let send: @Sendable (String, Data) async -> String
 
     /// The session ids of the `_acpmux/info` reads that reached it, in order.
     package var infoReads: [String] { state.withLock { $0.infoReads } }
+    /// What each feed op the stub sent answered, in order.
+    package var ops: [String] { state.withLock { $0.ops } }
     /// Whether the bridge connected.
     package var connected: Bool { state.withLock { $0.client >= 0 } }
 
     /// Listens on a new socket under /tmp (a unix socket path must stay short).
-    package init(send: @escaping @Sendable (String, Data) -> Void) throws {
+    package init(send: @escaping @Sendable (String, Data) async -> String) throws {
         self.send = send
         socket = "/tmp/cmux-cap-\(UUID().uuidString.prefix(8)).sock"
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
@@ -121,15 +124,23 @@ package nonisolated final class HomeNeedsYouCapture: @unchecked Sendable { // cr
                                        "count": 1, "revision": 1, "created_at": now, "updated_at": now]) { $1 }
             state.withLock { $0.posted[id] = Self.feedKey }
             guard let data = try? JSONSerialization.data(withJSONObject: ["item": item]) else { return [:] }
-            send("feed.post", data)
+            feed("feed.post", data)
             return ["value": ["item": ["id": id]]]
         case "feed.cancel":
             if let item = params["item"] as? String, state.withLock({ $0.posted.removeValue(forKey: item) }) != nil {
-                send("feed.withdraw", Self.withdrawParams)
+                feed("feed.withdraw", Self.withdrawParams)
             }
             return ["value": [String: Any]()]
         default:
             return [:]
+        }
+    }
+
+    private func feed(_ operation: String, _ params: Data) {
+        // task-owner: one capture feed op on the app's daemon; it records its answer and ends.
+        Task { [weak self, send] in
+            let answer = await send(operation, params)
+            self?.state.withLock { $0.ops.append(String(answer.prefix(300))) }
         }
     }
 

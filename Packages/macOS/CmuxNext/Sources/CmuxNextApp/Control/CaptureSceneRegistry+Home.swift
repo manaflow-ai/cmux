@@ -167,7 +167,7 @@ extension CaptureSceneRegistry {
 extension CaptureSceneRegistry {
     func renderPermissionFeedPeer(_ params: [String: CmuxNextSettings.JSONValue], scene: String, windowID: String) async -> CmuxNextSettings.JSONValue {
         let (services, daemon) = (services, services.machines.local.connection)
-        await Self.feedOp(daemon, "feed.withdraw", HomeNeedsYouCapture.withdrawParams)
+        _ = await Self.feedOp(daemon, "feed.withdraw", HomeNeedsYouCapture.withdrawParams)
         func failed(_ why: String) -> CmuxNextSettings.JSONValue { .object(["error": .string(why), "scene": .string(scene)]) }
         guard let controller = services.windows.controller(for: windowID) else { return failed("capture window is gone") }
         frames.start()
@@ -176,7 +176,7 @@ extension CaptureSceneRegistry {
         guard home != nil, let chief = TopHomePageView.chief(services.home) else { return failed("no Chief conversation: \(services.home.unavailableMessage)") }
         do { try await services.settings?.set(.bool(true), at: HomeNeedsYouSetting.configPath) } catch { return failed("feed.needsYouInChief: \(error)") }
         guard var environment = await AcpmuxEnvironment.resolvedApp(build: services.environment.build, mock: false), let executable = Bundle.main.executableURL?.resolvingSymlinksInPath() else { return failed("no acpmux environment (resolved as if not --showcase, which mocks it)") }
-        guard let capture = try? HomeNeedsYouCapture(send: { op, data in Task { await Self.feedOp(daemon, op, data) } }) else { return failed("in-app acpmux did not listen") }
+        guard let capture = try? HomeNeedsYouCapture(send: { op, data in await Self.feedOp(daemon, op, data) }) else { return failed("in-app acpmux did not listen") }
         defer { capture.stop() }
         (environment.executable, environment.socketPath) = (executable, capture.socket) // the in-app acpmux, which this app serves
         TopPages.show(.home, services: services, in: controller.state)
@@ -202,7 +202,8 @@ extension CaptureSceneRegistry {
         } else if shown != nil {
             capture.notifyPending()
         }
-        report["info_reads"] = .array(capture.infoReads.map { .string($0) })
+        report["acpmux_and_feed"] = .array((capture.infoReads + capture.ops).map { .string($0) })
+        report["view"] = .string((try? await services.feed.daemon.view(.needsYou)).map { "home \(page?.host != nil) pinned \(services.settings?.snapshot.homeNeedsYouInChief ?? false) settled \($0.isSettled) \($0.connection?.state ?? "-") \($0.connection?.reason ?? "-") needs_you \($0.items(in: "needs_you").count)" } ?? "unread")
         guard shown != nil, case .object(let drawn)? = row, drawn["matched"]?.boolValue == true else {
             return .object(report.merging(["error": .string("Needs you never drew the prompt"), "scene": .string(scene)]) { $1 })
         }
@@ -217,11 +218,10 @@ extension CaptureSceneRegistry {
         return .object(result)
     }
 
-    /// One `feed.*` op (params: a JSON object) on the app's local daemon connection.
-    nonisolated static func feedOp(_ connection: DaemonConnection?, _ operation: String, _ params: Data) async {
-        guard let connection,
-              let value = try? JSONDecoder().decode([String: CmuxNextDaemon.JSONValue].self, from: params) else { return }
-        _ = try? await ResourceRelayClient(connection: connection).send(operation: operation, params: value, idempotencyKey: "capture-\(UUID().uuidString)")
+    /// One `feed.*` op (params: a JSON object) on the app's local daemon connection, and what it answered.
+    nonisolated static func feedOp(_ connection: DaemonConnection?, _ operation: String, _ params: Data) async -> String {
+        guard let connection, let value = try? JSONDecoder().decode([String: CmuxNextDaemon.JSONValue].self, from: params) else { return "\(operation): no daemon connection" }
+        do { return "\(operation): \(try await ResourceRelayClient(connection: connection).send(operation: operation, params: value, idempotencyKey: "capture-\(UUID().uuidString)"))" } catch { return "\(operation): \(error)" }
     }
 }
 #endif
