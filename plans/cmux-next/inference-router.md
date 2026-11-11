@@ -18,6 +18,7 @@ allowlist, caps, failover and metering. Providers are adapters (`providers.ts`):
 | `workers-ai` | AI binding through Cloudflare AI Gateway `cmux-ai-proxy` (`INFERENCE_CF_GATEWAY_ID`) | none |
 | `azure` | Azure AI Foundry Models v1 endpoint, `api-key` header, deployment `deepseek-v4.1-flash` | `INFERENCE_AZURE_KEY` |
 | `openai` | api.openai.com. `max_tokens` is sent as `max_completion_tokens`. | `INFERENCE_OPENAI_KEY` |
+| `particle` | api.particle.ai, OpenAI chat/completions, Bearer. The only route of `particle-ai/particle-1`, and no other model routes here: the cmux key's traffic is outside Particle's zero data retention. Not allowlisted yet. | `INFERENCE_PARTICLE_KEY` |
 | `custom` | Our own OpenAI-compatible URL | `INFERENCE_CUSTOM_URL`/`_KEY` |
 
 - Order: `INFERENCE_PRIMARY_PROVIDER` (staging and production: `vercel`) comes first, then the

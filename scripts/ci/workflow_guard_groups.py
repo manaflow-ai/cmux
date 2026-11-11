@@ -60,6 +60,8 @@ PATH_OWNERS = {
     # resolver it imports, the reusable workflow that publishes the map, and
     # the one workflow wired to consume it.
     ".github/runners.json": frozenset(("ci",)),
+    # check-single-host-fallbacks.py (advisory in CI) reads every workflow's runs-on against this declaration.
+    ".github/single-host-fallbacks.json": frozenset(("ci",)),
     ".github/workflows/resolve-runners.yml": frozenset(("ci",)),
     ".github/workflows/ios-app-store.yml": frozenset(("ci",)),
     "scripts/ci/resolve_runners.py": frozenset(("ci",)),

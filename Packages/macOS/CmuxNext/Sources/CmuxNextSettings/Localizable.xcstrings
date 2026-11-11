@@ -43629,6 +43629,268 @@
         }
       }
     },
+    "settings.app.confirmQuit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask Before Quitting Ends Agents or Terminals"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السؤال قبل أن ينهي الخروج الوكلاء أو الطرفيات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pitaj prije nego što izlazak prekine agente ili terminale"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spørg før afslutning stopper agenter eller terminaler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fragen, bevor das Beenden Agenten oder Terminals beendet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preguntar antes de que salir detenga agentes o terminales"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Demander avant que quitter n’arrête des agents ou des terminaux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiedi prima che l’uscita termini agenti o terminali"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "終了でエージェントやターミナルが終わる前に確認"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សួរមុនពេលការចាកចេញបញ្ចប់ភ្នាក់ងារ ឬស្ថានីយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "종료로 에이전트나 터미널이 끝나기 전에 확인"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spør før avslutning stopper agenter eller terminaler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pytaj, zanim zakończenie zatrzyma agentów lub terminale"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Perguntar antes que encerrar finalize agentes ou terminais"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спрашивать, прежде чем выход остановит агентов или терминалы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ถามก่อนที่การออกจะปิดเอเจนต์หรือเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çıkış ajanları veya terminalleri sonlandırmadan önce sor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Питати, перш ніж вихід зупинить агентів або термінали"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hỏi trước khi thoát làm kết thúc tác nhân hoặc terminal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "退出会结束代理或终端前先询问"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "結束會終止代理或終端機前先詢問"
+          }
+        }
+      }
+    },
+    "settings.app.confirmQuit.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-Q asks first when quitting would end working agents or open terminals. A quit that keeps the sessions running never asks."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يسأل Cmd-Q أولاً عندما ينهي الخروج وكلاء عاملين أو طرفيات مفتوحة. الخروج الذي يبقي الجلسات تعمل لا يسأل أبداً."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-Q prvo pita kada bi izlazak prekinuo aktivne agente ili otvorene terminale. Izlazak koji ostavlja sesije da rade nikada ne pita."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-Q spørger først, når afslutning ville stoppe arbejdende agenter eller åbne terminaler. En afslutning, der lader sessionerne køre, spørger aldrig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-Q fragt zuerst, wenn das Beenden arbeitende Agenten oder offene Terminals beenden würde. Ein Beenden, das die Sitzungen weiterlaufen lässt, fragt nie."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-Q pregunta primero cuando salir detendría agentes en curso o terminales abiertas. Una salida que mantiene las sesiones en ejecución nunca pregunta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-Q demande d’abord lorsque quitter arrêterait des agents en cours ou des terminaux ouverts. Quitter en gardant les sessions actives ne demande jamais."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-Q chiede prima quando l’uscita terminerebbe agenti al lavoro o terminali aperti. Un’uscita che lascia attive le sessioni non chiede mai."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "終了すると作業中のエージェントや開いているターミナルが終わる場合、Cmd-Qは先に確認します。セッションを実行したままにする終了では確認しません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-Q សួរជាមុន នៅពេលការចាកចេញនឹងបញ្ចប់ភ្នាក់ងារកំពុងធ្វើការ ឬស្ថានីយដែលបើក។ ការចាកចេញដែលរក្សាសម័យឱ្យដំណើរការមិនសួរឡើយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "종료하면 작업 중인 에이전트나 열린 터미널이 끝나는 경우 Cmd-Q가 먼저 확인합니다. 세션을 계속 실행하는 종료는 확인하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-Q spør først når avslutning ville stoppe arbeidende agenter eller åpne terminaler. En avslutning som lar øktene kjøre, spør aldri."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-Q najpierw pyta, gdy zakończenie zatrzymałoby pracujących agentów lub otwarte terminale. Zakończenie, które pozostawia sesje uruchomione, nigdy nie pyta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-Q pergunta primeiro quando encerrar finalizaria agentes em execução ou terminais abertos. Um encerramento que mantém as sessões em execução nunca pergunta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-Q сначала спрашивает, если выход остановит работающих агентов или открытые терминалы. Выход, при котором сеансы продолжают работать, никогда не спрашивает."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-Q จะถามก่อนเมื่อการออกจะปิดเอเจนต์ที่กำลังทำงานหรือเทอร์มินัลที่เปิดอยู่ การออกที่ให้เซสชันทำงานต่อจะไม่ถาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çıkış, çalışan ajanları veya açık terminalleri sonlandıracaksa Cmd-Q önce sorar. Oturumları çalışır durumda bırakan bir çıkış asla sormaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-Q спершу питає, якщо вихід зупинить агентів у роботі або відкриті термінали. Вихід, що залишає сеанси працювати, ніколи не питає."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-Q hỏi trước khi việc thoát sẽ kết thúc tác nhân đang làm việc hoặc terminal đang mở. Thoát mà vẫn giữ các phiên chạy thì không bao giờ hỏi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "如果退出会结束工作中的代理或已打开的终端，Cmd-Q 会先询问。保持会话运行的退出不会询问。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "如果結束會終止工作中的代理或已開啟的終端機，Cmd-Q 會先詢問。讓工作階段繼續執行的結束不會詢問。"
+          }
+        }
+      }
+    },
     "settings.app.hideDockIconWithoutWindows": {
       "extractionState": "manual",
       "localizations": {

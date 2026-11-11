@@ -414,6 +414,20 @@ class PullRequestTiers(unittest.TestCase):
                 for tier in ("native", "scheme", "macos", "swift", "generated", "daemon"):
                     self.assertEqual(result[tier], "false", tier)
 
+    def test_a_workflow_and_its_script_only_tool_run_no_mac_compile(self):
+        """#40575 changed only classic-migration-staging.yml and the classic-migrate .ts it runs with
+        bun, and waited on cmux-next/compile, a compile its diff could not change."""
+        for changed in ([".github/workflows/classic-migration-staging.yml",
+                         "scripts/cmux-next/classic-migrate/staging-proof.test.ts",
+                         "scripts/cmux-next/classic-migrate/staging-proof.ts"],
+                        ["scripts/cmux-next/classic-migrate/fixtures/base-cli-ledger.jsonl"],
+                        ["scripts/cmux-next/proxy-demo/demo.py"], ["scripts/cmux-next/team-vm-spike/caps.sh"],
+                        ["scripts/cmux-next/mac-screen-rd-rig/run.sh"]):
+            with self.subTest(changed=changed):
+                result = tiers(changed)
+                for tier in ("native", "scheme", "macos", "mac_release", "swift", "generated", "daemon"):
+                    self.assertEqual(result[tier], "false", tier)
+
     def test_a_path_no_mac_build_reads_beside_swift_keeps_the_swift_tiers(self):
         swift = f"{PACKAGE}/Sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift"
         mixed, alone = tiers(["images/cmux-vm/inputs.lock.json", swift]), tiers([swift])
