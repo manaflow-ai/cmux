@@ -988,6 +988,36 @@ mkdir -p node_modules/.bin
                     if name == "git":
                         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_a_child_running_a_tool_not_in_child_tools_names_it(self):
+        """A child of the hook that needs a tool missing from CHILD_TOOLS got a bare
+        command-not-found; by name, by exec and by shebang it now names the tool and the list."""
+        self.assertEqual(self.install().returncode, 0)
+        marker = self.root / "unlisted-ran"
+        extra = self.root / "extra-bin"
+        extra.mkdir()
+        unlisted = extra / "frobnicate"
+        unlisted.write_text(f"#!/bin/sh\n: > {shlex.quote(str(marker))}\n")
+        unlisted.chmod(0o755)
+        script = self.root / "child-script"
+        script.write_text("#!/usr/bin/env frobnicate\n")
+        script.chmod(0o755)
+        for how, call in (("by name", "frobnicate --version"),
+                          ("by exec", "exec frobnicate --version"),
+                          ("by shebang", shlex.quote(str(script)))):
+            with self.subTest(how=how):
+                marker.unlink(missing_ok=True)
+                env = self.bootstrap_env()
+                env["PATH"] = f"{env['PATH']}{os.pathsep}{extra}"
+                bun = self.fake_bun(Path(env["PATH"].split(os.pathsep)[0]) / "bun", "1.4.4",
+                                    install_body=call)
+                try:
+                    result = self.run_pre_commit(env)
+                finally:
+                    bun.unlink()
+                self.assertFalse(marker.exists(), "an unlisted tool never runs\n" + result.stderr)
+                self.assertIn("frobnicate isn't in CHILD_TOOLS (scripts/git-hooks/pre-commit)", result.stderr)
+                self.assertIn("exit 127", result.stderr)
+
     def test_merge_driver_does_not_follow_checked_out_script_changes(self):
         result = self.install()
         self.assertEqual(result.returncode, 0, result.stderr)
