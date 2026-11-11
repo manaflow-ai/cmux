@@ -67,11 +67,29 @@ const POSTER = "data:image/jpeg;base64,/9j/AA==";
 type Case = { name: string; type: string; width: number; height: number; durationMs: number };
 const VIDEOS: Case[] = [
   // Leo's own recording: H.264, 2112x720, 8.9 s, U+202F before PM.
-  { name: `Screen Recording 2026-11-10 at 4.21.16${NNBSP}PM.mov`, type: "video/quicktime", width: 2112, height: 720, durationMs: 8_900 },
+  {
+    name: `Screen Recording 2026-11-10 at 4.21.16${NNBSP}PM.mov`,
+    type: "video/quicktime",
+    width: 2112,
+    height: 720,
+    durationMs: 8_900,
+  },
   // A Retina screen recording in HEVC.
-  { name: `Screen Recording 2026-11-10 at 4.04.20${NNBSP}PM (2).mov`, type: "video/quicktime", width: 3840, height: 2160, durationMs: 14_200 },
+  {
+    name: `Screen Recording 2026-11-10 at 4.04.20${NNBSP}PM (2).mov`,
+    type: "video/quicktime",
+    width: 3840,
+    height: 2160,
+    durationMs: 14_200,
+  },
   // An odd size, and a name with spaces and other scripts.
-  { name: "屏幕录制 2026-11-10 下午 4.21.16 – café résumé.mp4", type: "video/mp4", width: 7, height: 4320, durationMs: 1_000 },
+  {
+    name: "屏幕录制 2026-11-10 下午 4.21.16 – café résumé.mp4",
+    type: "video/mp4",
+    width: 7,
+    height: 4320,
+    durationMs: 1_000,
+  },
   { name: "clip with  two  spaces.m4v", type: "video/x-m4v", width: 2112, height: 720, durationMs: 600_000 },
 ];
 
@@ -150,7 +168,8 @@ try {
     const failed = failedChips();
     expect(failed.length).toBe(VIDEOS.length);
     expect(host.querySelector(".acpmux-attachment-image img")).not.toBeNull();
-    for (const spec of VIDEOS) expect(failed.some((chip) => chip.getAttribute("title")?.endsWith(spec.name))).toBe(true);
+    for (const spec of VIDEOS)
+      expect(failed.some((chip) => chip.getAttribute("title")?.endsWith(spec.name))).toBe(true);
   });
 
   test("a new attachment object tries the preview again", async () => {
@@ -163,7 +182,8 @@ try {
   });
 
   test("a sent video tile draws inside the boundary: one that throws is its file chip, and the message stays", async () => {
-    const { AttachmentPreviewBoundary } = await import("../src/agent-session/acpmux/composer/AttachmentPreviewBoundary");
+    const { AttachmentPreviewBoundary } =
+      await import("../src/agent-session/acpmux/composer/AttachmentPreviewBoundary");
     const name = VIDEOS[0]!.name;
     function Throws(): never {
       throw new Error("preview failed");
@@ -175,7 +195,11 @@ try {
           <AttachmentPreviewBoundary attachment={{ name }} fallback={<span data-preview-failed="true">{name}</span>}>
             <Throws />
           </AttachmentPreviewBoundary>
-          <SentVideoTile video={{ name, path: `/Users/leo/Desktop/${name}`, length: "0:09", width: 2112, height: 720 }} width={240} height={82} />
+          <SentVideoTile
+            video={{ name, path: `/Users/leo/Desktop/${name}`, length: "0:09", width: 2112, height: 720 }}
+            width={240}
+            height={82}
+          />
         </div>,
       );
     });
