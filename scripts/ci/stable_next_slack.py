@@ -134,6 +134,10 @@ def reasons(annotations: list[dict], level: str = "failure") -> str:
     for note in annotations:
         if note.get("annotation_level") != level:
             continue
+        # Warnings only from this pipeline ("cmux NEXT Stable…", "stable perf"), never the runner's own
+        # (an action's Node deprecation): those would turn a clean pass into "passed, with a warning".
+        if level == "warning" and "stable" not in (note.get("title") or "").lower():
+            continue
         text = (note.get("message") or "").strip()
         if not text or text.startswith(NOISE):
             continue

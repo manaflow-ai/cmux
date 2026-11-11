@@ -93,6 +93,15 @@ class Reasons(unittest.TestCase):
                          "slower than the baseline: REGRESSION workspace_switch p95 35.8 vs baseline 6.4 (+463.2 %)")
 
 
+class Warnings(unittest.TestCase):
+    def test_only_this_pipelines_warnings_count(self):
+        notes = [
+            {"annotation_level": "warning", "title": "", "message": "Node.js 20 actions are deprecated."},
+            {"annotation_level": "warning", "title": "stable perf", "message": "step k-1 still queued after 3 h (kept)"},
+        ]
+        self.assertEqual(slack.reasons(notes, "warning"), "stable perf: step k-1 still queued after 3 h (kept)")
+
+
 class FakeSlack(http.server.BaseHTTPRequestHandler):
     calls: list = []
 
