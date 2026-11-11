@@ -332,6 +332,8 @@ type Props = NewTabScreenActions & {
   chips?: NewTabChips;
   /// Lazily load the chosen harness's actual commands in a deferred chat.
   onCommands?(harness: string, cwd?: string): void;
+  /// Try Again in the `/` menu when the command list could not be read (`commandsFailed`).
+  onRetryCommands?(): void;
   /// false: the field does not take the keyboard when the screen appears (Cmd-L gave it to the
   /// omnibar); Cmd-L on the page still focuses it when the page shows no omnibar.
   focusField?: boolean;
@@ -950,6 +952,8 @@ export function NewTabScreen(props: Props) {
   // A draft cleared (emptied, sent, replaced by an empty one) has no picks: the next starts fresh.
   if (!text.trim() && pickedSkills.current.size) pickedSkills.current = new Set();
   const onCommands = props.onCommands;
+  // The command list could not be read: the `/` menu's empty line offers Try Again.
+  const retryCommands = snapshot.commandsFailed ? props.onRetryCommands : undefined;
   const pickCommand = (command: SlashCommand) => {
     setCommandActive(0);
     // A picked Codex skill goes as `/$name` even where a command shares its name (withSkillDollars).
@@ -1595,6 +1599,12 @@ export function NewTabScreen(props: Props) {
       // arrows chose or one whose name the typed word begins. Shift-Return, Cmd-Return and any other
       // Return keep their meaning (a line, a send).
       const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+      // A list that could not be read offers Try Again; Tab runs it (Return keeps its meaning).
+      if (plain && event.key === "Tab" && !commandMatches.length && retryCommands) {
+        event.preventDefault();
+        retryCommands();
+        return;
+      }
       const match = commandMatches[commandIndex];
       if (
         plain &&
@@ -2233,7 +2243,8 @@ export function NewTabScreen(props: Props) {
                 <SlashMenu
                   matches={commandMatches}
                   active={commandIndex}
-                  empty={t(slashMenuEmptyLabel(snapshot.commands, snapshot.commandsPending))}
+                  empty={t(slashMenuEmptyLabel(snapshot.commands, snapshot.commandsPending, snapshot.commandsFailed))}
+                  {...(retryCommands ? { onRetry: retryCommands } : {})}
                   onHover={setCommandActive}
                   onPick={pickCommand}
                 />

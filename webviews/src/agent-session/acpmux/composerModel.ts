@@ -23,6 +23,8 @@ export const COMPOSER_LABELS = {
   commands: "composer.commands",
   noCommands: "composer.noCommands",
   loadingCommands: "composer.loadingCommands",
+  loadCommandsFailed: "composer.loadCommandsFailed",
+  retryCommands: "composer.retryCommands",
   noMatchingCommands: "composer.noMatchingCommands",
   attachments: "composer.attachments",
   removeAttachment: "composer.removeAttachment",
@@ -46,16 +48,19 @@ export const COMPOSER_LABELS = {
   attachmentsTop: "composer.menu.attachmentsTop",
 } as const satisfies Record<string, StringKey>;
 
-/// The `/` menu's line when no command matches: "Loading commands…" while the chat's own list is
-/// not read yet (`commandsPending`, or no list at all), "No commands" for a read list that is
-/// empty, else "No matching commands". An empty-state line shows only after the read.
+/// The `/` menu's line when no command matches: "Couldn't load commands." when the chat's own list
+/// could not be read (`failed`: the menu offers Try Again), "Loading commands…" while it is not
+/// read yet (`commandsPending`, or no list at all), "No commands" for a read list that is empty,
+/// else "No matching commands". An empty-state line shows only after the read, never on a failure.
 /// Only the agent's own commands count: the chat and New Tab lists also hold cmux's commands
 /// (cmuxCommands.ts `mergedCommands`, `source: "cmux"`), which are there before any read, so a
 /// list of those alone is the agent's empty list ("No commands"), not a list with no match.
 export function slashMenuEmptyLabel(
   commands: readonly { source?: string }[] | undefined,
   pending: boolean | undefined,
-): (typeof COMPOSER_LABELS)["loadingCommands" | "noCommands" | "noMatchingCommands"] {
+  failed?: boolean,
+): (typeof COMPOSER_LABELS)["loadCommandsFailed" | "loadingCommands" | "noCommands" | "noMatchingCommands"] {
+  if (failed) return COMPOSER_LABELS.loadCommandsFailed;
   if (pending || commands === undefined) return COMPOSER_LABELS.loadingCommands;
   return commands.some((command) => command.source !== "cmux")
     ? COMPOSER_LABELS.noMatchingCommands

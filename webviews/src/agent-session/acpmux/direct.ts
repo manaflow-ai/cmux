@@ -2472,6 +2472,11 @@ export class AcpmuxDirectClient {
   /// "No commands" (`commandsPending`). The first chat a page opens is selected without a
   /// selection reset, so this starts unread; no chat selected has nothing to read.
   private commandsRead = false;
+  /// The selected chat's command read failed (`fetchCommands`): `/` says it couldn't load them, with
+  /// Try Again (`retryCommands`), never "No commands". A read that lands later clears it.
+  private commandsFailed = false;
+  /// What the selected chat's command read asks (`fetchCommands`), for Try Again to ask it again.
+  private commandsReadAt: { sessionId: string; generation: number; lastSeq: number } | undefined;
   private optimisticPromptRows = new Map<string, string>();
   /// A prompt's transcript row id survives replay after acpmux accepts it, so an echo never
   /// becomes a different `user-${seq}` row when a live rebuild happens.
@@ -3734,6 +3739,8 @@ export class AcpmuxDirectClient {
     this.commands = (this.selectedSessionId && knownCommands.get(this.selectedSessionId)) || [];
     this.commandsApplied = false;
     this.commandsRead = !this.selectedSessionId || knownCommands.has(this.selectedSessionId);
+    this.commandsFailed = false;
+    this.commandsReadAt = undefined;
     this.handoff.select(this.selectedSessionId);
     this.permissions.select(this.selectedSessionId);
   }
@@ -5508,6 +5515,23 @@ export class AcpmuxDirectClient {
     });
   }
 
+  /// Try Again in the `/` menu after the selected chat's command list could not be read: asks the
+  /// read again on an open link (loading shows meanwhile), else connects now; the reattach reads it.
+  retryCommands(): void {
+    if (this.commandsRead || !this.selectedSessionId) return;
+    this.commandsFailed = false;
+    const at = this.commandsReadAt;
+    if (
+      this.socket?.readyState === WebSocket.OPEN &&
+      at &&
+      at.sessionId === this.selectedSessionId &&
+      at.generation === this.selectionGeneration
+    )
+      void this.fetchCommands(at.sessionId, at.generation, at.lastSeq).catch(() => {});
+    else this.reconnectNow();
+    this.emit();
+  }
+
   /// acpmux's on-demand retry (subagents/retryState.ts `runRetry`): fires a waiting retry now, or
   /// retries the last failed turn or subagent. Its refusals name their code (`retry.busy`).
   retry(method: string, params: Record<string, unknown>): Promise<unknown> {
@@ -6267,8 +6291,10 @@ export class AcpmuxDirectClient {
         return again();
       this.turnOpener = opener;
     } else this.turnOpener = served ?? undefined;
-    if (readCommandsThrough !== undefined)
+    if (readCommandsThrough !== undefined) {
+      this.commandsReadAt = { sessionId, generation, lastSeq: readCommandsThrough };
       void this.fetchCommands(sessionId, generation, readCommandsThrough).catch(() => {});
+    }
     // No log to read the list back from (a chat with no records yet): what the attach named is all.
     else this.commandsRead = true;
     // Merged after the opener's read: live events that landed meanwhile are kept.
@@ -6397,9 +6423,10 @@ export class AcpmuxDirectClient {
         kinds: [COMMANDS_KIND],
       });
     } catch (error) {
-      // A read that failed has nothing more to say: `/` stops saying it is loading.
+      // A read that failed is a failure, not an empty list: `/` says it couldn't load the
+      // commands, with Try Again (`retryCommands`), instead of loading or "No commands".
       if (current() && !this.commandsRead) {
-        this.commandsRead = true;
+        this.commandsFailed = true;
         this.emit("commands");
       }
       throw error;
@@ -6408,6 +6435,7 @@ export class AcpmuxDirectClient {
     const event: EventRecord | undefined = records(result?.events).at(-1);
     const commands = event ? commandsFromUpdate(sessionUpdate(event)) : undefined;
     this.commandsRead = true;
+    this.commandsFailed = false;
     if (commands) {
       this.commands = commands;
       rememberCommands(sessionId, commands);
@@ -9401,13 +9429,15 @@ export class AcpmuxDirectClient {
       groupedAsks: this.asks.listGrouped(),
       catalog: NO_CATALOG,
       commands: this.commands,
-      // Not once the link is down or refused: a list that cannot come never reads as loading.
-      ...(this.commandsRead ||
-      !this.selectedSessionId ||
-      connection === "disconnected" ||
-      connection.startsWith("failed")
+      // Not read: loading while it can still come; a failed read, or a link that went down or was
+      // refused before it came, is a failure with Try Again, never loading forever or "No commands".
+      ...(this.commandsRead || !this.selectedSessionId
         ? {}
-        : { commandsPending: true as const }),
+        : this.commandsFailed ||
+            (this.hasConnected && this.socket?.readyState !== WebSocket.OPEN) ||
+            connection.startsWith("failed")
+          ? { commandsFailed: true as const }
+          : { commandsPending: true as const }),
       canLoadOlder: this.seqHistoryLeft() || this.nativeBefore() !== undefined,
       ...(this.shownEarlierPrompts().length ? { earlierPrompts: this.shownEarlierPrompts() } : {}),
       ...(this.promptCountAwaited() !== undefined ? { promptCount: this.promptCountAwaited() } : {}),

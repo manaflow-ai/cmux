@@ -438,22 +438,29 @@ export default agentPaneEntry({
       },
     },
     // M7: the `/` menu's empty line says why nothing is listed (composerModel.ts slashMenuEmptyLabel).
-    // The deferred chat New Tab asks for is refused here, so the page's own list is the one shown.
+    // With no harness listed New Tab asks for no deferred chat, so the page's own list is the one shown.
+    // Its last state asks and is refused: a list that could not be read says so, with Try Again.
     ...Object.fromEntries(
       (
         [
           [
             "slash-loading-commands",
             "before the agent's commands are read",
-            { commandsPending: true },
+            { catalog: [], commandsPending: true },
             "Loading commands…",
           ],
-          ["slash-no-commands", "once the agent's list was read empty", { commands: [] }, "No commands"],
+          ["slash-no-commands", "once the agent's list was read empty", { catalog: [], commands: [] }, "No commands"],
           [
             "slash-no-matching-commands",
             "with a read list that has commands",
-            { commands: [{ name: "review", description: "Review a pull request", source: "agent" }] },
+            { catalog: [], commands: [{ name: "review", description: "Review a pull request", source: "agent" }] },
             "No matching commands",
+          ],
+          [
+            "slash-load-failed",
+            "when New Tab's ask for the agent's commands was refused",
+            {},
+            "Couldn’t load commands.Try Again",
           ],
         ] satisfies [string, string, Partial<AcpmuxSnapshot>, string][]
       ).map(([name, when, fields, line]) => [

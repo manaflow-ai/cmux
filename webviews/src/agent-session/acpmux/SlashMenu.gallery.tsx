@@ -9,16 +9,18 @@ const matches: SlashMatch[] = Array.from({ length: 40 }, (_, index) => ({
   ranges: [],
 }));
 
-/** `loading`: the chat's own commands are not read yet and nothing matched (`commandsPending`). */
-function SlashMenuGallery({ loading = false }: { loading?: boolean }) {
+/** `loading`: the chat's own commands are not read yet and nothing matched (`commandsPending`).
+ *  `failed`: they could not be read (`commandsFailed`): the line offers Try Again. */
+function SlashMenuGallery({ loading = false, failed = false }: { loading?: boolean; failed?: boolean }) {
   const [active, setActive] = useState(-1);
   return (
     <div className="acpmux-shell" style={{ height: "100%", position: "relative" }}>
       <div style={{ position: "absolute", bottom: 8, left: 16, right: 16 }}>
         <SlashMenu
-          matches={loading ? [] : matches}
+          matches={loading || failed ? [] : matches}
           active={active}
-          empty={loading ? "Loading commands…" : "No commands"}
+          empty={failed ? "Couldn’t load commands." : loading ? "Loading commands…" : "No commands"}
+          {...(failed ? { onRetry: () => undefined } : {})}
           onHover={setActive}
           onPick={() => undefined}
         />
@@ -41,5 +43,7 @@ export default componentEntry({
     overflowing: { props: {} },
     // Typed before the agent's command list arrived: it says so instead of "No commands".
     "loading-commands": { props: { loading: true } },
+    // The list could not be read: it says so, with Try Again, never "No commands".
+    "load-commands-failed": { props: { failed: true } },
   },
 });
