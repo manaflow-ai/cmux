@@ -10,10 +10,10 @@ extension TerminalHostView {
         set { statusLabel.onClose = newValue }
     }
 
-    /// The title of the Close the label offers now, nil while it offers none (tests and diagnostics).
-    public var startingCloseTitle: String? { statusLabel.closeTitle }
+    /// The title of the Close the label offers now, nil while it offers none (tests).
+    var startingCloseTitle: String? { statusLabel.closeTitle }
 
     /// Presses the offered Close as a click on it does; false while none is offered (tests).
     @discardableResult
-    public func pressStartingClose() -> Bool { statusLabel.pressClose() }
+    func pressStartingClose() -> Bool { statusLabel.pressClose() }
 }
