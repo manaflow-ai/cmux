@@ -22,7 +22,19 @@ describe("slider rows", () => {
     rowElement(page!.container, key).querySelector<HTMLInputElement>('input[type="range"]')!;
   const field = (key: string) => rowElement(page!.container, key).querySelector<HTMLInputElement>("input.number")!;
 
-  test("Interface Size always offers Reset, and a changed size resets through the owner", async () => {
+  test("Text Size sits in the Density card once, and the tiles draw their text at it", async () => {
+    const key = "appearance.metrics.chromeFontSize";
+    page = await renderPage({ path: "/settings/appearance" });
+    const card = page.container.querySelector('[data-card="density"]')!;
+    expect(card.querySelector(`[data-row-key="${key}"]`)).not.toBeNull();
+    expect(page.container.querySelectorAll(`[data-row-key="${key}"]`).length).toBe(1);
+    const compact = () => card.querySelector('[data-density="compact"] .density-preview')!;
+    expect(compact().getAttribute("data-body")).toBe("12");
+    await run(() => page!.store.set(key, 15));
+    expect(compact().getAttribute("data-body")).toBe("15");
+  });
+
+  test("Text Size always offers Reset, and a changed size resets through the owner", async () => {
     const key = "appearance.metrics.chromeFontSize";
     page = await renderPage({ path: "/settings/appearance" });
     const reset = () => rowElement(page!.container, key).querySelector<HTMLButtonElement>(".reset-button")!;

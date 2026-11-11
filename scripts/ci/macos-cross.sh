@@ -246,16 +246,16 @@ cmd_hosts() {
       CMUX_BUILD_SHA=$sha cargo build -p cmux-browser-host --bin cmux-browser-host --release --locked --target "$t")
     (cd "$repo_root/first-party-apps/cloud/server" && cargo build --bin cmux-cloud --release --locked --target "$t")
     # The agent screen-detection plugin is its own Cargo workspace (own Cargo.lock).
-    # Optional: a failed build publishes the tree without it (the app then runs
-    # no default detector), so never let a stale copy stand in for it.
+    # Required: a failed build fails the publication, and a stale copy never
+    # stands in for it.
     rm -f "$CARGO_TARGET_DIR/$t/release/cmux-agent-screen-detection" "$out/cmux-tui-agent-screen-detection-$t"
     (cd "$repo_root/cmux-tui" && cargo build --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml \
-      --release --locked --target "$t") || echo "cmux-agent-screen-detection did not build for $t; publishing without it" >&2
+      --release --locked --target "$t")
     echo "hosts $t: $(( $(date +%s) - start )) s"
     cp "$CARGO_TARGET_DIR/$t/release/cmux-app-host" "$out/cmux-tui-app-host-$t"
     cp "$CARGO_TARGET_DIR/$t/release/cmux-browser-host" "$out/cmux-tui-browser-host-$t"
     cp "$CARGO_TARGET_DIR/$t/release/cmux-cloud" "$out/cmux-tui-cloud-server-$t"
-    # Optional: a missing detector prints a warning annotation, never an error.
+    # Required: a missing detector prints an error annotation and fails.
     "$repo_root/scripts/ci/stage-agent-detector.sh" "$CARGO_TARGET_DIR/$t/release" "$t" "$out/cmux-tui-agent-screen-detection-$t"
   done
 }
@@ -327,7 +327,7 @@ cmd_all() {
       "cmux-app-host" "cd $(q "$tui") && $stamps $build -p cmux-app-host --bin cmux-app-host" \
       "cmux-browser-host" "cd $(q "$tui") && CMUX_BUILD_SHA=$(q "$sha") $build -p cmux-browser-host --bin cmux-browser-host" \
       "cmux-cloud" "cd $(q "$repo_root/first-party-apps/cloud/server") && $build --bin cmux-cloud" \
-      "?cmux-agent-screen-detection" "cd $(q "$tui") && { $build --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml || echo 'cmux-agent-screen-detection did not build for $t; publishing without it' >&2; }" \
+      "cmux-agent-screen-detection" "cd $(q "$tui") && $build --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml" \
       "cmux-relay" "cd $(q "$tui") && $stamps $build -p cmux-relay --bin cmux-relay" \
       "chatmux-relay" "cd $(q "$tui") && $stamps $build -p chatmux-relay --bin chatmux-relay" \
       "acpmux" "cd $(q "$tui") && $stamps $build -p acpmux --bin acpmux $("$repo_root/scripts/ci/acpmux-build-features.sh" "$tui/crates/acpmux/Cargo.toml" "$t")"
@@ -337,7 +337,7 @@ cmd_all() {
     cp "$r/cmux-browser-host" "$out/cmux-tui-browser-host-$t"
     cp "$r/cmux-cloud" "$out/cmux-tui-cloud-server-$t"
     rm -f "$out/cmux-tui-agent-screen-detection-$t"
-    # Optional: a missing detector prints a warning annotation, never an error.
+    # Required: a missing detector prints an error annotation and fails.
     "$repo_root/scripts/ci/stage-agent-detector.sh" "$r" "$t" "$out/cmux-tui-agent-screen-detection-$t"
     cp "$r/cmux-tui" "$out/cmux-tui-$t"
     cp "$r/cmux-tui-hook" "$out/cmux-tui-hook-$t"
@@ -459,6 +459,7 @@ cmd_ffi() {
   mkdir -p "$out/slices" "$out/macos" "$out/work"
   # Same settings as scripts/cmux-next/build-app-ffi.sh.
   export CARGO_TARGET_DIR="$out/cargo" CARGO_PROFILE_RELEASE_LTO=off RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C embed-bitcode=no"
+  export LIBSQLITE3_FLAGS="${LIBSQLITE3_FLAGS:+$LIBSQLITE3_FLAGS }-DSQLITE_WITHOUT_ZONEMALLOC"
   for h in "$crates/cmux-rd-ffi/include/cmux_rd_ffi.h" "$crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h" "$crates/cmux-palette-ranker/include/cmux_palette_ranker.h"; do
     grep -oE '\bcmux_[a-z0-9_]+\(' "$h" | tr -d '(' | sort -u | sed 's/^/_/'
   done | sort -u > "$out/work/exports.txt"

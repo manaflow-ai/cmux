@@ -329,6 +329,17 @@ impl Translator {
                     }
                 }
             }
+            // Claude Code's queue of the lines it was given: the turn's prompt waits behind a
+            // turn of Claude Code's own (`queued`) until it starts. Only the prompt's own uuid
+            // counts; a steered line's never holds a result.
+            "command_lifecycle" => {
+                let command = line.get("command_uuid").and_then(Value::as_str).unwrap_or("");
+                let prompt = self.prompt_echo.lock().await;
+                if !command.is_empty() && prompt.as_deref() == Some(command) {
+                    let state = line.get("state").and_then(Value::as_str).unwrap_or("");
+                    self.prompt_queued.store(state == "queued", Ordering::SeqCst);
+                }
+            }
             // Claude Code's echo of a user line it read (`--replay-user-messages`):
             // first the turn's prompt, then each steered line in order.
             // Matched by the line's uuid; an echo of anything else is ignored.
@@ -337,6 +348,7 @@ impl Translator {
                 let mut prompt = self.prompt_echo.lock().await;
                 if !uuid.is_empty() && prompt.as_deref() == Some(uuid) {
                     *prompt = None;
+                    self.prompt_queued.store(false, Ordering::SeqCst);
                     // What follows is this prompt's output, not a stopped turn's tail.
                     self.turn_output.store(false, Ordering::SeqCst);
                     return out;
@@ -546,6 +558,13 @@ impl Translator {
                     }
                     // An MCP server's form, asked as a question (elicitation.rs).
                     Some("elicitation") => out.extend(self.elicit(&sid, &rid, &req).await),
+                    // The policy gate's hook asks the hub, or answers at once (policy_gate.rs).
+                    Some("hook_callback")
+                        if req.get("callback_id").and_then(Value::as_str)
+                            == Some(policy_gate::GATE_CALLBACK) =>
+                    {
+                        out.extend(self.gate_hook(&sid, &rid, &req).await);
+                    }
                     // A registered hook fired: answered with no decision (hook_callback.rs).
                     Some("hook_callback") => self.answer_hook_callback(&rid, &req).await,
                     // Anything else (mcp_message) is declined with an error
@@ -556,6 +575,8 @@ impl Translator {
             // Claude Code no longer needs the answer to one of its requests.
             "control_cancel_request" => {
                 let rid = line.get("request_id").and_then(Value::as_str).unwrap_or("");
+                // A gate hook Claude Code stopped waiting on: its late answer is dropped.
+                self.forget_gate(rid).await;
                 if let Some(id) = self.cancel_control_request(rid).await {
                     out.push(Message::notification(
                         method::CANCEL_REQUEST,
@@ -587,7 +608,7 @@ impl Translator {
                     }
                     out.push(Message::ok(id, json!({
                         "protocolVersion": 1,
-                        "agentInfo": {"name": AGENT_NAME, "title": "Claude Code", "version": inner.get("version").cloned().unwrap_or(Value::Null)},
+                        "agentInfo": {"name": AGENT_NAME, "title": "Claude Code", "version": inner.get("version").cloned().unwrap_or(Value::Null), "_meta": {"acpmux": {"toolGate": cfg!(unix)}}},
                         "agentCapabilities": {"loadSession": true, "promptCapabilities": {"image": true, "embeddedContext": true}, "sessionCapabilities": {"fork": {}, "list": {}, "close": {}}},
                         "authMethods": [],
                         "_meta": {"steering": {"supported": true}, "claude": {"commands": inner.get("commands"), "capabilities": inner.get("capabilities")}}
@@ -735,6 +756,8 @@ impl Translator {
                 }
                 // A call named early whose whole call never came ends with its turn.
                 out.extend(self.end_announced().await);
+                // This result's main-loop calls; the next turn counts its own from here.
+                let calls = self.turn_calls.swap(0, Ordering::SeqCst);
                 // Every result ends the step its calls ran in, also one that returns below
                 // (an abandoned prompt's, or a stopped turn that still runs an unread steer):
                 // a call whose result never came runs in the foreground no more.
@@ -771,6 +794,20 @@ impl Translator {
                         let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
                         out.push(Message::ok(id, json!({"stopReason": "cancelled"})));
                     }
+                    return out;
+                }
+                // The result of a turn Claude Code ran while the prompt waited in its queue (a task
+                // notification's, a loop tick's): the prompt has not started, so this is not its
+                // end. The prompt, its steers and the turn stay as they are; the prompt's own
+                // result ends it. A stopped chat's result still ends it (the stop is for the whole
+                // turn), and a local command's (no model turn) cannot be another turn's.
+                if self.prompt_queued.load(Ordering::SeqCst)
+                    && !self.cancelled.load(Ordering::SeqCst)
+                    && !cancelled_compaction
+                    && !local_command
+                    && (line.get("num_turns").and_then(Value::as_u64).unwrap_or(0) > 0
+                        || line.get("duration_api_ms").and_then(Value::as_u64).unwrap_or(0) > 0)
+                {
                     return out;
                 }
                 // A normal result from the new prompt means the cancelled compaction did not
@@ -880,6 +917,17 @@ impl Translator {
                     ))
                 } else {
                     let mut claude = json!({"subtype": sub, "cost_usd": line.get("total_cost_usd"), "usage": line.get("usage"), "num_turns": line.get("num_turns")});
+                    // `usage` adds every call's reads up, and each call reads the whole context
+                    // again, so a long turn's sum is many times what the context holds: the
+                    // context at the turn's end and how many calls made the sum go beside it
+                    // (hub/turn_usage.rs).
+                    let context = self.context_end.load(Ordering::SeqCst);
+                    if context > 0 {
+                        claude.set("contextTokens", json!(context));
+                    }
+                    if calls > 0 {
+                        claude.set("modelCalls", json!(calls));
+                    }
                     if let Some(next) = &carried {
                         claude.set("carried", next.clone());
                     }
@@ -912,6 +960,7 @@ impl Translator {
                 }
                 let after = line.pointer("/compact_metadata/post_tokens").and_then(Value::as_u64);
                 self.context_used.store(after.unwrap_or(0), Ordering::SeqCst);
+                self.context_end.store(after.unwrap_or(0), Ordering::SeqCst);
                 self.context_from_compaction.store(true, Ordering::SeqCst);
                 self.cache.compacted();
                 self.awaiting_summary.store(true, Ordering::SeqCst);
@@ -937,6 +986,22 @@ impl Translator {
             "rate_limit_event" => out.extend(self.usage_limits_update(line).await),
             "prompt_suggestion" if parent.is_none() => {
                 out.extend(self.suggestion_update(line).map(upd))
+            }
+            // Another session's message Claude Code holds instead of giving it to the model, and
+            // how that hold ends (`hub/native_messaging.rs`). Information only: Claude Code has
+            // no host approval for it.
+            "system" if sub == "peer_message_hold" => {
+                let field = |key: &str| line.get(key).cloned().unwrap_or(Value::Null);
+                out.push(upd(json!({
+                    "sessionUpdate": crate::hub::native_messaging::HOLD_UPDATE,
+                    "state": field("state"),
+                    "messageUuid": field("message_uuid"),
+                    "lane": field("lane"),
+                    "from": field("from"),
+                    "fromName": field("from_name"),
+                    "cause": field("cause"),
+                    "outcome": field("outcome"),
+                })));
             }
             "system" if sub.starts_with("task_") => {
                 if let Some(update) = self.background_shell_task(sub, line, &sid).await {

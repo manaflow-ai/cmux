@@ -20,10 +20,16 @@ struct TerminalComposer: View {
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var showCamera = false
     private let voice = AgentVoiceLauncher.shared
+    @AppStorage(CmuxMobilePreferences.Key.terminalJumpToBottom)
+    private var jumpToBottomEnabled = CmuxMobilePreferences.defaultTerminalJumpToBottom
+
+    private var showsJumpToBottom: Bool {
+        JumpToBottomVisibility.showsInTerminal(scrolledUp: model.isScrolledUp, isTUI: model.isTUI, enabled: jumpToBottomEnabled)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if model.isScrolledUp {
+            if showsJumpToBottom {
                 // In the stack, not over the rows: a floating button hid the
                 // end of the lines under it (Codex QA F3).
                 Button {
@@ -36,8 +42,11 @@ struct TerminalComposer: View {
                         .glassSurface(in: .rect(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous))
                 }
                 .buttonStyle(.plain)
-                .frame(maxWidth: .infinity, alignment: .trailing)
                 .accessibilityLabel("Scroll to bottom")
+                .accessibilityIdentifier("terminal.jumpToBottom")
+                // Centered, as it first shipped and as the agent chat's
+                // jump circle sits (CMUX-10); it had drifted to the trailing edge.
+                .frame(maxWidth: .infinity, alignment: .center)
                 .transition(.opacity)
             }
             if let notice = model.composerNotice {
@@ -73,13 +82,13 @@ struct TerminalComposer: View {
         .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
             model.controller?.composerCardHeightChanged(height)
         }
-        .animation(.smooth(duration: 0.3), value: model.attachments.count)
+        .animation(.smooth(duration: 0.3).unlessReduceMotion, value: model.attachments.count)
         .onChange(of: model.composerText) { _, _ in model.composerEdited() }
         // Shown with a fade; gone at once when following starts (a Jump to
         // bottom tap: qa11 wt-fling-c, the row still drawn after the page
         // reached the bottom, and the card shrinking over 0.2 s moved the
         // page's inset on every frame of the jump).
-        .animation(model.isScrolledUp ? .smooth(duration: 0.2) : nil, value: model.isScrolledUp)
+        .animation(showsJumpToBottom ? Animation.smooth(duration: 0.2).unlessReduceMotion : nil, value: showsJumpToBottom)
         .photosPicker(isPresented: $model.showPhotoPicker, selection: $photoItems, maxSelectionCount: 6,
                       matching: .any(of: [.images, .videos]), preferredItemEncoding: .compatible)
         .onChange(of: photoItems) { _, items in
@@ -197,7 +206,7 @@ struct TerminalComposer: View {
             .glassEffect(failed ? .regular.tint(.red).interactive()
                          : canSend || model.isUploading ? .regular.tint(Color.cmuxMobileAccent).interactive()
                          : .regular, in: .circle)
-            .animation(.smooth(duration: 0.2), value: canSend)
+            .animation(.smooth(duration: 0.2).unlessReduceMotion, value: canSend)
         }
         .buttonStyle(.plain)
         .disabled(model.isUploading || !canSend)

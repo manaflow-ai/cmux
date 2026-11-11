@@ -69,6 +69,9 @@ YML
 touch "$W/Packages/Shared/Port/Tests/.keep" "$W/Packages/Shared/NoTests/Package.swift"
 for t in a b; do printf '#!/bin/bash\necho "cpp %s" >> "%s"\n[[ "%s" != "${CPP_RED:-}" ]]\n' "$t" "$TMP/calls" "$t" >"$W/scripts/cmux-next/test-$t-cpp.sh"; done
 printf '#!/bin/bash\necho "run-tests $*" >> "%s"\n' "$TMP/calls" >"$W/web/scripts/run-tests.sh"
+# The web step's bun is the one webviews/package.json pins (scripts/webviews_bun_version.py).
+mkdir -p "$W/webviews"
+printf '{"devEngines": {"packageManager": {"name": "bun", "version": "1.4.4"}}}\n' >"$W/webviews/package.json"
 chmod +x "$W"/scripts/cmux-next/*.sh "$W/web/scripts/run-tests.sh"
 git -C "$W" init -q && git -C "$W" add -A && git -C "$W" -c user.email=t@t -c user.name=t commit -qm fixture
 run() { (cd "$W" && env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP" "$@" /bin/bash "$SCRIPT" "${ARGS[@]}") 2>&1; }
@@ -223,6 +226,23 @@ ARGS=(notices extra)
 run CMUX_CI_STEP_KEY=k >/dev/null && fail "notices accepted an argument"
 [[ -z "$(calls)" ]] || fail "the generator ran for a refused request: $(calls)"
 
+# The pin comes from webviews/package.json, not a copy in the script: another pin is the
+# version the step asks bun for, and no bun pin stops it before any bun runs.
+# A bun at that pin already in the step's .build, so nothing downloads.
+ARGS=(web)
+printf '{"devEngines": {"packageManager": [{"name": "npm", "version": "10.9.2"}, {"name": "bun", "version": "1.4.5"}]}}\n' >"$W/webviews/package.json"
+mkdir -p "$W/.build/tools/bun-1.4.5/bin"
+printf '#!/bin/bash\n[[ "$1" != --version ]] || { echo 1.4.5; exit 0; }\necho "bun-1.4.5 $(basename "$PWD") $*" >> "%s"\n' "$TMP/calls" >"$W/.build/tools/bun-1.4.5/bin/bun"
+chmod +x "$W/.build/tools/bun-1.4.5/bin/bun"
+: >"$TMP/calls"
+out=$(run CMUX_CI_STEP_KEY=k) || fail "web with a 1.4.5 pin: $out"
+[[ "$out" == *"bun-1.4.5/bin/bun (1.4.5)"* && "$(calls)" == "bun-1.4.5 web install --frozen-lockfile"* ]] || fail "web must use the bun webviews/package.json pins (1.4.5): $out $(calls)"
+rm -rf "$W/.build"
+printf '{"devEngines": {"packageManager": {"name": "npm", "version": "10.9.2"}}}\n' >"$W/webviews/package.json"
+: >"$TMP/calls"
+status=0; out=$(run CMUX_CI_STEP_KEY=k 2>&1) || status=$?
+[[ "$status" != 0 && "$out" == *"no bun in devEngines.packageManager"* && ! -s "$TMP/calls" ]] || fail "web must refuse with no bun pin: $status $out"
+printf '{"devEngines": {"packageManager": {"name": "bun", "version": "1.4.4"}}}\n' >"$W/webviews/package.json"
 ARGS=(web extra)
 run CMUX_CI_STEP_KEY=k >/dev/null && fail "web accepted an argument"
 ARGS=(deploy)

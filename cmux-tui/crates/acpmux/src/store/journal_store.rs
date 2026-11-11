@@ -68,7 +68,7 @@ mod checkpoint;
 mod fenced;
 mod meta;
 mod new_folders;
-mod repair;
+pub(super) mod repair;
 #[cfg(all(test, unix))]
 mod seal_tests;
 
@@ -613,6 +613,9 @@ impl Store for JournalStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
         self.inner.list_metas()
     }
+    fn unlisted(&self) -> Vec<String> {
+        Store::unlisted(&self.inner.local)
+    }
     /// The overlay's image first ([`meta`]), then `session.json`: a checkpoint drops an image
     /// only after its file holds it.
     fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
@@ -640,6 +643,7 @@ impl Store for JournalStore {
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
         let mut line = serde_json::to_string(record)?;
         line.push('\n');
+        super::note_write_budget(record, line.len());
         let kind = record_class(record);
         let class = if kind == RecordClass::Acked { Class::Ack } else { Class::Stream };
         let payload = encode_log(id, line.as_bytes());
@@ -706,6 +710,15 @@ impl Store for JournalStore {
     fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
         self.inner.fenced(|| Store::scan(&self.inner.local, id, after, visit))
     }
+    fn scan_matching(
+        &self,
+        id: &str,
+        after: u64,
+        may_match: &dyn Fn(&[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.inner.fenced(|| Store::scan_matching(&self.inner.local, id, after, may_match, visit))
+    }
     fn scan_strict(
         &self,
         id: &str,
@@ -723,6 +736,17 @@ impl Store for JournalStore {
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         self.inner.fenced(|| Store::scan_back(&self.inner.local, id, after, before, skip, visit))
+    }
+    fn scan_back_indexed(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.inner
+            .fenced(|| Store::scan_back_indexed(&self.inner.local, id, after, before, skip, visit))
     }
     fn tail_after(&self, id: &str, after: u64) -> Result<(u64, u64)> {
         self.inner.fenced(|| Store::tail_after(&self.inner.local, id, after))
@@ -771,9 +795,24 @@ impl Store for JournalStore {
             durable: self.inner.durable.clone(),
             kept: Arc::clone(&self.inner.kept),
             written: self.inner.written.clone(),
-            stalled: Arc::new(move |why: String| {
-                if let Some(inner) = inner.upgrade() {
-                    inner.ask_to_stop(why);
+            stalled: Arc::new(move |waited: Duration| {
+                let Some(inner) = inner.upgrade() else { return false };
+                let stats = inner.journal.stats();
+                match stats.failing {
+                    Some(failing) => {
+                        inner.ask_to_stop(format!(
+                            "a reply waited {waited:.0?} for the event journal, whose writer is failing ({failing})"
+                        ));
+                        true
+                    }
+                    None => {
+                        tracing::warn!(
+                            waited = ?waited,
+                            durable_lsn = stats.durable_lsn,
+                            "a reply waits for the event journal on a slow disk; it keeps waiting (no restart)"
+                        );
+                        false
+                    }
                 }
             }),
         })
@@ -853,6 +892,35 @@ impl Store for JournalStore {
             Store::commit_compaction(&inner.local, id, staged)
         })
     }
+    fn stage_cold(&self, id: &str) -> Result<Option<StagedCold>> {
+        self.inner.fenced(|| Store::stage_cold(&self.inner.local, id))
+    }
+    /// As `commit_compaction`: no journal record of the chat may be past the checkpoint, or a
+    /// replay would write its lines into an `events/` beside the archive. The caller holds the
+    /// chat's append lock. The renames and folder syncs run in `counted_sync`.
+    fn commit_cold(&self, id: &str, staged: StagedCold) -> Result<bool> {
+        let inner = &self.inner;
+        let covered = {
+            let order = inner.order.lock_or_recover();
+            !order.frozen
+                && order.log_lsn.get(id).is_none_or(|newest| *newest <= order.checkpointed)
+        };
+        if !covered {
+            inner.checkpoint()?;
+        }
+        inner.counted_sync("a cold-archived event log failed to sync", || {
+            Store::commit_cold(&inner.local, id, staged)
+        })
+    }
+    fn rehydrate(&self, id: &str) -> Result<bool> {
+        self.inner.fenced(|| Store::rehydrate(&self.inner.local, id))
+    }
+    fn is_cold(&self, id: &str) -> bool {
+        Store::is_cold(&self.inner.local, id)
+    }
+    fn on_rehydrate(&self, hook: RehydrateHook) {
+        Store::on_rehydrate(&self.inner.local, hook)
+    }
     /// The `forget` record under the appends' lock, then the folder's removal off it, without a
     /// wait for the record: the replay never makes a folder that is gone again. Then the chat's
     /// repair file, if its repair failed at the open (after the folder: a crash between the two
@@ -912,6 +980,17 @@ impl Store for JournalStore {
     fn session_path(&self, id: &str) -> Option<PathBuf> {
         Store::session_dir(&self.inner.local, id)
     }
+    /// The log's own segment `000000` (`LocalStore::history_writer`): synced and renamed in whole
+    /// at its commit, so it needs no record of its own. Its lines are all below the fork's first
+    /// own `seq`, where a replay's repair of the fork's log starts (`journal_store/repair.rs`
+    /// `read_from`). Without it every fork on this store, the only disk store since #37118,
+    /// copied its history again (review of #37020, F2).
+    fn writes_history(&self) -> bool {
+        Store::writes_history(&self.inner.local)
+    }
+    fn history_writer(&self, id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
+        Store::history_writer(&self.inner.local, id)
+    }
     fn handoff_dir(&self) -> Option<PathBuf> {
         Store::handoff_dir(&self.inner.local)
     }
@@ -920,6 +999,9 @@ impl Store for JournalStore {
     }
     fn briefs_path(&self) -> Option<PathBuf> {
         Store::briefs_path(&self.inner.local)
+    }
+    fn audit_dir(&self) -> Option<PathBuf> {
+        Store::audit_dir(&self.inner.local)
     }
 }
 

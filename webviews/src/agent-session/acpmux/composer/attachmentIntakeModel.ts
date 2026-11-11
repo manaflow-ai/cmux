@@ -16,7 +16,7 @@ import {
 } from "../attachments";
 import type { UploadCancelled, UploadProgressReport, UploadResult } from "../cloudUploads";
 import { type StringKey, type Translate, useT } from "../i18n";
-import { keptThumb, keepThumb } from "./imagePool";
+import { decoded, keptThumb, keepThumb } from "./imagePool";
 import { imageSize, MAX_DECODE_PIXELS, thumbRatio } from "./imageWork";
 import { intakeFiles, type IntakeError } from "./intakeFiles";
 import { pastesPlaced } from "./composerCopy";
@@ -24,6 +24,7 @@ import { attachSources } from "./attachmentSources";
 import { retryUploadLater, UPLOAD_AUTO_RETRIES } from "./uploadRetry";
 import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } from "./dropOverlayState";
 import { isVideoName, useVideoInfo } from "./videoAttachments";
+import { videoShapeOf } from "./videoShape";
 
 export const ATTACHMENT_LABELS = {
   attachments: "composer.attachments",
@@ -69,9 +70,13 @@ export type AttachmentIntakeOptions = {
   /// The chat column a file drag lifts the drop overlay over (composer/dropOverlayState.ts): over
   /// it a drop attaches; elsewhere in the pane the overlay only arms. Unset: the whole page.
   dropZone?(): Element | null;
-  /// True while the composer takes nothing (a Cloud start is out, App.tsx `cloudStarting`): a paste
-  /// or a file drop stages no attachment then, since the tab closes with only the sent prompt.
+  /// True while the field takes nothing (the classic New Tab page while a Cloud start from it is out,
+  /// NewTabScreen `cloudStarting`): a paste or a file drop stages no attachment then.
   locked?(): boolean;
+  /// Why no attachment is taken now, said to the person (a chat's Cloud start: the host carries the
+  /// started chat's text, not its chips, App.tsx `cloudStarting`). Typing stays open; a paste, drop or
+  /// pick of files stages nothing and the composer's note says this instead.
+  refusal?(): string | undefined;
   /// The chat the composer shows. A file is the chat's it was pasted or dropped in: its placeholder
   /// shows only there, and a read that ends after the composer moved to another chat hands its
   /// chips to `elsewhere` instead of this chat's strip.
@@ -160,7 +165,10 @@ export type PendingAttachment = {
   /// its thumbnail will have, so the picture arriving moves nothing (Leo, 2026-11-07: "they go up top
   /// above and then they land to where they should be").
   size?: { width: number; height: number };
-  /// An image whose header is still being read (a few bytes, a frame or two): its tile is held, zero
+  /// A video's tile shape (width over height) from its file's header (composer/videoShape.ts): the
+  /// loading tile is the box its chip, its poster and its sent tile keep. Unset once read, the square.
+  videoShape?: number;
+  /// An image or a video whose header is still being read (a few bytes, a frame or two): its tile is held, zero
   /// wide and unseen, so it first shows at its thumbnail's size, never a stand-in width. For
   /// HEADER_WAIT_MS at most; one whose header does not answer by then shows at the stand-in.
   sizing?: boolean;
@@ -202,26 +210,34 @@ function sizeFromHeader(file: File, done: (size: { width: number; height: number
 /// attaches whatever its size.
 const INSTANT_PREVIEW_MAX_BYTES = 4 * 1024 * 1024;
 
+/// Whether `file` may show its own picture on its loading tile (instantPreview): an image of its
+/// own bytes, not past INSTANT_PREVIEW_MAX_BYTES.
+function mayShowAtOnce(file: File | MadeFile): file is File {
+  return !isMadeFile(file) && isImageFile(file) && file.size <= INSTANT_PREVIEW_MAX_BYTES;
+}
+
+/// How long a pasted image's tile is held unseen for its own picture (instantPreview: its header,
+/// then the browser's read of its bytes): it first shows as the picture it will be, never as empty
+/// glass that the picture then fills and the chip then brightens (Leo, 2026-11-11: "this 3 stage
+/// attachment thing is still there"). One whose picture does not come by then shows as glass.
+const PICTURE_WAIT_MS = 250;
+
 /// `file`'s own picture as a `data:` URL (a cmux page's CSP allows `img-src data:`, not `blob:`),
 /// encoded by the browser off the main thread (FileReader); undefined for one that is not an image,
 /// past INSTANT_PREVIEW_MAX_BYTES, whose header gives no size, or whose pixels pass the limit its
 /// preview is held to (imageWork.ts MAX_DECODE_PIXELS: a small file can decode to gigabytes), or that
 /// cannot be read here (a test's DOM). Such a tile shows its kind's glyph until its preview is made.
 export async function instantPreview(file: File | MadeFile): Promise<string | undefined> {
-  if (
-    isMadeFile(file) ||
-    !isImageFile(file) ||
-    file.size > INSTANT_PREVIEW_MAX_BYTES ||
-    typeof FileReader === "undefined"
-  )
-    return undefined;
+  if (!mayShowAtOnce(file) || typeof FileReader === "undefined") return undefined;
   const size = await imageSize(file).catch(() => undefined);
   if (!size?.width || !size.height || size.width * size.height > MAX_DECODE_PIXELS) return undefined;
   return new Promise((resolve) => {
     const reader = new FileReader();
     reader.onload = () => {
       const url = String(reader.result);
-      resolve(url.startsWith("data:image/") ? url : undefined);
+      if (!url.startsWith("data:image/")) return resolve(undefined);
+      // Decoded before its tile shows, so the tile's first frame has its picture.
+      void decoded(url).then(() => resolve(url));
     };
     reader.onerror = () => resolve(undefined);
     reader.readAsDataURL(file);
@@ -378,12 +394,28 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// failed chip whose file `given` is, read again under its id (Retry): it keeps its place in the
   /// strip and in the text, and its node there draws what the read makes.
   /// Pending image `id`'s header answered `size` (undefined: it gave none by the frame): its tile shows.
+  /// `held`: its own picture is still coming (PICTURE_WAIT_MS), so the size is kept and the tile
+  /// stays unseen.
   const [sized] = useState(
-    () => (id: string, size: { width: number; height: number } | undefined) =>
+    () =>
+      (id: string, size: { width: number; height: number } | undefined, held = false) =>
+        setPending((chips) =>
+          chips.some((chip) => chip.id === id && ((chip.sizing && !held) || (size && !chip.size)))
+            ? chips.map((chip) =>
+                chip.id === id
+                  ? { ...chip, sizing: held && Boolean(chip.sizing), ...(size && !chip.size ? { size } : {}) }
+                  : chip,
+              )
+            : chips,
+        ),
+  );
+  /// Pending video `id`'s header answered `videoShape` (undefined: none in time, the square): its tile shows.
+  const [shaped] = useState(
+    () => (id: string, videoShape: number | undefined) =>
       setPending((chips) =>
-        chips.some((chip) => chip.id === id && (chip.sizing || (size && !chip.size)))
+        chips.some((chip) => chip.id === id && chip.sizing)
           ? chips.map((chip) =>
-              chip.id === id ? { ...chip, sizing: false, ...(size && !chip.size ? { size } : {}) } : chip,
+              chip.id === id ? { ...chip, sizing: false, ...(videoShape ? { videoShape } : {}) } : chip,
             )
           : chips,
       ),
@@ -405,13 +437,20 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       name: file.name,
       image: isImageFile(file),
       ...(isVideoName(file.name) ? { video: true } : {}),
-      ...(!isMadeFile(file) && isImageFile(file) ? { sizing: true } : {}),
+      ...(!isMadeFile(file) && (isImageFile(file) || isVideoName(file.name)) ? { sizing: true } : {}),
       scope: batch.scope,
     }));
     // Each image's own picture, on its tile while the tile still loads.
     files.forEach((file, index) => {
       const id = shown[index]!.id;
-      if (shown[index]!.sizing) sizeFromHeader(file, (size) => sized(id, size));
+      // A video's shape from its header, the one read its chip takes too (intakeFiles.ts).
+      const video = Boolean(shown[index]!.sizing) && !isMadeFile(file) && isVideoName(file.name);
+      // One that may show its own picture is held for it, not only for its header.
+      const waits = !video && Boolean(shown[index]!.sizing) && mayShowAtOnce(file);
+      // timeout: a picture that does not come in time must not hold its tile unseen.
+      const deadline = waits ? setTimeout(() => sized(id, undefined), PICTURE_WAIT_MS) : undefined;
+      if (video) void videoShapeOf(file).then((videoShape) => shaped(id, videoShape));
+      else if (shown[index]!.sizing) sizeFromHeader(file, (size) => sized(id, size, waits));
       // A capture the page makes (Attach Screenshot) has no bytes yet: its shape once it has.
       else if (isMadeFile(file) && isImageFile(file))
         void file.file.then(
@@ -419,10 +458,16 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
           () => {},
         );
       void instantPreview(file).then((preview) => {
-        if (!preview) return;
+        clearTimeout(deadline);
+        // No picture: the tile shows as it would have once its header answered.
+        if (!preview) {
+          if (waits) sized(id, undefined);
+          return;
+        }
+        // The picture and the tile in one render: its first frame shown is the picture.
         setPending((chips) =>
           chips.some((chip) => chip.id === id && !chip.failed && !chip.preview)
-            ? chips.map((chip) => (chip.id === id ? { ...chip, preview } : chip))
+            ? chips.map((chip) => (chip.id === id ? { ...chip, preview, sizing: false } : chip))
             : chips,
         );
       });
@@ -676,10 +721,16 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       });
     }
   });
+  /// The refusal now (`refusal`), said in the composer's note: true when nothing may be attached.
+  const [refused] = useState(() => () => {
+    const why = live.current.options.refusal?.();
+    if (why) setAttachError(why);
+    return why !== undefined;
+  });
   const [attach] = useState(
     () =>
       (given: (File | MadeFile)[], uploads = false, kind?: SourceKind, needs = false) =>
-        intake(given, uploads, kind, undefined, needs),
+        given.length && refused() ? Promise.resolve() : intake(given, uploads, kind, undefined, needs),
   );
   /// A chip the host makes from something of its own (a long dictation recording it sends to the
   /// chat's machine): its tile shows at once, drawn before this returns so a send made in the same
@@ -688,37 +739,63 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// again. A send keeps waiting through a failure (`bound`): it goes with the chip once Retry makes
   /// it, or without it once its × drops it. Its × runs `stop` (the host stops sending) and drops
   /// whatever `make` answers later, as does the composer going away while `make` still runs.
+  /// The tile goes in at the caret, as a paste's does, and the chip `make` answers takes its id there:
+  /// it never waits in the strip above the text and then jumps into it (Leo, 2026-11-09: "the
+  /// attachments preview going into the top area of hte composer and THEN to where they shuld be").
+  /// `again`: Retry's, the failed tile made again where it is.
   const [attachLater] = useState(
-    () => (name: string, make: () => Promise<ComposerAttachment | undefined>, failure: string, stop?: () => void) => {
-      const batch = { scope: live.current.options.scope, bound: true };
-      const chip: PendingAttachment = { id: crypto.randomUUID(), name, image: false, scope: batch.scope, bound: true };
-      sources.current.set(chip.id, { make, name, failure, stop });
-      making.current.set(chip.id, stop);
-      batches.current.add(batch);
-      flushSync(() => setPending((chips) => [...chips, chip]));
-      void make()
-        .catch(() => undefined)
-        .then((attachment) => {
-          making.current.delete(chip.id);
-          batches.current.delete(batch);
-          if (!sources.current.has(chip.id)) return;
-          if (!attachment) {
-            setPending((chips) =>
-              chips.map((shown) => (shown.id === chip.id ? { ...shown, failed: failure, retryable: true } : shown)),
-            );
-            return;
-          }
-          sources.current.delete(chip.id);
-          setPending((chips) => chips.filter((shown) => shown.id !== chip.id));
-          // The composer moved to another chat meanwhile: the chip is the chat's it was made for.
-          const now = live.current.options;
-          if (batch.scope !== now.scope) {
-            if (batch.scope !== undefined) now.elsewhere?.(batch.scope, [attachment]);
-            return;
-          }
-          setAttachments((staged) => appendAttachments(staged, [attachment]));
-        });
-    },
+    () =>
+      (
+        name: string,
+        make: () => Promise<ComposerAttachment | undefined>,
+        failure: string,
+        stop?: () => void,
+        again?: string,
+      ) => {
+        if (again === undefined && refused()) return stop?.();
+        const batch = { scope: live.current.options.scope, bound: true };
+        const chip: PendingAttachment = {
+          id: again ?? crypto.randomUUID(),
+          name,
+          image: false,
+          scope: batch.scope,
+          bound: true,
+        };
+        sources.current.set(chip.id, { make, name, failure, stop });
+        making.current.set(chip.id, stop);
+        batches.current.add(batch);
+        flushSync(() =>
+          setPending((chips) =>
+            again !== undefined && chips.some((shown) => shown.id === again)
+              ? chips.map((shown) => (shown.id === again ? chip : shown))
+              : [...chips, chip],
+          ),
+        );
+        if (again === undefined) live.current.options.place?.([chip]);
+        void make()
+          .catch(() => undefined)
+          .then((made) => {
+            making.current.delete(chip.id);
+            batches.current.delete(batch);
+            if (!sources.current.has(chip.id)) return;
+            if (!made) {
+              setPending((chips) =>
+                chips.map((shown) => (shown.id === chip.id ? { ...shown, failed: failure, retryable: true } : shown)),
+              );
+              return;
+            }
+            sources.current.delete(chip.id);
+            const attachment = { ...made, id: chip.id };
+            setPending((chips) => chips.filter((shown) => shown.id !== chip.id));
+            // The composer moved to another chat meanwhile: the chip is the chat's it was made for.
+            const now = live.current.options;
+            if (batch.scope !== now.scope) {
+              if (batch.scope !== undefined) now.elsewhere?.(batch.scope, [attachment]);
+              return;
+            }
+            setAttachments((staged) => appendAttachments(staged, [attachment]));
+          });
+      },
   );
   // The composer goes away: a host-made chip still being made has nowhere to land, so it stops,
   // and whatever its `make` answers later is dropped (its source goes too).
@@ -818,9 +895,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     if (originals.current.has(id)) return void retryOriginal(id);
     const source = sources.current.get(id);
     if (source && "make" in source) {
-      sources.current.delete(id);
-      setPending((chips) => chips.filter((chip) => chip.id !== id));
-      attachLater(source.name, source.make, source.failure, source.stop);
+      attachLater(source.name, source.make, source.failure, source.stop, id);
       return;
     }
     const file = source?.file;
@@ -856,14 +931,15 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     const removeFileDropLifecycle = installFileDropLifecycle(
       (files) => {
         if (live.current.options.locked?.()) return showDrop(HIDDEN_DROP);
+        if (refused()) return showDrop(HIDDEN_DROP);
         showDrop(landDropOverlay(dropRef.current, files));
         void attach(files, true, "drop");
       },
       (active, event) => {
         const { allowImages, dropZone, locked } = live.current.options;
-        const refused = locked?.() === true;
-        setDropping(active && !refused);
-        if (refused) return showDrop(HIDDEN_DROP);
+        const closed = locked?.() === true || live.current.options.refusal?.() !== undefined;
+        setDropping(active && !closed);
+        if (closed) return showDrop(HIDDEN_DROP);
         showDrop(stepDropOverlay(dropRef.current, active, event, allowImages, dropZone?.()));
       },
     );
@@ -872,7 +948,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       removeFileDropLifecycle();
       document.removeEventListener("paste", paste);
     };
-  }, [attach, showDrop]);
+  }, [attach, showDrop, refused]);
   const shown = pending.filter((chip) => chip.scope === scope);
   /// The chips a send waits for. One still reading, one streaming to the session's machine and
   /// one whose upload failed (until its Retry makes it or its x takes it out) all hold the send,
@@ -883,8 +959,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const loading = shown.filter((chip) => !chip.failed || chip.bound || chip.uploadFailed).length;
   /// The same chips (useSendWhenAttached's `unsettled`).
   const unsettled = loading;
-  /// The video chips whose poster and frames the host still reads, for a chat on this Mac: a send
-  /// waits for them a few seconds at most (composer/videoAttachments.ts).
+  /// The video chips whose poster and frames the host still reads, for a chat on this Mac
+  /// (composer/videoAttachments.ts). No send waits for them: a video goes as its path.
   const videoReading = useVideoInfo(
     attachments,
     setAttachments,
@@ -913,6 +989,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     dropLanded,
     attach,
     attachLater,
+    /// Says the refusal (`refusal`) when there is one: true when nothing may be attached now.
+    refused,
   };
 }
 
@@ -932,13 +1010,14 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
 /// `chat.upload.begin` spent the Enter that a send bound only once the chip was ready (Leo,
 /// 2026-11-06, "Not sent: it needs your own key press or click."). `hold(send, kept)`: a send that
 /// already has its gesture (one an earlier hold bound) keeps it and binds none. A later hold keeps
-/// the gesture the held one bound: one send, one gesture.
+/// the gesture the held one bound: one send, one gesture. `hold(send, kept, bindOwn)`: a send whose
+/// gesture binds otherwise (`/side`'s, bound to no chat yet) binds with `bindOwn` instead.
 export function useSendWhenAttached<G = unknown>(
   pending: number,
   scope?: string,
   unsettled: number = pending,
   bind?: () => G | undefined,
-): ((send: (gesture?: G) => void, kept?: G) => boolean) & { cancel(): void } {
+): ((send: (gesture?: G) => void, kept?: G, bindOwn?: () => G | undefined) => boolean) & { cancel(): void } {
   const held = useRef<{ send: (gesture?: G) => void; gesture: G | undefined } | undefined>(undefined);
   const count = useRef(pending);
   count.current = pending;
@@ -955,9 +1034,9 @@ export function useSendWhenAttached<G = unknown>(
   }, [unsettled]);
   const [hold] = useState(() =>
     Object.assign(
-      (send: (gesture?: G) => void, kept?: G) => {
+      (send: (gesture?: G) => void, kept?: G, bindOwn?: () => G | undefined) => {
         if (count.current === 0 && !held.current) return false;
-        held.current = { send, gesture: kept ?? held.current?.gesture ?? binder.current?.() };
+        held.current = { send, gesture: kept ?? held.current?.gesture ?? (bindOwn ?? binder.current)?.() };
         return true;
       },
       {
@@ -974,19 +1053,21 @@ export function useSendWhenAttached<G = unknown>(
 /// (`uploading` of them), then goes once, with them as links (promptBudget.ts `awaitsOriginals`).
 /// `hold(awaits, send, kept)`: when `awaits`, holds `send` (true; a later hold replaces it);
 /// otherwise the send goes now (false) and any held one is dropped, so it never goes later on its
-/// own with whatever draft the composer has then. A new `scope` drops it too. `bind` and `kept`: the
-/// held send's gesture, as useSendWhenAttached binds it.
+/// own with whatever draft the composer has then. A new `scope` drops it too. `bind`, `kept` and
+/// `bindOwn`: the held send's gesture, as useSendWhenAttached binds it.
 export function useSendWhenOriginals<G = unknown>(
   uploading: number,
   scope?: string,
   bind?: () => G | undefined,
-): (awaits: boolean, send: (gesture?: G) => void, kept?: G) => boolean {
+): (awaits: boolean, send: (gesture?: G) => void, kept?: G, bindOwn?: () => G | undefined) => boolean {
   const wait = useSendWhenAttached<G>(uploading, scope, uploading, bind);
-  const [hold] = useState(() => (awaits: boolean, send: (gesture?: G) => void, kept?: G) => {
-    if (awaits && wait(send, kept)) return true;
-    wait.cancel();
-    return false;
-  });
+  const [hold] = useState(
+    () => (awaits: boolean, send: (gesture?: G) => void, kept?: G, bindOwn?: () => G | undefined) => {
+      if (awaits && wait(send, kept, bindOwn)) return true;
+      wait.cancel();
+      return false;
+    },
+  );
   return hold;
 }
 

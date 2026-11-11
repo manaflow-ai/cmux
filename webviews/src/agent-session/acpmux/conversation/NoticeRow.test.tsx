@@ -199,7 +199,7 @@ test("a command that exited 0 reads as info whatever its output looks like, and 
   const line = container.querySelector(".cv-received.cv-notice")!;
   expect(line.querySelector(".cv-notice-mark")?.getAttribute("data-severity")).toBe("info");
   // The outcome is its own slot that never shrinks, so a long command never cuts it off.
-  expect(line.querySelector(".cv-notice__end")?.textContent).toBe("(exit 0)");
+  expect(line.querySelector(".cv-notice__end")?.textContent?.trim()).toBe("(exit 0)");
   expect(line.querySelector(".cv-notice__lead")?.textContent).toBe(
     "Background command finished: cmux-ci test --committed -- 'cd tools && python3 -m unittest'",
   );
@@ -212,7 +212,27 @@ test("a failed command's warning shows its exit on the line", async () => {
   const container = await render(<IncomingMessageLine id="n-2" message={read.message} onOpen={() => undefined} />);
   const line = container.querySelector(".cv-received.cv-notice")!;
   expect(line.querySelector(".cv-notice-mark")?.getAttribute("data-severity")).toBe("warn");
-  expect(line.querySelector(".cv-notice__end")?.textContent).toBe("(exit 2)");
+  expect(line.querySelector(".cv-notice__end")?.textContent?.trim()).toBe("(exit 2)");
+});
+
+// User, 2026-11-09: "generally in gui we should not mention stuff like \"acpmux\"". A background
+// command's end names cmux as its sender, and its opened body never shows the task's internal id or
+// the tool the model reads it with.
+test("a background command's notice never shows acpmux, its task id or bg_output", async () => {
+  const end = bgEnd("bg-b08e9de42d3e", "make test", 0, "lint: ok\ntest: 412 passed\nOK");
+  const read = incomingPrompt(end.text, { _meta: { provenance: end.provenance } });
+  if (read?.kind !== "message") throw new Error("not a message");
+  expect(read.message.name).toBe("cmux");
+  const container = await render(<IncomingMessageLine id="n-9" message={read.message} onOpen={() => undefined} />);
+  const line = container.querySelector(".cv-received.cv-notice")!;
+  expect(line.textContent).toContain("cmux");
+  expect(line.textContent).not.toMatch(/acpmux/i);
+  await act(async () => (line.querySelector(".cv-disclosure__toggle") as HTMLElement).click());
+  const all = container.textContent ?? "";
+  expect(all).toContain("test: 412 passed");
+  expect(all).not.toMatch(/acpmux|bg-b08e9de42d3e|bg_output/i);
+  for (const el of container.querySelectorAll("[aria-label],[title]"))
+    expect(`${el.getAttribute("aria-label") ?? ""} ${el.getAttribute("title") ?? ""}`).not.toMatch(/acpmux/i);
 });
 
 /// Notices that waited behind a busy turn go in as one (acpmux hub/digest.rs `digest_blocks`).
@@ -228,19 +248,19 @@ function digest(...ends: { text: string; provenance: Record<string, unknown> }[]
 test("background command ends that went in together read as their notice, never acpmux twice", async () => {
   const read = digest(bgEnd("bg-3", LONG, 0, "note: one"), bgEnd("bg-4", "cargo fmt --check", 0, "ok"));
   if (read?.kind !== "message") throw new Error("not a message");
-  expect(read.message.name).toBe("acpmux");
+  expect(read.message.name).toBe("cmux");
   expect(read.message.notice?.title).toBe(`Background command finished: ${LONG} (exit 0)`);
   expect(read.message.notice?.more).toBe(1);
   const container = await render(<IncomingMessageLine id="n-3" message={read.message} onOpen={() => undefined} />);
   const line = container.querySelector(".cv-received.cv-notice")!;
   expect(line.querySelector(".cv-notice-mark")?.getAttribute("data-severity")).toBe("info");
-  expect(line.querySelector(".cv-notice__end")?.textContent).toBe("(exit 0)");
+  expect(line.querySelector(".cv-notice__end")?.textContent?.trim()).toBe("(exit 0)");
   expect(line.querySelector(".cv-notice__title")?.textContent).not.toBe("acpmux");
   await act(async () => (line.querySelector(".cv-disclosure__toggle") as HTMLElement).click());
   const text = container.querySelector(".cv-received__text")!.textContent ?? "";
   // Opened: each notice's own title, then its body, never the rendered head.
   expect(text).toContain("Background command finished: cargo fmt --check (exit 0)");
-  expect(text).toContain("Task bg-4: cargo fmt --check");
+  expect(text).not.toContain("Task bg-4");
   expect(text).not.toContain("[notice from");
 });
 
@@ -249,7 +269,7 @@ test("one notice that went in as a digest reads as that notice", () => {
   if (read?.kind !== "message") throw new Error("not a message");
   expect(read.message.notice).toMatchObject({ severity: "warn", title: "Background command finished: make (exit 3)" });
   expect(read.message.notice?.more).toBeUndefined();
-  expect(read.message.text.startsWith("Task bg-5: make")).toBe(true);
+  expect(read.message.text.startsWith("Last 3 lines of its output:")).toBe(true);
 });
 
 test("the most severe notice of a digest names its line", () => {
@@ -285,4 +305,53 @@ test("a notice whose title is longer than a line allows still reads as a notice,
   expect(read.message.notice?.title.length).toBeLessThanOrEqual(200);
   expect(read.message.notice?.title.endsWith("(exit 0)")).toBe(true);
   expect(read.message.text).not.toContain("[notice from");
+});
+
+// Review follow-ups on #38226 (F1-F3).
+test("each notice of a digest keeps its own links, a fire's after many others' too", () => {
+  const PR_LINK = (n: number) => ({ url: `https://github.com/manaflow-ai/cmux/pull/${n}` });
+  const info = (i: number) => ({
+    text: `[notice from lander] Landed #${i}\nok`,
+    provenance: {
+      kind: "notice",
+      from: "fromAgent",
+      fromName: "lander",
+      notice: { sender: "lander", severity: "info", title: `Landed #${i}`, links: [PR_LINK(i)] },
+    },
+  });
+  const ends = Array.from({ length: 17 }, (_, i) => info(i + 1));
+  ends.push({
+    text: "[notice from watch · FIRE] fast tier red\nlook",
+    provenance: {
+      kind: "notice",
+      from: "fromAgent",
+      fromName: "watch",
+      notice: { sender: "watch", severity: "fire", title: "fast tier red", links: [PR_LINK(99999)] },
+    },
+  });
+  const read = digest(...ends);
+  if (read?.kind !== "message") throw new Error("not a message");
+  expect(read.message.notice?.severity).toBe("fire");
+  expect(read.message.text).toContain("pull/99999");
+  expect(read.message.text).toContain("pull/1)");
+});
+
+test("a rendered notice sent at a shell keeps its severity inside a digest", () => {
+  const text =
+    "1 messages from other agents arrived while you were busy. Each follows as it was sent, oldest first.\n\n[agent message 1 of 1] from base-red-watch\n[notice from base-red-watch on ci-mini-3 · FIRE] fast tier failed\nboom";
+  const messages = [{ promptId: "p", from: "base-red-watch" }];
+  const read = incomingPrompt(text, { _meta: { provenance: { kind: "agent_digest", messages } } });
+  if (read?.kind !== "message") throw new Error("not a message");
+  expect(read.message.notice).toMatchObject({ severity: "fire", title: "fast tier failed", host: "ci-mini-3" });
+  expect(read.message.text).toBe("boom");
+});
+
+test("Find matches across a notice title's command and its exit", async () => {
+  const end = bgEnd("bg-11", "make", 0, "ok");
+  const read = incomingPrompt(end.text, { _meta: { provenance: end.provenance } });
+  if (read?.kind !== "message") throw new Error("not a message");
+  const container = await render(<IncomingMessageLine id="n-11" message={read.message} onOpen={() => undefined} />);
+  const title = container.querySelector(".cv-notice__title")!;
+  expect(title.hasAttribute("data-find-join")).toBe(true);
+  expect(title.textContent).toBe("Background command finished: make (exit 0)");
 });

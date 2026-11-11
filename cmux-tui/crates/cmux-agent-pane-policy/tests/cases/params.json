@@ -628,7 +628,9 @@
    "method": "_acpmux/kill",
    "params": {
     "sessionId": 1,
-    "purge": 1
+    "purge": 1,
+    "cancelFork": 1,
+    "cancelToken": 1
    }
   },
   "mode_fields": null,
@@ -711,7 +713,8 @@
    "id": 1,
    "method": "_acpmux/models",
    "params": {
-    "refresh": 1
+    "refresh": 1,
+    "localOnly": true
    }
   },
   "mode_fields": null,
@@ -875,7 +878,8 @@
    "params": {
     "sessionId": 1,
     "throughSeq": 1,
-    "live": true
+    "live": true,
+    "cancelToken": "t-1"
    }
   },
   "mode_fields": null,
@@ -2033,6 +2037,62 @@
     "sessionId": "a",
     "held": true,
     "peerSessionId": "b"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/plan/build with its ticket",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/plan/build",
+   "params": {
+    "sessionId": "s",
+    "permissionId": "p",
+    "target": "compare",
+    "_meta": {
+     "cmuxGesture": "t"
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/plan/build _meta with more than the ticket",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/plan/build",
+   "params": {
+    "sessionId": "s",
+    "permissionId": "p",
+    "target": "compare",
+    "_meta": {
+     "cmuxGesture": "t",
+     "acpmux": {}
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/plan/build names harnesses",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/plan/build",
+   "params": {
+    "sessionId": "s",
+    "permissionId": "p",
+    "target": "compare",
+    "harnesses": [
+     "claude",
+     "codex"
+    ]
    }
   },
   "mode_fields": null,

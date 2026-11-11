@@ -63,6 +63,7 @@ async fn round_trip(transport: Transport) {
             block_udp: false,
             video_lane: false,
             webrtc_media: false,
+            ultra_on_cellular: false,
         },
         Some(recorder.clone() as Arc<dyn LinkObserver>),
     )
@@ -138,6 +139,7 @@ async fn wireguard_relay_only_rides_turn() {
             block_udp: false,
             video_lane: false,
             webrtc_media: false,
+            ultra_on_cellular: false,
         },
         Some(recorder.clone() as Arc<dyn LinkObserver>),
     )
@@ -183,6 +185,7 @@ async fn wireguard_relay_only_without_turn_fails_fast() {
             block_udp: true,
             video_lane: false,
             webrtc_media: false,
+            ultra_on_cellular: false,
         },
         None,
     )
@@ -195,6 +198,44 @@ async fn wireguard_relay_only_without_turn_fails_fast() {
         Ok(_) => panic!("UDP-blocked WireGuard connected without TURN"),
     }
     assert!(started.elapsed() < Duration::from_secs(10));
+}
+
+/// The service refusing the access token (401 on the signaling upgrade) comes
+/// out typed, `Refused` with code `unauthorized`, for every transport: the app
+/// refreshes the token once on it, and a refused fresh token is a revoked
+/// session that stops redialing (reliability matrix `pairing_revoked_token`).
+/// Before, it was `Signaling` with the status only in the message.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_refused_token_is_typed_unauthorized() {
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    for transport in [Transport::WireGuard, Transport::WebRtc] {
+        let result = connect_inner(
+            ConnectRequest {
+                base_url: server.base_url.clone(),
+                // The fake backend admits only `user:<name>` tokens.
+                token: "revoked".into(),
+                team_id: "team".into(),
+                device_id: uuid::Uuid::new_v4().to_string(),
+                mac_device_id: uuid::Uuid::new_v4().to_string(),
+                transport,
+                include_loopback: true,
+                relay_only: false,
+                block_udp: false,
+                video_lane: false,
+                webrtc_media: false,
+                ultra_on_cellular: false,
+            },
+            None,
+        )
+        .await;
+        match result {
+            Err(cmux_mobile_link_ffi::CmuxMobileError::Refused { code, .. }) => {
+                assert_eq!(code, cmux_mobile_link_ffi::UNAUTHORIZED, "{transport:?}");
+            }
+            Err(other) => panic!("{transport:?}: a refused token gave {other:?}"),
+            Ok(_) => panic!("{transport:?}: a refused token connected"),
+        }
+    }
 }
 
 /// Relay only over WebRTC needs TURN; the fake backend offers none, so the
@@ -218,6 +259,7 @@ async fn webrtc_relay_only_without_turn_fails_fast() {
             block_udp: false,
             video_lane: false,
             webrtc_media: false,
+            ultra_on_cellular: false,
         },
         None,
     )
@@ -245,6 +287,7 @@ fn request(server: &FakeSignaling, device_id: &str, mac_id: &str) -> ConnectRequ
         block_udp: false,
         video_lane: false,
         webrtc_media: false,
+        ultra_on_cellular: false,
     }
 }
 

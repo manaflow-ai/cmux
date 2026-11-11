@@ -88,7 +88,7 @@ final class HomeFirstRunView: NSView {
         intro.isHidden = true
         introHeight.isActive = true
         introWidth.isActive = true
-        agentsHeader.font = .systemFont(ofSize: 12, weight: .medium)
+        agentsHeader.font = .systemFont(ofSize: TypeScale.Base.detail, weight: TypeScale.emphasis)
         agentsHeader.isSelectable = false
         agentsHeader.lineBreakMode = .byTruncatingTail
         agentsHeader.setAccessibilityRole(.staticText)
@@ -254,7 +254,7 @@ final class HomeFirstRunView: NSView {
         hero.applyScale(scale)
         intro.applyScale(scale)
         starters.applyScale(scale)
-        agentsHeader.font = .systemFont(ofSize: 12 * scale, weight: .medium)
+        agentsHeader.font = .systemFont(ofSize: TypeScale.Base.detail * scale, weight: TypeScale.emphasis)
         applySpacing()
         for row in rows { row.applyScale(scale) }
         invalidateIntrinsicContentSize()
@@ -373,9 +373,9 @@ final class HomeFirstRunRow: NSView {
         addSubview(surface)
         glyph.image = NSImage.icon(icon, size: .iconRowSize(forLabelPointSize: 13))
         glyph.imageScaling = .scaleProportionallyDown
-        label.font = .systemFont(ofSize: 13)
+        label.font = .systemFont(ofSize: TypeScale.Base.body)
         label.lineBreakMode = .byTruncatingTail
-        shortcutLabel.font = .systemFont(ofSize: 12)
+        shortcutLabel.font = .systemFont(ofSize: TypeScale.Base.detail)
         shortcutLabel.alignment = .right
         shortcutLabel.isHidden = true
         for view in [glyph, label, activity, shortcutLabel] { addSubview(view) }
@@ -395,8 +395,8 @@ final class HomeFirstRunRow: NSView {
         self.scale = scale
         surface.layer?.cornerRadius = Self.cornerRadius * scale
         glyph.image = NSImage.icon(icon, size: .iconRowSize(forLabelPointSize: 13 * scale))
-        label.font = .systemFont(ofSize: 13 * scale)
-        shortcutLabel.font = .systemFont(ofSize: 12 * scale)
+        label.font = .systemFont(ofSize: TypeScale.Base.body * scale)
+        shortcutLabel.font = .systemFont(ofSize: TypeScale.Base.detail * scale)
         invalidateIntrinsicContentSize()
         needsLayout = true
     }

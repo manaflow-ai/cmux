@@ -115,6 +115,22 @@ public final class AgentPaneGitLink {
         }
     }
 
+    /// Session host mutation `operation` with `params` under `idempotencyKey`, on the write
+    /// connection, answering its `MutationResult` (the palette's git worktree and checkpoint
+    /// actions). Throws `DaemonError.notConnected` when the link does not open, else the
+    /// mutation's own `DaemonError`, whose message is the session host's reason.
+    public func perform(_ operation: String, params: [String: JSONValue], idempotencyKey: String) async throws -> JSONValue {
+        let connection: DaemonConnection
+        do {
+            let writes = writeLink ?? AgentPaneGitLink(daemon: daemon, clientName: clientName + "-write")
+            writeLink = writes
+            connection = try await writes.connection()
+        } catch {
+            throw DaemonError.notConnected
+        }
+        return try await GitResourceClient(connection: connection).write(operation, params: params, idempotencyKey: idempotencyKey)
+    }
+
     /// Opens the connection on the first read; afterwards it reconnects by
     /// itself, finding a restarted daemon through the control connection's
     /// endpoint. A failed open is tried again by the next read.
@@ -178,6 +194,8 @@ extension AgentPaneGitRequest {
             ["path": .string(cwd), "from": .string(from), "include_patch": .bool(includePatch)]
                 .merging(to.map { ["to": JSONValue.string($0)] } ?? [:]) { first, _ in first }
                 .merging(options.sessionHostParams) { first, _ in first }
+        case .worktreeSetup(let cwd, let since):
+            ["path": .string(cwd)].merging(since.map { ["since": JSONValue.string($0)] } ?? [:]) { first, _ in first }
         }
     }
 }
@@ -204,9 +222,10 @@ extension AgentPaneGitWrite {
             if includeUntracked { params["include_untracked"] = .bool(true) }
             if let expectedHead { params["expected_head"] = .string(expectedHead) }
             return params
-        case .push(_, let expectedHead, _):
+        case .push(_, let expectedHead, let setUpstream, _):
             var params: [String: JSONValue] = ["path": .string(cwd)]
             if let expectedHead { params["expected_head"] = .string(expectedHead) }
+            if setUpstream { params["set_upstream"] = .bool(true) }
             return params
         case .worktree(_, let name, _):
             var params: [String: JSONValue] = ["path": .string(cwd)]

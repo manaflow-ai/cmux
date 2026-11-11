@@ -11,6 +11,8 @@ mod bg_caller_restart;
 #[cfg(target_os = "linux")]
 #[path = "durable_agents/bg_replaced_binary.rs"]
 mod bg_replaced_binary;
+#[path = "durable_agents/caller_identity_restart.rs"]
+mod caller_identity_restart;
 #[path = "durable_agents/carried_restart.rs"]
 mod carried_restart;
 #[path = "support/daemon_env.rs"]
@@ -39,6 +41,8 @@ mod stalled_turn;
 mod stop_if_idle_unadopted;
 #[path = "durable_agents/transfer_authority.rs"]
 mod transfer_authority;
+#[path = "durable_agents/unread_store.rs"]
+mod unread_store;
 #[path = "durable_agents/update_tool_call.rs"]
 mod update_tool_call;
 // This process runs stand-in agents (the fake agents under tests/). The restart harness's sizes
@@ -1300,11 +1304,13 @@ async fn an_adopted_agent_without_a_recorded_token_restarts_after_its_turn() {
 
     daemon.sigterm();
     drop(client);
-    // What an older host's record looks like: no caller token.
+    // What an older host's record looks like: no caller token. An older daemon kept no
+    // registry of the tokens it gave out either (`caller_registry.rs`).
     let mut record = host.clone();
     assert!(record.as_object_mut().unwrap().remove("caller_token").is_some());
     let path = daemon.home.join("hosts").join(format!("{session}.json"));
     std::fs::write(&path, record.to_string()).unwrap();
+    std::fs::remove_file(daemon.home.join("caller-tokens.json")).unwrap();
     daemon.start();
     daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
     daemon.wait_event(&kept, "host_adopted", |e| e["kind"] == "host_adopted");

@@ -17,6 +17,7 @@ on:
       - ".github/scripts/cmux-tui-spec-changed.py"
       - ".github/scripts/test_cmux_tui_spec_changed.py"
       - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/actions/runner-cargo-home/**"
       - "scripts/cmux-next/rust_panic_ratchet.py"
       - "scripts/cmux-next/rust-panic-baseline.json"
       - "plans/cmux-next/rust-panic-free.md"
@@ -40,6 +41,8 @@ on:
       - "skills/cmux-customization/**"
       - "skills/cmux-live/SKILL.md"
       - "skills/cmux/SKILL.md"
+      - "scripts/ci/webviews_test_results.py"
+      - "webviews/src/pages/shared/generated/pageRouter.ts"
   # Every pull request (no paths): feat-cmux-next requires `clippy (changed cmux-tui
   # packages)`, and a required check must report. The `changes` job below says whether
   # the change touches a `push` path above; when it touches none, every job is skipped,
@@ -204,7 +207,7 @@ jobs:
           if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ && "$BASE_SHA" != 0000000000000000000000000000000000000000 ]] \
             && git fetch --no-tags --depth=1 origin "$BASE_SHA" \
             && changed=$(git diff --no-renames --name-only "$BASE_SHA" HEAD); then
-            if ! grep -qE '^(cmux-tui/(crates/acpmux/|Cargo\.(toml|lock)$|rust-toolchain(\.toml)?$|\.cargo/)|\.github/workflows/cmux-tui-spec\.yml$|\.github/actions/setup-cmux-tui-rust/)' <<<"$changed"; then
+            if ! grep -qE '^(cmux-tui/(crates/acpmux/|Cargo\.(toml|lock)$|rust-toolchain(\.toml)?$|\.cargo/)|\.github/workflows/cmux-tui-spec\.yml$|\.github/actions/setup-cmux-tui-rust/|\.github/actions/runner-cargo-home/)' <<<"$changed"; then
               run=false
               echo "No acpmux or cmux-tui build input changed since ${BASE_SHA:0:12}; nothing to check." >> "$GITHUB_STEP_SUMMARY"
             fi
@@ -428,6 +431,88 @@ jobs:
         working-directory: cmux-tui
         run: cargo clippy --locked -p acpmux --features sim --test sim -- -D warnings
 
+  # The carrier's deterministic simulation (cmux-remote tests/carrier_sim.rs): the real daemon and
+  # client over a simulated carrier with seeded cuts, drops, slow links, relay swaps and daemon
+  # restarts. A fixed window of seeds on every change that touches the carrier's crates; the sweep
+  # (cmuxterm-hq cloud-chaos.yml, probe carrier-sim-no-lost-events) runs thousands of new seeds a day.
+  carrier-sim:
+    name: carrier simulation (seeds)
+    needs: changes
+    # A router that failed or was skipped never skips the job (a skip passes a required check).
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: 40
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
+      CMUX_GHOSTTY_SRC: ""
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Does the change touch the carrier's crates
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event_name == 'push' && github.event.before || '' }}
+        run: |
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            BASE_SHA=$(git cat-file -p HEAD | awk '/^parent /{print $2; exit}')
+          fi
+          run=true
+          if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ && "$BASE_SHA" != 0000000000000000000000000000000000000000 ]] \
+            && git fetch --no-tags --depth=1 origin "$BASE_SHA" \
+            && changed=$(git diff --no-renames --name-only "$BASE_SHA" HEAD); then
+            # cmux-remote and its path dependencies, plus the carrier crates that drive it.
+            if ! python3 scripts/ci/cargo_test_verdict.py touches cmux-tui/crates/cmux-remote <<<"$changed" \
+              && ! grep -qE '^(cmux-tui/crates/(cmux-link|cmux-relay|cmux-tui/src/carrier)/|\.github/workflows/cmux-tui-spec\.yml$)' <<<"$changed"; then
+              run=false
+              echo "No input of the carrier's crates changed since ${BASE_SHA:0:12}; nothing to simulate." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
+      - name: Install Linux build dependencies
+        if: ${{ steps.scope.outputs.run == 'true' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      # cmux-remote depends on ghostty-vt: ghostty-vt-sys builds libghostty-vt from the
+      # ghostty-next gitlink with zig, as the clippy job does.
+      - name: Init the ghostty-next submodule (libghostty-vt for ghostty-vt-sys)
+        if: ${{ steps.scope.outputs.run == 'true' }}
+        run: bash scripts/ci/init-submodule.sh ghostty-next
+
+      - name: Install zig
+        if: ${{ steps.scope.outputs.run == 'true' }}
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Set up pinned Rust
+        if: ${{ steps.scope.outputs.run == 'true' }}
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo build
+        if: ${{ steps.scope.outputs.run == 'true' }}
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-tui -> target
+          shared-key: cmux-tui-carrier-sim
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+
+      - name: cargo test -p cmux-remote --test carrier_sim
+        if: ${{ steps.scope.outputs.run == 'true' }}
+        working-directory: cmux-tui
+        env:
+          # The same seeds on every change, so a red names the change and not the window.
+          CARRIER_SIM_SEEDS: "256"
+          CARRIER_SIM_SEED_BASE: "0"
+        run: |
+          set -o pipefail
+          cargo test --locked -p cmux-remote --test carrier_sim -- --nocapture 2>&1 | tee "$RUNNER_TEMP/sim.log"
+          grep -E '^sim: ' "$RUNNER_TEMP/sim.log" >> "$GITHUB_STEP_SUMMARY" || true
+
   # PR CI never runs cmux-tui.yml (dispatch only), so #18706 landed unformatted
   # Rust and broke base `cargo fmt --check`. rustfmt alone on the packages the
   # change touches: no build and no dependency download.
@@ -475,7 +560,7 @@ jobs:
           rc=0
           python3 .github/scripts/cmux-tui-fmt-changed.py --base "$BASE_SHA" || rc=$?
           if [[ "$rc" != 0 && "$CMUX_NEXT_STYLE_GUARDS" == warn ]]; then
-            echo "::warning title=cmux-tui rustfmt (warn-only)::changed cmux-tui packages are not rustfmt-clean; run cargo fmt in cmux-tui"
+            # The script already printed a ::warning file=<the file>,line= annotation for each unformatted file.
             exit 0
           fi
           exit "$rc"

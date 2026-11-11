@@ -36,7 +36,13 @@ import { toolIcon } from "./toolRowModel";
 import { ToolVisualRow } from "./ToolVisualPreview";
 import { VideoFramesCard } from "./VideoFramesCard";
 import { videoFrames } from "./videoFrames";
-import { useRowDisclosure, useTranscriptDisclosure } from "./transcriptDisclosureModel";
+import {
+  callDisclosureKeys,
+  FoldPin,
+  useFoldPin,
+  useRowDisclosure,
+  useTranscriptDisclosure,
+} from "./transcriptDisclosureModel";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { ToolLabel } from "./ToolVerb";
 import { useMoreBelow } from "./moreBelow";
@@ -55,8 +61,10 @@ export function McpCallRows({ items, disclosureKey }: { items: readonly AcpmuxAc
 function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[]; disclosureKey: string }) {
   const t = useT();
   const names = useContext(McpNamesContext);
-  // The Verbose transcript view opens the calls.
-  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, false, true);
+  // The Verbose transcript view opens the calls; a call the reader opened before it was grouped too.
+  const members = useMemo(() => callDisclosureKeys(items), [items]);
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, false, true, { members });
+  const pin = useFoldPin(disclosureKey);
   useFindReveal(items, () => setOpen(true));
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const detailsId = useId();
@@ -95,11 +103,13 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
       </button>
       {fold.present && (
         <div {...fold.bodyProps}>
-          <div className="cv-tool-group" id={detailsId}>
-            {items.map((item, index) => (
-              <McpCallRow key={item.tool!.id || index} item={item} grouped />
-            ))}
-          </div>
+          <FoldPin.Provider value={pin}>
+            <div className="cv-tool-group" id={detailsId}>
+              {items.map((item, index) => (
+                <McpCallRow key={item.tool!.id || index} item={item} grouped />
+              ))}
+            </div>
+          </FoldPin.Provider>
         </div>
       )}
     </>

@@ -32,12 +32,12 @@ members = [
     "bindings/rust-daemon-client",
     "crates/ghostty-vt-sys",
     "crates/ghostty-vt",
-    "crates/cmux-mux2",
     "crates/cmux-tui-cdp",
     "crates/cmux-browser-host",
     "crates/cmux-git",
     "crates/cmux-worktree-care",
     "crates/cmux-conductor-import",
+    "crates/cmux-classic-import",
     "crates/cmux-tui-core",
     "crates/cmux-tui-cloud-conversations",
     "crates/cmux-tui-platform",
@@ -45,6 +45,7 @@ members = [
     "crates/cmux-tui-hooks",
     "crates/cmux-tui-util",
     "crates/cmux-json",
+    "crates/cmux-local-url",
     "crates/cmux-journal",
     "crates/cmux-kitty-media",
     "crates/cmux-api-compat",
@@ -67,6 +68,7 @@ members = [
     "crates/cmux-flow-trace",
     "crates/cmux-holder-v3",
     "crates/cmux-process",
+    "crates/cmux-scope",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
     "crates/cmux-remote",
@@ -106,7 +108,9 @@ members = [
     "crates/cmux-agent-pane-policy",
     "crates/cmux-daemon-conn-core",
     "crates/cmux-daemon-launch-core",
+    "crates/cmux-health-core",
     "crates/cmux-cookie-sync",
+    "crates/cmux-terminal-prediction",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
     "crates/cmux-app-host",
@@ -122,6 +126,7 @@ members = [
     "crates/cmux-url-input",
     "crates/cmux-view-rows",
     "crates/acpmux-hot",
+    "crates/cmux-command-class",
 ]
 default-members = [
     "crates/acpmux",
@@ -139,6 +144,7 @@ default-members = [
     "crates/cmux-git",
     "crates/cmux-worktree-care",
     "crates/cmux-conductor-import",
+    "crates/cmux-classic-import",
     "crates/cmux-tui-core",
     "crates/cmux-tui-cloud-conversations",
     "crates/cmux-tui-platform",
@@ -146,6 +152,7 @@ default-members = [
     "crates/cmux-tui-hooks",
     "crates/cmux-tui-util",
     "crates/cmux-json",
+    "crates/cmux-local-url",
     "crates/cmux-journal",
     "crates/cmux-api-compat",
     "crates/cmux-tui-remote-access",
@@ -162,6 +169,7 @@ default-members = [
     "crates/cmux-cloud-api",
     "crates/cmux-pty",
     "crates/cmux-process",
+    "crates/cmux-scope",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
     "crates/cmux-remote",
@@ -198,7 +206,9 @@ default-members = [
     "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
     "crates/cmux-daemon-launch-core",
+    "crates/cmux-health-core",
     "crates/cmux-cookie-sync",
+    "crates/cmux-terminal-prediction",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
     "crates/cmux-app-host",
@@ -264,8 +274,10 @@ cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-git = { path = "crates/cmux-git" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-conductor-import = { path = "crates/cmux-conductor-import" }
+cmux-classic-import = { path = "crates/cmux-classic-import" }
 cmux-feed-core = { path = "crates/cmux-feed-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
+cmux-focus-core = { path = "crates/cmux-focus-core" }
 cmux-bookmarks-core = { path = "crates/cmux-bookmarks-core" }
 cmux-bookmarks-ops = { path = "crates/cmux-bookmarks-ops" }
 cmux-cloud-start-core = { path = "crates/cmux-cloud-start-core" }
@@ -293,6 +305,7 @@ cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
 cmux-holder = { path = "crates/cmux-holder" }
 cmux-process = { path = "crates/cmux-process" }
+cmux-scope = { path = "crates/cmux-scope" }
 cmux-flow-trace = { path = "crates/cmux-flow-trace" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
@@ -309,6 +322,7 @@ cmux-tui-image-paste = { path = "crates/cmux-tui-image-paste" }
 cmux-tui-hooks = { path = "crates/cmux-tui-hooks" }
 cmux-tui-util = { path = "crates/cmux-tui-util" }
 cmux-json = { path = "crates/cmux-json" }
+cmux-local-url = { path = "crates/cmux-local-url" }
 cmux-journal = { path = "crates/cmux-journal" }
 cmux-kitty-media = { path = "crates/cmux-kitty-media" }
 cmux-api-compat = { path = "crates/cmux-api-compat" }
@@ -379,6 +393,9 @@ jsonschema = { version = "0.34", default-features = false }
 # lets the host count every byte the VM allocates (32 MiB limit per app).
 rquickjs = { version = "=0.14.0", default-features = false, features = ["std", "allocator"] }
 flate2 = "1"
+# Journal segments at rest (`zstd-json-v1`). No dictionary builder: whole-segment
+# frames compress the repeated records better than per-record dictionaries.
+zstd = { version = "0.13", default-features = false }
 bindgen = "0.72"
 smallvec = "1"
 getrandom = "0.3"
@@ -407,10 +424,13 @@ subtle = "2.6.1"
 parking_lot = "0.12"
 # One-load published snapshots (cmux-tui-core `published.rs`, R-DAEMON-STATE); already in the tree through iroh-dns.
 arc-swap = "1.9"
+# Persistent maps: the peers' rows (acpmux `hub/remote_rows.rs`) clone in O(1), so a writer
+# changes a structurally shared copy while readers hold a published snapshot (`remote_table.rs`).
+imbl = "7"
 wait-timeout = "0.2"
 # rusqlite 0.40's libsqlite3-sys build script requires Rust 1.95 without
 # declaring that MSRV. Keep the workspace's advertised Rust 1.91 support.
-rusqlite = { version = "=0.39.0", default-features = false, features = ["bundled", "hooks", "limits"] }
+rusqlite = { version = "=0.39.0", default-features = false, features = ["bundled", "cache", "hooks", "limits"] }
 # Unicode normalization for history search folding (cmux-history). Already in
 # the graph through url -> idna -> idna_adapter at this version; compiled
 # data only, no new transitive code.

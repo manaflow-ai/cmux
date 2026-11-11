@@ -34,6 +34,15 @@ import Testing
         return DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w1", screens: [screen])])
     }
 
+    /// A split screen whose pane `id` holds `tabs[id]` tabs (one by default), for other suites.
+    static func splitTree(_ layout: LayoutNode, tabs: [UInt64: Int] = [:]) -> DaemonTree {
+        let panes = layout.paneIDs.map { id in
+            PaneSnapshot(id: id, tabs: (0..<(tabs[id.rawValue] ?? 1)).map { TabSnapshot(surface: SurfaceID(rawValue: id.rawValue * 100 + UInt64($0)), title: "~") })
+        }
+        let screen = ScreenSnapshot(id: 1, layout: layout, panes: panes)
+        return DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w1", screens: [screen])])
+    }
+
     private static func connected() throws -> DaemonIdentity {
         let json = #"{"app":"cmux-tui","protocol":1,"session":"pane-close-controller-test","generation":"g1"}"#
         return try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
@@ -145,7 +154,45 @@ import Testing
         #expect(shown.content.focus.state.pane == (try shown.key(3)), "the echo moved the focus")
     }
 
-    /// `layout.closeFocus`: the previous neighbour (default) or the most recently focused pane.
+    /// Issue 38194: with no `layout.closeFocus` set, Cmd-W on the focused pane of a split returns to
+    /// the pane the user used last, as cmux classic's Bonsplit does (`SplitViewController.closePane`),
+    /// not to the pane before it in layout order. `H(1, V(2, 3))`, focus 1, 3, then 2: closing 2
+    /// focuses 3 (classic), not 1 (the previous neighbour).
+    @Test func theDefaultCloseFocusIsClassicsMostRecentPane() throws {
+        #expect(DesignSettings().closeFocus == .mostRecent)
+        let layout = LayoutNode.split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(1),
+                                      b: .split(id: nil, resourceID: nil, direction: .down, ratio: 0.5, a: .leaf(2), b: .leaf(3)))
+        let shown = try Shown(tree: Self.tree(layout))
+        defer { shown.end() }
+        shown.content.focus.closeFocus = { DesignSettings().closeFocus }
+        try shown.focus(1)
+        try shown.focus(3)
+        try shown.focus(2)
+        _ = try #require(try shown.controller(2).showPaneClose())
+        #expect(shown.content.focus.state.pane == (try shown.key(3)), "focus: \(String(describing: shown.content.focus.state.pane))")
+        #expect(shown.content.layoutModel.focusedPane?.rawValue == (try shown.key(3)))
+        shown.echo(.split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(1), b: .leaf(3)))
+        #expect(shown.content.focus.state.pane == (try shown.key(3)), "the echo moved the focus")
+    }
+
+    /// Issue 38194, columns: closing the focused middle column returns to the column used before it
+    /// (classic), here the right one, not the left neighbour.
+    @Test func theDefaultCloseFocusReturnsToTheLastUsedColumn() throws {
+        let columns = [ColumnSnapshot(id: 10, width: 0.34, layout: .leaf(1)), ColumnSnapshot(id: 11, width: 0.33, layout: .leaf(2)),
+                       ColumnSnapshot(id: 12, width: 0.33, layout: .leaf(3))]
+        let shown = try Shown(columns)
+        defer { shown.end() }
+        shown.content.focus.closeFocus = { DesignSettings().closeFocus }
+        try shown.focus(1)
+        try shown.focus(3)
+        try shown.focus(2)
+        _ = try #require(try shown.controller(2).showPaneClose())
+        #expect(shown.content.focus.state.pane == (try shown.key(3)), "focus: \(String(describing: shown.content.focus.state.pane))")
+        shown.echo([columns[0], columns[2]])
+        #expect(shown.content.focus.state.pane == (try shown.key(3)), "the echo moved the focus")
+    }
+
+    /// `layout.closeFocus`: the previous neighbour or the most recently focused pane (default).
     @Test(arguments: zip([CloseFocusPolicy.previousNeighbor, .mostRecent], [UInt64(1), 3]))
     func theFocusFollowsTheCloseFocusSetting(policy: CloseFocusPolicy, expected: UInt64) throws {
         let columns = [ColumnSnapshot(id: 10, width: 0.34, layout: .leaf(1)), ColumnSnapshot(id: 11, width: 0.33, layout: .leaf(2)),

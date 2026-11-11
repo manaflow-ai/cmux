@@ -74,6 +74,9 @@ extension SidebarSectionsSetting {
     /// `sidebar.controlsOnHover`.
     public nonisolated static let controlsOnHoverPath = ["sidebar", "controlsOnHover"]
     public nonisolated static let controlsOnHoverDefault = false
+    /// `sidebar.floatOnHover`.
+    public nonisolated static let floatOnHoverPath = ["sidebar", "floatOnHover"]
+    public nonisolated static let floatOnHoverDefault = true
     /// `sidebar.minimal`.
     public nonisolated static let minimalPath = ["sidebar", "minimal"]
     public nonisolated static let minimalDefault = false
@@ -110,6 +113,9 @@ extension SidebarSectionsSetting {
     /// `sidebar.groupPalette`.
     public nonisolated static let groupPalettePath = ["sidebar", "groupPalette"]
     public nonisolated static let groupPaletteDefault: GroupPalette = .glass
+    /// `sidebar.groupGradient`.
+    public nonisolated static let groupGradientPath = ["sidebar", "groupGradient"]
+    public nonisolated static let groupGradientDefault: GroupGradient = .sunset
     /// `sidebar.minimalMode`.
     public nonisolated static let minimalModePath = ["sidebar", "minimalMode"]
     public nonisolated static let minimalModeDefault: SidebarMinimalMode = .off

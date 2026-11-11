@@ -5,6 +5,20 @@ import Foundation
 extension AgentPaneRequest {
     private static let maximumUploadStageChunk = 512 * 1024
 
+    /// A Cloud environment id as the platform makes them (`env_` and up to 64 letters, digits, `_`
+    /// or `-`): the only `environment` `action.run` passes on.
+    static func isCloudEnvironmentID(_ id: String) -> Bool {
+        id.hasPrefix("env_") && (5...68).contains(id.count)
+            && id.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "_" || $0 == "-") }
+    }
+
+    /// A page's one-time hand-off token (webviews commandPlace.ts: a UUID): 16 to 64 ASCII letters,
+    /// digits and dashes, so it names a stored entry and carries nothing itself.
+    static func isHandoffToken(_ token: String) -> Bool {
+        (16...64).contains(token.count)
+            && token.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "-") }
+    }
+
     private static func uploadStage(_ method: String, _ params: [String: Any]?) -> AgentPaneRequest {
         guard let params else { return .unsupported(method) }
         switch method {
@@ -23,7 +37,11 @@ extension AgentPaneRequest {
                 guard parsed.count == list.count else { return .unsupported(method) }
                 batch = parsed.map { AgentPaneUploadBatchEntry(name: $0.0, size: $0.1) }
             }
-            return .uploadStage(.begin(name: name, size: size, batchToken: batchToken, batch: batch))
+            let begin = AgentPaneUploadStageRequest.begin(name: name, size: size, batchToken: batchToken, batch: batch)
+            // A begin that names a Send (any of its three fields) goes only under that Send's ticket.
+            guard ["sessionId", "promptId", "ticket"].contains(where: { params[$0] != nil }) else { return .uploadStage(begin) }
+            guard let ticket = AgentPaneUploadSendTicket(beginParams: params) else { return .unsupported(method) }
+            return .uploadStageForSend(begin, ticket)
         case "chat.upload.chunk":
             guard let token = params["token"] as? String, (1...128).contains(token.utf8.count),
                   let offset = (params["offset"] as? NSNumber)?.intValue, offset >= 0,
@@ -358,8 +376,10 @@ extension AgentPaneRequest {
                 return
             }
             self = .cloudHandoffTurn(sessionId: session)
-        case "cloud.signInCancel": self = .cloudSignInCancel
-        case "cloud.signIn": self = AgentPaneCloudStart(params: params).map(Self.cloudSignIn) ?? .unsupported(method)
+        case "cloud.signInCancel": self = .cloudSignInCancel(expired: params?["expired"] as? Bool == true)
+        case "cloud.signIn":
+            // The start's key only (`AgentPaneCloudStart`'s): the start itself goes after, as `cloud.startChat`.
+            if let key = params?["key"] as? String, UUID(uuidString: key) != nil { self = .cloudSignIn(key: key) } else { self = .unsupported(method) }
         case "cloud.startChat": self = AgentPaneCloudStart(params: params).map(Self.cloudStartChat) ?? .unsupported(method)
         case "cloud.repickChat": self = AgentPaneCloudRepick(params: params).map(Self.cloudRepickChat) ?? .unsupported(method)
         case "cloud.answerStart": self = AgentPaneCloudAnswer(params: params).map(Self.cloudAnswerStart) ?? .unsupported(method)
@@ -444,6 +464,10 @@ extension AgentPaneRequest {
         case "chats.open":
             if let key = params?["key"] as? String, key.contains(":"), key.count <= 512 { self = .openChat(key) }
             else { self = .unsupported(method) }
+        case "chats.resume":
+            if let ref = params?["ref"] as? String, !ref.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, ref.utf8.count <= 4096 {
+                self = .resumeChat(ref)
+            } else { self = .unsupported(method) }
         case "chats.openInTerminal":
             if let key = params?["key"] as? String, key.contains(":"), key.count <= 512 { self = .openChatInTerminal(key) }
             else { self = .unsupported(method) }
@@ -544,6 +568,8 @@ extension AgentPaneRequest {
             if let cwd = (params?["cwd"] as? String).flatMap(Self.headerFolder) { self = .newChatHere(cwd) } else { self = .unsupported(method) }
         case AgentPaneTryAnotherApproach.method:
             self = AgentPaneTryAnotherApproach(params: params).map(AgentPaneRequest.tryAnotherApproach) ?? .unsupported(method)
+        case AgentPaneCloudTurnRewind.checkpointMethod, AgentPaneCloudTurnRewind.rewindMethod:
+            self = AgentPaneCloudTurnRewind(method: method, params: params).map(AgentPaneRequest.cloudTurnRewind) ?? .unsupported(method)
         case "chat.openTab":
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .chatTab(id, AgentForkDestination(placement: params?["placement"] as? String)) } else { self = .unsupported(method) }
         case "chat.asks.open":
@@ -572,9 +598,16 @@ extension AgentPaneRequest {
             // A `session` that is there must be a usable id: a malformed one is refused, never
             // dropped (which would run the action on whatever the tab shows).
             let session = params?["session"].map { $0 as? String }
+            // An `environment` is New Cloud Machine's only, and a Cloud environment id (`env_…`);
+            // any other is refused, never dropped (which would make a machine in another one).
+            let environment = params?["environment"].map { $0 as? String }
+            // A `handoff` is New Cloud Chat's only, and a token; any other is refused, never dropped.
+            let handoff = params?["handoff"].map { $0 as? String }
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128,
-               session.map({ $0.map { !$0.isEmpty && $0.count <= 256 } ?? false }) ?? true {
-                self = .runAction(id, session: session ?? nil)
+               session.map({ $0.map { !$0.isEmpty && $0.count <= 256 } ?? false }) ?? true,
+               environment.map({ $0.map { id == "newCloudMachine" && AgentPaneRequest.isCloudEnvironmentID($0) } ?? false }) ?? true,
+               handoff.map({ $0.map { id == "palette.newCloudChat" && AgentPaneRequest.isHandoffToken($0) } ?? false }) ?? true {
+                self = .runAction(id, session: session ?? nil, environment: environment ?? nil, handoff: handoff ?? nil)
             } else {
                 self = .unsupported(method)
             }
@@ -623,7 +656,7 @@ extension AgentPaneRequest {
             } else {
                 self = .invalidGit(method)
             }
-        case "git.diff", "git.status", "file.search", "git.checkpoint.diff":
+        case "git.diff", "git.status", "file.search", "git.checkpoint.diff", "git.worktree.setup":
             if let git = AgentPaneGitRequest(method: method, params: params) {
                 self = .git(git)
             } else {

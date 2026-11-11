@@ -44,7 +44,12 @@ impl Hub {
             self.store_deferred(session),
             "could not store the chat's newest tool output"
         );
-        let meta = session.meta();
+        let mut meta = session.meta();
+        // A fork by reference names a chat the other machine does not have: the log below
+        // holds that history itself (`store/fork_view.rs` scans through it), under its seqs.
+        if let Some(r) = meta.history_from.take() {
+            meta.history_kept_through = Some(r.through_seq);
+        }
         let dir = dest.join(&meta.id);
         std::fs::create_dir_all(dir.join("events"))?;
         std::fs::write(dir.join("session.json"), serde_json::to_string_pretty(&meta)?)?;
@@ -143,6 +148,9 @@ impl Hub {
         meta.parent_id = None;
         meta.fork_seq = None;
         meta.fork_before = None;
+        // Nor a fork's reference to a chat of the machine it came from: its log holds that
+        // history (`export`).
+        meta.history_from = None;
         meta.fork_requests.clear();
         meta.fork_parent_verified = Some(false);
         // A store comes from this machine's chat index, never from a bundle.
@@ -155,6 +163,11 @@ impl Hub {
         meta.wait_start = false;
         // Nor is a mode cmux set here, which only this daemon records (`SessionMeta::mode_set_by_cmux`).
         meta.mode_set_by_cmux = None;
+        // Nor what an agent of another daemon said at `initialize`, or the launch it started from:
+        // an `asksBeforeTools` claim is believed only from an agent this daemon started
+        // (`policy_mode.rs` `claim_distrust`). Its next start here records both again.
+        meta.agent_capabilities = None;
+        meta.launch_digest = None;
         super::bookmarks::capped(&mut meta.bookmarks);
         // The id becomes a directory name under the sessions root.
         if !is_plain_id(&meta.id) {
@@ -163,9 +176,15 @@ impl Hub {
                 meta.id
             )));
         }
+        // A chat that comes back (`replace_durable`: `transfer_in.rs` replaces its moved-away
+        // copy here) is that copy: its name is the chat's own, not another's to step around.
+        // Another chat with the name still holds it.
+        let holds = |s: &Arc<Session>, n: &str| {
+            s.meta().name == n && !(replace_durable && s.id == meta.id && self.moved_away(s))
+        };
         if let Some(n) = &name {
             crate::session_name::validate(n).map_err(RpcError::invalid_params)?;
-            if self.sessions.lock().unwrap().values().any(|s| s.meta().name == *n) {
+            if self.sessions.lock().unwrap().values().any(|s| holds(s, n)) {
                 return Err(RpcError::invalid_params(format!("session name {n:?} is taken")));
             }
         }
@@ -190,7 +209,7 @@ impl Hub {
         if let Some(n) = name {
             meta.name = n;
             meta.name_given = true;
-        } else if self.sessions.lock().unwrap().values().any(|s| s.meta().name == meta.name) {
+        } else if self.sessions.lock().unwrap().values().any(|s| holds(s, &meta.name)) {
             meta.name = self.unique_name(&meta.name);
         }
         if !self.config.read().await.harnesses.contains_key(&meta.harness) {
@@ -210,11 +229,34 @@ impl Hub {
         meta.status = SessionStatus::Idle;
         // It lives here now, whatever the daemon it came from had recorded.
         meta.moved_to = None;
+        // The linked-worktree record (`worktree_care/revive.rs`) is read again from the folder
+        // here. A chat moved from another machine's linked worktree into a fresh clone brought
+        // that machine's root and git dir: they never match here, and `revive_folder` refused
+        // every turn as `session.folder_missing` while its folder was there. A chat imported
+        // into the same linked worktree reads the same record back, so its folder can still be
+        // recreated if it goes. A read that is inconclusive keeps the bundle's record only for
+        // the folder it names.
+        let read = tokio::task::spawn_blocking({
+            let cwd = meta.cwd.clone();
+            move || {
+                super::worktree_care::revive::origin_of(
+                    &cwd,
+                    &crate::git_state::GitState::read(&cwd),
+                )
+            }
+        });
+        // timeout: a slow git read is inconclusive; the bundle's record is kept.
+        meta.worktree = match tokio::time::timeout(std::time::Duration::from_secs(2), read).await {
+            Ok(Ok(Some(found))) => found,
+            _ => meta.worktree.take().filter(|w| w.cwd == meta.cwd),
+        };
         // An approve-all an older daemon or a vmHost machine gave asks here (`policy_source.rs`).
         super::policy_source::settle_imported_grant(&mut meta);
         meta.subsession = None;
         meta.lineage = None;
         meta.created_by = None;
+        // Nor a race's authority or its resumption: its children stayed behind (`races.rs`).
+        super::races::settle_imported(&mut meta.races);
         self.prepare_harness_state(&meta, replace_durable)
             .map_err(|e| RpcError::internal(e.to_string()))?;
         if let Err(e) = self.store.save(&meta) {
@@ -283,6 +325,8 @@ impl Hub {
         self.settle_subagent_retries(&session);
         self.sessions.lock().unwrap().insert(meta.id.clone(), session.clone());
         self.update_live_session_index(&session);
+        // A session that came may be another row's parent: every closed row is built again.
+        self.events.changed();
         // Indexed again once published: a lookup before that found no session and dropped it.
         self.child_tags.note(&session);
         self.offers.forget(&meta.id);
@@ -824,6 +868,9 @@ impl Hub {
     }
 }
 
+#[cfg(test)]
+#[path = "fork_reference_export_tests.rs"]
+mod fork_reference_export_tests;
 #[cfg(test)]
 #[path = "import_publish_tests.rs"]
 mod import_publish_tests;

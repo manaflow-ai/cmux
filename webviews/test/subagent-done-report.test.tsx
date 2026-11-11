@@ -94,25 +94,33 @@ afterEach(() => {
   saved.clear();
 });
 
-test("the chevron after a finished line's words toggles its report under the line", () => {
-  const host = render([agent("a", { result: REPORT })]);
-  const chevron = host.querySelector<HTMLButtonElement>("button.cv-subagent-done__disclose");
-  expect(chevron).not.toBeNull();
-  expect(chevron!.getAttribute("aria-expanded")).toBe("false");
-  expect(host.querySelector(".cv-subagent-done__report")).toBeNull();
+// A finished line with a report is the one message row (AgentMessageRow.tsx), as a send and a
+// received message are (Leo, 2026-11-07: "with the sub-agent conclusions ... They should look
+// basically the same as the other ones"): the line toggles the report, the name opens the view.
+const toggleOf = (host: HTMLElement) =>
+  host.querySelector<HTMLButtonElement>(".cv-subagent-report-row button.cv-agentmsg__toggle");
 
-  click(chevron!);
-  expect(chevron!.getAttribute("aria-expanded")).toBe("true");
+test("the line of a finished subagent with a report toggles the report under the line", () => {
+  const host = render([agent("a", { result: REPORT })]);
+  const toggle = toggleOf(host);
+  expect(toggle).not.toBeNull();
+  expect(toggle!.getAttribute("aria-expanded")).toBe("false");
+  expect(host.querySelector(".cv-subagent-done__report")).toBeNull();
+  expect(host.querySelector(".cv-subagent-report-row .cv-agentmsg__line")?.textContent).toContain("Subagent finished:");
+
+  click(toggle!);
+  expect(toggle!.getAttribute("aria-expanded")).toBe("true");
   const report = host.querySelector(".cv-subagent-done__report");
   expect(report).not.toBeNull();
-  expect(chevron!.getAttribute("aria-controls")).toBe(report!.id);
+  // In the same card a received message opens to.
+  expect(report!.closest(".cv-agentmsg__card")?.id).toBe(toggle!.getAttribute("aria-controls") ?? "");
   // The transcript's Markdown renders it: its paragraphs and its bold.
   expect(report!.querySelector(".cv-md")).not.toBeNull();
   expect(report!.querySelector("strong")?.textContent).toBe("golden files");
   expect(report!.textContent).toContain("Fixed the read order.");
 
-  click(chevron!);
-  expect(chevron!.getAttribute("aria-expanded")).toBe("false");
+  click(toggle!);
+  expect(toggle!.getAttribute("aria-expanded")).toBe("false");
   expect(host.querySelector(".cv-subagent-done__report")).toBeNull();
 });
 
@@ -120,18 +128,18 @@ test("a click on a line with a report toggles it; only the name opens the view",
   // Lucas, 2026-11-08: the row's click opened the agent and only the small chevron toggled.
   const opened: string[] = [];
   const host = render([agent("a", { result: REPORT })], opened);
-  click(host.querySelector("button.cv-subagent-done__disclose")!);
+  click(toggleOf(host)!);
   expect(opened).toEqual([]);
   expect(host.querySelector(".cv-subagent-done__report")).not.toBeNull();
   // The words, the icon and the duration toggle the report and open nothing.
-  for (const part of [".cv-agent-activity__sentence", ".cv-tool__icon", ".cv-subagent-done__time"]) {
-    click(host.querySelector(part)!);
+  for (const part of [".cv-agentmsg__words", ".cv-agentmsg__icon", ".cv-agentmsg__time"]) {
+    click(host.querySelector(`.cv-subagent-report-row ${part}`)!);
     expect(opened).toEqual([]);
   }
   expect(host.querySelector(".cv-subagent-done__report")).toBeNull();
   // The line's words are no button of their own, so the name chip can be one.
   expect(host.querySelector("button.cv-subagent-done")).toBeNull();
-  const name = host.querySelector<HTMLButtonElement>("button.cv-agent-tag.is-open");
+  const name = host.querySelector<HTMLButtonElement>(".cv-subagent-report-row button.cv-agentmsg__name");
   expect(name?.textContent).toBe("Task a");
   click(name!);
   expect(opened).toEqual(["a"]);
@@ -139,17 +147,25 @@ test("a click on a line with a report toggles it; only the name opens the view",
   expect(host.querySelector(".cv-subagent-done__report")).toBeNull();
 });
 
-test("a line with no report stays one button that opens the view", () => {
+// Leo, 2026-11-05: "subagents need to have their clickable bit be highlighted instead of the whole
+// line click sending me to the subagent righ split".
+test("a line with no report opens the view from its name chip alone", () => {
   const opened: string[] = [];
   const host = render([agent("a")], opened);
-  expect(host.querySelector("button.cv-agent-tag")).toBeNull();
-  click(host.querySelector("button.cv-subagent-done")!);
+  expect(host.querySelector("button.cv-subagent-done")).toBeNull();
+  for (const part of [".cv-tool__icon", ".cv-subagent-done__time", ".cv-subagent-done__chevron"]) {
+    click(host.querySelector(`.cv-subagent-done-row ${part}`)!);
+    expect(opened).toEqual([]);
+  }
+  const name = host.querySelector<HTMLButtonElement>(".cv-subagent-done button.cv-agent-tag.is-open");
+  expect(name?.textContent).toBe("Task a");
+  click(name!);
   expect(opened).toEqual(["a"]);
 });
 
 test("a last message stands in for a missing result", () => {
   const host = render([agent("a", { lastMessage: "Done: three keys fixed." })]);
-  click(host.querySelector("button.cv-subagent-done__disclose")!);
+  click(toggleOf(host)!);
   expect(host.querySelector(".cv-subagent-done__report")?.textContent).toContain("Done: three keys fixed.");
 });
 

@@ -254,10 +254,7 @@
       "class": "apple-swift-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
     },
-    "app-ffi-release.yml#build": {
-      "class": "apple-app-build",
-      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
-    },
+    "app-ffi-release.yml#build": "apple-app-build",
     "auth-refresh-tests.yml#auth-refresh-tests": {
       "class": "apple-swift-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
@@ -294,14 +291,15 @@
       "class": "apple-app-build",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
-    "cloud-chat-proof.yml#proof": {"class": "apple-app-build", "picker_followup": "builds and runs the tagged app while holding the dev stack pair: an ephemeral Blacksmith Mac from the declared macos_26 pool only, never a persistent owned Mac; an owned route needs the per-job secret isolation the signing pickers use"},
+    "cloud-chat-proof.yml#proof-staging": {"class": "apple-app-build"},
+    "cloud-chat-proof.yml#proof-prod": {"class": "apple-app-build"},
+    "cloud-rd-link-readback.yml#readback": {"class": "macos-runtime-tests", "picker_followup": "builds cmux-tui and launches it on a Mac behind NAT to dial the Cloud desktop's UDP link while holding the dev stack pair: an ephemeral Blacksmith Mac from the declared macos_26 pool only, as cloud-chat-proof.yml#proof; manual dispatch"},
     "cmux-mobile-ffi.yml#apple": {
       "class": "apple-swift-tests",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
     "cmux-next-base-autofix.yml#action-exports": {
-      "class": "apple-app-build",
-      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+      "class": "apple-app-build"
     },
     "cmux-next-batch.yml#build": {
       "class": "apple-app-build",
@@ -352,8 +350,7 @@
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
     "cmux-next-pr-autofix.yml#action-exports": {
-      "class": "apple-app-build",
-      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+      "class": "apple-app-build"
     },
     "cmux-next-shell-integration.yml#zsh-head-watch": {
       "class": "macos-runtime-tests",
@@ -365,10 +362,6 @@
     },
     "cmux-next-terminal.yml#rust-terminal": {
       "class": "macos-runtime-tests",
-      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
-    },
-    "cmux-next-terminal.yml#swift-terminal": {
-      "class": "apple-swift-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
     },
     "cmux-next-tip-test-compile.yml#compile": {
@@ -389,10 +382,6 @@
     "cmux-next.yml#swift-canary": "apple-app-build",
     "cmux-next.yml#swift-canary-fleet": "apple-app-build",
     "cmux-next.yml#swift-test": "apple-swift-tests",
-    "cmux-terminal-client-xcframework.yml#build": {
-      "class": "apple-app-build",
-      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
-    },
     "cmux-tui-artifacts.yml#macos-cross-runtime-x86_64": {
       "class": "macos-runtime-tests",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
@@ -427,10 +416,19 @@
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
     "ios-internal-nightly.yml#archive": "apple-ios",
+    "ios-review-gate.yml#reviewer-path": {
+      "class": "apple-ios",
+      "picker_followup": "holds the agent pass's Claude token and runs its CLI on the Mac, so it stays on the ephemeral Blacksmith macOS 26 pool; an owned route needs a picker that keeps credentialed jobs off persistent machines"
+    },
+    "ios-review-gate.yml#asc-validate": {
+      "class": "apple-ios",
+      "picker_followup": "writes the App Store Connect key to the runner (release environment), so it stays on the ephemeral Blacksmith macOS 26 pool, as ios-app-store.yml's upload does"
+    },
     "ios-internal-nightly.yml#upload": {
       "class": "apple-ios",
       "picker_followup": "signs with release keys on an ephemeral Blacksmith Mac; an owned route needs a picker with the per-job keychain and exclusive claim (signing_runner.py)"
     },
+    "ios-reliability-matrix.yml#ios": "apple-ios",
     "ios-screenshots.yml#screenshots": "apple-ios",
     "ios-streamed-validate.yml#validate": {
       "class": "apple-ios",
@@ -469,6 +467,7 @@
     "nightly.yml#pick-nightly-sign-runner": {"class": "portable-checks"},
     "nightly.yml#published-in": {"class": "portable-checks"},
     "nightly.yml#dispatch-published-in": {"class": "portable-checks"},
+    "nightly.yml#dispatch-nightly-next-sign": {"class": "portable-checks"},
     "nightly.yml#retry-nightly-next": {"class": "portable-checks"},
     "nightly.yml#published-build": {"class": "portable-checks"},
     "nightly.yml#close-nightly-failure-issue": {"class": "portable-checks"},
@@ -494,7 +493,12 @@
       "picker_followup": "a main dispatch with no job before it to pick a runner; it takes the owned nightly slot, which admits the exclusive claim the release App key needs (the nightly-only minis refuse a signing-class job)"
     },
     "nightly.yml#publish-nightly": "apple-signing-release",
-    "nightly.yml#publish-nightly-next-github": "apple-signing-release",
+    "nightly.yml#keep-published-dsyms": "apple-signing-release",
+    "nightly.yml#republish-nightly-deltas": "apple-signing-release",
+    "nightly.yml#promote-nightly-next-acked": {
+      "class": "apple-signing-release",
+      "picker_followup": "retired (if: false), so it never starts; should it run again, it follows promote-nightly-next on a main dispatch with no pick of its own and takes promote-nightly-next's route, which admits the exclusive claim the release App key needs"
+    },
     "nightly.yml#refresh-compilation-cache": "apple-app-build",
     "nightly.yml#refresh-test-compilation-cache": {
       "class": "apple-app-build",
@@ -594,7 +598,6 @@
     "web-validation.yml#web-validation": {"class": "portable-checks", "reason": "status rollup: accepts selected web results"},
     "cmux-next.yml#path_route": {"class": "portable-checks", "reason": "router: classifies the PR's paths and probes the published tree, 32-51 s of work (runs 41394344151, 41393817927)"},
     "cmux-next.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap: starts independently of the labels it validates"},
-    "cmux-next.yml#pr-quiet-period": {"class": "portable-checks", "reason": "pull request quiet period: sleeps until 5 minutes after the PR's last push, before portable-placement, so it holds no fleet runner; no checkout"},
     "ci-web.yml#web-subarea-scope": {"class": "portable-checks", "reason": "router: classifies the webview subareas and hands the shards their duration manifest, 29 s of work (run 41762274751)"},
     "ci-web.yml#webviews-test-durations": {"class": "portable-checks", "reason": "bookkeeping: merges and saves the shard duration manifest beside web-subarea-scope's restore, 5 s of work (run 41761413284)"},
     "resolve-runners.yml#resolve": {"class": "portable-checks", "reason": "resolver: prints the runner capability map, 5 s of work (run 41762274751)"}

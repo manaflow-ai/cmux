@@ -143,9 +143,9 @@ extension TabStripView {
     /// The motion of a strip change on `token`, or nil when it applies at once (the token does not
     /// animate, or the window has no screen, where Core Animation would never end it).
     func stripMove(_ token: MotionTween) -> TabStripMove? {
-        guard let motion = MotionMove.tween(token, in: Motion.tabs), Motion.canAnimate(in: self) else { return nil }
+        guard let motion = MotionMove.tween(token, in: Motion.tabs, window: window), Motion.canAnimate(in: self) else { return nil }
         moveGeneration += 1
-        return TabStripMove(generation: moveGeneration, motion: motion, closing: token == .tabClose ? nil : MotionMove.tween(.tabClose, in: Motion.tabs))
+        return TabStripMove(generation: moveGeneration, motion: motion, closing: token == .tabClose ? nil : MotionMove.tween(.tabClose, in: Motion.tabs, window: window))
     }
 
     /// Runs `work` once no strip move is in flight (at once when none is): a tab's open has ended its motion.
@@ -203,7 +203,7 @@ extension TabStripView {
         let from = scrollMapping
         scrollOffset = target
         var move: TabStripMove?
-        if animated, !reduceMotion, Motion.canAnimate(in: self), let motion = MotionMove.spring(.scroll, in: Motion.tabs) {
+        if animated, !reduceMotion, Motion.canAnimate(in: self), let motion = MotionMove.spring(.scroll, in: Motion.tabs, window: window) {
             moveGeneration += 1
             move = TabStripMove(generation: moveGeneration, motion: motion, closing: nil, isScroll: true)
         }
@@ -355,8 +355,11 @@ extension TabStripView {
             if drag?.id == id || groups.isDragged(id) { TabStripMove.cancelPosition(cell.layer) }
             if let move { noteClosing(id, moved: moved, move: move) }
             cell.accessibility.setAccessibilityFrameInParentSpace(tabsClip.convert(cell.frame, to: self))
-            trailing = max(trailing, place.maxX)
+            // The lifted tab can slide past the last slot (`dragTrailingLimit`): the + stays after the slots.
+            let liftedSlotEnd = drag?.id == id ? result.slot(id).map(\.maxX) : nil
+            trailing = max(trailing, liftedSlotEnd ?? place.maxX)
         }
+        updateCornerFlush(tabY: tabY, tabHeight: tabHeight)
         updateOcclusion()
         layoutPinnedDivider(mapping: mapping, tabY: tabY, tabHeight: tabHeight, pixel: pixel, move: move, scroll: scrollPart(isPinned: true))
         for group in groups.chips.keys {

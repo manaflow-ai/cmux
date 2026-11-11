@@ -29,17 +29,21 @@ import { armIds, validateExperiments, type Experiment } from "../experiments/exp
 import { validateTunables, type Tunable } from "../experiments/tunable";
 import { optionAccepts, validateOptions, type GalleryOption } from "./options";
 import type { MockOptions } from "../pages/settings/mockProvider";
+import type { MockEndpoint } from "../pages/settings/mockAgents";
 import type { BranchPickerGroup } from "../diff/generated/protocol";
 import type { SourceOption } from "../toolbar-model";
 import type {
   AccountsState,
   AgentsState,
+  ChannelSwitch,
+  ChannelsState,
   CloudEnvironmentsState,
   DevicesState,
   HarnessesState,
   HostLists,
   IntegrationsState,
   SharesState,
+  TailnetState,
 } from "../pages/settings/ops";
 import type { MockData } from "../pages/passwords/mockProvider";
 
@@ -61,12 +65,23 @@ export type SettingsPageVariant = VariantBase & {
   environments?: CloudEnvironmentsState;
   /** Settings > Privacy and Security > Shared Links fixture state; default the mock's shares. */
   sharedLinks?: SharesState;
+  /** Settings > Server > This Mac on Your Tailnet fixture state (null: no tailnet); default signed out. */
+  tailnet?: TailnetState | null;
   /** Settings > Agents over the mock's harness list (`manages: false`: an older acpmux). */
   agents?: Partial<AgentsState>;
+  /** Settings > Agents > Add > Endpoint: what the endpoint lists for Fetch Models and the hello
+   * turn's answer; default three models and a passing turn. */
+  endpoint?: Partial<MockEndpoint>;
   /** Settings > Agents > Harnesses; default the mock's four. */
   harnesses?: HarnessesState;
   /** Settings > Devices; default the mock's (this Mac, two other devices, two relays). */
   devices?: DevicesState;
+  /** Settings > Updates' Channels card (null: no updater); default the mock's tracks. */
+  channels?: ChannelsState | null;
+  /** The Channels card's way back to the picked channel; default none. */
+  channelSwitch?: ChannelSwitch | null;
+  /** The host's refusal of every Switch; default none (Switch runs). */
+  switchRefusal?: string;
   /** Settings > Agents > Agent integrations; default the mock's four (focus `agents.integrations` opens it). */
   integrations?: IntegrationsState;
   /** Public-safe thumbnail data URLs for native-origin backdrop images. */
@@ -98,6 +113,11 @@ export type ChipHostFixture = {
   images?: Record<string, string | null>;
   /** `media.load` answers: the URL the player plays for each path. */
   media?: Record<string, string>;
+  /** `video.info` answers: a video's length, size and poster for each path (composer/videoAttachments.ts). */
+  videos?: Record<string, unknown>;
+  /** Methods the host refuses (`{ok: false}`), as a chat on another machine's host may refuse
+   *  `media.load` and `video.quickLook`. */
+  refused?: string[];
   browsers?: { id: string; name: string; icon?: string }[];
   /** `project.icon` answers: a project folder's favicon as a data URL (projectIcon.ts). */
   projectIcons?: Record<string, string>;
@@ -274,6 +294,13 @@ export type DiffPageVariant = VariantBase & {
   comments?: DiffCommentRecord[];
   /** The host sends comments to the diff's chat (Send to agent). */
   commentsSend?: boolean;
+  /** The diff's chat's review brief the in-page host answers (`cmux.diff.brief`), as acpmux's
+   * `_acpmux/review_brief` answers it; absent, the host serves no brief. */
+  reviewBrief?: unknown;
+  /** Plain English: the sentence the in-page host writes for a hunk whose patch contains each
+   * key (`cmux.diff.summary`, after `summaryDelayMs`), or a refusal reason `summaryCheck` answers.
+   * Absent, the host serves no summary op. */
+  summaries?: { sentences: Record<string, string>; delayMs?: number } | { refused: string };
 };
 
 /** The App Store page on an in-page cmuxPage host serving its supervisor projection. */
@@ -294,7 +321,15 @@ export type AppsPageVariant = VariantBase & {
 /** The Cloud page on an in-page cmuxPage host serving the Cloud app server's projection. */
 export type CloudPageVariant = VariantBase & {
   mode?: "normal" | "loading" | "error";
-  action?: "select-machine" | "create" | "get" | "ports-pending" | "ports-shared";
+  action?:
+    | "select-machine"
+    | "create"
+    | "create-at-cap"
+    | "get"
+    | "ports-pending"
+    | "ports-shared"
+    | "cleanup-team"
+    | "resume";
   error?: { code: string; message: string };
   signedIn?: boolean;
   layout?: "rows" | "cards";
@@ -308,6 +343,20 @@ export type CloudPageVariant = VariantBase & {
   pendingAction?: "forward" | "close" | "browser" | "share" | "revoke";
   /** The create sheet's snapshot list fails once (its Retry then loads the sample snapshots). */
   snapshotsFail?: boolean;
+  /** Automatic cleanup as `cloud.plan.get` answers it (`retention`); absent: a server without it. */
+  retention?: import("../pages/cloud/ops").CloudRetention;
+  /** The plan's machines cap (paused ones count): a create past it is refused with a cap offer. */
+  machinesCap?: number;
+  /** The running machines the platform calls idle: a create at the running limit pauses one. */
+  idle?: string[];
+  /** The machine the cap refusal names to free (`details.free_up`). */
+  freeUp?: { machine: string; name: string | null; reason: string };
+  /** The caller is not a team admin: saving the team's cleanup numbers is refused. */
+  retentionForbidden?: boolean;
+  /** The team's spending cap as `cloud.plan.get` answers it; at the cap a start or create is refused. */
+  spendCap?: NonNullable<import("../pages/cloud/ops").CloudPlan["spend_cap"]>;
+  /** The member's own monthly budget is spent: a start or create is refused. */
+  memberBudget?: { spent_usd: number; limit_usd: number };
   machines: CloudMachine[];
   snapshots: CloudSnapshot[];
 };

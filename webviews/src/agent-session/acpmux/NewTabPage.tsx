@@ -17,6 +17,7 @@ import { ProjectChooser, type Project } from "./ProjectChooser";
 import { type BrowseRequest } from "./AddProjectPanel";
 import { BROWSE_BUSY, type BrowseResult } from "./addProjectPanelModel";
 import { BrowseFailure } from "./BrowseFailure";
+import { ErrorDetails } from "./conversation/ErrorDetails";
 import { browseFailureMessage } from "./browseFailureModel";
 import { defaultRow, stepSelection, EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from "./omnibar";
 import { firstProject, homePath, mostRecentProject, projectLabel } from "./sessionList";
@@ -228,19 +229,21 @@ export function NewTabPage({
       fieldReady ? (field.current?.agentText(text) ?? text) : text === untouchedText.current ? (location ?? "") : text,
     [text, fieldReady, location],
   );
-  /// The last open was refused (the host made no tab): a note under the field until the next edit.
-  const [openFailed, setOpenFailed] = useState(false);
+  /// The last open was refused (the host made no tab): a note under the field until the next edit,
+  /// saying which kind did not open, with Retry (the same open again) and the host's words under Details.
+  const [openFailed, setOpenFailed] = useState<{ kind: TabKind; detail: string; retry: () => void }>();
   const attachmentRef = useRef<ComposerAttachment[]>([]);
   const make = (next: TabKind, value: string, folder?: string) => {
-    setOpenFailed(false);
+    setOpenFailed(undefined);
     const attachments = next === "agent" ? attachmentRef.current : [];
     const chat = next === "agent" && harness ? { harness, ...(chipModel ? { model: chipModel } : {}) } : undefined;
     if (next === "agent" && command.intercept(value, harness, attachments.length)) return;
     const result = onSubmit(next, value, folder, attachments.length ? attachments : undefined, chat);
     // The suggestions float over the note: they close until the next edit, so it shows.
     if (result)
-      void result.catch(() => {
-        setOpenFailed(true);
+      void result.catch((error: unknown) => {
+        const detail = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+        setOpenFailed({ kind: next, detail: detail.trim(), retry: () => make(next, value, folder) });
         setDismissed(queryRef.current);
       });
   };
@@ -482,14 +485,16 @@ export function NewTabPage({
     if (composing.current || event.isComposing || event.keyCode === 229) return;
     const input = field.current?.text() ?? { value: typed, selectionStart: typed.length, selectionEnd: typed.length };
     replacing.current = input.value !== "" && input.selectionStart === 0 && input.selectionEnd === input.value.length;
-    // A prompt of several lines keeps ↑ and ↓ for its caret while there is a line to move to (the
-    // New Tab screen's rule, newtab/NewTabScreen.tsx `movesCaretInPrompt`); past it they step the rows.
+    // A prompt of several lines, wrapped ones too, keeps ↑ and ↓ for its caret while there is a line
+    // to move to (the New Tab screen's rule, newtab/NewTabScreen.tsx `movesCaretInPrompt`); past it
+    // they step the rows.
     const plainArrow = !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+    const onEdge = (direction: "up" | "down") => field.current?.caretOnEdgeLine(direction) ?? true;
     const movesCaret =
       plainArrow &&
       (event.key === "ArrowUp"
-        ? input.value.slice(0, input.selectionStart).includes("\n")
-        : event.key === "ArrowDown" && input.value.slice(input.selectionEnd).includes("\n"));
+        ? input.value.slice(0, input.selectionStart).includes("\n") || !onEdge("up")
+        : event.key === "ArrowDown" && (input.value.slice(input.selectionEnd).includes("\n") || !onEdge("down")));
     if ((event.key === "ArrowDown" || event.key === "ArrowUp") && rows.length && !movesCaret) {
       event.preventDefault();
       const step = event.key === "ArrowDown" ? 1 : -1;
@@ -530,7 +535,7 @@ export function NewTabPage({
       return;
     }
     setTouched(true);
-    setOpenFailed(false);
+    setOpenFailed(undefined);
     const plain = field.current?.agentText(next) ?? next;
     onFieldEdit?.(plain);
     const prefixed = composing.current ? undefined : prefixedEdit(replacing.current ? "" : typed, plain);
@@ -748,9 +753,13 @@ export function NewTabPage({
         />
       )}
       {openFailed && (
-        <p className="acpmux-newtab-failed" role="alert">
-          {t(NEW_TAB_LABELS.openFailed)}
-        </p>
+        <div className="acpmux-newtab-failed" role="alert">
+          <p className="acpmux-newtab-failed-message">{t(NEW_TAB_LABELS.openFailedKind[openFailed.kind])}</p>
+          <button type="button" className="acpmux-newtab-failed-retry ui-ghost" onClick={openFailed.retry}>
+            {t(NEW_TAB_LABELS.openRetry)}
+          </button>
+          {openFailed.detail && <ErrorDetails text={openFailed.detail} className="acpmux-newtab-failed-details" />}
+        </div>
       )}
       <div className="acpmux-newtab-actions ui-ghost-row">
         <button type="button" className="acpmux-newtab-all ui-ghost" onClick={onShowAll}>

@@ -72,6 +72,9 @@ afterEach(() => {
   root = undefined;
   host.replaceChildren();
   showAttachments(DEFAULT_COMPOSER.attachmentView);
+  // Each test's chat starts with no kept draft: an attachment brought is the person's edit, so the
+  // prompt holding it is kept for the chat (Composer.tsx `place`).
+  dom.window.localStorage.clear();
 });
 
 afterAll(() => {
@@ -516,9 +519,9 @@ test.each([
 });
 
 // Review of #37674 (F1): only the paste's own gesture takes the selection's place. A screenshot pasted
-// with the caret in a code block cannot go there and waits in the strip; the person then selects the
-// whole prompt while it loads. Once read, it is placed on its own (useInlineAttachments `ready`), and
-// that never deletes what is typed: the selection stays text, the chip goes after it.
+// with the caret in a code block cannot go there: it goes at the start of the prompt's first line that
+// can hold it (never the strip above the text); the person then selects the whole prompt while it
+// loads. Once read, it stays in that node, and that never deletes what is typed.
 test("an attachment placed once read never replaces the selection the person made meanwhile", async () => {
   const rects = { getClientRects: () => [], getBoundingClientRect: () => new dom.window.DOMRect() };
   Object.assign(dom.window.Range.prototype, rects);
@@ -534,7 +537,9 @@ test("an attachment placed once read never replaces the selection the person mad
   });
   const shot = slowScreenshot();
   await paste([shot.file]);
-  expect(field().querySelector("[data-inline-attachment]")).toBeNull();
+  // Not in the code block: at the start of the line after it.
+  expect(field().querySelector("pre [data-inline-attachment]")).toBeNull();
+  expect(field().querySelector("p [data-inline-attachment]")).not.toBeNull();
   await act(async () => markdownField().selectAll());
   shot.release();
   await until(() => (composer.current!.wakeState().attachments ?? []).length === 1, "the read chip");
@@ -544,6 +549,7 @@ test("an attachment placed once read never replaces the selection the person mad
   const value = markdownField().value();
   expect(value).toContain("let x = 1");
   expect(value).toContain("hello world");
+  expect(markdownField().inlineIds()).toHaveLength(1);
 });
 
 // Review of #37674 (F2): a read under 400 ms shows no indicator at all, with or without animations
@@ -561,4 +567,62 @@ test("a loading tile's indicator waits 400 ms, by its own timer", async () => {
   expect(late()!.querySelector("svg")).not.toBeNull();
   shot.release();
   await until(() => placeholders().length === 0, "the ready chip");
+});
+
+// Leo, 2026-11-09: "have we fixed the attachments preview going into the top area of hte composer and
+// THEN to where they shuld be yet too?" A chip the host makes for the chat (a long dictation recording
+// it sends to the chat's machine, Composer.tsx `attachLater`) loads in the text at the caret, as a
+// paste's does, and the chip it becomes takes that same place: the strip above the text never draws
+// it, not while it loads, not when it fails, and not when Retry makes it again.
+test("a recording the host makes for the chat loads at the caret and stays there through a failure and Retry", async () => {
+  const composer = await openComposer();
+  showAttachments("inline");
+  await act(async () => composer.current!.restore("hello world", []));
+  await until(() => field().textContent?.includes("hello world") === true, "the prompt");
+  await act(async () => markdownField().setCaret("hello ".length));
+  const inStrip: string[] = [];
+  const watch = new dom.window.MutationObserver(() => {
+    if (host.querySelector(".acpmux-attachments .acpmux-attachment")) inStrip.push(host.innerHTML);
+  });
+  watch.observe(host, { childList: true, subtree: true, attributes: true });
+  const makes: ((made: ComposerAttachment | undefined) => void)[] = [];
+  const recording: ComposerAttachment = {
+    id: "made-by-host",
+    kind: "audio",
+    name: "Recording.wav",
+    mimeType: "audio/wav",
+    size: 4,
+    path: "/remote/Recording.wav",
+  };
+  const node = () => field().querySelector<HTMLElement>("p [data-inline-attachment]");
+  try {
+    act(() =>
+      composer.current!.attachLater(
+        "Recording.wav",
+        () => new Promise((resolve) => makes.push(resolve)),
+        "could not send",
+      ),
+    );
+    await until(() => node()?.querySelector('[aria-busy="true"]') != null, "the loading tile in the text");
+    expect(node()!.previousSibling?.textContent).toBe("hello ");
+    expect(node()!.nextSibling?.textContent).toBe("world");
+    const id = node()!.getAttribute("data-inline-attachment");
+    // It fails: the tile says so where it is, with Retry.
+    await act(async () => makes[0]!(undefined));
+    await until(() => node()?.querySelector(".acpmux-md-inline-retry") != null, "Retry on the tile");
+    act(() => node()!.querySelector<HTMLElement>(".acpmux-md-inline-retry")!.click());
+    await until(() => makes.length === 2, "the second make");
+    expect(node()!.getAttribute("data-inline-attachment")).toBe(id);
+    // Made: the chip is the tile's, at the tile's place.
+    await act(async () => makes[1]!(recording));
+    await until(() => (composer.current!.wakeState().attachments ?? []).length === 1, "the made chip");
+    await until(() => node()?.querySelector('[aria-busy="true"]') === null, "the made chip in the text");
+    expect(node()!.getAttribute("data-inline-attachment")).toBe(id);
+    expect(field().querySelectorAll("[data-inline-attachment]")).toHaveLength(1);
+    expect(node()!.previousSibling?.textContent).toBe("hello ");
+  } finally {
+    watch.disconnect();
+  }
+  expect(inStrip).toHaveLength(0);
+  expect(composer.current!.wakeState().attachments![0]!.path).toBe("/remote/Recording.wav");
 });

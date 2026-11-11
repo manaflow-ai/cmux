@@ -622,6 +622,9 @@ impl HolderService {
                 });
             }
         }
+        // Reaped here while this daemon runs; it outlives the daemon (that is what keeps
+        // terminals across a restart), also when the reaper thread cannot start.
+        child.detach("the terminal holder outlives this daemon so its terminals survive a restart");
         let _ = std::thread::Builder::new().name("holder-reaper".into()).spawn(move || {
             let _ = child.wait();
         });
@@ -687,7 +690,9 @@ fn socket_path(host_root: &Path) -> io::Result<PathBuf> {
     if !meta.is_dir() || meta.uid() != uid || meta.permissions().mode() & 0o077 != 0 {
         return Err(io::Error::other(format!("{} is not a private directory", dir.display())));
     }
-    Ok(dir.join(format!("{:016x}.sock", fnv1a(host_root.as_os_str().as_encoded_bytes()))))
+    // The name from before NEXT's folder move, so a new daemon reaches the holder an older one started.
+    let identity = cmux_agent_pane_policy::build_identity::path_identity(host_root);
+    Ok(dir.join(format!("{:016x}.sock", fnv1a(identity.as_os_str().as_encoded_bytes()))))
 }
 
 fn fnv1a(bytes: &[u8]) -> u64 {

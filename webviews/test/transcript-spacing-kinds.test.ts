@@ -161,7 +161,7 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
     });
     const port = (vite!.httpServer!.address() as { port: number }).port;
     await page.goto(
-      `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width: 1100, theme, reducedMotion: "true" })}`,
+      `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width: 1100, theme, reducedMotion: "true", exp: "background-turn-look", arm: "line" })}`,
     );
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 120_000,
@@ -234,6 +234,10 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
         const first = lines(row)[0];
         return first ? (first.top + first.bottom) / 2 : null;
       };
+      const tail = (row: Element | undefined) => {
+        const last = lines(row).at(-1);
+        return last ? (last.top + last.bottom) / 2 : null;
+      };
       const diff = (a: number | null | undefined, b: number | null | undefined) =>
         a == null || b == null ? null : Math.round((b - a) * 100) / 100;
       // A stacked row's first line sits on its own line under the row: the pitch from it to the row under it is one
@@ -254,7 +258,11 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
       const bubble = document.querySelector('[data-row-id="sp-prompt"] .cv-user__bubble')?.getBoundingClientRect();
       const sent = byText(/^Sent to/m) ?? document.querySelector('[data-row-id="received-sent"]') ?? undefined;
       const gaps: Record<string, number | null> = {
-        "work-to-subagent": diff(head(byText(/Sent a message/)), head(byClass("acpmux-subagentDone"))),
+        // A running turn keeps its work in sight (cmux#38339): its last call's row over the subagent's.
+        "work-to-subagent": diff(
+          tail(document.querySelector('[data-row-id="status-work"]') ?? undefined),
+          head(byClass("acpmux-subagentDone")),
+        ),
         "subagent-to-waiting": diff(head(byClass("acpmux-subagentDone")), head(byClass("acpmux-pendingMessages"))),
         // The closed group draws its first line under its head (stacked): the live line is a row under that.
         "waiting-to-live": after(

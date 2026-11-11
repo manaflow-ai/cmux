@@ -14,6 +14,8 @@ use super::CREATION_ATTEMPT_KEYS_CAPABILITY;
 use super::CREATION_RECEIPTS_CAPABILITY;
 use super::CREATION_SELECTOR_FALLBACKS_CAPABILITY;
 use super::ClientIdentityWire;
+use super::EVENT_SUBSCRIPTIONS_PER_CLIENT_CAPACITY;
+use super::EVENT_SUBSCRIPTIONS_SERVER_CAPACITY;
 use super::GUARDED_BROWSER_POINTER_CAPABILITY;
 use super::HOST_GRID_VIEW_CAPABILITY;
 use super::LOOPBACK_FORWARD_CAPABILITY;
@@ -326,6 +328,10 @@ pub(super) struct ClientRegistryState {
     /// Shares the registry lock with registration so accepting a handoff and
     /// admitting a new owner cannot pass each other.
     pub(super) daemon_handoff: Option<DaemonHandoffReservation>,
+    /// The handoff requester's `restart` (a replacement follows, or the
+    /// session stops); `None` when it did not say. Cleared with the
+    /// reservation.
+    pub(super) daemon_handoff_restart: Option<bool>,
 }
 
 pub(crate) struct ClientRegistry {
@@ -368,6 +374,8 @@ pub(crate) struct ClientRegistry {
     pub(super) next_id: AtomicU64,
     pub(super) resource_stream_admission: Arc<ResourceWorkerAdmission>,
     pub(super) resource_wait_admission: Arc<ResourceWorkerAdmission>,
+    /// One permit per open v1 `subscribe` stream, held by its thread.
+    pub(super) event_subscription_admission: Arc<ResourceWorkerAdmission>,
     /// Every connection's record. A change publishes the [`ClientFacts`] projection, which a connection's
     /// own line and key paths read without this lock (R-DAEMON-STATE stage S1).
     pub(super) state: crate::published::Published<ClientRegistryState, ClientFacts>,
@@ -447,6 +455,10 @@ impl ClientRegistry {
                 RESOURCE_WAITS_PER_CLIENT_CAPACITY,
                 RESOURCE_WAITS_SERVER_CAPACITY,
             ),
+            event_subscription_admission: ResourceWorkerAdmission::new(
+                EVENT_SUBSCRIPTIONS_PER_CLIENT_CAPACITY,
+                EVENT_SUBSCRIPTIONS_SERVER_CAPACITY,
+            ),
             state: crate::published::Published::new(
                 ClientRegistryState::default(),
                 ClientFacts::of,
@@ -509,6 +521,8 @@ impl ClientRegistry {
                 owner_plugin,
                 #[cfg(unix)]
                 machine_catalog: None,
+                #[cfg(unix)]
+                started_tabs: HashSet::new(),
             },
         );
         drop(state);
@@ -734,6 +748,7 @@ impl ClientRegistry {
                     || capability == TERMINAL_COLOR_OVERRIDES_CAPABILITY
                     || capability == TERMINAL_PENDING_SEQUENCE_CAPABILITY
                     || capability == CREATION_RECEIPTS_CAPABILITY
+                    || capability == super::TERMINAL_PUBLIC_IDS_CAPABILITY
                     || capability == CREATION_ATTEMPT_KEYS_CAPABILITY
                     || capability == CREATION_SELECTOR_FALLBACKS_CAPABILITY
                     || capability == LOOPBACK_FORWARD_CAPABILITY
@@ -752,9 +767,14 @@ impl ClientRegistry {
                     // No placement restatement on `session.events`
                     // (state/placement_shift.rs).
                     || capability == crate::state::placement_shift::CAPABILITY
+                    // `live` in the `session.events` cursors
+                    // (server/session_event_stream.rs).
+                    || capability == super::SESSION_LIVE_CURSOR_CAPABILITY
                     || capability == crate::state::sidebar_doc_store::CAPABILITY
                     || capability == super::participant_avatars::PARTICIPANT_AVATARS_CAPABILITY
                     || capability == super::chief_registry_resource::CHIEF_EVENTS_CAPABILITY
+                    // `restart` on the daemon-shutdown notice (disconnect.rs).
+                    || capability == super::DAEMON_SHUTDOWN_RESTART_CAPABILITY
                     || capability == "cloud-mobile-chat-v1"
             }));
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
@@ -978,6 +998,25 @@ impl ClientRegistry {
         })
     }
 
+    /// Records that `client`'s own `agent-session-start` bound a chat to `surface`.
+    #[cfg(unix)]
+    pub(super) fn remember_started_tab(&self, client: u64, surface: SurfaceId) {
+        if let Some(record) = self.state.lock().recover_poison().clients.get_mut(&client) {
+            record.started_tabs.insert(surface);
+        }
+    }
+
+    /// Whether `client`'s own `agent-session-start` bound a chat to `surface`.
+    #[cfg(unix)]
+    pub(super) fn started_tab(&self, client: u64, surface: SurfaceId) -> bool {
+        self.state
+            .lock()
+            .recover_poison()
+            .clients
+            .get(&client)
+            .is_some_and(|record| record.started_tabs.contains(&surface))
+    }
+
     pub(crate) fn supports_capability(&self, client: u64, capability: &str) -> bool {
         self.state
             .lock()
@@ -1049,6 +1088,8 @@ impl ClientRegistry {
             anyhow::bail!("daemon handoff is already in progress");
         }
         state.daemon_handoff = Some(DaemonHandoffReservation::Pending(requesting_client));
+        // A new reservation starts with no `restart`; only its own request sets one.
+        state.daemon_handoff_restart = None;
         Ok(())
     }
 
@@ -1074,7 +1115,23 @@ impl ClientRegistry {
         let mut state = self.state.lock().recover_poison();
         if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(requesting_client)) {
             state.daemon_handoff = None;
+            state.daemon_handoff_restart = None;
         }
+    }
+
+    /// Records whether a replacement follows the handoff `requesting_client`
+    /// reserved. Ignored when that client holds no reservation.
+    pub(crate) fn set_daemon_handoff_restart(&self, requesting_client: u64, restart: Option<bool>) {
+        let mut state = self.state.lock().recover_poison();
+        if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(requesting_client)) {
+            state.daemon_handoff_restart = restart;
+        }
+    }
+
+    /// The `restart` of the reserved handoff, for the shutdown notice.
+    pub(crate) fn daemon_handoff_restart(&self) -> Option<bool> {
+        let state = self.state.lock().recover_poison();
+        state.daemon_handoff.and(state.daemon_handoff_restart)
     }
 
     pub(crate) fn list_json(&self, requesting_client: u64) -> Value {

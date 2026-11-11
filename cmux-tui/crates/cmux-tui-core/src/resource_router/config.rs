@@ -32,9 +32,7 @@ pub(super) fn dispatch(
             let target = target(fields)?;
             Ok(mux.with_settings(|state| state.get(&target).to_json()))
         }
-        ResourceOperation::SettingsSnapshot => {
-            Ok(mux.with_settings(|state| state.snapshot().to_json()))
-        }
+        ResourceOperation::SettingsSnapshot => Ok(mux.settings_snapshot()),
         ResourceOperation::SettingsSet
         | ResourceOperation::SettingsReset
         | ResourceOperation::SettingsResetAll => {
@@ -88,7 +86,7 @@ fn schema_json() -> Value {
         .rows
         .iter()
         .map(|row| {
-            let mut raw = row.raw.clone();
+            let mut raw = row.raw();
             if let Some(members) = raw.as_object_mut() {
                 members.remove("accepts");
                 members.remove("refuses");

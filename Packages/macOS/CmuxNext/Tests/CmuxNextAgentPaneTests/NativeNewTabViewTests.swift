@@ -1,11 +1,12 @@
 import AppKit
 @testable import CmuxNextAgentPane
+import CmuxNextTestSupport
 import Testing
 
 /// The native New Tab page is AppKit (plans/cmux-next/no-swiftui-DESIGN.md): its field exists before
 /// any layout, typing in it changes the rows in the same turn, Up and Down move the highlight, Return
 /// and a click run a row, and the switch sets the kind.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct NativeNewTabViewTests {
     private struct Calls {
         var submits: [(String, AgentPaneTabKind)] = []
@@ -80,6 +81,32 @@ struct NativeNewTabViewTests {
         #expect(rows.allSatisfy { $0.frame.width > 0 && $0.frame.height == NativeNewTabRowView.height })
         #expect(rows.allSatisfy { host.page.convert($0.bounds, from: $0).minY > host.page.convert(field.bounds, from: field).minY },
                 "the rows sit under the field")
+    }
+
+    /// Real-app capture (2026-11-08): every row read "Split Ri..." and "P...s" in a 640 pt card. A
+    /// short title and detail are drawn whole when the row has the room.
+    @Test func aShortTitleAndDetailAreNotTruncated() throws {
+        let (host, _, _, window) = Self.make()
+        defer { window.close() }
+        // Typed a letter at a time, as a person does: each row view is laid out with a short title,
+        // then reused for a longer one ("Ask: t", then "Ask: toggle").
+        for end in 1..."toggle".count {
+            try Self.enter(String("toggle".prefix(end)), into: host)
+            host.layoutSubtreeIfNeeded()
+        }
+        let ask = try #require(host.page.rows.first)
+        #expect(ask.titleField.frame.width >= ceil(ask.titleField.attributedStringValue.size().width),
+                "\(ask.titleField.stringValue) drawn in \(ask.titleField.frame.width) pt")
+        let row = try #require(host.page.rows.first { $0.content?.title == "Toggle Sidebar" })
+        #expect(row.frame.width > 500)
+        for label in [row.titleField, row.detailField] {
+            let whole = ceil(label.attributedStringValue.size().width)
+            #expect(label.frame.width >= whole, "\(label.stringValue) drawn in \(label.frame.width) pt of its \(whole) pt")
+        }
+        let title = row.titleField, detail = row.detailField
+        let titleBaseline = title.frame.maxY - title.firstBaselineOffsetFromTop
+        let detailBaseline = detail.frame.maxY - detail.firstBaselineOffsetFromTop
+        #expect(abs(titleBaseline - detailBaseline) < 0.5, "the detail sits on the title's baseline")
     }
 
     @Test func downUpAndReturnRunTheHighlightedRow() throws {

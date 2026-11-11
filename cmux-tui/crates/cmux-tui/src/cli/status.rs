@@ -34,6 +34,11 @@ use super::{GlobalArgs, OutputMode, Surface, UsageError};
 mod status_wait;
 mod terminal_wait;
 pub(super) use terminal_wait::duration;
+/// The `terminal <t> wait` flag parser, for the agent guide's recipe check (cli/skill.rs).
+#[cfg(test)]
+pub(super) fn terminal_wait_flags_parse(words: &[String]) -> bool {
+    terminal_wait::parse(words).is_ok()
+}
 
 const DEFAULT_BADGE_TTL: &str = "8s";
 /// Flags `set` passes through to `workspace status set` unchanged.
@@ -88,6 +93,9 @@ fn run(global: &GlobalArgs, command: &[String]) -> Option<i32> {
     if super::canonical_scope(first) == "terminal" {
         return super::terminal_talk::run(global, rest)
             .or_else(|| terminal_wait::run(global, rest));
+    }
+    if super::canonical_scope(first) == "workspace" {
+        return super::worktree_workspace::run(global, rest);
     }
     if first != "status" {
         return None;
@@ -255,7 +263,9 @@ fn parse(words: &[String]) -> Result<Status, UsageError> {
             Ok(Status::Run(RunPlan { key, label, target, badge_ttl, argv }))
         }
         (["run"], _) => Err(UsageError::new("status run needs a command after --")),
-        _ => Err(UsageError::new("status takes set, clear, list, run or wait")),
+        _ => Err(UsageError::new(
+            "status takes set, clear, list, run or wait; run `cmux status --help`",
+        )),
     }
 }
 

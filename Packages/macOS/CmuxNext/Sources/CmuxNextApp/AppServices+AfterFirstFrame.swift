@@ -16,7 +16,6 @@ extension AppServices {
         let acpmux = QuitAgents.environment(self)
         ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath)
         chatsFeed?.keepCurrent()
-        projectsImport.start(feed: chatsFeed)
         if let feed = chatsFeed { AgentPageChats.wire(agentTabs, to: feed, opener: chatsOpener) }
         NewTabPlacesFeed.wire(agentTabs, services: self)
         NewTabWeather.wire(agentTabs, services: self)
@@ -24,7 +23,7 @@ extension AppServices {
         DebugTimings.markLaunch("launch.post_frame_feeds")
     }
 
-    /// The free-tier attest, SSH, server reach, the updater (Sparkle) and the marked-tab watch.
+    /// The free-tier attest, SSH, server reach, the updater (Sparkle), the marked-tab watch and the link places.
     func startNonPaintServices() {
         FreeTierAttestStarter(build: environment.build, bundle: .main, apiBaseURL: feed.apiBaseURL, settings: settings, signedIn: { [weak self] in self.map { $0.cloud.isSignedIn || $0.cloud.auth.isRestoring } ?? true }).start()
         ssh.start()
@@ -43,11 +42,12 @@ extension AppServices {
                                 actions: CrashContext.actions(runs, now: Date(), nowUptimeNanos: ActionBudgetMonitor.now()))
         }
         // Needs you's marked tabs (tab-attention-v1) for every agent page and the palette.
-        attentionTabsWatch = AttentionTabsWatch(tabs: attentionTabs, snapshots: { [weak self] in
-            self?.machines.daemons.filter { $0.supports(DaemonCapability.tabAttentionRequestID.rawValue) }.map { AttentionTabsWatch.Snapshot(machine: $0.machineID, store: $0.store) }
+        attentionTabsWatch = AttentionTabsWatch(tabs: attentionTabs, machines: { [weak self] in
+            self?.machines.daemons.filter { $0.supports(DaemonCapability.tabAttentionRequestID.rawValue) }.map { (machine: $0.machineID, store: $0.store) }
         }, onChange: { [weak self] items, eligibleRequests in
             self?.notifications.attention.marksChanged(items, eligibleRequests: eligibleRequests)
         })
+        attentionTabs.places.follow({ [weak self] in self?.linkPlaceWorkspaces() }, titles: .init(workspace: { [weak self] in self?.shownWorkspaceName($0) ?? $0.displayName }, tabs: { [weak self] in self.map(SidebarBridge.tabTitle) ?? { $1.displayTitle } }))
         DebugTimings.markLaunch("launch.non_paint_services")
     }
 

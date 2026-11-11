@@ -53,9 +53,11 @@ import type {
   UpdateHighlights,
   UpdateSurfaceActions,
 } from "./updateHighlights";
-import { PreviewIntent, previewEntries } from "./updatedPreview";
+import { PREVIEW_CLOSE_MS, PreviewIntent, previewEntries } from "./updatedPreview";
+import { parsePreviewMode, type UpdatedPreviewMode } from "./updatedPreviewMode";
 import { pressCard, SHIPPED_DRAG_FEEL, type CardDragFeel, type CardDragHost, type CardRow } from "./updatedCardDrag";
-import { PREVIEW_MAX_PX, UpdatedCardPreview } from "./UpdatedCardPreview";
+import { PREVIEW_MAX_PX, UpdatedCardPreview, type PreviewLayout, type PreviewTarget } from "./UpdatedCardPreview";
+export type { PreviewLayout } from "./UpdatedCardPreview";
 import { summarizeHighlights, summarizeUpdate, type SummaryRow } from "./updateSummary";
 
 /** "1.0.0-nightly.3845050428001" reads "nightly 3845050", as the native Update Ready card
@@ -95,7 +97,7 @@ const COPIED_MS = 1500;
  * and `copied` is true for a moment, for the caller to say "Copied" in place: nothing pops over the
  * surface. Its CSS keeps it plain inline text, and a drag across the line still selects it with the
  * words around it (u4466); a pointer click that ends a selection copies nothing. */
-function CopyVersion({
+export function CopyVersion({
   version,
   className,
   strings,
@@ -205,9 +207,6 @@ export type WhatsNewPlacement = "title" | "top-right" | "button";
 
 /** How long the card waits for the host to make room for the open preview before it opens anyway. */
 const PREVIEW_ROOM_WAIT_MS = 150;
-/** How long the preview's close runs before the card hands its room back (the card's own curve,
-    `--wn-preview-motion` in updateSurfaces.css); with motion reduced or off, no wait. */
-const PREVIEW_CLOSE_MS = 265;
 
 export function UpdatedCard({
   data,
@@ -219,6 +218,8 @@ export function UpdatedCard({
   decoration,
   animate = true,
   placement = "title",
+  previewLayout = "header",
+  previewMode,
   previewOpen,
   hostPointer,
   onPreviewSize,
@@ -226,6 +227,8 @@ export function UpdatedCard({
   anchor = "bottom",
   drag,
   dragFeel = SHIPPED_DRAG_FEEL,
+  notesLoading = false,
+  loadingLook = SHIPPED_NOTE_LOADING,
 }: {
   data: UpdateHighlights;
   /** The notes of every build after the previous version, newest first; absent until they load. */
@@ -244,6 +247,13 @@ export function UpdatedCard({
   animate?: boolean;
   /** Where What's New sits (gallery variants); `title` ships. */
   placement?: WhatsNewPlacement;
+  /** How the open hover preview is laid out (gallery variants); `header` ships. The sidebar host
+      draws its x on the card's title line, wherever this layout puts it (SidebarUpdatedCardHost). */
+  previewLayout?: PreviewLayout;
+  /** Where the card shows the update's changes (updatedPreviewMode.ts); undefined reads the theme's
+      (the shipped `beside`: the native host opens them beside the sidebar, the card never grows).
+      Only `above` opens the hover preview in the card itself. */
+  previewMode?: UpdatedPreviewMode;
   /** Holds the hover preview open or closed (gallery stills); undefined: the pointer decides. */
   previewOpen?: boolean;
   /** Whether the sidebar host has the pointer on the card (its native tracking area); undefined
@@ -261,16 +271,25 @@ export function UpdatedCard({
   /** Moves the card while the person drags it (updatedCardDrag.ts); absent: the card does not drag. */
   drag?: CardDragHost;
   dragFeel?: CardDragFeel;
+  /** The notes of the update's span are still loading: the title is final, and the change line holds
+      its one line with a quiet indicator until the words come (or the load gives up and the host's
+      items stand in), so the card never draws blank and the line never jumps. */
+  notesLoading?: boolean;
+  /** How the loading change line looks (gallery variants); `dots` ships. */
+  loadingLook?: NoteLoadingLook;
 }) {
   const titleId = useId();
   const [copied, setCopied] = useState(false);
   const themed = useDecoration("updated-card");
   const doodle = (decoration === undefined ? themed : decoration) === "doodle";
+  const themedMode = parsePreviewMode(useDecoration("updated-card-preview"));
+  const mode = previewMode ?? themedMode;
   const summary = span ? summarizeUpdate(span, strings.language) : summarizeHighlights(readableUpdate(data));
   const top = summary.rows[0];
   const name = /^[^-]+-nightly\.\d+$/.test(data.version) ? strings.t("updates.card.nightly") : data.version;
   const titleKey = data.delivery === "background" ? "updates.card.updatedBehind" : "updates.card.updatedTo";
   const [before, after] = strings.format(titleKey, "\u0000").split("\u0000");
+  // Every layout opens and closes on the card's curve, with the host's native glass (Leo 2026-11-08).
   const preview = useHoverPreview({
     data,
     span,
@@ -279,12 +298,15 @@ export function UpdatedCard({
     hostPointer,
     onPreviewSize,
     onPreviewGlass,
-    enabled: !doodle,
+    enabled: !doodle && mode === "above",
+    runsHeight: true,
   });
-  const openChangelog = () => {
+  // A row of the in-card preview opens What's New at its change; the card's own links at the top.
+  const openChangelog = (target?: PreviewTarget) => {
     preview.close();
-    actions.openChangelog();
+    actions.openChangelog(target);
   };
+  const openWhatsNew = () => openChangelog();
   const rest = useRef<HTMLElement | null>(null);
   const dragRef = useCardDrag(rest, drag, dragFeel, preview.closeForDrag);
   const { cardRef } = preview;
@@ -309,7 +331,7 @@ export function UpdatedCard({
     rest.current = element;
   }, []);
   const whatsNew = (
-    <button type="button" className="wn-card-primary" onClick={openChangelog}>
+    <button type="button" className="wn-card-primary" onClick={openWhatsNew}>
       {strings.t("changelog.page.title")}
     </button>
   );
@@ -335,18 +357,32 @@ export function UpdatedCard({
       </svg>
     </button>
   );
-  const note = (
-    <p className="wn-card-note">
-      {top ? (
-        <>
-          <span className="wn-card-area">{strings.format("updates.card.areaLabel", rowLabel(top, strings))}</span>{" "}
-          {top.phrases[0]}
-        </>
-      ) : (
-        strings.t(span ? "changelog.page.maintenance" : "updates.card.whatsNewInBuild")
-      )}
-    </p>
-  );
+  // The card's second line: the top change (the shipped look), the full version (`version`), or See
+  // What's New (`quiet`, a card with no list).
+  const note =
+    mode === "version" && name !== data.version ? (
+      <p className="wn-card-version">{data.version}</p>
+    ) : mode === "quiet" ? (
+      <p className="wn-card-note">
+        <button type="button" className="wn-card-seenew" onClick={openWhatsNew}>
+          {strings.t("updates.card.seeWhatsNew")}
+          <span aria-hidden="true"> ↗</span>
+        </button>
+      </p>
+    ) : notesLoading ? (
+      <NoteLoading look={loadingLook} label={strings.t("updates.card.loadingNotes")} />
+    ) : (
+      <p className="wn-card-note">
+        {top ? (
+          <>
+            <span className="wn-card-area">{strings.format("updates.card.areaLabel", rowLabel(top, strings))}</span>{" "}
+            {top.phrases[0]}
+          </>
+        ) : (
+          strings.t(span ? "changelog.page.maintenance" : "updates.card.whatsNewInBuild")
+        )}
+      </p>
+    );
   if (doodle) {
     return (
       <Doodle animate={animate}>
@@ -374,6 +410,8 @@ export function UpdatedCard({
       className="wn-card wn-updated"
       aria-labelledby={titleId}
       data-placement={placement}
+      data-layout={previewLayout}
+      data-mode={mode}
       data-anchor={anchor}
       data-drags={drag ? "" : undefined}
       data-preview={preview.shown ? "open" : "closed"}
@@ -387,32 +425,68 @@ export function UpdatedCard({
           entries={preview.entries}
           shown={preview.shown}
           strings={strings}
-          listRef={preview.listRef}
+          bodyRef={preview.bodyRef}
           onOpen={openChangelog}
         />
       )}
       <div className="wn-card-rest" ref={restRef}>
         <div className="wn-card-head">
           {title}
-          {placement !== "button" && (
-            <>
-              {placement === "title" && (
-                <span className="wn-card-sep" aria-hidden="true">
-                  ·
-                </span>
-              )}
-              <button type="button" className="wn-card-link" onClick={openChangelog}>
-                {strings.t("changelog.page.title")}
-                <span aria-hidden="true"> ↗</span>
-              </button>
-            </>
+          {/* The shipped title line is the title alone (Lawrence 2026-11-07: "Updated to ..." was cut
+              to fit What's New beside it); What's New leads the open preview. */}
+          {placement === "top-right" && (
+            <button type="button" className="wn-card-link" onClick={openWhatsNew}>
+              {strings.t("changelog.page.title")}
+              <span aria-hidden="true"> ↗</span>
+            </button>
           )}
         </div>
         {close}
         {note}
+        {/* Open, the card's second line is the full version, in the note's place and height. */}
+        {preview.shown && name !== data.version && <p className="wn-card-version">{data.version}</p>}
         {placement === "button" && <div className="wn-card-actions">{whatsNew}</div>}
       </div>
     </section>
+  );
+}
+
+/** The loading change line's looks (gallery variants, Leo 2026-11-09: "for the, you know, fixed or
+    whatever subtitle text individually, we can have it be, like, should have a loading indicator, like
+    an ellipsis-type thing"): three still dots (`dots`, shipped; no breathing loop, test/no-breathing-dots),
+    the ellipsis glyph (`glyph`), a bar one line tall that a light crosses (`bar`), and the words
+    (`words`). */
+export type NoteLoadingLook = "dots" | "glyph" | "bar" | "words";
+export const NOTE_LOADING_LOOKS: readonly NoteLoadingLook[] = ["dots", "glyph", "bar", "words"];
+export const SHIPPED_NOTE_LOADING: NoteLoadingLook = "dots";
+
+/** The change line while the update's notes load: the note's own box (its font, line height and
+    margin), so the words that replace it take exactly its room. VoiceOver reads "Loading what's new"
+    (a clipped label); the marks are hidden from it. */
+function NoteLoading({ look, label }: { look: NoteLoadingLook; label: string }) {
+  return (
+    <p className="wn-card-note wn-card-note-loading" data-loading={look}>
+      {look === "words" ? (
+        `${label}\u2026`
+      ) : (
+        <>
+          <span className="wn-note-label">{label}</span>
+          <span aria-hidden="true">
+            {look === "bar" ? (
+              <span className="wn-note-bar" />
+            ) : look === "glyph" ? (
+              "\u2026"
+            ) : (
+              <span className="wn-note-dots">
+                <span />
+                <span />
+                <span />
+              </span>
+            )}
+          </span>
+        </>
+      )}
+    </p>
   );
 }
 
@@ -465,6 +539,7 @@ function useHoverPreview({
   onPreviewSize,
   onPreviewGlass,
   enabled,
+  runsHeight,
 }: {
   data: UpdateHighlights;
   span?: ReleaseNotes[];
@@ -474,6 +549,8 @@ function useHoverPreview({
   onPreviewSize?: (height: number) => void;
   onPreviewGlass?: (height: number) => void;
   enabled: boolean;
+  /** The preview opens and closes on a height run (`header-bottom`); else it is simply there. */
+  runsHeight: boolean;
 }) {
   const entries = enabled ? previewEntries(data, span, strings.language) : [];
   const forced = previewOpen !== undefined;
@@ -481,7 +558,7 @@ function useHoverPreview({
   const [wanted, setWanted] = useState(false);
   const [shown, setShown] = useState(false);
   const [height, setHeight] = useState(0);
-  const list = useRef<HTMLUListElement | null>(null);
+  const list = useRef<HTMLDivElement | null>(null);
   const card = useRef<HTMLElement | null>(null);
   const intent = useRef<PreviewIntent | null>(null);
   intent.current ??= new PreviewIntent(setWanted);
@@ -497,8 +574,9 @@ function useHoverPreview({
   }, [hostPointer]);
   const want = enabled && entries.length > 0 && (forced ? previewOpen : wanted);
   const mounted = enabled && entries.length > 0 && (warm || want);
-  // The list's own height, measured once it is mounted (it is laid out at its natural height while
-  // the preview is closed, clipped to nothing): the preview opens to it, at most PREVIEW_MAX_PX.
+  // The preview's own height (What's New and the list), measured once it is mounted (it is laid out
+  // at its natural height while the preview is closed, clipped to nothing): the preview opens to it,
+  // at most PREVIEW_MAX_PX.
   const count = entries.length;
   useLayoutEffect(() => {
     if (!mounted || !list.current) return;
@@ -514,7 +592,7 @@ function useHoverPreview({
       };
       // With motion reduced or off the preview has no close to run (updateSurfaces.css): the room
       // goes back at once (#37615 F2).
-      if (motionMode() !== "full") {
+      if (!runsHeight || motionMode() !== "full") {
         handBack();
         return;
       }
@@ -556,7 +634,7 @@ function useHoverPreview({
       view.removeEventListener("resize", onResize);
       clearTimeout(timer);
     };
-  }, [want, mounted, height, forced]);
+  }, [want, mounted, height, forced, runsHeight]);
   // The card listens for the pointer and Escape itself (the section is not a control).
   const open = want && shown;
   const isOpen = useRef(open);
@@ -597,7 +675,7 @@ function useHoverPreview({
     mounted,
     shown: open,
     height,
-    listRef: list,
+    bodyRef: list,
     cardRef: card,
     close: () => intent.current?.close(),
     /** Closes it for a drag: the room goes back at once, so the host does not shrink the held card's
@@ -673,7 +751,7 @@ export function UpdateReadyHighlights({
   if (items.length === 0 && (rest?.length ?? 0) === 0) {
     const from = data.fromVersion && data.fromVersion !== data.version ? data.fromVersion : null;
     const link = (
-      <button type="button" className="wn-pop-all" onClick={actions.openChangelog}>
+      <button type="button" className="wn-pop-all" onClick={() => actions.openChangelog()}>
         {strings.t("updates.popover.seeReleaseNotes")}
         <span aria-hidden="true"> →</span>
       </button>
@@ -733,7 +811,7 @@ export function UpdateReadyHighlights({
         {items.length > 0 && (
           <ul className="wn-pop-list">
             {items.map((item) => (
-              <PopRow key={item.id} item={item} layout={layout} onOpen={actions.openChangelog} />
+              <PopRow key={item.id} item={item} layout={layout} onOpen={() => actions.openChangelog()} />
             ))}
           </ul>
         )}
@@ -745,7 +823,7 @@ export function UpdateReadyHighlights({
                   {label && <h4>{label}</h4>}
                   <ul>
                     {items.map((item) => (
-                      <PopRow key={item.id} item={item} layout={layout} onOpen={actions.openChangelog} />
+                      <PopRow key={item.id} item={item} layout={layout} onOpen={() => actions.openChangelog()} />
                     ))}
                   </ul>
                 </section>
@@ -758,7 +836,7 @@ export function UpdateReadyHighlights({
         {!rest && data.moreCount > 0 && (
           <span className="wn-pop-more">{strings.format("updates.card.more", String(data.moreCount))}</span>
         )}
-        <button type="button" className="wn-pop-all" onClick={actions.openChangelog}>
+        <button type="button" className="wn-pop-all" onClick={() => actions.openChangelog()}>
           {strings.t(all.length > 0 ? "updates.popover.seeAll" : "updates.popover.seeReleaseNotes")}
           <span aria-hidden="true"> →</span>
         </button>

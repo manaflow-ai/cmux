@@ -1157,6 +1157,11 @@ def is_web_change(path: str) -> bool:
         return True
     if path == "CHANGELOG.md":
         return True
+    # web/tests/next-docs.test.ts compares the generated docs references with
+    # these (web_subareas.UNIT_TESTS_EXACT); #38631 changed the catalog alone,
+    # skipped Web tests and turned them red on base.
+    if path in ("plans/cmux-next/action-surfaces.json", "schemas/settings/settings-schema.json"):
+        return True
     if is_web_bundle_input(path):
         return True
     return path in {
@@ -1183,6 +1188,7 @@ def is_web_change(path: str) -> bool:
         # It also runs the test of the PR scoping of ui-rules and gallery coverage.
         "scripts/tests/test_pr_scoped_webviews_checks.py",
         "scripts/check-webviews-bun-version.sh",
+        "scripts/webviews_bun_version.py",
         "scripts/check-webviews-react-compiler.mjs",
         # The generated agent pane page, its build and regenerate scripts, and
         # the merge driver that keeps it mergeable: react-apps-check verifies

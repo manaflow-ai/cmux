@@ -75,12 +75,70 @@ fn a_carrier_dial_carries_the_daemon_stream_both_ways() {
         !teams.is_empty() && teams.iter().all(Option::is_none),
         "no team, no header: {teams:?}"
     );
-    // The route line also went to the dial's own connect log, exactly.
+    // The route line also went to the dial's own connect log, exactly,
+    // followed by the attempt's phases line and its carriers line (which
+    // stderr never gets): no ssh candidate in this answer, so the relay alone.
     let log = world.dir.path().join(".local/state/cmux-tui/sessions/carrier/connect.log");
     let text = std::fs::read_to_string(&log).unwrap();
-    assert_eq!(text, route, "connect.log holds the route line and nothing else");
+    let (logged, rest) = text.split_at(route.len().min(text.len()));
+    assert_eq!(logged, route, "connect.log starts with the route line: {text}");
+    let (phases, routes) = rest.split_once('\n').unwrap_or((rest, ""));
+    assert!(
+        phases.starts_with(&format!(
+            "carrier.phases machine={MACHINE} phase=connect carrier=relay:0 outcome=ok ticket_ms="
+        )),
+        "then one phases line: {text}"
+    );
+    assert_eq!(
+        routes,
+        format!(
+            "carrier.routes machine={MACHINE} phase=connect ssh=no_candidate carrier=relay:0 outcome=ok\n"
+        ),
+        "then its carriers line and nothing else: {text}"
+    );
+    assert!(phases.contains(" lanes=") && !phases.contains("cloud.connect"), "{text}");
     let ms = route.trim_end().rsplit_once(" ms=").unwrap().1;
     assert!(!ms.is_empty() && ms.bytes().all(|b| b.is_ascii_digit()), "nothing after ms=: {route}");
+}
+
+/// A fresh machine's daemon registers after the dial's Connect: the relay
+/// parks the Connect until then. A Register 20 s later, past the relay
+/// client's 15 s control timeout, is still inside the dial's one deadline
+/// (30 s here), so the first attempt connects: one route line, ok, and no
+/// retry.
+#[test]
+fn a_dial_parked_until_the_daemon_registers_20_s_later_connects_on_its_first_attempt() {
+    let world = world_parked(Duration::from_secs(20));
+    let mut child = dial(&world);
+    let mut stderr = BufReader::new(child.stderr.take().unwrap());
+    let reply: Value = serde_json::from_str(&line(&mut stderr)).unwrap();
+    assert_eq!(reply, json!({"ok": true, "path_state": "relay", "route": "carrier"}));
+    let route = line(&mut stderr);
+    let prefix =
+        format!("cloud.connect route=carrier machine={MACHINE} phase=connect outcome=ok ms=");
+    let ms: u64 = route
+        .strip_prefix(&prefix)
+        .and_then(|ms| ms.trim_end().parse().ok())
+        .unwrap_or_else(|| panic!("not the first attempt's ok line: {route}"));
+    assert!(ms >= 20_000, "connected after {ms} ms, before the daemon registered");
+
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    stdin.write_all(b"{\"cmd\":\"identify\",\"id\":1}\n").unwrap();
+    stdin.flush().unwrap();
+    assert_eq!(line(&mut stdout), "{\"cmd\":\"identify\",\"id\":1}\n");
+    drop(stdin);
+    assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
+    // The connect log has every attempt's route line (each followed by its
+    // phases line): this one alone.
+    assert_eq!(route_lines(&world), [route.trim_end()], "the dial retried");
+}
+
+/// The route lines of the dial's connect log, without its phases lines.
+fn route_lines(world: &World) -> Vec<String> {
+    let log = world.dir.path().join(".local/state/cmux-tui/sessions/carrier/connect.log");
+    let text = std::fs::read_to_string(&log).unwrap();
+    text.lines().filter(|l| l.starts_with("cloud.connect ")).map(str::to_owned).collect()
 }
 
 #[test]
@@ -133,7 +191,11 @@ fn a_refused_ticket_names_the_ticket_step() {
     assert!(reply["error_detail"].as_str().unwrap().contains("auth.forbidden"), "{reply}");
     let route = line(&mut stderr);
     assert!(route.contains("phase=connect outcome=ticket"), "{route}");
+    // The platform's status is the detail code, after ms, on stderr and in
+    // the connect log alike.
+    assert!(route.trim_end().ends_with(" detail=http_403"), "{route}");
     assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(2));
+    assert_eq!(route_lines(&world), [route.trim_end()]);
 }
 
 #[test]

@@ -6,7 +6,7 @@
 // (session-info/scheduled.ts), latest first. The lists, their order and their words come from the page's
 // own helpers, so both panels say the same thing.
 import { useState } from "react";
-import { formatDuration } from "../../conversation/turns";
+import { formatDuration, spanDuration } from "../../conversation/turns";
 import type { StringKey, Translate } from "../../i18n";
 import { openCommand } from "../../processTerminal";
 import { modelName, phaseAgents, phaseState, tally, workflowDetailRequest } from "../../summary/foldWorkflows";
@@ -17,6 +17,7 @@ import {
   arrivalKey,
   sessionInfoLists,
   sendLabel,
+  serverUrl,
   splitCommands,
   type BackgroundCommand,
   type SessionInfoProcess,
@@ -118,7 +119,7 @@ export function tasksSection(
   // Servers, newest first: the command, the ports it names (each explicit port is its own button)
   // and how long it has run. The row itself stays plain, like ServersSection.tsx.
   for (const server of [...servers].sort((a, b) => b.startedAt - a.startedAt)) {
-    const urls = server.ports.map((port) => `http://localhost:${port}`);
+    const urls = server.ports.map((port) => serverUrl(server, port));
     const buttons: NativeInfoButton[] = [];
     if (urls.length > 0)
       for (const url of urls)
@@ -201,7 +202,7 @@ export function tasksSection(
   const finishedCommand = (item: BackgroundCommand): NativeInfoRow => {
     const time =
       item.endedAt !== undefined && item.startedAt !== undefined
-        ? formatDuration(Math.max(0, item.endedAt - item.startedAt))
+        ? spanDuration(t, item.endedAt - item.startedAt)
         : undefined;
     return command(item, [time, t(COMMAND_STATE[item.state])].filter(Boolean).join(" · "));
   };

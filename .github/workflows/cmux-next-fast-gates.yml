@@ -129,6 +129,13 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 2
+          # Only the commits matter here (git rev-parse HEAD^1 and HEAD^2): no blobs and one small file in the
+          # work tree. The full tree took 44 s of this job's 48 s p50 (2026-11-07..11 timing records), on the
+          # fast gate's critical path ahead of the gates themselves.
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/runners.json
 
       # Runs no checked-out code: git rev-parse on the merge ref, or the GitHub API
       # on dispatch, which refuses a fork head, a closed pull request
@@ -141,6 +148,9 @@ jobs:
           PR: ${{ inputs.pr }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
           PR_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          # A dispatch on the branch carries its tip at dispatch time: the base, with no REST read.
+          DISPATCH_REF: ${{ github.ref }}
+          DISPATCH_SHA: ${{ github.sha }}
           BRANCH: feat-cmux-next
         run: |
           set -euo pipefail
@@ -206,6 +216,10 @@ jobs:
               echo "::error::#$PR is $state into $base_ref; dispatch gates only open pull requests into $BRANCH"
               exit 1
             fi
+            if [[ -z "$base" && "${DISPATCH_REF:-}" == "refs/heads/$BRANCH" && "${DISPATCH_SHA:-}" =~ ^[0-9a-f]{40}$ ]]; then
+              # The tip the merger dispatched against; reading the branch again spent the shared REST quota.
+              base=$DISPATCH_SHA
+            fi
             if [[ -z "$base" ]]; then
               base="$(gh_read "repos/$GITHUB_REPOSITORY/branches/$BRANCH" --jq .commit.sha)" || exit $?
             fi
@@ -228,7 +242,11 @@ jobs:
     outputs:
       ratchet: ${{ steps.prepare.outputs.ratchet }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || contains(fromJSON('["cmux-fleet-linux-x64","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || fromJSON(vars.RUNNER_POOLS).linux }}
-    timeout-minutes: 10
+    # Dispatches took 2.5 to 7.1 min on 11-08 and 11-09; cmux#38640's web lint alone took 302 s and its webviews
+    # checks ran past 10 min twice, each a stopped run with no verdict. The gates get --budget-seconds 1260 (21 min)
+    # below, more than the 15 minutes the whole job had before, so a slow runner never turns a passing run red; the
+    # 4 minutes left cover checkout, setup and the cache save.
+    timeout-minutes: 25
     # The pull request's code runs here: no write permission of any kind.
     permissions:
       contents: read
@@ -309,9 +327,19 @@ jobs:
         id: gates
         env:
           BASE: ${{ needs.resolve.outputs.base }}
+          # The lint tools' release-assets API fallback (prepush-gate.py fetch) authenticates with it; unauthenticated,
+          # the shared runner IPs' 60 calls an hour answer 403. The job's token is read-only (contents: read).
+          GH_TOKEN: ${{ github.token }}
           WEB: ${{ steps.prepare.outputs.web }}
           CHECKS: ${{ steps.prepare.outputs.checks }}
-        run: python3 scripts/ci/cmux_next_fast_gates.py run --base "$BASE" --web "$WEB" --checks "$CHECKS" --summary "$GITHUB_STEP_SUMMARY"
+          # Bun waits on a registry connection that stops answering with no limit of its own (2026-11-09: the web
+          # lint's install sat silent on the hosted runners until this job's limit cancelled it). A connection idle
+          # this long is dropped and the request retried, as scripts/ci/bun-install.sh does for the other web jobs.
+          BUN_CONFIG_HTTP_IDLE_TIMEOUT: "30"
+          BUN_CONFIG_HTTP_RETRY_COUNT: "5"
+        # --budget-seconds: a gate still running 21 min in is stopped and named as stalled, so the job ends with that
+        # reason inside its 25-minute limit instead of being cancelled with none.
+        run: python3 scripts/ci/cmux_next_fast_gates.py run --base "$BASE" --web "$WEB" --checks "$CHECKS" --budget-seconds 1260 --summary "$GITHUB_STEP_SUMMARY"
 
   # Only on a dispatch whose prepare found a lowered panic-ratchet row the PR
   # changes (cmux_next_fast_gates.py ratchet_needed). The clippy setup is
@@ -397,12 +425,30 @@ jobs:
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ && "$BASE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::no head or base sha to report"; exit 1; }
           state=failure
           if [[ "$GATES" == success && ( "$RATCHET" == success || "$RATCHET" == skipped ) ]]; then state=success; fi
+          description="base $BASE"
+          # Only success and failure are verdicts. A gates job that ended any other way (cancelled or timed
+          # out, skipped, abandoned because its placed runner never reported, empty, or a result this step
+          # does not know) judged nothing, and so did a ratchet that ended any way but success, skipped
+          # (nothing to rejudge) or failure. That posts pending with "stopped", never failure: on 2026-11-09
+          # two of cmux#38640's dispatches timed out and posted failure at a fresh base, and cmux#39743's
+          # abandoned gates posted failure, and every merger read each as the pull request's own red. A
+          # merger sees no verdict and dispatches again. A gates failure stays a failure whatever the
+          # ratchet did.
+          stopped=false
+          [[ "$GATES" == success || "$GATES" == failure ]] || stopped=true
+          if [[ "$GATES" == success && "$RATCHET" != success && "$RATCHET" != skipped && "$RATCHET" != failure ]]; then
+            stopped=true
+          fi
+          if [[ "$stopped" == true ]]; then
+            state=pending
+            description="base $BASE; stopped (gates ${GATES:-none}, ratchet ${RATCHET:-none}), no verdict"
+          fi
           # A rate-limit refusal is status-posting infrastructure, not a gate verdict. Keep the
           # run green with a named warning; a missing status is never treated as a pass by the
           # merger, which dispatches a fresh gate when it needs one. Other API failures stay red.
           response=""
           if ! response="$(gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" \
-            -f state="$state" -f context="$CONTEXT" -f target_url="$TARGET_URL" -f description="base $BASE" 2>&1)"; then
+            -f state="$state" -f context="$CONTEXT" -f target_url="$TARGET_URL" -f description="$description" 2>&1)"; then
             if grep -qiE 'rate limit exceeded|secondary rate limit|too many requests|HTTP 429' <<<"$response"; then
               echo "::warning title=GitHub API budget::cmux-next/fast-gates status could not be posted because the installation API budget is exhausted; the run remains advisory."
               echo "- cmux-next/fast-gates status could not be posted because the GitHub installation API budget is exhausted; a missing status is not a pass." >> "$GITHUB_STEP_SUMMARY"

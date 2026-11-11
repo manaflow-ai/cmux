@@ -75,13 +75,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import signing_runner  # noqa: E402
 import test_ci_signing_keychain_is_deleted_before_bundle_code as keychain_guard  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 # The jobs glaeda's job-started hook admits as the exclusive class (glaeda scripts/glaeda-cmux-runner-hook
 # SIGNING_JOBS). A signing job routed to owned Macs must be one of them, so a new one is added there too.
 SIGNING_JOBS = {
     ("nightly.yml", "build-sign-notarize-nightly"), ("nightly.yml", "recover-nightly-next-notarization"),
     ("nightly.yml", "generate-nightly-deltas"),
-    ("nightly.yml", "publish-nightly"), ("nightly.yml", "publish-nightly-next-github"),
+    ("nightly.yml", "publish-nightly"),
+    # Short secret jobs that ran on GitHub-hosted Ubuntu until glaeda's SIGNING_JOBS admitted them.
+    ("nightly.yml", "keep-published-dsyms"), ("nightly.yml", "republish-nightly-deltas"),
     ("release.yml", "build-sign-notarize"), ("repair-v0-64-25-helper-rpaths.yml", "repair"),
     ("cmux-next-dev-daily.yml", "sign"),
 }
@@ -91,7 +100,8 @@ SIGNING_JOBS = {
 # (glaeda scripts/glaeda-promotion-admit, PROMOTION_LEASE) and starts with the same claim gate.
 # GlaedaExclusiveClassTests holds the gate, the claim script and the secret order for the extra entry, and the
 # keychain guard's rule 7a reads this list: a job glaeda holds the whole mini for may fall back to an owned route.
-GLAEDA_EXCLUSIVE_JOBS = SIGNING_JOBS | {("nightly.yml", "promote-nightly-next")}
+# promote-nightly-next-acked (retired, if: false) takes promote-nightly-next's route and claim the same way.
+GLAEDA_EXCLUSIVE_JOBS = SIGNING_JOBS | {("nightly.yml", "promote-nightly-next"), ("nightly.yml", "promote-nightly-next-acked")}
 OWNED_PICKER = "scripts/ci/signing_runner.py"
 BLACKSMITH_PICKER = "scripts/ci/nightly_sign_runner.py"
 CLAIM = "scripts/ci/signing-runner-claim.sh"
@@ -1038,7 +1048,7 @@ class GlaedaExclusiveClassTests(unittest.TestCase):
     neither, so signing_job() skips it there; these cases hold its claim gate, its claim script before the
     release App key and its empty job env, which is what the keychain guard's rule 7a relies on."""
 
-    EXTRA = {("nightly.yml", "promote-nightly-next")}
+    EXTRA = {("nightly.yml", "promote-nightly-next"), ("nightly.yml", "promote-nightly-next-acked")}
 
     def test_the_list_is_the_picker_jobs_plus_the_promote_job(self) -> None:
         self.assertEqual(SIGNING_JOBS - GLAEDA_EXCLUSIVE_JOBS, set())
@@ -1528,9 +1538,9 @@ class SearchListTests(unittest.TestCase):
         security = tmp / "security"
         security.write_text('#!/bin/sh\necho "$@" >> "$CALLS"\n')
         security.chmod(0o755)
-        env = {"PATH": "/usr/bin:/bin", "HOME": os.fspath(tmp), "CALLS": os.fspath(tmp / "calls"),
+        env = git_fixture_env.fixture_env({"PATH": "/usr/bin:/bin", "HOME": os.fspath(tmp), "CALLS": os.fspath(tmp / "calls"),
                "CMUX_SECURITY_TOOL": os.fspath(security), "CMUX_KEYCHAIN_DIR": os.fspath(tmp / "keychains"),
-               "CMUX_SIGNING_KEYCHAIN_STATE_DIR": os.fspath(tmp / "state")}
+               "CMUX_SIGNING_KEYCHAIN_STATE_DIR": os.fspath(tmp / "state")})
         done = subprocess.run(["bash", os.fspath(ROOT / "scripts/ci/signing-keychain.sh"), "delete"], env=env,
                               capture_output=True, text=True, timeout=30, check=False)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
@@ -1578,12 +1588,12 @@ class TrustAgentRefreshTests(unittest.TestCase):
         for name, body in stubs.items():
             (bin_dir / name).write_text(body)
             (bin_dir / name).chmod(0o755)
-        env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": os.fspath(tmp), "CALLS": os.fspath(tmp / "calls"),
+        env = git_fixture_env.fixture_env({"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": os.fspath(tmp), "CALLS": os.fspath(tmp / "calls"),
                "CMUX_SECURITY_TOOL": os.fspath(bin_dir / "security"),
                "CMUX_LAUNCHCTL_TOOL": os.fspath(bin_dir / "launchctl"),
                "CMUX_KEYCHAIN_DIR": os.fspath(tmp / "keychains"),
                "CMUX_SIGNING_KEYCHAIN_STATE_DIR": os.fspath(tmp / "state"), "RUNNER_TEMP": os.fspath(tmp),
-               "APPLE_CERTIFICATE_BASE64": "cDEy", "APPLE_CERTIFICATE_PASSWORD": "pw"}
+               "APPLE_CERTIFICATE_BASE64": "cDEy", "APPLE_CERTIFICATE_PASSWORD": "pw"})
         done = subprocess.run(["bash", os.fspath(ROOT / "scripts/ci/signing-keychain.sh"), "create"], env=env,
                               capture_output=True, text=True, timeout=30, check=False)
         calls = (tmp / "calls").read_text().splitlines() if (tmp / "calls").exists() else []
@@ -1724,8 +1734,8 @@ def glaeda_disk_history() -> Iterator[tuple[dt.datetime, list[str]]]:
         def git(*args: str) -> str:
             return subprocess.run(["git", "-C", tmp, *args], capture_output=True, text=True, check=True,
                                   timeout=60).stdout
-        subprocess.run(["git", "clone", "-q", "--bare", "--filter=blob:none", "--single-branch", "--branch", "main",
-                        GLAEDA_GIT_URL, tmp], capture_output=True, text=True, check=True, timeout=120)
+        git_fixture_env.clone_repo(GLAEDA_GIT_URL, tmp, "--bare", "--filter=blob:none", "--single-branch", "--branch", "main",
+                                   timeout=120)
         for line in git("log", f"-n{PIN_WALK}", "--format=%H %cI", "--", "scripts/glaeda-disk").splitlines():
             commit, when = line.split()
             yield dt.datetime.fromisoformat(when), parse_pins(git("show", f"{commit}:scripts/glaeda-disk"))

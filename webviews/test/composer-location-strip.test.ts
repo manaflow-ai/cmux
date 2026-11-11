@@ -23,6 +23,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { focusByKey } from "./support/focusByKey";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -625,10 +626,10 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     ["strip-where-machine-cloud", 430, "Cloud", null],
     ["strip-where-machine-cloud", 244, "Cloud", null],
     ["strip-where-machine-cloud", 243, false, null],
-    ["strip-where-machine-machine-picked", 430, "Another machine", "gpu-box"],
-    ["strip-where-machine-machine-picked", 402, "Another machine", "gpu-box"],
-    ["strip-where-machine-machine-picked", 401, "Another machine", false],
-    ["strip-where-machine-machine-picked", 346, "Another machine", false],
+    ["strip-where-machine-machine-picked", 430, "Remote", "gpu-box"],
+    ["strip-where-machine-machine-picked", 402, "Remote", "gpu-box"],
+    ["strip-where-machine-machine-picked", 401, "Remote", false],
+    ["strip-where-machine-machine-picked", 346, "Remote", false],
     ["strip-where-machine-machine-picked", 345, false, false],
     ["strip-combined", 244, "This Mac", null],
     ["strip-combined", 243, false, null],
@@ -700,7 +701,8 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
   });
 
   // Focus draws no ring (Leo 2026-10-19): a focused strip control keeps the strip's geometry, and its
-  // edge takes the composer's focused tone, as the card's does (#21241; #23745: a step brighter).
+  // edge takes the composer's focused tone, as the card's does (#21241; #23745: a step brighter), when
+  // a key moved the focus; code focus leaves the edge at rest (FOCUS-RING, src/ui/focusModality.ts).
   test("focusing a strip control steps the strip's edge tone and keeps its geometry", async () => {
     const page = await open("agent-pane.composer-strip", "project", 420);
     await installPaintedFrames(page);
@@ -714,7 +716,17 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
         rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
       };
     });
+    const edgeNow = () =>
+      page.evaluate(() =>
+        getComputedStyle(document.querySelector<HTMLElement>(".acpmux-composer-strip")!).getPropertyValue(
+          "--acpmux-strip-edge",
+        ),
+      );
+    // Code focus earns no ring: the edge stays at rest.
     await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-composer-strip button")!.focus());
+    await page.evaluate(() => window.cmuxPaintFrame());
+    expect(await edgeNow(), "code focus leaves the strip's edge at rest").toBe(before.edge);
+    await focusByKey(page, ".acpmux-composer-strip button");
     await page.evaluate(() => window.cmuxPaintFrame());
     const after = await page.evaluate(() => {
       const strip = document.querySelector<HTMLElement>(".acpmux-composer-strip")!;

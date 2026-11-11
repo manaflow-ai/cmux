@@ -1,8 +1,10 @@
 import AppKit
 import CmuxHomeCore
 @testable import CmuxNextApp
-@testable import CmuxNextFeed
+import CmuxNextDesign
+import CmuxNextFeedClient
 @testable import CmuxNextHome
+import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextTestSupport
 import Foundation
@@ -10,34 +12,18 @@ import Observation
 import Testing
 
 /// Chief Home's pinned Needs you section (Leo, via his Chief: "a pinned Needs you view in Chief
-/// Home, Feed and iPhone listing items waiting on Leo"): it lists exactly the Feed's open
-/// requests, in the order the Feed pins them, from the Feed's own model (no second store); it
-/// shows only in a Chief's conversation and only while something waits; it sits under the header
-/// over the transcript, so showing or hiding it moves no message. It is opt-in (Leo 2026-11-03: "I just
+/// Home, Feed and iPhone listing items waiting on Leo"): the Feed page on `#/needs-you`, sized from
+/// the daemon's Needs you view (`feed.view.read {layout: needs_you}`, no second store); it shows
+/// only in a Chief's conversation and only while something waits; it sits under the header over the
+/// transcript, so showing or hiding it moves no message. It is opt-in (Leo 2026-11-03: "I just
 /// wanted to see permission things, period, not a pinned thing by default. Toggle-on, yes"): off by
 /// default (`feed.needsYouInChief`), nothing is pinned and the Feed still lists the requests.
 @MainActor @Suite(.serialized, .closesItsWindows) struct HomeNeedsYouTests {
-    private let now = Date(timeIntervalSince1970: 1_800_000_000)
-
-    private func request(_ id: String, ago minutes: Double, priority: FeedPriority? = nil,
-                         state: FeedItemState = .open) -> FeedItem {
-        FeedItem(id: id, title: "Allow \(id)?",
-                 prompt: .approve(.init(action: .init(type: .command, summary: "Run", command: "make \(id)"))),
-                 priority: priority, context: FeedContext(acpSession: "ses_\(id)"),
-                 poster: FeedPoster(kind: .harness, label: "api-server", harness: "Claude Code"), state: state,
-                 createdAt: now.addingTimeInterval(-minutes * 60))
-    }
-
-    private func notice(_ id: String, ago minutes: Double) -> FeedItem {
-        FeedItem(id: id, title: "Finished \(id)", poster: FeedPoster(kind: .agent, label: "Agent"),
-                 createdAt: now.addingTimeInterval(-minutes * 60))
-    }
-
-    private func feed(_ items: [FeedItem]) -> (FeedModel, InMemoryFeedSource) {
-        let source = InMemoryFeedSource(snapshot: FeedSnapshot(revision: 1, user: "usr_me", device: "Mac", items: items))
-        let model = FeedModel(source: source, clock: { [now] in now })
-        model.start()
-        return (model, source)
+    /// The daemon's Needs you view with `ids` waiting; `live` false is a view before the owner answered.
+    private static func needsYou(_ ids: [String], live: Bool = true) -> String {
+        let entries = ids.map { #"{"id":"\#($0)","item":{"id":"\#($0)","type":"request","kind":"approve","state":"open"}}"# }
+        let connection = live ? "connected" : "connecting"
+        return #"{"loaded":\#(live),"connection":{"state":"\#(connection)"},"groups":[{"id":"needs_you","entries":[\#(entries.joined(separator: ","))]}]}"#
     }
 
     /// Lets main-actor tasks run until `condition` holds (bounded).
@@ -49,49 +35,60 @@ import Testing
         }
     }
 
-    @Test func itListsExactlyTheFeedsOpenRequestsInTheFeedsOrder() {
-        let (model, _) = feed([
-            request("a", ago: 5), notice("n", ago: 0), request("b", ago: 10, priority: .high),
-            request("c", ago: 1, state: .answered), request("d", ago: 1),
-        ])
-        // The Feed's own pinned order (FeedListKey: priority, then newest); no notice, no answered one.
-        let pinned = model.listSections.requests.map(\.id)
-        #expect(Set(pinned) == ["a", "b", "d"])
-        #expect(model.needsYou.map(\.id) == pinned)
-        let section = FeedNeedsYouView(model: model)
-        #expect(section.shownIDs == pinned)
-        #expect(section.moreCount == 0)
-        #expect(!section.isEmpty)
+    @Test func itIsTheHeaderAndARowPerRequestUpToThree() {
+        #expect(FeedNeedsYouSection.height(waiting: 0) == 0, "nothing waits: hidden")
+        // The page's CSS px: the page and the card pad 4 each, the header 24, a row 40.
+        #expect(FeedNeedsYouSection.height(waiting: 1) == CGFloat(8 * 2 + 24 + 40))
+        #expect(FeedNeedsYouSection.height(waiting: 3) == 160, "three rows fit at 100%")
+        #expect(FeedNeedsYouSection.height(waiting: 7) == FeedNeedsYouSection.height(waiting: 3), "the page counts the rest")
+        let section = FeedNeedsYouSection(page: NSView())
+        section.waiting = 2
+        #expect(section.intrinsicContentSize.height == FeedNeedsYouSection.height(waiting: 2))
     }
 
-    @Test func pastItsRowsTheRestAreCountedNotDropped() {
-        let (model, _) = feed((0..<5).map { request("r\($0)", ago: Double($0)) })
-        let section = FeedNeedsYouView(model: model, limit: 3)
-        #expect(section.shownIDs == ["r0", "r1", "r2"])
-        #expect(section.moreCount == 2)
+    /// Review F1 of #37378: the page follows `ui.scale`, so the section is its CSS height times the
+    /// page's zoom; at 125% three rows need 200 points, not 160.
+    @Test func threeRowsFitAtEveryScale() {
+        #expect(FeedNeedsYouSection.height(waiting: 3, zoom: 1.25) == 200)
+        let section = FeedNeedsYouSection(page: NSView())
+        section.waiting = 3
+        section.zoom = 1.25
+        #expect(section.intrinsicContentSize.height == 200)
+        #expect(section.fittingSize.height == 200)
     }
 
-    @Test func itHidesWhenNothingWaitsAndFollowsAnAnswer() async {
-        let (empty, _) = feed([notice("n", ago: 0)])
-        #expect(empty.needsYou.isEmpty)
-        #expect(FeedNeedsYouView(model: empty).isEmpty)
+    /// A `ui.scale` change resizes the pinned section live: the Feed page's zoom change gives the
+    /// section its new zoom and the host measures it again.
+    @Test func aScaleChangeResizesTheHost() async throws {
+        let saved = DesignSettings.shared.uiScale
+        defer { DesignSettings.shared.uiScale = saved }
+        DesignSettings.shared.uiScale = 1
+        let directory = FileManager.default.temporaryDirectory.appending(path: "needs-you-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try Data("<!doctype html><title>Needs you</title>".utf8).write(to: directory.appending(path: "index.html"))
+        let descriptor = PageDescriptor(id: "test.needs-you", resource: "needs-you", namespaces: [])
+        let page = try #require(PageWebView(descriptor: descriptor, root: directory, routes: []))
+        defer { page.close() }
 
-        let (model, _) = feed([request("a", ago: 1), notice("n", ago: 0)])
-        let section = FeedNeedsYouView(model: model)
-        #expect(section.shownIDs == ["a"])
-        // The Feed's own answer path (an Allow click on the row): the owner closes it, the row goes.
-        model.answer("a", .approve(.init(.allow)))
-        await until { model.needsYou.isEmpty }
-        #expect(model.needsYou.isEmpty)
-        #expect(section.isEmpty)
-        #expect(section.shownIDs.isEmpty)
-    }
+        let daemon = FakeFeedDaemon()
+        daemon.reply("feed.view.read", Self.needsYou(["a", "b", "c"]))
+        let host = PinHost(), toggle = PinToggle()
+        toggle.on = true
+        let watch = FeedNeedsYouSection.watch(feed: daemon.client, isEnabled: { toggle.on }, host: host) {
+            FeedNeedsYouSection(page: page, zoom: { [weak page] in page?.pageZoom ?? 1 }) { page.onZoomChange = $0 }
+        }
+        defer { watch.cancel() }
+        await until { host.pinnedSection != nil }
+        let section = try #require(host.pinnedSection as? FeedNeedsYouSection)
+        #expect(section.fittingSize.height == 160)
+        let resizes = host.resizes
 
-    @Test func onlyAChiefsConversationShowsItAndOnlyWhileSomethingWaits() {
-        #expect(FeedNeedsYouPin.shows(isChief: true, enabled: true, waiting: 1))
-        #expect(!FeedNeedsYouPin.shows(isChief: true, enabled: true, waiting: 0))
-        #expect(!FeedNeedsYouPin.shows(isChief: false, enabled: true, waiting: 3))
-        #expect(!FeedNeedsYouPin.shows(isChief: true, enabled: false, waiting: 3), "off: nothing pinned")
+        DesignSettings.shared.uiScale = 1.25
+        await until { host.resizes > resizes }
+        #expect(host.resizes > resizes, "a scale change measures the section again")
+        #expect(section.zoom == 1.25)
+        #expect(section.fittingSize.height == 200, "three rows fit at 125%")
     }
 
     @Test func itIsOffByDefaultAndTheSettingTurnsItOn() throws {
@@ -105,18 +102,52 @@ import Testing
         #expect(row.defaultValue == .bool(false), "Settings shows it off by default")
     }
 
-    @Test func offPinsNothingAndOnPinsTheFeedsRequestsLive() async {
-        let (model, _) = feed([request("a", ago: 1)])
+    @Test func offPinsNothingAndOnPinsTheDaemonsRequestsLive() async {
+        let daemon = FakeFeedDaemon()
+        daemon.reply("feed.view.read", Self.needsYou(["a"]))
         let host = PinHost(), toggle = PinToggle()
-        let pin = FeedNeedsYouPin(model: model, isEnabled: { toggle.on }, prepare: {}, reveal: { _ in false }, showFeed: {})
-        let watch = pin.watch(host: host)
+        let watch = FeedNeedsYouSection.watch(feed: daemon.client, isEnabled: { toggle.on }, host: host) { FeedNeedsYouSection(page: NSView()) }
         defer { watch.cancel() }
         await until { host.updates > 0 }
         #expect(host.pinnedSection == nil, "off by default: nothing pinned while a request waits")
-        #expect(model.needsYou.map(\.id) == ["a"], "the Feed still lists the request")
+        #expect(daemon.ops.isEmpty, "off reads nothing")
         toggle.on = true // the app's setting is observable the same way, so turning it on pins at once
         await until { host.pinnedSection != nil }
-        #expect((host.pinnedSection as? FeedNeedsYouView)?.shownIDs == ["a"])
+        #expect((host.pinnedSection as? FeedNeedsYouSection)?.waiting == 1)
+        #expect(daemon.calls.last?.params["layout"]?.stringValue == "needs_you")
+
+        // A second request: the same section grows.
+        let section = host.pinnedSection
+        daemon.reply("feed.view.read", Self.needsYou(["a", "b"]))
+        daemon.client.deliver(.init(changed: ["b"]))
+        await until { host.resizes > 0 }
+        #expect(host.pinnedSection === section)
+        #expect((host.pinnedSection as? FeedNeedsYouSection)?.waiting == 2)
+
+        // Before the owner answers (a reconnect), an empty view is not "nothing waits".
+        daemon.reply("feed.view.read", Self.needsYou([], live: false))
+        let reads = daemon.calls.count
+        daemon.client.deliver(.init(changed: nil))
+        await until { daemon.calls.count > reads }
+        try? await Task.sleep(for: .milliseconds(50)) // the read's decode and its (absent) change
+        #expect(host.pinnedSection === section)
+
+        // Answered: nothing waits, the section goes.
+        daemon.reply("feed.view.read", Self.needsYou([]))
+        daemon.client.deliver(.init(changed: ["a", "b"]))
+        await until { host.pinnedSection == nil }
+        #expect(host.pinnedSection == nil)
+
+        // Off again: nothing pinned and no more reads.
+        daemon.reply("feed.view.read", Self.needsYou(["c"]))
+        let updates = host.updates
+        toggle.on = false
+        await until { host.updates > updates } // the watch saw the setting go off (it unpins, so it updates)
+        let after = daemon.calls.count
+        daemon.client.deliver(.init(changed: ["c"]))
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(daemon.calls.count == after, "off reads nothing")
+        #expect(host.pinnedSection == nil)
     }
 
     @Test func thePinnedSectionSitsUnderTheHeaderAndMovesNoMessage() async throws {
@@ -137,8 +168,8 @@ import Testing
         let transcriptFrame = view.transcript.frame
         #expect(view.pinnedSection == nil)
 
-        let (model, _) = feed([request("a", ago: 1)])
-        let section = FeedNeedsYouView(model: model)
+        let section = FeedNeedsYouSection(page: NSView())
+        section.waiting = 1
         view.setPinnedSection(section)
         view.layoutSubtreeIfNeeded()
         #expect(view.pinnedSection === section)
@@ -157,6 +188,46 @@ import Testing
         #expect(view.transcript.rowsTopClearance == 0)
         #expect(view.transcript.frame == transcriptFrame)
     }
+
+    @Test func theSetupCardFitsAShortPaneAndIsNeverHidden() async throws {
+        let source = EmptyChiefSource()
+        let id = ConversationID("conv_chief")
+        let inbox = try await source.inbox()
+        let store = HomeStore(source: source)
+        store.start()
+        let view = HomeNativeTranscriptView(store: store, conversation: id, me: inbox.me.id)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 420), styleMask: [.titled],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { view.stop(); store.stop(); window.close() }
+        view.frame = NSRect(x: 0, y: 0, width: 600, height: 420)
+        window.contentView = view
+        await view.binding.opened()
+        let card = NSView()
+
+        view.setSetupCard(card, height: 0)
+        view.layoutSubtreeIfNeeded()
+        #expect(!card.isHidden && card.frame.height == 1, "unsized, the page stays in the window to measure: \(card.frame)")
+
+        // Taller than the pane: the slot stops above the message box and the page scrolls inside it.
+        view.setSetupCard(card, height: 2000)
+        view.layoutSubtreeIfNeeded()
+        #expect(card.frame.height > 1 && card.frame.height < 2000, "\(card.frame)")
+        #expect(card.frame.maxY < view.transcript.fieldTop, "above the message box")
+
+        // Needs you rows taller than the pane: the pinned section gives way, and the card keeps a usable height.
+        let pinned = TallSection()
+        view.setPinnedSection(pinned)
+        view.layoutSubtreeIfNeeded()
+        #expect(card.frame.height >= 120, "the card keeps its title and a row: \(card.frame)")
+        #expect(pinned.frame.maxY < card.frame.minY && card.frame.maxY < view.transcript.fieldTop, "\(pinned.frame) \(card.frame)")
+        view.setPinnedSection(nil)
+    }
+}
+
+/// Needs you rows taller than any pane.
+private final class TallSection: NSView {
+    override var fittingSize: NSSize { NSSize(width: 400, height: 2000) }
 }
 
 /// A stand-in for `feed.needsYouInChief` (the app reads it from the observable settings snapshot).
@@ -167,5 +238,6 @@ import Testing
     private(set) var pinnedSection: NSView?
     private(set) var updates = 0
     func setPinnedSection(_ view: NSView?) { pinnedSection = view; updates += 1 }
-    func pinnedSectionDidResize() {}
+    private(set) var resizes = 0
+    func pinnedSectionDidResize() { resizes += 1 }
 }

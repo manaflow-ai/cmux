@@ -42,6 +42,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_WEB_TOKEN_ROTATE,
     method::MUX_HARNESSES,
     method::MUX_COMPLETE,
+    method::MUX_HUNK_SUMMARY,
     method::MUX_RELOAD_CONFIG,
     method::MUX_WATCH,
     method::MUX_HARNESS_INVENTORY_WATCH,
@@ -71,6 +72,9 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_PROMPT_WITHDRAW,
     // So is a chat's inbox drained (`hub/inbox_digest.rs`).
     method::MUX_INBOX_DIGEST,
+    // A registration is for the caller's own session on this daemon (`hub/register.rs`): its
+    // NAME is the name to take, never a peer session to forward to, and its token stays here.
+    method::MUX_REGISTER,
     // A message to deliver is this daemon's (`outbox.rs`), whatever session it names.
     method::MUX_SEND_QUEUE,
     method::MUX_SEND_STATUS,
@@ -88,6 +92,10 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_HANDOFF_DISCARD,
     "_acpmux/peers",
     "_acpmux/peer_status",
+    // This daemon's own queue and audit trail (`hub/review_queue.rs`, `hub/audit_log.rs`).
+    method::MUX_REVIEW_QUEUE,
+    method::MUX_REVIEW_VERDICT,
+    method::MUX_AUDIT,
     // Names a peer machine, never a session (`vm_host.rs`).
     "_acpmux/vm_host",
     // Every live chat on this daemon (`host_notice.rs`).
@@ -574,8 +582,15 @@ async fn forward_inner(
             }
             return Err(crate::hub::presence::peer_unsupported());
         }
+        // A read the session list's row answers (`ROW_WILL_DO`), while the link's rows are
+        // current: its notices keep the row as current as the peer's answer would be, one round
+        // trip sooner.
+        if m == method::MUX_INFO && row_will_do(params) && peer.rows_current() {
+            return Ok(Some(from_row(&row, &peer.name)));
+        }
         let mut p = if params.is_null() { json!({}) } else { params.clone() };
         if let Some(obj) = p.as_object_mut() {
+            obj.remove(ROW_WILL_DO);
             obj.remove("session");
             obj.remove("name");
             obj.insert("sessionId".into(), Value::String(id.clone()));
@@ -616,6 +631,19 @@ async fn forward_inner(
         }
         // The peer cannot see the session this connection runs in: it gets that session's name.
         if m == method::SESSION_PROMPT {
+            // The person's answer to the suggestion this daemon showed them for the chat, counted
+            // in their own tally before the turn can bring the next one (`suggestion_gate.rs`).
+            let person = super::requests::person_asks(conn)
+                && conn.caller().is_none()
+                && crate::prompt_provenance::relay_sender(params).is_none()
+                && params.pointer("/_meta/acpmux/fromAgent").is_none_or(Value::is_null);
+            crate::suggestion_gate::note_relayed_prompt(
+                &hub.suggestion_gate,
+                &peer.name,
+                &id,
+                params,
+                person,
+            );
             name_sender(hub, conn, &mut p);
         }
         if m == method::MUX_PERMISSION_RESPOND {
@@ -858,10 +886,18 @@ async fn forward_inner(
             hub.peer_accepts.forget(&peer.name, &id, prompt_id, token);
         }
         // `Peer::request` already took the peer's display lines out of the result and the error.
-        if result.is_err() && first_attach && m == method::MUX_ATTACH {
+        if first_attach
+            && m == method::MUX_ATTACH
+            && let Err(e) = &result
+        {
             // Do not strand the marker when the first baseline request failed.
             // A retry must be able to establish a fresh no-history cursor.
             peer.clear_attached(&id);
+            // The client was subscribed to the chat, and the link has no stream of it: one the
+            // peer did not refuse is attached again on this link while it stays up.
+            if !crate::peer::refuses_attach(e) {
+                peer.retry_attach(&id, link);
+            }
         }
         let mut result = result.map_err(|e| {
             if matches!(m, method::MUX_FILE_PUT_BEGIN | method::MUX_FILE_PUT_CHUNK | method::MUX_FILE_PUT_FINISH | method::MUX_FILE_PUT_CANCEL | method::MUX_FILE_PUT_STATUS)
@@ -900,8 +936,12 @@ async fn forward_inner(
                 peer.note_hidden_attach_page(&id, &result);
             } else if let Some(after) = params.get("afterSeq").and_then(Value::as_u64) {
                 peer.note_attached_page_after(&id, after, &result);
-            } else {
-                // Advance only after permission-history filtering.
+            } else if held(&result).is_some_and(|n| n > 0)
+                || (params.get("kinds").is_none_or(Value::is_null) && held(&result) == before)
+            {
+                // Advance only after permission-history filtering. An empty page settles the
+                // baseline at its `pageThrough` only when it held every record through it: no
+                // `kinds` left some out, and no ask was taken out here.
                 peer.note_attached_page(&id, &result);
             }
         }
@@ -929,6 +969,14 @@ async fn forward_inner(
         }
         if purge {
             hub.forget_remote((&peer.name, peer.generation), &id, asked);
+        }
+        // Qualify race references only for the local viewer, after saving the raw peer page.
+        if conn.origin != Origin::Peer
+            && let Some(events) = result.get_mut("events").and_then(Value::as_array_mut)
+        {
+            for event in events {
+                super::races::peer::qualify_event(&peer.name, event);
+            }
         }
         if let Some(obj) = result.as_object_mut() {
             obj.insert("peer".into(), Value::String(peer.name.clone()));
@@ -1002,6 +1050,30 @@ pub(crate) fn strip_asks(hub: &Hub, peer: &str, id: &str, m: &str, result: &mut 
     }
 }
 
+/// An `_acpmux/info`'s flag: the session list's row will do for its answer. For a peer's chat
+/// whose link's rows are current ([`crate::peer::Peer::rows_current`]), this daemon answers from
+/// its mirrored row instead of asking the peer (`acpmux send` saves a round trip over the link).
+/// The answer says `row: true`. Never sent on to the peer.
+///
+/// A send's `_acpmux/attach` still goes to the peer: attaches from several clients here share
+/// the link's one subscription at the peer and are applied there in no fixed order, so this
+/// daemon cannot know which `kinds` filter that subscription has.
+pub const ROW_WILL_DO: &str = "row";
+
+fn row_will_do(params: &Value) -> bool {
+    params.get(ROW_WILL_DO).and_then(Value::as_bool) == Some(true)
+}
+
+/// A peer chat's mirrored row as a read's answer, marked so (`ROW_WILL_DO`).
+fn from_row(row: &Value, peer: &str) -> Value {
+    let mut reply = row.clone();
+    if let Some(obj) = reply.as_object_mut() {
+        obj.insert("peer".into(), json!(peer));
+        obj.insert(ROW_WILL_DO.into(), json!(true));
+    }
+    reply
+}
+
 /// `_meta.acpmux` field of a forwarded `permission_respond`: how many
 /// daemons forwarded it so far.
 pub const PEER_HOPS_FIELD: &str = "peerHops";
@@ -1068,6 +1140,13 @@ pub(super) fn strip_new_meta(p: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A registration's NAME is never a destination: it is not forwarded to a peer session of that
+    /// name, so the caller's messaging token never leaves this daemon.
+    #[test]
+    fn a_registration_is_never_forwarded_to_a_peer() {
+        assert!(!names_a_session(method::MUX_REGISTER));
+    }
 
     /// A phone's read of a peer chat keeps within the kinds an older peer takes: the sudo card's
     /// kinds, which a peer chat never has, are dropped (review F1 of cc3c3cf).
@@ -1287,3 +1366,7 @@ mod message_identity_tests {
         assert_eq!(forwarded_message_id(&with(json!({"promptId": "p"}))), "p");
     }
 }
+
+#[cfg(test)]
+#[path = "row_read_tests.rs"]
+mod row_read_tests;

@@ -3,7 +3,7 @@ public import CmuxNextSettings
 
 public extension PageDescriptor {
     /// The overlay page (webviews/src/pages/overlay): the React drawing of what shows over a window's
-    /// content, dialogs (`#/dialog`) and toasts (`#/toasts`). Its native owners stream it state and take
+    /// content: dialogs (`#/dialog`); toasts are native views (`CmuxToastOverlayHost`). Its native owners stream it state and take
     /// its presses under `cmux.overlay.`; it calls nothing else. A first click in an inactive window
     /// only brings the window forward (no dialog button answers it).
     static let overlay = PageDescriptor(id: "cmux.overlay", resource: "overlay", namespaces: ["cmux.overlay."],
@@ -22,15 +22,23 @@ public final class OverlayPagePool<Provider: PageProvider> {
     /// Its views refuse page probes (``PageWebView/refusesProbes``) from the moment they are made: a pool of
     /// overlays that show what automation must never read or answer (dialogs: a typed password, a consent).
     public let refusesProbes: Bool
+    /// A first click in an inactive window reaches its views' pages (``PageEngineOptions/acceptsFirstMouse``).
+    /// A dialog's pool keeps the descriptor's answer: a first click only brings its window forward.
+    public let acceptsFirstMouse: Bool
+    /// The app's overlay pages' shared web content process (``PageOverlayProcess``); nil gives each view its own.
+    let overlayProcess: PageOverlayProcess?
     private let makeProvider: @MainActor () -> Provider
     private var spare: (view: PageWebView, provider: Provider)?
     private var claimed: [ObjectIdentifier: Provider] = [:]
     /// Tests: the page's files come from this folder instead of the app's bundle.
     var testRoot: URL?
 
-    public init(route: String, refusesProbes: Bool = false, makeProvider: @escaping @MainActor () -> Provider) {
+    public init(route: String, refusesProbes: Bool = false, acceptsFirstMouse: Bool = false,
+                overlayProcess: PageOverlayProcess? = nil, makeProvider: @escaping @MainActor () -> Provider) {
         self.route = route
         self.refusesProbes = refusesProbes
+        self.acceptsFirstMouse = acceptsFirstMouse
+        self.overlayProcess = overlayProcess
         self.makeProvider = makeProvider
     }
 
@@ -70,8 +78,12 @@ public final class OverlayPagePool<Provider: PageProvider> {
         // WebKit by name: the page is transparent over the window's own glass in the overlay panel, which
         // a Chromium page (an opaque child window that takes the keys) cannot be.
         let routes = [PageRoute(prefix: "cmux.overlay.", provider: provider)]
-        let made = testRoot.map { PageWebView(descriptor: .overlay, root: $0, testRoot: true, routes: routes, route: route) }
-            ?? PageWebView(descriptor: .overlay, routes: routes, route: route, options: PageEngineOptions(requiresWebKit: .transparentOverlay))
+        let made = testRoot.map {
+            PageWebView(descriptor: .overlay, root: $0, testRoot: true, routes: routes, route: route,
+                        options: PageEngineOptions(acceptsFirstMouse: acceptsFirstMouse))
+        } ?? PageWebView(descriptor: .overlay, routes: routes, route: route,
+                         options: PageEngineOptions(requiresWebKit: .transparentOverlay, acceptsFirstMouse: acceptsFirstMouse),
+                         overlayProcess: overlayProcess)
         guard let view = made else { return nil }
         // Before any probe can pick it (this turn), so none that picked a spare reads the dialog it is claimed for.
         view.refusesProbes = refusesProbes

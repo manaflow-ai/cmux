@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 609,
+  "count": 625,
   "sections": [
     {
       "id": "general",
@@ -249,6 +249,27 @@
           }
         },
         {
+          "key": "agents.chats.coldArchive",
+          "title": "Compress Old Chats",
+          "help": "Chats you have not used for a while are compressed into one small file each. They stay in the list with a preview, and open as before.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Chats"
+        },
+        {
+          "key": "agents.chats.coldArchiveAfterDays",
+          "title": "Compress Chats Idle For",
+          "help": "How many days a chat goes unused before it is compressed. A chat with an agent running, a queued message or an open turn is never compressed.",
+          "kind": "number",
+          "default": 30,
+          "group": "Chats",
+          "range": {
+            "min": 1,
+            "max": 3650,
+            "unit": "days"
+          }
+        },
+        {
           "key": "agents.chats.discovery",
           "title": "Discover Chat Folders",
           "help": "Find harness chat folders automatically. When off, only the listed folders are used.",
@@ -373,6 +394,14 @@
           ]
         },
         {
+          "key": "agents.promptSuggestions",
+          "title": "Suggest Next Prompt",
+          "help": "After a turn, Claude or Codex suggests your next prompt as grey text in an empty composer; Tab or Right Arrow takes it. Each suggestion is one extra model call that counts toward usage. Applies to chats started or restarted after the change.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Sessions"
+        },
+        {
           "key": "agents.subsessions.answerQuestions",
           "title": "Let Sessions Answer Their Sub-sessions' Questions",
           "help": "When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer.",
@@ -466,6 +495,14 @@
           "kind": "toggle",
           "default": true,
           "group": "Announcements"
+        },
+        {
+          "key": "app.confirmQuit",
+          "title": "Ask Before Quitting Ends Agents or Terminals",
+          "help": "Cmd-Q asks first when quitting would end working agents or open terminals. A quit that keeps the sessions running never asks.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Quitting"
         },
         {
           "key": "app.globalHotKey",
@@ -735,7 +772,7 @@
           "title": "Focus After Closing a Pane",
           "help": "Which pane gets focus when the focused pane closes.",
           "kind": "choice",
-          "default": "previousNeighbor",
+          "default": "mostRecent",
           "group": "Columns",
           "values": [
             "previousNeighbor",
@@ -1177,6 +1214,14 @@
           "group": "cmux Remote"
         },
         {
+          "key": "remote.ultraMode",
+          "title": "Ultra Connection Mode",
+          "help": "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection.",
+          "kind": "toggle",
+          "default": false,
+          "group": "cmux Remote"
+        },
+        {
           "key": "screenshots.findTools",
           "title": "Find Screenshot Apps",
           "help": "The Screenshots pane also shows the folders of screenshot apps it finds, such as CleanShot X, Shottr and Kap.",
@@ -1212,6 +1257,14 @@
             "pluggedIn",
             "always"
           ]
+        },
+        {
+          "key": "sessions.keepAwakeForCommands",
+          "title": "Also While Terminal Commands Run",
+          "help": "A build or test that has run for a minute keeps the Mac awake while it still prints. Follows Keep Mac Awake While Agents Work.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Sessions"
         },
         {
           "key": "sessions.promptSuggestions",
@@ -1268,14 +1321,6 @@
             "top",
             "bottom"
           ]
-        },
-        {
-          "key": "tabs.cmdWClosesPinnedTabs",
-          "title": "Cmd-W Closes Pinned Tabs",
-          "help": "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.",
-          "kind": "toggle",
-          "default": true,
-          "group": "Tabs"
         },
         {
           "key": "tabs.hideLoneChatTab",
@@ -1605,8 +1650,8 @@
         },
         {
           "key": "updates.liveWebReload",
-          "title": "Live Web Reload",
-          "help": "Edits to cmux's web UI from your own checkout show up in this app as you save, with no build and no relaunch. Start it with scripts/cmux-next/web-overlay.sh server --local. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with.",
+          "title": "cmux Live",
+          "help": "The switch that lets cmux live start and Edit cmux Live… show your own checkout's web UI in this app: each saved edit shows at once, with no build and no relaunch. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with. cmux live start --swift is the Swift path (Labs > Live Code).",
           "kind": "toggle",
           "default": true,
           "group": "Updates"
@@ -1914,9 +1959,11 @@
           "title": "Chat Interface Font",
           "help": "The font of the whole chat: replies, the composer, cards and menus.",
           "kind": "choice",
-          "default": "inter-tuned",
+          "default": "system-ui",
           "group": "Agent Chat",
           "values": [
+            "system-ui",
+            "system-ui-tight",
             "inter-tuned",
             "inter",
             "verdana",
@@ -1926,9 +1973,7 @@
             "geist",
             "cmux-sans",
             "hanken",
-            "atkinson",
-            "system-ui",
-            "system-ui-tight"
+            "atkinson"
           ]
         },
         {
@@ -1987,6 +2032,14 @@
           ]
         },
         {
+          "key": "agentPane.display.promptCoach",
+          "title": "Prompt Coach",
+          "help": "After a chat that took several corrections, shows how its first prompt could have said it all at once.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Chat"
+        },
+        {
           "key": "agentPane.display.rail.side",
           "title": "Prompt Rail Side",
           "help": "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it.",
@@ -1996,6 +2049,45 @@
           "values": [
             "left",
             "right"
+          ]
+        },
+        {
+          "key": "agentPane.display.senderIcon.badge",
+          "title": "Sender Badge",
+          "help": "The small colored glyph on a sender's icon that tells sessions of one model family apart.",
+          "kind": "choice",
+          "default": "diamond",
+          "group": "Agent Chat",
+          "values": [
+            "diamond",
+            "robot",
+            "none"
+          ]
+        },
+        {
+          "key": "agentPane.display.senderIcon.corner",
+          "title": "Sender Badge Corner",
+          "help": "Where the small glyph sits on a sender's icon.",
+          "kind": "choice",
+          "default": "bottom-right",
+          "group": "Agent Chat",
+          "values": [
+            "bottom-right",
+            "bottom-left",
+            "top-right",
+            "top-left"
+          ]
+        },
+        {
+          "key": "agentPane.display.senderIcon.lead",
+          "title": "Sender Icon Emphasis",
+          "help": "Which is big in a sender's icon: the model family's mark, or the session's own colored badge.",
+          "kind": "choice",
+          "default": "family",
+          "group": "Agent Chat",
+          "values": [
+            "family",
+            "session"
           ]
         },
         {
@@ -2066,6 +2158,19 @@
           "group": "Agent Chat"
         },
         {
+          "key": "agentPane.display.unreadBanner",
+          "title": "Unread Banner",
+          "help": "When you come back to a chat that kept working, a banner at the top left says how many turns are new and jumps to them. Collapsed, it is a small pill. Right-click the banner or the New line to hide it or bring it back.",
+          "kind": "choice",
+          "default": "expanded",
+          "group": "Agent Chat",
+          "values": [
+            "expanded",
+            "collapsed",
+            "off"
+          ]
+        },
+        {
           "key": "agentPane.display.vscodeMinimap",
           "title": "VS Code Minimap",
           "help": "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll.",
@@ -2088,8 +2193,8 @@
         },
         {
           "key": "app.uiScale",
-          "title": "Interface Scale",
-          "help": "",
+          "title": "App Zoom",
+          "help": "Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app.",
           "kind": "number",
           "default": 1,
           "group": "Density and Motion",
@@ -2518,9 +2623,9 @@
         {
           "key": "appearance.density",
           "title": "Density",
-          "help": "Row height, padding, corners, icons and text size together. Compact is the default.",
+          "help": "Row height, padding, corners, icons and text size together.",
           "kind": "choice",
-          "default": "compact",
+          "default": "cozy",
           "group": "Density and Motion",
           "values": [
             "ultraCompact",
@@ -2612,8 +2717,8 @@
         },
         {
           "key": "appearance.metrics.chromeFontSize",
-          "title": "Interface Size",
-          "help": "Text size of tabs, the sidebar and other controls. Terminal text has its own size.",
+          "title": "Text Size",
+          "help": "Text size of tabs, the sidebar, chat and other controls, over the density's. Terminal text has its own size.",
           "kind": "number",
           "default": null,
           "group": "Density and Motion",
@@ -3633,6 +3738,14 @@
           "group": "Sidebar"
         },
         {
+          "key": "sidebar.floatOnHover",
+          "title": "Float Hidden Sidebar on Hover",
+          "help": "With the sidebar hidden, rest the pointer on the window's sidebar edge to show the sidebar over your content. It hides again when the pointer leaves it. Off, the sidebar shows only when you show it.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Sidebar"
+        },
+        {
           "key": "sidebar.groupBy",
           "title": "Group Projects By",
           "help": "",
@@ -3646,16 +3759,31 @@
           ]
         },
         {
+          "key": "sidebar.groupGradient",
+          "title": "Group Gradient",
+          "help": "The gradient that Group Colors set to Gradient steps through: each colored group takes the color at its place in the list, so neighbors step through it and a group you move recolors.",
+          "kind": "choice",
+          "default": "sunset",
+          "group": "Sidebar",
+          "values": [
+            "sunset",
+            "aurora",
+            "lagoon",
+            "twoTone"
+          ]
+        },
+        {
           "key": "sidebar.groupHeader.background",
           "title": "Group Background",
-          "help": "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color.",
+          "help": "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color. Sections draws each group as a plain section heading instead, with no background and no line beside its workspaces.",
           "kind": "choice",
           "default": "auto",
           "group": "Sidebar",
           "values": [
             "auto",
             "glass",
-            "solid"
+            "solid",
+            "sections"
           ]
         },
         {
@@ -3677,7 +3805,7 @@
         {
           "key": "sidebar.groupPalette",
           "title": "Group Colors",
-          "help": "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked.",
+          "help": "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient. Pictorial colors each group from the desktop picture at its place in the list.",
           "kind": "choice",
           "default": "glass",
           "group": "Sidebar",
@@ -3686,7 +3814,9 @@
             "theme",
             "wallpaper",
             "grayscale",
-            "vibrant"
+            "vibrant",
+            "gradient",
+            "pictorial"
           ]
         },
         {
@@ -4314,18 +4444,6 @@
           ]
         },
         {
-          "key": "ui.animations.bounce",
-          "title": "Animation Bounce",
-          "help": "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce.",
-          "kind": "choice",
-          "default": "none",
-          "group": "Density and Motion",
-          "values": [
-            "none",
-            "subtle"
-          ]
-        },
-        {
           "key": "ui.animations.cursor",
           "title": "Animate the Agent Cursor",
           "help": "The agent cursor glides between points and shows click ripples. Off: it jumps and shows no ripple.",
@@ -4458,7 +4576,7 @@
         {
           "key": "ui.paneAnimations",
           "title": "Animate Panes",
-          "help": "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once.",
+          "help": "Splits, closes, moves, zooms and column scrolls slide into place. Off: they change at once.",
           "kind": "toggle",
           "default": true,
           "group": "Density and Motion"
@@ -5444,7 +5562,7 @@
           "title": "Open Pull Requests in cmux GitHub Page",
           "help": "A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Opening Links"
         },
         {
@@ -5858,6 +5976,31 @@
           ]
         },
         {
+          "key": "home.chiefPanel.seesScreen",
+          "title": "Chief Sees Your Screen When It Opens",
+          "help": "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off. It looks only while Computer Use is on.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Chief Dock"
+        },
+        {
+          "key": "home.chiefPanel.style",
+          "title": "Floating Chief Style",
+          "help": "How the Chief looks when it floats over a workspace. Compose Bar, Pill and Bubble stay small until you click them, then show the whole chat. Drag any style by its grip.",
+          "kind": "choice",
+          "default": "composeBar",
+          "group": "Chief Dock",
+          "values": [
+            "composeBar",
+            "pill",
+            "card",
+            "panel",
+            "bubble",
+            "seeThrough",
+            "seeThroughBar"
+          ]
+        },
+        {
           "key": "home.chiefPetEnabled",
           "title": "Show Chief Pet",
           "help": "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session. While it shows, ⌃⌥⌘C opens its reply box from any app.",
@@ -6075,7 +6218,7 @@
           "title": "Move the Workspace to the Top",
           "help": "A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Attention Ring"
         },
         {
@@ -6475,6 +6618,14 @@
           "group": "Cloud Workspaces"
         },
         {
+          "key": "cloud.turnCheckpoints",
+          "title": "Save a Checkpoint Before Each Cloud Chat Turn",
+          "help": "Saves the whole Cloud machine between turns of a Cloud chat, so Back to Before This Turn restores it in seconds. Keeps the newest few checkpoints of each chat. Off: no checkpoints are saved.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Cloud Workspaces"
+        },
+        {
           "key": "cloud.useMyClaudeLoginOnMyCloudMachines",
           "title": "Use My Claude Login on My Own Cloud Machines",
           "help": "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead.",
@@ -6538,7 +6689,7 @@
         {
           "key": "ssh.linkAllowedHosts",
           "title": "Always Allowed SSH Link Hosts",
-          "help": "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask.",
+          "help": "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and cmux peers never ask.",
           "kind": "string_list",
           "default": [],
           "group": "SSH Links"
@@ -6549,6 +6700,14 @@
       "id": "advanced",
       "title": "Advanced",
       "rows": [
+        {
+          "key": "developerTools.appPages",
+          "title": "Developer Tools for cmux Pages",
+          "help": "Inspect Element in the right-click menu and Toggle Developer Tools (⌥⌘I) work in agent chats, Home, Markdown and Settings. Browser tabs always have them.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Developer Tools"
+        },
         {
           "key": "labs.liveCode",
           "title": "Live Code",
@@ -6595,6 +6754,14 @@
       "id": "development",
       "title": "Development",
       "rows": [
+        {
+          "key": "app.internalDeveloperMode",
+          "title": "Internal Developer Mode",
+          "help": "Shows the debug commands (playgrounds, Debug Settings, diagnostics) in the Command Palette as \"Debug: …\" rows. There is no Debug menu.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Internal Developer Mode"
+        },
         {
           "key": "deviceHub.url",
           "title": "Device Hub Address",

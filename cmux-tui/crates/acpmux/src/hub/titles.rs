@@ -200,7 +200,7 @@ impl Hub {
     pub(super) fn watch_titles(self: &Arc<Self>) {
         let mut events = self.subscribe();
         let hub = Arc::downgrade(self);
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("title-events", async move {
             loop {
                 let ev = match events.recv().await {
                     Ok(ev) => ev,
@@ -344,7 +344,15 @@ impl Hub {
             ]
             .map(str::to_owned),
         );
-        match crate::agent::harness_command(harness, profile, &cwd, Some((program, args)), None) {
+        match crate::agent::harness_command_ready(
+            harness,
+            profile,
+            &cwd,
+            Some((program, args)),
+            None,
+        )
+        .await
+        {
             Ok(cmd) => Some(cmd),
             Err(e) => {
                 tracing::debug!("no title command for {harness}: {e}");

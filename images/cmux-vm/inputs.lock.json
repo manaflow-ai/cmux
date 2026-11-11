@@ -383,27 +383,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "14dbaf4b3742e2e5e4203f0d425cae9114155eb4",
-      "url": "https://files.cmux.com/cmux-tui/14dbaf4b3742e2e5e4203f0d425cae9114155eb4/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "b59d6a06a27cfc48ab2b13022db9601d899f80caa23fd5c8a43133174efdf759",
-      "size": 169281008,
+      "version": "e7bcfdfaf3ca488120f88134d945c9d65d816d2a",
+      "url": "https://files.cmux.com/cmux-tui/e7bcfdfaf3ca488120f88134d945c9d65d816d2a/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "55a12209d5129d899140360258c41b39b0976e03f5c45cf5d6840b8d8fb3f050",
+      "size": 187159728,
       "format": "raw",
       "fileName": "cmux-tui",
       "bin": { "acpmux": "cmux-tui", "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/14dbaf4b3742e2e5e4203f0d425cae9114155eb4/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/42453014684; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/e7bcfdfaf3ca488120f88134d945c9d65d816d2a/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/42996421478; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "14dbaf4b3742e2e5e4203f0d425cae9114155eb4",
-      "url": "https://files.cmux.com/cmux-tui/14dbaf4b3742e2e5e4203f0d425cae9114155eb4/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "661729ed873e87dccb4e3ba10f603f75eb3e222e6e98a21f51fe261cf24e38dd",
-      "size": 4903528,
+      "version": "e7bcfdfaf3ca488120f88134d945c9d65d816d2a",
+      "url": "https://files.cmux.com/cmux-tui/e7bcfdfaf3ca488120f88134d945c9d65d816d2a/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "31a981ddead20a4aba892aad846ea2da48c7bfa3249466c1652c638e3c895423",
+      "size": 4975944,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/14dbaf4b3742e2e5e4203f0d425cae9114155eb4/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/42453014684; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/e7bcfdfaf3ca488120f88134d945c9d65d816d2a/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/42996421478; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "coderouter",
@@ -463,6 +463,40 @@
       "bin": { "pi": "bin/pi" },
       "versionArgs": ["--version"],
       "expect": "0.85.1"
+    },
+    {
+      "name": "cursor-agent",
+      "version": "2026.11.05-86047df",
+      "url": "https://downloads.cursor.com/lab/2026.11.05-86047df/linux/x64/agent-cli-package.tar.gz",
+      "sha256": "170b77786cbf4c93064d64fff12b71a178b968730561c64afc2e8e752535442e",
+      "size": 176081904,
+      "format": "tar.gz",
+      "bin": { "cursor-agent": "dist-package/cursor-agent" },
+      "versionArgs": ["--version"]
+    },
+    {
+      "name": "gemini",
+      "version": "0.67.0",
+      "url": "https://registry.npmjs.org/@google/gemini-cli/-/gemini-cli-0.67.0.tgz",
+      "sha256": "3f42374e88171031459ad16e5fac32b161adba330292a1822fb7aae7fb476fc2",
+      "size": 20944139,
+      "format": "tar.gz",
+      "bin": { "gemini": "package/bundle/gemini.js" },
+      "versionArgs": ["--version"],
+      "expect": "0.67.0",
+      "notices": ["package/LICENSE"]
+    },
+    {
+      "name": "grok",
+      "version": "1.0.77",
+      "url": "https://x.ai/cli/grok-1.0.77-linux-x86_64",
+      "sha256": "b702950aa5827d855e493278ab6215a4e0f5bceb5bba6c6243a9f55cdd143b0a",
+      "size": 201655392,
+      "format": "raw",
+      "fileName": "grok",
+      "bin": { "grok": "grok" },
+      "versionArgs": ["--version"],
+      "expect": "1.0.77"
     },
     {
       "name": "workerd",
@@ -576,17 +610,17 @@
     },
     {
       "name": "cmux-rd",
-      "version": "0.2.2",
-      "url": "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.2.2/cmux-rd-0.2.2-x86_64-unknown-linux-gnu.tar.gz",
-      "sha256": "9c7190c62274bd0bc755223d03d8057dab388c724f733579665c8c6f89071ae1",
-      "size": 7058496,
+      "version": "0.2.3",
+      "url": "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.2.3/cmux-rd-0.2.3-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "06549da6bf9a54d991e01c4d6489517718676a2575d1cb7bdcbfaa5d2d4357b8",
+      "size": 7186170,
       "format": "tar.gz",
       "bin": {
         "cmux-rd": "bin/cmux-rd"
       },
       "versionArgs": [],
-      "checksumsUrl": "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.2.2/checksums.txt",
-      "checksumsName": "cmux-rd-0.2.2-x86_64-unknown-linux-gnu.tar.gz",
+      "checksumsUrl": "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.2.3/checksums.txt",
+      "checksumsName": "cmux-rd-0.2.3-x86_64-unknown-linux-gnu.tar.gz",
       "roles": [
         "desktop"
       ],
@@ -594,7 +628,7 @@
         "LICENSE",
         "THIRD_PARTY_LICENSES.md"
       ],
-      "source": "manaflow-ai/cmux release cmux-rd-v0.2.2 (2026-11-05; tag on fe8c367bc15c, the merge of #36765; release run 42097002278). The cmux.rd/1 Linux host (cmux-tui/crates/cmux-rd-host, scripts/release.py). sha256 and size from checksums.txt, the release asset digest and the download. Archive: LICENSE (GPL-3.0-or-later), THIRD_PARTY_LICENSES.md, bin/cmux-rd. OpenH264 is not in it: cmux-rd openh264-install fetches Cisco's binary on the machine."
+      "source": "manaflow-ai/cmux release cmux-rd-v0.2.3 (2026-11-09; tag on fd8a53265837, feat-cmux-next after #39099 and #39159; release run 42567226980). The cmux.rd/1 Linux host (cmux-tui/crates/cmux-rd-host, scripts/release.py), with the UDP datagram link (cap link.udp, --link-stun). sha256 and size from checksums.txt, the release asset digest and the download. Archive: LICENSE (GPL-3.0-or-later), THIRD_PARTY_LICENSES.md, bin/cmux-rd. OpenH264 is not in it: cmux-rd openh264-install fetches Cisco's binary on the machine."
     }
   ],
   "roles": {

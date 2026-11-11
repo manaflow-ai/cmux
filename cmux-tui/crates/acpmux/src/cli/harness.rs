@@ -147,12 +147,14 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
             base_url,
             model,
             keychain_item,
+            key,
             name,
             icon,
         } if example.as_deref().is_some_and(|e| byo_endpoint::Kind::from_example(e).is_some())
             || base_url.is_some()
-            || model.is_some()
+            || !model.is_empty()
             || keychain_item.is_some()
+            || key
             || name.is_some() =>
         {
             let p = crate::harness_admin::AddParams {
@@ -162,13 +164,13 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
                 protocol: (protocol != "acp").then_some(protocol),
                 example,
                 base_url,
-                model,
+                models: model,
                 keychain_item,
                 replace: force,
                 ..Default::default()
             };
             check_icon_arg(icon.as_deref())?;
-            add_endpoint_cmd(&p, icon.as_deref(), json_out).await
+            add_endpoint_cmd(&p, key, icon.as_deref(), json_out).await
         }
         HarnessCmd::Add {
             id, command, protocol, example, force, registry: false, icon, ..
@@ -222,22 +224,31 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
             print!("{GUIDE}");
             Ok(())
         }
-        HarnessCmd::Remove { id } => {
+        HarnessCmd::Remove { id, forget_key } => {
             let cfg = Config::load()?;
+            let forget: &dyn Fn(&_) -> _ = &super::harness_secret::run_delete;
             let removed = crate::harness_admin::remove(
                 &id,
                 &cfg,
                 &ProfileSources::current(),
                 &crate::config::home(),
+                forget_key.then_some(forget),
             )?;
             let reloaded = reload_daemon().await;
             if json_out {
-                println!(
-                    "{}",
-                    json!({"id": removed.id, "backup": removed.backup, "daemonReloaded": reloaded})
-                );
-            } else {
+                let answer = json!({
+                    "id": removed.id,
+                    "backup": removed.backup,
+                    "daemonReloaded": reloaded,
+                    "keyError": removed.key_error,
+                });
+                println!("{answer}");
+            } else if removed.key_error.is_none() {
                 println!("removed {id}; undo with `cmux harness restore {}`", removed.backup);
+            }
+            // The profile is gone but its key is not: say so and fail, never claim success.
+            if let Some(warning) = removed.key_warning() {
+                bail!("{warning}; undo with `cmux harness restore {}`", removed.backup);
             }
             Ok(())
         }
@@ -276,16 +287,57 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
 /// the daemon's own add (`harness_admin`), then the next steps.
 async fn add_endpoint_cmd(
     p: &crate::harness_admin::AddParams,
+    with_key: bool,
     icon: Option<&str>,
     json_out: bool,
 ) -> Result<()> {
-    if p.example.as_deref().and_then(byo_endpoint::Kind::from_example).is_none() {
+    let Some(kind) = p.example.as_deref().and_then(byo_endpoint::Kind::from_example) else {
         bail!(
-            "--base-url, --model, --keychain-item and --name go with --example anthropic-endpoint or openai-endpoint"
+            "--base-url, --model, --keychain-item, --key and --name go with --example anthropic-endpoint or openai-endpoint"
         );
-    }
-    let added = crate::harness_admin::add(p, &ProfileSources::current(), None, &|_| None)
-        .map_err(|e| anyhow!("{e}"))?;
+    };
+    // `--key`: read before anything else (the models read uses it), never from argv. It goes to
+    // the daemon's one locked add path, which stores it in an item of this profile only.
+    let value = if with_key {
+        Some(crate::cli::harness_secret::read_value(kind.secret_key())?)
+    } else {
+        None
+    };
+    let mut p = p.clone();
+    let sources = ProfileSources::current();
+    crate::harness_admin::fetch_endpoint_models(
+        &mut p,
+        value.as_ref().map(|v| v.as_str()),
+        &sources,
+        profiles::keychain_lookup,
+    )
+    .await
+    .map_err(|e| anyhow!("{e}"))?;
+    let p = &p;
+    // Without `--key` or `--keychain-item` the profile names no item, so a keyless endpoint never
+    // fails on one. An id another source has (a built-in, managed or cmux.json harness) is
+    // refused, as the daemon does.
+    let cfg = Config::load()?;
+    let taken = crate::harness_admin::taken_elsewhere(&cfg, &sources);
+    let added = crate::harness_admin::add_endpoint_keyed(
+        p,
+        &sources,
+        &crate::harness_admin::EndpointKey {
+            taken: &taken,
+            // Stores the key (`--key`); deletes a new item whose publish failed, and the item of
+            // the profile a replace no longer names.
+            store: &|cmd| {
+                if cmd.stdin.is_empty() {
+                    crate::cli::harness_secret::run_delete(cmd)
+                } else {
+                    crate::cli::harness_secret::run_store(cmd)
+                }
+            },
+            value: value.as_ref().map(|v| v.as_str()),
+        },
+    )
+    .map_err(|e| anyhow!("{e}"))?;
+    drop(value);
     if let Some(icon) = icon {
         set_icon_quiet(&added.id, icon)?;
     }
@@ -305,12 +357,17 @@ async fn add_endpoint_cmd(
     if let Some(slot) = &added.secret {
         let id = &added.id;
         if p.keychain_item.is_some() {
+            println!("the key is read from your Keychain item {}", slot.keychain_item);
+        } else if with_key {
             println!(
-                "the key is read from the Keychain item {}; to store it there with cmux instead: `cmux harness secret set {id} {}`",
-                slot.keychain_item, slot.key
+                "stored the key in the Keychain item {}, for this endpoint only",
+                slot.keychain_item
             );
         } else {
-            println!("next: store the key: `cmux harness secret set {id} {}`", slot.key);
+            println!(
+                "no key: if {id} needs one ({}), add it again with --key --force (the key is read hidden, or from stdin)",
+                slot.key
+            );
         }
     }
     println!("then check it with one real turn: `cmux harness doctor {}`", added.id);
@@ -330,30 +387,37 @@ pub fn add_help() -> &'static str {
 const ADD_HELP_EN: &str = "\
 Your own model endpoint:
   cmux harness add acme --example anthropic-endpoint --base-url https://llm.example.com \\
-      --model acme-large [--keychain-item ITEM] [--name \"Acme\"]
+      --model acme-large [--key | --keychain-item ITEM] [--name \"Acme\"]
       Claude Code (acpmux's own adapter) on an Anthropic Messages API endpoint:
       ANTHROPIC_BASE_URL, ANTHROPIC_MODEL, and ANTHROPIC_AUTH_TOKEN from the Keychain.
   cmux harness add local --example openai-endpoint --base-url http://127.0.0.1:11434/v1 \\
-      --model qwen3 [--keychain-item ITEM]
+      --model my-model,my-coder [--key | --keychain-item ITEM]
       OpenCode (`opencode acp`) on an OpenAI Chat Completions endpoint (provider byo).
+  Several models: repeat --model or separate ids with commas; the first is the default (and
+  Claude Code's Opus slot; the second its Sonnet slot, the third its Haiku slot). --model '*'
+  adds every model the endpoint lists at <base URL>/models.
   The base URL is https (plain http only to localhost or 127.0.0.1). The key never goes on the
-  command line or into the profile: store it with `cmux harness secret set ID KEY` (KEY is
-  ANTHROPIC_AUTH_TOKEN or CMUX_BYO_API_KEY), or name the Keychain item that holds it with
-  --keychain-item. Then `cmux harness doctor ID` sends one real prompt and names the fix:
+  command line or into the profile: pass --key (it is read hidden, or from stdin, and stored in
+  the Keychain for this endpoint only; a new key: add again with --key --force), or name a
+  Keychain item of your own that holds it with --keychain-item. Then `cmux harness doctor ID` sends one real prompt and names the fix:
   the key, the base URL or the model.";
 
 const ADD_HELP_JA: &str = "\
 自分のモデルエンドポイント:
   cmux harness add acme --example anthropic-endpoint --base-url https://llm.example.com \\
-      --model acme-large [--keychain-item ITEM] [--name \"Acme\"]
+      --model acme-large [--key | --keychain-item ITEM] [--name \"Acme\"]
       Anthropic Messages API 互換のエンドポイントで Claude Code (acpmux のアダプター) を使います:
       ANTHROPIC_BASE_URL、ANTHROPIC_MODEL、キーチェーンから ANTHROPIC_AUTH_TOKEN。
   cmux harness add local --example openai-endpoint --base-url http://127.0.0.1:11434/v1 \\
-      --model qwen3 [--keychain-item ITEM]
+      --model my-model,my-coder [--key | --keychain-item ITEM]
       OpenAI Chat Completions 互換のエンドポイントで OpenCode (`opencode acp`、プロバイダー byo) を使います。
+  複数のモデル: --model を繰り返すか、カンマで区切ります。最初のものが既定です (Claude Code の
+  Opus 枠。2 番目は Sonnet 枠、3 番目は Haiku 枠)。--model '*' はエンドポイントの
+  <ベース URL>/models にあるすべてのモデルを加えます。
   ベース URL は https です (http は localhost と 127.0.0.1 だけ)。キーはコマンドラインにも
-  プロファイルにも書きません: `cmux harness secret set ID KEY` (KEY は ANTHROPIC_AUTH_TOKEN
-  または CMUX_BYO_API_KEY) で保存するか、--keychain-item でキーのあるキーチェーン項目を指定します。
+  プロファイルにも書きません: --key を付けると (非表示の入力か標準入力から読み) このエンドポイント
+  専用にキーチェーンへ保存します (新しいキーは --key --force で追加し直します)。または
+  --keychain-item で自分のキーチェーン項目を指定します。
   そのあと `cmux harness doctor ID` が実際のプロンプトを 1 回送り、直す点 (キー、ベース URL、
   モデル) を示します。";
 
@@ -673,7 +737,7 @@ args = []                 # for example ["acp"]; "${{model}}" becomes the chosen
 # [defaults]
 # model = "model-id"
 # effort = "medium"
-# policy = "ask"          # ask, approve-reads, approve-edits, approve-all, deny-all
+# policy = "ask"          # ask, approve-reads, approve-edits, approve-all, deny-all, review
 
 # [models]
 # list = [{{ id = "model-id", name = "Model Name", short_name = "Short" }}]
@@ -879,14 +943,16 @@ pub async fn doctor(cfg: &Config, id: &str, opts: &DoctorOptions) -> DoctorRepor
         Ok(()) => r.push("env", StepStatus::Pass, &kinds.join(", "), None),
         Err(e) => {
             let key = e.split(':').next().unwrap_or("").trim_start_matches("env ").to_owned();
-            r.push(
-                "env",
-                StepStatus::Fail,
-                &e,
-                Some(format!(
+            // An endpoint's key comes only with its add (`secret set` refuses an endpoint).
+            let fix = match byo_endpoint::Kind::of_env(&profile.env) {
+                Some(_) => format!(
+                    "add {id} again with its key: `cmux harness add {id} ... --key --force`"
+                ),
+                None => format!(
                     "cmux harness secret set {id} {key}  (or export it in your login shell)"
-                )),
-            );
+                ),
+            };
+            r.push("env", StepStatus::Fail, &e, Some(fix));
             return r.done();
         }
     }
@@ -1013,7 +1079,7 @@ async fn acp_steps(
     for a in spawn.argv.iter_mut() {
         *a = crate::hub::expand_env_value(a, folder, &home, &model);
     }
-    let mut cmd = match crate::agent::harness_command(id, &spawn, folder, None, None) {
+    let mut cmd = match crate::agent::harness_command_ready(id, &spawn, folder, None, None).await {
         Ok(cmd) => cmd,
         Err(e) => {
             r.push("launch", StepStatus::Fail, &e.to_string(), None);

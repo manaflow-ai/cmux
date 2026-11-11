@@ -1,5 +1,7 @@
 // The thread minimap's model: one tick per user message at the pane's left edge
 // (the Codex desktop app's prompt rail). Pure functions, so geometry and previews need no DOM.
+import { withoutRelayLabelOfMessage } from "../conversation/relayEnvelope";
+import { senderName } from "../conversation/senderIdentity";
 import { transcriptColumn, type AcpmuxRow } from "../model";
 import { opensTurn } from "../turnStart";
 import { inboxCounts } from "../conversation/inboxNotice";
@@ -64,8 +66,13 @@ export function railPlacement(
   paneWidth: number,
   textInset = transcriptColumn(paneWidth).inset,
   spacing: { min: number; max: number; compact: number; narrowest?: number } = { min: 8, max: 16, compact: 12 },
+  /// The `inset-first` arm (restTick.experiment.ts): the inset follows the text's own gutter too, so it
+  /// shrinks before the hit width where the text comes near (and moves the rail when Session Info pushes).
+  insetFirst = false,
 ): { left: number; width: number; overlapsText: boolean; gutter: number } {
-  const paneInset = transcriptColumn(paneWidth).inset;
+  const paneInset = insetFirst
+    ? Math.min(transcriptColumn(paneWidth).inset, textInset)
+    : transcriptColumn(paneWidth).inset;
   // The narrowest hit width: the compact step for the tight gutter (gutter.experiment.ts), so the
   // resting rail fits the page edge; the inset plus that step for the edge strip.
   const minimumWidth = spacing.narrowest ?? spacing.min + spacing.compact;
@@ -191,8 +198,9 @@ export function waveProgress(shape: WaveShape, index: number, focus: number, amp
 /// pointer in 3 of these (90 ms), inside the motion scale's micro step, so a sweep reads as one
 /// smooth wave and a flick never jumps.
 export const WAVE_FOLLOW_MS = 30;
-/// The rail's spring (threadMinimap.css `--acpmux-minimap-spring`, about 0.8% overshoot) as points
-/// of progress over its duration: the wave grows in on it when the pointer arrives.
+/// The rail's spring (threadMinimap.css `--acpmux-minimap-spring`) as points of progress over its
+/// duration: the wave grows in on it when the pointer arrives. It reaches full size at 58.75% and
+/// stays there: no point is over 1 (Lawrence: no bounce in any motion).
 const SPRING: ReadonlyArray<readonly [number, number]> = [
   [0, 0],
   [0.1, 0.398],
@@ -200,9 +208,7 @@ const SPRING: ReadonlyArray<readonly [number, number]> = [
   [0.3, 0.843],
   [0.4, 0.925],
   [0.5, 0.972],
-  [0.6, 1.004],
-  [0.7, 1.008],
-  [0.8, 1.003],
+  [0.5875, 1],
   [1, 1],
 ];
 export const WAVE_IN_MS = MOTION_MS.micro;
@@ -439,6 +445,24 @@ export function railFades(
   };
 }
 
+/// How deep each edge fade of the list draws, 0 to 1 of its full size: none at the very end, growing
+/// with how far the list has scrolled from that end until it is full RAIL_FADE_RAMP fades on, so the
+/// rows roll under the edge like a wheel turning (Leo, 2026-11-07: "if you scroll to the very top, there
+/// should be no fade. But then as you scroll down, like gradually, there's more and more of a fade on
+/// the top edges" and, from the bottom, "the bottom should gradually have that same kind of fade").
+export const RAIL_FADE_RAMP = 2;
+export function railFadeReach(count: number, height: number, top: number, pitch = ROW_PITCH) {
+  const ramp = Math.max(1, railFade(height) * RAIL_FADE_RAMP);
+  const reach = (distance: number) => Math.max(0, Math.min(1, distance / ramp));
+  return { top: reach(top), bottom: reach(count * pitch - top - height) };
+}
+
+/// The transcript's edge fades (conversation.css `--acpmux-fade-*-reach`) the same way: none at either
+/// end of the chat, full once the view is TRANSCRIPT_FADE_RAMP px from it.
+export const TRANSCRIPT_FADE_RAMP = 96;
+export const transcriptFadeReach = (distance: number) =>
+  Math.max(0, Math.min(1, Math.round((distance / TRANSCRIPT_FADE_RAMP) * 100) / 100));
+
 /// Where the rail's list scrolls (its `scrollTop`) so the band, the prompts on screen (`first` to
 /// `last`), shows whole and clear of the fades: `current` while it already does; else the band's
 /// first row a third of the way down, as the Codex rail puts it, moved as little as it takes to show
@@ -614,9 +638,16 @@ export type MinimapTick = Pick<MinimapTurn, "key" | "id" | "prompt" | "from" | "
 /// sort of thing?").
 export function promptSender(row: AcpmuxRow): string | undefined {
   const incoming = row.incoming;
-  if (incoming?.kind === "message") return incoming.message.name || undefined;
+  if (incoming?.kind === "message") return senderName(incoming.message.name) || undefined;
   if (incoming?.kind === "inbox") return inboxCounts(incoming.notice).senders.join(", ") || undefined;
   return undefined;
+}
+
+/// A turn's prompt as its tick shows it: another agent's message without the broker's label around
+/// it (conversation/relayEnvelope.ts), the person's as written.
+function promptText(row: AcpmuxRow): string {
+  const text = (row.text ?? "").trim();
+  return row.incoming?.kind === "message" ? withoutRelayLabelOfMessage(text).trim() : text;
 }
 
 /// The turns of `rows`, the ticks they draw, and the rows they were read from.
@@ -725,7 +756,7 @@ export function minimapTurns(
         key: turnKey(sessionId, user),
         // Keep explicit prompt line breaks for the hover card; its CSS clamps the title without
         // changing what the person wrote. Spaces are normalized by white-space: pre-line there.
-        prompt: (user.text ?? "").trim(),
+        prompt: promptText(user),
         ...withSender(user),
         reply: sameReply ? kept.turn.reply : reply?.text ? replyPreview(reply.text) : [],
         metadata: nextMetadata,
@@ -808,7 +839,7 @@ export function minimapTurns(
           index: -1,
           id: row.id,
           key: turnKey(sessionId, row),
-          prompt: (row.text ?? "").trim(),
+          prompt: promptText(row),
           ...withSender(row),
           reply: [],
         }));
@@ -1081,6 +1112,34 @@ export function foldIncoming(
   }
   for (; at < turns.length; at += 1) folded.push(turns[at]!);
   return { turns: folded, ticks: runs.ticks };
+}
+
+/// Whose prompts the rail shows, picked from its right-click menu (Leo, 2026-11-07: "when you
+/// right-click the left scroll rail, you should be able to ... filter out the other agent messages to
+/// only your own, or filtering out your own to only the agent messages"): every prompt, the person's
+/// own, or only other agents' messages (a tick with a sender, promptSender).
+export type RailFilter = "all" | "mine" | "agents";
+
+/// The turns and ticks a filter keeps, in order, and where the loaded ones now start (`loadedStart`
+/// counts the earlier, indexed turns kept before it). Pending ticks are not here: they have no sender
+/// yet, so a filtered rail draws none (ThreadMinimap).
+export function filterTurns(
+  turns: readonly MinimapTurn[],
+  ticks: readonly MinimapTick[],
+  loadedStart: number,
+  filter: RailFilter,
+): { turns: readonly MinimapTurn[]; ticks: readonly MinimapTick[]; loadedStart: number } {
+  if (filter === "all") return { turns, ticks, loadedStart };
+  const keptTurns: MinimapTurn[] = [];
+  const keptTicks: MinimapTick[] = [];
+  let start = 0;
+  for (let at = 0; at < ticks.length; at += 1) {
+    if ((ticks[at]!.from !== undefined) !== (filter === "agents")) continue;
+    if (at < loadedStart) start += 1;
+    keptTurns.push(turns[at]!);
+    keptTicks.push(ticks[at]!);
+  }
+  return { turns: keptTurns, ticks: keptTicks, loadedStart: start };
 }
 
 const runsByTicks = new WeakMap<

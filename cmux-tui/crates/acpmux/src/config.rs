@@ -856,8 +856,10 @@ pub fn turn_cut(name: &str, profile: &HarnessProfile) -> Option<TurnCut> {
     }
 }
 
-/// Permission policy applied when no attached client answers.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+/// Permission policy applied when no attached client answers. Read from config.json through
+/// `FromStr`: a value this build does not know (one a newer build added and saved, read after a
+/// rollback) reads as `ask` rather than failing the whole config, which stopped the daemon.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum PermissionPolicy {
     /// Ask attached clients; wait without limit when none is attached.
@@ -869,6 +871,11 @@ pub enum PermissionPolicy {
     /// Claude Code's "accept edits" without needing Claude's own mode.
     ApproveEdits,
     DenyAll,
+    /// A reviewer's read-only shell: what approve-reads approves runs unasked (reads, searches
+    /// and read-only shell commands such as `git log`, `git diff`, `grep`, `rg`, `ls`, `cat`,
+    /// `sed -n`, `hub/shell_readonly.rs`), and every other tool call is denied at once, so a
+    /// session with no person to ask never waits.
+    Review,
 }
 
 impl std::str::FromStr for PermissionPolicy {
@@ -880,8 +887,19 @@ impl std::str::FromStr for PermissionPolicy {
             "approve-reads" => Ok(Self::ApproveReads),
             "approve-edits" | "accept-edits" => Ok(Self::ApproveEdits),
             "deny-all" => Ok(Self::DenyAll),
+            "review" => Ok(Self::Review),
             other => Err(format!("unknown permission policy: {other}")),
         }
+    }
+}
+
+impl<'de> Deserialize<'de> for PermissionPolicy {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+        let text = String::deserialize(d)?;
+        Ok(text.parse().unwrap_or_else(|_| {
+            tracing::warn!("permission policy {text:?} is not one this build knows; using ask");
+            Self::Ask
+        }))
     }
 }
 
@@ -893,6 +911,7 @@ impl std::fmt::Display for PermissionPolicy {
             Self::ApproveReads => "approve-reads",
             Self::ApproveEdits => "approve-edits",
             Self::DenyAll => "deny-all",
+            Self::Review => "review",
         };
         f.write_str(s)
     }
@@ -1054,7 +1073,8 @@ pub struct SessionResourceConfig {
     pub sessions_tasks_max: Option<u64>,
     /// `cpuClass`: the CPU class a macOS session's harness runs at once its
     /// start is over (it starts at normal), `background` or `normal` (`cpu_class.rs`). Env `ACPMUX_SESSION_CPU_CLASS`
-    /// overrides it, a profile's env overrides both. Unset: `background`.
+    /// overrides it, a profile's env overrides both. Unset: `background`, or `normal` for a
+    /// Claude Code launcher (`cpu_class::default_for`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpu_class: Option<crate::cpu_class::CpuClass>,
 }
@@ -1481,6 +1501,10 @@ pub struct Config {
     /// the hot-reload watcher read the same ones.
     #[serde(skip)]
     pub profile_sources: ProfileSources,
+    /// What this process last read from or wrote to the file: a save writes only what changed
+    /// since, so another writer's change is kept (`config/save_merge.rs`).
+    #[serde(skip)]
+    pub saved: save_merge::SavedBase,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1802,6 +1826,8 @@ impl Config {
         cfg.profile_sources = sources.clone();
         cfg.cloud_host = crate::cloud_host::is_cloud_vm();
         cfg.path = Some(path);
+        let read = (!cfg.file_missing).then(|| cfg.on_disk_value().ok()).flatten();
+        cfg.saved = save_merge::SavedBase::new(read);
         Ok(cfg)
     }
 
@@ -1925,6 +1951,12 @@ impl Config {
         if let Some(parent) = path.parent() {
             private_state_dir(parent)?;
         }
+        save_merge::save_merged(path, &self.saved, self.on_disk_value()?, write)
+    }
+
+    /// The config as a save writes it: without what discovery, profile files and this run
+    /// added, with the config.json entries profile files replaced.
+    fn on_disk_value(&self) -> Result<serde_json::Value> {
         let mut on_disk = self.clone();
         on_disk
             .harnesses
@@ -1950,7 +1982,7 @@ impl Config {
                 on_disk.defaults.remove("claude");
             }
         }
-        write(path, serde_json::to_string_pretty(&on_disk)?.as_bytes())
+        Ok(serde_json::to_value(&on_disk)?)
     }
 
     pub fn profile(&self, name: &str) -> Option<&HarnessProfile> {
@@ -2028,13 +2060,14 @@ fn write_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> Result<()> {
 }
 
 mod nested_env;
+pub(crate) use nested_env::inherited_caller_scoped_keys;
 #[cfg(windows)]
 pub(crate) use nested_env::nested_claude_keys;
 pub use nested_env::{
     CHIEF_CREDENTIAL_ENV, LAUNCH_CREDENTIAL_ENV, scrub_nested_claude_env,
     scrub_nested_claude_env_for, scrub_nested_claude_env_tokio, scrub_nested_claude_env_tokio_for,
 };
-pub(crate) use nested_env::{inherited_caller_scoped_keys, is_nested_claude_key};
+pub use nested_env::{is_caller_scoped_key, is_nested_claude_key};
 mod launchers;
 pub(crate) use launchers::which;
 pub use launchers::{is_subrouter_proxy, subrouter_route, verify_launchers, verify_launchers_with};
@@ -2049,6 +2082,7 @@ pub use discover::{
 };
 mod peer;
 pub use peer::PeerConfig;
+mod save_merge;
 mod store_config;
 pub use store_config::{StoreConfig, StoreMode};
 mod pool;
@@ -2083,5 +2117,7 @@ pub fn normalize_permission_mode(value: &str) -> Option<&'static str> {
     }
 }
 
+#[cfg(test)]
+mod save_merge_tests;
 #[cfg(test)]
 mod tests;

@@ -16,9 +16,11 @@ import { Icon } from "../icons/Icon";
 
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
+import { useSenderIconLook } from "../subagents/senderIconLook";
 import { useAgentProgress } from "../subagents/agentProgressStore";
 import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/agentIdentityModel";
 import { subagentProgress } from "../subagents/subagentProgress";
+import { namedAction } from "../subagents/trayDetail";
 import { nestAgents } from "../subagents/agentsPillModel";
 import { elapsed, running, useNow } from "../subagents/subagentGroupModel";
 import { agentTone } from "../subagents/agentTones";
@@ -119,6 +121,9 @@ export function SubagentsSection({
   const [more, setMore] = useState(false);
   const [endedOpen, setEndedOpen] = useState(false);
   const endedEdges = useScrollEdges();
+  // The badge look picks which subagents show their family mark (foreignHarness): read here, so a
+  // change of the setting draws them again.
+  const senderBadge = useSenderIconLook().badge;
   // Show more grows the running lines in place, and the ended row opens its list, each as one motion
   // with the sections under it and the panel's edge (foldMotion.ts).
   const moreFold = useFoldMotion<HTMLUListElement>(more, (list) => heightAbove(list, list.children[SUBAGENTS_SHOWN]));
@@ -133,7 +138,7 @@ export function SubagentsSection({
       progress: subagentProgress(t, language, agent, { usage: false }).join(" · "),
       // What it does now, while it runs; its kind (Explore, general-purpose) is no subtitle on the
       // line (Leo, 2026-10-31: "a lot of these subtitles are bad"): the hover card keeps it.
-      detail: working(status) ? agent.action : undefined,
+      detail: working(status) ? namedAction(t, agent.action, agent.actionShell) : undefined,
       kind: agent.kind && agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined,
       status,
       state: subagentStateText(t, agent, waiting, now),
@@ -142,7 +147,7 @@ export function SubagentsSection({
       task: agent.task,
       icon: SUBAGENT_FALLBACK,
       // Another family's mark; the chat's own subagents keep their toned sparkle (foreignHarness).
-      mark: foreignHarness(agent.harness, harness),
+      mark: foreignHarness(agent.harness, harness, senderBadge),
       depth,
       at: agent.endedAt ?? agent.startedAt,
       open: onOpen && (() => onOpen(agent.id)),

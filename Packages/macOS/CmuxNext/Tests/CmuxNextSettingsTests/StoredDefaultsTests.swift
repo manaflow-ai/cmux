@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextDesign
 @testable import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -23,7 +24,7 @@ import Testing
 
     func marker() throws -> UserDefaults {
         let suite = "cn-stored-defaults-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defaults.removePersistentDomain(forName: suite)
         return defaults
     }
@@ -171,6 +172,102 @@ import Testing
         try await settings.file.set(.string("flat-sidebar-line"), at: ChromeStyleSetting.configPath)
         #expect(try await settings.forgetStoredDefaults(marker: marker, formerDefaults: former) == nil)
         #expect(try await settings.file.value(at: ChromeStyleSetting.configPath) == .string("flat-sidebar-line"))
+    }
+
+    /// cmux-next.json is one file for every build on the Mac (NIGHTLY, RC, each tagged DEV build), and
+    /// each build has its own UserDefaults. The pass runs once per file: a build that launches later
+    /// on the same file leaves the person's pick of a former default alone. It ran once per build, so
+    /// every fresh DEV build dropped `updates.downloadAutomatically: true` (a former default) from the
+    /// shared file and the running NIGHTLY's updater flipped from on to deferred two seconds after
+    /// that build launched (NIGHTLY updater log, 2026-11-08T08:05:19.567Z DEV launch, 08:05:21.615Z
+    /// "automatic downloads deferred (setting false ...)").
+    @Test func thePassRunsOncePerFileNotOncePerBuild() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let nightly = try await controller(#"{ "diff": { "layout": "auto" } }"#)
+        #expect(try await nightly.forgetStoredDefaults(marker: try marker()) != nil)
+
+        // The person turns Automatic Updates on (it was the default once) after the pass.
+        try await nightly.setSetting(at: UpdatesSettings.downloadAutomaticallyPath, to: .bool(true), by: .user)
+        #expect(try await nightly.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(true))
+
+        // A DEV build launches on the same file with its own UserDefaults.
+        let dev = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+                                     managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        await dev.reload()
+        let devMarker = try marker()
+        #expect(try await dev.forgetStoredDefaults(marker: devMarker) == nil)
+        #expect(devMarker.bool(forKey: SettingsController.storedDefaultsForgottenKey), "the build records it too")
+        #expect(try await dev.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(true))
+    }
+
+    /// A pass that found nothing to drop still counts as run for the file.
+    @Test func aPassThatDroppedNothingStillRunsOncePerFile() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller(#"{ "workspaces": { "newPlacement": "bottom" } }"#)
+        let report = try #require(try await settings.forgetStoredDefaults(marker: try marker()))
+        #expect(report.dropped.isEmpty)
+
+        try await settings.file.set(.bool(true), at: UpdatesSettings.downloadAutomaticallyPath)
+        #expect(try await settings.forgetStoredDefaults(marker: try marker()) == nil)
+        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(true))
+    }
+
+    /// Automatic Updates is an opt-in (off on every channel since Leo 2026-10-27), so a stored `true`
+    /// is the person's pick, never a stale copy: the pass keeps it on a file it has not seen yet
+    /// (a new install's first launch, an older cmux-next.json copied in). Lawrence 2026-11-08: "i keep
+    /// enabling auto updates but it keeps getting toggled off": each fresh build's pass dropped it
+    /// as a copy of the former default `true`, and the running NIGHTLY turned automatic downloads off.
+    @Test func thePassKeepsAutomaticUpdatesTurnedOn() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller(#"{ "updates": { "downloadAutomatically": true } }"#)
+
+        let report = try #require(try await settings.forgetStoredDefaults(marker: try marker()))
+        #expect(report.dropped[UpdatesSettings.downloadAutomaticallyPath.joined(separator: ".")] == nil)
+        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(true))
+        #expect(settings.snapshot.updates.downloadAutomatically)
+    }
+
+    /// Writes the record an earlier build's pass left beside the file, with `dropped`.
+    func forgottenRecord(dropped: [String: JSONValue]) throws {
+        let record: JSONValue = .object(["dropped": .object(dropped), "kept": .object([:]), "before": .string("")])
+        try Data(record.prettyText().utf8).write(to: home.appending(path: "cmux-next.json.defaults-forgotten.json"))
+    }
+
+    /// A Mac whose earlier build's pass dropped Automatic Updates (`true`, then wrongly a former
+    /// default) gets it back at the next launch: Leo 2026-11-09, "that update, it wasn't just the
+    /// one-click automatic thing". A former default it dropped stays dropped.
+    @Test func aLaunchPutsBackAutomaticUpdatesThePassDropped() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller(#"{ "workspaces": { "newPlacement": "bottom" } }"#)
+        try forgottenRecord(dropped: ["updates.downloadAutomatically": .bool(true), "diff.layout": .string("unified")])
+
+        await settings.runLaunchMigrations(marker: try marker())
+        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(true))
+        #expect(settings.snapshot.updates.downloadAutomatically)
+        #expect(try await settings.file.value(at: ["diff", "layout"]) == nil)
+        #expect(try await settings.file.value(at: ["workspaces", "newPlacement"]) == .string("bottom"))
+    }
+
+    /// The put-back runs once per file, and a key set since the drop keeps its value.
+    @Test func thePutBackRunsOnceAndKeepsALaterPick() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller(#"{ "updates": { "downloadAutomatically": false } }"#)
+        try forgottenRecord(dropped: ["updates.downloadAutomatically": .bool(true)])
+
+        #expect(try await settings.restoreWronglyForgottenDefaults() == [])
+        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(false))
+
+        try await settings.file.remove(UpdatesSettings.downloadAutomaticallyPath)
+        #expect(try await settings.restoreWronglyForgottenDefaults() == nil, "once per file")
+        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == nil)
+    }
+
+    /// With no record beside the file (the pass never dropped anything), nothing is put back.
+    @Test func noRecordNoPutBack() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller("{}")
+        #expect(try await settings.restoreWronglyForgottenDefaults() == nil)
+        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == nil)
     }
 
     /// A null the first builds of this change stored for a default write goes once; a set value stays.

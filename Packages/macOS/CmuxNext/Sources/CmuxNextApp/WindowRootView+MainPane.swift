@@ -88,7 +88,7 @@ extension WindowRootView {
     func observeMainPane() -> Task<Void, Never> {
         Task { [weak self] in
             for await _ in ObservationStream({ () -> [CGFloat] in [Metrics.mainPaneGutter, Metrics.mainPaneCornerRadius,
-                                                Metrics.mainPaneChromeShade(isDark: false), Metrics.mainPaneChromeShade(isDark: true), Metrics.floatingPanes ? 1 : 0] }) {
+                                                Metrics.mainPaneChromeShade(isDark: false), Metrics.mainPaneChromeShade(isDark: true), Metrics.chromeShapeKey] }) {
                 self?.applyMainPane()
             }
         }
@@ -102,13 +102,11 @@ extension WindowRootView {
     // Helium, the sidebar's side too.
     func applyMainPane() {
         let gutter = Metrics.mainPaneGutter, top = mainPaneTopInset, edge = Metrics.windowEdgeInset(gutter, in: window)
-        // The right sidebar sits opposite the sidebar: it insets the left side's trailing pin, the right side's leading one.
-        let panel = rightPanelWidth
-        for (side, constraints) in sidePins {
+        for constraints in sidePins.values {
             for constraint in constraints where constraint.firstItem === contentHost {
                 switch constraint.firstAttribute {
-                case .leading: constraint.constant = constraint.secondItem !== self ? gutter : side == .right && panel > 0 ? gutter + panel : edge
-                case .trailing: constraint.constant = constraint.secondItem !== self ? -gutter : side == .left && panel > 0 ? -gutter - panel : -edge
+                case .leading: constraint.constant = constraint.secondItem !== self ? CornerFlush.current.sidebarGap ?? gutter : edge
+                case .trailing: constraint.constant = constraint.secondItem !== self ? -(CornerFlush.current.sidebarGap ?? gutter) : -edge
                 default: break
                 }
             }
@@ -156,8 +154,7 @@ extension WindowRootView {
         if contentHost.setCornerRadius(radius), let window {
             NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
         }
-        let alpha = Metrics.mainPaneChromeShade(isDark: themeTokens.isDark)
-        mainPaneShade.update(card: contentHost.frame, radius: radius, alpha: alpha)
+        cornerFlush.apply(content: contentHost, radius: radius, isDark: themeTokens.isDark, page: presentsPage, sidebarOnLeft: sidebarSide == .left, shade: mainPaneShade, in: self)
     }
 }
 
@@ -196,7 +193,7 @@ extension WindowRootView {
 
     /// Hides the chrome around the content host, remembering the views it hid (one hidden on its own stays so).
     func hidePagePresentationChrome() {
-        // The title row (`applyTokens`), the right sidebar and the titlebar badge (layout) follow
+        // The title row (`applyTokens`) and the titlebar badge (layout) follow
         // `presentsPage` themselves; the host pressure warning stays (it shows only under pressure).
         for view in [sidebar, toolbarBand, trafficLightsGlass, titlebarRevealRegion, mainPaneShade] as [NSView] where !view.isHidden {
             pagePresentationHidden.append(view)

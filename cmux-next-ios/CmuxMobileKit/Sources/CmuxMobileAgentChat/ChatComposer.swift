@@ -76,8 +76,8 @@ struct ChatComposer: View {
             }
             card
         }
-        .animation(.cmuxMobileSmooth, value: collapsed)
-        .animation(.cmuxMobileSnappy, value: attachments)
+        .animation(.cmuxMobileSmooth.unlessReduceMotion, value: collapsed)
+        .animation(.cmuxMobileSnappy.unlessReduceMotion, value: attachments)
         .filePreview($preview)
         // Photos and videos, as the Mac's composer takes both (a video goes with its frames).
         .photosPicker(isPresented: $showPhotos, selection: $photoItems, maxSelectionCount: 10, matching: .any(of: [.images, .videos]))
@@ -148,7 +148,7 @@ struct ChatComposer: View {
                 transaction.disablesAnimations = true
                 withTransaction(transaction) { shownCollapsed = target }
             } else {
-                withAnimation(.cmuxMobileSmooth) { shownCollapsed = target }
+                withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { shownCollapsed = target }
             }
         }
     }
@@ -255,8 +255,12 @@ struct ChatComposer: View {
                 if primaryState != .empty || !voice.isAvailable { primaryButton }
             }
             .padding(.horizontal, 8)
-            .padding(.bottom, collapsed ? 6 : 8)
-            .padding(.top, collapsed ? 6 : 0)
+            // CMUX-46: the collapsed "Reply to <agent>" capsule is the 44 pt row plus 2 pt each
+            // side, 48 pt: the card's minimum and a true capsule at its 24 pt radius (6 pt each
+            // side drew it 56 pt tall, rounder at the ends than a capsule and too thick). The row
+            // keeps its 44 pt targets and grows with Dynamic Type.
+            .padding(.bottom, collapsed ? 2 : 8)
+            .padding(.top, collapsed ? 2 : 0)
         }
         .frame(minHeight: collapsed ? 48 : 96, alignment: .bottom)
         .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
@@ -264,12 +268,12 @@ struct ChatComposer: View {
     }
 
     private var placeholder: String {
-        placeholderOverride ?? (!store.hasTurns ? "Ask \(store.summary.agentName)" : "Reply to \(store.summary.agentName)")
+        placeholderOverride ?? (store.isNewChat ? "Ask \(store.summary.agentName)" : "Reply to \(store.summary.agentName)")
     }
 
     /// Expands the capsule, then focuses the field once it exists.
     private func expand() {
-        withAnimation(.cmuxMobileSmooth) { expandRequested = true }
+        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { expandRequested = true }
         Task { @MainActor in
             await Task.yield()
             focus.wrappedValue = true
@@ -448,12 +452,13 @@ struct ChatComposer: View {
         return Button {
             voice.toggle(source)
         } label: {
+            let style = ComposerVoiceStyle(primaryIsVisible: primaryState == .stop, active: active)
             Image(systemName: "waveform")
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: style.isFilled ? 15 : 17, weight: style.isFilled ? .semibold : .regular))
                 .foregroundStyle(active ? Color.cmuxMobileOnAccent : Color.primary)
                 .symbolEffect(.variableColor.iterative, isActive: active)
                 .frame(width: 36, height: 36)
-                .background(active ? Color.cmuxMobileAccent : Color.cmuxMobileFill, in: .circle)
+                .background(style.fillColor, in: .circle)
                 .padding(4)
                 .contentShape(.circle)
                 .padding(-4)
@@ -468,8 +473,9 @@ struct ChatComposer: View {
         return Button {
             switch state {
             case .stop: store.cancel()
-            // A follow-up while the agent works queues, or steers it when Settings says so.
-            case .send, .queue: send(steer: state == .queue && CmuxMobilePreferences.steersFollowUps())
+            // A message steers a running turn, as the Mac's Return does. It asks even before the
+            // phone hears the turn start; acpmux steers only into a running turn, else runs it next.
+            case .send, .queue: send(steer: true)
             case .empty: break
             }
         } label: {
@@ -491,10 +497,12 @@ struct ChatComposer: View {
         }
         .buttonStyle(.plain)
         .disabled(state == .empty)
-        .animation(.cmuxMobileSnap, value: state)
+        .animation(.cmuxMobileSnap.unlessReduceMotion, value: state)
         .contextMenu {
             if state == .queue {
-                Button("Queue (send after this turn)", systemImage: "text.line.last.and.arrowtriangle.forward") { send(steer: false) }
+                Button("Queue (send after this turn)", systemImage: "text.line.last.and.arrowtriangle.forward") {
+                    send(steer: CmuxMobilePreferences.steersMidTurn(queue: true))
+                }
                 Button("Steer Now (Interrupt)", systemImage: "arrow.uturn.right") { send(steer: true) }
             }
         }
@@ -504,8 +512,7 @@ struct ChatComposer: View {
     /// A hardware Return: what the send button would do with a draft (never Stop).
     private func sendFromKeyboard() {
         switch primaryState {
-        case .send: send(steer: false)
-        case .queue: send(steer: CmuxMobilePreferences.steersFollowUps())
+        case .send, .queue: send(steer: true)
         case .stop, .empty: break
         }
     }
@@ -888,6 +895,31 @@ struct CameraPicker: UIViewControllerRepresentable {
         }
 
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.dismiss() }
+    }
+}
+/// How the composer's voice button is drawn (CMUX-39). One filled circle per composer, as
+/// in ChatGPT's: alone (no draft) the voice button is the primary control and keeps its
+/// filled circle; beside Stop it is secondary, a plain glyph at the weight of the plus.
+/// Voice mode on is always the accent circle, so its state stays visible.
+struct ComposerVoiceStyle: Equatable {
+    let primaryIsVisible: Bool
+    let active: Bool
+
+    enum Fill: Equatable { case accent, neutral, plain }
+
+    var isFilled: Bool { active || !primaryIsVisible }
+
+    var fill: Fill {
+        if active { return .accent }
+        return isFilled ? .neutral : .plain
+    }
+
+    var fillColor: Color {
+        switch fill {
+        case .accent: .cmuxMobileAccent
+        case .neutral: .cmuxMobileFill
+        case .plain: .clear
+        }
     }
 }
 #endif

@@ -929,6 +929,9 @@
         "values": [
           "\"daemon-shutdown\""
         ]
+      },
+      "/restart": {
+        "ty": "boolean"
       }
     },
     "event:detached": {
@@ -981,6 +984,39 @@
         "values": [
           "\"empty\""
         ]
+      }
+    },
+    "event:feed-reports-changed": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"feed-reports-changed\""
+        ]
+      },
+      "/revision": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "event:feed-view-changed": {
+      "/changed": {
+        "ty": "array",
+        "required": true
+      },
+      "/changed/*": {
+        "ty": "string"
+      },
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"feed-view-changed\""
+        ]
+      },
+      "/revision": {
+        "ty": "uint64",
+        "required": true
       }
     },
     "event:frame": {
@@ -1613,6 +1649,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -1809,6 +1852,13 @@
       "/entity/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/tabs/*/title_text": {
+        "ty": "string"
       },
       "/event": {
         "ty": "literal",
@@ -2816,6 +2866,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/entity/short_id": {
         "ty": "string"
       },
@@ -3099,6 +3156,13 @@
       "/entity/panes/*/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/panes/*/tabs/*/title_text": {
+        "ty": "string"
       },
       "/entity/short_id": {
         "ty": "string"
@@ -3384,6 +3448,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/entity/short_id": {
         "ty": "string"
       },
@@ -3667,6 +3738,13 @@
       "/entity/panes/*/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/panes/*/tabs/*/title_text": {
+        "ty": "string"
       },
       "/entity/short_id": {
         "ty": "string"
@@ -4220,6 +4298,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/title_text": {
+        "ty": "string"
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -4388,6 +4473,13 @@
       "/entity/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/title_text": {
+        "ty": "string"
       },
       "/event": {
         "ty": "literal",
@@ -4562,6 +4654,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/title_text": {
+        "ty": "string"
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -4731,6 +4830,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/title_text": {
+        "ty": "string"
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -4882,6 +4988,10 @@
       }
     },
     "event:title-changed": {
+      "/activity": {
+        "ty": "string",
+        "nullable": true
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -4892,6 +5002,9 @@
       "/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/text": {
+        "ty": "string"
       },
       "/title": {
         "ty": "string"
@@ -5373,6 +5486,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/entity/screens/*/short_id": {
         "ty": "string"
       },
@@ -5705,6 +5825,13 @@
       "/entity/screens/*/panes/*/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
       },
       "/entity/screens/*/short_id": {
         "ty": "string"
@@ -6039,6 +6166,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/entity/screens/*/short_id": {
         "ty": "string"
       },
@@ -6371,6 +6505,13 @@
       "/entity/screens/*/panes/*/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
       },
       "/entity/screens/*/short_id": {
         "ty": "string"
@@ -6705,6 +6846,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/entity/screens/*/short_id": {
         "ty": "string"
       },
@@ -7015,6 +7163,13 @@
       "/entity/screens/*/panes/*/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
       },
       "/entity/screens/*/short_id": {
         "ty": "string"
@@ -10284,6 +10439,10 @@
         "ty": "object",
         "nullable": true
       },
+      "/split/around": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/split/direction": {
         "ty": "string",
         "required": true
@@ -10347,6 +10506,10 @@
       },
       "/split": {
         "ty": "object",
+        "nullable": true
+      },
+      "/split/around": {
+        "ty": "uint64",
         "nullable": true
       },
       "/split/direction": {
@@ -10772,6 +10935,10 @@
     },
     "request:paste-image": {
       "/data": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/filename": {
         "ty": "string",
         "nullable": true
       },
@@ -11618,6 +11785,20 @@
         "nullable": true
       }
     },
+    "request:set-divider-visible": {
+      "/split": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/transaction": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/visible": {
+        "ty": "boolean",
+        "required": true
+      }
+    },
     "request:set-frontend-browser-history": {
       "/history": {
         "ty": "json",
@@ -11949,6 +12130,20 @@
         "nullable": true
       }
     },
+    "request:set-terminal-tail-pin": {
+      "/pinned": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/terminal": {
+        "ty": "string",
+        "nullable": true
+      }
+    },
     "request:set-viewport-pane-width": {
       "/pane": {
         "ty": "uint64",
@@ -12015,6 +12210,43 @@
         "nullable": true
       }
     },
+    "request:shell-read": {
+      "/after": {
+        "ty": "uint64"
+      },
+      "/run": {
+        "ty": "string",
+        "required": true
+      },
+      "/wait_ms": {
+        "ty": "uint64",
+        "nullable": true
+      }
+    },
+    "request:shell-run": {
+      "/command": {
+        "ty": "string",
+        "required": true
+      },
+      "/cwd": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/run": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/scope": {
+        "ty": "string",
+        "nullable": true
+      }
+    },
+    "request:shell-stop": {
+      "/run": {
+        "ty": "string",
+        "required": true
+      }
+    },
     "request:shutdown-daemon": {
       "/end_terminals": {
         "ty": "boolean"
@@ -12032,6 +12264,10 @@
       "/pid": {
         "ty": "uint32",
         "required": true
+      },
+      "/restart": {
+        "ty": "boolean",
+        "nullable": true
       }
     },
     "request:sidebar-plugin": {
@@ -12078,6 +12314,13 @@
       }
     },
     "request:split": {
+      "/around": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/before": {
+        "ty": "boolean"
+      },
       "/cols": {
         "ty": "uint16",
         "nullable": true
@@ -16387,6 +16630,9 @@
         "required": true,
         "nullable": true
       },
+      "/data/pane_id": {
+        "ty": "string"
+      },
       "/data/registry_id": {
         "ty": "string",
         "required": true
@@ -16400,10 +16646,16 @@
         "required": true,
         "nullable": true
       },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/tab_id": {
+        "ty": "string"
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -16425,6 +16677,9 @@
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:create-workspace": {
@@ -17335,6 +17590,17 @@
           "working"
         ]
       },
+      "/data/agents/*/status": {
+        "ty": "enum",
+        "nullable": true,
+        "values": [
+          "blocked",
+          "done",
+          "idle",
+          "unknown",
+          "working"
+        ]
+      },
       "/data/agents/*/surface": {
         "ty": "uint64",
         "required": true
@@ -18060,6 +18326,13 @@
         "ty": "string",
         "required": true
       },
+      "/data/workspaces/*/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/workspaces/*/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/data/workspaces/*/screens/*/short_id": {
         "ty": "string"
       },
@@ -18491,6 +18764,9 @@
         "required": true,
         "nullable": true
       },
+      "/data/pane_id": {
+        "ty": "string"
+      },
       "/data/registry_id": {
         "ty": "string",
         "required": true
@@ -18504,10 +18780,16 @@
         "required": true,
         "nullable": true
       },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/tab_id": {
+        "ty": "string"
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -18518,6 +18800,9 @@
         "required": true,
         "nullable": true
       },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
       "/data/terminal_revision": {
         "ty": "uint64",
         "required": true
@@ -18526,6 +18811,9 @@
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       },
       "/data/workspace_key": {
         "ty": "string",
@@ -18584,9 +18872,20 @@
       }
     },
     "response:new-browser-tab": {
+      "/data/pane_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/tab_id": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -18595,6 +18894,12 @@
       "/data/terminal_incarnation": {
         "ty": "string",
         "nullable": true
+      },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:new-conversation-tab": {
@@ -18670,6 +18975,9 @@
         "ty": "boolean",
         "nullable": true
       },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
@@ -18685,6 +18993,12 @@
       "/data/terminal_incarnation": {
         "ty": "string",
         "nullable": true
+      },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:new-pane-right": {
@@ -18696,6 +19010,9 @@
         "ty": "boolean",
         "nullable": true
       },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
@@ -18711,6 +19028,12 @@
       "/data/terminal_incarnation": {
         "ty": "string",
         "nullable": true
+      },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:new-remote-terminal-tab": {
@@ -18727,6 +19050,9 @@
       "/data/pane_id": {
         "ty": "string"
       },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
@@ -18742,14 +19068,31 @@
         "ty": "string",
         "nullable": true
       },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
       "/data/transaction": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
         "ty": "string"
       }
     },
     "response:new-screen": {
+      "/data/pane_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/tab_id": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -18758,12 +19101,29 @@
       "/data/terminal_incarnation": {
         "ty": "string",
         "nullable": true
+      },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:new-tab": {
+      "/data/pane_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/tab_id": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -18772,12 +19132,29 @@
       "/data/terminal_incarnation": {
         "ty": "string",
         "nullable": true
+      },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:new-workspace": {
+      "/data/pane_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/tab_id": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -18786,6 +19163,12 @@
       "/data/terminal_incarnation": {
         "ty": "string",
         "nullable": true
+      },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:note-size-activity": {
@@ -19515,14 +19898,23 @@
           "tombstoned"
         ]
       },
+      "/data/pane_id": {
+        "ty": "string"
+      },
       "/data/registry_id": {
         "ty": "string",
         "required": true
+      },
+      "/data/screen_id": {
+        "ty": "string"
       },
       "/data/surface": {
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/tab_id": {
+        "ty": "string"
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -19533,9 +19925,15 @@
         "required": true,
         "nullable": true
       },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
       "/data/terminal_revision": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       },
       "/data/workspace_key": {
         "ty": "string",
@@ -19611,15 +20009,24 @@
         "required": true,
         "nullable": true
       },
+      "/data/pane_id": {
+        "ty": "string"
+      },
       "/data/screen": {
         "ty": "uint64",
         "required": true,
         "nullable": true
       },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/tab_id": {
+        "ty": "string"
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -19630,6 +20037,9 @@
         "required": true,
         "nullable": true
       },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
       "/data/terminal_revision": {
         "ty": "uint64",
         "required": true
@@ -19638,6 +20048,9 @@
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:save-screen-group": {
@@ -19667,6 +20080,77 @@
     },
     "response:send-key": {},
     "response:server-stats": {
+      "/data/commands": {
+        "ty": "object"
+      },
+      "/data/commands/connections": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/commands/connections/*": {
+        "ty": "object"
+      },
+      "/data/commands/connections/*/accepted": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/commands/connections/*/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/commands/connections/*/refused": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/commands/hist_bounds_ns": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/commands/hist_bounds_ns/*": {
+        "ty": "uint64"
+      },
+      "/data/commands/name_limit": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/commands/names": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/commands/rows": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/commands/rows/*": {
+        "ty": "object"
+      },
+      "/data/commands/rows/*/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/commands/rows/*/hist": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/commands/rows/*/hist/*": {
+        "ty": "uint64"
+      },
+      "/data/commands/rows/*/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/commands/rows/*/max_ns": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/commands/rows/*/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/commands/rows/*/total_ns": {
+        "ty": "uint64",
+        "required": true
+      },
       "/data/connections": {
         "ty": "object",
         "required": true
@@ -19691,6 +20175,193 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/disk": {
+        "ty": "object"
+      },
+      "/data/disk/error": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/disk/files": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/disk/files/*": {
+        "ty": "object"
+      },
+      "/data/disk/files/*/bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/files/*/files": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/files/*/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/disk/files_truncated": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/disk/files_unlisted": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/freelist_pages": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/disk/journal/estimated_live_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/first_sequence": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/head_sequence": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/kinds": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/disk/journal/kinds/*": {
+        "ty": "object"
+      },
+      "/data/disk/journal/kinds/*/budget_bytes_per_day": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/kinds/*/bytes_per_day": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/disk/journal/kinds/*/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/disk/journal/kinds/*/over_budget": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/disk/journal/kinds/*/sample_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/kinds/*/sample_rows": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/live_rows": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/sample_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/sample_rows": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/sample_span_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/page_count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/page_size": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/registry_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/disk/segments/by_codec": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/disk/segments/by_codec/*": {
+        "ty": "object"
+      },
+      "/data/disk/segments/by_codec/*/codec": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/disk/segments/by_codec/*/compressed_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/by_codec/*/records": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/by_codec/*/segments": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/by_codec/*/uncompressed_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/compressed_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/kinds": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/disk/segments/kinds/*": {
+        "ty": "object"
+      },
+      "/data/disk/segments/kinds/*/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/disk/segments/kinds/*/segments": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/records": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/segments": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/uncompressed_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/shm_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/wal_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
       "/data/hook_queue": {
         "ty": "object"
       },
@@ -19704,6 +20375,78 @@
       },
       "/data/hook_queue/undeliverable_events": {
         "ty": "uint64",
+        "required": true
+      },
+      "/data/journal_followers": {
+        "ty": "object"
+      },
+      "/data/journal_followers/followers": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/journal_followers/followers/*": {
+        "ty": "object"
+      },
+      "/data/journal_followers/followers/*/client": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/journal_followers/followers/*/connected_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/journal_followers/followers/*/keeps_hook_rows": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/journal_followers/followers/*/keeps_report_rows": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/journal_followers/followers/*/kinds": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/journal_followers/followers/*/kinds/*": {
+        "ty": "string"
+      },
+      "/data/journal_followers/followers/*/left_ms": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/journal_followers/followers/*/max_sensitivity": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/journal_followers/followers/*/remote": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/journal_followers/followers/*/stream_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/journal_followers/grace_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/journal_followers/hook_rows_kept": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/journal_followers/journal_hook_keeps_rows": {
+        "ty": "boolean",
+        "required": true,
+        "nullable": true
+      },
+      "/data/journal_followers/keep_all_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/journal_followers/report_rows_kept": {
+        "ty": "boolean",
         "required": true
       },
       "/data/journal_writer": {
@@ -20685,6 +21428,12 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/write_path/registry_wal_file_bytes": {
+        "ty": "uint64"
+      },
+      "/data/write_path/registry_wal_file_high_water_bytes": {
+        "ty": "uint64"
+      },
       "/data/write_path/registry_wal_frame_bytes": {
         "ty": "uint64"
       },
@@ -20758,6 +21507,7 @@
       }
     },
     "response:set-default-colors": {},
+    "response:set-divider-visible": {},
     "response:set-frontend-browser-history": {
       "/data": {
         "ty": "json",
@@ -21035,6 +21785,16 @@
         "nullable": true
       }
     },
+    "response:set-terminal-tail-pin": {
+      "/data/pinned": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/terminal": {
+        "ty": "string",
+        "required": true
+      }
+    },
     "response:set-viewport-pane-width": {
       "/data/width": {
         "ty": "float32",
@@ -21043,6 +21803,24 @@
     },
     "response:set-window-title": {},
     "response:set-workspace-metadata": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:shell-read": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:shell-run": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:shell-stop": {
       "/data": {
         "ty": "json",
         "required": true
@@ -21122,6 +21900,9 @@
         "ty": "boolean",
         "nullable": true
       },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
@@ -21137,6 +21918,12 @@
       "/data/terminal_incarnation": {
         "ty": "string",
         "nullable": true
+      },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:subscribe": {},

@@ -98,8 +98,11 @@ SETTINGS_EXPORTER_FILES = (
     "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/SettingsSchemaExportTests.swift",
 )
 # Default bindings that step aside in a context (a code editor, a focused terminal): a change to
-# one changes what a key does there.
+# one changes what a key does there. The lists are catalog data in Rust since step B of the action
+# catalog's move (`pub static YIELDS_TO_CODE_EDITOR: &[&str] = &[...]`, read as `yieldsToCodeEditor`);
+# a tree from before it has them in Swift (`static let yieldsToCodeEditor: Set<ActionID> = [...]`).
 KEY_BINDING_DEFAULTS = "Packages/macOS/CmuxNext/Sources/CmuxNextActions/KeyBindingDefaults.swift"
+RUST_KEY_BINDING_DEFAULTS = "cmux-tui/crates/cmux-action-catalog/src/bindings.rs"
 MARKER = "<!-- cmux:defaults-guard -->"
 REGENERATE = "python3 scripts/ci/defaults_guard.py snapshot"
 # The guard's own files: changing how defaults are read or who approves is a call too.
@@ -119,6 +122,7 @@ MODIFIER_ORDER = ("ctrl", "opt", "shift", "cmd")
 
 KEYBIND_RE = re.compile(r'"keybind\s*=\s*([^"=]+?)\s*=\s*([^"]*)"')
 YIELDS_RE = re.compile(r"static\s+let\s+(yieldsTo\w+)\s*:\s*Set<ActionID>\s*=\s*\[(.*?)\]", re.S)
+RUST_YIELDS_RE = re.compile(r"pub\s+static\s+(YIELDS_TO_\w+)\s*:\s*&\[&str\]\s*=\s*&\[(.*?)\];", re.S)
 FLAG_RE = re.compile(r"\bstatic\s+(?:let|var)\s+(\w*Enabled)\s*(?::\s*Bool\s*)?=\s*(true|false)\b")
 # A Debug Tunable with a constant default. The call parser below handles commas and
 # parentheses in nested arguments and string literals; interpolated keys are skipped.
@@ -333,6 +337,10 @@ def defaults(tree: Tree) -> dict[str, object]:
                 found[f"ghostty.{trigger.strip()}"] = action.strip()
     for name, block in YIELDS_RE.findall(tree.read(KEY_BINDING_DEFAULTS) or ""):
         found[f"steps-aside.{name}"] = sorted(re.findall(r'"([^"]+)"', block))
+    for name, block in RUST_YIELDS_RE.findall(tree.read(RUST_KEY_BINDING_DEFAULTS) or ""):
+        # YIELDS_TO_CODE_EDITOR -> yieldsToCodeEditor, the name the Swift list had.
+        first, *rest = name.lower().split("_")
+        found[f"steps-aside.{first}{''.join(word.title() for word in rest)}"] = sorted(re.findall(r'"([^"]+)"', block))
     sources = sorted(name for name in tree.files(SWIFT_SOURCES) if name.endswith(".swift"))
     swift = {name: text.decode("utf-8") for name, text in tree.read_bytes(sources).items()}
     found.update(tunable_source_defaults(swift))
@@ -752,8 +760,10 @@ def receipt_verdict(pull: Mapping[str, object], head: str,
         author = item.get("author") or {}
         blocks_only = False
         if author.get("__typename") == "Bot":
+            # The App's comments and plain reviews only: its APPROVED reviews mirror another account's receipt.
             trusted = (str(author.get("login") or "") in CMUX_BOT_LOGINS
-                       and str(author.get("id") or "") == CMUX_BOT_NODE_ID)
+                       and str(author.get("id") or "") == CMUX_BOT_NODE_ID
+                       and item.get("state") in (None, "COMMENTED"))
         elif author.get("__typename") == "User":
             trusted = (item.get("authorAssociation") in TRUSTED
                        or str(author.get("login") or "").lower() in writers)
@@ -972,8 +982,22 @@ def signed(verdict: Approval) -> str:
     return ", ".join(who)
 
 
+def request_command(repo: str | None = None, number: object = None) -> str:
+    """The one command an author lane runs for an independent review it cannot give itself: next-review reviews the
+    head and the cmux-bot App posts the receipt (risk_tier.CMUX_BOT_NODE_ID), so the author neither starts the
+    reviewer nor writes the verdict, and the receipt wakes this check (cmux-next-defaults-guard-review.yml)."""
+    return f"router-review {repo or 'OWNER/REPO'} {number or 'N'} --request"
+
+
+def next_line(verdict: Approval, request: str) -> str:
+    """The plain form's last line: the one next command, or none with why."""
+    if verdict.blocked:
+        return f"next: none (address the BLOCK and push; the new head then needs `{request}`)"
+    return f"next: {request}"
+
+
 def comment_body(found: list[Change], verdict: Approval | None, head: str, merged: str | None = None,
-                 free: list[Change] | None = None) -> str:
+                 free: list[Change] | None = None, request: str | None = None) -> str:
     lines = [MARKER, "## Default changes"]
     if not found:
         lines.append(f"No defaults change at `{head[:12]}`.")
@@ -985,6 +1009,7 @@ def comment_body(found: list[Change], verdict: Approval | None, head: str, merge
     lines += [f"- {code(c.id)}: {code(c.detail)}" + (" (a new setting, off by default: passes on its own)" if c in free else "")
               for c in found]
     lines.append("")
+    after = ""  # the one next command, the body's last line when the head still needs a review
     if all(c in free for c in found):
         lines.append("Every change is a new setting that defaults to off, the behavior from before it existed.")
     elif verdict is not None:
@@ -999,14 +1024,19 @@ def comment_body(found: list[Change], verdict: Approval | None, head: str, merge
                          "self-review (the newest verdict naming the head decides; a later BLOCK beats an earlier "
                          f"SHIP), or with an approving review on this commit from {who} (the call owners in `{OWNERS}`, "
                          "never the author). A receipt posted as a review re-runs this check; after a plain comment, "
-                         "re-run it. The `needs a call` label alone does not pass, and a new push needs a new receipt.")
+                         "re-run it. The `needs a call` label alone does not pass, and a new push needs a new receipt. "
+                         "Every agent posts as the author's account, and a lane never reviews its own pull request: "
+                         "the author lane asks the review service, whose receipt cmux-bot posts.")
             if verdict.stale:
                 lines.append(f"Earlier approvals on an older commit: {', '.join('@' + s for s in verdict.stale)}.")
+            after = next_line(verdict, request or request_command())
     if merged:
         lines += ["", f"**Merge receipt:** merged as `{merged[:12]}` with these defaults changed"
                   + (f", signed off by {signed(verdict)}." if verdict and verdict.approved
                      else ", WITHOUT a SHIP receipt or an approving call owner review on its head.")]
     lines += ["", f"Regenerate the snapshot with `{REGENERATE}`."]
+    if after:
+        lines += ["", after]
     return "\n".join(lines) + "\n"
 
 
@@ -1125,7 +1155,8 @@ def command_check(args: argparse.Namespace) -> int:
     if pull is not None and verdict is not None and verdict.head != head_sha:
         problems.append(f"DEFAULTS head: the pull request's head is {verdict.head[:12]}, not {head_sha[:12]}; re-run on the new head")
     merged = str((pull.get("mergeCommit") or {}).get("oid") or "") if pull and pull.get("merged") else None
-    body = comment_body(found, verdict, head_sha, merged, free)
+    request = request_command(args.repo, args.pr or (pull or {}).get("number"))
+    body = comment_body(found, verdict, head_sha, merged, free, request)
     annotate(found)
     for problem in problems:
         print(f"::error title=Defaults snapshot::{command_text(problem)}" if not problem.startswith("  ") else plain(problem))
@@ -1145,7 +1176,8 @@ def command_check(args: argparse.Namespace) -> int:
         who = " or ".join(verdict.eligible) if verdict else "a call owner"
         print(f"::error title=Default changes need a review::{len(needed)} default(s) changed; needs a comment or review "
               f"whose first line is `Review (<reviewer>): SHIP at {head_sha}` from a member (not a self-review), "
-              f"or an approving review on {head_sha[:12]} from {who}")
+              f"or an approving review on {head_sha[:12]} from {who}. "
+              + (next_line(verdict, request) if verdict else f"next: {request}"))
         for login, error in lookup_failed.items():
             print(f"::error title=Defaults reviewer not checked::the receipt by {command_text(login)} was not checked: "
                   f"GitHub did not say whether they have write access ({command_text(error)}), so their SHIP does "

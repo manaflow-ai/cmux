@@ -148,8 +148,19 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
         }
         delivery_started.store(true, std::sync::atomic::Ordering::SeqCst);
         let callback = move || {
-            drop(input_handoff);
+            // Tests only: the prompt is written and its `on_sent` has not run yet.
+            #[cfg(test)]
+            if let Some((arrived, release)) =
+                session.sent_seam.lock().unwrap_or_else(|e| e.into_inner()).take()
+            {
+                let _ = arrived.send(());
+                let _ = release.recv();
+            }
+            // What the written prompt records (the rules it carried, `turns.rs`) is recorded
+            // before the handoff is let go: a fork, which takes the handoff for its copy and
+            // cut (`fork.rs`), sees a written prompt with its record.
             on_sent();
+            drop(input_handoff);
         };
         if confirm_written {
             child.request_with_confirmed_hook(method::SESSION_PROMPT, params, fence, callback).await
@@ -290,6 +301,7 @@ impl Hub {
                     trust_gate,
                     reports: super::lane_reports::reports_only(opts.provenance.as_ref()),
                     trigger: crate::prompt_provenance::is_trigger(opts.provenance.as_ref()),
+                    asked: opts.provenance.clone(),
                 },
             };
             now.sent.insert(prompt_id.clone(), sent);
@@ -379,6 +391,8 @@ impl Hub {
             Some(&held as &(dyn Fn() -> bool + Send + Sync)),
             || {
                 written.notify_one();
+                // A question it carries is answered by this turn (`question_replies.rs`).
+                self.question_reply_in_turn(session, &prompt_id, turn_id);
                 if inbox_notice {
                     self.inbox_prompt_written(session, &prompt_id);
                 }

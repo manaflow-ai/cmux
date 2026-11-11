@@ -12,10 +12,12 @@ so it can never mask the Swift god-type check.
 from __future__ import annotations
 
 import fnmatch
+import importlib.util
 import json
 import os
 import re
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -30,6 +32,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 sys.path.insert(0, str(ROOT / "tests"))
 from runs_on_labels import unwrap_fork_pool_reads  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 ARTIFACTS_WORKFLOW = WORKFLOW.parent / "cmux-tui-artifacts.yml"
 TREE_JOBS = ("daemon-test", "cmux-scheme-compile")
@@ -44,9 +53,30 @@ def steps() -> list[dict]:
 
 
 def is_setup(step: dict) -> bool:
-    """Checkout and toolchain steps: an action, not a check script; and the reset of a reused
-    workspace's submodule checkouts that follows checkout on a mini."""
-    return "uses" in step or "scripts/ci/reset-stale-submodules.sh" in str(step.get("run", ""))
+    """Checkout and toolchain steps: an action, not a check script; the reset of a reused
+    workspace's submodule checkouts that follows checkout on a mini; and the start of the slow
+    checks in the background, whose own steps wait for their results."""
+    run = str(step.get("run", ""))
+    return ("uses" in step or "scripts/ci/reset-stale-submodules.sh" in run
+            or "scripts/ci/run-checks-concurrently.sh --start" in run)
+
+
+def check_commands(step: dict) -> str:
+    """What a check step runs: its own script, or for a step that waits on the background
+    start, the commands the start lists under the step's `[id]`."""
+    run = step["run"]
+    if "run-checks-concurrently.sh --wait" not in run:
+        return run
+    start = next(s for s in steps() if "scripts/ci/run-checks-concurrently.sh --start" in str(s.get("run", "")))
+    owned, current = [], None
+    for line in start["run"].splitlines():
+        line = line.strip()
+        match = re.fullmatch(r"\[([A-Za-z0-9_.-]+)\]", line)
+        if match:
+            current = match.group(1)
+        elif line and current == step["id"]:
+            owned.append(line)
+    return "\n".join(owned)
 
 
 
@@ -226,9 +256,9 @@ class ChecksJobStructure(unittest.TestCase):
         # dispatches; direct pushes to feat-cmux-next skipped it, and a
         # namespace-type red (CloudLinkSocketPolicy) reached the base unseen.
         _, checks, _ = self.split()
-        lint = [step for step in checks if "lint-ios-package-conventions.sh" in step["run"]]
+        lint = [step for step in checks if "lint-ios-package-conventions.sh" in check_commands(step)]
         self.assertEqual(len(lint), 1, [step["name"] for step in checks])
-        self.assertEqual(lint[0]["run"].strip(), "./scripts/lint-ios-package-conventions.sh")
+        self.assertEqual(check_commands(lint[0]).strip(), "./scripts/lint-ios-package-conventions.sh")
         document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         # PyYAML reads the `on:` key as True.
         push_paths = document[True]["push"]["paths"]
@@ -249,9 +279,9 @@ class ChecksJobStructure(unittest.TestCase):
         pin = [step for step in checks if "check-app-ffi-pin.sh" in step["run"]]
         self.assertEqual(len(pin), 1, [step["name"] for step in checks])
         self.assertIn("scripts/cmux-next/check-app-ffi-pin.sh --verify-release", pin[0]["run"])
-        self.assertIn("base=(--base HEAD^1)", pin[0]["run"])
+        # What the step runs on a pull request: AppFfiPinStepJudgesWithTheBaseCopy.
         script_tests = next(step for step in checks if step.get("id") == "script-tests")
-        self.assertIn("bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh", script_tests["run"])
+        self.assertIn("bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh", check_commands(script_tests))
         # Only there: the macOS swift test job no longer carries a copy.
         everywhere = [(job, step.get("name")) for job, spec in document["jobs"].items()
                       for step in spec.get("steps", []) if "check-app-ffi-pin.sh" in str(step.get("run", ""))]
@@ -263,6 +293,173 @@ class ChecksJobStructure(unittest.TestCase):
         self.assertEqual(len(godfile_runs), 2, godfile_runs)
         self.assertEqual(sum("--only swift" in run for run in godfile_runs), 1, godfile_runs)
         self.assertEqual(sum("--only rust" in run for run in godfile_runs), 1, godfile_runs)
+
+
+class AppFfiPinStepJudgesWithTheBaseCopy(unittest.TestCase):
+    """On a pull request the app FFI pin step runs the base's copy of the check and its pin reader (the merge commit's
+    first parent), extracted outside the checkout, against the pull request's tree, with a clean environment.
+
+    Earlier steps of the checks job run the pull request's code, which can rewrite the checkout's copy of the check
+    on disk or change PATH, so that copy and that environment must not decide the verdict: base_red_excuse.py trusts
+    the pin verdict of a pull request that leaves the check's files alone in its diff (FFI_PIN_CHECK_CODE)."""
+
+    ZEROS = "0" * 64
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+        self.repo = self.tmp / "repo"
+        (self.repo / "scripts/cmux-next").mkdir(parents=True)
+        (self.repo / "scripts/ci").mkdir(parents=True)
+        (self.repo / "Packages/macOS/CmuxNext").mkdir(parents=True)
+        shutil.copy(ROOT / "scripts/cmux-next/check-app-ffi-pin.sh", self.repo / "scripts/cmux-next/check-app-ffi-pin.sh")
+        shutil.copy(ROOT / "scripts/ci/app_ffi_pin.py", self.repo / "scripts/ci/app_ffi_pin.py")
+        crate = self.repo / "cmux-tui/crates/cmux-app-ffi"
+        (crate / "src").mkdir(parents=True)
+        (crate / "Cargo.toml").write_text('[package]\nname = "x"\n\n[lib]\npath = "src/lib.rs"\n')
+        (crate / "src/lib.rs").write_text("// ffi\n")
+        self.git("init", "-q", "-b", "base")
+        self.commit("sources")
+        self.pinned = self.rev("HEAD")
+        # The pin: app-ffi-pin.json, and Package.swift holding its one loader block (scripts/ci/app_ffi_pin.py).
+        spec = importlib.util.spec_from_file_location("app_ffi_pin", ROOT / "scripts/ci/app_ffi_pin.py")
+        pin = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(pin)
+        (self.repo / "Packages/macOS/CmuxNext/Package.swift").write_text(
+            "import Foundation\nimport PackageDescription\n\n" + pin.loader(self.ZEROS))
+        (self.repo / "Packages/macOS/CmuxNext/app-ffi-pin.json").write_text(pin.render(self.pinned, self.ZEROS))
+        self.commit("pin")
+        # The pull request changes an FFI source and not the pin: its own stale pin, red on the base's check.
+        self.git("checkout", "-q", "-b", "pr")
+        (crate / "src/lib.rs").write_text("// ffi, changed\n")
+        self.commit("pr")
+        self.git("checkout", "-q", "base")
+        self.git("merge", "-q", "--no-ff", "-m", "merge", "pr")
+        self.merge = self.rev("HEAD")
+        self.runner_temp = self.tmp / "runner-temp"
+        self.runner_temp.mkdir()
+
+    def git(self, *args: str) -> None:
+        subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=t", "-c", "user.email=t@t",
+                        "-c", "commit.gpgsign=false", *args], check=True, capture_output=True)
+
+    def commit(self, message: str) -> None:
+        self.git("add", "-A")
+        self.git("commit", "-qm", message)
+
+    def rev(self, ref: str) -> str:
+        return subprocess.run(["git", "-C", str(self.repo), "rev-parse", ref], check=True, capture_output=True,
+                              text=True).stdout.strip()
+
+    def run_step(self, path_prefix: Path | None = None, home: Path | None = None) -> subprocess.CompletedProcess:
+        step = next(step for step in steps() if step.get("id") == "app-ffi-pin")
+        env = git_fixture_env.fixture_env({key: value for key, value in os.environ.items() if not key.startswith("GIT_")})
+        env.update(EVENT_NAME="pull_request", GITHUB_SHA=self.merge, RUNNER_TEMP=str(self.runner_temp))
+        if home is not None:
+            env["HOME"] = str(home)
+        if path_prefix is not None:
+            env["PATH"] = f"{path_prefix}:{env.get('PATH', '/usr/bin:/bin')}"
+        return subprocess.run(["bash", "-e", "-c", step["run"]], cwd=self.repo, env=env, capture_output=True,
+                              text=True, timeout=120)
+
+    def assert_own_stale_pin(self, result: subprocess.CompletedProcess) -> None:
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn(f"error: the app FFI sources changed since the pinned source {self.pinned}", output)
+        self.assertNotIn("planted", output)
+
+    def test_the_base_copy_judges_the_pull_request(self):
+        self.assert_own_stale_pin(self.run_step())
+
+    def test_a_check_rewritten_on_disk_does_not_run(self):
+        # An earlier step's code rewrites the checkout's copy of the check and of its pin reader; the diff of the
+        # pull request still leaves both alone.
+        (self.repo / "scripts/cmux-next/check-app-ffi-pin.sh").write_text(
+            "#!/usr/bin/env bash\necho 'app FFI pin: sources match (planted)'\n")
+        (self.repo / "scripts/ci/app_ffi_pin.py").write_text(
+            f"print('{self.merge} {self.ZEROS}')  # planted\n")
+        self.assert_own_stale_pin(self.run_step())
+
+    def test_ffi_inputs_rewritten_on_disk_do_not_count(self):
+        # An earlier step's code deletes the FFI crate's Cargo.toml (no FFI inputs are left to compare) and repins
+        # app-ffi-pin.json to the merge commit on disk. The pull request's commit still has both as they were.
+        (self.repo / "cmux-tui/crates/cmux-app-ffi/Cargo.toml").unlink()
+        pin_file = self.repo / "Packages/macOS/CmuxNext/app-ffi-pin.json"
+        pin_file.write_text(pin_file.read_text().replace(self.pinned, self.merge))
+        self.assert_own_stale_pin(self.run_step())
+
+    def planted_hook(self, directory: Path) -> None:
+        """A post-checkout hook that rewrites the extracted base check (beside the worktree it runs in)."""
+        directory.mkdir(parents=True, exist_ok=True)
+        hook = directory / "post-checkout"
+        hook.write_text("#!/bin/sh\nprintf '#!/usr/bin/env bash\\necho \"app FFI pin: sources match (planted)\"\\n' "
+                        "> ../scripts/cmux-next/check-app-ffi-pin.sh\n")
+        hook.chmod(0o755)
+
+    def test_a_hook_in_the_home_git_config_does_not_run(self):
+        # An earlier step's code writes ~/.gitconfig: its hooks path holds a post-checkout hook.
+        home = self.tmp / "home"
+        self.planted_hook(home / "hooks")
+        (home / ".gitconfig").write_text(f"[core]\n\thooksPath = {home / 'hooks'}\n")
+        self.assert_own_stale_pin(self.run_step(home=home))
+
+    def test_a_hook_in_the_checkout_does_not_run(self):
+        # An earlier step's code puts a post-checkout hook in the checkout's .git/hooks.
+        self.planted_hook(self.repo / ".git/hooks")
+        self.assert_own_stale_pin(self.run_step())
+
+    def test_a_check_left_out_of_the_base_extraction_still_runs_the_base_copy(self):
+        # An earlier step's code marks the check export-ignore in .git/info/attributes (git archive then leaves it
+        # out without an error) and rewrites the checkout's copy.
+        (self.repo / ".git/info").mkdir(exist_ok=True)
+        (self.repo / ".git/info/attributes").write_text(
+            "scripts/cmux-next/check-app-ffi-pin.sh export-ignore\nscripts/ci/app_ffi_pin.py export-ignore\n")
+        (self.repo / "scripts/cmux-next/check-app-ffi-pin.sh").write_text(
+            "#!/usr/bin/env bash\necho 'app FFI pin: sources match (planted)'\n")
+        self.assert_own_stale_pin(self.run_step())
+
+    def test_the_rollup_sources_no_file_from_the_checkout(self):
+        # The pin step continues on error, so the rollup decides the job. Run it as the runner does (the workflow's
+        # env, then the step's literal env) after an earlier step rewrote scripts/ci/api_call_log/env.sh, which the
+        # workflow's BASH_ENV names, to end every shell green.
+        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        rollup = steps()[-1]
+        env = {key: value for key, value in os.environ.items() if key != "BASH_ENV"}
+        for scope in (document.get("env") or {}, rollup.get("env") or {}):
+            env.update({key: str(value) for key, value in scope.items() if "${{" not in str(value)})
+        planted = self.repo / "scripts/ci/api_call_log/env.sh"
+        planted.parent.mkdir(parents=True)
+        planted.write_text("echo planted; exit 0\n")
+        summary = self.tmp / "summary"
+        env.update(GITHUB_WORKSPACE=str(self.repo), GITHUB_STEP_SUMMARY=str(summary), EVENT_NAME="pull_request",
+                   OUTCOMES="failure|Check the app FFI pin\n")
+        result = subprocess.run(["bash", "-e", "-c", rollup["run"]], cwd=self.repo, env=env, capture_output=True,
+                                text=True, timeout=60)
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("Check the app FFI pin", output)
+        self.assertNotIn("planted", output)
+
+    def test_a_changed_path_does_not_reach_the_check(self):
+        # An earlier step's code puts its own python3 (which reads every pin as the merge commit, so the sources
+        # match) and curl first on PATH for the steps after it.
+        bin_dir = self.tmp / "planted-bin"
+        bin_dir.mkdir()
+        (bin_dir / "python3").write_text(f"#!/bin/sh\necho '{self.merge} {self.ZEROS}'\n")
+        (bin_dir / "curl").write_text("#!/bin/sh\necho planted >&2\nexit 22\n")
+        for tool in bin_dir.iterdir():
+            tool.chmod(0o755)
+        self.assert_own_stale_pin(self.run_step(path_prefix=bin_dir))
+
+
+def line_of(path: str, text: str) -> int:
+    """The 1-based line of the first line of path that contains text (0 when none does), so a
+    failure names the line to edit."""
+    for number, line in enumerate((ROOT / path).read_text(encoding="utf-8").splitlines(), start=1):
+        if text in line:
+            return number
+    return 0
 
 
 class WebviewsWarnSplitCoversCheck(unittest.TestCase):
@@ -295,18 +492,26 @@ class WebviewsWarnSplitCoversCheck(unittest.TestCase):
         if re.search(r"fast_gate_webviews_checks\.py[^\n]*\|\| status=1", warn_branch):
             gated = set(fast_gate_webviews_checks.CHECKS)
         gated_commands = {package["scripts"][name] for name in gated if name in package["scripts"]}
+        ci_web = ".github/workflows/ci-web.yml"
+        loop_line = line_of(ci_web, "for check in ")
+        script_key = "check:pieces" if "check:pieces" in scripts else "check"
+        script_line = line_of("webviews/package.json", '"%s":' % script_key)
+        missing = []
         for part in parts:
             if part.startswith("vp "):
-                self.assertTrue(
-                    part in gated_commands or f"./node_modules/.bin/{part} ||" in warn_branch,
-                    f"`{part}` from webviews/package.json check does not run when CMUX_NEXT_STYLE_GUARDS=warn",
-                )
+                if not (part in gated_commands or f"./node_modules/.bin/{part} ||" in warn_branch):
+                    missing.append(
+                        f"{ci_web}:{loop_line}: `{part}` (webviews/package.json:{script_line} "
+                        f"`{script_key}`) does not run when CMUX_NEXT_STYLE_GUARDS=warn; run "
+                        f"`./node_modules/.bin/{part} || echo ...` in the warn branch below this line")
                 continue
             name = part.removeprefix("bun run ").strip()
-            self.assertTrue(
-                name in looped or name in gated or f"bun run {name} || status=1" in warn_branch,
-                f"`{part}` from webviews/package.json check does not run when CMUX_NEXT_STYLE_GUARDS=warn",
-            )
+            if not (name in looped or name in gated or f"bun run {name} || status=1" in warn_branch):
+                missing.append(
+                    f"{ci_web}:{loop_line}: `{part}` (webviews/package.json:{script_line} "
+                    f"`{script_key}`) does not run when CMUX_NEXT_STYLE_GUARDS=warn; add `{name}` to this "
+                    f"`for check in ...` list (warn-only) or to scripts/ci/fast_gate_webviews_checks.py CHECKS (gating)")
+        self.assertEqual(missing, [], "\n" + "\n".join(missing))
 
 
 class ReferencedFilesExist(unittest.TestCase):
@@ -356,7 +561,7 @@ class GodfileScopes(unittest.TestCase):
         cls.tmp.cleanup()
 
     def run_check(self, *args: str) -> subprocess.CompletedProcess:
-        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env = git_fixture_env.fixture_env({k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
         return subprocess.run(["bash", str(GODFILES), *args, str(self.package)],
                               capture_output=True, text=True, env=env, timeout=120)
 
@@ -453,7 +658,7 @@ class GodfilePullRequestScope(unittest.TestCase):
         self.git("commit", "-qm", message, "--allow-empty")
 
     def run_check(self, *args: str) -> subprocess.CompletedProcess:
-        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env = git_fixture_env.fixture_env({k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
         return subprocess.run(["bash", str(GODFILES), *args, str(self.package)],
                               capture_output=True, text=True, env=env, timeout=120)
 
@@ -984,12 +1189,15 @@ class SwiftCanaryFleetCoverage(unittest.TestCase):
             stack.extend(targets[name]["targets"])
         self.assertIn("CmuxNextApp", seen)
         # Libraries under Tests/ (Tests/Support/CmuxNextTestExitTrace, #23658)
-        # and source-only test support targets are not production.
+        # and source-only test support targets are not production. Only the
+        # base autofix rewrites the graph, so a pull request that deletes a
+        # target still sees it there: a target whose sources are gone is gone.
         outside = {
             n for n, v in targets.items()
             if v["kind"] in {"regular", "executable"} and n not in seen
             and not (v["path"] or "").startswith("Packages/macOS/CmuxNext/Tests/")
             and not n.endswith("TestSupport")
+            and (ROOT / (v["path"] or "")).is_dir()
         }
         step = next(s for s in yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["swift-canary-fleet"]["steps"]
                     if s.get("id") == "check")
@@ -2235,7 +2443,7 @@ class FastTierStartsWarm(unittest.TestCase):
             (repo / "Packages/macOS/A").mkdir(parents=True)
             (repo / "Packages/macOS/A/Package.swift").write_text("// swift-tools-version: 6.2\n")
             subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
-            env = {"PATH": os.environ["PATH"], "HOME": tmp, "GITHUB_OUTPUT": str(repo / "out"), "GITHUB_SHA": "abc"}
+            env = git_fixture_env.fixture_env({"PATH": os.environ["PATH"], "HOME": tmp, "GITHUB_OUTPUT": str(repo / "out"), "GITHUB_SHA": "abc"})
             script = re.search(r"(?s)inputs=\"\$\((.*?)\)\"", run).group(1)
             got = subprocess.run(["/bin/bash", "-c", script.replace("scripts/cmux-next/", str(ROOT / "scripts/cmux-next") + "/")],
                                  cwd=repo, env=env, check=True, capture_output=True, text=True).stdout.strip()
@@ -2321,14 +2529,20 @@ FAST_LANE_CLAUSE = (
     "needs.macos-placement.outputs.fast_runner != '' && "
     "github.run_attempt == 1 && needs.macos-placement.outputs.fast_runner || "
 )
-# While fast-tier-fleet ran, the fast tier only reports its verdict from Linux (GatewayRunsOnlyTheFleetClient).
+# While fast-tier-fleet ran, the fast tier only reports its verdict from Linux (GatewayRunsOnlyTheFleetClient);
+# a step still queued (verdict `queued`) hands it back, and it runs on Blacksmith macOS.
 FAST_TIER_REPORT_CLAUSE = (
     "contains(fromJSON('[\"success\",\"failure\",\"cancelled\"]'), needs.fast-tier-fleet.result) "
+    "&& needs.fast-tier-fleet.outputs.verdict != 'queued' "
     "&& !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || "
     "contains(fromJSON('[\"success\",\"failure\",\"cancelled\"]'), needs.fast-tier-fleet.result) "
+    "&& needs.fast-tier-fleet.outputs.verdict != 'queued' "
     "&& vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_4 || "
     "contains(fromJSON('[\"success\",\"failure\",\"cancelled\"]'), needs.fast-tier-fleet.result) "
+    "&& needs.fast-tier-fleet.outputs.verdict != 'queued' "
     "&& fromJSON(vars.RUNNER_POOLS).linux_2 || "
+    "needs.fast-tier-fleet.outputs.verdict == 'queued' && needs.fast-tier-handback-placement.outputs.runner || "
+    "needs.fast-tier-fleet.outputs.verdict == 'queued' && fromJSON(vars.RUNNER_POOLS).macos_26 || "
 )
 
 
@@ -2622,7 +2836,9 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         self.assertTrue(self.runs(unjudged(self.context([source], head_repo="someone/cmux"))))
         place = next(step for step in yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["macos-placement"]["steps"]
                      if step.get("id") == "place")
-        self.assertIn("needs.path_route.outputs.mac_release == 'true' && 'release-compile'", place["env"]["GATEWAY_CASCADE"])
+        # With no gateway for the app compile, the Mac Release compile it falls back to takes the cascade.
+        self.assertIn("needs.path_route.outputs.mac_release == 'true' && !(needs.app-compile-placement.outputs.gateway_attempt",
+                      place["env"]["CASCADE_RUNS"])
 
     def test_fast_gate_is_the_first_compile_path_and_has_no_single_host_reservation(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -2662,6 +2878,64 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         for name in ("release-compile-fast", "release-compile"):
             with self.subTest(job=name):
                 self.assertNotIn("CI_NEXT_PROMOTE_POOL", str(jobs[name]["runs-on"]))
+
+    def run_fast_linux_read(self, codes: list[str], reply: dict | None) -> tuple[str, str, float]:
+        """Run the fast check's Linux route with a fake curl: each probe read prints the next code;
+        the blocking read writes `reply` and prints 200 (or prints 404 when None)."""
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        run = next(step["run"] for step in jobs["release-compile-fast"]["steps"] if step.get("id") == "compile")
+        with tempfile.TemporaryDirectory() as temp:
+            bin_dir = Path(temp) / "bin"
+            bin_dir.mkdir()
+            (Path(temp) / "codes").write_text("\n".join(codes) + "\n")
+            (Path(temp) / "reply.json").write_text(json.dumps(reply) if reply is not None else "")
+            curl = bin_dir / "curl"
+            curl.write_text(f"""#!/bin/bash
+echo "$*" >> "{temp}/calls"
+if [[ " $* " == *" -o /dev/null "* ]]; then
+  code=$(head -1 "{temp}/codes"); sed -i.bak 1d "{temp}/codes"; printf '%s' "${{code:-404}}"
+  [[ "${{code:-404}}" == 000 ]] && exit 7; exit 0
+fi
+[[ -s "{temp}/reply.json" ]] || {{ printf 404; exit 0; }}
+while [[ $# -gt 0 ]]; do [[ "$1" == -o ]] && cp "{temp}/reply.json" "$2"; shift; done
+printf 200
+""")
+            curl.chmod(0o755)
+            output = Path(temp) / "out"
+            env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "RUNNER_TEMP": temp,
+                   "GITHUB_OUTPUT": str(output), "GATEWAY": "", "REF": "a" * 40, "REPO": "manaflow-ai/cmux",
+                   "RESULTS": "https://results.invalid/compile-checks/v1", "PROBE_GAP": "0", "WAIT_SECONDS": "90"}
+            started = time.monotonic()
+            # GitHub runs a `run:` step as `bash -e {0}`.
+            result = subprocess.run(["bash", "-e", "-c", run], env=env, capture_output=True, text=True, timeout=60)
+            elapsed = time.monotonic() - started
+            calls = (Path(temp) / "calls").read_text() if (Path(temp) / "calls").exists() else ""
+            return output.read_text() if output.exists() else "", result.stdout + calls, elapsed
+
+    def test_fast_check_hands_off_at_once_when_the_results_service_is_down(self):
+        # Two edge 530s (the controller's origin is down): no blocking read, the Mac fallback runs now.
+        # WAIT_SECONDS is 90 and the step runs under a 60 s timeout, so a step that waited on the
+        # service would time out here; the hand-off itself is the causal check, not its wall time.
+        out, log, _ = self.run_fast_linux_read(["530", "530"], None)
+        self.assertIn("verdict=unavailable", out)
+        self.assertIn("results service down (HTTP 530)", log)
+        self.assertNotIn("--retry-all-errors", log)
+        out, log, _ = self.run_fast_linux_read(["000", "000"], None)
+        self.assertIn("verdict=unavailable", out)
+        self.assertIn("results service down (HTTP 000)", log)
+
+    def test_fast_check_still_waits_for_a_live_results_service(self):
+        verdict = {"sha": "a" * 40, "repo": "manaflow-ai/cmux", "recipe_version": 2,
+                   "configuration": "release-onone", "state": "pass"}
+        # A 404 (service up, no result yet), or one 530 blip then a 404, keeps the blocking read. The read
+        # retries nothing inside curl: a 530 there would be retried until the deadline (note-82).
+        for codes in (["404"], ["530", "404"]):
+            with self.subTest(codes=codes):
+                out, log, _ = self.run_fast_linux_read(codes, verdict)
+                self.assertIn("verdict=pass", out)
+                self.assertIn("&wait=", log)
+                self.assertNotIn("--retry-all-errors", log)
+                self.assertNotIn("results service down", log)
 
     def test_exactly_one_job_carries_the_gate_name_for_each_fast_check_outcome(self):
         # push attribution and the nightly feed watch read the first job with the gate name, so a
@@ -2989,7 +3263,7 @@ class AppSizeCapOnPush(unittest.TestCase):
 
     def run_step(self, before: str) -> subprocess.CompletedProcess:
         step = next(s for s in steps() if s.get("id") == "app-size")
-        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env = git_fixture_env.fixture_env({k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
         env.update(EVENT_NAME="push", FULL_CI="true", BEFORE=before, GITHUB_WORKSPACE=str(self.repo),
                    GITHUB_SHA=self.head())
         return subprocess.run(["bash", "-e", "-c", step["run"]], cwd=self.repo, env=env,
@@ -3113,6 +3387,9 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
 
     LIGHT = "glaeda-side-light-xcode-26.6"
     STD = "glaeda-side-std-xcode-26.6"
+    # The job whose gateway reading each gateway job takes: macos-placement, after the PR quiet period, except
+    # the PR's app compile, judged at once (app-compile-placement; Leo, 2026-11-08: only the Mac jobs wait).
+    READING = {"app-compile-fleet": "app-compile-placement"}
     # Each gateway job's Mac fallback, which must run when the gateway job does not, and the event it runs on.
     FALLBACKS = {"app-compile-fleet": ("release-compile", "pull_request"),
                  "swift-canary-fleet": ("swift-canary", "pull_request"),
@@ -3160,8 +3437,9 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
             "needs.macos-placement.outputs.fleet_jobs": " fast-tier ",
         }
         if reading is not None:
-            context["needs.macos-placement.outputs.gateway_attempt"] = reading[0]
-            context["needs.macos-placement.outputs.gateway_runner"] = reading[1]
+            for placement in ("macos-placement", "app-compile-placement"):
+                context[f"needs.{placement}.outputs.gateway_attempt"] = reading[0]
+                context[f"needs.{placement}.outputs.gateway_runner"] = reading[1]
         return context
 
     def test_every_job_that_can_run_on_the_gateway_is_guarded(self):
@@ -3174,7 +3452,7 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
         placement_env = next(step["env"] for step in jobs["macos-placement"]["steps"] if step.get("id") == "place")
         for name, (fallback, event) in self.FALLBACKS.items():
             job = jobs[name]
-            self.assertIn("macos-placement", job["needs"])
+            self.assertIn(self.READING.get(name, "macos-placement"), job["needs"])
             for attempt, reading in ((1, ("1", self.LIGHT)), (1, ("1", self.STD)), (1, ("1", "")), (1, ("", "")),
                                      (1, None), (2, ("1", self.LIGHT)), (2, ("2", self.LIGHT)), (2, ("2", "")),
                                      (2, None), (3, ("2", self.STD))):
@@ -3205,8 +3483,7 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
                                "needs.fast-tier-fleet.result": "skipped", "needs.fast-tier-fleet.outputs.verdict": ""}
                     self.assertTrue(evaluate(jobs[fallback]["if"], skipped), f"{fallback} must run when {name} skips")
                     self.assertIn(fallback, self.cascade_jobs())
-                    runs = (evaluate(placement_env["CASCADE_RUNS"], skipped) + " "
-                            + evaluate(placement_env["GATEWAY_CASCADE"], skipped)).split()
+                    runs = evaluate(placement_env["CASCADE_RUNS"], skipped).split()
                     self.assertIn(fallback, runs, f"{fallback} must join the cascade when {name} skips")
 
 
@@ -3238,26 +3515,27 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
     def test_it_runs_on_a_same_repository_pr_the_native_tier_reaches(self):
         job = self.job()
         self.assertEqual(job["name"], self.NAME)
-        context = {**self.context(), "needs.macos-placement.outputs.gateway_attempt": "1",
-                   "needs.macos-placement.outputs.gateway_runner": "glaeda-gateway"}
+        context = {**self.context(), "needs.app-compile-placement.outputs.gateway_attempt": "1",
+                   "needs.app-compile-placement.outputs.gateway_runner": "glaeda-gateway"}
         self.assertTrue(evaluate(job["if"], context))
         self.assertEqual(evaluate(job["runs-on"], context), "glaeda-gateway")
 
     def test_it_takes_only_an_idle_gateway_placement_saw(self):
         """2026-10-26 06:00Z: 44 jobs queued on the light side gateway, oldest 58 minutes; PR #24155's
-        compile queued there three times. macos-placement names an idle gateway runner or none."""
+        compile queued there three times. Its placement (app-compile-placement for the app compile,
+        macos-placement for the canary) names an idle gateway runner or none."""
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
-        for name in ("app-compile-fleet", "swift-canary-fleet"):
+        for name, placement in (("app-compile-fleet", "app-compile-placement"), ("swift-canary-fleet", "macos-placement")):
             job = jobs[name]
             with self.subTest(job=name):
-                self.assertIn("macos-placement", job["needs"])
+                self.assertIn(placement, job["needs"])
                 context = {**self.context(), "needs.path_route.outputs.swift_canary": "true",
                            "github.run_attempt": 1}
-                idle = {**context, "needs.macos-placement.outputs.gateway_attempt": "1",
-                        "needs.macos-placement.outputs.gateway_runner": "glaeda-side-std-xcode-26.6"}
+                idle = {**context, f"needs.{placement}.outputs.gateway_attempt": "1",
+                        f"needs.{placement}.outputs.gateway_runner": "glaeda-side-std-xcode-26.6"}
                 self.assertTrue(evaluate(job["if"], idle))
                 self.assertEqual(evaluate(job["runs-on"], idle), "glaeda-side-std-xcode-26.6")
-                none_idle = {**idle, "needs.macos-placement.outputs.gateway_runner": ""}
+                none_idle = {**idle, f"needs.{placement}.outputs.gateway_runner": ""}
                 self.assertFalse(evaluate(job["if"], none_idle))
                 # Placement skipped, failed, or ran an older base script: no reading, no gateway queue.
                 self.assertFalse(evaluate(job["if"], context))
@@ -3265,32 +3543,54 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
                 self.assertFalse(evaluate(job["if"], {**idle, "github.run_attempt": 2}))
                 self.assertFalse(evaluate(job["if"], {**context, "github.run_attempt": 2}))
                 self.assertTrue(evaluate(job["if"], {**idle, "github.run_attempt": 2,
-                                                     "needs.macos-placement.outputs.gateway_attempt": "2"}))
+                                                     f"needs.{placement}.outputs.gateway_attempt": "2"}))
 
     def test_placement_judges_the_gateway_for_the_jobs_that_start(self):
+        """The app compile's gateway is judged at once (app-compile-placement, Leo 2026-11-08: only the Mac
+        jobs wait for the PR quiet period); macos-placement judges the canary's after the wait."""
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        early = jobs["app-compile-placement"]
+        self.assertNotIn("pr-quiet-period", early["needs"])
+        self.assertNotIn("macos-placement", early["needs"])
+        early_env = next(step["env"] for step in early["steps"] if step.get("id") == "place")
+        self.assertEqual(early_env["PLACEMENT"], "app-compile")
+        self.assertEqual(early_env["GATEWAY_LABEL"], "${{ vars.CI_COMPILE_CHECK_GATEWAY }}")
+        self.assertEqual(early_env["GATEWAY_JOBS"], "app-compile-fleet")
         placement = jobs["macos-placement"]
-        for output in ("gateway_runner", "gateway_attempt"):
-            self.assertEqual(placement["outputs"][output], f"${{{{ steps.place.outputs.{output} }}}}")
+        self.assertIn("app-compile-placement", placement["needs"])
+        for job in (early, placement):
+            for output in ("gateway_runner", "gateway_attempt"):
+                self.assertEqual(job["outputs"][output], f"${{{{ steps.place.outputs.{output} }}}}")
         step_env = next(step["env"] for step in placement["steps"] if step.get("id") == "place")
         self.assertEqual(step_env["GATEWAY_LABEL"], "${{ vars.CI_COMPILE_CHECK_GATEWAY }}")
+        self.assertNotIn("GATEWAY_CASCADE", step_env)
         for why, context in (("same-repo PR", self.context()), ("fork", self.context(head_repo="someone/cmux")),
                              ("full-ci", self.context(labels=("full-ci",))), ("push", self.context("push")),
                              ("no native tier", self.context(native="false"))):
             with self.subTest(why=why):
-                context = {**context, "needs.path_route.outputs.swift_canary": "false"}
-                app = bool(evaluate(self.job()["if"], {**context, "needs.macos-placement.outputs.gateway_attempt": "1",
-                                                      "needs.macos-placement.outputs.gateway_runner": "glaeda-gateway"}))
-                # The Mac Release compile runs exactly when the fleet compile is skipped, so it joins the
-                # cascade exactly where the app compile would have run.
-                self.assertEqual(evaluate(step_env["GATEWAY_CASCADE"], context), "release-compile" if app else "")
-                self.assertEqual(evaluate(step_env["GATEWAY_JOBS"], context).split(), ["app-compile-fleet"] if app else [])
+                context = {**context, "needs.path_route.outputs.swift_canary": "false",
+                           "needs.path_route.outputs.macos": "true", "vars.CI_PR_POOL_OWNED": "1"}
+                placed = bool(evaluate(early["if"], context))
+                idle = {**context, "needs.app-compile-placement.outputs.gateway_attempt": "1",
+                        "needs.app-compile-placement.outputs.gateway_runner": "glaeda-gateway"}
+                app = bool(evaluate(self.job()["if"], idle))
+                # The early placement runs exactly where the app compile can.
+                self.assertEqual(placed, app)
+                self.assertFalse(evaluate(early["if"], {**context, "github.run_attempt": 2}))
+                # macos-placement no longer judges a gateway for it: its runner is already busy by then.
+                self.assertNotIn("app-compile-fleet", evaluate(step_env["GATEWAY_JOBS"], context).split())
+                # The Mac Release compile joins the cascade exactly where the app compile does not run.
+                if context["github.event_name"] == "pull_request" and not context["github.event.pull_request.labels.*.name"] \
+                        and context["github.event.pull_request.head.repo.full_name"] == "manaflow-ai/cmux":
+                    self.assertNotIn("release-compile", evaluate(step_env["CASCADE_RUNS"], idle).split())
+                    self.assertEqual("release-compile" in evaluate(step_env["CASCADE_RUNS"], context).split(),
+                                     context["needs.path_route.outputs.native"] == "true")
                 canary = {**context, "needs.path_route.outputs.swift_canary": "true"}
                 self.assertIn("swift-canary-fleet", evaluate(step_env["GATEWAY_JOBS"], canary).split())
 
     def test_it_does_not_run_where_the_mac_release_compile_does(self):
-        idle = {"needs.macos-placement.outputs.gateway_attempt": "1",
-                "needs.macos-placement.outputs.gateway_runner": "glaeda-gateway"}
+        idle = {"needs.app-compile-placement.outputs.gateway_attempt": "1",
+                "needs.app-compile-placement.outputs.gateway_runner": "glaeda-gateway"}
         for why, context in (("fork", self.context(head_repo="someone/cmux")),
                              ("full-ci", self.context(labels=("full-ci",))),
                              ("push", self.context("push")),
@@ -3316,9 +3616,9 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
             output = Path(tmp) / "output"
             output.touch()
             summary = Path(tmp) / "summary"
-            env = {"PATH": os.environ["PATH"], "HOME": tmp, "CMUX_CI_CLIENT": str(client), "REF": "d" * 40,
+            env = git_fixture_env.fixture_env({"PATH": os.environ["PATH"], "HOME": tmp, "CMUX_CI_CLIENT": str(client), "REF": "d" * 40,
                    "GITHUB_OUTPUT": str(output), "RUNNER_TEMP": tmp, "RUNNER_NAME": "gw",
-                   "GITHUB_STEP_SUMMARY": str(summary), "MAC_RELEASE": mac_release}
+                   "GITHUB_STEP_SUMMARY": str(summary), "MAC_RELEASE": mac_release})
             # The step's own shell: bash -e {0}.
             result = subprocess.run(["bash", "-e", "-c", step["run"]], env=env,
                                     capture_output=True, text=True, timeout=60)
@@ -3567,12 +3867,12 @@ esac
             out, summary, calls = tmp_path / "out", tmp_path / "summary", tmp_path / "calls"
             script = tmp_path / "step.sh"
             script.write_text(step["run"])
-            env = {"PATH": str(tmp_path / "nothing-here"), "HOME": str(tmp_path / "home"),
+            env = git_fixture_env.fixture_env({"PATH": str(tmp_path / "nothing-here"), "HOME": str(tmp_path / "home"),
                    "CMUX_CI_CLIENT": str(fake) if client else str(tmp_path / "missing"),
                    "RUNNER_TEMP": tmp, "RUNNER_NAME": "gateway-1", "GITHUB_OUTPUT": str(out),
                    "GITHUB_STEP_SUMMARY": str(summary), "REF": self.REF if ref is None else ref,
                    "FAKE_REF": self.REF, "FAKE_OTHER": self.OTHER, "FAKE_CALLS": str(calls),
-                   **{key: str(value) for key, value in step["env"].items() if key != "REF"}, **scenario}
+                   **{key: str(value) for key, value in step["env"].items() if key != "REF"}, **scenario})
             done = subprocess.run(["/bin/bash", "-e", str(script)], env=env, capture_output=True, text=True,
                                   stdin=subprocess.DEVNULL, timeout=60)
             output = out.read_text() if out.exists() else ""
@@ -3594,7 +3894,11 @@ esac
                 ("fail", "queued"): (1, "fail"),
                 ("pass", "other"): (1, "unavailable"),   # the step tested another commit
                 ("other", "pass"): (1, "unavailable"),
-                ("pass", "queued"): (1, "unavailable"),  # the queue timed out: no verdict
+                # The queue wait ran out (client exit 75): the tier runs the suites itself
+                # (test_a_queued_fleet_step_hands_the_tier_its_own_mac_run).
+                ("pass", "queued"): (0, "queued"),
+                ("queued", "queued"): (0, "queued"),
+                ("queued", "other"): (1, "unavailable"),
                 ("nostep", "pass"): (1, "unavailable"),  # no worker took the step
                 ("pass", "short"): (0, "pass"),          # a shorter step id, as the fleet tools accept
                 ("pass", "lies"): (1, "fail"),           # the client exited 0 but the record says failed
@@ -3733,7 +4037,8 @@ esac
                 self.assertNotIn("gateway_runner", str(job["runs-on"]), "the tier itself never runs on the gateway")
                 self.assertIn(client, job["needs"])
                 self.assertTrue(job["if"].startswith("${{ !cancelled() "), "it reports even when the client failed")
-                ran = self.RAN.format(client=client)
+                # Ran, and did not hand the tier back with a step still queued (verdict `queued`).
+                ran = self.RAN.format(client=client) + f" && needs.{client}.outputs.verdict != 'queued'"
                 self.assertEqual(job["env"]["CMUX_FAST_TIER_FLEET"], f"${{{{ {ran} && 'report' || '' }}}}")
                 base = {"github.repository_owner": "manaflow-ai", "github.repository": "manaflow-ai/cmux",
                         "github.event_name": "pull_request", "github.run_attempt": 1,
@@ -3793,18 +4098,88 @@ esac
                    "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux", "inputs.no_reuse": ""}
         return bool(evaluate("${{ " + text + " }}", context))
 
+    def test_a_queued_fleet_step_hands_the_tier_its_own_mac_run(self):
+        # cmux#38346 (run 42477816945): both fleet steps were still queued after the client's 600 s
+        # (exit 75), so fast-tier-fleet gave no verdict and the tier, in report mode, failed the PR on a
+        # queue wait; the steps then passed 40 minutes later. Now the client waits the class's measured
+        # p90 and, when a step is still queued, hands the tier back: it runs its Swift suites itself on
+        # Blacksmith macOS, in the same attempt, and that run is the verdict.
+        jobs = self.jobs()
+        client, tier = jobs["fast-tier-fleet"], jobs["fast-tier"]
+        self.assertIn("--queue-timeout 1200 ", client["steps"][0]["run"])
+        self.assertGreaterEqual(client["timeout-minutes"] * 60, 1200 + 1500 + 300)
+        status, output, log = self.run_client({"FAKE_HOME": "queued", "FAKE_NEXT": "pass"})
+        self.assertEqual((status, self.verdict(output)), (0, "queued"), log)
+        self.assertIn("runs the Swift suites itself", log)
+        base = {"github.repository_owner": "manaflow-ai", "github.repository": "manaflow-ai/cmux",
+                "github.event_name": "pull_request", "github.run_attempt": 1,
+                "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
+                "needs.macos-placement.outputs.placed_attempt": "1",
+                "needs.macos-placement.outputs.deferred_runner": "glaeda-side-std-xcode-26.6",
+                "needs.fast-tier-fleet.result": "success", "needs.fast-tier-fleet.outputs.verdict": "queued"}
+        for extra in ({}, {"vars.LINUX_RUNNER": "glaeda-linux"}, {"vars.CI_CLOUD_OVERFLOW_SAVED": "1"}):
+            with self.subTest(**extra):
+                context = {**base, **extra}
+                self.assertEqual(evaluate(tier["runs-on"], context), "blacksmith-6vcpu-macos-26")
+                # Above the cold Blacksmith 6 vCPU fast-tier p90 (19.8 min, #38181) with room: this run
+                # is its own job, so the client's queue wait does not eat into it.
+                self.assertEqual(evaluate(tier["timeout-minutes"], context), 35)
+                self.assertEqual(evaluate(tier["env"]["CMUX_FAST_TIER_FLEET"], context), "")
+        # The hand-back's own fresh placement (side_lane_placement.handback()) decides where it runs: an idle
+        # owned Mac, Blacksmith 6 vCPU unless excluded, else the owned route. With no reading (the job skipped,
+        # failed or predates it), Blacksmith 6 vCPU, as above.
+        place = jobs["fast-tier-handback-placement"]
+        self.assertIn("fast-tier-handback-placement", tier["needs"])
+        self.assertEqual(place["needs"], ["fast-tier-fleet"])
+        for label in ("glaeda-fast-light-xcode-26.6", "glaeda-side-std-xcode-26.6"):
+            with self.subTest(handback=label):
+                self.assertEqual(evaluate(tier["runs-on"], {**base, "needs.fast-tier-handback-placement.outputs.runner": label}),
+                                 label)
+        self.assertEqual(evaluate(tier["runs-on"], {**base, "needs.fast-tier-handback-placement.outputs.runner": ""}),
+                         "blacksmith-6vcpu-macos-26")
+        placed = {"github.repository_owner": "manaflow-ai", "vars.CI_PR_POOL_OWNED": "1",
+                  "needs.fast-tier-fleet.outputs.verdict": "queued"}
+        self.assertTrue(evaluate(place["if"], placed))
+        for why, context in (("a verdict", {**placed, "needs.fast-tier-fleet.outputs.verdict": "pass"}),
+                             ("no verdict", {**placed, "needs.fast-tier-fleet.outputs.verdict": "unavailable"}),
+                             ("the client skipped", {**placed, "needs.fast-tier-fleet.outputs.verdict": ""}),
+                             ("owned pools off", {**placed, "vars.CI_PR_POOL_OWNED": "0"}),
+                             ("another owner", {**placed, "github.repository_owner": "someone"})):
+            with self.subTest(why=why):
+                self.assertFalse(evaluate(place["if"], context))
+        step = next(s for s in place["steps"] if s.get("id") == "place")
+        self.assertEqual(step["env"]["PLACEMENT"], "handback")
+        side = step["env"]["SIDE_LABEL"]
+        self.assertEqual(evaluate(side, {"github.event_name": "pull_request", "github.repository": "manaflow-ai/cmux",
+                                         "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
+                                         "vars.CI_SIDE_LANE_RUNNER": "glaeda-side-std-xcode-26.6"}),
+                         "glaeda-side-std-xcode-26.6")
+        self.assertEqual(evaluate(side, {"github.event_name": "pull_request", "github.repository": "manaflow-ai/cmux",
+                                         "github.event.pull_request.head.repo.full_name": "someone/cmux",
+                                         "vars.CI_SIDE_LANE_RUNNER": "glaeda-side-std-xcode-26.6"}),
+                         "blacksmith-6vcpu-macos-26")
+        self.assertIn("^def handback_main", step["run"])
+        # A verdict, or no verdict for any other reason, is still only reported.
+        for verdict in ("pass", "fail", "unavailable", ""):
+            with self.subTest(verdict=verdict):
+                context = {**base, "needs.fast-tier-fleet.outputs.verdict": verdict}
+                self.assertEqual(evaluate(tier["env"]["CMUX_FAST_TIER_FLEET"], context), "report")
+                self.assertEqual(evaluate(tier["runs-on"], context), "blacksmith-2vcpu-ubuntu-2404")
+
     def test_the_report_exits_with_the_clients_result(self):
         report = self.jobs()["fast-tier"]["steps"][0]
+        # scripts/ci/needs_verdict.py's rule: a failed fleet job is a red whatever its verdict output says, and one
+        # that judged nothing (cancelled, abandoned, skipped, empty) is no verdict, exit 3, never a pass (cmux#39857).
         for verdict, result, code in (("pass", "success", 0), ("fail", "failure", 1), ("unavailable", "failure", 1),
-                                      ("", "cancelled", 1), ("", "failure", 1), ("pass", "failure", 1)):
+                                      ("", "cancelled", 3), ("", "failure", 1), ("pass", "failure", 1),
+                                      ("", "abandoned", 3), ("", "", 3), ("pass", "cancelled", 3)):
             with self.subTest(verdict=verdict, result=result), tempfile.TemporaryDirectory() as tmp:
                 done = subprocess.run(["/bin/bash", "-e", "-c", report["run"]], capture_output=True, text=True,
                                       stdin=subprocess.DEVNULL, timeout=30,
-                                      env={"VERDICT": verdict, "RESULT": result, "PATH": os.environ["PATH"],
-                                           "GITHUB_STEP_SUMMARY": str(Path(tmp) / "summary")})
+                                      env=git_fixture_env.fixture_env({"VERDICT": verdict, "RESULT": result, "PATH": os.environ["PATH"],
+                                           "GITHUB_STEP_SUMMARY": str(Path(tmp) / "summary")}))
                 self.assertEqual(done.returncode, code, done.stdout + done.stderr)
-                if code and verdict != "fail":
-                    self.assertIn("no verdict", done.stdout)
+                self.assertEqual("::error::no verdict: " in done.stdout, code == 3, done.stdout)
 
 
 if __name__ == "__main__":

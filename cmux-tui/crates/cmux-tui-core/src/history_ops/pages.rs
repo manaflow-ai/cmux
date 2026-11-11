@@ -57,6 +57,21 @@ pub(super) fn range(
     }
 }
 
+/// The end of a clear: the caller's `until_ms` (the click time of a clear
+/// that waited in the app's queue, so what happened after the click stays),
+/// at most `now_ms`; omitted: `now_ms`.
+pub(super) fn until_ms(fields: &Map<String, Value>, now_ms: i64) -> Result<i64, ResourceError> {
+    match fields.get("until_ms") {
+        None | Some(Value::Null) => Ok(now_ms),
+        Some(value) => value
+            .as_str()
+            .and_then(|text| text.parse::<i64>().ok())
+            .filter(|until| *until >= 0)
+            .map(|until| until.min(now_ms))
+            .ok_or_else(|| invalid("until_ms", "until_ms must be an unsigned decimal string")),
+    }
+}
+
 /// The query of a list request.
 pub(super) fn query(fields: &Map<String, Value>) -> Result<HistoryQuery, ResourceError> {
     let limit = match fields.get("limit") {
@@ -221,7 +236,8 @@ pub(crate) fn run(
         }
         "history.clear" => {
             let since = range(fields, true)?.start(now_ms, day_start_ms);
-            stores.clear(since, profile).map(|r| removal(&r)).map_err(failed)
+            let until = until_ms(fields, now_ms)?;
+            stores.clear_between(since, until, profile).map(|r| removal(&r)).map_err(failed)
         }
         "history.restore" => {
             let id = restore_id(fields)?;

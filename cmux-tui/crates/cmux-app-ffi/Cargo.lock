@@ -82,6 +82,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "sha2",
  "unicode-normalization",
 ]
 
@@ -95,11 +96,13 @@ dependencies = [
  "cmux-cookie-sync",
  "cmux-daemon-conn-core",
  "cmux-daemon-launch-core",
+ "cmux-health-core",
  "cmux-layout-reducer-ffi",
  "cmux-motion",
  "cmux-palette-ranker",
  "cmux-rd-ffi",
  "cmux-sdk-ffi",
+ "cmux-terminal-prediction",
 ]
 
 [[package]]
@@ -190,6 +193,14 @@ dependencies = [
  "serde",
  "serde_json",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "cmux-health-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -314,6 +325,10 @@ dependencies = [
  "serde_json",
  "sha2",
 ]
+
+[[package]]
+name = "cmux-terminal-prediction"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-window-rules"
@@ -455,6 +470,15 @@ name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
+
+[[package]]
+name = "hashlink"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "824e001ac4f3012dd16a264bec811403a67ca9deb6c102fc5049b32c4574b35f"
+dependencies = [
+ "hashbrown 0.16.1",
+]
 
 [[package]]
 name = "heck"
@@ -681,6 +705,7 @@ dependencies = [
  "bitflags",
  "fallible-iterator",
  "fallible-streaming-iterator",
+ "hashlink",
  "libsqlite3-sys",
  "smallvec",
  "sqlite-wasm-rs",

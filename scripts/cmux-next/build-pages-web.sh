@@ -28,6 +28,7 @@ done
 PAGES="
 apps
 artifacts
+bookmarks
 changelog
 chief-inspector
 chief-usage
@@ -36,6 +37,7 @@ cloud
 cloud-progress
 coderouter
 debug-settings
+feed
 files
 github
 group-editor
@@ -51,15 +53,22 @@ mobile-pairing
 onboarding
 overlay
 passwords
+server-cards
 settings
+setup-card
 stash
 stats
+task-manager
 tasks
 "
 # The browser chrome's pages (CmuxNextPages BrowserChromeWebHost).
 PAGES="$PAGES page-info site-settings site-data certificate"
 # The Import Cookies card (BrowserCookieImportCard, through BrowserChromeWebHost).
 PAGES="$PAGES cookie-import"
+# The bookmarks bar (CmuxNextBookmarks BookmarksBarPages: one page per bar on screen).
+PAGES="$PAGES bookmarks-bar"
+# The sidebar's chat history blocks (CmuxNextSidebar SidebarChatHistoryHost: one page per block shown).
+PAGES="$PAGES sidebar-chats"
 # Pages whose string table ships as one script per locale (locales/<locale>.js), loaded before the
 # app: only English and the active locale are parsed at open (R82 first-open speed).
 SPLIT_STRINGS="settings"
@@ -99,6 +108,8 @@ for page in $PAGES; do
     *" $page "*) shiki="$src/shiki" ;;
   esac
   bun scripts/agent-pane/bundle.mjs "$src/main.tsx" "$shiki" "$WORK/$page/app.js"
+  # FOCUS-RING: the focus-ring gate on esbuild's CSS, as the Vite build does (postcss.config.mjs).
+  if [ -f "$WORK/$page/app.css" ]; then bun scripts/postcss/gate-css.mjs "$WORK/$page/app.css"; fi
   loader=""
   case " $SPLIT_STRINGS " in
     *" $page "*) loader="$(bun scripts/pages/split-strings.mjs "$src/generated/strings.json" "$WORK/$page/locales")" ;;

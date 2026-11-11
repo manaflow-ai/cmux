@@ -17,10 +17,19 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "pr_red_checks_comment.py"
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import pr_status  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 LEGACY = "<!-- cmux-red-checks -->"
 BOT = {"login": "github-actions[bot]"}
 RED_LINE = "red: web / react-apps-check; do not merge until green; see lane-rules"
+# cmux-next-guards.yml own-change-checks: the size cap and the crash ratchet are steps of this one job.
+OWN_CHANGE_JOB = "cmux-next size cap, crash ratchet, localization debt ratchet, no new generated files"
 
 
 def status(**sections):
@@ -172,10 +181,10 @@ def test_red_web_check_creates_one_comment_naming_it():
 
 
 def test_size_check_and_web_check_both_listed():
-    writes = FakeGitHub([run("cmux-next CmuxNextApp size cap", "failure"), run("web / Web status", "timed_out", id_=2)], []).run()
+    writes = FakeGitHub([run(OWN_CHANGE_JOB, "failure"), run("web / Web status", "timed_out", id_=2)], []).run()
     assert len(writes) == 1
     body = pr_status.parse(writes[0][2])["checks"]
-    assert "red: cmux-next CmuxNextApp size cap;" in body and "red: web / Web status;" in body
+    assert f"red: {OWN_CHANGE_JOB};" in body and "red: web / Web status;" in body
 
 
 def test_unchanged_red_list_writes_nothing():
@@ -253,6 +262,26 @@ def test_a_new_failure_annotation_inside_a_shared_step_is_new():
                      21: [{"annotation_level": "failure", "message": "red check: String tables (21 languages)"},
                           {"annotation_level": "failure", "message": "Process completed with exit code 1."}]}))
     assert line.startswith(f"red: {name}; NEW: `red check: Motion tokens` is not red on the base bbbbbbbbbb;"), line
+
+
+def test_the_line_quotes_the_failing_steps_red_never_a_passing_steps_negative_case_stderr():
+    # cmux#40369 (feat-cmux-next runs 42820823641, 42820590433): the static checks job failed only in its page strings
+    # step, and base_red_excuse.py quoted the license step's expected stderr ("pinned license manifest digest
+    # changed"), printed by a passing negative-case test. This line is built from the failed steps' names and the
+    # job's failure annotations (`##[error]` lines), never from plain log text, so a passing step's stderr is never
+    # quoted or compared here (base_red_excuse.failed_steps_log keeps any step whose section has an `##[error]`).
+    name = "cmux-next static checks (vt-link-graph, nightly static capabilities, defaults snapshot, page strings)"
+    licenses = "The nightly's Ghostty license checks pass on fixtures"
+    strings = "Every page's strings generate with no missing translation"
+    exit_line = {"annotation_level": "failure", "message": "Process completed with exit code 1."}
+    line = checks_line(FakeGitHub(
+        [run(name, "failure", id_=11)], [],
+        base_runs=[run(name, "failure", id_=21)],
+        steps={11: [ok(licenses), failed(strings)], 21: [ok(licenses), failed(strings)]},
+        annotations={11: [{"annotation_level": "failure", "message": "settings: 42 strings missing"}, exit_line],
+                     21: [{"annotation_level": "failure", "message": "home: 3 strings missing"}, exit_line]}))
+    assert line.startswith(f"red: {name}; NEW: `settings: 42 strings missing` is not red on the base bbbbbbbbbb;"), line
+    assert "digest" not in line and "license" not in line.lower(), line
 
 
 def test_a_base_that_is_green_makes_every_red_new():
@@ -344,7 +373,7 @@ def test_an_aggregate_red_with_no_red_job_blocks():
 def test_an_unrelated_base_red_never_excuses_an_aggregate_whose_job_was_cancelled():
     # Review (gpt-6-astra), 2026-10-30: React Doctor cancelled, both web aggregates red, and a size-cap red that the
     # base has too. The size cap is no job either aggregate gathers, and the cancelled job is the aggregates' own.
-    size = "cmux-next CmuxNextApp size cap"
+    size = OWN_CHANGE_JOB
     fake = FakeGitHub(
         [run("web / react-apps-check", "failure", id_=11), run("web / Web status", "failure", id_=12),
          run("web / react-doctor", "cancelled", id_=13), run(size, "failure", id_=14), run(RAC, "success", id_=15)], [],
@@ -396,8 +425,8 @@ def test_a_green_caller_still_turns_a_red_line_green():
 
 
 def test_a_green_caller_keeps_another_workflows_red():
-    fake = FakeGitHub([run("cmux-next crash ratchet", "failure")],
-                      [{"id": 5, "body": status(checks="red: cmux-next crash ratchet; do not merge until green; see lane-rules")}],
+    fake = FakeGitHub([run(OWN_CHANGE_JOB, "failure")],
+                      [{"id": 5, "body": status(checks=f"red: {OWN_CHANGE_JOB}; do not merge until green; see lane-rules")}],
                       env=GREEN)
     assert fake.run() == []
     assert read_check_runs(fake)

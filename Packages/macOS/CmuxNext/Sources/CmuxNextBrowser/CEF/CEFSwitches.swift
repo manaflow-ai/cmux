@@ -25,6 +25,10 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// Chromium's AsyncLiveResize (below fork API 27): off only for the Debug Settings "Synced live"
     /// drag resize (a Synced live drag resize, removed 2026-11-06), which lets Chromium hold a frame for the page again.
     var asyncLiveResize = true
+    /// The profile Chromium opens at startup (`profile-directory`), a directory name under the root
+    /// cache: the default cmux profile's (`CEFProfileStorage.initialProfileDirectory`). Nil leaves
+    /// Chromium's own choice (its last-used profile, `Default` on a first launch).
+    var initialProfileDirectory: String?
 
     /// The longest one Chromium pump pass runs before it returns to the main run loop: a quarter
     /// of a 120 Hz frame, so the app's own frame work and the display link fit beside a pass.
@@ -45,15 +49,24 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // Non-official builds otherwise enable the field trial testing config
         // (features that need helpers cmux does not ship).
         result.append("disable-field-trial-config")
-        // Web notifications must not make CEF's Alerts helper request a
-        // separate macOS notification authorization. DesktopNotifier owns the
-        // one app-level authorization request when cmux posts a banner.
-        result.append("disable-notifications")
-        // That leaves Chromium's macOS notification bridge, made for the profile at startup while
-        // SystemNotifications is on: its UNUserNotificationCenter service asked macOS for
-        // authorization for the app and its Alerts helper on the first launch, with no action of
-        // the person (LAUNCH-NO-TCC-PROMPTS). Off, Chromium makes no bridge.
+        // Web notifications must not make CEF's Alerts helper request a separate macOS
+        // notification authorization: DesktopNotifier owns the one app-level request, made when
+        // cmux posts a banner. Chromium's macOS notification bridge, made for the profile at
+        // startup while SystemNotifications is on, asked macOS for authorization for the app and
+        // its Alerts helper on the first launch, with no action of the person
+        // (LAUNCH-NO-TCC-PROMPTS). Off, Chromium makes no bridge.
+        //
+        // Never add `disable-notifications` here: it takes `Notification` and `PushManager` out
+        // of every page, which no desktop Chrome does, and bot checks read that as automation.
+        // Akamai Bot Manager then served its challenge page again and again (godaddy.com reloaded
+        // about twice per second, then "Access Denied"; Chrome with the two interfaces deleted
+        // does the same). Pages keep the interfaces and read the permission as `default`, also
+        // after they ask (the shim ends the request unanswered, permission_prompt_policy.h),
+        // so no web notification is ever shown.
         result.append("disable-features=SystemNotifications")
+        // Chromium counts prompts that end unanswered and blocks the site for a week after four
+        // (its embargo). No switch or feature turns that count off (permission_decision_auto_blocker.cc),
+        // so the shim clears the site's own count before it ends a request (shim_permissions.mm).
         // Chromium's periodic call-stack profiler runs in the browser process (the
         // app) and suspends its threads at 10 Hz while it collects. Its profiles go
         // to UMA, which cmux does not upload; in some idle sessions it raised the
@@ -110,6 +123,18 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // built-in entry Chromium keeps in the profile. The shim merges this
         // into CEF's list.
         if keepsUnpackedEnabled { result.append("disable-features=ExtensionDisableUnsupportedDeveloper") }
+        // Chrome style opens one startup profile and makes it the global request context
+        // (ChromeBrowserMainExtraPartsCef::PostProfileInit); CefSettings.cache_path does not choose
+        // it. Without this switch that profile is `Default`, which no cmux tab uses, yet every regular
+        // profile loads the --load-extension extensions: `Default` ran its own uBlock Origin
+        // background page, an extension renderer of about 105 MB, from launch on (hq#7860).
+        // Starting in the default cmux profile leaves one regular profile at idle. An
+        // off-the-record context (an incognito window's store; the app opens one at launch)
+        // derives from CEF's GetPrimaryUserProfile, which is this startup profile from fork
+        // cmux.48 on (manaflow-ai/cef#32); before it was always `Default`, so `Default` loaded anyway.
+        if let initialProfileDirectory, !initialProfileDirectory.isEmpty {
+            result.append("profile-directory=" + initialProfileDirectory)
+        }
         result.append(contentsOf: extraSwitches)
         return result
     }
@@ -176,7 +201,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         environment: [String: String],
         builtInExtensions: [String] = [],
         keepsUnpackedEnabled: Bool = false,
-        asyncLiveResize: Bool = true
+        asyncLiveResize: Bool = true,
+        initialProfileDirectory: String? = nil
     ) -> CEFSwitches {
         let bundle = bundleIdentifier ?? ""
         let dev = bundle.contains(".debug") || bundle.hasSuffix(".dev") || environment["CMUX_MOCK_KEYCHAIN"] == "1"
@@ -197,7 +223,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             builtInExtensions: builtInExtensions,
             keepsUnpackedEnabled: keepsUnpackedEnabled,
             extraSwitches: extra,
-            asyncLiveResize: asyncLiveResize
+            asyncLiveResize: asyncLiveResize,
+            initialProfileDirectory: initialProfileDirectory
         )
     }
 

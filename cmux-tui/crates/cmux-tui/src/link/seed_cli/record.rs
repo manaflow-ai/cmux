@@ -48,6 +48,11 @@ pub(super) struct Record {
     /// Older records lack a stash base. Refuse ambiguous deltas instead of dropping stashes.
     #[serde(default)]
     pub(super) stash_known: bool,
+    /// For a seed that answered at its head: the machine's job that still filled the
+    /// checkout then. A `--since-last` waits for it to be done before it sends a delta
+    /// (`settle_fill`), since the machine refuses one into a checkout not yet whole.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) filling: Option<String>,
 }
 
 fn path_of(local: &Path, remote_root: &str) -> anyhow::Result<PathBuf> {
@@ -95,4 +100,15 @@ pub(super) fn save(local: &Path, remote_root: &str, record: &Record) -> anyhow::
     file.write_all(&serde_json::to_vec(record)?)?;
     file.sync_all()?;
     std::fs::rename(&part, &path).with_context(|| format!("cannot write {}", path.display()))
+}
+
+/// Drops the record of `local` pushed to `remote_root`; nothing when there is none.
+pub(super) fn forget(local: &Path, remote_root: &str) -> anyhow::Result<()> {
+    let path = path_of(local, remote_root)?;
+    match std::fs::remove_file(&path) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            Err(error).with_context(|| format!("cannot remove {}", path.display()))
+        }
+        _ => Ok(()),
+    }
 }

@@ -23,7 +23,16 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 from cmux_next_push_attribution import (MAX_COMMENTED_PRS, failed_jobs, bisect_history, last_green,
                                          never_passed, should_comment)  # noqa: E402
+import cmux_next_route  # noqa: E402
 from cmux_next_route import MAX_PRIORITY_SUITES, outputs, route  # noqa: E402
+from cmux_next_route import matches as route_matches  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 PACKAGE = "Packages/macOS/CmuxNext"
 GRAPH = json.loads((ROOT / PACKAGE / "ci-target-graph.json").read_text(encoding="utf-8"))
@@ -107,6 +116,64 @@ def tiers(changed: list[str], event: str = "pull_request", labels: frozenset[str
     return outputs(route(ROOT, event, changed, set(labels)))
 
 
+# The build and packaging scripts outside the Xcode project's build phases: the GhosttyKit fetch, the tagged
+# dev-build driver, and the release strip, thin and signing steps.
+NATIVE_SCRIPT_SEEDS = (
+    "cmux.xcodeproj/project.pbxproj",
+    "scripts/ensure-ghosttykit.sh", "scripts/download-prebuilt-ghosttykit.sh",
+    "scripts/reload.sh", "scripts/reloads.sh", "scripts/reload2.sh", "scripts/reloadp.sh",
+    "scripts/strip-release-bundle.sh", "scripts/write-app-symbol-map.py", "scripts/thin-app-bundle.sh",
+    "scripts/sign-cmux-bundle.sh", "scripts/sign-cmux-bundle-helpers.sh",
+)
+_PATH_TOKEN = re.compile(r"[A-Za-z0-9_.@-]*(?:/[A-Za-z0-9_.@-]+)+|[A-Za-z0-9_-]+\.[A-Za-z]{2,6}\b|\b[A-Z][A-Z_]+[A-Z]\b")
+# Comments, docstrings and messages name files they do not read.
+_NOT_A_READ = re.compile(r"^\s*(#|//|\"\"\")|\b(echo|printf|print|warn|die|fail|log)\b[ (]")
+
+
+def native_script_reads() -> dict[str, set[str]]:
+    """{repository file: the build or packaging files that read it}. Walks the seeds, the scripts the Xcode
+    project's phases name and the shell files a walked script sources; a read is a path literal outside a
+    comment or message that names an existing file, from the root or the script's folder, with or without
+    its leading variable (`$SCRIPT_DIR/...`, `$(SRCROOT)/...`)."""
+    def resolve(token: str, folder: Path) -> str | None:
+        token = token.lstrip("/").removeprefix("./")
+        candidates = [token] + ([token.split("/", 1)[1]] if "/" in token else [])
+        for candidate in candidates:
+            for base in (ROOT, folder):
+                path = base / candidate
+                if path.is_file():
+                    try:
+                        return path.resolve().relative_to(ROOT).as_posix()
+                    except ValueError:
+                        return None
+        return None
+
+    reads: dict[str, set[str]] = {}
+    seen: set[str] = set()
+    pending = list(NATIVE_SCRIPT_SEEDS)
+    while pending:
+        script = pending.pop()
+        if script in seen or not (ROOT / script).is_file():
+            continue
+        seen.add(script)
+        project = script.endswith(".pbxproj")
+        text = (ROOT / script).read_text(encoding="utf-8", errors="replace")
+        lines = text.splitlines() if project else [line for line in text.splitlines() if not _NOT_A_READ.search(line)]
+        for line in lines:
+            for token in _PATH_TOKEN.findall(line):
+                if not project and f"({token})" in line:
+                    continue  # a citation in a message: "... (plans/cmux-next/crash-elimination.md)"
+                path = resolve(token, (ROOT / script).parent)
+                if path is None or path == script:
+                    continue
+                reads.setdefault(path, set()).add(script)
+                runnable = path.endswith((".sh", ".py")) or (path.startswith("scripts/") and "." not in path.rsplit("/", 1)[-1])
+                sourced = re.search(r"(\bsource|^\s*\.)\s+\S*" + re.escape(path.rsplit("/", 1)[-1]), line)
+                if runnable and (project or sourced):
+                    pending.append(path)
+    return reads
+
+
 def graph_dependencies(name: str) -> set[str]:
     """Every target `name` depends on, directly or not, read straight from the graph."""
     found: set[str] = set()
@@ -133,9 +200,7 @@ def graph_readers(path: str) -> set[str]:
     """The test targets whose sources name `path` (the graph's `reads`; a trailing / is a directory)."""
     return {
         name for name, target in GRAPH["targets"].items()
-        if target["kind"] == "test" and any(
-            path.startswith(read) if read.endswith("/") else path == read for read in target.get("reads", [])
-        )
+        if target["kind"] == "test" and any(route_matches(path, read) for read in target.get("reads", []))
     }
 
 
@@ -283,12 +348,13 @@ class PullRequestTiers(unittest.TestCase):
 
     def test_ui_pr_runs_its_own_tests_without_the_daemon(self):
         result = tiers(PR_17470)
-        self.assertEqual(result["swift_targets"], "CmuxNextAppTests")
+        # CmuxNextDesignTests (#39966) scans every app Swift source for SF Symbol names, so any .swift change runs it.
+        self.assertEqual(result["swift_targets"], "CmuxNextAppTests CmuxNextDesignTests")
         self.assertEqual(result["daemon"], "false")
         self.assertEqual(result["scheme"], "false")
         self.assertEqual(result["generated"], "true")
         self.assertEqual(result["native"], "true")
-        self.assertEqual(result["swift_filter"], r"^(CmuxNextAppTests)\.")
+        self.assertEqual(result["swift_filter"], r"^(CmuxNextAppTests|CmuxNextDesignTests)\.")
 
     def test_a_shared_module_selects_its_dependents(self):
         path = f"{PACKAGE}/Sources/CmuxNextSidebar/SidebarView.swift"
@@ -296,10 +362,11 @@ class PullRequestTiers(unittest.TestCase):
         selected = result["swift_targets"].split()
         self.assertEqual(selected, sorted(graph_dependents({"CmuxNextSidebar"}) | graph_readers(path)))
         # CmuxNextChiefViewsTests (#22683) reaches the sidebar through CmuxNextChiefViews.
-        for name in ("CmuxNextAppTests", "CmuxNextChiefViewsTests", "CmuxNextKeepAwakeTests", "CmuxNextWorkspaceNamingTests"):
+        # CmuxNextDesignTests (#39966) reads every app Swift source (the SF Symbol scan), not the sidebar's module.
+        for name in ("CmuxNextAppTests", "CmuxNextChiefViewsTests", "CmuxNextDesignTests", "CmuxNextKeepAwakeTests",
+                     "CmuxNextWorkspaceNamingTests"):
             self.assertIn(name, selected)
-        for name in ("CmuxNextDaemonTests", "CmuxNextDesignTests"):
-            self.assertNotIn(name, selected)
+        self.assertNotIn("CmuxNextDaemonTests", selected)
         self.assertEqual(result["daemon"], "false")
 
     def test_every_target_selects_the_tests_that_reach_it(self):
@@ -352,6 +419,20 @@ class PullRequestTiers(unittest.TestCase):
             with self.subTest(path=path):
                 result = tiers([path])
                 for tier in ("native", "scheme", "macos", "swift", "generated", "daemon"):
+                    self.assertEqual(result[tier], "false", tier)
+
+    def test_a_workflow_and_its_script_only_tool_run_no_mac_compile(self):
+        """#40575 changed only classic-migration-staging.yml and the classic-migrate .ts it runs with
+        bun, and waited on cmux-next/compile, a compile its diff could not change."""
+        for changed in ([".github/workflows/classic-migration-staging.yml",
+                         "scripts/cmux-next/classic-migrate/staging-proof.test.ts",
+                         "scripts/cmux-next/classic-migrate/staging-proof.ts"],
+                        ["scripts/cmux-next/classic-migrate/fixtures/base-cli-ledger.jsonl"],
+                        ["scripts/cmux-next/proxy-demo/demo.py"], ["scripts/cmux-next/team-vm-spike/caps.sh"],
+                        ["scripts/cmux-next/mac-screen-rd-rig/run.sh"]):
+            with self.subTest(changed=changed):
+                result = tiers(changed)
+                for tier in ("native", "scheme", "macos", "mac_release", "swift", "generated", "daemon"):
                     self.assertEqual(result[tier], "false", tier)
 
     def test_a_path_no_mac_build_reads_beside_swift_keeps_the_swift_tiers(self):
@@ -516,6 +597,56 @@ class PullRequestTiers(unittest.TestCase):
         result = tiers(["scripts/ci/select_package_tests.py", "webviews/src/agent-session/pane.tsx"])
         for tier in ("macos", "scheme", "native", "swift", "generated", "daemon", "full"):
             self.assertEqual(result[tier], "false", tier)
+
+    def test_a_checks_job_tooling_input_runs_no_mac_tier(self):
+        """A file the checks job's tests read and no build reads (a CI table, a lint, a git hook) is CI-only:
+        a pull request changing one runs the Linux checks, not the Mac compiles."""
+        for path in (".github/runners.json", "scripts/web-lint.sh", "scripts/install-git-hooks.sh"):
+            with self.subTest(path=path):
+                result = tiers([path])
+                for tier in ("macos", "scheme", "native", "mac_release", "swift", "generated", "daemon", "full"):
+                    self.assertEqual(result[tier], "false", tier)
+
+    def test_checks_job_inputs_a_build_reads_keep_the_mac_tiers(self):
+        """Admitted for the checks job's tests too, but each can change what the app build gets: the GhosttyKit
+        download, the reload script's instance stop, the release strip and its symbol map, and the checkout's
+        text attributes (the bundled license texts are `-text`). They stay out of CI_ONLY."""
+        for path in ("scripts/download-prebuilt-ghosttykit.sh", "scripts/lib/stop-app-instances.sh",
+                     "scripts/strip-release-bundle.sh", "scripts/write-app-symbol-map.py", ".gitattributes"):
+            with self.subTest(path=path):
+                self.assertEqual(tiers([path])["native"], "true")
+
+    def test_native_script_inputs_run_the_app_compiles(self):
+        """Every file the app build or its packaging reads runs the app compiles, whatever its name: the
+        Xcode project's resources and build phase inputs, the scripts its phases run, and the GhosttyKit,
+        reload, strip and signing scripts, with what each of those reads or sources. A `.txt`, `.md` or
+        scripts/ci/ file among them used to route to a Linux tier by its name alone
+        (scripts/ghosttykit-checksums.txt, which ensure-ghosttykit.sh checks the download against)."""
+        import cmux_next_route as route_module
+        reads = native_script_reads()
+        self.assertIn("scripts/ghosttykit-checksums.txt", reads)
+        self.assertIn("THIRD_PARTY_LICENSES.md", reads)
+        bundle = route_module.WEBVIEW + route_module.BUNDLE_INPUTS + route_module.CHECKED_WEB_BUNDLES
+        in_bundle = lambda path: any(fnmatch.fnmatch(path, p) for p in bundle)  # noqa: E731
+        misrouted = sorted(
+            f"{path} (read by {', '.join(sorted(readers))})" for path, readers in reads.items()
+            # ci-web's bundle --check stands in for the app compile for the web bundles' own inputs.
+            if not in_bundle(path) and not all(in_bundle(reader) for reader in readers)
+            and (route_module.web_fast(path) or route_module.ci_only(path))
+        )
+        self.assertEqual(misrouted, [], "add these to NATIVE_SCRIPT_INPUTS in scripts/ci/cmux_next_route.py")
+        import yaml
+        import workflow_paths_cover_inputs as path_filters
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8"))
+        kind, patterns = path_filters.filtered_events(workflow)["pull_request"]
+        for path in route_module.NATIVE_SCRIPT_INPUTS:
+            with self.subTest(path=path):
+                self.assertIn(path, reads, "a NATIVE_SCRIPT_INPUTS entry no build script reads any more")
+                # The router only routes what starts the workflow.
+                self.assertTrue(path_filters.admits(kind, patterns, path), "add it to cmux-next.yml's paths")
+                result = tiers([path])
+                self.assertEqual(result["native"], "true")
+                self.assertEqual(result["scheme"], "true")
 
     def test_ci_files_a_mac_job_consumes_keep_their_tier(self):
         self.assertEqual(tiers(["scripts/ci/xcode-pins.txt"])["full"], "true")
@@ -849,6 +980,11 @@ class BundleInputs(unittest.TestCase):
         self.assertTrue(self.route.matches("webviews/src/pages/a/b/main.tsx", "webviews/src/pages/*/main.tsx"),
                         "fnmatch's * crosses /: a pattern read is never narrower than the test")
         self.assertFalse(self.route.matches("webviews/src/pages/a/App.tsx", "webviews/src/pages/*/main.tsx"))
+        self.assertTrue(self.route.matches("Sources/CmuxConversationMacUI/MacComposerView.swift",
+                                           "Sources/CmuxConversationMacUI/**/*.swift"),
+                        "/**/ is zero or more folders, as in the generator's pathlib glob")
+        self.assertTrue(self.route.matches("Sources/A/B/C.swift", "Sources/**/*.swift"))
+        self.assertFalse(self.route.matches("Sources/A/Resources/index.html", "Sources/**/*.swift"))
 
     def test_the_dev_server_test_reads_only_the_page_entries(self):
         """PageDevServerTests names its entries by a pattern, which the graph generator records."""
@@ -1561,6 +1697,120 @@ class RouteLabels(unittest.TestCase):
         self.assertEqual(labels, "dev-build")
         self.assertEqual(len(gh_calls), 1)
         self.assertIn("issues/7/labels", gh_calls[0])
+
+
+class FfiRepinRoute(unittest.TestCase):
+    """A pure app FFI re-pin runs the app compile alone; any other diff keeps every tier (2026-11-10: re-pin
+    #40576 sat 2 h 49 min behind the Mac queue every Package.swift change took, and base stayed red on
+    "Check the app FFI pin" from 13:36 to 18:25Z)."""
+
+    MANIFEST = f"{PACKAGE}/Package.swift"
+    PIN = f"{PACKAGE}/app-ffi-pin.json"  # the pin Package.swift's loader block reads (scripts/ci/app_ffi_pin.py)
+    CRATE = "cmux-tui/crates/cmux-app-ffi"
+
+    def setUp(self):
+        import subprocess
+        import tempfile
+        from app_ffi_pin import read, rewrite
+        self.read, self.rewrite = read, rewrite
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name) / "repo"
+        self.git = ["git", "-C", str(self.repo), "-c", "user.name=t", "-c", "user.email=t@example.com",
+                    "-c", "commit.gpgsign=false"]
+        subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
+        (self.repo / PACKAGE).mkdir(parents=True)
+        for path in (self.MANIFEST, self.PIN):
+            (self.repo / path).write_text((ROOT / path).read_text(encoding="utf-8"), encoding="utf-8")
+        (self.repo / self.CRATE / "src").mkdir(parents=True)
+        (self.repo / self.CRATE / "Cargo.toml").write_text('[package]\nname = "cmux-app-ffi"\n')
+        self.old_source = self.commit({f"{self.CRATE}/src/lib.rs": "// v1\n"}, "ffi v1")
+        self.new_source = self.commit({f"{self.CRATE}/src/lib.rs": "// v2\n"}, "ffi v2")
+        self.commit({"README.md": "unrelated\n"}, "base")
+
+    def commit(self, files: dict[str, str], message: str) -> str:
+        import subprocess
+        for path, text in files.items():
+            (self.repo / path).parent.mkdir(parents=True, exist_ok=True)
+            (self.repo / path).write_text(text, encoding="utf-8")
+        subprocess.run([*self.git, "add", "-A"], check=True)
+        subprocess.run([*self.git, "commit", "-qm", message], check=True)
+        return subprocess.run([*self.git, "rev-parse", "HEAD"], check=True, capture_output=True,
+                              text=True).stdout.strip()
+
+    def repin(self, sha: str, extra: dict[str, str] | None = None, edit=lambda text: text) -> list[str]:
+        """Commit a head that pins cmux-app-ffi-SHA (plus EXTRA files and EDIT of Package.swift); its changed files."""
+        import subprocess
+        pin, text = self.rewrite((self.repo / self.PIN).read_text(encoding="utf-8"),
+                                 (self.repo / self.MANIFEST).read_text(encoding="utf-8"), sha, "ab" * 32)
+        self.commit({self.PIN: pin, self.MANIFEST: edit(text), **(extra or {})}, "re-pin")
+        return subprocess.run([*self.git, "diff", "--no-renames", "--name-only", "HEAD^1", "HEAD"], check=True,
+                              capture_output=True, text=True).stdout.split()
+
+    def test_a_pure_repin_routes_to_the_app_compile_alone(self):
+        changed = self.repin(self.new_source)
+        reason = cmux_next_route.pure_ffi_repin(self.repo, changed, "HEAD^1")
+        self.assertIsNotNone(reason)
+        self.assertIn(self.new_source[:12], reason)
+        result = outputs(route(ROOT, "pull_request", changed, set(), repin=reason))
+        self.assertEqual(result["native"], "true")
+        self.assertEqual(result["mac_release"], "true", "the Mac Release compile stays the no-verdict fallback")
+        self.assertEqual(result["macos"], "true")
+        for tier in ("full", "scheme", "generated", "swift", "daemon", "fast_tier"):
+            self.assertEqual(result[tier], "false", tier)
+
+    def test_the_same_files_without_the_repin_reason_run_every_tier(self):
+        self.assertEqual(tiers([self.MANIFEST])["full"], "true")
+        self.assertEqual(tiers([self.PIN])["full"], "true")
+        self.assertEqual(tiers([self.MANIFEST, self.PIN])["full"], "true")
+
+    def test_a_label_asking_for_more_keeps_every_tier(self):
+        changed = self.repin(self.new_source)
+        reason = cmux_next_route.pure_ffi_repin(self.repo, changed, "HEAD^1")
+        for label in ("full-ci", "dev-build"):
+            result = outputs(route(ROOT, "pull_request", changed, {label}, repin=reason))
+            self.assertEqual(result["full"] if label == "full-ci" else result["scheme"], "true", label)
+
+    def test_a_second_changed_file_is_not_a_repin(self):
+        changed = self.repin(self.new_source, extra={"README.md": "changed too\n"})
+        self.assertEqual(sorted(changed), sorted([self.MANIFEST, self.PIN, "README.md"]))
+        self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, changed, "HEAD^1"))
+        self.assertEqual(outputs(route(ROOT, "pull_request", changed, set(), repin=None))["full"], "true")
+
+    def test_another_package_swift_edit_is_not_a_repin(self):
+        changed = self.repin(self.new_source, edit=lambda text: text.replace(
+            "let appFFI: Target", "// a new dependency rides along\nlet appFFI: Target", 1))
+        self.assertEqual(sorted(changed), sorted([self.MANIFEST, self.PIN]))
+        self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, changed, "HEAD^1"))
+
+    def test_a_release_whose_sources_are_not_heads_is_not_a_repin(self):
+        changed = self.repin(self.old_source)
+        self.assertEqual(sorted(changed), sorted([self.MANIFEST, self.PIN]))
+        self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, changed, "HEAD^1"))
+
+    def test_an_unpublished_or_unreadable_pin_is_not_a_repin(self):
+        changed = self.repin("0" * 40)  # no such commit, and no origin to fetch it from
+        self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, changed, "HEAD^1"))
+        self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, changed, None))
+        self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, changed, "no-such-rev"))
+
+    def test_an_unchanged_pin_is_not_a_repin(self):
+        text = (self.repo / self.MANIFEST).read_text(encoding="utf-8")
+        self.commit({self.MANIFEST: text + "// the pin is as it was\n"}, "not a re-pin")
+        self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, [self.MANIFEST], "HEAD^1"))
+        self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, [self.MANIFEST, self.PIN], "HEAD^1"))
+
+    def test_a_pin_file_change_without_its_checksum_line_is_not_a_repin(self):
+        # The loader's checksum line must move with the pin (SwiftPM caches the manifest by its text).
+        import subprocess
+        pin, _ = self.rewrite((self.repo / self.PIN).read_text(encoding="utf-8"),
+                              (self.repo / self.MANIFEST).read_text(encoding="utf-8"), self.new_source, "ab" * 32)
+        text = (self.repo / self.MANIFEST).read_text(encoding="utf-8")
+        self.commit({self.PIN: pin, self.MANIFEST: text + "// another line\n"}, "pin file only")
+        changed = subprocess.run([*self.git, "diff", "--name-only", "HEAD^1", "HEAD"], check=True,
+                                 capture_output=True, text=True).stdout.split()
+        self.assertEqual(sorted(changed), sorted([self.MANIFEST, self.PIN]))
+        self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, changed, "HEAD^1"))
 
 
 if __name__ == "__main__":

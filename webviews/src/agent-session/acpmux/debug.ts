@@ -37,7 +37,8 @@ export type AcpmuxDebug = {
   /// answered an ask, who else is here and typing; multiplayer/sharedFixture.ts) when it is "shared",
   /// or with step `count` (0-5, else 0) of the subagent tray's life (subagentsFixture.ts) when it is
   /// "subagents", or with three steers waiting under a running turn (waitingSteersFixture.ts) when it is
-  /// "waiting-steers".
+  /// "waiting-steers", or with two finished subagents whose report cards a capture opens
+  /// (subagentReportFixture.ts) when it is "subagent-report".
   seedRows(count?: number, fixture?: string, agents?: number): Promise<Record<string, unknown>>;
   startFling(seconds?: number, options?: FlingOptions): Promise<Record<string, unknown>>;
   flingStats(): Record<string, unknown>;
@@ -164,6 +165,7 @@ export function createAcpmuxDebug(
         workedTurnRows,
         incomingRows,
         linkRows,
+        LINKED_GITHUB_PULL_REQUEST,
         organizationRows,
         toolSummaryRows,
         SUBAGENT_TRAY_STEPS,
@@ -172,6 +174,9 @@ export function createAcpmuxDebug(
         sharedRows,
         WAITING_STEERS_SNAPSHOT,
         waitingSteersRows,
+        subagentReportRows,
+        subagentReportLog,
+        CAPPED_ID,
       } = await import("./debugFixtures");
       const trayStep = (count: number) =>
         Number.isInteger(count) && count > 0 && count < SUBAGENT_TRAY_STEPS ? count : 0;
@@ -187,8 +192,8 @@ export function createAcpmuxDebug(
             ? workedTurnRows(Date.now() - 60_000)
             : fixture === "incoming"
               ? incomingRows(Date.now() - 120_000)
-              : fixture === "link"
-                ? linkRows(Date.now() - 30_000)
+              : fixture === "link" || fixture === "github-link"
+                ? linkRows(Date.now() - 30_000, fixture === "link" ? undefined : LINKED_GITHUB_PULL_REQUEST)
                 : fixture === "organization"
                   ? organizationRows(Date.now() - 120_000)
                   : fixture === "tool-summary"
@@ -197,10 +202,19 @@ export function createAcpmuxDebug(
                       ? sharedRows(Date.now() - 1_020_000)
                       : fixture === "waiting-steers"
                         ? waitingSteersRows(Date.now() - 90_000)
-                        : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
+                        : fixture === "subagent-report"
+                          ? subagentReportRows(Date.now() - 5_000_000)
+                          : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
       host.replaceRows(rows, fixture === "waiting-steers" ? WAITING_STEERS_SNAPSHOT : undefined);
+      if (fixture === "subagent-report") {
+        // The capped card's Show more reads its subagent's own records: on the showcase's mock
+        // daemon only (`live` is unset on a real one), seeded into the chat the rows replaced.
+        const { MockAcpmuxSocket } = await import("./mock");
+        const sessionId = host.sessionId?.();
+        if (sessionId) MockAcpmuxSocket.live?.seedSubagentLog(sessionId, CAPPED_ID, subagentReportLog());
+      }
       if (fixture === "shared") {
         // The presence to restore on leaving: kept across uninterrupted repeat seeds of this chat,
         // taken again once live presence or a switch displaced the fixture. The fixture's own
@@ -354,6 +368,8 @@ export function createAcpmuxDebug(
     },
 
     toast(text) {
+      // No text is no toast: a capture that sent none drew an empty toast and read it back as `shown`.
+      if (typeof text !== "string" || !text.trim()) return { shown: false, text: "", error: "toast needs text" };
       host.toast?.(text);
       return { shown: host.toast != null, text };
     },

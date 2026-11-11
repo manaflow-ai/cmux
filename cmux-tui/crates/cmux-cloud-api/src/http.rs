@@ -246,7 +246,7 @@ impl Http {
         Ok(Reply { status, header_code, body })
     }
 
-    /// A classic call (`/api/vm`, `/api/runs`): a 2xx body as JSON (`null` when it has none),
+    /// A classic call (`/api/runs`): a 2xx body as JSON (`null` when it has none),
     /// a refusal read by [`vm_error`].
     pub(crate) async fn classic(
         &self,

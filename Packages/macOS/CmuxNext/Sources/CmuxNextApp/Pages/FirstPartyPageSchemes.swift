@@ -1,9 +1,11 @@
 import CmuxNextAgentPane
+import CmuxNextBookmarks
 import CmuxNextBrowser
 import CmuxNextCloudUI
 import CmuxNextPages
 import CmuxNextServer
 import CmuxNextSidebar
+import CmuxNextTaskManagerPage
 import Foundation
 
 /// The cmux-page:// pages the app ships, which Chromium serves. A reserved host
@@ -58,6 +60,7 @@ enum FirstPartyPageSchemes {
         .agentActivity,
         .apps,
         .artifacts,
+        .bookmarks,
         .changelog,
         .chiefInspector,
         .chiefUsage,
@@ -67,6 +70,7 @@ enum FirstPartyPageSchemes {
         .debugSettings,
         .diff,
         .editor,
+        .feed,
         .files,
         .github,
         .groupEditor,
@@ -82,8 +86,11 @@ enum FirstPartyPageSchemes {
         .mobilePairing,
         .onboarding,
         .passwords,
+        .serverCards,
         .settings,
+        .setupCard,
         .stats,
+        .taskManager,
         .tasks,
     ]
 

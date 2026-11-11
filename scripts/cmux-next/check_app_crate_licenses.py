@@ -60,11 +60,13 @@ FIRST_PARTY_GPL = {
     "cmux-cookie-sync",
     "cmux-daemon-conn-core",
     "cmux-daemon-launch-core",
+    "cmux-health-core",
     "cmux-local-auth",
     "cmux-palette-ranker",
     "cmux-remote-browser",
     "cmux-sdk",
     "cmux-sdk-ffi",
+    "cmux-terminal-prediction",
     "cmux-window-rules",
 }
 

@@ -84,6 +84,8 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "argv",
     "author",
     "beforePromptId",
+    "callerKind",
+    "callerProtocol",
     "callerSession",
     "cancelToken",
     "class",
@@ -138,6 +140,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "route",
     "senderHarness",
     "senderHarnessChecked",
+    "senderToken",
     "spawnToolCallId",
     "startLater",
     "steer",
@@ -180,8 +183,12 @@ keyed! {
     BookmarkGetParams: ["sessionId"];
     /// `_acpmux/bookmark_set`.
     BookmarkSetParams: ["sessionId", "seq", "bookmarked"];
+    /// `_acpmux/memory_resolve`.
+    MemoryResolveParams: ["sessionId", "offerId", "file", "accept", "dismiss"];
+    /// `_acpmux/prompt_coach`.
+    PromptCoachParams: ["sessionId", "coachId"];
     /// `_acpmux/btw`.
-    BtwParams: ["sessionId", "question", "model", "inline"];
+    BtwParams: ["sessionId", "question", "model", "inline", "targetHarness"];
     /// `_acpmux/chat/route.set`.
     ChatRouteSetParams: ["sessionId", "routeId", "when"];
     /// `_acpmux/draft_get`.
@@ -215,7 +222,7 @@ keyed! {
     /// `_acpmux/mcp/reconnect`.
     McpReconnectParams: ["sessionId", "server"];
     /// `_acpmux/models`.
-    ModelsParams: ["refresh", "probe"];
+    ModelsParams: ["refresh", "probe", "localOnly"];
     /// `_acpmux/native_history`.
     NativeHistoryParams: ["sessionId", "before", "mark"];
     /// `_acpmux/offer_respond`.

@@ -14,11 +14,13 @@ import {
   environmentForDigit,
   environmentReady,
   environmentSections,
+  environmentUnavailable,
   numberedEnvironments,
   orderEnvironments,
   savedEnvironmentIsFolder,
   savedEnvironmentLabel,
 } from "./environments";
+import { TeamTag, type ActiveTeamTag } from "./TeamTag";
 import { isCloudMachineRow } from "./cloudMachines";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { machineColor } from "./machineColor";
@@ -28,6 +30,8 @@ import {
   SECTION_LABELS,
   environmentStateLabel,
   ENVIRONMENT_SEARCH_MIN,
+  groupUnavailableRows,
+  type UnavailableGroup,
   useMachineRefresh,
 } from "./environmentPickerModel";
 
@@ -45,7 +49,7 @@ export type EnvironmentFaceStyle = "label" | "icon" | "chip";
 
 /// Which rows the list holds (ComposerContext `stripLayout`). `combined`: This Mac and Cloud, a
 /// machine only once it is the pick, every machine behind Machines… (one control for both).
-/// `where`: where the chat runs, three one-line rows, This Mac, Cloud and Another machine, whose
+/// `where`: where the chat runs, three one-line rows, This Mac, Cloud and Remote, whose
 /// pick is the machine control's (`onAnother`). `machines`: which machine, the person's machines
 /// with no Cloud row, ready ones first, SSH and Cloud peers alike (their icon is the only mark of
 /// how each connects), then Add Machine…; This Mac heads it with `includeLocal`. `run`: ChatGPT's
@@ -96,10 +100,14 @@ export function EnvironmentPicker({
   onPick,
   onConnect,
   cloudSignedIn,
+  cloudTeam,
   saved,
   onOpen,
   offload,
   onOffload,
+  offloadReason,
+  moveTargets,
+  onMoveTo,
   runMode,
   closeOnTrustAsk = false,
   faceStyle = "label",
@@ -111,6 +119,8 @@ export function EnvironmentPicker({
   openRequest,
   ownOnly = false,
   runDetails,
+  unavailableGroup = "collapsed",
+  unavailableExpanded = false,
 }: {
   label: string;
   /// The name automation opens it by (`openPicker`).
@@ -127,6 +137,10 @@ export function EnvironmentPicker({
   /// Sign in for Cloud; before any answer the row is Cloud. The right-click menu keeps Sign in for
   /// Cloud until the app says signed in.
   cloudSignedIn?: boolean;
+  /// The team Cloud runs in (the app's active team): its row names it, so a pick never makes a
+  /// machine in a team the person did not see (Leo, 2026-11-09: "i guess is team? it's kinda hard
+  /// to realize tho").
+  cloudTeam?: ActiveTeamTag;
   saved?: SavedEnvironmentRows;
   /// The list opened, and every few seconds while it stays open: the host reads the machines
   /// again, so each one's status is current.
@@ -134,6 +148,15 @@ export function EnvironmentPicker({
   /// A started chat's move, run by `onOffload`.
   offload?: OffloadKind;
   onOffload?(kind: OffloadKind): void;
+  /// Why the move would refuse now (a chat with no first message yet): its row is greyed, says why
+  /// under its name, and a pick runs nothing.
+  offloadReason?: string;
+  /// A started chat's Move to… (Leo, 2026-11-10: "the whole \"move to cloud\" deserves a proper
+  /// \"move to other cloud\" ... and \"move to local\""): every place it can go, this Mac and each
+  /// Cloud machine but its own. With two or more, or one that `offload` does not cover, the move row
+  /// is Move to…, which opens them as a list of their own; a pick runs `onMoveTo` with its id.
+  moveTargets?: readonly MoveTarget[];
+  onMoveTo?(id: string): void;
   /// A new chat's Run as (hq#3367): Persistent (a chat, as before) or Sandboxed (the
   /// first message runs once on a throwaway Cloud VM).
   runMode?: RunModeRows;
@@ -152,14 +175,18 @@ export function EnvironmentPicker({
   digits?: boolean;
   /// Whether the right-click setup menu is this control's (one control per strip has it).
   setupMenu?: boolean;
-  /// `where`: Another machine was picked; the strip shows and opens its machine control.
+  /// `where`: Remote was picked; the strip shows and opens its machine control.
   onAnother?(): void;
-  /// Each new value opens the list (the strip opens the machine control after Another machine).
+  /// Each new value opens the list (the strip opens the machine control after Remote).
   openRequest?: number;
   /// `machines`: only the person's own machines (SSH), not Cloud machines (Cloud is one pick; its machines are behind Machines…).
   ownOnly?: boolean;
   /// `run`: a second line under This Mac and Cloud (gallery only).
   runDetails?: RunRowDetails;
+  /// How a machine list shows the machines acpmux cannot reach (`collapsed` ships; gallery seam).
+  unavailableGroup?: UnavailableGroup;
+  /// Gallery seam: the Unavailable group starts open.
+  unavailableExpanded?: boolean;
 }) {
   // A picked saved environment is the current row: every machine row is then a change. One that is
   // only a folder on this computer leaves This Mac the current row.
@@ -172,11 +199,26 @@ export function EnvironmentPicker({
       ? SAVED + saved.current
       : current;
   const [query, setQuery] = useState("");
+  // Whether the machine list's Unavailable group is open; it closes with the list.
+  const [showUnavailable, setShowUnavailable] = useState(unavailableExpanded);
+  // When the list last opened: which machines are unavailable is read then, so no row moves into or
+  // out of the group while the list stays open.
+  const [openedAt, setOpenedAt] = useState(() => Date.now());
+  const [listOpen, setListOpen] = useState(false);
   // Which list is open: This Mac and Cloud, or every machine (Machines… on the right-click menu).
-  const [list, setList] = useState<"main" | "machines">("main");
+  const [list, setList] = useState<"main" | "machines" | "moves">("main");
   const trigger = useRef<HTMLButtonElement>(null);
   const escaped = useRef(false);
   const { control, anchor, open, setOpen: setPopoverOpen, side, flip } = useLocationPopover();
+  // The time is read in the render that opens the list, and its rows group by it in that same render,
+  // so a machine that crossed UNAVAILABLE_AFTER_MS while the list was closed is never drawn and then
+  // shrunk away (rowPresence.ts animates a row that leaves an open list).
+  const openingAt = open && !listOpen ? Date.now() : undefined;
+  if (open !== listOpen) {
+    setListOpen(open);
+    if (openingAt !== undefined) setOpenedAt(openingAt);
+  }
+  const groupedAt = openingAt ?? openedAt;
   const setOpen = (next: boolean) => {
     if (next && closeOnTrustAsk) return;
     setPopoverOpen(next);
@@ -189,6 +231,7 @@ export function EnvironmentPicker({
     setQuery("");
     setList("main");
     setHighlightAuto(true);
+    setShowUnavailable(unavailableExpanded);
   };
   const press = usePopoverTrigger(open, (next) => {
     setOpen(next);
@@ -299,16 +342,45 @@ export function EnvironmentPicker({
   // menu, Settings > Devices and the Cloud page. A started chat's list is where it runs and its one
   // move.
   const editing = saved?.current;
-  type Action = { value: string; text: string; kind: "local" | "cloud"; run(): void; signsIn?: true };
-  const move: Action | undefined =
-    offload && onOffload
+  type Action = {
+    value: string;
+    text: string;
+    kind: "local" | "cloud";
+    run(): void;
+    signsIn?: true;
+    /// Why the row runs nothing now: greyed, with this under its name.
+    reason?: string;
+  };
+  // Move to…: the targets as rows of their own list. One target the single move row already covers
+  // (Bring Back Local's This Mac, Move to Cloud's only machine) stays that row.
+  const targets = onMoveTo ? (moveTargets ?? []) : [];
+  const covered =
+    targets.length === 1 &&
+    offload !== undefined &&
+    (offload === "bringBack" ? targets[0]?.kind === "local" : targets[0]?.kind === "cloud");
+  const opensMoves = targets.length > 0 && !covered;
+  const targetActions: Action[] = opensMoves
+    ? targets.map((target) => ({
+        value: MOVE_TO + target.id,
+        text: target.kind === "local" ? t("composer.thisMac") : target.label,
+        kind: target.kind,
+        run: () => onMoveTo?.(target.id),
+        ...(target.reason ? { reason: target.reason } : {}),
+      }))
+    : [];
+  const move: Action | undefined = opensMoves
+    ? { value: MOVE_MENU, text: t("composer.moveToMenu"), kind: "cloud", run: () => undefined }
+    : offload && onOffload
       ? {
           value: ACTION + offload,
           text: t(offload === "move" ? "composer.moveToCloud" : "composer.bringBackLocal"),
           kind: offload === "move" ? "cloud" : "local",
           run: () => onOffload(offload),
+          ...(offloadReason ? { reason: offloadReason } : {}),
         }
       : undefined;
+  // Move to…'s list: each target, then nothing else (Escape closes it, as Machines…).
+  const moveRows = targetActions.map((action) => action.value);
   // Cloud: where a chat runs off this Mac. A new chat with `runMode` picks it as where the chat runs
   // (cloudRun.ts: the app picks and sizes a machine, CLOUD_RUN); elsewhere a pick opens the host's
   // New Cloud Machine flow, which stays in the right-click menu either way.
@@ -336,7 +408,7 @@ export function EnvironmentPicker({
           }
       : undefined;
   const cloudRow = runMode !== undefined ? CLOUD_RUN : cloud?.value;
-  // Where: Another machine, whose pick is the machine control's. Which machine: Add Machine… last.
+  // Where: Remote, whose pick is the machine control's. Which machine: Add Machine… last.
   const another: Action | undefined =
     listRows === "where" && onAnother
       ? { value: ANOTHER, text: t("composer.anotherMachine"), kind: "local", run: onAnother }
@@ -352,6 +424,7 @@ export function EnvironmentPicker({
       : undefined;
   const actions: Action[] = [
     ...(move ? [move] : []),
+    ...targetActions,
     ...(cloud ? [cloud] : []),
     ...(another ? [another] : []),
     ...(addMachine ? [addMachine] : []),
@@ -404,15 +477,37 @@ export function EnvironmentPicker({
     ...(move ? [move.value] : []),
     ...(cloudRow ? [cloudRow] : []),
   ];
+  // The machines acpmux cannot reach for long, behind the lists' Unavailable row (Leo, 2026-11-09:
+  // "drop retired and unreachable machines from the list, or group them at the bottom").
+  const unavailableRow = (value: string) => {
+    const environment = positions.get(value)?.environment;
+    return (
+      environment !== undefined && !isCloudMachineRow(environment) && environmentUnavailable(environment, groupedAt)
+    );
+  };
+  const grouped = (rows: readonly string[], tail: readonly string[]) =>
+    groupUnavailableRows({
+      rows,
+      actions: tail,
+      unavailable: unavailableRow,
+      ...(checkedRow !== undefined ? { kept: checkedRow } : {}),
+      searching: words.length > 0,
+      group: unavailableGroup,
+      toggle: UNAVAILABLE,
+      expanded: showUnavailable,
+    });
   // Machines…: every machine, This Mac first, and New Tab's saved environments, as the search keeps them.
-  const machines = [
-    ...shown.filter(isLocal).map((environment) => environment.id),
-    ...savedShown.map((environment) => SAVED + environment.id),
-    ...shown.filter((environment) => !isLocal(environment)).map((environment) => environment.id),
-  ];
-  // Where: This Mac, Cloud, Another machine (checked while the pick is any other machine or a saved
+  const machinesGrouped = grouped(
+    [
+      ...shown.filter(isLocal).map((environment) => environment.id),
+      ...savedShown.map((environment) => SAVED + environment.id),
+      ...shown.filter((environment) => !isLocal(environment)).map((environment) => environment.id),
+    ],
+    [],
+  );
+  // Where: This Mac, Cloud, Remote (checked while the pick is any other machine or a saved
   // environment). The cloud toggle: This Mac and Cloud.
-  // A Cloud machine picked is Cloud's; any other machine (or a saved environment) is Another machine's.
+  // A Cloud machine picked is Cloud's; any other machine (or a saved environment) is Remote's.
   const checkedKind = ordered.find((environment) => environment.id === checkedRow)?.kind;
   const cloudChecked = clouded || (listRows === "where" && checkedKind === "cloud");
   // A saved environment on this Mac is This Mac's row in the Where list.
@@ -432,23 +527,30 @@ export function EnvironmentPicker({
     ...items.filter(environmentReady),
     ...items.filter((environment) => !environmentReady(environment)),
   ];
-  const machineChoices = [
-    ...(includeLocal ? shown.filter(isLocal).map((environment) => environment.id) : []),
-    ...readyFirst(
-      shown.filter((environment) => !isLocal(environment) && !(ownOnly && environment.kind === "cloud")),
-    ).map((environment) => environment.id),
-    ...(addMachine && words.length === 0 ? [addMachine.value] : []),
-  ];
+  const choicesGrouped = grouped(
+    [
+      ...(includeLocal ? shown.filter(isLocal).map((environment) => environment.id) : []),
+      ...readyFirst(
+        shown.filter((environment) => !isLocal(environment) && !(ownOnly && environment.kind === "cloud")),
+      ).map((environment) => environment.id),
+    ],
+    addMachine && words.length === 0 ? [addMachine.value] : [],
+  );
+  const machineChoices = choicesGrouped.rows;
+  const machines = machinesGrouped.rows;
+  const unavailableCount = listRows === "machines" && list === "main" ? choicesGrouped.count : machinesGrouped.count;
   const suggestions =
-    listRows === "machines" && list === "main"
-      ? machineChoices
-      : machineList
-        ? machines
-        : listRows === "where" || listRows === "run"
-          ? listRows === "run"
-            ? [...ordered.filter(isLocal).map((environment) => environment.id), ...(cloudRow ? [cloudRow] : [])]
-            : where
-          : main;
+    list === "moves"
+      ? moveRows
+      : listRows === "machines" && list === "main"
+        ? machineChoices
+        : machineList
+          ? machines
+          : listRows === "where" || listRows === "run"
+            ? listRows === "run"
+              ? [...ordered.filter(isLocal).map((environment) => environment.id), ...(cloudRow ? [cloudRow] : [])]
+              : where
+            : main;
   // The rows as they settle while the list is open (rowPresence.ts): it opens with its final rows,
   // and a row the data adds or drops while it stays open grows or shrinks in place. Another list
   // (Machines…) or a search replaces the rows at once.
@@ -466,6 +568,7 @@ export function EnvironmentPicker({
   const latest = useRef({ ordered, current: checkedRow, onPick, persistent });
   latest.current = { ordered, current: checkedRow, onPick, persistent };
   useMachineRefresh(open, onOpen);
+
   const close = () => {
     setOpen(false);
     reset();
@@ -514,11 +617,24 @@ export function EnvironmentPicker({
     // A row on its way out (rowPresence.ts) keeps its place in the list but is no pick. It is not
     // a disabled suggestion: Combobox moves those to the end, so the row would jump while it goes.
     if (presence.motion(value) === "leave") return;
+    // The Unavailable row opens or closes its group in place; the list stays open.
+    if (value === UNAVAILABLE) {
+      setShowUnavailable((shown) => !shown);
+      return;
+    }
     const action = actions.find((candidate) => candidate.value === value);
     // A machine still connecting or down is listed, greyed, in its place, but is no pick: the list
     // stays open.
     const machine = positions.get(value)?.environment;
     if (machine && !environmentReady(machine) && !isCloudMachineRow(machine)) return;
+    // A move that would refuse is no pick either: its row already says why.
+    if (action?.reason) return;
+    // Move to… opens its targets in place, as Machines… does; the list stays open.
+    if (value === MOVE_MENU) {
+      setQuery("");
+      setList("moves");
+      return;
+    }
     close();
     if (value === CLOUD_RUN) {
       // The picked mode changes no folder or machine, so no caller moves focus: the prompt takes it.
@@ -531,7 +647,7 @@ export function EnvironmentPicker({
       focusPrompt();
       return;
     }
-    // A machine, Another machine, or Cloud's New Cloud Machine flow: Persistent again.
+    // A machine, Remote, or Cloud's New Cloud Machine flow: Persistent again.
     if (!action || (value === ACTION + "cloud" && !action.signsIn) || value === ANOTHER) persistent();
     if (action) action.run();
     // The chat's own machine, paused (cloudMachines.ts withCloudSleep), is still a pick: it resumes.
@@ -582,9 +698,26 @@ export function EnvironmentPicker({
             <span className="acpmux-menu-label">{t("composer.cloud")}</span>
             {listRows === "run" && runDetails && <span className="acpmux-menu-description">{runDetails.cloud}</span>}
           </span>
+          {cloudTeam && <TeamTag team={cloudTeam} />}
           <span className="acpmux-location-check" aria-hidden="true">
             {checked && <CheckIcon />}
           </span>
+        </span>
+      );
+    }
+    if (value === UNAVAILABLE) {
+      return (
+        <span
+          className="acpmux-location-row acpmux-env-row acpmux-env-new acpmux-env-unavailable"
+          data-action="unavailable"
+          data-expanded={showUnavailable ? "" : undefined}
+          aria-expanded={showUnavailable}
+        >
+          <UnavailableChevron />
+          <span className="acpmux-menu-text acpmux-location-name">
+            <span className="acpmux-menu-label">{t("composer.envUnavailableGroup", { n: unavailableCount })}</span>
+          </span>
+          <span className="acpmux-location-check" aria-hidden="true" />
         </span>
       );
     }
@@ -596,11 +729,28 @@ export function EnvironmentPicker({
         <span
           className="acpmux-location-row acpmux-env-row acpmux-env-new"
           data-kind={action.kind}
-          data-action={action === another ? "another" : action === addMachine ? "addMachine" : undefined}
+          data-action={
+            action === another
+              ? "another"
+              : action === addMachine
+                ? "addMachine"
+                : value === MOVE_MENU
+                  ? "moveTo"
+                  : value.startsWith(MOVE_TO)
+                    ? "moveTarget"
+                    : undefined
+          }
           data-current={checked ? "" : undefined}
+          data-ready={action.reason ? "false" : undefined}
+          aria-disabled={action.reason ? true : undefined}
+          title={action.reason}
         >
           {action === another ? (
             <AnotherMachineIcon />
+          ) : value === MOVE_MENU ? (
+            <MoveIcon />
+          ) : value.startsWith(MOVE_TO) ? (
+            <EnvironmentIcon kind={action.kind} {...(action.kind === "cloud" ? { name: action.text } : {})} />
           ) : action === addMachine ? (
             <PlusIcon />
           ) : (
@@ -608,10 +758,18 @@ export function EnvironmentPicker({
           )}
           <span className="acpmux-menu-text acpmux-location-name">
             <span className="acpmux-menu-label">{action.text}</span>
+            {action.reason && <span className="acpmux-menu-description">{action.reason}</span>}
           </span>
-          <span className="acpmux-location-check" aria-hidden="true">
-            {checked && <CheckIcon />}
-          </span>
+          {action === cloud && !action.signsIn && cloudTeam && <TeamTag team={cloudTeam} />}
+          {value === MOVE_MENU ? (
+            <span className="acpmux-location-check acpmux-env-more-chevron" aria-hidden="true">
+              <ChevronIcon />
+            </span>
+          ) : (
+            <span className="acpmux-location-check" aria-hidden="true">
+              {checked && <CheckIcon />}
+            </span>
+          )}
         </span>
       );
     }
@@ -728,6 +886,7 @@ export function EnvironmentPicker({
           (searchable ? "" : " acpmux-env-searchless") +
           (machineList ? " acpmux-env-machines" : "") +
           ` acpmux-env-rows-${listRows}` +
+          (list === "moves" ? " acpmux-env-moves" : "") +
           (highlightAuto && query.trim() === "" ? " acpmux-env-highlight-auto" : "")
         }
         side={side}
@@ -735,6 +894,7 @@ export function EnvironmentPicker({
         finalFocus={false}
       >
         {listRows === "run" && <div className="acpmux-env-heading">{t("composer.whereRun")}</div>}
+        {list === "moves" && <div className="acpmux-env-heading">{t("composer.moveToMenu")}</div>}
         <Combobox
           suggestions={presence.rows}
           // A short list has no search: the field only carries the arrows, Return and Escape.
@@ -775,8 +935,44 @@ export function EnvironmentPicker({
 
 /// An action row's value: never a machine's id.
 const ACTION = "\u0000action:";
-/// Where's Another machine row.
+/// Where's Remote row.
 const ANOTHER = ACTION + "another";
+/// A started chat's Move to… row, which opens its targets.
+const MOVE_MENU = ACTION + "moveTo";
+/// One Move to… target's row: its id after this.
+const MOVE_TO = ACTION + "moveTo:";
+
+/// One place a started chat can move (Move to…): `local` is this Mac, whose row says This Mac.
+export interface MoveTarget {
+  readonly id: string;
+  readonly label: string;
+  readonly kind: "local" | "cloud";
+  /// Why a move there would refuse now: the row is greyed with it.
+  readonly reason?: string;
+}
+
+/// A machine list's Unavailable row, which opens the machines acpmux cannot reach.
+const UNAVAILABLE = ACTION + "unavailable";
+
+/// The Unavailable row's mark: a chevron that turns down while its group is open (CSS).
+function UnavailableChevron() {
+  return (
+    <svg
+      className="acpmux-icon acpmux-location-icon acpmux-env-icon acpmux-env-unavailable-chevron ui-ghost-icon"
+      width={14}
+      height={14}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M6 4l4 4-4 4" />
+    </svg>
+  );
+}
 /// A saved environment's row value: its id after this, never a machine's id.
 const SAVED = "\u0000saved:";
 
@@ -823,7 +1019,7 @@ export function EnvironmentIcon({ kind, name }: { kind: EnvironmentKind; name?: 
   );
 }
 
-/// Another machine (Codex desktop's Remote): a globe, any kind of machine alike.
+/// Remote (one of the person's own machines): a globe, any kind of machine alike.
 export function AnotherMachineIcon() {
   return (
     <svg
@@ -885,6 +1081,49 @@ function PlusIcon() {
       focusable="false"
     >
       <path d="M8 3.5v9M3.5 8h9" />
+    </svg>
+  );
+}
+
+/// Move to…: an arrow leaving a box.
+function MoveIcon() {
+  return (
+    <svg
+      className="acpmux-icon acpmux-location-icon acpmux-env-icon ui-ghost-icon"
+      data-kind="move"
+      width={14}
+      height={14}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.25}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M9.5 3H4a1.5 1.5 0 0 0-1.5 1.5v7A1.5 1.5 0 0 0 4 13h5.5M7 8h6.5M11 5.5 13.5 8 11 10.5" />
+    </svg>
+  );
+}
+
+/// A row that opens a list of its own: a chevron where a check goes.
+function ChevronIcon() {
+  return (
+    <svg
+      className="acpmux-icon"
+      width={12}
+      height={12}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="m6 3.5 4.5 4.5L6 12.5" />
     </svg>
   );
 }

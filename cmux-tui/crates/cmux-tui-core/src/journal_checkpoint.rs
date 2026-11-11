@@ -59,8 +59,9 @@ fn capture_attempt(mux: &Mux) -> anyhow::Result<Option<CapturedCheckpoint>> {
     // Per-terminal epochs below reject a parser snapshot taken while its
     // corresponding journal frame is still being enqueued.
     mux.flush_terminal_journal()?;
-    // The snapshot and the journal head form one consistency cut, read under
-    // a single registry + state lock hold. A journal record committed before
+    // The snapshot's durable rows and the journal head form one consistency
+    // cut: one committed revision, read in one read transaction with no
+    // registry lock and no state lock. A journal record committed before
     // the cut is covered by the snapshot; the fence below only has to reject
     // writes that land after it, while terminal content is being captured.
     let (snapshot, head_before) =
@@ -715,6 +716,15 @@ impl RestoreReducer {
             }
             "delete" => {
                 values.remove(id);
+                // A closed terminal has no agent: the registry deletes the agent record in the
+                // tombstone's transaction, and the terminal's `delete` is the only change.
+                if resource == "terminal"
+                    && let Some(agents) = self.resources.get_mut("agents")
+                {
+                    agents.retain(|_, agent| {
+                        agent.get("terminal_id").and_then(Value::as_str) != Some(id)
+                    });
+                }
             }
             _ => anyhow::bail!("validated replay change kind is unsupported"),
         }
@@ -950,6 +960,69 @@ mod tests {
         assert_eq!(preview["fully_reducible"], true);
         assert_eq!(preview["state"]["session_snapshot"]["workspaces"][0]["id"], "workspace_new");
         assert_eq!(preview["state"]["session_snapshot"]["cursor"]["revision"], "2");
+    }
+
+    /// A closed terminal has no agent (`spec/resource-api-v2.md`, "Agent"): the registry deletes
+    /// the agent record in the transaction that tombstones the terminal, and the journal has
+    /// the terminal's `delete` change only. The preview must not keep the agent, or it shows an
+    /// agent that the live snapshot does not have.
+    #[test]
+    fn reducer_ends_the_agent_of_a_deleted_terminal() {
+        let checkpoint = JournalCheckpoint {
+            checkpoint_id: "checkpoint_test".into(),
+            source_sequence: 3,
+            reducer_version: JOURNAL_REDUCER_VERSION,
+            state: json!({
+                "session_snapshot":{
+                    "cursor":{"generation":"generation","revision":"1"},
+                    "terminals":[{"id":"term_closed"},{"id":"term_open"}],
+                    "agents":[
+                        {"id":"agent_closed","terminal_id":"term_closed","state":"working"},
+                        {"id":"agent_open","terminal_id":"term_open","state":"working"},
+                    ],
+                },
+                "journal_extensions":{"producers":[],"hooks":[]},
+            }),
+            content_refs: vec![],
+            sha256: "00".repeat(32),
+            created_at_ms: 1,
+        };
+        let record = SessionJournalRecord {
+            sequence: 4,
+            event_id: "event_4".into(),
+            schema_version: 1,
+            kind: "terminal.close".into(),
+            class: JournalClass::State,
+            replay: JournalReplayPolicy::Required,
+            occurred_at_ms: 1,
+            committed_at_ms: 1,
+            producer: JournalProducer { kind: "test".into(), id: "test".into() },
+            authority: None,
+            causation_id: None,
+            correlation_id: None,
+            causation_depth: 0,
+            subjects: vec![JournalSubject { kind: "session".into(), id: "session".into() }],
+            sensitivity: JournalSensitivity::Sensitive,
+            payload: json!({"changes":[
+                {"kind":"delete","sequence":0,"resource":"terminal","id":"term_closed"},
+            ]}),
+            resource_revision: Some(2),
+            previous_resource_revision: Some(1),
+            terminal_output: None,
+        };
+        let preview = restore_preview(&checkpoint, &[record], 4).unwrap();
+        assert_eq!(preview["fully_reducible"], true);
+        let snapshot = &preview["state"]["session_snapshot"];
+        let ids = |collection: &str| {
+            snapshot[collection]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|value| value["id"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ids("terminals"), ["term_open"], "setup: the terminal is deleted");
+        assert_eq!(ids("agents"), ["agent_open"], "the agents after the terminal's delete");
     }
 
     #[test]
@@ -1415,6 +1488,76 @@ mod tests {
         )
         .unwrap();
 
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Two sealers in one owner, the maintenance worker and a seal a client
+    /// or the registry generator asks for, take turns: a seal waits for the
+    /// one in progress and then plans the next segment from the boundary it
+    /// left. They used to interleave: each commit found the boundary the other
+    /// had moved, and a caller that lost four times in a row failed with
+    /// "journal segment boundary changed repeatedly during sealing" (the
+    /// 10 GB registry generator, 2026-11-09).
+    #[test]
+    fn a_seal_waits_for_the_seal_in_progress_instead_of_racing_it() {
+        use crate::workspace_registry::session_journal::kind_read_tests::TestJournalRecord;
+        // Two segments' worth (a segment holds at most 1,024 records).
+        const RECORDS: usize = 2_048;
+        let root = std::env::temp_dir()
+            .join(format!("cmux-journal-seal-turns-{}", crate::workspace_registry::new_uuid_v4()));
+        let mux =
+            Mux::open_persistent("journal-seal-turns", crate::SurfaceOptions::default(), &root)
+                .unwrap();
+        mux.stop_journal_maintenance();
+        let records = (0..RECORDS)
+            .map(|index| TestJournalRecord {
+                kind: "personal.session.put".into(),
+                producer: JournalProducer { kind: "presentation".into(), id: "cmux-tui".into() },
+                subjects: vec![],
+                payload: json!({"index": index}),
+            })
+            .collect::<Vec<_>>();
+        mux.workspace_registry.lock().unwrap().append_journal_records_for_test(&records);
+        let through = mux
+            .create_journal_checkpoint("client_test", "seal_turns_checkpoint")
+            .unwrap()
+            .checkpoint
+            .source_sequence;
+
+        let (prepare_entered_tx, prepare_entered_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_prepare_tx, release_prepare_rx) = std::sync::mpsc::sync_channel(1);
+        mux.set_journal_segment_prepare_hook_for_test(move || {
+            prepare_entered_tx.send(()).unwrap();
+            release_prepare_rx.recv().unwrap();
+        });
+        let first_mux = mux.clone();
+        let first = std::thread::spawn(move || {
+            first_mux.seal_journal_segments(through, "client_test", "seal_turns_first")
+        });
+        prepare_entered_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+
+        // A second seal while the first prepares its segment.
+        let second_mux = mux.clone();
+        let (second_tx, second_rx) = std::sync::mpsc::sync_channel(1);
+        let second = std::thread::spawn(move || {
+            let result =
+                second_mux.seal_journal_segments(through, "client_test", "seal_turns_second");
+            second_tx.send(result.is_ok()).unwrap();
+        });
+        assert!(
+            second_rx.recv_timeout(std::time::Duration::from_millis(500)).is_err(),
+            "a second seal committed while the first was preparing the same segment"
+        );
+        release_prepare_tx.send(()).unwrap();
+        let first = first.join().unwrap().unwrap();
+        assert!(second_rx.recv_timeout(std::time::Duration::from_secs(10)).unwrap());
+        second.join().unwrap();
+        let segments = mux.journal_segments().unwrap();
+        assert_eq!(segments.len(), 2, "each seal sealed its own segment");
+        assert_eq!(first.through_sequence, segments[0].end_sequence);
+
+        mux.shutdown();
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }

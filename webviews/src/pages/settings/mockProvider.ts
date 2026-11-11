@@ -22,6 +22,7 @@ import {
   type AccountsRun,
   type AgentsRun,
   type AgentsState,
+  type ChannelsProgress,
   type ChannelSwitch,
   type ChannelsState,
   type AccountsState,
@@ -30,6 +31,7 @@ import {
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
   type SharesState,
+  type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
   type DevicesState,
@@ -57,6 +59,7 @@ import { MockAgents } from "./mockAgents";
 import { mockChannels } from "./mockChannels";
 import { mockThemeColors } from "./mockThemes";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
+import type { WorktreeRecipe } from "../../worktreeRecipe";
 
 export type MockOptions = {
   chatFolders?: ListRow["folders"];
@@ -165,6 +168,15 @@ export const mockCmuxAccount: Record<"signedIn" | "signedOut" | "signingIn", Acc
     note: "Finish signing in in your browser. If no page opened, choose Open in Browser.",
     error: null,
   },
+};
+
+/** A project of the mock session host: its repository's recipe files and the saved override. */
+export type MockWorktreeProject = {
+  path: string;
+  name: string;
+  repository: WorktreeRecipe;
+  saved?: WorktreeRecipe;
+  files: string[];
 };
 
 export class MockSettingsProvider {
@@ -307,13 +319,15 @@ export class MockSettingsProvider {
         if (!this.channels) throw new ProtocolError("cmux.page.unavailable", "no updater");
         return { ...this.channels, switch: this.channelSwitch };
       },
-      "cmux.settings.channels.go_back": (params) => {
+      "cmux.settings.channels.go_back": async (params) => {
         this.wentBack = params.build as string;
+        if (this.switchHold) await this.switchHold;
         return {};
       },
-      "cmux.settings.channels.switch_build": (params) => {
-        if (this.switchRefusal) throw new ProtocolError("cmux.page.refused", this.switchRefusal);
+      "cmux.settings.channels.switch_build": async (params) => {
         this.switchedTo = params.build as string;
+        if (this.switchHold) await this.switchHold;
+        if (this.switchRefusal) throw new ProtocolError("cmux.page.refused", this.switchRefusal);
         return {};
       },
       "cmux.settings.channels.update_machine": (params) => {
@@ -321,7 +335,10 @@ export class MockSettingsProvider {
         return {};
       },
       "cmux.settings.agents.state": () => this.agents.state,
-      "cmux.settings.agents.run": (params) => this.agents.run(params as unknown as AgentsRun),
+      "cmux.settings.agents.run": async (params) => {
+        if ((params as { action?: string }).action === "remove") await this.agents.endpoint.holdRemove;
+        return this.agents.run(params as unknown as AgentsRun);
+      },
       "cmux.settings.context_menus.set": (params) => {
         const menus = this.host.context_menus;
         if (menus)
@@ -386,25 +403,45 @@ export class MockSettingsProvider {
         this.chiefs.push(made);
         return { value: made };
       },
-      "cmux.chief.backend.list": () => ({
-        harnesses: {
-          defaultHarness: "claude",
-          harnesses: { claude: { displayName: "Claude Code" }, codex: { displayName: "Codex" } },
-        },
-        // Codex's probed models, named as acpmux names them; Claude's are not probed (read off the id).
-        models: {
-          harnesses: [
-            {
-              harness: "codex",
-              models: [
-                { id: "gpt-6-astra", name: "GPT-6 Astra", efforts: ["low", "medium", "high"] },
-                { id: "gpt-6-astra-mini", name: "GPT-6 Astra Mini", efforts: ["low", "medium"] },
-              ],
+      "cmux.chief.backend.list": async () => {
+        await this.agents.endpoint.holdList;
+        return {
+          harnesses: {
+            defaultHarness: "claude",
+            harnesses: {
+              claude: { displayName: "Claude Code" },
+              codex: { displayName: "Codex" },
+              ...this.agents.endpointHarnesses(),
+              ...this.agents.terminalHarnesses(),
             },
-          ],
-        },
-      }),
-      "cmux.chief.backend.doctor": () => ({ ok: true, steps: [{ name: "prompt", ok: true }] }),
+          },
+          // Codex's probed models, named as acpmux names them; Claude's are not probed (read off the id).
+          models: {
+            harnesses: [
+              {
+                harness: "codex",
+                models: [
+                  { id: "gpt-6-astra", name: "GPT-6 Astra", efforts: ["low", "medium", "high"] },
+                  { id: "gpt-6-astra-mini", name: "GPT-6 Astra Mini", efforts: ["low", "medium"] },
+                ],
+              },
+            ],
+          },
+        };
+      },
+      "cmux.chief.backend.add": async (params) => {
+        await this.agents.endpoint.holdAdd;
+        const before = this.agents.endpoint.addFails;
+        if (before) throw new ProtocolError(before, "the endpoint's model list could not be read");
+        const added = this.agents.addEndpoint(params);
+        const fail = this.agents.endpoint.addThenFail;
+        if (fail) throw new ProtocolError(fail, "the add did not answer in time");
+        return added;
+      },
+      "cmux.chief.backend.doctor": async () => {
+        await this.agents.endpoint.holdDoctor;
+        return this.agents.endpoint.doctor;
+      },
       "cmux.settings.theme.set": (params) => {
         const { level, spec } = params as { level: string; spec: string | null };
         const theme = this.host.theme!;
@@ -503,11 +540,45 @@ export class MockSettingsProvider {
       "cmux.settings.accounts.run": (params) => this.runAccounts(params as AccountsRun),
       "cmux.settings.devices.state": () => this.devices,
       "cmux.settings.devices.run": (params) => this.runDevices(params as unknown as DevicesRun),
+      "cmux.settings.tailnet.state": () => {
+        this.onTailnetRead?.();
+        if (this.tailnetDropReads > 0) {
+          this.tailnetDropReads -= 1;
+          return null;
+        }
+        return this.tailnet;
+      },
+      "cmux.settings.tailnet.start": () => this.stepTailnet("start"),
+      "cmux.settings.tailnet.login": () => this.stepTailnet("login"),
+      "cmux.settings.tailnet.logout": () => this.stepTailnet("logout"),
       "cmux.settings.shares.list": () => this.shares,
       "cmux.settings.shares.revoke": (params) =>
         this.revokeShare(String((params as { share_id?: unknown }).share_id ?? "")),
       "cmux.settings.environments.state": () => this.environments,
       "cmux.settings.environments.run": (params) => this.runEnvironments(params as unknown as CloudEnvironmentsRun),
+      // Settings > Agents > Worktree Setup: the session host's ops through the page relay.
+      "cmux.settings.worktree.list": () => ({
+        projects: this.worktreeProjects.map((project) => ({
+          path: project.path,
+          name: project.name,
+          state: "present",
+          overlay: project.saved ? { worktree: project.saved } : {},
+        })),
+        sources: [],
+      }),
+      "cmux.settings.worktree.save": (params) => {
+        const { path, worktree } = params as { path: string; worktree: WorktreeRecipe | null };
+        this.worktreeProjects = this.worktreeProjects.map((project) => {
+          if (project.path !== path) return project;
+          const { saved: _saved, ...rest } = project;
+          return worktree ? { ...rest, saved: worktree } : rest;
+        });
+        return { value: { path }, replayed: false };
+      },
+      "cmux.settings.worktree.read": (params) =>
+        this.worktreeReadHold
+          ? this.worktreeReadHold.then(() => this.readWorktree(params as { path: string }))
+          : this.readWorktree(params as { path: string }),
       "cmux.settings.harnesses.state": () => this.harnesses,
       "cmux.settings.harnesses.run": (params) => {
         const run = params as HarnessesRun;
@@ -595,6 +666,7 @@ export class MockSettingsProvider {
       "cmux.chief.profile.update",
       "cmux.chief.profile.create",
       "cmux.chief.backend.list",
+      "cmux.chief.backend.add",
       "cmux.chief.backend.doctor",
       "cmux.settings.harnesses.state",
       "cmux.settings.harnesses.run",
@@ -604,6 +676,10 @@ export class MockSettingsProvider {
       "cmux.settings.environments.run",
       "cmux.settings.shares.list",
       "cmux.settings.shares.revoke",
+      "cmux.settings.tailnet.state",
+      "cmux.settings.tailnet.start",
+      "cmux.settings.tailnet.login",
+      "cmux.settings.tailnet.logout",
       "cmux.settings.integrations.state",
       "cmux.settings.integrations.run",
       "cmux.settings.theme.set",
@@ -662,6 +738,7 @@ export class MockSettingsProvider {
     provide("cmux.settings.harnesses.changed", (ctx) => this.track(this.harnessesChanged, ctx));
     provide("cmux.settings.devices.changed", (ctx) => this.track(this.devicesChanged, ctx));
     provide("cmux.settings.channels.machines.changed", (ctx) => this.track(this.machinesChanged, ctx));
+    provide("cmux.settings.channels.switch.changed", (ctx) => this.track(this.switchChanged, ctx));
   }
 
   /** Settings > Devices as the app serves it (texts already localized). */
@@ -696,6 +773,75 @@ export class MockSettingsProvider {
     };
     return { share_id: id, state: "revoked" };
   }
+  private readWorktree(params: { path: string }) {
+    const project = this.worktreeProjects.find((row) => row.path === params.path);
+    const repository = project?.repository ?? {};
+    const saved = project?.saved;
+    const pick = (key: "setup" | "run" | "teardown") => {
+      const value = saved?.[key] ?? repository[key];
+      return value ? value : null;
+    };
+    return {
+      root: project?.path ?? "",
+      recipe: {
+        setup: pick("setup"),
+        run: pick("run"),
+        teardown: pick("teardown"),
+        include: [...(repository.include ?? []), ...(saved?.include ?? [])],
+        repository,
+        ...(saved ? { saved } : {}),
+        files: project?.files ?? [],
+      },
+      run: { state: "none", output: "", output_start: "0", output_end: "0" },
+    };
+  }
+  /** While set, `cmux.settings.worktree.read` answers only once it resolves (a slow host). */
+  worktreeReadHold: Promise<void> | null = null;
+  /** Settings > Agents > Worktree Setup: the session host's projects and each one's recipe files. */
+  worktreeProjects: MockWorktreeProject[] = [
+    {
+      path: "/Users/you/src/cmux",
+      name: "cmux",
+      repository: { setup: "bun install", run: "bun run dev --port $CMUX_PORT", include: [".env", ".env.local"] },
+      files: [".worktreeinclude", ".cmux/worktree.toml"],
+    },
+    {
+      path: "/Users/you/src/website",
+      name: "website",
+      repository: { setup: "npm ci" },
+      saved: { setup: "pnpm install", include: ["config/local.json"] },
+      files: [".cmux/worktree.toml"],
+    },
+  ];
+
+  /** Settings > Server > This Mac on Your Tailnet as acpmux answers the app's relay: signed out; null is
+   * an acpmux with no tailnet. */
+  tailnet: TailnetState | null = { state: "stopped" };
+  /** Every tailnet step the page asked for, in order (tests). */
+  tailnetSteps: string[] = [];
+
+  /** Start, Login and Logout answer null while true (the relay got no answer); state still reads. */
+  tailnetRefuses = false;
+  /** Called on every tailnet state read, so a test can wait for the card's next read. */
+  onTailnetRead: (() => void) | null = null;
+  /** The next this many state reads answer null (the relay dropped them), then reads answer again. */
+  tailnetDropReads = 0;
+  /** Start and Login fail with this text (acpmux keeps it in its state; the step itself answers null). */
+  tailnetFails: string | null = null;
+
+  /** As acpmux does: Start and Login answer `starting` at once and the node publishes its sign-in page
+   * on the next read; Logout signs out. */
+  private stepTailnet(verb: "start" | "login" | "logout"): TailnetState | null {
+    this.tailnetSteps.push(verb);
+    if (this.tailnet === null || this.tailnetRefuses) return null;
+    if (this.tailnetFails) {
+      this.tailnet = { state: "error", error: this.tailnetFails };
+      return null;
+    }
+    if (verb === "logout") return (this.tailnet = { state: "stopped" });
+    this.tailnet = { state: "needs_login", browse_to_url: "https://login.tailscale.com/a/1a2b3c4d5e" };
+    return { state: "starting" };
+  }
 
   /** Settings > Accounts > Cloud Environments as the app's model serves it. */
   environments: CloudEnvironmentsState = {
@@ -708,6 +854,10 @@ export class MockSettingsProvider {
         name: "web",
         repo: "manaflow-ai/cmux@feat-cmux-next",
         setup_script: "cd web && bun install",
+        env: [
+          { name: "NODE_ENV", value: "development" },
+          { name: "OPENAI_API_KEY", secret: "openai" },
+        ],
         status: "ready",
         error: null,
         log_tail: null,
@@ -717,6 +867,7 @@ export class MockSettingsProvider {
         name: "api",
         repo: "octo/api",
         setup_script: "make deps",
+        env: [],
         status: "failed",
         error: "setup exited 3",
         log_tail: "lockfile mismatch",
@@ -733,16 +884,37 @@ export class MockSettingsProvider {
       case "refresh":
         return {};
       case "save":
-        if (!run.name.trim()) return { error: "Name must be 1-80 characters." };
+        if (run.name !== undefined ? !run.name.trim() : !run.id) return { error: "Name must be 1-80 characters." };
+        if (run.id) {
+          // Like CloudDO: a rename alone keeps the snapshot; a repo, script or variable edit makes it stale.
+          const builds = run.repo !== undefined || run.setup_script !== undefined || run.env !== undefined;
+          this.environments = {
+            ...this.environments,
+            environments: rows.map((row) =>
+              row.id === run.id
+                ? {
+                    ...row,
+                    name: run.name ?? row.name,
+                    repo: run.repo === undefined ? row.repo : run.repo || null,
+                    setup_script: run.setup_script ?? row.setup_script,
+                    env: run.env ?? row.env,
+                    status: builds && row.status === "ready" ? "stale" : row.status,
+                  }
+                : row,
+            ),
+          };
+          return {};
+        }
         this.environments = {
           ...this.environments,
           environments: [
             ...rows,
             {
               id: `env_${String(rows.length + 1).padStart(20, "0")}`,
-              name: run.name,
+              name: run.name ?? "",
               repo: run.repo || null,
               setup_script: run.setup_script ?? "",
+              env: run.env ?? [],
               status: "unbuilt",
               error: null,
               log_tail: null,
@@ -864,6 +1036,17 @@ export class MockSettingsProvider {
     if (this.channels) this.channels = { ...this.channels, machines };
     for (const ctx of this.machinesChanged) ctx.emit(machines ?? null);
   }
+  private readonly switchChanged = new Set<EventSourceContext>();
+
+  /** Moves the running Switch or Go Back to its next stage (null: it ended) and tells the page,
+   * like the app's push; a later read of the card answers it too. */
+  setSwitchProgress(progress: ChannelsProgress | null): void {
+    if (this.channels) this.channels = { ...this.channels, progress };
+    for (const ctx of this.switchChanged) ctx.emit(progress);
+  }
+  /** Holds every Switch and Go Back reply until it resolves, as a host that answers only once
+   * the switch ends would; null: they answer at once. */
+  switchHold: Promise<void> | null = null;
   /** The way back the host answers with (Nightly's: the fixture runs a Dev build). */
   channelSwitch: ChannelSwitch | null = null;
   /** The build the card's Go Back asked for. */

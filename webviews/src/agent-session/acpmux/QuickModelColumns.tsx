@@ -6,6 +6,7 @@
 // A click applies at once and the menu stays open; Return closes it. Left and Right move between
 // the columns, Up and Down within one.
 import React, { Fragment, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Spinner } from "./conversation/icons";
 import { AgentMark } from "../shared/AgentMark";
 import { Popover, type UiVirtualAnchor } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
@@ -22,6 +23,8 @@ import { isModelRouterKind } from "./routerKinds";
 import { authLoginText, authText, canSessionLogin } from "./sessionAuth";
 import { useChatAccounts, type ChatAccount } from "./chatAccounts";
 import { QuickModelMenu, StarIcon, UsedMark } from "./QuickModelMenu";
+import { CHAT_COLUMN } from "./modelPickerLayout";
+import { MODEL_MENU_MIN_WIDTH, naturalMenuWidth, setModelMenuWidth, useModelMenuWidth } from "./modelMenuWidth";
 import {
   familyTabs,
   heldTab,
@@ -253,7 +256,7 @@ function Columns({
     }),
     [trigger],
   );
-  const { families, current, effort, fast, auth, search } = menu;
+  const { families, current, effort, fast, auth, search, setup } = menu;
   const account = menu.ownModel ? undefined : menu.account;
   const accounts = useAccountList(open, account);
   const [addingAccount, setAddingAccount] = useState(false);
@@ -307,6 +310,8 @@ function Columns({
   // the edge away from the chip stays put. The floor is the largest it has been since it opened; the
   // observer goes with the frame, which unmounts as the menu closes.
   const sizeHold = useRef<ResizeObserver | null>(null);
+  const popupRef = useRef<HTMLElement | null>(null);
+  const [popupNode, setPopupNode] = useState<HTMLElement | null>(null);
   // The columns' fades follow their scroll, their size (the menu grows, the window shrinks) and their
   // rows (a tab or a search changes them). The observers go with the body as the menu closes.
   const fadeWatch = useRef<(() => void) | null>(null);
@@ -332,16 +337,15 @@ function Columns({
     sizeHold.current?.disconnect();
     sizeHold.current = null;
     const popup = frame?.parentElement;
+    popupRef.current = popup ?? null;
+    // The portal mounts after the open render's effects ran: measure and size it now.
+    setPopupNode(popup ?? null);
     if (!frame || !popup || typeof ResizeObserver === "undefined") return;
-    let width = 0;
+    // The width is set (the longest name of every tab, or the person's own, modelMenuWidth.ts), so
+    // only the height is held here.
     let height = 0;
     const observer = new ResizeObserver(() => {
       const box = frame.getBoundingClientRect();
-      if (box.width > width) {
-        width = box.width;
-        // The em floor stays: a larger interface or chrome text size still widens the open menu.
-        popup.style.minWidth = `min(max(var(--acpmux-cols-min-width), ${width}px), var(--available-width, calc(100vw - 24px)))`;
-      }
       if (box.height > height) {
         height = box.height;
         // Never past the frame's own cap: min-height beats max-height.
@@ -353,6 +357,20 @@ function Columns({
   }, []);
   const modelsList = useRef<HTMLDivElement | null>(null);
   const railList = useRef<HTMLDivElement | null>(null);
+  // The menu's width: the person's own (a drag on its edge), else as wide as the longest model name
+  // of every tab, so it never changes width from tab to tab; a narrower menu ends names in an ellipsis.
+  const ownWidth = useModelMenuWidth();
+  const [natural, setNatural] = useState<{ key: string; width: number }>();
+  // A drag in progress owns the width: a render meanwhile (a streaming reply) never resets it.
+  const dragging = useRef(false);
+  const widthOf = (popup: HTMLElement | null | undefined) => {
+    if (!popup || dragging.current) return;
+    const room = "var(--available-width, calc(100vw - 24px))";
+    const wanted = ownWidth ?? natural?.width;
+    popup.style.width = wanted ? `min(${wanted}px, ${room})` : "";
+    popup.style.minWidth = wanted ? `min(${MODEL_MENU_MIN_WIDTH}px, ${room})` : "";
+    popup.style.maxWidth = wanted ? room : "";
+  };
 
   // The Starred tab is always the rail's first, also before anything is starred.
   const starredText = t("picker.starred");
@@ -363,6 +381,29 @@ function Columns({
         : [{ id: STARRED_TAB, name: starredText, starred: true, models: [], more: [] }, ...families.list],
     [families.list, starredText],
   );
+  // Every name the menu can list (each tab's models and their providers): the default width fits
+  // the longest, measured once per list as the menu opens.
+  const names = useMemo(
+    () => [
+      ...new Set(
+        list.flatMap((family) =>
+          [...family.models, ...family.more].flatMap((model) => [
+            // A tag ("New") draws after the name, a gap away: it is measured with it.
+            model.tag ? `${model.name}  ${model.tag}` : model.name,
+            ...(model.offers?.map((offer) => offer.provider ?? offer.name) ?? []),
+          ]),
+        ),
+      ),
+    ],
+    [list],
+  );
+  const namesKey = names.join("\u0000");
+  useLayoutEffect(() => {
+    if (!open || natural?.key === namesKey) return;
+    const width = naturalMenuWidth(names, modelsList.current);
+    if (width) setNatural({ key: namesKey, width });
+  }, [open, names, namesKey, natural?.key, popupNode]);
+  useLayoutEffect(() => widthOf(popupRef.current));
   const shown = list.find((family) => family.id === tab);
   const tabs = useMemo(() => familyTabs(list), [list]);
   const shownTab = tabs.find((entry) => entry.routes.some((route) => route.id === tab));
@@ -514,6 +555,69 @@ function Columns({
   useRowInView(railList, tab);
 
   const close = () => finish(false, true);
+  /// A drag on the menu's outer edge: the width follows the pointer and is kept on release. The other
+  /// edge, the one lined up with the chip, stays where it is, and the menu never grows past the room
+  /// it has (the chat column, else the window). Base UI places the popup a frame or more after a
+  /// size change (a React render), so each width step drew the menu off its edge for a frame and,
+  /// past the room, ran it out of the pane until the release snapped it back: the flicker in Lucas's
+  /// recording (2026-11-10). While the drag runs, a translate holds the edge until Base UI catches up.
+  const startResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    const popup = popupRef.current;
+    const positioner = popup?.parentElement;
+    if (event.button !== 0 || !popup || !positioner) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const grip = event.currentTarget;
+    const doc = popup.ownerDocument;
+    const start = popup.getBoundingClientRect();
+    const startX = event.clientX;
+    const fromEnd = align === "end";
+    // The room: the chat column the menus keep to (CHAT_COLUMN), else the window, less the popup's
+    // collision padding (5 px, popupInset.ts).
+    const bound = doc.querySelector(CHAT_COLUMN)?.getBoundingClientRect();
+    const left = (bound?.left ?? 0) + 5;
+    const right = (bound?.right ?? doc.defaultView?.innerWidth ?? start.right) - 5;
+    const most = Math.max(MODEL_MENU_MIN_WIDTH, fromEnd ? start.right - left : right - start.left);
+    let width = start.width;
+    // Where the popup's left edge belongs for `width`; the translate makes up whatever Base UI has
+    // not placed yet, read live each time it moves the positioner.
+    const pin = () => {
+      const wanted = fromEnd ? start.right - width : start.left;
+      const placed = positioner.getBoundingClientRect().left;
+      const offset = Math.round((wanted - placed) * 100) / 100;
+      popup.style.translate = offset ? `${offset}px 0` : "";
+      return offset;
+    };
+    const placed = new MutationObserver(() => {
+      if (pin() === 0 && !dragging.current) placed.disconnect();
+    });
+    placed.observe(positioner, { attributes: true, attributeFilter: ["style"] });
+    grip.setPointerCapture?.(event.pointerId);
+    grip.dataset.dragging = "";
+    dragging.current = true;
+    const move = (next: PointerEvent) => {
+      const delta = (next.clientX - startX) * (fromEnd ? -1 : 1);
+      width = Math.round(Math.min(most, Math.max(MODEL_MENU_MIN_WIDTH, start.width + delta)));
+      popup.style.width = `${width}px`;
+      popup.style.minWidth = `${MODEL_MENU_MIN_WIDTH}px`;
+      popup.style.maxWidth = `${most}px`;
+      pin();
+    };
+    const end = () => {
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", end);
+      grip.removeEventListener("pointercancel", end);
+      delete grip.dataset.dragging;
+      dragging.current = false;
+      // The edge is held until Base UI has placed the final width, then the translate goes.
+      if (pin() === 0) placed.disconnect();
+      if (Math.abs(width - start.width) >= 1) setModelMenuWidth(width);
+      else widthOf(popup);
+    };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", end);
+    grip.addEventListener("pointercancel", end);
+  };
   /// Lands `model` at once, with a level and Fast set exactly (never copied from a searched row); the
   /// menu stays open.
   const hold = (model: QuickModel, choice: { effort?: string; fast?: boolean }) => {
@@ -945,6 +1049,7 @@ function Columns({
           <div className="acpmux-cols-group">
             <AgentMark agent={list.find((family) => family.id === group.rows[0]?.family)?.mark} size={12} />
             {group.name}
+            {group.note && <span className="acpmux-cols-group-note">{group.note}</span>}
           </div>
           {group.rows.map((model, offset) => modelRow(model, start + offset))}
         </Fragment>
@@ -1054,6 +1159,16 @@ function Columns({
         initialFocus={field}
         finalFocus={false}
       >
+        {/* The outer edge, away from the chip it lines up with: a drag sets the menu's width for every
+            composer, a double-click goes back to the default (modelMenuWidth.ts). */}
+        {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- a pointer-only grip; the width also has its default */}
+        <div
+          className="acpmux-cols-resize"
+          data-edge={align === "end" ? "start" : "end"}
+          aria-hidden="true"
+          onPointerDown={startResize}
+          onDoubleClick={() => setModelMenuWidth(undefined)}
+        />
         {/* ui-allow: Up, Down, Left, Right and Return move through the columns, as in a column browser. */}
         {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- the field's keys bubble here: arrows move the columns */}
         <div
@@ -1135,6 +1250,30 @@ function Columns({
                   </button>
                 )}
               </div>
+              <hr className="acpmux-cols-sep" />
+            </>
+          )}
+          {/* A picked model's harness being set up (harnessSetup.ts): installing, signing in or
+              starting, or why it could not, whatever tab or search shows. */}
+          {setup && (
+            <>
+              <output className="acpmux-cols-setup" data-busy={setup.busy ? "" : undefined}>
+                {setup.busy && <Spinner size={12} className="acpmux-cols-setup-spinner" loading />}
+                <span className="acpmux-cols-setup-text">
+                  <span>{setup.text}</span>
+                  {setup.detail && (
+                    // tooltip-allow: the installer's last line can run long; the strip shows one line
+                    <span className="acpmux-cols-setup-detail" title={setup.detail}>
+                      {setup.detail}
+                    </span>
+                  )}
+                </span>
+                {setup.actions.map((action) => (
+                  <button key={action.label} type="button" className="acpmux-cols-update-action" onClick={action.run}>
+                    {action.label}
+                  </button>
+                ))}
+              </output>
               <hr className="acpmux-cols-sep" />
             </>
           )}

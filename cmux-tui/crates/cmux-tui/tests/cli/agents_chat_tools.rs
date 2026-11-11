@@ -26,7 +26,12 @@ fn acpmux_config(doomed: bool) -> Value {
 
 /// A machine whose acpmux runs the test agent, its work folder trusted.
 fn machine(name: &str) -> Daemon {
-    let daemon = Daemon::start_with(name, None, Some(acpmux_config(true)));
+    machine_with(name, acpmux_config(true))
+}
+
+/// `machine`, its acpmux running `config`.
+fn machine_with(name: &str, config: Value) -> Daemon {
+    let daemon = Daemon::start_with(name, None, Some(config));
     let work = fs::canonicalize(daemon.dir.join("work")).unwrap();
     let trust = json!({work.to_str().unwrap(): "trusted"});
     fs::write(daemon.dir.join("acpmux/trust.json"), trust.to_string()).unwrap();
@@ -905,4 +910,213 @@ fn a_caller_sends_to_a_restored_chat_no_tab_has_shown() {
         answers.iter().any(|item| item["text"].as_str().unwrap_or_default().starts_with("echo: ")),
         "the resumed agent answered the send: {later:?}"
     );
+}
+
+/// The files acpmux saved for chat `session`'s inline attachments named `name`
+/// (`<ACPMUX_HOME>/uploads/<session>/<id>/<name>`), waiting up to twenty seconds for one.
+fn saved_upload(daemon: &Daemon, session: &str, name: &str) -> PathBuf {
+    let folder = daemon.dir.join("acpmux/uploads").join(session);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let found = fs::read_dir(&folder)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path().join(name))
+            .find(|path| path.is_file());
+        if let Some(path) = found {
+            return path;
+        }
+        assert!(Instant::now() < deadline, "acpmux never saved {name} in {}", folder.display());
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+#[test]
+fn an_agent_starts_a_chat_with_files_and_a_bad_file_starts_nothing() {
+    let daemon = machine("chat-attach");
+    let workspace = workspace(&daemon);
+    let caller = chat(&daemon, Some(&workspace));
+    let work = fs::canonicalize(daemon.dir.join("work")).unwrap();
+    let note = work.join("note.txt");
+    fs::write(&note, "the build log says ok\n").unwrap();
+    let no_app = daemon.dir.join("no-app.sock");
+    let as_caller = || {
+        let mut command = cmux(&daemon, Some(&caller));
+        command.arg("--app-socket").arg(&no_app);
+        command
+    };
+    let new_with = |attach: &str| {
+        chat_json(
+            as_caller(),
+            &[
+                "new",
+                "--workspace",
+                &workspace.to_lowercase(),
+                "--cwd",
+                work.to_str().unwrap(),
+                "--attach",
+                attach,
+                "--",
+                "read the note",
+            ],
+        )
+    };
+
+    // A file that is not there, or a folder, starts no chat and sends nothing.
+    let missing = work.join("missing.txt");
+    let (code, refused) = new_with(missing.to_str().unwrap());
+    assert_eq!(code, Some(3), "{refused}");
+    assert_eq!(error_of(&refused)["code"], "attach.not_found", "{refused}");
+    assert!(error_of(&refused)["message"].as_str().unwrap().contains("nothing was sent"));
+    let (code, folder) = new_with(work.to_str().unwrap());
+    assert_eq!(code, Some(3), "{folder}");
+    assert_eq!(error_of(&folder)["code"], "attach.not_a_file", "{folder}");
+    // Files go with a first prompt.
+    let (code, alone) = chat_json(as_caller(), &["new", "--attach", note.to_str().unwrap()]);
+    assert_eq!(code, Some(2), "{alone}");
+
+    // The first prompt carries the file, as `acpmux send --attach` sends it: acpmux saves it
+    // for the chat's agent.
+    let (code, created) = new_with(note.to_str().unwrap());
+    assert_eq!(code, Some(0), "{created}");
+    let started = created["result"]["chat"].as_str().unwrap_or_else(|| panic!("{created}"));
+    assert_eq!(created["result"]["prompt"]["state"], "accepted", "{created}");
+    assert_eq!(created["result"]["prompt"]["attachments"], 1, "{created}");
+    let saved = saved_upload(&daemon, started, "note.txt");
+    assert_eq!(fs::read_to_string(saved).unwrap(), "the build log says ok\n");
+
+    // A message to a running chat carries text only: refused, never sent without its files.
+    let (code, send) = agents_chat(
+        &daemon,
+        Some(&caller),
+        &["send", started, "--attach", note.to_str().unwrap(), "--", "and this one"],
+    );
+    assert_eq!(code, Some(3), "{send}");
+    assert_eq!(error_of(&send)["code"], "chat.attach_send_unsupported", "{send}");
+
+    // The MCP tools take absolute paths in `attachments`, and refuse as the CLI does.
+    let (tools, results) = mcp(
+        &daemon,
+        &caller,
+        &[
+            (
+                "agents_chat_send",
+                json!({"target": started, "text": "and this", "attachments": [note]}),
+            ),
+            (
+                "agents_chat_new",
+                json!({"workspace": workspace.to_lowercase(), "prompt": "hi",
+                       "attachments": ["note.txt"]}),
+            ),
+            (
+                "agents_chat_new",
+                json!({"workspace": workspace.to_lowercase(), "prompt": "hi",
+                       "attachments": [missing]}),
+            ),
+        ],
+    );
+    let tool = |name: &str| {
+        tools.iter().find(|tool| tool["name"] == name).cloned().unwrap_or_else(|| panic!("{name}"))
+    };
+    for name in ["agents_chat_new", "agents_chat_send"] {
+        let schema = &tool(name)["inputSchema"]["properties"]["attachments"];
+        assert_eq!(schema["type"], "array", "{name}: {schema}");
+    }
+    assert_eq!(results[0]["isError"], true, "{}", results[0]);
+    assert!(results[0].to_string().contains("chat.attach_send_unsupported"), "{}", results[0]);
+    assert_eq!(results[1]["isError"], true, "{}", results[1]);
+    assert!(results[1].to_string().contains("absolute"), "{}", results[1]);
+    assert_eq!(results[2]["isError"], true, "{}", results[2]);
+    assert!(results[2].to_string().contains("attach.not_found"), "{}", results[2]);
+}
+
+#[test]
+fn cmux_chat_here_checks_its_files_before_it_starts_a_chat() {
+    let daemon = machine("chat-start-attach");
+    let missing = daemon.dir.join("work/missing.png");
+    let output = cmux(&daemon, None)
+        .arg("--app-socket")
+        .arg(daemon.dir.join("no-app.sock"))
+        .args(["--json", "chat", "--on", "here", "--attach"])
+        .arg(&missing)
+        .arg("look at this")
+        .output()
+        .unwrap();
+    let text = if output.stdout.is_empty() { &output.stderr } else { &output.stdout };
+    let answer: Value = serde_json::from_slice(text)
+        .unwrap_or_else(|_| panic!("{}", String::from_utf8_lossy(text)));
+    assert_ne!(output.status.code(), Some(0), "{answer}");
+    assert_eq!(error_of(&answer)["code"], "attach.not_found", "{answer}");
+}
+
+/// acpmux's stand-in Claude Code: a prompt `peer-hold: <JSON>` writes the
+/// `system/peer_message_hold` line Claude Code 2.1.322 writes for another
+/// session's message it holds instead of giving it to the model.
+const FAKE_CLAUDE: &str =
+    concat!(env!("CARGO_MANIFEST_DIR"), "/../acpmux/tests/fake_claude_auto.py");
+
+/// Bench round 6 (W7-A): a chat's Claude Code held another session's message
+/// and nothing showed it. `chat state` (and the `agents_chat_state` tool that
+/// runs it) shows each held message as `held_messages`, from acpmux's
+/// `heldMessages`, until Claude Code says it was dropped.
+#[test]
+fn w7a_chat_state_shows_the_messages_a_chat_s_claude_code_holds() {
+    let mut config = acpmux_config(false);
+    config["harnesses"]["claude"] =
+        json!({"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"});
+    config["titles"] = json!({"generate": false});
+    let daemon = machine_with("chat-held", config);
+    let workspace = workspace(&daemon);
+    let caller = chat(&daemon, Some(&workspace));
+    let held_by = chat_of(&daemon, Some(&workspace), "claude");
+    let no_app = daemon.dir.join("no-app.sock");
+    let as_caller = || {
+        let mut command = cmux(&daemon, Some(&caller));
+        command.arg("--app-socket").arg(&no_app);
+        command
+    };
+    let (code, state) = chat_json(as_caller(), &["state", &held_by]);
+    assert_eq!(code, Some(0), "{state}");
+    assert_eq!(state["result"]["held_messages"], json!([]), "nothing held yet: {state}");
+
+    let prompt = |line: Value| {
+        let prompted = Acp::connect(&daemon).call(
+            "session/prompt",
+            json!({"sessionId": held_by,
+                   "prompt": [{"type": "text", "text": format!("peer-hold: {line}")}]}),
+        );
+        assert!(prompted.get("error").is_none(), "{prompted}");
+    };
+    // State until `done` holds, for up to twenty seconds.
+    let state_until = |done: &dyn Fn(&Value) -> bool| {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            let (code, state) = chat_json(as_caller(), &["state", &held_by]);
+            assert_eq!(code, Some(0), "{state}");
+            if done(&state["result"]["held_messages"]) {
+                return state;
+            }
+            assert!(Instant::now() < deadline, "held_messages never got there: {state}");
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    };
+    prompt(json!({"state": "held", "message_uuid": "m-1", "from": "uds:/tmp/cc-socks/1.sock",
+                  "from_name": "alpha", "cause": "mode-mismatch"}));
+    let state = state_until(&|held| held.as_array().is_some_and(|rows| !rows.is_empty()));
+    let held = state["result"]["held_messages"].as_array().unwrap();
+    assert_eq!(held.len(), 1, "{state}");
+    assert_eq!(held[0]["messageUuid"], "m-1", "{state}");
+    assert_eq!(held[0]["fromName"], "alpha", "{state}");
+    assert_eq!(held[0]["cause"], "mode-mismatch", "{state}");
+
+    // The same over MCP, as another agent reads it.
+    let (_, results) = mcp(&daemon, &caller, &[("agents_chat_state", json!({"target": held_by}))]);
+    assert_eq!(results[0]["isError"], false, "{}", results[0]);
+    let over_mcp = &results[0]["structuredContent"]["result"]["held_messages"];
+    assert_eq!(over_mcp[0]["fromName"], "alpha", "{}", results[0]);
+
+    // Claude Code dropped it: it leaves the state.
+    prompt(json!({"state": "dropped", "message_uuid": "m-1", "outcome": "expired"}));
+    state_until(&|held| held == &json!([]));
 }

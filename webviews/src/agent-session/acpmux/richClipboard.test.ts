@@ -17,7 +17,11 @@ beforeAll(() => {
   }
 });
 afterAll(() => {
-  for (const key of KEYS) scope[key] = saved.get(key);
+  for (const key of KEYS) {
+    const value = saved.get(key);
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
 });
 
 const REPLY = [
@@ -53,6 +57,15 @@ test("raw HTML in a reply copies as text, never markup", () => {
 
 test("HTML reads back as the same Markdown", () => {
   expect(htmlMarkdown(markdownHtml(REPLY))).toBe(REPLY);
+});
+
+test("plain pre-wrap spans retain lines without flattening rich pasted spans", () => {
+  expect(htmlMarkdown('<span style="white-space: pre-wrap;">first\n    second</span>')).toBe("first\n    second");
+  expect(
+    htmlMarkdown(
+      '<span style="white-space: pre-wrap;"><strong>Bold</strong> <a href="https://example.com/">link</a></span>',
+    ),
+  ).toBe("**Bold** [link](https://example.com/)");
 });
 
 test("Notes and Docs HTML: nested lists beside items, Docs' bold spans and its normal-weight wrapper", () => {

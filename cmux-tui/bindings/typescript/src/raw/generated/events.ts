@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR b1e4b36789fe19a6f7c3aca80a20320fa7f0c8ed0f1bc9ecd237196bf9d6c91c. */
+/* cmux-tui mux protocol 12, IR 3640c178ce74343f21a8b40eeb3852abc2b3b5c5b123d8099ccec04e8a7d14b5. */
 
 
 import type * as T from "./types.js";
@@ -277,6 +277,7 @@ export type ConversationTypingEvent = { event: "conversation-typing" } & {
 
 /** Protocol v12; emission: emitted; streams: control. */
 export type DaemonShutdownEvent = { event: "daemon-shutdown" } & {
+  "restart"?: boolean;
 };
 
 /** Protocol v5; emission: emitted; streams: attach-byte, attach-render, attach-browser. */
@@ -290,6 +291,17 @@ export type DetachedEvent = { event: "detached" } & {
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
 export type EmptyEvent = { event: "empty" } & {
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type FeedReportsChangedEvent = { event: "feed-reports-changed" } & {
+  "revision": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type FeedViewChangedEvent = { event: "feed-view-changed" } & {
+  "changed": Array<string>;
+  "revision": bigint;
 };
 
 /** Protocol v6; emission: emitted; streams: attach-browser. */
@@ -639,7 +651,9 @@ export type TerminalRegistryChangedEvent = { event: "terminal-registry-changed" 
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
 export type TitleChangedEvent = { event: "title-changed" } & {
+  "activity"?: (string) | null;
   "surface": T.Id;
+  "text"?: string;
   "title"?: string;
 };
 
@@ -780,6 +794,8 @@ export type KnownCmuxEvent =
   | DaemonShutdownEvent
   | DetachedEvent
   | EmptyEvent
+  | FeedReportsChangedEvent
+  | FeedViewChangedEvent
   | FrameEvent
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
@@ -870,6 +886,8 @@ export type KnownSubscribeEvent =
   | ConversationRunChangedEvent
   | ConversationTypingEvent
   | EmptyEvent
+  | FeedReportsChangedEvent
+  | FeedViewChangedEvent
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
   | HistoryChangedEvent

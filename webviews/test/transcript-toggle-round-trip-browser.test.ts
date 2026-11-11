@@ -1,4 +1,7 @@
 // l10n-allow-file: test fixture prompts, answers and tool titles, not shipped UI.
+// cmux-web-test-timeout: 480
+// 480: ten clicks per kind in both engines took 238 s alone on the Linux pool (fleet run 42785525927);
+// the default 120 s killed it on every feat-cmux-next push (67 of 67), so it checked nothing.
 // Every toggle in the transcript is a round trip: open then close puts the view back where it was,
 // however often the reader does it (Leo, 2026-11-08: "the more I click this, the more the thing
 // gradually goes down ... it's not an— what is it? idempotent action ... there's the drift, right?
@@ -6,7 +9,7 @@
 //
 // Each kind starts shut and is clicked ten times where it is drawn:
 // - away from the bottom, its row near the view's top, with no scroll between the clicks; also with
-//   the prompt's top scrolled above the view, from the keyboard, and in the gallery's paste looks;
+//   the prompt's top scrolled above the view, and from the keyboard;
 // - at the latest row, the view at the transcript's end. An open there grows down and the view stops
 //   following (Codex parity, #36940); a close there pins the bottom (Leo, 2026-11-03). When what
 //   opened pushed the toggle under the composer, the reader scrolls to the end to reach it, as he must;
@@ -97,10 +100,12 @@ await requireBrowserLane("transcript-toggle-round-trip-browser.test.ts", async (
   /// The prompt Leo pasted into (2026-11-08): typed words, then a pasted block long enough to fold.
   const pastedPrompt = (id: string) => {
     const typed = "In addition, actually:";
-    // Twenty-six short lines: past the twenty a prompt folds at, and short enough that the whole
-    // message, opened, stays in the view, so its toggle is still under the pointer for the next click.
+    // Twenty-one short lines: with the typed line past the twenty a prompt folds at, and short enough
+    // that the whole message, opened, stays in the view, so its toggle is still under the pointer for
+    // the next click. The paste is the message's one body (ask-14d16a6247), so its numbered lines draw
+    // as the body's Markdown list, as a typed one does, taller than literal lines.
     const paste = Array.from(
-      { length: 26 },
+      { length: 21 },
       (_, index) => `${index + 1}. The attachments fly in from the composer.`,
     ).join("\n");
     const text = `${typed}\n${paste}`;
@@ -142,23 +147,27 @@ await requireBrowserLane("transcript-toggle-round-trip-browser.test.ts", async (
     row: string;
     /// Its toggle, by structure (the harness loads no string table, so labels are keys).
     toggle: string;
+    /// Where the pointer clicks, when not the toggle's own box: a received message's toggle holds
+    /// only its first line, which is gone while it is open, and the whole line toggles (the one
+    /// message row, AgentMessageRow.tsx), so the pointer clicks the line's chevron.
+    aim?: string;
     text?: string;
     not?: string;
   };
   const cases: Kind[] = [
-    // A paste is the message's own text (sentPasteLook `text`), folded by its Show more; the
-    // gallery's `row` and `card` arms draw a "Pasted text" label instead.
-    {
-      name: "pasted text",
-      row: "p-user",
-      toggle: '[data-row-id="p-user"] .cv-user__paste, [data-row-id="p-user"] .cv-user__more',
-    },
+    // A paste is part of the message's one text body, folded by its Show more (ask-14d16a6247).
+    { name: "pasted text", row: "p-user", toggle: '[data-row-id="p-user"] .cv-user__more' },
     { name: "Show more", row: "k-user", toggle: '[data-row-id="k-user"] .cv-user__more' },
     { name: "Worked for", row: "worked-t5-user", toggle: '[data-row-id="worked-t5-user"] button.cv-worked' },
     { name: "Ran 2 commands", row: "k-run", toggle: `${run}:not(.cv-thought):not(.cv-command)`, not: "k-read" },
     { name: "a thought", row: "k-run", toggle: `${run}.cv-thought` },
     { name: "a tool call", row: "k-run", toggle: `${run}:not(.cv-thought):not(.cv-command)`, text: "k-read" },
-    { name: "a received message", row: "msg", toggle: '[data-row-id="msg"] .cv-disclosure__toggle' },
+    {
+      name: "a received message",
+      row: "msg",
+      toggle: '[data-row-id="msg"] .cv-agentmsg__toggle',
+      aim: '[data-row-id="msg"] .cv-agentmsg__chevron',
+    },
   ];
 
   /// Resolves once the view is at rest: no fold running, and three painted frames in a row draw the
@@ -247,10 +256,12 @@ await requireBrowserLane("transcript-toggle-round-trip-browser.test.ts", async (
       await settle(page);
       return;
     }
-    const point = await page.evaluate(() => {
-      const box = document.querySelector<HTMLElement>("[data-toggle]")!.getBoundingClientRect();
+    const point = await page.evaluate((aim) => {
+      const target =
+        (aim && document.querySelector<HTMLElement>(aim)) || document.querySelector<HTMLElement>("[data-toggle]")!;
+      const box = target.getBoundingClientRect();
       return { x: box.left + Math.min(24, box.width / 2), y: box.top + box.height / 2 };
-    });
+    }, kind.aim);
     await page.mouse.click(point.x, point.y);
     await settle(page);
   };
@@ -363,12 +374,6 @@ await requireBrowserLane("transcript-toggle-round-trip-browser.test.ts", async (
     test(`${name}: a prompt whose top is scrolled above the view: ten clicks on Show more put the view back`, async () => {
       expect(await away(name, "above", -160, false, ["pasted text", "Show more"])).toEqual([]);
     });
-    // The gallery's other paste looks (sent-paste-look `row` and `card`): a "Pasted text" label that
-    // opens the paste in place, as every sent paste did before #37675.
-    for (const arm of ["row", "card"])
-      test(`${name}: the ${arm} paste look: ten clicks on its Pasted text label put the view back`, async () => {
-        expect(await away(name, `${arm} arm`, 60, false, ["pasted text"], { "sent-paste-look": arm })).toEqual([]);
-      });
     test(`${name}: from the keyboard, ten presses on each toggle put the view back where they were`, async () => {
       expect(await away(name, "keys", 60, true)).toEqual([]);
     });
@@ -420,13 +425,14 @@ await requireBrowserLane("transcript-toggle-round-trip-browser.test.ts", async (
         })),
       ];
       const liveCases: Kind[] = [
-        {
-          name: "pasted text",
-          row: "live-user",
-          toggle: '[data-row-id="live-user"] .cv-user__paste, [data-row-id="live-user"] .cv-user__more',
-        },
+        { name: "pasted text", row: "live-user", toggle: '[data-row-id="live-user"] .cv-user__more' },
         { name: "Ran 2 commands", row: "run-b", toggle: '[data-row-id="run-b"] button.cv-tool.is-toggle' },
-        { name: "a received message", row: "msg", toggle: '[data-row-id="msg"] .cv-disclosure__toggle' },
+        {
+          name: "a received message",
+          row: "msg",
+          toggle: '[data-row-id="msg"] .cv-agentmsg__toggle',
+          aim: '[data-row-id="msg"] .cv-agentmsg__chevron',
+        },
       ];
       for (const kind of liveCases) {
         const page = await open(browsers[name]!);

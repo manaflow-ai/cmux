@@ -213,3 +213,75 @@ fn an_action_frame_is_not_held_by_a_synchronized_update() {
         "an action's frame waited for the synchronized update"
     );
 }
+
+/// A panic while one terminal's frame is built (a bug, a poisoned lock) must
+/// not stop the producer thread that all terminals share: that terminal and
+/// every other one keep getting frames, and a render lock a panic poisoned
+/// still serves frames.
+#[test]
+fn a_panic_building_one_frame_does_not_stop_the_shared_producer() {
+    let mux = Mux::new_for_test("frame-producer-panic", SurfaceOptions::default());
+    let broken =
+        Surface::spawn_for_test(9_952, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    let healthy =
+        Surface::spawn_for_test(9_953, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    spawn_frame_producer(&broken).unwrap();
+    spawn_frame_producer(&healthy).unwrap();
+    let _broken_view = broken.attach_render_stream().unwrap();
+    let _healthy_view = healthy.attach_render_stream().unwrap();
+    let broken_pty = broken.as_pty().unwrap();
+    let healthy_pty = healthy.as_pty().unwrap();
+
+    let panicked = Arc::new(AtomicBool::new(false));
+    {
+        let panicked = panicked.clone();
+        *broken_pty.frame_producer_before_upgrade.lock().unwrap() = Some(Arc::new(move || {
+            if !panicked.swap(true, Ordering::SeqCst) {
+                panic!("test: one terminal's frame build panics");
+            }
+        }));
+    }
+    feed_sync_output(broken_pty, b"panics");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !panicked.load(Ordering::SeqCst) {
+        assert!(Instant::now() < deadline, "the producer never built the panicking frame");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+
+    let generation = feed_sync_output(healthy_pty, b"another terminal");
+    assert!(
+        wait_for_built(healthy_pty, generation, Duration::from_secs(5)).is_some(),
+        "a panic in one terminal's frame stopped every other terminal's frames"
+    );
+    let generation = feed_sync_output(broken_pty, b"the same terminal");
+    assert!(
+        wait_for_built(broken_pty, generation, Duration::from_secs(5)).is_some(),
+        "the terminal whose frame panicked gets no frame again"
+    );
+
+    // A panic that held the render lock poisoned it; frames still come.
+    let poisoned = std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                let _render = broken_pty.render.lock().unwrap();
+                panic!("test: a panic while the render lock is held");
+            })
+            .join()
+    });
+    assert!(poisoned.is_err() && broken_pty.render.lock().is_err());
+    let generation = feed_sync_output(broken_pty, b"after the poison");
+    let started = Instant::now();
+    while broken_pty.render.lock().recover_poison().built_generation < generation {
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "a poisoned render lock stopped the terminal's frames"
+        );
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    let generation = feed_sync_output(healthy_pty, b"still alive");
+    assert!(
+        wait_for_built(healthy_pty, generation, Duration::from_secs(5)).is_some(),
+        "the producer stopped after the poisoned lock"
+    );
+    *broken_pty.frame_producer_before_upgrade.lock().unwrap() = None;
+}

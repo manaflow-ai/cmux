@@ -107,6 +107,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -117,6 +118,9 @@ FIX_COMMAND = "scripts/web-lint.sh --fix"
 MIN_SKIP_REASON = 20
 # "0" (or false/no/off/skip): this host runs no heavy check. Set by the host, e.g. from a fleet registry.
 LOCAL_HEAVY_ENV = "CMUX_LOCAL_HEAVY_CHECKS"
+# --timings: each setup step and check says on stderr when it starts and how long it took, as it happens, so a run
+# stopped by its job's timeout names the step it stalled in (a `bun install` that never returns printed nothing).
+PHASES = False
 # The only check pieces such a host runs, by their leading words: the formatter's check (Oxfmt, no type
 # information), the python3 source checks, and bun running a source-check script from the package's scripts/.
 # Exactly these argument lists, and source-check scripts (light_script): `python3 [-I] SCRIPT.py ARGS` or
@@ -134,6 +138,11 @@ MAX_SCRIPT_DEPTH = 8
 HEAVY_NICE = 10
 HEAVY_GOMEMLIMIT = "6GiB"
 HEAVY_NODE_HEAP_MB = 4096
+# The type-aware tools: `vp lint` and `vp check` (tsgolint, #27177). Started together with the other vp checks on a
+# 4 vCPU CI runner, the web lint took 185 to 698 s over four fast-gates dispatches and once outgrew the job's 15 min;
+# with them sharing heavy_slots() it took 99.9 and 135.8 s (#39782). The runner was not short of memory or CPU then
+# (14.6 GB free, load under 2): the tools sleep while they wait on each other, so fewer at once wait less.
+WEIGHTY = re.compile(r"(?:^|&&|;|\|\|)\s*vp\s+(?:lint|check)\b")
 
 
 @dataclass(frozen=True)
@@ -1270,6 +1279,20 @@ def deps_command(repo: Path, directory: str, force: bool = False, state: TreeSta
     return [shutil.which("bun") or "bun", *command]
 
 
+@contextlib.contextmanager
+def phase(name: str):
+    """With PHASES on: `web-lint: NAME: started` now and `web-lint: NAME: N.Ns` when it ends, flushed."""
+    if not PHASES:
+        yield
+        return
+    print(f"web-lint: {name}: started", file=sys.stderr, flush=True)
+    started = time.monotonic()
+    try:
+        yield
+    finally:
+        print(f"web-lint: {name}: {time.monotonic() - started:.1f}s", file=sys.stderr, flush=True)
+
+
 def ensure_deps(repo: Path, directory: str, force: bool = False) -> Result | None:
     """Install the package's pinned dependencies (fast when they are current), with deps_command's command."""
     command = deps_command(repo, directory, force)
@@ -1278,7 +1301,8 @@ def ensure_deps(repo: Path, directory: str, force: bool = False) -> Result | Non
     if shutil.which(command[0]) is None:  # a relative PATH entry (node_modules/.bin/bun) is a real bun
         return Result(directory, "bun install", 127, "bun is not on PATH; install bun 1.4 to run the web lint.", 0)
     started = time.monotonic()
-    result = run_leaving_no_lockfile(command, repo / directory)
+    with phase(f"{directory}: bun install"):
+        result = run_leaving_no_lockfile(command, repo / directory)
     if result.returncode == 0:
         return None
     return Result(directory, f"bun {' '.join(c for c in command[1:] if c != '--silent')}", result.returncode,
@@ -1366,7 +1390,8 @@ def ensure_build(repo: Path, build: LocalBuild, dependents: list[str]) -> tuple[
     started = time.monotonic()
     env = package_env(repo, build.directory)
     for step in steps:  # spawn() nices and caps them outside CI: the build is tsc
-        result = run_leaving_no_lockfile(step, root, env)
+        with phase(f"{build.directory}: {' '.join([Path(step[0]).name, *step[1:]])}"):
+            result = run_leaving_no_lockfile(step, root, env)
         if result.returncode != 0:
             shown = " ".join([Path(step[0]).name, *(c for c in step[1:] if c != "--silent")])
             return None, Result(build.directory, f"{shown} (the {build.name} bindings)", result.returncode,
@@ -1415,10 +1440,11 @@ def install(repo: Path, directory: str, stale: dict[LocalBuild, str] | None) -> 
 
 
 def run(label: str, command: list[str] | str, cwd: Path, env: dict[str, str], shown: str | None = None) -> Result:
-    started = time.monotonic()
-    result = spawn(command, cwd, env)
     if shown is None:
         shown = command if isinstance(command, str) else " ".join(command)
+    started = time.monotonic()
+    with phase(f"{label}: {shown}"):
+        result = spawn(command, cwd, env)
     return Result(label, shown, result.returncode, result.stdout + result.stderr, time.monotonic() - started)
 
 
@@ -1552,6 +1578,47 @@ def refuse_escapes(tree: Path, plan: Plan, mode: str, read=None) -> bool:
     return bool(plan.script_packages or plan.script_pieces or plan.trusted_pieces or plan.eslint_files)
 
 
+def weighty(piece: str, scripts: dict, seen: tuple[str, ...] = ()) -> bool:
+    """PIECE runs a WEIGHTY tool, itself or through a `bun run NAME` script of SCRIPTS it names."""
+    if WEIGHTY.search(piece):
+        return True
+    for name in re.findall(r"\bbun run ([\w:.-]+)", piece):
+        body = scripts.get(name)
+        if name not in seen and isinstance(body, str) and weighty(body, scripts, (*seen, name)):
+            return True
+    return False
+
+
+def heavy_slots() -> int | None:
+    """How many WEIGHTY checks (and ESLint runs) run at once: in CI one per two cores this process may use, at least
+    one; elsewhere no bound (capped_env and nice keep them off a person's machine)."""
+    if not in_ci():
+        return None
+    cores = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 2)
+    return max(1, cores // 2)
+
+
+def run_checks(repo: Path, plan: Plan, jobs: list[tuple]) -> list[Result]:
+    """Every check job, at most 8 at once and the weighty ones at most heavy_slots() at once, started first; the
+    results in JOBS' order."""
+    slots = heavy_slots()
+    scripts = {package.directory: package_scripts(repo, package) for package in plan.script_packages}
+    weighs = [slots is not None and (job[0] in plan.eslint_files or isinstance(job[1], str)
+                                     and weighty(job[1], scripts.get(job[0], {}))) for job in jobs]
+    gate = threading.BoundedSemaphore(slots) if slots else None
+
+    def check(index: int) -> Result:
+        if not weighs[index]:
+            return run(*jobs[index])
+        with gate:  # a check's phase starts once it holds a slot, so a queued one is never named as running
+            return run(*jobs[index])
+
+    order = sorted(range(len(jobs)), key=lambda index: not weighs[index])
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(8, len(jobs)))) as pool:
+        futures = {index: pool.submit(check, index) for index in order}
+        return [futures[index].result() for index in range(len(jobs))]
+
+
 def run_plan(repo: Path, plan: Plan, fix: bool, cache: bool = True, heavy: bool = True,
              mode: str = "web-lint") -> list[Result]:
     # With heavy checks off: no install or build (the bindings build is `npm ci` plus tsc), only the allowlist,
@@ -1570,8 +1637,85 @@ def run_plan(repo: Path, plan: Plan, fix: bool, cache: bool = True, heavy: bool 
             return installs
     for job in fixes:
         run(*job)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(8, len(jobs)))) as pool:
-        return list(pool.map(lambda job: run(*job), jobs))
+    return run_checks(repo, plan, jobs)
+
+
+def piece_tree_paths(repo: Path, sha: str | None, plan: Plan, read) -> list[str] | None:
+    """The files of commit SHA a lint tree needs when PLAN runs lone source-check pieces only (a Swift-only push:
+    Plan.script_pieces and trusted_pieces, no package check, no ESLint), or None when the tree must be the whole
+    commit. They are what the pieces declare they read (INPUTS, the same declaration that chose them), the
+    package's package.json (the folder a piece starts in) and its other executed folders (scripts/cmux-next/, where
+    the scripts and the modules they import are).
+
+    A full lint tree is every file of the commit: 49,011 files on 2026-11-10, written by `git worktree add`, which
+    took 7 s of a Swift-only push's 11 s of web lint on an idle Mac and 2-6 minutes on a loaded one, for three
+    checks that read 14,791 of them and run for 2 s.
+
+    None also when a piece declares nothing, or when a symlink or a submodule lies in what a piece reads: a link
+    would be read through to a file this tree does not hold."""
+    if sha is None or plan.script_packages or plan.eslint_files or not (plan.script_pieces or plan.trusted_pieces):
+        return None
+    packages = {package.directory: package for package in SCRIPT_PACKAGES}
+    readers = ((plan.script_pieces, read),
+               (plan.trusted_pieces, trusted_reader(plan.trusted, read) if plan.trusted else read))
+    patterns: list[str] = []
+    for pieces_of, reader in readers:
+        for directory, pieces in pieces_of.items():
+            package = packages[directory]
+            for piece in pieces:
+                inputs = piece_inputs(package, piece, reader)
+                if not inputs:
+                    return None
+                patterns += inputs
+            patterns += [f"{directory}/package.json", *(path for path in package.executed if path != f"{directory}/")]
+    listed = subprocess.run(["git", "-C", str(repo), "ls-tree", "-r", "-z", sha], capture_output=True)
+    if listed.returncode != 0:
+        raise SystemExit(f"web-lint: git ls-tree {sha} failed: {listed.stderr.decode(errors='replace').strip()}")
+    # Where each pattern reads: the folder a `DIR/**/GLOB` walks, or the path itself.
+    roots = [pattern.split("**/", 1)[0] if "**/" in pattern else pattern.rstrip("/") + "/" for pattern in patterns]
+    paths = []
+    for entry in listed.stdout.decode("utf-8", "surrogateescape").split("\0"):
+        if not entry:
+            continue
+        meta, _, path = entry.partition("\t")
+        mode, kind = meta.split(" ")[:2]
+        if kind != "blob" or mode == SYMLINK_MODE:
+            if any(f"{path}/".startswith(root) or root.startswith(f"{path}/") for root in roots):
+                return None
+            continue
+        if any(input_matches(path, pattern) for pattern in patterns):
+            paths.append(path)
+    return paths
+
+
+def export_files(repo: Path, sha: str, paths: list[str], tree: Path, work: Path) -> None:
+    """PATHS of commit SHA written under TREE (a new folder), from git objects through a throwaway index in WORK.
+    No worktree is registered, so nothing here takes the clone's shared worktree list, which `git worktree add`
+    and `remove` both lock (nine hooks at once waited minutes on each, 2026-11-10). The index is filled from the
+    paths' own tree entries, never `git read-tree`: that applies a sparse checkout's rules and would leave files
+    out. Raises when a path was not written: a check must never pass on a tree short of a file it reads."""
+    wanted = set(paths)
+    listed = subprocess.run(["git", "-C", str(repo), "ls-tree", "-r", "-z", sha], capture_output=True)
+    if listed.returncode != 0:
+        raise SystemExit(f"web-lint: git ls-tree {sha} failed: {listed.stderr.decode(errors='replace').strip()}")
+    entries = [entry for entry in listed.stdout.split(b"\0")
+               if entry and entry.partition(b"\t")[2].decode("utf-8", "surrogateescape") in wanted]
+    # Through a file, never a pipe: on a Mac short of pipe memory a write into a pipe blocks for good (git_batch.py).
+    info = work / "index-info"
+    info.write_bytes(b"".join(entry + b"\0" for entry in entries))
+    env = {**os.environ, "GIT_INDEX_FILE": str(work / "index")}
+    tree.mkdir()
+    for command, stdin in ((["update-index", "-z", "--index-info"], info),
+                           (["checkout-index", "--all", f"--prefix={tree}{os.sep}"], None)):
+        with open(stdin or os.devnull, "rb") as handle:
+            done = subprocess.run(["git", "-C", str(repo), *command], env=env, stdin=handle, capture_output=True)
+        if done.returncode != 0:
+            raise SystemExit(f"web-lint: git {command[0]} for the lint tree of {sha[:12]} failed: "
+                             f"{done.stderr.decode(errors='replace').strip()}; nothing was linted")
+    missing = [path for path in paths if not (tree / path).is_file()]
+    if missing:
+        raise SystemExit(f"web-lint: the lint tree of {sha[:12]} lacks {len(missing)} file(s) the checks read "
+                         f"({', '.join(missing[:3])}); nothing was linted")
 
 
 def in_place_cache(repo: Path, head: str | None) -> bool:
@@ -1586,17 +1730,27 @@ def is_checked_out(repo: Path, sha: str) -> bool:
 
 
 @contextlib.contextmanager
-def tree_of(repo: Path, sha: str | None, directories: list[str]):
+def tree_of(repo: Path, sha: str | None, directories: list[str], only: list[str] | None = None):
     """A directory holding exactly commit `sha` (the checkout when it already is), or the checkout for None.
-    Full, not sparse: the webviews checks read the whole repository (check-dialog-key-hints.py ..)."""
+    Full, not sparse: the webviews checks read the whole repository (check-dialog-key-hints.py ..). Except with
+    ONLY (piece_tree_paths(): a plan of lone source-check pieces): then just those files of the commit."""
     if sha is None or is_checked_out(repo, sha):
         yield repo
         return
     holder = Path(tempfile.mkdtemp(prefix="cmux-web-lint-"))
     tree = holder / "tree"
+    if only is not None:
+        try:
+            with phase(f"lint tree at {sha[:12]} ({len(only)} files the checks read)"):
+                export_files(repo, sha, only, tree, holder)
+            yield tree
+        finally:
+            shutil.rmtree(holder, ignore_errors=True)
+        return
     try:
         # No hooks: a checkout hook must not run for a lint tree.
-        git(repo, "-c", "core.hooksPath=/dev/null", "worktree", "add", "--quiet", "--detach", str(tree), sha)
+        with phase(f"lint tree at {sha[:12]}"):
+            git(repo, "-c", "core.hooksPath=/dev/null", "worktree", "add", "--quiet", "--detach", str(tree), sha)
         for directory in directories:
             if (tree / directory).is_dir() and shares_deps(repo, sha, directory):
                 if os.path.lexists(tree / directory / "node_modules"):
@@ -1716,12 +1870,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--trusted-scripts-dir", type=Path,
                         help="the installed cmux-next-checks snapshot that holds push_range.py (the hook passes it)")
     parser.add_argument("--dry-run", action="store_true", help="print what would run, run nothing")
-    parser.add_argument("--timings", action="store_true", help="print each check's time")
+    parser.add_argument("--timings", action="store_true",
+                        help="name each step (lint tree, install, build, check) as it starts and ends; each check's time")
     parser.add_argument("--all", action="store_true",
                         help="run every package check, whatever changed (CI, when the push base is unknown)")
     parser.add_argument("--new-only", action="store_true",
                         help="fail only on findings --base does not have (a pull request merged with its base)")
     args = parser.parse_args(argv)
+    global PHASES
+    PHASES = args.timings
 
     mode = "pre-push" if args.pre_push else "web-lint"
     if args.pre_push:
@@ -1811,7 +1968,7 @@ def main(argv: list[str] | None = None) -> int:
             for job in setup + fixes + jobs:
                 print(shown(job))
             continue
-        with tree_of(repo, head, directories) as tree:
+        with tree_of(repo, head, directories, piece_tree_paths(repo, head, plan, read)) as tree:
             if args.pre_push and not refuse_escapes(tree, plan, mode, read):
                 continue
             found = run_plan(tree, plan, args.fix, cache=tree == repo, heavy=heavy, mode=mode)

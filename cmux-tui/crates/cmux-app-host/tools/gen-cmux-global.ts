@@ -3,6 +3,7 @@
 //   generated/cmux-app.d.ts  typed global (one method per op, TSDoc with class and scope)
 //   generated/scopes.json    op name -> scope (the host's scope check and the consent UI)
 //   generated/ops.json       op names
+//   generated/signals.json   signal sources for cmux.watch (from schema/v2/signals.json)
 // Sources until the merged D7 catalog exists: cmux-tui resource ops, cloud ops,
 // app actions, and every first-party app's catalog fragment (app-catalogs.ts).
 // `--check` exits 1 when a generated file is stale.
@@ -10,6 +11,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { loadAppCatalogs, schemaType } from "./app-catalogs.ts"
+import { SchemaValidator } from "./json-schema.ts"
 
 const here = new URL(".", import.meta.url).pathname
 const repo = join(here, "../../../..")
@@ -41,9 +43,11 @@ const EXECUTE = /(^terminal\.input\.(write|keys|mouse)$|\.run$|^terminal\.(attac
 // workspace.open_url (cx-ebm.59.3) navigates the person's browser tabs; Home and the person's tools only.
 // conductor_import.plan/record read Conductor's database and worktrees and keep the import ledger: the app's
 // own Import from Conductor only.
+// classic_import.plan/record read classic cmux's session files and keep the migration ledger: the app's own
+// move from classic cmux only.
 // palette.rank ranks rows for a cmux page's own palette (the Channels page); apps have `cmux.palette`, the
 // app palette, so the op family would collide with it.
-const NEVER = /(^settings\.(set|reset|reset_all)$|^layout\.bulk$|^keybindings\.(set|remove|reset)$|\.close$|\.shutdown$|^session\.(open|reload_config|creation\.resolve)$|\.renderer_grant\.|\.history\.clear$|^workspace\.agent_(folder|start)\.|^workspace\.open_url$|^conductor_import\.|^palette\.rank$|^team_vm\.retired\.export$|^team\.(audit\.list|members\.remove)$|^agent\.message\.(list|mark|release|send|unsend)$)/
+const NEVER = /(^settings\.(set|reset|reset_all)$|^layout\.bulk$|^keybindings\.(set|remove|reset)$|\.close$|\.shutdown$|^session\.(open|reload_config|creation\.resolve)$|\.renderer_grant\.|\.history\.clear$|^workspace\.agent_(folder|start)\.|^workspace\.open_url$|^conductor_import\.|^classic_import\.|^palette\.rank$|^team_vm\.retired\.export$|^team\.(audit\.list|members\.remove)$|^agent\.message\.(list|mark|release|send|unsend)$)/
 
 /** The daemon's Cloud API calls carry the person's own access token in their params; the app's own Cloud code only. */
 const CLOUD_API_CALLS = [
@@ -57,6 +61,9 @@ const CLOUD_API_CALLS = [
   "cloud.owner.handoff_wait",
   "cloud.owner.handoffs",
   "cloud.owner.harness_login_copy",
+  "cloud.owner.turn_checkpoint",
+  "cloud.owner.turn_rewind",
+  "cloud.owner.turns",
   "cloud.previews.create_link",
   "cloud.previews.refresh",
   "cloud.previews.revoke_link",
@@ -65,23 +72,17 @@ const CLOUD_API_CALLS = [
   "cloud.runs.sandbox",
   "cloud.runs.start",
   "cloud.runs.wait",
-  "cloud.vm.delete_snapshot",
   "cloud.vm.domains",
   "cloud.vm.firewall_create",
   "cloud.vm.firewall_delete",
   "cloud.vm.firewall_get",
   "cloud.vm.firewall_list",
-  "cloud.vm.fork",
   "cloud.vm.networks",
   "cloud.vm.provision_api",
   "cloud.vm.publication_api_keys",
   "cloud.vm.publications",
-  "cloud.vm.resize",
-  "cloud.vm.restore",
   "cloud.vm.revoke_publication_api_key",
   "cloud.vm.scp_endpoint",
-  "cloud.vm.snapshot",
-  "cloud.vm.snapshots",
   "cloud.vm.tunnel_attach",
   "cloud.vm.tunnel_detach",
   "cloud.vm.tunnel_enroll",
@@ -173,6 +174,63 @@ function paramsType(op: Op): string {
   return parts.length ? `{ ${parts.join("; ")} }` : "Record<string, never>"
 }
 
+const SIGNALS = join(here, "../schema/v2/signals.json")
+const SIGNALS_SCHEMA = join(here, "../schema/v2/signals.schema.json")
+
+interface SignalDef {
+  docs: string; scopes: string[]; params: Record<string, unknown>; value: Record<string, unknown>
+  read: { op: string } | { reader: string; ops: Array<{ op: string; scope: string; docs: string }> }
+  push: string[]; pollFloorSeconds: number; staleAfterSeconds: number
+}
+
+/** A value or params schema as TS: schemaType plus `{"$ref": "cmux:types/<Name>"}` for catalog types. */
+function signalType(schema: unknown, types: Record<string, unknown>, depth = 0): string {
+  if (!schema || typeof schema !== "object" || depth > 8) return "unknown"
+  const s = schema as Record<string, unknown>
+  if (typeof s.$ref === "string") {
+    const name = /^cmux:types\/([A-Za-z0-9_]+)$/.exec(s.$ref)?.[1]
+    if (!name || !(name in types)) throw new Error(`signals.json: unknown type ${s.$ref}`)
+    return `Cmux.${name}`
+  }
+  if (s.type === "array") return `Array<${signalType(s.items, types, depth + 1)}>`
+  if (s.type === "object" && s.properties) {
+    const required = new Set((s.required ?? []) as string[])
+    const props = Object.entries(s.properties as Record<string, Record<string, unknown>>)
+    return `{ ${props.map(([k, v]) => `${typeof v.description === "string" ? `/** ${v.description.replace(/\*\//g, "* /")} */ ` : ""}${ident(k)}${required.has(k) ? "" : "?"}: ${signalType(v, types, depth + 1)}`).join("; ")} }`
+  }
+  return schemaType(s, depth)
+}
+
+/**
+ * schema/v2/signals.json, checked against its schema, every read op and scope against the catalog,
+ * as the runtime's table (generated/signals.json) and the d.ts name -> {params, value} map.
+ */
+export function loadSignals(scopes: Record<string, { scope: string; class: string }>, types: Record<string, unknown>): { json: string; dts: string } {
+  const file = JSON.parse(readFileSync(SIGNALS, "utf8")) as { signals: Record<string, SignalDef> }
+  const errors = new SchemaValidator(JSON.parse(readFileSync(SIGNALS_SCHEMA, "utf8"))).validate(file)
+  if (errors.length) throw new Error(`schema/v2/signals.json: ${errors.map((e) => `${e.path || "/"} ${e.message}`).join("; ")}`)
+  const names = Object.keys(file.signals).sort()
+  const lines: string[] = []
+  for (const name of names) {
+    const def = file.signals[name]!
+    const ops = "op" in def.read ? [{ op: def.read.op, scope: scopes[def.read.op]?.scope ?? "" }] : def.read.ops
+    for (const { op, scope } of ops) {
+      const known = scopes[op]
+      if (!known) throw new Error(`signals.json: ${name} reads ${op}, which apps cannot call`)
+      if (known.class !== "read" && known.class !== "runtime") throw new Error(`signals.json: ${name} reads ${op}, which is not a read (${known.class})`)
+      const fits = known.scope === scope || (known.scope.includes("<") && new RegExp(`^${known.scope.replace(/<[a-z]+>/g, "[^:]+")}(:read)?$`).test(scope))
+      if (!fits) throw new Error(`signals.json: ${name} says ${op} needs ${scope}, the catalog says ${known.scope}`)
+      if (!def.scopes.includes(scope)) throw new Error(`signals.json: ${name} reads ${op} with ${scope}, which its scopes do not list`)
+    }
+    if (def.staleAfterSeconds < def.pollFloorSeconds) throw new Error(`signals.json: ${name} goes stale before it may be polled again`)
+    const how = def.push.length ? `pushed by ${def.push.map((p) => `\`${p}\``).join(", ")}` : `polled every ${def.staleAfterSeconds} s (never faster than ${def.pollFloorSeconds} s): nothing pushes it yet`
+    lines.push(`  /** \`${name}\`: ${def.docs.replace(/\*\//g, "* /")} Scope: any of ${def.scopes.map((s) => `\`${s}\``).join(", ")}; ${how}. */`)
+    lines.push(`  ${JSON.stringify(name)}: { params: ${signalType(def.params, types)}; value: ${signalType(def.value, types)} }`)
+  }
+  const table = Object.fromEntries(names.map((n) => [n, file.signals[n]]))
+  return { json: JSON.stringify({ version: 1, signals: table }, null, 2) + "\n", dts: lines.join("\n") }
+}
+
 export function generate(): Record<string, string> {
   const { ops, types, generics } = loadCatalog()
   const names = Object.keys(ops).sort()
@@ -204,9 +262,12 @@ export function generate(): Record<string, string> {
     "coderouter.accounts.list": { scope: "coderouter:read", class: "read" },
     "coderouter.usage.get": { scope: "coderouter:read", class: "read" },
     // The Agent Memory app's search, from the agent memory index (optchat-chief agent-memory).
-    "memory.search": { scope: "memory:read", class: "read" }
+    "memory.search": { scope: "memory:read", class: "read" },
+    // The agent chats the sidebar shows (AgentChatAppOps in CmuxNextApps), for a customize section's thread list.
+    "agent_chat.list": { scope: "agent_chat:read", class: "read" }
   }
   Object.assign(scopes, hostOps)
+  const signals = loadSignals(scopes, types)
 
   // d.ts: nested namespaces by family.
   type Tree = { ops: Array<[string, string]>; children: Map<string, Tree> }
@@ -264,6 +325,8 @@ interface CmuxGlobal {
 ${render(root, "  ")}
   call<T = unknown>(name: string, params?: unknown, options?: CmuxCallOptions): Promise<T>
   live<T = unknown>(op: string | { opName: string }, params?: unknown, options?: { events?: string[]; select?: (v: unknown) => T }): CmuxLive<T>
+  /** A live, cached read of a signal source (schema/v2/signals.json): one upstream read per (name, params) however many sections watch it, pushed re-reads, polling only at the source's floor, stale-while-revalidate. See CmuxSignalMap for the sources. */
+  watch: CmuxWatchFn
   events: { on(stream: string, fn: (payload: unknown) => void, filter?: unknown): () => void }
   actions: { run(id: CmuxActionId | (string & {}), args?: Record<string, unknown>): Promise<unknown> }
   storage: { get<T = unknown>(key: string): Promise<T | null>; set(key: string, value: unknown): Promise<unknown>; delete(key: string): Promise<unknown>; keys(): Promise<string[]> }
@@ -284,6 +347,34 @@ ${render(root, "  ")}
   log(...parts: unknown[]): void
 }
 declare const cmux: CmuxGlobal
+
+// Signals (cmux.watch). Generated from schema/v2/signals.json; the runtime's table is generated/signals.json.
+interface CmuxSignalMap {
+${signals.dts}
+}
+type CmuxSignalName = keyof CmuxSignalMap
+/** loading: no value yet. fresh: the last read succeeded. stale: the value shown is being re-read, or the last re-read failed (error says why). error: no value and the read failed. */
+type CmuxWatchStatus = "loading" | "fresh" | "stale" | "error"
+interface CmuxWatchState<T> { readonly value: T | undefined; readonly status: CmuxWatchStatus; readonly error?: CmuxError; /** ms since the epoch of the last successful read, else null. */ readonly updatedAt: number | null }
+/** Read it in a binding (\`() => prs().value\`), or one field at a time (\`prs.value\`) so only that field's readers re-run. */
+interface CmuxWatch<T> {
+  (): CmuxWatchState<T>
+  value(): T | undefined
+  status(): CmuxWatchStatus
+  error(): CmuxError | undefined
+  updatedAt(): number | null
+  /** Re-reads now (coalesced with a read in flight); resolves with the state after it. */
+  refresh(): Promise<CmuxWatchState<T>>
+  /** Stops reading for this reader; automatic when the render or effect that called watch is disposed. */
+  dispose(): void
+}
+interface CmuxWatchOptions { /** Poll this often while this reader is mounted; clamped up to the source's pollFloorSeconds. Ignored for pushed sources. */ everySeconds?: number }
+interface CmuxWatchFn {
+  /** \`params\` may be a function: it is tracked, and the reader moves to the new (name, params) when its answer changes (a setting). */
+  <N extends CmuxSignalName>(name: N, params?: CmuxSignalMap[N]["params"] | (() => CmuxSignalMap[N]["params"]), options?: CmuxWatchOptions): CmuxWatch<CmuxSignalMap[N]["value"]>
+  /** Re-reads a source now for commands (a Refresh command); a section watching the same (name, params) shows the result. */
+  refresh<N extends CmuxSignalName>(name: N, params?: CmuxSignalMap[N]["params"]): Promise<CmuxWatchState<CmuxSignalMap[N]["value"]>>
+}
 interface CmuxTheme {
   readonly accent: "accent"
   readonly text: { readonly primary: "primary"; readonly secondary: "secondary"; readonly tertiary: "tertiary" }
@@ -376,7 +467,7 @@ declare function Reorderable<T>(spec: CmuxListSpec<T>, template: (item: CmuxSign
 `
   const scopesJson = JSON.stringify({ apiVersion: API_VERSION, ops: Object.fromEntries(Object.entries(scopes).sort(([a], [b]) => a.localeCompare(b))), never: never.sort() }, null, 2) + "\n"
   const opsJson = JSON.stringify({ apiVersion: API_VERSION, ops: Object.keys(scopes).sort() }, null, 2) + "\n"
-  return { "cmux-app.d.ts": dts, "scopes.json": scopesJson, "ops.json": opsJson }
+  return { "cmux-app.d.ts": dts, "scopes.json": scopesJson, "ops.json": opsJson, "signals.json": signals.json }
 }
 
 if (import.meta.main) {

@@ -151,6 +151,93 @@ struct ErrorJournalTests {
         }
     }
 
+    /// The app opens its journal on the main thread at launch (`AppControl.start`). Reading and
+    /// re-redacting up to 4 MiB of entries there held NIGHTLY's main thread 3.1 s at launch
+    /// (hang-2026-11-08T00-05-39.892Z: `ErrorJournal.init` → `ErrorRedactor.redactAssignments`).
+    /// Opening must not touch the disk; the first call on the actor reads it, off the main thread.
+    @Test func openingReadsNothingUntilFirstUse() async throws {
+        let journal = ErrorJournal(directory: directory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let kept = ErrorEntry(fingerprint: "kept", source: "app", level: .error, template: "kept from an earlier launch",
+                              sample: "kept from an earlier launch", topFrame: nil, context: [:],
+                              count: 4, firstMs: 1, lastMs: 2)
+        var line = try JSONEncoder().encode(kept)
+        line.append(UInt8(ascii: "\n"))
+        try line.write(to: directory.appendingPathComponent("segment-000001.ndjson"))
+
+        let entry = try #require(await journal.entries().first)
+        #expect(entry.sample == "kept from an earlier launch")
+        #expect(entry.count == 4)
+    }
+
+    /// Opening a full journal costs the caller nothing measurable (printed for the PR); the read
+    /// happens on the first call, on the actor.
+    @Test func openingAFullJournalIsCheap() async throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var lines = Data()
+        for index in 0..<1000 {
+            let text = "request \(index) failed: password=hunter\(index) token=abc\(index) " + String(repeating: "x", count: 900)
+            let entry = ErrorEntry(fingerprint: "f\(index)", source: "app", level: .error, template: text, sample: text,
+                                   topFrame: nil, context: ["url": "https://h.example/x?token=s\(index)"],
+                                   count: 1, firstMs: Int64(index), lastMs: Int64(index))
+            lines.append(try JSONEncoder().encode(entry))
+            lines.append(UInt8(ascii: "\n"))
+        }
+        try lines.write(to: directory.appendingPathComponent("segment-000001.ndjson"))
+        let clock = ContinuousClock()
+        var journal: ErrorJournal?
+        let open = clock.measure { journal = ErrorJournal(directory: directory) }
+        let opened = try #require(journal)
+        var count = 0
+        let firstUse = await clock.measure { count = await opened.entryCount }
+        #expect(count == 1000)
+        print("error journal (\(lines.count) bytes): init \(open), first use \(firstUse)")
+        #expect(open < .milliseconds(50), "init took \(open) for a \(lines.count)-byte journal")
+    }
+
+    /// A journal this build wrote is already redacted with today's rules, so reopening it decodes
+    /// the lines and redacts nothing. Re-redacting every line of a 2 MB journal on each launch cost
+    /// about 18 s of background CPU in a debug build (a1049, after f185601 moved it off the main
+    /// thread). Printed for the PR: bytes, lines, wall time and process CPU of the reopen.
+    @Test func aJournalThisBuildWroteReopensWithoutRedactingIt() async throws {
+        let writer = ErrorJournal(directory: directory)
+        let filler = String(repeating: "lorem ipsum dolor sit amet ", count: 40)
+        let events = (0..<1000).map { index in
+            let word = String(index, radix: 26).map { Character(UnicodeScalar(UInt8(97 + Int(String($0), radix: 26)!))) }
+            let name = String(word)
+            // The filler first: the Authorization rule redacts to the end of its line.
+            return event("fetch \(name) failed: \(filler) https://u:p@h.example/\(name)?token=s\(index)&page=2 "
+                + "password=hunter\(index) Authorization: Bearer abc.def\(index)",
+                source: "app", at: TimeInterval(index), frame: "Loader.swift:\(name)")
+        }
+        await writer.record(contentsOf: events)
+        await writer.flush()
+        #expect(await writer.entryCount == 1000)
+        let bytes = await writer.diskBytes
+        #expect(bytes > 1_500_000, "a journal the size the cost was measured on (\(bytes) bytes)")
+
+        let reader = ErrorJournal(directory: directory)
+        let clock = ContinuousClock()
+        let cpuBefore = Self.processCPUSeconds()
+        var count = 0
+        let reopen = await clock.measure { count = await reader.entryCount }
+        let cpu = Self.processCPUSeconds() - cpuBefore
+        #expect(count == 1000)
+        print("error journal reopen (\(bytes) bytes, \(count) entries): wall \(reopen), process cpu \(String(format: "%.3f", cpu)) s")
+        #expect(reopen < .seconds(1), "reopening a \(bytes)-byte journal this build wrote took \(reopen)")
+        let entry = try #require(await reader.entries(ErrorQuery(limit: 1)).first)
+        #expect(!entry.sample.contains("hunter"))
+        #expect(await reader.diskBytes == bytes, "nothing to rewrite")
+    }
+
+    /// User plus system CPU of this process so far, in seconds.
+    private static func processCPUSeconds() -> Double {
+        var usage = rusage()
+        getrusage(RUSAGE_SELF, &usage)
+        func seconds(_ time: timeval) -> Double { Double(time.tv_sec) + Double(time.tv_usec) / 1_000_000 }
+        return seconds(usage.ru_utime) + seconds(usage.ru_stime)
+    }
+
     @Test func migratedEntriesKeepTheirFingerprintContinuity() async throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let legacy = ErrorEntry(

@@ -20,21 +20,115 @@ public nonisolated struct WindowFrame: Sendable {
     public nonisolated struct Measure: Sendable {
         public var outsideBefore: Double, outsideFinal: Double, insideBefore: Double, insideFinal: Double
         public var stripBefore: Double, stripFinal: Double, flatness: Double
+        /// The content area's ink before the key or at the end, whichever is more (``PaneMeasure/settledInk``).
+        public var settledInk: Double = 0
+        /// The screen still shows the ink the content area lost (``PaneMeasure/inkKept``).
+        public var inkKept = false
+        /// Each of `measure`'s `panes`, in its order.
+        public var panes: [PaneMeasure] = []
+    }
+
+    /// One pane's content area in one frame: how flat it is and, when flat, how far it is from the same rect in the
+    /// frame before the key and in the last frame (0 for a rect that is not flat: it cannot be blank, so it is not compared).
+    /// `settledInk`: the share of the rect off its one color (1 - flatness) before the key or at the end, whichever is more.
+    /// `inkKept`: the screen (every pane rect together) holds at least as much ink as before the key or at the end,
+    /// whichever is less, short of at most half this rect's settled ink: what the rect lost moved, it did not go.
+    public nonisolated struct PaneMeasure: Sendable, Equatable {
+        public var flatness: Double, vsBefore: Double, vsFinal: Double, settledInk: Double
+        public var inkKept: Bool
+
+        public init(flatness: Double, vsBefore: Double, vsFinal: Double, settledInk: Double, inkKept: Bool = false) {
+            (self.flatness, self.vsBefore, self.vsFinal, self.settledInk, self.inkKept) = (flatness, vsBefore, vsFinal, settledInk, inkKept)
+        }
+
+        /// The flatness past which a content area counts as one color: an empty terminal is flat too, so a blank
+        /// frame must also differ from both the frame before the key and the last one.
+        public static let flatShare = 0.995
+
+        /// Blank: one flat color that is neither what the rect showed before the key nor what it settles on, and that
+        /// lost its ink (at most half of what the rect held before or at the end) or changed color. An empty terminal is flat even with its
+        /// prompt drawn, and mid-motion that prompt sits where neither frame has it; it still has its ink, so it is drawn.
+        /// The rect is where the pane rests, before the key or at the end, not where it is mid-motion: a pane that slides
+        /// (a close's neighbour growing over the closed pane) takes its prompt out of its rest rect. With `inkKept` the
+        /// screen still shows that ink, so the rect lost none of its own: drawn, not blank.
+        public func isBlank(tolerance: Double) -> Bool {
+            Self.isBlank(flatness: flatness, vsBefore: vsBefore, vsFinal: vsFinal, settledInk: settledInk, inkKept: inkKept,
+                         tolerance: tolerance)
+        }
+
+        public static func isBlank(flatness: Double, vsBefore: Double, vsFinal: Double, settledInk: Double, inkKept: Bool = false,
+                                   tolerance: Double) -> Bool {
+            guard flatness > flatShare, vsBefore > tolerance, vsFinal > tolerance else { return false }
+            // A pane that changed color (a flash of another background) is blank with its ink or without it.
+            return ((1 - flatness) * 2 <= settledInk && !inkKept) || min(vsBefore, vsFinal) > recolored
+        }
+
+        /// The share of a flat rect that differs from both frames past which its color changed, not just its ink moved:
+        /// a moving prompt differs by a few percent at most, a flash of another background by nearly all of it.
+        public static let recolored = 0.25
+    }
+
+    /// The pane rects a frame strip judges for blank frames: `before` (at the key) then `final` (at the report), as
+    /// whole pixels, empty and repeated rects dropped, at most `cap` (the panes on screen; a cap bounds the work).
+    public static func paneRects(before: [CGRect], final: [CGRect], cap: Int = 16) -> [CGRect] {
+        var rects: [CGRect] = []
+        for rect in before + final {
+            let whole = rect.integral
+            guard rects.count < cap, !whole.isNull, whole.width >= 1, whole.height >= 1, !rects.contains(whole) else { continue }
+            rects.append(whole)
+        }
+        return rects
     }
 
     @concurrent public static func measure(_ frames: [WindowFrame], before: WindowFrame, last: WindowFrame,
-                                          content: CGRect?, strip: CGRect?) async -> [Measure] {
+                                          content: CGRect?, strip: CGRect?, panes: [CGRect] = []) async -> [Measure] {
         let outside = content.map { content in strip.map { content.union($0) } ?? content }
-        return frames.map { frame in
-            // Outside: the window beyond the content and the strip, whose tabs slide on their own.
-            Measure(outsideBefore: frame.difference(from: before, excluding: outside),
-                    outsideFinal: frame.difference(from: last, excluding: outside),
-                    insideBefore: content.map { frame.difference(from: before, excluding: strip, within: $0) } ?? 0,
-                    insideFinal: content.map { frame.difference(from: last, excluding: strip, within: $0) } ?? 0,
-                    stripBefore: strip.map { frame.difference(from: before, within: $0) } ?? 0,
-                    stripFinal: strip.map { frame.difference(from: last, within: $0) } ?? 0,
-                    flatness: content.map { frame.flatness(in: $0) } ?? 0)
+        // Read once a strip: before and last are the same for every frame.
+        let contentInk = content.map { settledInk(in: $0, before: before, last: last) } ?? 0
+        let paneInks = panes.map { settledInk(in: $0, before: before, last: last) }
+        // The screen the panes share: what one rect loses to a pane's slide another one (or a strip between) shows.
+        let screen = (panes + (content.map { [$0] } ?? [])).reduce(CGRect.null) { $0.union($1) }
+        let screenInk = screen.isNull ? 0 : min(before.inkPixels(in: screen), last.inkPixels(in: screen))
+        func kept(_ shown: Double, _ rect: CGRect?, _ share: Double) -> Bool {
+            guard let rect, !screen.isNull else { return false }
+            return shown >= screenInk - share * Double(before.pixelCount(in: rect)) / 2
         }
+        return frames.map { frame in
+            var measure = measured(frame, before: before, last: last, content: content, strip: strip, outside: outside)
+            let shown = screen.isNull ? 0 : frame.inkPixels(in: screen)
+            measure.settledInk = contentInk
+            measure.inkKept = kept(shown, content, contentInk)
+            measure.panes = zip(panes, paneInks).map { rect, ink in
+                var pane = frame.paneMeasure(in: rect, before: before, last: last, settledInk: ink)
+                pane.inkKept = kept(shown, rect, ink)
+                return pane
+            }
+            return measure
+        }
+    }
+
+    static func settledInk(in rect: CGRect, before: WindowFrame, last: WindowFrame) -> Double {
+        max(1 - before.flatness(in: rect), 1 - last.flatness(in: rect))
+    }
+
+    /// One pane rect of this frame against `before` and `last`; the two comparisons only when the rect is flat.
+    func paneMeasure(in rect: CGRect, before: WindowFrame, last: WindowFrame, settledInk: Double) -> PaneMeasure {
+        let flat = flatness(in: rect)
+        guard flat > PaneMeasure.flatShare else { return PaneMeasure(flatness: flat, vsBefore: 0, vsFinal: 0, settledInk: settledInk) }
+        return PaneMeasure(flatness: flat, vsBefore: difference(from: before, within: rect), vsFinal: difference(from: last, within: rect),
+                           settledInk: settledInk)
+    }
+
+    private static func measured(_ frame: WindowFrame, before: WindowFrame, last: WindowFrame, content: CGRect?, strip: CGRect?,
+                                 outside: CGRect?) -> Measure {
+        // Outside: the window beyond the content and the strip, whose tabs slide on their own.
+        Measure(outsideBefore: frame.difference(from: before, excluding: outside),
+                outsideFinal: frame.difference(from: last, excluding: outside),
+                insideBefore: content.map { frame.difference(from: before, excluding: strip, within: $0) } ?? 0,
+                insideFinal: content.map { frame.difference(from: last, excluding: strip, within: $0) } ?? 0,
+                stripBefore: strip.map { frame.difference(from: before, within: $0) } ?? 0,
+                stripFinal: strip.map { frame.difference(from: last, within: $0) } ?? 0,
+                flatness: content.map { frame.flatness(in: $0) } ?? 0)
     }
 
     /// Reads the window's composited image back to back until `until` ms after `start`. `crop`: the
@@ -58,6 +152,11 @@ public nonisolated struct WindowFrame: Sendable {
             if let kept, let frame = WindowFrame(kept, scale: scale, at: at) { frames.append(frame) }
         }
         return frames
+    }
+
+    /// A frame of these RGBA pixels (top row first), for tests.
+    init(milliseconds: Double, width: Int, height: Int, pixels: [UInt8]) {
+        (self.milliseconds, self.width, self.height, self.pixels) = (milliseconds, width, height, pixels)
     }
 
     init?(_ image: CGImage, scale: Double, at milliseconds: Double) {
@@ -85,8 +184,9 @@ public nonisolated struct WindowFrame: Sendable {
     func difference(from b: WindowFrame, excluding excluded: CGRect? = nil, within: CGRect? = nil) -> Double {
         guard width == b.width, height == b.height else { return 1 }
         var differing = 0, counted = 0
-        for y in 0..<height {
-            for x in 0..<width {
+        let (rows, columns) = within.map { span(of: $0) } ?? (rows: 0..<height, columns: 0..<width)
+        for y in rows {
+            for x in columns {
                 // The bitmap holds its top row first, as the rects count from the top left.
                 let point = CGPoint(x: Double(x) + 0.5, y: Double(y) + 0.5)
                 if let excluded, excluded.contains(point) { continue }
@@ -102,10 +202,26 @@ public nonisolated struct WindowFrame: Sendable {
 
     /// The share of `rect`'s pixels within a small step of its most common color.
     func flatness(in rect: CGRect) -> Double {
+        let (near, total) = flatCounts(in: rect)
+        return total > 0 ? Double(near) / Double(total) : 0
+    }
+
+    /// The pixels of `rect` off its one color (``flatness(in:)``'s complement, as a count).
+    func inkPixels(in rect: CGRect) -> Double {
+        let (near, total) = flatCounts(in: rect)
+        return Double(total - near)
+    }
+
+    /// The pixels whose centers `rect` holds.
+    func pixelCount(in rect: CGRect) -> Int { flatCounts(in: rect).total }
+
+    /// The pixels of `rect` near its most common color, and all of its pixels.
+    private func flatCounts(in rect: CGRect) -> (near: Int, total: Int) {
         var counts: [UInt32: Int] = [:], total = 0
         var samples: [(Int, Int, Int)] = []
-        for y in 0..<height {
-            for x in 0..<width where rect.contains(CGPoint(x: Double(x) + 0.5, y: Double(y) + 0.5)) {
+        let (rows, columns) = span(of: rect)
+        for y in rows {
+            for x in columns where rect.contains(CGPoint(x: Double(x) + 0.5, y: Double(y) + 0.5)) {
                 let i = (y * width + x) * 4
                 let r = Int(pixels[i]), g = Int(pixels[i + 1]), b = Int(pixels[i + 2])
                 counts[UInt32(r >> 3) << 10 | UInt32(g >> 3) << 5 | UInt32(b >> 3), default: 0] += 1
@@ -113,10 +229,20 @@ public nonisolated struct WindowFrame: Sendable {
                 total += 1
             }
         }
-        guard total > 0, let mode = counts.max(by: { $0.value < $1.value })?.key else { return 0 }
+        guard total > 0, let mode = counts.max(by: { $0.value < $1.value })?.key else { return (0, 0) }
         let r = Int(mode >> 10) << 3, g = Int((mode >> 5) & 31) << 3, b = Int(mode & 31) << 3
         let near = samples.filter { abs($0.0 - r) <= 12 && abs($0.1 - g) <= 12 && abs($0.2 - b) <= 12 }.count
-        return Double(near) / Double(total)
+        return (near, total)
+    }
+
+    /// The rows and columns that can hold a pixel center inside `rect`: a pane's rect is read alone, not the whole frame.
+    func span(of rect: CGRect) -> (rows: Range<Int>, columns: Range<Int>) {
+        guard !rect.isNull, rect.minX.isFinite, rect.maxX.isFinite, rect.minY.isFinite, rect.maxY.isFinite else { return (0..<0, 0..<0) }
+        func range(_ low: CGFloat, _ high: CGFloat, _ limit: Int) -> Range<Int> {
+            let start = min(limit, max(0, Int(low.rounded(.down)))), end = max(start, min(limit, Int(high.rounded(.up))))
+            return start..<end
+        }
+        return (range(rect.minY, rect.maxY, height), range(rect.minX, rect.maxX, width))
     }
 
     static func elapsed(since start: ContinuousClock.Instant) -> Double {

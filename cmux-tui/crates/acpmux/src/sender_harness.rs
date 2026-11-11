@@ -86,6 +86,10 @@ pub struct Chain {
     pub harness: Option<(String, u32)>,
     /// The bundle's name (`Claude.app`) and path.
     pub app: Option<(String, String)>,
+    /// The file name of the first tool an app only ships that the walk went past (`Python`, for
+    /// Xcode's python): no app's own code ([`app_bundle`]), yet a program, so a send under it is a
+    /// tool's and never the person's plain shell ([`from_chain`]).
+    pub shipped: Option<String>,
 }
 
 /// The claim this process makes, from its environment and, when that is silent or names two
@@ -123,20 +127,39 @@ pub fn detect(
     env: &impl Fn(&str) -> Option<String>,
     walk: impl FnOnce() -> Chain,
 ) -> Option<Value> {
-    let set = |key: &str| env(key).map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
-    if set("ACPMUX_SESSION_ID").is_some() && set(crate::hub::person::CALLER_TOKEN_ENV).is_some() {
+    if in_session(env) {
         return None;
     }
-    let (claude, codex) = (claude_code(env), codex(env));
-    match (claude, codex) {
+    let mut walk = once(walk);
+    of_env(env, &mut walk).or_else(|| ai_agent(env)).or_else(|| from_chain(&walk()))
+}
+
+/// In an acpmux session, whose caller token proves where a send came from.
+fn in_session(env: &impl Fn(&str) -> Option<String>) -> bool {
+    let set = |key: &str| env(key).is_some_and(|v| !v.trim().is_empty());
+    set("ACPMUX_SESSION_ID") && set(crate::hub::person::CALLER_TOKEN_ENV)
+}
+
+/// Claude Code's or Codex's markers. With both (a Codex run from a Claude shell inherits
+/// `CLAUDECODE`), the harness nearer in the process chain, else Codex.
+fn of_env(
+    env: &impl Fn(&str) -> Option<String>,
+    walk: &mut impl FnMut() -> Chain,
+) -> Option<Value> {
+    match (claude_code(env), codex(env)) {
         (Some(claude), Some(codex)) => {
-            let walked = walk();
-            let nearer = walked.harness.as_ref().map(|(h, _)| h.as_str());
-            Some(if nearer == Some("claude-code") { claude } else { codex })
+            let nearer = walk().harness.map(|(h, _)| h);
+            Some(if nearer.as_deref() == Some("claude-code") { claude } else { codex })
         }
         (Some(found), None) | (None, Some(found)) => Some(found),
-        (None, None) => ai_agent(env).or_else(|| from_chain(&walk())),
+        (None, None) => None,
     }
+}
+
+/// `walk`, read at most once.
+fn once(walk: impl FnOnce() -> Chain) -> impl FnMut() -> Chain {
+    let mut walk = Some(walk);
+    move || walk.take().map(|walk| walk()).unwrap_or_default()
 }
 
 /// Claude Code's own markers: `CLAUDECODE=1` or an entrypoint.
@@ -191,16 +214,18 @@ pub fn ai_agent(env: &impl Fn(&str) -> Option<String>) -> Option<Value> {
     Some(claim)
 }
 
-/// A claim from a process chain: a known harness binary, or an app bundle that is not a terminal
-/// (a shell under a terminal is the person's).
+/// A claim from a process chain: a known harness binary, an app bundle that is not a terminal (a
+/// shell under a terminal is the person's), or else a tool an app ships that the walk went past.
 pub fn from_chain(chain: &Chain) -> Option<Value> {
     let app = chain.app.as_ref().map(|(name, _)| name.as_str());
     let mut claim = match &chain.harness {
         Some((harness, pid)) => json!({"harness": harness, "pid": pid}),
-        None => {
-            let app = app.filter(|a| !is_terminal(a))?;
-            json!({"harness": app.trim_end_matches(".app")})
-        }
+        None => match app.filter(|a| !is_terminal(a)) {
+            Some(app) => json!({"harness": app.trim_end_matches(".app")}),
+            // A tool an app ships (Xcode's python) is named by its own file, not the app: still a
+            // program's send, as when the walk stopped at the app that ships it.
+            None => json!({"harness": chain.shipped.as_deref()?}),
+        },
     };
     put(&mut claim, "source", json!("process"));
     if let Some(app) = app {
@@ -235,12 +260,19 @@ pub fn note_mcp_client(params: &Value) {
 /// The claim an MCP tool's send makes: the environment's, else the MCP client's.
 pub fn of_this_mcp_server() -> Option<Value> {
     let env = |key: &str| std::env::var(key).ok();
-    if env("ACPMUX_SESSION_ID").is_some_and(|v| !v.trim().is_empty())
-        && env(crate::hub::person::CALLER_TOKEN_ENV).is_some_and(|v| !v.trim().is_empty())
-    {
+    of_mcp(&env, || chain(lookup, std::process::id()), MCP_CLIENT.get())
+}
+
+/// [`of_this_mcp_server`] over `env`, with `walk` read only when needed.
+pub fn of_mcp(
+    env: &impl Fn(&str) -> Option<String>,
+    walk: impl FnOnce() -> Chain,
+    client: Option<&Value>,
+) -> Option<Value> {
+    if in_session(env) {
         return None;
     }
-    claude_code(&env).or_else(|| codex(&env)).or_else(|| MCP_CLIENT.get().and_then(from_mcp_client))
+    of_env(env, &mut once(walk)).or_else(|| client.and_then(from_mcp_client))
 }
 
 /// A claim as the daemon keeps it: the known fields, each one line of at most
@@ -318,6 +350,26 @@ pub fn record(prompt_id: &str, claimed: Option<Value>, checked: Option<Value>) -
         put(&mut record, "checked", checked);
     }
     Some(record)
+}
+
+/// A prompt's acceptance callback that also writes its `sender_claim` with `write`, once the
+/// prompt is kept (queued, started or steered in): a duplicate, a withdrawn one or an inbox resend
+/// (`resent`) writes nothing, and a refused prompt never calls its acceptance, so no claim names a
+/// prompt the chat does not hold, nor rewrites one it holds.
+pub fn on_kept(
+    claim: Value,
+    write: impl FnOnce(Value) + Send + 'static,
+    next: Option<Box<dyn FnOnce(Value) + Send>>,
+) -> Option<Box<dyn FnOnce(Value) + Send>> {
+    Some(Box::new(move |accepted: Value| {
+        let said = |key: &str| accepted.get(key).and_then(Value::as_bool) == Some(true);
+        if !said("duplicate") && !said("withdrawn") && !said("resent") {
+            write(claim);
+        }
+        if let Some(next) = next {
+            next(accepted);
+        }
+    }))
 }
 
 /// What the daemon knows of a connection's other end, for [`check_trust`].
@@ -409,11 +461,17 @@ pub fn chain(lookup: impl Fn(u32) -> Option<Proc>, pid: u32) -> Chain {
     let mut at = pid;
     for _ in 0..MAX_HOPS {
         let Some(p) = lookup(at) else { break };
-        if found.app.is_none() {
+        let name = p.exe.rsplit('/').next().unwrap_or(p.exe.as_str());
+        // acpmux itself may be the copy an app ships (cmux.app's): that bundle is not the sender.
+        // The first process is acpmux by construction, whatever the kernel names its file
+        // (cmux.app's bin/acpmux resolves to bin/cmux).
+        if found.app.is_none() && p.pid != pid && name != "acpmux" {
             found.app = app_bundle(&p.exe);
+            if found.app.is_none() && found.shipped.is_none() && p.exe.contains(".app/") {
+                found.shipped = Some(name.to_owned());
+            }
         }
         if found.harness.is_none() {
-            let name = p.exe.rsplit('/').next().unwrap_or(p.exe.as_str());
             found.harness = HARNESS_BINARIES
                 .iter()
                 .find(|(binary, _)| *binary == name)
@@ -427,12 +485,55 @@ pub fn chain(lookup: impl Fn(u32) -> Option<Proc>, pid: u32) -> Chain {
     found
 }
 
-/// The outermost `.app` bundle in an executable path: its name and its path.
+/// `pid` and its parents, nearest first, at most [`MAX_HOPS`]: what the kernel says of the
+/// socket peer's ancestry, read one pid at a time (`hub/desktop_bridge.rs` binds a desktop chat's
+/// send by it). Empty where no process can be read.
+pub fn ancestors(pid: u32) -> Vec<u32> {
+    ancestors_in(lookup, pid)
+}
+
+fn ancestors_in(lookup: impl Fn(u32) -> Option<Proc>, pid: u32) -> Vec<u32> {
+    let mut found = Vec::new();
+    let mut at = pid;
+    for _ in 0..MAX_HOPS {
+        let Some(p) = lookup(at) else { break };
+        found.push(p.pid);
+        if p.ppid <= 1 || p.ppid == p.pid {
+            break;
+        }
+        at = p.ppid;
+    }
+    found
+}
+
+/// The parent of `pid`, read for that pid alone (`sender_program.rs` walks the same chain).
+pub(crate) fn parent(pid: u32) -> Option<u32> {
+    lookup(pid).map(|p| p.ppid)
+}
+
+/// Where an app bundle keeps its own code: its main executable, its frameworks and helper apps
+/// (Claude.app's `Contents/Frameworks/Claude Helper.app`), its helpers, XPC services and login
+/// items.
+const OWN_CODE: &[&str] = &[
+    "Contents/MacOS/",
+    "Contents/Frameworks/",
+    "Contents/Helpers/",
+    "Contents/XPCServices/",
+    "Contents/Library/LoginItems/",
+];
+
+/// The app bundle an executable is the code of: the outermost `.app` in its path, when the
+/// executable is that app's own code ([`OWN_CODE`]), with its name and path. A tool an app only
+/// ships is not that app, nor is any bundle inside it: Xcode's
+/// `Contents/Developer/.../Python.app/Contents/MacOS/Python` (which ran our outbox relay and drew as
+/// "Xcode", Leo, 2026-11-11: "what's up with this?"), its git and clang, anything under
+/// `Contents/Resources/` or `Contents/SharedSupport/`; the walk goes on past it.
 fn app_bundle(exe: &str) -> Option<(String, String)> {
     let end = exe.find(".app/")? + ".app".len();
-    let path = exe.get(..end)?;
+    let (path, inside) = (exe.get(..end)?, exe.get(end + 1..)?);
     let name = path.rsplit('/').next()?;
-    (name.len() > ".app".len()).then(|| (name.to_owned(), path.to_owned()))
+    (name.len() > ".app".len() && OWN_CODE.iter().any(|dir| inside.starts_with(dir)))
+        .then(|| (name.to_owned(), path.to_owned()))
 }
 
 fn is_terminal(app: &str) -> bool {
@@ -490,9 +591,118 @@ fn signer(path: &str) -> Option<String> {
     if !cfg!(target_os = "macos") {
         return None;
     }
-    let out =
-        std::process::Command::new("codesign").args(["-dv", "--verbose=2", path]).output().ok()?;
-    parse_signer(&String::from_utf8_lossy(&out.stderr))
+    static SIGNERS: std::sync::OnceLock<Signers> = std::sync::OnceLock::new();
+    SIGNERS.get_or_init(Signers::default).signer(path, run_codesign)
+}
+
+/// `codesign -dv` on one bundle: what it writes to stderr, empty when it cannot run.
+fn run_codesign(path: &str) -> String {
+    std::process::Command::new("codesign")
+        .args(["-dv", "--verbose=2", path])
+        .output()
+        .map(|out| String::from_utf8_lossy(&out.stderr).into_owned())
+        .unwrap_or_default()
+}
+
+/// Who signed each app bundle the daemon has looked at, kept while the bundle's files are the
+/// same. A send from an agent inside an app (cmux.app, Claude.app) walks to that app every time,
+/// and `codesign -dv` costs about 15 ms; reading what it reads costs a few `stat`s.
+#[derive(Default)]
+struct Signers {
+    known: std::sync::Mutex<std::collections::HashMap<String, (BundleFiles, Option<String>)>>,
+}
+
+/// At most this many bundles are kept; past it the cache starts again empty.
+const MAX_SIGNERS: usize = 64;
+
+impl Signers {
+    /// Who signed the bundle at `path`, by `run` (`codesign -dv`'s stderr), run again only when
+    /// the bundle's files changed since the last answer for `path`. A path whose files cannot
+    /// be read is asked each time and never kept.
+    fn signer(&self, path: &str, run: impl FnOnce(&str) -> String) -> Option<String> {
+        let Some(files) = BundleFiles::read(path) else {
+            return parse_signer(&run(path));
+        };
+        if let Some((seen, signer)) = self.known().get(path)
+            && *seen == files
+        {
+            return signer.clone();
+        }
+        // codesign runs with no lock held: two sends from one new bundle may both run it.
+        let signer = parse_signer(&run(path));
+        let mut known = self.known();
+        if known.len() >= MAX_SIGNERS && !known.contains_key(path) {
+            known.clear();
+        }
+        known.insert(path.to_owned(), (files, signer.clone()));
+        signer
+    }
+
+    fn known(
+        &self,
+    ) -> std::sync::MutexGuard<'_, std::collections::HashMap<String, (BundleFiles, Option<String>)>>
+    {
+        self.known.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+/// What `codesign -dv` reads of a bundle, as the file system describes it: the bundle folder,
+/// `Contents/Info.plist`, `Contents/_CodeSignature/CodeResources` and every entry of
+/// `Contents/MacOS` (identity, size, change time). An update, a re-sign or a replaced bundle
+/// changes at least one. Provenance only (see the module notes): a writer that keeps all of
+/// these the same could just as well sign the bundle itself.
+#[derive(Debug, PartialEq, Eq)]
+struct BundleFiles(Vec<(String, FileStamp)>);
+
+#[derive(Debug, PartialEq, Eq)]
+struct FileStamp {
+    dev: u64,
+    ino: u64,
+    len: u64,
+    modified: Option<std::time::SystemTime>,
+    changed: (i64, i64),
+}
+
+impl BundleFiles {
+    fn read(path: &str) -> Option<Self> {
+        let root = std::path::Path::new(path);
+        let mut files = vec![(String::new(), FileStamp::of(root)?)];
+        for part in ["Contents/Info.plist", "Contents/_CodeSignature/CodeResources"] {
+            if let Some(stamp) = FileStamp::of(&root.join(part)) {
+                files.push((part.to_owned(), stamp));
+            }
+        }
+        let macos = root.join("Contents/MacOS");
+        if let Some(stamp) = FileStamp::of(&macos) {
+            files.push(("Contents/MacOS".to_owned(), stamp));
+        }
+        let mut executables: Vec<(String, FileStamp)> = std::fs::read_dir(&macos)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|entry| {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                Some((format!("Contents/MacOS/{name}"), FileStamp::of(&entry.path())?))
+            })
+            .collect();
+        executables.sort_by(|a, b| a.0.cmp(&b.0));
+        files.extend(executables);
+        Some(Self(files))
+    }
+}
+
+impl FileStamp {
+    fn of(path: &std::path::Path) -> Option<Self> {
+        use std::os::unix::fs::MetadataExt;
+        let meta = std::fs::metadata(path).ok()?;
+        Some(Self {
+            dev: meta.dev(),
+            ino: meta.ino(),
+            len: meta.len(),
+            modified: meta.modified().ok(),
+            changed: (meta.ctime(), meta.ctime_nsec()),
+        })
+    }
 }
 
 fn parse_signer(codesign: &str) -> Option<String> {

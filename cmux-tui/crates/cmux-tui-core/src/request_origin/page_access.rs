@@ -129,6 +129,9 @@ const fn access(operation: Op) -> Access {
         | Op::ProjectRemove
         | Op::ProjectSync
         | Op::ProjectSourceUpdate
+        // Classic's session files and the migration ledger: the app's classic migration.
+        | Op::ClassicImportPlan
+        | Op::ClassicImportRecord
         // Conductor's database and worktrees, read by the app's Import from Conductor.
         | Op::ConductorImportPlan
         | Op::ConductorImportRecord
@@ -208,6 +211,7 @@ const fn access(operation: Op) -> Access {
         | Op::PaneFocusDirection
         | Op::PaneNeighborGet
         | Op::PaneSwap
+        | Op::PaneMove
         | Op::PaneZoom
         | Op::PaneSplitRatioSet
         | Op::PaneViewportWidthSet
@@ -405,12 +409,6 @@ const fn access(operation: Op) -> Access {
         | Op::ConversationDraft
         | Op::ConversationEvents
         // The person's Cloud API calls, with credentials a page never holds (server/cloud_api.rs).
-        | Op::CloudVmResize
-        | Op::CloudVmSnapshot
-        | Op::CloudVmSnapshots
-        | Op::CloudVmDeleteSnapshot
-        | Op::CloudVmRestore
-        | Op::CloudVmFork
         | Op::CloudVmScpEndpoint
         | Op::CloudVmTunnelEnroll
         | Op::CloudVmTunnelRevoke
@@ -441,6 +439,9 @@ const fn access(operation: Op) -> Access {
         | Op::CloudOwnerHandoffBeginTurn
         | Op::CloudOwnerHarnessLoginCopy
         | Op::CloudOwnerGithubApp
+        | Op::CloudOwnerTurnCheckpoint
+        | Op::CloudOwnerTurnRewind
+        | Op::CloudOwnerTurns
         | Op::CloudPreviewsRefresh
         | Op::CloudPreviewsCreateLink
         | Op::CloudPreviewsRevokeLink

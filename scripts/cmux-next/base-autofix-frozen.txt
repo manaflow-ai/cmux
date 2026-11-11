@@ -3,7 +3,7 @@
 # permanent freezes and the settings slot. A regenerated file under one is
 # reported and left to its owner's pull request (app-ffi-pin.json and the
 # Package.swift that reads it: the app FFI pin goes through app-ffi-release.yml's
-# app-ffi-repin pull request).
+# repin job, which pins it on the base or opens the app-ffi-repin pull request).
 cmux.xcodeproj/project.pbxproj
 Packages/macOS/CmuxNext/Package.swift
 Packages/macOS/CmuxNext/app-ffi-pin.json

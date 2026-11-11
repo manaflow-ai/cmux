@@ -175,6 +175,10 @@ const ENTRANCES: Record<string, { count: number; what: string }> = {
   "src/agent-session/acpmux/PeerCopyBanner.tsx": { count: 3, what: "a banner at the top of the chat" },
   "src/agent-session/acpmux/WatchBanner.tsx": { count: 1, what: "a banner at the top of the chat" },
   "src/agent-session/acpmux/conversation/ArtifactPanel.tsx": { count: 1, what: "the artifact side panel" },
+  "src/agent-session/acpmux/conversation/PromptCoachCard.tsx": {
+    count: 1,
+    what: "a prompt coach card arriving under a turn",
+  },
   "src/agent-session/acpmux/session-info/useSessionInfo.tsx": { count: 1, what: "the Session Info side panel" },
   "src/agent-session/acpmux/session-info/TasksSection.tsx": { count: 1, what: "an arriving task row" },
   "src/agent-session/acpmux/summary/SummaryCard.tsx": { count: 1, what: "the summary side panel" },
@@ -207,6 +211,10 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   "src/agent-session/acpmux/changes/treeTitles.ts": { count: 2, what: "a long tree title's marquee" },
   "src/agent-session/acpmux/conversation/PromptText.tsx": { count: 3, what: "a prompt bubble resizes" },
   "src/agent-session/acpmux/conversation/fold.ts": { count: 3, what: "a transcript block folds" },
+  "src/agent-session/acpmux/conversation/Thinking.tsx": {
+    count: 1,
+    what: "the live line's token count glides sideways when its words change width",
+  },
   "src/agent-session/acpmux/header/headerMotion.ts": {
     count: 3,
     what: "the chat header's icons (Debug agentChat.headerMotion): an arriving icon springs in, its neighbours glide, and an opening click's glyph travels to its pane's tab; buttons and a ghost, never a menu",
@@ -216,8 +224,20 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
     what: "a followed reply eases into each new line",
   },
   "src/agent-session/acpmux/conversation/sendMorph.ts": {
+    count: 2,
+    what: "a prompt sent from the latest row moves from the composer into its message (the move's clock), or fades where it is when it was queued",
+  },
+  "src/agent-session/acpmux/conversation/sendTuck.ts": {
+    count: 2,
+    what: "a prompt sent while scrolled up arcs over the composer and tucks behind it",
+  },
+  "src/agent-session/acpmux/conversation/turnEndFold.ts": {
     count: 1,
-    what: "a sent picture or video moves from its composer chip to its slot in the message (the move's clock)",
+    what: "a turn's end folds its work in one motion: the rows that stay slide to their place, copies of the rows it took away fade where they were",
+  },
+  "src/agent-session/acpmux/conversation/tailGlide.ts": {
+    count: 2,
+    what: "the rows under a change in a running turn (the live line, a steer, the footer) glide to their new place, and the row above one that glides down shows its new part as the room opens (a clip on the same clock); transcript rows, never a menu",
   },
   "src/agent-session/acpmux/conversation/turnFold.ts": { count: 1, what: "a turn folds" },
   "src/agent-session/acpmux/session-info/SessionInfoGroup.tsx": { count: 1, what: "Session Info sections slide" },
@@ -227,8 +247,8 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   },
   "src/agent-session/acpmux/newtab/listMotion.ts": { count: 1, what: "New Tab rows move to their new place" },
   "src/agent-session/acpmux/subagents/trayMotion.tsx": {
-    count: 1,
-    what: "a status line's width easing as its words slide",
+    count: 2,
+    what: "a status line's width easing as its words slide; the hat's +N more and time gliding to their new place in the row",
   },
   "src/agent-session/acpmux/threadMinimap/ThreadMinimap.tsx": { count: 1, what: "the minimap glides" },
   "src/agent-session/acpmux/threadMinimap/scrollMotion.ts": { count: 1, what: "the minimap's scroll bubble" },

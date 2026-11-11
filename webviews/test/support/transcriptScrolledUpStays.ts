@@ -319,7 +319,7 @@ export async function scrolledUpStays({ file, engine, cases, configFile }: Scrol
         return "end-key";
       },
       "Jump to latest": async (page) => {
-        await page.locator(".acpmux-jump-latest[data-shown]").click();
+        await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]").click();
         return "jump";
       },
       "a send": async (page) => {

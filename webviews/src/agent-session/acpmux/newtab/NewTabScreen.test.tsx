@@ -2,9 +2,12 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act, StrictMode, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { noChat } from "../../../gallery/fixtures/acpmux";
+import { noChat, session } from "../../../gallery/fixtures/acpmux";
+import { showsFirstRunStarters } from "./FirstRunStarters";
+import { translateNewTab } from "./strings";
 import { ClosedList } from "./ClosedList";
 import { NewTabScreen } from "./NewTabScreen";
+import { newProjectPrompt, takeProjectPreview } from "./newProject";
 import { CloudStartView } from "../CloudStartView";
 import { registerHarnessesPage } from "../harnesses/harnessesPage";
 import type { SavedEnvironment } from "../environments";
@@ -389,6 +392,76 @@ test("a fresh New Tab exposes the no-project path in its environment card", asyn
   expect(container.querySelector('.nt-env .nt-stage-row[aria-pressed="true"]')).toBeTruthy();
 });
 
+test("first run: the starters show only once acpmux answered with an agent and no chat exists", () => {
+  expect(showsFirstRunStarters(noChat([]), { allChats: false })).toBe(true);
+  // Before acpmux answers, an empty chat list proves nothing about a first run.
+  expect(showsFirstRunStarters(noChat([], { catalog: [] }), { allChats: false })).toBe(false);
+  expect(showsFirstRunStarters(noChat([session({ sessionId: "s1" })]), { allChats: false })).toBe(false);
+  expect(showsFirstRunStarters(noChat([]), { allChats: true })).toBe(false);
+  // A cached catalog can come before the chats are listed: no starters until they are.
+  expect(showsFirstRunStarters(noChat([]), { allChats: false, chatsPending: true })).toBe(false);
+  // Chats the host indexed on this device show as recent chats: that Mac is not on a first run.
+  expect(showsFirstRunStarters(noChat([]), { allChats: false, deviceChats: 2 })).toBe(false);
+});
+
+test("while the chats are still being listed, New Tab draws no starters", async () => {
+  await act(async () => {
+    root!.render(<NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([])} chatsPending />);
+  });
+  await promptField();
+  expect(container.querySelector(".nt-starters")).toBeNull();
+});
+
+test("a starter picked in shell mode leaves shell mode, so Return asks the agent", async () => {
+  let shellRuns = 0;
+  await act(async () => {
+    root!.render(
+      <NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([])} onShell={() => void shellRuns++} />,
+    );
+  });
+  const field = await typePrompt("!");
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(container.querySelector(".nt-screen[data-shell]")).toBeTruthy();
+  const fix = container.querySelector<HTMLButtonElement>('.nt-starter[data-starter="fix"]')!;
+  await act(async () => fix.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(container.querySelector(".nt-screen[data-shell]")).toBeNull();
+  expect(promptValue(field)).toBe(translateNewTab("starters.fix"));
+  await press(field, "Enter");
+  expect(shellRuns).toBe(0);
+});
+
+test("a first-run starter fills the composer, sends nothing, and the rows stay while it is edited", async () => {
+  let asked = 0;
+  await act(async () => {
+    root!.render(
+      <NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([])} onAsk={() => void asked++} />,
+    );
+  });
+  const field = await promptField();
+  const rows = [...container.querySelectorAll<HTMLButtonElement>(".nt-starters .nt-starter")];
+  expect(rows.map((row) => row.textContent)).toEqual([
+    translateNewTab("starters.explain"),
+    translateNewTab("starters.fix"),
+    translateNewTab("starters.review"),
+  ]);
+  await act(async () => rows[1]!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(promptValue(field)).toBe(translateNewTab("starters.fix"));
+  expect(asked).toBe(0);
+  expect(container.querySelectorAll(".nt-starters .nt-starter")).toHaveLength(3);
+});
+
+test("with a chat on this Mac, New Tab draws no starters", async () => {
+  await act(async () => {
+    root!.render(
+      <NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([session({ sessionId: "s1" })])} />,
+    );
+  });
+  await promptField();
+  expect(container.querySelector(".nt-starters")).toBeNull();
+});
+
 test("No folder, then a remote machine with a folder: headline, location and send name that folder", async () => {
   const remoteFolder = "/remote/project";
   const asks: unknown[][] = [];
@@ -748,6 +821,67 @@ test("an Escape on the list is forgotten once the text changes: the same word ty
   await typePrompt("/");
   expect(menu()).not.toBeNull();
 });
+
+test("a lone GitHub issue URL offers an explicit fix worktree action", async () => {
+  const fixes: Array<{ url: string; cwd?: string }> = [];
+  let finish!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const asks: unknown[][] = [];
+  const opened: string[] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat([], { summary: { sessionId: "seed", harness: "claude" } })}
+        onAsk={(...args) => asks.push(args)}
+        onOpen={(url) => opened.push(url)}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        onFixFromLink={(url, cwd) => {
+          fixes.push({ url, cwd });
+          return pending;
+        }}
+        lastAgent="claude"
+        cwd="/tmp/picked-checkout"
+      />,
+    );
+  });
+  const field = await typePrompt("https://github.com/manaflow-ai/cmux/issues/123");
+  const chip = container.querySelector<HTMLButtonElement>(".nt-fix-chip");
+  expect(chip?.textContent).toContain("Fix in a new worktree");
+  await act(async () => chip!.click());
+  await act(async () => chip!.click());
+  expect(fixes).toEqual([{ url: "https://github.com/manaflow-ai/cmux/issues/123", cwd: "/tmp/picked-checkout" }]);
+  expect(chip!.disabled).toBe(true);
+  await act(async () => finish());
+  expect(chip!.disabled).toBe(false);
+  await press(field, "Enter");
+  expect(asks).toEqual([]);
+  expect(opened).toEqual(["https://github.com/manaflow-ai/cmux/issues/123"]);
+});
+
+for (const mode of ["sandboxed", "cloud"] as const) {
+  test(`an issue URL never offers a local fix in ${mode} mode`, async () => {
+    await act(async () => {
+      root!.render(
+        <NewTabScreen
+          {...firstRunProps}
+          snapshot={noChat()}
+          onFixFromLink={() => {
+            throw new Error("local fix must not run");
+          }}
+          runMode={{ mode, onMode: () => {} }}
+          location="https://github.com/manaflow-ai/cmux/issues/123"
+        />,
+      );
+    });
+    expect(container.querySelector(".nt-fix-chip")).toBeNull();
+  });
+}
 
 test("a chosen document uses the New Tab upload path and becomes sendable", async () => {
   const uploaded: File[][] = [];
@@ -1412,6 +1546,34 @@ test("Open in Profile…: a search no profile is named makes one with that name;
   expect(made).toEqual([["https://example.com", "Client X"]]);
 });
 
+test("a first-run starter picked in the profile search leaves it, so Return asks the agent", async () => {
+  const made: unknown[] = [];
+  let asked = 0;
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        template="minimal"
+        snapshot={noChat([])}
+        omnibar={profileOmnibar}
+        onAsk={() => void asked++}
+        onOpenInProfile={(url, id) => made.push([url, id])}
+        onOpenInNewProfile={(url, name) => made.push([url, name])}
+      />,
+    );
+  });
+  const field = await typePrompt("example.com");
+  await press(field, "ArrowDown");
+  await press(field, "Enter");
+  const fix = container.querySelector<HTMLButtonElement>('.nt-starter[data-starter="fix"]')!;
+  await act(async () => fix.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(promptValue(field)).toBe(translateNewTab("starters.fix"));
+  await press(field, "Enter");
+  expect(made).toEqual([]);
+  expect(asked).toBe(1);
+});
+
 test("Open in New Profile from the address's rows makes a profile with the default name", async () => {
   const made: [string, string | undefined][] = [];
   await act(async () => {
@@ -1429,4 +1591,111 @@ test("Open in New Profile from the address's rows makes a profile with the defau
   await press(field, "ArrowDown");
   await press(field, "Enter");
   expect(made).toEqual([["https://example.com", undefined]]);
+});
+
+/// New Project (newProject.ts): the folder menu's New project row on a New Tab that can make one.
+async function renderNewProject(onNewProject: (name: string) => Promise<string>, asks: unknown[][]): Promise<void> {
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        cwd="/Users/you/src/cmux"
+        startCwd="/Users/you/src/cmux"
+        projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
+        environments
+        onNewProject={onNewProject}
+        onAsk={(...args) => asks.push(args)}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+      />,
+    );
+  });
+  const folder = container.querySelector<HTMLButtonElement>('.nt-location [aria-label="Folder"]');
+  expect(folder).toBeTruthy();
+  await act(async () => folder!.click());
+  const row = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+    (option) => option.textContent?.trim() === translate("project.new"),
+  );
+  expect(row, "no New project row").toBeTruthy();
+  await act(async () => row!.click());
+}
+
+const projectNameField = () => container.querySelector<HTMLInputElement>(".nt-project-name__field");
+
+async function editProjectName(value: string) {
+  const input = projectNameField()!;
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!;
+    setter.call(input, value);
+    input.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+}
+
+test("New project: the name follows the prompt until edited; the send makes that folder and starts the chat there", async () => {
+  const asks: unknown[][] = [];
+  const names: string[] = [];
+  let made!: (folder: string) => void;
+  await renderNewProject((name) => {
+    names.push(name);
+    return new Promise<string>((resolve) => (made = resolve));
+  }, asks);
+
+  // The strip reads New project, and the name field holds the placeholder name of an empty prompt.
+  expect(container.querySelector(".nt-location")?.textContent).toContain(translate("project.new"));
+  const field = projectNameField();
+  expect(field?.getAttribute("aria-label")).toBe(translate("project.new.name"));
+  expect(field?.value).toBe("project");
+
+  await typePrompt("a habit tracker web app");
+  expect(projectNameField()?.value).toBe("habit-tracker");
+
+  // The person's name wins over the prompt's from then on.
+  await editProjectName("Habit Streaks");
+  expect(projectNameField()?.value).toBe("habit-streaks");
+  await typePrompt("a habit tracker web app with streaks");
+  expect(projectNameField()?.value).toBe("habit-streaks");
+
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(names).toEqual(["habit-streaks"]);
+  // Nothing starts until acpmux made the folder.
+  expect(asks).toHaveLength(0);
+
+  const folder = "/Users/you/projects/habit-streaks";
+  await act(async () => made(folder));
+  expect(asks).toHaveLength(1);
+  expect(asks[0]?.[1]).toBe(newProjectPrompt("a habit tracker web app with streaks"));
+  expect(asks[0]?.[2]).toBe(folder);
+  // Its chat opens its first local page beside it (App.tsx), once.
+  expect(takeProjectPreview(folder)).toBe(true);
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+});
+
+test("New project refused: the reason shows above the card, no chat starts and the prompt stays", async () => {
+  const asks: unknown[][] = [];
+  const names: string[] = [];
+  const reason = "a folder named habit-tracker can't be made";
+  await renderNewProject((name) => {
+    names.push(name);
+    return Promise.reject(new Error(reason));
+  }, asks);
+
+  await typePrompt("a habit tracker web app");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+  expect(names).toEqual(["habit-tracker"]);
+  expect(asks).toHaveLength(0);
+  expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+    translate("project.new.failedBecause", { reason }),
+  );
+  expect(promptValue()).toBe("a habit tracker web app");
+  // Still New project, so a second send tries again.
+  expect(projectNameField()?.value).toBe("habit-tracker");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(names).toEqual(["habit-tracker", "habit-tracker"]);
 });

@@ -15,6 +15,7 @@ import {
   inlineIds,
   inlinePlugin,
   insertInline,
+  type InlinePlace,
   orderInline,
   placeTokensIn,
   removeInline,
@@ -29,7 +30,11 @@ import { caretInView } from "./composer/caretInView";
 import { fieldGrowth } from "./composer/fieldGrowth";
 import { commandEdit, setSlashNames, slashTokensPlugin, slashTriggerAt } from "./composer/slashTokens";
 import { deeplinkTokensPlugin } from "./composer/deeplinkTokens";
-import { composerDeeplinkLook } from "./composer/deeplinkLook.experiment";
+import { deeplinkTitlesPlugin, type DeeplinkTitles } from "./composer/deeplinkTitles";
+import { CMUX_LINK_ICONS, knownCmuxLink, subscribeCmuxLinks } from "./chips/cmuxLinkResolve";
+import { iconMaskUrl } from "./icons/iconMask";
+import { subscribeIconFamily } from "./icons/iconPack";
+import { cmuxLinkLook } from "./chips/cmuxLinkLook.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import type { SlashNames, SlashTrigger } from "./slashCommands";
 import { MINIMAL_SCROLLER_ATTRIBUTE } from "../../scrollers";
@@ -56,8 +61,30 @@ import { type EditorState, Plugin, Selection, TextSelection } from "@milkdown/ki
 import { Fragment, type Node as ProseNode, Slice } from "@milkdown/kit/prose/model";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import type { RemarkParser } from "@milkdown/kit/transformer";
-import { $prose, getMarkdown, replaceAll } from "@milkdown/kit/utils";
+import { $prose, replaceAll } from "@milkdown/kit/utils";
 import { FADE_BAND_PX } from "./markdownFieldModel";
+
+/// How the draft names its known cmux links (composer/deeplinkTitles.ts), in the sent message's
+/// look (chips/cmuxLinkLook.experiment.ts); none in its `link` arm.
+function draftLinkTitles(): DeeplinkTitles | undefined {
+  const look = experimentArm(cmuxLinkLook);
+  if (look === "link") return undefined;
+  return {
+    known: knownCmuxLink,
+    // The page's icon family too: a pooled page learns it when claimed, and the icon follows it.
+    subscribe: (listener) => {
+      const offLinks = subscribeCmuxLinks(listener);
+      const offFamily = subscribeIconFamily(listener);
+      return () => {
+        offLinks();
+        offFamily();
+      };
+    },
+    label: (info) => (look === "icon-title-host" && info.host ? `${info.title} · ${info.host}` : info.title),
+    // The sent chip's kind icon (chips/CmuxLinkChip.tsx), in the looks that draw one.
+    icon: (info) => (look === "kind-title" ? undefined : iconMaskUrl(CMUX_LINK_ICONS[info.kind])),
+  };
+}
 
 /// What the composer drives the field with, in place of a textarea's DOM API.
 export type MarkdownFieldHandle = {
@@ -80,6 +107,10 @@ export type MarkdownFieldHandle = {
   /// Whether Backspace here would do nothing: an empty caret at the very start of a plain first
   /// paragraph (a heading, list item or quote there takes Backspace to lift itself).
   atStart(): boolean;
+  /// Whether the caret is on the prompt's first visual line ("up") or its last ("down"), wrapped
+  /// lines counted: ↑ or ↓ there has no line of the prompt to move to. True before the editor is
+  /// made (one line of plain text).
+  caretOnEdgeLine(direction: "up" | "down"): boolean;
   /// Rewrites the plain text to `value` as one undoable edit of the span that changed, then
   /// selects `selectionStart...selectionEnd`; the composer hears it through `onChange`.
   writeText(value: string, selectionStart: number, selectionEnd: number): void;
@@ -106,10 +137,13 @@ export type MarkdownFieldHandle = {
   /// The formats active at the selection, for the toolbar's pressed states.
   formats(): Set<MarkdownFormat>;
   /// The field's own history (its context menu's Undo and Redo): whether there is an edit to
-  /// undo or redo, and doing it.
-  history(): { undo: boolean; redo: boolean };
+  /// undo or redo, how many it can undo (`depth`) and redo (`redoDepth`), and doing it.
+  history(): { undo: boolean; redo: boolean; depth: number; redoDepth: number };
   undo(): void;
   redo(): void;
+  /// Ends the current undo step: what is typed next is its own step (a surface's own edit, such as
+  /// a staged file, went in between).
+  closeHistory(): void;
   /// Selects the whole prompt (its context menu's Select All).
   selectAll(): void;
   /// Inserts `text` at the selection as a paste of plain text goes in, with no surface rule run on it
@@ -117,8 +151,10 @@ export type MarkdownFieldHandle = {
   insertText(text: string): void;
   /// Places attachments `ids` at the caret, in the text (composer/inlineNode.ts); false where they
   /// cannot go (a code block, an editor not made yet). `replace`: the person's paste or drop, which
-  /// takes the selection's place; otherwise nothing typed is replaced.
-  insertInline(ids: readonly string[], replace?: boolean): boolean;
+  /// takes the selection's place; otherwise nothing typed is replaced. `at` "start": at the start of
+  /// the prompt's first line that can hold them, the selection kept; "restore": there, as no undo
+  /// step of its own (inlineNode.ts `insertInline`).
+  insertInline(ids: readonly string[], replace?: boolean, at?: InlinePlace): boolean;
   /// Takes attachment `id` out of the text; `caret`, the caret goes where it was.
   removeInline(id: string, caret?: boolean): void;
   /// Puts the attachments placed in the text in `ids`' order, each place in the text kept.
@@ -387,16 +423,148 @@ const COMMIT_RETURN_MS = 500;
 /** Return or keypad Enter, also when an input method reports its key as "Process". */
 const isReturnKey = (event: KeyboardEvent) =>
   event.key === "Enter" || event.code === "Enter" || event.code === "NumpadEnter";
+/// The top-level blocks a prompt's markdown is written block by block from: each writes the same
+/// markdown alone as it does in the document, and the document joins them with one blank line.
+/// A list does not (two lists in a row are written apart), so a document with one is written whole.
+const BLOCKWISE = new Set(["paragraph", "heading", "code_block"]);
+const EMPTY_PARAGRAPH = "<br />";
+/// Each block's markdown, kept by node, apart for a field with placed attachments (their text is
+/// escaped): ProseMirror keeps every block an edit did not touch, so a key writes its own block.
+const blockMarkdown = { plain: new WeakMap<ProseNode, string>(), inline: new WeakMap<ProseNode, string>() };
+
+/// A pasted prompt is one paragraph whose lines are hard breaks, so its lines are kept too: each run
+/// between breaks, kept by its first node with the nodes it was written from.
+const lineMarkdown = { plain: new WeakMap<ProseNode, LineKept>(), inline: new WeakMap<ProseNode, LineKept>() };
+type LineKept = { nodes: ProseNode[]; before?: ProseNode; after?: ProseNode; markdown: string };
+/// What each kind of hard break writes between two lines, by its attributes.
+const breakMarkdown = { plain: new Map<string, string>(), inline: new Map<string, string>() };
+/// Stands in for the text beyond a line's breaks while the line is written alone. Escaping reads
+/// only the characters next to the break, which the break itself writes, so the line writes the same.
+const OUTSIDE = "\uE000";
+
+/** The document's markdown as Milkdown's serializer writes it, from each block's kept markdown
+ * when every block allows it, and in a paragraph from each line's. A key into a 200,000-character
+ * prompt then writes one line, not the whole prompt (Leo, 2026-11-04: interaction cost stays
+ * constant as sessions grow). */
+// perf-hot: 2ms composer-draft-typing
+export function blockwiseMarkdown(doc: ProseNode, serialize: (doc: ProseNode) => string, inline: boolean): string {
+  const write = (node: ProseNode) => serialize(inline ? withTextMarksEscaped(node) : node);
+  // The serializer drops an empty paragraph at the end, which alone would write as `<br />`.
+  const last = doc.lastChild;
+  let blockwise = doc.childCount > 0 && !(last?.type.name === "paragraph" && !last.content.size);
+  doc.forEach((block) => {
+    // A paragraph that ends in a hard break writes its last newline as the break's own.
+    if (!BLOCKWISE.has(block.type.name) || block.lastChild?.type.name === "hardbreak") blockwise = false;
+  });
+  if (!blockwise) return write(doc);
+  if (doc.childCount === 1) {
+    const lines = linewiseMarkdown(doc, doc.child(0), write, inline);
+    return lines === undefined ? write(doc) : `${lines}\n`;
+  }
+  const kept = inline ? blockMarkdown.inline : blockMarkdown.plain;
+  const parts: string[] = [];
+  doc.forEach((block) => {
+    let markdown = kept.get(block);
+    if (markdown === undefined) {
+      // Alone, an empty paragraph writes nothing; in a document, Milkdown writes it as `<br />`.
+      markdown =
+        !block.content.size && block.type.name === "paragraph"
+          ? EMPTY_PARAGRAPH
+          : (linewiseMarkdown(doc, block, write, inline) ?? write(doc.copy(Fragment.from(block))).replace(/\n+$/, ""));
+      kept.set(block, markdown);
+    }
+    parts.push(markdown);
+  });
+  return `${parts.join("\n\n")}\n`;
+}
+
+/** A paragraph with hard breaks, written line by line from each line's kept markdown, or undefined
+ * when it has none or a break carries marks (a mark across a break is written around both lines). */
+function linewiseMarkdown(
+  doc: ProseNode,
+  paragraph: ProseNode,
+  write: (node: ProseNode) => string,
+  inline: boolean,
+): string | undefined {
+  if (paragraph.type.name !== "paragraph") return undefined;
+  const lines: ProseNode[][] = [[]];
+  const breaks: ProseNode[] = [];
+  let plain = true;
+  paragraph.forEach((child) => {
+    if (child.type.name !== "hardbreak") return void lines.at(-1)!.push(child);
+    if (child.marks.length) plain = false;
+    breaks.push(child);
+    lines.push([]);
+  });
+  // A break that ends the paragraph is written apart from its lines, so that paragraph is written whole.
+  if (!breaks.length || !plain || !lines.at(-1)!.length) return undefined;
+  const kept = inline ? lineMarkdown.inline : lineMarkdown.plain;
+  const outside = paragraph.type.schema.text(OUTSIDE);
+  const writeParagraph = (nodes: ProseNode[]) =>
+    write(doc.copy(Fragment.from(paragraph.copy(Fragment.fromArray(nodes)))));
+  const separators = inline ? breakMarkdown.inline : breakMarkdown.plain;
+  const separator = (hardbreak: ProseNode) => {
+    const key = JSON.stringify(hardbreak.attrs);
+    let written = separators.get(key);
+    if (written === undefined) {
+      written = writeParagraph([outside, hardbreak, outside]);
+      written =
+        written.startsWith(OUTSIDE) && written.endsWith(`${OUTSIDE}\n`)
+          ? written.slice(OUTSIDE.length, -OUTSIDE.length - 1)
+          : "";
+      separators.set(key, written);
+    }
+    return written;
+  };
+  let markdown = "";
+  for (let at = 0; at < lines.length; at += 1) {
+    const nodes = lines[at]!;
+    // The breaks around a line are part of what it was written from: a paragraph's edges escape apart.
+    const before = at > 0 ? breaks[at - 1]! : undefined;
+    const after = at < breaks.length ? breaks[at]! : undefined;
+    // An empty line (two breaks in a row) is kept by the break after it, which no other line keys.
+    const key = nodes[0] ?? after;
+    const known = key && kept.get(key);
+    let line: string;
+    if (
+      known &&
+      known.before === before &&
+      known.after === after &&
+      known.nodes.length === nodes.length &&
+      known.nodes.every((node, i) => node === nodes[i])
+    )
+      line = known.markdown;
+    else {
+      const prefix = before ? `${OUTSIDE}${separator(before)}` : "";
+      const suffix = `${after ? `${separator(after)}${OUTSIDE}` : ""}\n`;
+      const written = writeParagraph([
+        ...(before ? [outside, before] : []),
+        ...nodes,
+        ...(after ? [after, outside] : []),
+      ]);
+      // Anything but the breaks written around the line means it did not write apart.
+      if (
+        (before && !separator(before)) ||
+        (after && !separator(after)) ||
+        !written.startsWith(prefix) ||
+        !written.endsWith(suffix) ||
+        written.length < prefix.length + suffix.length
+      )
+        return undefined;
+      line = written.slice(prefix.length, written.length - suffix.length);
+      if (key) kept.set(key, { nodes, before, after, markdown: line });
+    }
+    markdown += at > 0 ? `${separator(breaks[at - 1]!)}${line}` : line;
+  }
+  return markdown;
+}
+
 /** The document as the prompt's markdown, keeping the spaces typed at its end and the empty reply
  * paragraph needed on restore. A field with placed attachments writes the person's own text shaped
  * like a token escaped (composer/inlineNode.ts withTextMarksEscaped): only its nodes write tokens. */
 function promptMarkdown(editor: Editor | undefined, view: EditorView, inline: boolean): string {
-  const escaped = inline ? withTextMarksEscaped(view.state.doc) : view.state.doc;
-  const written =
-    escaped === view.state.doc
-      ? editor?.action(getMarkdown())
-      : editor?.action((ctx) => ctx.get(serializerCtx)(escaped));
-  const markdown = clean(written ?? "");
+  const serialize = editor?.action((ctx) => ctx.get(serializerCtx));
+  const markdown = clean(serialize ? blockwiseMarkdown(view.state.doc, serialize, inline) : "");
   const { doc, schema } = view.state;
   // The serializer omits the empty typing paragraph Quote in Reply leaves after its block.
   // Keep that boundary in the persisted value: setDocument recreates it from the blank line,
@@ -455,6 +623,18 @@ function typedText(remark: RemarkParser, markdown: string): string {
   const safe = escapeDefinitions(markdown, parsed as unknown as MdNode);
   const tree = remark.runSync(safe === markdown ? parsed : remark.parse(safe), safe) as unknown as MdNode;
   return clean(String(remark.stringify(asWritten(tree) as unknown as Parameters<RemarkParser["stringify"]>[0])));
+}
+
+/** Whether the document holds any text: it stops at the first text node, where the document's
+ * `textContent` would join a long prompt's every character on each key. */
+function hasText(doc: ProseNode): boolean {
+  let found = false;
+  doc.descendants((node) => {
+    if (found) return false;
+    if (node.isText && node.text) found = true;
+    return !found;
+  });
+  return found;
 }
 
 /** The caret's offset inside the first paragraph, else past its end. */
@@ -667,7 +847,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   /// Asks the surface about typed or pasted text first; true when it consumed it.
   const beforeInput = (editorView: EditorView, text: string, paste = false) =>
     latest.current.onBeforeInput?.(text, {
-      empty: editorView.state.doc.textContent === "",
+      empty: !hasText(editorView.state.doc),
       composing: composing.current || editorView.composing,
       paste,
     }) === true;
@@ -849,6 +1029,12 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   }
                   if (!returnInput || (input.inputType !== "insertParagraph" && input.inputType !== "insertLineBreak"))
                     return false;
+                  // The input method can emit paragraph input without a keydown. Its candidate
+                  // confirmation is still composition, even when this event omits isComposing.
+                  if (input.isComposing || composing.current) {
+                    event.preventDefault();
+                    return true;
+                  }
                   event.preventDefault();
                   if (returnTaken) returnTaken = false;
                   else returnInput();
@@ -1218,8 +1404,10 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         .use(clipboard)
         .use(placesInline ? [inlineAttachmentNode, inlinePlugin(inline.current)] : [])
         .use($prose(() => slashTokensPlugin(() => slashNamesNow.current ?? NO_SLASH_NAMES)))
-        // A cmux deeplink draws as a link, its text kept (composer/deeplinkTokens.ts).
-        .use($prose(() => deeplinkTokensPlugin(experimentArm(composerDeeplinkLook))))
+        // Finds each cmux deeplink, drawn as plain text (composer/deeplinkTokens.ts).
+        .use($prose(() => deeplinkTokensPlugin()))
+        // One it knows draws as what it names, its text still the link (composer/deeplinkTitles.ts).
+        .use($prose(() => deeplinkTitlesPlugin(draftLinkTitles())))
         .create()
         .then((made) => {
           if (disposed) {
@@ -1396,6 +1584,24 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
             $from.parent.type.name === "paragraph"
           );
         },
+        caretOnEdgeLine: (direction) => {
+          const current = view.current;
+          if (!current) return true;
+          const { doc, selection } = current.state;
+          // The selection's top (↑) or bottom (↓) end, as endOfTextblock measures it. A selected
+          // block (a rule) has no line to move within.
+          const $end = direction === "up" ? selection.$from : selection.$to;
+          if (!$end.parent.isTextblock) return true;
+          // No text block before (↑) or after (↓) the end's, a rule or other block atom between
+          // them aside, and the end on its block's top (or bottom) visual line: ProseMirror
+          // measures the wrapped layout.
+          const beyond =
+            direction === "up"
+              ? Selection.findFrom(doc.resolve($end.before()), -1, true)
+              : Selection.findFrom(doc.resolve($end.after()), 1, true);
+          if (beyond) return false;
+          return current.endOfTextblock(direction);
+        },
         writeText: (value, selectionStart, selectionEnd) => {
           const current = view.current;
           if (!current) return;
@@ -1428,7 +1634,13 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         focused: () => view.current?.hasFocus() ?? false,
         history: () => {
           const state = view.current?.state;
-          return { undo: state ? undoDepth(state) > 0 : false, redo: state ? redoDepth(state) > 0 : false };
+          const depth = state ? undoDepth(state) : 0;
+          const redos = state ? redoDepth(state) : 0;
+          return { undo: depth > 0, redo: redos > 0, depth, redoDepth: redos };
+        },
+        closeHistory: () => {
+          const current = view.current;
+          if (current) current.dispatch(closeHistory(current.state.tr));
         },
         undo: () => {
           if (view.current) undo(view.current.state, view.current.dispatch);
@@ -1445,10 +1657,10 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           refocus.current = null;
           insertPlain(view.current, text);
         },
-        insertInline: (ids, replace) => {
+        insertInline: (ids, replace, at) => {
           if (!view.current) return false;
           refocus.current = null;
-          return insertInline(view.current, ids, replace);
+          return insertInline(view.current, ids, replace, at);
         },
         removeInline: (id, caret) => {
           if (view.current) removeInline(view.current, id, caret);

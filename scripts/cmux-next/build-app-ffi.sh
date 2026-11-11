@@ -32,7 +32,9 @@ headers_in=("$crates/cmux-rd-ffi/include/cmux_rd_ffi.h:CCmuxRdFFI"
             "$crates/cmux-cookie-sync/include/cmux_cookie_sync.h:CCmuxCookieSyncFFI"
             "$crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h:CCmuxDaemonConnFFI"
             "$crates/cmux-daemon-launch-core/include/cmux_daemon_launch.h:CCmuxDaemonLaunchFFI"
-            "$crates/cmux-sdk-ffi/include/cmux_sdk_ffi.h:CCmuxSdkFFI")
+            "$crates/cmux-health-core/include/cmux_health.h:CCmuxHealthFFI"
+            "$crates/cmux-sdk-ffi/include/cmux_sdk_ffi.h:CCmuxSdkFFI"
+            "$crates/cmux-terminal-prediction/include/cmux_terminal_prediction.h:CCmuxTerminalPredictionFFI")
 
 for tool in cargo rustup xcodebuild lipo clang libtool; do
   command -v "$tool" >/dev/null 2>&1 || { echo "error: $tool is required" >&2; exit 1; }
@@ -59,6 +61,11 @@ export MACOSX_DEPLOYMENT_TARGET=14.0
 # Machine code only: Xcode's ld and nm cannot read a newer rustc's bitcode.
 export CARGO_PROFILE_RELEASE_LTO=off
 export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C embed-bitcode=no"
+# The SQLite that rusqlite bundles here keeps each block's size in its own header
+# instead of asking malloc_default_zone()->size(). That virtual zone follows zones[0]: the
+# app's early delegating zone, then PartitionAlloc's once CEF loads, and neither owns
+# SQLite's older blocks. A 0 there crashed nightly 4294166855401 at launch (#41049).
+export LIBSQLITE3_FLAGS="${LIBSQLITE3_FLAGS:+$LIBSQLITE3_FLAGS }-DSQLITE_WITHOUT_ZONEMALLOC"
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/cmux-app-ffi.XXXXXX")"
 trap 'rm -rf "$work"' EXIT

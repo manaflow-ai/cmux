@@ -31,6 +31,7 @@ import { Undo } from "./icons";
 import { ToolRows } from "./TurnRows";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { useTranscriptReadOnly } from "./readOnly";
+import { SecondOpinionContext } from "./secondOpinion";
 
 /// `onOpenDiff` opens the turn's changes, at `path` when given; focus returns to `opener`.
 /// Find in Chat's reveal for `row` only: the card draws outside ToolRows (which passes the reveal to
@@ -75,6 +76,7 @@ function Card({
   onOpenDiff?: (rowId: string, path?: string, opener?: HTMLElement) => void;
 }) {
   const t = useT();
+  const secondOpinion = useContext(SecondOpinionContext);
   const settings = useEditedFilesSettings();
   const [showAll, setShowAll] = useState(false);
   // Derived on every render: the host's setting can arrive after the card mounts.
@@ -195,6 +197,20 @@ function Card({
             onClick={(event) => onOpenDiff(row.id, single?.path, event.currentTarget)}
           >
             {t("edited.view")}
+          </button>
+        )}
+        {secondOpinion && files.length > 0 && (
+          <button
+            type="button"
+            className="acpmux-review-changes"
+            onClick={() =>
+              secondOpinion(
+                row.id,
+                files.map((file) => file.path),
+              )
+            }
+          >
+            {t("edited.secondOpinion")}
           </button>
         )}
         {single && (

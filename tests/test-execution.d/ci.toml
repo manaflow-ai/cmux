@@ -286,6 +286,11 @@ path = "tests/test_ci_next_macos_cascade.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_nightly_cmux_tui_client_download.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins that the nightly's cmux-tui install steps fetch only NIGHTLY_COMPILE_ARCHS's slice and that install-cmux-tui-client.sh abandons a trickling download at the stall bound (run 42675465011); run python3 tests/test_ci_nightly_cmux_tui_client_download.py yourself after changing those scripts (about 15 s, no build; needs openssl and curl)."
+
+[[test]]
 path = "tests/test_ci_nightly_no_hosted_mac.py"
 lane = "linux-guard"
 
@@ -460,6 +465,11 @@ path = "tests/test_ci_r2_storage_census.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_relay_deploy_plan.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/ci/relay_deploy_plan.py (the carrier relay deploy's ordering and migration-approval rules) on a throwaway git history; run python3 tests/test_ci_relay_deploy_plan.py yourself after changing it or cloudflare-relay.yml's plan (about 1 s, no build)."
+
+[[test]]
 path = "tests/test_ci_release_helper_archs.py"
 lane = "linux-guard"
 
@@ -538,12 +548,21 @@ path = "tests/test_ci_rust_cache_keeps_runner_bin.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_rust_cache_runner_cargo_home.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_rust_targets_installed_first.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_sanitize_xcode_source_packages_cache.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_secrets_only_environments_log_no_deployment.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that every job in a secrets-only environment (no protection rules) says deployment: false, so PRs log no deployment event; run python3 tests/test_ci_secrets_only_environments_log_no_deployment.py yourself after adding an environment to a job (about 2 s, no build)."
 
 [[test]]
 path = "tests/test_ci_select_package_tests.py"
@@ -574,7 +593,16 @@ path = "tests/test_ci_simple_pool_picker.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_single_host_fallbacks.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/cmux-next/check-single-host-fallbacks.py, which CI runs only with --advisory (warnings) and the pre-push gate runs strictly; run python3 tests/test_ci_single_host_fallbacks.py yourself after changing the checker or .github/single-host-fallbacks.json (about 10 s, no build)."
+
+[[test]]
 path = "tests/test_ci_source_lint_guard_structure.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_sparse_checkout_imports.py"
 lane = "linux-guard"
 
 [[test]]
@@ -652,11 +680,20 @@ path = "tests/test_ci_web_test_verdict.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_webviews_affected.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/ci/webviews_affected.py's selection for the react-apps-check shards on pull requests; run python3 tests/test_ci_webviews_affected.py yourself after changing it or focused_tests.py's webviews graph (about 5 s, no build)."
+
+[[test]]
 path = "tests/test_ci_workflow_guards_are_wired.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_workflow_path_filter_parity.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_paths_cover_inputs.py"
 lane = "linux-guard"
 
 [[test]]

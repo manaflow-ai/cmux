@@ -12,7 +12,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import git_fixture_env  # noqa: F401  (turns off git's background maintenance)
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/cmux-next/check-app-ffi-pin.sh"
@@ -166,11 +172,8 @@ class PullRequestScope(unittest.TestCase):
         self.assertIn("checking against the pin only", result.stderr)
 
 
-class Workflow(unittest.TestCase):
-    def test_swift_test_scopes_the_check_to_the_pull_request(self):
-        text = (ROOT / ".github/workflows/cmux-next.yml").read_text()
-        self.assertIn("check-app-ffi-pin.sh --verify-release \"${base[@]}\"", text)
-        self.assertIn("base=(--base HEAD^1)", text)
+# The checks job's pin step and its pull request scope (the base's copy, --base the merge commit's first parent) are
+# run, not read: tests/test_cmux_next_checks_workflow.py AppFfiPinStepJudgesWithTheBaseCopy.
 
 
 if __name__ == "__main__":

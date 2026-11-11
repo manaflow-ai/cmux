@@ -17,9 +17,9 @@ extension PaneController {
         switch intent {
         case .select(let id): select(id)
         case .close(let id, _): CloseUndoToasts.close(in: self, [id])
-        case .closeOthers(let keep): CloseUndoToasts.close(in: self, stripModel.closedByCloseOthers(keeping: keep))
+        case .closeOthers(let keep): CloseUndoToasts.close(in: self, stripModel.closedByCloseOthers(keeping: keep), selecting: stripModel.selectionKeeping(keep))
         // Pinned tabs after `id` stay, as in Chrome.
-        case .closeToRight(let id): CloseUndoToasts.close(in: self, stripModel.closedByCloseToRight(of: id))
+        case .closeToRight(let id): CloseUndoToasts.close(in: self, stripModel.closedByCloseToRight(of: id), selecting: stripModel.selectionKeeping(id))
         case .reorder(let id, _, let to): StripOrder.reorder(id, to: to, in: self)
         case .reorderTabs(let order): StripOrder.reorder(toward: order, in: self)
         case .newTab(_, let opensWorkspace, let sameKind):
@@ -67,6 +67,7 @@ extension PaneController {
         // A user's tab switch may end link-tab opener relations (Chrome's rule).
         if source.isUserIntent, stripModel.selectedID != id {
             services.cache.pageRequests.openers.userActivated(from: selectedTab?.surface, to: tab(id)?.surface)
+            if source != .cli, ActionRunScope.isPersonsAction() { state?.selection.closeRule.personSelects(id.rawValue, in: paneKey) } // a click, a shortcut, the palette: not a script
         }
         guard let workspace else {
             guard ActionRunScope.viewChangeAllowed() else { return }
@@ -130,7 +131,7 @@ extension PaneController {
         let agent = cwd == nil && fromSelectedTab && !daemonResolvesCwd ? selectedAgentView : nil
         // A selected agent chat's exact folder at once (NewTerminalStart.folder); the page's own
         // answer above still wins when it comes.
-        let cwd = daemonResolvesCwd ? cwd : cwd ?? (fromSelectedTab ? NewTerminalStart.inherited(besides: selectedTab, in: pane, services: services) : nil) ?? selectedTab?.cwd
+        let cwd = daemonResolvesCwd ? cwd : cwd ?? (fromSelectedTab ? (daemon.isLocal ? nil : selectedTab.flatMap { services.agentTabs.terminalFolder(of: $0.id, on: daemon) }) ?? NewTerminalStart.inherited(besides: selectedTab, in: pane, services: services) : nil) ?? selectedTab?.cwd
         // From another machine's terminal (an SSH tab in a mixed pane), a terminal on that machine (cx-2s5t).
         if fromSelectedTab, text == nil, page == nil,
            services.remoteTerminals.openTerminal(besides: selectedTab, in: pane, home: daemon, cwd: cwd) {
@@ -336,7 +337,7 @@ extension PaneController {
         // Focus follows only a move this client's user started (CLI and
         // agents never change this client's focus unless they ask).
         if target !== self, ActionRunScope.viewChangeAllowed() { workspace?.focus.followMovedTab(tab.id, from: paneKey) }
-        TabMoves.move(tab, to: target.pane, index: index, services: services) { [weak self, weak target] ok in
+        TabMoves.move(tab, to: target.pane, index: index, services: services, from: self) { [weak self, weak target] ok in
             guard !ok else { return StripOrder.settle([self, target]) }
             self?.resyncStrip()
             target?.resyncStrip()

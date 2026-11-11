@@ -30,6 +30,8 @@ pub mod link;
 pub mod program_wait;
 #[cfg(unix)]
 pub(crate) mod record_watch;
+#[cfg(all(test, unix))]
+mod record_write_tests;
 pub(crate) mod scope;
 pub mod sweep;
 #[cfg(unix)]
@@ -218,6 +220,12 @@ pub struct SpawnSpec {
     /// None: never (a daemon whose idle hibernation is off, or one that predates it).
     #[serde(default)]
     pub orphan_exit: Option<OrphanExit>,
+    /// The `agents.promptSuggestions` MDM or the team policy forces, as the daemon holds it when it
+    /// starts this host (`claude_stdio::prompt_suggestions::managed`): the host is its own process,
+    /// so without it a forced value never reached the translator it builds. None: nothing forced
+    /// (or a daemon that predates it).
+    #[serde(default)]
+    pub prompt_suggestions_managed: Option<bool>,
 }
 
 /// A host's own end once no daemon controls it (`SpawnSpec::orphan_exit`). Hosts outlive their
@@ -659,11 +667,17 @@ pub fn end_left_behind(start_nonce: &str) {
 #[cfg(not(unix))]
 pub fn end_left_behind(_start_nonce: &str) {}
 
-/// Remove a dead host's record, lock and socket.
+/// Remove a dead host's record, lock and socket. The record and socket only while the record
+/// still names that host (`names_this_host`): a newer host of the same chat (a prompt started one
+/// while adoption came to this stale record) owns them then, and its record watch would end it
+/// once its record went. Its own lock always goes: its name holds its nonce.
 pub fn remove_artifacts(dir: &Path, record: &HostRecord) {
-    let _ = std::fs::remove_file(record_path(dir, &record.session_id));
+    let path = record_path(dir, &record.session_id);
+    if names_this_host(&path, &record.start_nonce) {
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&record.socket);
+    }
     let _ = std::fs::remove_file(live_path(dir, &record.session_id, &record.start_nonce));
-    let _ = std::fs::remove_file(&record.socket);
 }
 
 /// Whether the record file at `path` names the host incarnation `nonce`. A
@@ -740,11 +754,16 @@ pub fn remove_promoted(dir: &Path, record: &HostRecord) {
 }
 
 /// Write `value` to `path` through a temporary file and a rename.
+///
+/// The temporary file is named by the record's start nonce, random per host process: a pid
+/// comes back after a restart or a wrap, and a file that a writer killed before its rename left
+/// under that pid's name made the next record write fail (`create_new`), so that chat's agent
+/// never started.
 #[cfg(unix)]
 pub fn write_record_atomic(path: &Path, record: &HostRecord) -> Result<()> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
-    let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
+    let tmp = path.with_extension(format!("tmp-{}-{}", std::process::id(), record.start_nonce));
     let mut f = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)

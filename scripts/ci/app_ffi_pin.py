@@ -2,6 +2,7 @@
 """The app FFI pin: Packages/macOS/CmuxNext/app-ffi-pin.json, read and written strictly; no Swift is parsed.
 
     python3 scripts/ci/app_ffi_pin.py read [app-ffi-pin.json]                 # prints "SOURCE_SHA CHECKSUM"
+    python3 scripts/ci/app_ffi_pin.py read-pin-file app-ffi-pin.json Package.swift  # read, then check-manifest
     python3 scripts/ci/app_ffi_pin.py rewrite SHA CHECKSUM [app-ffi-pin.json [Package.swift]]
     python3 scripts/ci/app_ffi_pin.py check-manifest [Package.swift [app-ffi-pin.json]]
     python3 scripts/ci/app_ffi_pin.py check-dump DUMP.json [app-ffi-pin.json]  # `swift package dump-package` output
@@ -24,9 +25,11 @@ reads the JSON and never Swift:
   LOADER symbol has one fixed, anchored shape (OTHER_LINES), none of which can declare or extend one.
 
 Anything else refuses, naming the first thing that does not match. base_red_excuse.py's published-base-pin rule,
-scripts/cmux-next/check-app-ffi-pin.sh, the repin picker (scripts/cmux-next/newest_app_ffi_release.py) and the repin
-script (scripts/cmux-next/repin-app-ffi.sh) all read and rewrite the pin through this file alone; a rewrite writes the
-pin file and the comment line together.
+scripts/cmux-next/check-app-ffi-pin.sh, the repin picker (scripts/cmux-next/newest_app_ffi_release.py), the repin
+script (scripts/cmux-next/repin-app-ffi.sh), the re-pin publisher (scripts/cmux-next/publish-app-ffi-repin.sh), the pin
+on the base (scripts/cmux-next/pin-app-ffi-on-base.sh), the router's pure re-pin (scripts/ci/cmux_next_route.py) and the
+base autofix's re-pin trigger (scripts/cmux-next/base-autofix-ffi-pin.sh, which compares pin files) all read and
+rewrite the pin through this file alone; a rewrite writes the pin file and the comment line together.
 """
 from __future__ import annotations
 
@@ -272,6 +275,12 @@ def main(argv: list[str]) -> int:
         if argv[:1] == ["read"] and len(argv) <= 2:
             path = Path(argv[1]) if len(argv) == 2 else PACKAGE / "app-ffi-pin.json"
             print(*read(path.read_text(encoding="utf-8")))
+            return 0
+        if argv[:1] == ["read-pin-file"] and len(argv) == 3:
+            # A tree's pin as every gate takes it: the pin file read strictly, and Package.swift holding its loader.
+            sha, checksum = read(Path(argv[1]).read_text(encoding="utf-8"))
+            check_manifest(Path(argv[2]).read_text(encoding="utf-8"), checksum)
+            print(sha, checksum)
             return 0
         if argv[:1] == ["rewrite"] and len(argv) in (3, 4, 5):
             path = Path(argv[3]) if len(argv) >= 4 else PACKAGE / "app-ffi-pin.json"

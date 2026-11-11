@@ -52,7 +52,9 @@ jobs:
         model: [stub, real]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 30
-    environment: cmux-next-cloud-journey
+    environment:
+      name: cmux-next-cloud-journey
+      deployment: false
     permissions:
       contents: read
       issues: write

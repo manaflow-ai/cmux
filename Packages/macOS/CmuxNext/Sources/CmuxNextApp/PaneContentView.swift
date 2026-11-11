@@ -50,6 +50,8 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
     var swapDrag: PaneSwapDrag?
     /// The acting agent's name tag (`PaneContentView+AgentTag`).
     let agentTag = AgentPresenceTagView()
+    /// A zoomed pane's Exit Zoom button at the content's top-right (`PaneContentView+AgentTag`).
+    private(set) lazy var zoomIndicator = PaneZoomIndicatorView(model: stripView.model)
     private var agentTagObservation: Task<Void, Never>?
     /// No strip: the person hid this pane's tab bar (``PaneTabBar``).
     var hidesStrip = false {
@@ -109,6 +111,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
     /// Browsers this pane showed before, kept in place and hidden, oldest
     /// first (`PaneContentView+Parking`).
     var parked: [ParkedContent] = []
+    var keepsClosedPage: ((NSView) -> Bool)? // asked before a closed tab's page leaves the window; true: `NewTabSparePool.keepInWindow` moved it
     let browserChrome = BrowserPaneChrome()  // the pane's browser tabs' one chrome
 
     /// - Parameter reveal: Holds the strip until the first tabs arrive and

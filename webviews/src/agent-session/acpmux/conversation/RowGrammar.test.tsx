@@ -5,8 +5,9 @@
 // finished", share one layout: the tool rows' grid (`.cv-tool`), the icon first, the sentence,
 // then the trailing column (status, then duration), then the chevron last. A send reads "Sent to"
 // with its recipient as the one chip, and a shut send's first line shows once. A shell `acpmux send`
-// draws as a received message's line instead (SentMessageLine.tsx; ask-64e107ccf0, Leo 2026-11-07:
-// "it's just not good, compared to the normal ones"), so its row is that line's, checked below.
+// draws as a received message's line (SentMessageLine.tsx; ask-64e107ccf0, Leo 2026-11-07: "it's
+// just not good, compared to the normal ones"), on the one message row (AgentMessageRow.tsx): the
+// same grammar, with the received line's sender span, checked below.
 import { afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { act, type ReactNode } from "react";
@@ -117,7 +118,7 @@ async function fourRows(): Promise<{ container: HTMLElement; rows: Record<string
   for (const kind of ["send-message", "acpmux-send", "commands", "subagent"]) {
     const row = container.querySelector<HTMLElement>(
       kind === "acpmux-send"
-        ? `[data-kind="${kind}"] .cv-sent-msg`
+        ? `[data-kind="${kind}"] .cv-sent-msg > .cv-agentmsg__line`
         : `[data-kind="${kind}"] .cv-tool:not(.cv-tool .cv-tool)`,
     );
     if (!row) throw new Error(`no row for ${kind}`);
@@ -147,7 +148,6 @@ const columns = (row: Element): string[] =>
 test("the four row kinds share one row grammar: icon, sentence, trailing column, chevron last", async () => {
   const { rows } = await fourRows();
   for (const [kind, row] of Object.entries(rows)) {
-    if (kind === "acpmux-send") continue;
     const order = columns(row);
     expect({ kind, first: order[0] }).toEqual({ kind, first: "icon" });
     expect({ kind, last: order.at(-1) }).toEqual({ kind, last: "chevron" });
@@ -192,7 +192,6 @@ test("each row draws its trailing status or duration before the chevron, and the
     doc.head.append(style);
   }
   for (const [kind, row] of Object.entries(rows)) {
-    if (kind === "acpmux-send") continue;
     const order = drawn(row);
     // The chevron is drawn last on every row, so it sits on one x at the row's end.
     expect({ kind, last: order.at(-1) }).toEqual({ kind, last: "chevron" });
@@ -201,7 +200,7 @@ test("each row draws its trailing status or duration before the chevron, and the
     if (trail !== -1) expect({ kind, trail }).toEqual({ kind, trail: order.length - 2 });
   }
   // The sends and the subagent line carry a trailing column, so the check above bites on them.
-  for (const kind of ["send-message", "subagent"])
+  for (const kind of ["send-message", "acpmux-send", "subagent"])
     expect({ kind, trail: drawn(rows[kind]!).includes("trail") }).toEqual({ kind, trail: true });
 });
 
@@ -223,14 +222,13 @@ test("a send reads Sent to <recipient>, the recipient one chip, its status in th
     expect(row.querySelector(".cv-agentmsg__sentence")!.textContent).not.toContain("queued");
   }
   expect(rows["send-message"]!.querySelector(".cv-recipient")!.textContent).toBe("Organize the sidebar");
-  // The shell send reads as a received line: "Sent to", the recipient one chip, its status at the
-  // line's end, after the chevron.
-  const shell = rows["acpmux-send"]!;
-  const line = shell.querySelector(":scope > .cv-disclosure__line")!;
+  // The shell send reads as a received line: "Sent to" in the sender span, the recipient one chip,
+  // its status in the trailing column, never part of the sentence.
+  const line = rows["acpmux-send"]!;
   expect(line.querySelector(".cv-received__sender .cv-sent__words")!.textContent).toBe("Sent to");
   expect([...line.querySelectorAll(".cv-recipient")].map((chip) => chip.textContent)).toEqual(["fanout-infra"]);
-  expect(line.lastElementChild!.querySelector(".cv-row-status")?.textContent).toBe("queued");
-  expect(line.querySelector(".cv-disclosure__toggle")!.textContent).not.toContain("queued");
+  expect(line.querySelector(".cv-tool__trail .cv-row-status")?.textContent).toBe("queued");
+  expect(line.querySelector(".cv-agentmsg__sentence")!.textContent).not.toContain("queued");
 });
 
 test("every message preview is cut by the one rule: one muted span that ellipsizes", async () => {
@@ -250,7 +248,7 @@ test("the subagent line's duration is in the trailing column, not the sentence",
   expect(row.querySelector(".cv-tool__text")!.textContent).toBe("Subagent finished: Audit agent friction");
   expect(row.querySelector(".cv-tool__trail")!.textContent).toBe("2m 28s");
   // Its name for a screen reader still reads the whole line.
-  expect(row.querySelector("button.cv-subagent-done")!.getAttribute("aria-label")).toBe(
+  expect(row.querySelector(".cv-subagent-done")!.getAttribute("aria-label")).toBe(
     "Subagent finished: Audit agent friction · 2m 28s",
   );
 });
@@ -297,7 +295,7 @@ test("an opened send shows its message once, under the row, not again on the lin
   const { rows } = await fourRows();
   for (const kind of ["send-message", "acpmux-send"]) {
     const row = rows[kind]!;
-    const toggle = row.querySelector<HTMLElement>(".cv-agentmsg__toggle, .cv-disclosure__toggle") ?? row;
+    const toggle = row.querySelector<HTMLElement>(".cv-agentmsg__toggle") ?? row;
     await act(async () => toggle.click());
     expect({
       kind,
@@ -332,15 +330,14 @@ test("the chevron follows the words and the trailing column ends the line", () =
   expect(sentence).toContain("overflow: hidden");
 });
 
-test("the subagent row's one button reaches its trailing markers", () => {
+// Leo, 2026-11-05: "subagents need to have their clickable bit be highlighted instead of the whole
+// line click sending me to the subagent righ split". No hit area covers the row, so the name chip is
+// its one target.
+test("the subagent row has no full-row hit area over its name chip", () => {
   const css = readFileSync(new URL("../subagents/subagents.css", import.meta.url), "utf8");
   const row = /\.cv-tool\.cv-subagent-done-row \{([^}]*)\}/.exec(css)?.[1] ?? "";
   expect(row).toContain("position: relative");
-  expect(row).toContain("isolation: isolate");
-  const hitArea = /\.cv-subagent-done::before \{([^}]*)\}/.exec(css)?.[1] ?? "";
-  expect(hitArea).toContain('content: ""');
-  expect(hitArea).toContain("inset: 0");
-  expect(hitArea).toContain("z-index: var(--layer-backdrop)");
+  expect(css).not.toMatch(/\.cv-subagent-done::before \{/);
 });
 
 test("a started sub-session's row names the session, with no narration in front of it", () => {

@@ -11,6 +11,7 @@ import {
   type NewsLayout,
   type SheetLayout,
   type SheetLinks,
+  type CompareMode,
   type ReleaseNotes,
 } from "./types";
 
@@ -54,6 +55,26 @@ export function parseSpan(hash: string): UpdateSpan | undefined {
   return from ? { from, to } : { to };
 }
 
+/** The change a click on the sidebar Updated card's list asks for (Leo 2026-11-08: "maybe just
+    bring them to the section in what's new aka bringing that tab up"): `entry`, its title, and
+    `area`, its app area (areas.ts), from the host's route `#/?…&area=<a>&entry=<t>&n=<nonce>`.
+    `n` differs per click, so the same row clicked again scrolls again. Undefined without either. */
+export interface ChangelogFocus {
+  area?: string;
+  entry?: string;
+  n?: string;
+}
+
+export function parseFocus(hash: string): ChangelogFocus | undefined {
+  const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
+  const params = new URLSearchParams(query);
+  const area = params.get("area")?.trim();
+  const entry = params.get("entry")?.trim();
+  if (!area && !entry) return undefined;
+  const n = params.get("n")?.trim();
+  return { ...(area ? { area } : {}), ...(entry ? { entry } : {}), ...(n ? { n } : {}) };
+}
+
 /** The design the route names (`design=ledger|journal|rail|digest`, Debug Settings `whatsNew.design`); the sheet by default. */
 export function parseDesign(hash: string): ChangelogDesign {
   const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
@@ -73,6 +94,13 @@ export function parseSheetLayout(hash: string): SheetLayout {
   const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
   const sheet = new URLSearchParams(query).get("sheet");
   return sheet === "stack" || sheet === "grid" ? sheet : "inline";
+}
+
+/** How a before/after pair shows (`compare=side|toggle`); the dragged split by default. */
+export function parseCompareMode(hash: string): CompareMode {
+  const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
+  const compare = new URLSearchParams(query).get("compare");
+  return compare === "side" || compare === "toggle" ? compare : "slider";
 }
 
 export function parseSheetLinks(hash: string): SheetLinks {
@@ -116,6 +144,11 @@ function within(version: string, span: UpdateSpan): boolean {
   return (!span.from || compareVersions(version, span.from) > 0) && compareVersions(version, span.to) <= 0;
 }
 
+/** The changelog page draws the host's list from disk first and refreshes it from the network
+    behind it (no "Loading…" on an open when a list was kept). False: the page waits for the network
+    as before. The Updated card keeps its own `cachedFirst` path either way. */
+export const CHANGELOG_PAGE_CACHED_LIST_FIRST = true;
+
 export class ChangelogStore {
   private snapshot: ChangelogSnapshot;
   private readonly listeners = new Set<() => void>();
@@ -156,9 +189,55 @@ export class ChangelogStore {
       `cachedFirst` (the Updated card after a relaunch) takes the list the host kept on disk when it
       lists the span's newest build, and asks the network only when it does not. */
   start(span?: UpdateSpan, options: { cachedFirst?: boolean } = {}): Promise<void> {
-    this.started = this.load(span, options.cachedFirst === true);
+    this.started =
+      CHANGELOG_PAGE_CACHED_LIST_FIRST && options.cachedFirst !== true
+        ? this.loadCachedThenFresh(span)
+        : this.load(span, options.cachedFirst === true);
     return this.started;
   }
+
+  /** The page's open: the host's list from disk draws at once (no "Loading…" while the network
+      answers), then the network's list replaces it quietly. Without a list on disk it loads as before.
+      Settles once the first screen is drawn; ``refreshed`` settles once the network answered. */
+  private async loadCachedThenFresh(span?: UpdateSpan): Promise<void> {
+    if (!this.client) return;
+    this.latestSpan = span;
+    let cached: ListResult | undefined;
+    try {
+      cached = await this.client.call<ListResult>(ChangelogOps.list, { cached: true });
+    } catch {
+      cached = undefined;
+    }
+    if (!cached?.builds?.length) return this.load(span);
+    await this.showList(cached);
+    this.refreshed = this.revalidate();
+  }
+
+  /** The network's list after a cached one is on screen: the builds and the running build are
+      replaced, the selection stays unless it is no longer listed. A failure keeps the cached list. */
+  private async revalidate(): Promise<void> {
+    if (!this.client) return;
+    let fresh: ListResult;
+    try {
+      fresh = await this.client.call<ListResult>(ChangelogOps.list, {});
+    } catch {
+      return;
+    }
+    if (!fresh.builds.length) return;
+    const same =
+      fresh.current === this.snapshot.current &&
+      fresh.builds.length === this.snapshot.builds.length &&
+      fresh.builds.every((b, i) => b.build === this.snapshot.builds[i]?.build);
+    if (same) return;
+    this.set({ builds: fresh.builds, current: fresh.current });
+    if (this.latestSpan) return this.setSpan(this.latestSpan);
+    const selected = this.snapshot.selected;
+    if (!selected || !fresh.builds.some((b) => b.build === selected))
+      await this.select(fresh.current || fresh.builds[0]?.build);
+  }
+
+  /** Settles once the network's list replaced a cached one (tests); at once when none was shown. */
+  refreshed: Promise<void> = Promise.resolve();
 
   /** The host's list from disk (`cached: true`, no network) when it lists `span`'s newest build. */
   private async cachedList(span: UpdateSpan): Promise<ListResult | undefined> {
@@ -190,16 +269,20 @@ export class ChangelogStore {
       const list =
         (cachedFirst && span ? await this.cachedList(span) : undefined) ??
         (await this.client.call<ListResult>(ChangelogOps.list, {}));
-      const builds = list.builds.length ? list.builds : [];
-      this.listed = true;
-      this.set({ builds, current: list.current, loading: false });
-      void this.readInstallable();
-      // A route change while the list loaded wins over the first route.
-      if (this.latestSpan) return this.setSpan(this.latestSpan);
-      await this.select(list.current || builds[0]?.build);
+      await this.showList(list);
     } catch (error) {
       this.set({ loading: false, failed: isPageError(error) ? error.message : String(error) });
     }
+  }
+
+  private async showList(list: ListResult): Promise<void> {
+    const builds = list.builds.length ? list.builds : [];
+    this.listed = true;
+    this.set({ builds, current: list.current, loading: false });
+    void this.readInstallable();
+    // A route change while the list loaded wins over the first route.
+    if (this.latestSpan) return this.setSpan(this.latestSpan);
+    await this.select(list.current || builds[0]?.build);
   }
 
   /** Shows an update's span: its builds marked, the newest one selected. */

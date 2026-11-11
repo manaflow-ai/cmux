@@ -172,8 +172,21 @@ public final class PointerHover: NSObject {
         #if DEBUG
         if debugPointer(in: window) != nil { return true }
         #endif
-        let top = NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0)
+        let mouse = NSEvent.mouseLocation
+        // A window clear under the pointer (a hover card's band) passes it to the window below.
+        let top = topmostWindow(passes: { number in
+            (NSApp.window(withWindowNumber: number) as? any PointerPassThroughWindow)?.passesPointer(atScreen: mouse) == true
+        }, below: { NSWindow.windowNumber(at: mouse, belowWindowWithWindowNumber: $0) })
         return top == window.windowNumber || passThrough.contains(top)
+    }
+
+    /// The front window under the pointer that keeps it: from the front, every window that
+    /// `passes` the pointer is looked through to the one `below` it (0: none).
+    static func topmostWindow(passes: (Int) -> Bool, below: (Int) -> Int) -> Int {
+        var top = below(0)
+        // A handful of stacked hover windows at most; the bound only stops a cycle.
+        for _ in 0..<8 where top != 0 && passes(top) { top = below(top) }
+        return top
     }
 
     // MARK: The owner

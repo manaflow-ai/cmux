@@ -1,6 +1,7 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
 use super::person::ANSWERED_BY_SLOT;
+use super::review_queue::Settled;
 use super::*;
 use cmux_json::JsonSet as _;
 
@@ -51,17 +52,61 @@ mod pending;
 #[cfg(test)]
 mod delivery_tests;
 #[cfg(test)]
+mod inbound_close_tests;
+#[cfg(test)]
 mod repo_sync_tests;
+#[cfg(test)]
+mod review_policy_tests;
 
 impl Hub {
     // ------------------------------------------------------------- inbound
 
+    /// The chat's inbound loop, spawned once per start in the hub's scope (`spawn_inbound_loop`):
+    /// it ends when the hub closes, or once the chat is closed and its producers are done: nothing
+    /// queued, and no agent (or its reader) still holds a sender, so a late `Exited` and the last
+    /// updates of an agent a close killed are still handled (#41081 F1). Then it hands the
+    /// receiver back, so the start that reopens the chat starts it again; a chat reopened before
+    /// the hand-back keeps this loop.
     pub(super) async fn inbound_loop(
         self: Arc<Self>,
         session: Arc<Session>,
         mut rx: mpsc::Receiver<Inbound>,
     ) {
-        while let Some(item) = rx.recv().await {
+        let stop = self.scope.token();
+        // Its current value counts: a loop that first runs after the close sees it (#41081 F2).
+        let mut closed = session.closed.subscribe();
+        loop {
+            self.clone().inbound_items(session.clone(), &mut rx, &stop, &mut closed).await;
+            if stop.is_cancelled() {
+                return;
+            }
+            let mut slot = session.inbound_rx.lock().await;
+            if session.status() == SessionStatus::Closed
+                && rx.is_empty()
+                && !producers_live(&session.inbound_tx)
+            {
+                *slot = Some(rx);
+                return;
+            }
+        }
+    }
+
+    /// Start the chat's inbound loop when no loop holds its receiver.
+    pub(super) async fn spawn_inbound_loop(self: &Arc<Self>, session: &Arc<Session>) {
+        if let Some(rx) = session.inbound_rx.lock().await.take() {
+            let (hub, s) = (self.clone(), session.clone());
+            self.scope.spawn_named("inbound-loop", async move { hub.inbound_loop(s, rx).await });
+        }
+    }
+
+    async fn inbound_items(
+        self: Arc<Self>,
+        session: Arc<Session>,
+        rx: &mut mpsc::Receiver<Inbound>,
+        stop: &tokio_util::sync::CancellationToken,
+        closed: &mut tokio::sync::watch::Receiver<bool>,
+    ) {
+        while let Some(item) = next_inbound(rx, stop, closed, &session.inbound_tx).await {
             match item {
                 Inbound::Notification {
                     method: m,
@@ -350,11 +395,19 @@ impl Hub {
                 }
             }
             "tool_call" | "tool_call_update" => {
-                super::pull_requests::absorb(session, update, &mut m);
+                let at = now_ms();
+                if let Some(url) = super::pull_requests::absorb(session, update, &mut m, at) {
+                    self.review_index.note_pr(&session.id, &url, at);
+                    self.ledger.note_pull_request(&session.id, &url);
+                }
                 super::touched::absorb(session, update, &mut m, replayed);
                 super::lineage::note_tool_call(session, update);
             }
             "usage_update" => m.usage = Some(update.clone()),
+            // History a load replays says nothing about what Claude Code holds now.
+            super::native_messaging::HOLD_UPDATE if !replayed => {
+                self.note_peer_message_hold(session, update);
+            }
             "available_commands_update" => m.available_commands = Some(update.clone()),
             "plan"
                 if m.family.as_deref().is_some_and(crate::goal::GoalProvider::is_claude_family) =>
@@ -405,6 +458,11 @@ impl Hub {
                     if !title.is_empty() {
                         m.title = Some(title.to_owned());
                         m.title_source = Some(super::titles::HARNESS.to_owned());
+                        // The ledger's copy (one map entry; a line only when a field changed).
+                        self.ledger.note_session_info(
+                            &session.id,
+                            super::ledger::TurnContext::of(&m).info,
+                        );
                     }
                 }
                 // Claude Code's /context breakdown, sent after each turn (`claude_stdio`). It comes
@@ -569,6 +627,13 @@ impl Hub {
                 )
                 .await;
             self.respond_answer(&session, &child, id, result, again).await;
+            return;
+        }
+        // acpmux's Claude Code backend asks whether its PreToolUse gate lets a tool call run
+        // (`policy_gate.rs`).
+        if m == crate::claude_stdio::TOOL_GATE {
+            let result = self.answer_tool_gate(&session, params.unwrap_or(Value::Null)).await;
+            let _ = child.respond(id, Ok(result)).await;
             return;
         }
         if m == method::SESSION_REQUEST_PERMISSION {
@@ -799,6 +864,35 @@ impl Hub {
             .unwrap_or(config_policy)
     }
 
+    /// Whether shell call `request` only reads (`shell_readonly.rs`). Judged in the environment
+    /// the harness runs it with: the daemon's, the allow-listed login values, then the env its
+    /// agent was started with (`ensure_child`). An agent this daemon did not start (re-adopted
+    /// after a restart) is not judged: false. A probe that takes too long is false; its thread
+    /// finishes on its own.
+    pub(super) async fn probe_shell_reads(&self, session: &Session, request: &Value) -> bool {
+        let launched = session.launch_env.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let Some(own) = launched else { return false };
+        let meta = session.meta();
+        let family = self.config.read().await.family(&meta.harness);
+        let mut env = probe_env(&own, remote_base, |own| {
+            crate::login_env::effective_for(family.as_deref(), own)
+        });
+        // The agent's PATH, unless its own env names one (`apply_tokio_for`).
+        if let Some(path) = crate::login_env::agent_path()
+            && !own.contains_key("PATH")
+        {
+            env.insert("PATH".to_owned(), path.to_string_lossy().into_owned());
+        }
+        let (request, cwd) = (request.clone(), meta.cwd);
+        let probe = tokio::task::spawn_blocking(move || {
+            super::shell_readonly::request_is_read_only(&request, &cwd, &env)
+        });
+        matches!(
+            tokio::time::timeout(super::shell_readonly::PROBE_TIMEOUT, probe).await,
+            Ok(Ok(true))
+        )
+    }
+
     /// `epoch` is `permission_epoch` read when the agent's request arrived.
     pub(super) async fn handle_permission(
         self: &Arc<Self>,
@@ -860,40 +954,14 @@ impl Hub {
         // program could be one the agent wrote.
         let reads_policy = {
             let cfg = self.config.read().await;
-            capped_policy(Self::stored_policy_for(session, cfg.permission_policy), off.off())
-                == PermissionPolicy::ApproveReads
+            matches!(
+                capped_policy(Self::stored_policy_for(session, cfg.permission_policy), off.off()),
+                PermissionPolicy::ApproveReads | PermissionPolicy::Review
+            )
         };
-        // Judged in the environment the harness runs it with: the daemon's, the allow-listed
-        // login values, then the env its agent was started with (`ensure_child`). An agent this
-        // daemon did not start (re-adopted after a restart) asks.
-        let launched = session.launch_env.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let shell_reads = reads_policy
             && request.pointer("/toolCall/kind").and_then(Value::as_str) == Some("execute")
-            && match launched {
-                None => false,
-                Some(own) => {
-                    let meta = session.meta();
-                    let family = self.config.read().await.family(&meta.harness);
-                    let mut env = probe_env(&own, remote_base, |own| {
-                        crate::login_env::effective_for(family.as_deref(), own)
-                    });
-                    // The agent's PATH, unless its own env names one (`apply_tokio_for`).
-                    if let Some(path) = crate::login_env::agent_path()
-                        && !own.contains_key("PATH")
-                    {
-                        env.insert("PATH".to_owned(), path.to_string_lossy().into_owned());
-                    }
-                    let (request, cwd) = (request.clone(), meta.cwd);
-                    // A probe that takes too long asks; its thread finishes on its own.
-                    let probe = tokio::task::spawn_blocking(move || {
-                        super::shell_readonly::request_is_read_only(&request, &cwd, &env)
-                    });
-                    matches!(
-                        tokio::time::timeout(super::shell_readonly::PROBE_TIMEOUT, probe).await,
-                        Ok(Ok(true))
-                    )
-                }
-            };
+            && self.probe_shell_reads(session, &request).await;
         // Read before the locks (it reads the settings file); the mode is read again under them.
         // Do not cache whether the mode is bypass here: a successful mode switch can drain
         // pending asks before this request takes the lock and inserts itself. Judge its mode
@@ -958,7 +1026,9 @@ impl Hub {
                 None => match policy {
                     PermissionPolicy::ApproveAll => pick(&["allow_once", "allow_always"]),
                     PermissionPolicy::DenyAll => pick(&["reject_once", "reject_always"]),
-                    PermissionPolicy::ApproveReads | PermissionPolicy::ApproveEdits => {
+                    PermissionPolicy::ApproveReads
+                    | PermissionPolicy::ApproveEdits
+                    | PermissionPolicy::Review => {
                         let edits = policy == PermissionPolicy::ApproveEdits;
                         if matches!(tool_kind, "read" | "search" | "fetch" | "think")
                             || (edits && tool_kind == "edit")
@@ -966,7 +1036,10 @@ impl Hub {
                             pick(&["allow_once", "allow_always"])
                         } else if tool_kind == "execute"
                             && shell_reads
-                            && policy == PermissionPolicy::ApproveReads
+                            && matches!(
+                                policy,
+                                PermissionPolicy::ApproveReads | PermissionPolicy::Review
+                            )
                         {
                             // Judged under approve-reads before the lock; the policy read here
                             // must still be it.
@@ -980,8 +1053,16 @@ impl Hub {
                     PermissionPolicy::Ask => None,
                 },
             };
+            // Review denies at once what approve-reads would leave to the person (a write, a
+            // command that does not only read), so a reviewer never waits on a prompt; a question
+            // still goes to the person, and a rule still decides first.
+            let review_refuses = policy == PermissionPolicy::Review
+                && rule.is_none()
+                && auto.is_none()
+                && !needs_person;
             let denied = policy == PermissionPolicy::DenyAll
-                || rule == Some(super::rules::RuleDecision::Deny);
+                || rule == Some(super::rules::RuleDecision::Deny)
+                || review_refuses;
             // The chat allowance never answers in a Web turn, nor what an `ask` rule sends to the person.
             let chat_option = if state.chat_allowed
                 && !denied
@@ -1353,6 +1434,10 @@ impl Hub {
             }
             (p, answered_by, checked_annotations)
         };
+        if option_id.is_none() {
+            // The caller dismissed it: the audit trail keeps it apart from a withdrawal.
+            self.review_index.mark_settled(&session.id, permission_id, Settled::Caller);
+        }
         let mut outcome = match option_id {
             Some(o) => json!({"outcome": "selected", "optionId": o}),
             None => json!({"outcome": "cancelled"}),
@@ -1861,6 +1946,52 @@ mod probe_env_tests {
         // The real remote base carries HOME when the daemon has one.
         if std::env::var_os("HOME").is_some() {
             assert!(super::remote_base().contains_key("HOME"));
+        }
+    }
+}
+
+/// Whether an agent, its reader, or anything else but the chat itself still holds a sender of
+/// the chat's inbound channel (`tx` is the chat's own, `Session::inbound_tx`).
+fn producers_live(tx: &mpsc::Sender<Inbound>) -> bool {
+    tx.strong_count() > 1
+}
+
+/// How often a closed chat whose agent still holds a sender looks again whether it let go: no
+/// event says that the last other sender dropped. Only while a closed chat waits on its agent's
+/// last messages (an exit a kill already caused, normally a few milliseconds).
+const PRODUCERS_RECHECK: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// The inbound loop's next item, or None once it should stop: the hub is closing, or the chat is
+/// closed (its current value counts, not only a change) with nothing queued and no producer
+/// left besides the chat's own sender `own` (#41081 F1 F2).
+async fn next_inbound(
+    rx: &mut mpsc::Receiver<Inbound>,
+    stop: &tokio_util::sync::CancellationToken,
+    closed: &mut tokio::sync::watch::Receiver<bool>,
+    own: &mpsc::Sender<Inbound>,
+) -> Option<Inbound> {
+    loop {
+        let is_closed = *closed.borrow_and_update();
+        if is_closed && rx.is_empty() && !producers_live(own) {
+            return None;
+        }
+        let recheck = async {
+            if is_closed {
+                tokio::time::sleep(PRODUCERS_RECHECK).await;
+            } else {
+                std::future::pending::<()>().await;
+            }
+        };
+        tokio::select! {
+            biased;
+            item = rx.recv() => return item,
+            () = stop.cancelled() => return None,
+            changed = closed.changed() => {
+                if changed.is_err() {
+                    return None;
+                }
+            }
+            () = recheck => {}
         }
     }
 }

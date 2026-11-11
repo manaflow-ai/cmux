@@ -10,7 +10,7 @@ import CmuxNextCompat
 /// Reduce Motion keeps the fades and drops the movement (`Motion.set` snaps
 /// it).
 @MainActor
-enum CmuxToastMotion {
+struct CmuxToastMotion {
     /// How far below its slot a new toast starts.
     static let rise: CGFloat = 8
 
