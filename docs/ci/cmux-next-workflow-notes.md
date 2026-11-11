@@ -353,7 +353,13 @@ outputs, from an earlier attempt: a job output is evaluated when its job runs, s
 attempt's number. Every Mac job reads blacksmith_12_jobs, blacksmith_6_jobs and
 retry_runner only while this equals its own run_attempt; a carried reading is stale (run
 40398277457, 2026-10-26: attempt 2 took blacksmith-6vcpu-macos-26 on a reading 39 minutes old and
-waited 55 minutes for a runner), so the job takes the owned label instead.
+waited 55 minutes for a runner). Its owned labels (runner, the side label, the gui and session
+labels) are as stale, so from attempt 2 on a Mac job takes one only while this equals its own
+run_attempt too; a carried reading, whoever re-ran the run, sends it to the moving Blacksmith label
+(vars.MACOS_RUNNER_26, else RUNNER_POOLS.macos_26), as a push Release compile's fallback does.
+cmux#38484's run 42728317341 (2026-11-10) kept `cmux app scheme compile (Debug)` on
+glaeda-side-std-xcode-26.6 through three re-runs of failed jobs: 2 h, 15 h and 1 h 49 min queued
+(tests/test_ci_next_macos_cascade.py CarriedPlacement).
 
 ## note-20
 

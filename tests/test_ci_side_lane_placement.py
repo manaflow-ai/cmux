@@ -57,12 +57,15 @@ RETRY_JOBS = ("cmux-scheme-compile", "release-compile", "swift-canary")
 def overflow(name: str, placed: bool = True) -> str:
     """The label a bot attempt 2+ takes with no free Blacksmith slot.
 
+    Only an attempt the placement read itself (`placed`) keeps a RETRY_JOBS job on the owned side label; a carried
+    reading never does (test_ci_next_macos_cascade.CarriedPlacement, cmux#38484's run 42728317341).
+
     A GUI job takes the 6 vCPU escape from its gui label, whether or not its placement ran: a rescue bot's
     attempt never queues on the fixed gui label it was moved from (#27201: attempt 3 is not watched again, so
     a bot attempt 3 on the gui label could wait unrescued), and never on vars.MACOS_RUNNER_26 (12 vCPU, 5+ hour
     waits on 2026-10-20). `placed` is kept for the callers that spell out both cases.
     """
-    if name in RETRY_JOBS:
+    if name in RETRY_JOBS and placed:
         return SIDE
     return FALLBACK
 
@@ -1380,12 +1383,12 @@ class CmuxNextWiring(unittest.TestCase):
                 self.assertEqual(evaluate(runs_on, self.push_context(runner=STD)), on(name, STD))
                 # Skipped or unreadable placement keeps today's configured route.
                 self.assertEqual(evaluate(runs_on, self.push_context(fallback_jobs=None)), on(name, SIDE))
-                self.assertEqual(evaluate(runs_on, self.push_context("2")), FALLBACK if name in GUI_JOBS else on(name, SIDE))
+                # A person's re-run carries attempt 1's reading: Blacksmith, never the owned label.
+                self.assertEqual(evaluate(runs_on, self.push_context("2")), FALLBACK)
                 # The rescue's first re-run overflows (test_the_rescues_first_rerun_overflows_to_blacksmith).
                 self.assertEqual(evaluate(runs_on, self.push_context("2", triggering_actor="github-actions[bot]")),
-                                 overflow(name, placed=False))
-                self.assertEqual(evaluate(runs_on, self.push_context("3", triggering_actor="teamleaderleo")),
-                                 FALLBACK if name in GUI_JOBS else on(name, SIDE))
+                                 overflow(name))
+                self.assertEqual(evaluate(runs_on, self.push_context("3", triggering_actor="teamleaderleo")), FALLBACK)
                 # The rescue's third attempt: a free Blacksmith slot, else the owned side label.
                 self.assertEqual(evaluate(runs_on, self.push_context("3", triggering_actor="github-actions[bot]")),
                                  overflow(name, placed=False))
@@ -1453,7 +1456,9 @@ class CmuxNextWiring(unittest.TestCase):
                             deferred_runner="blacksmith-12vcpu-macos-26")
                         for expression in (jobs[name]["runs-on"], jobs[name]["env"]["CMUX_NEXT_RUNNER"]):
                             with self.subTest(job=name, attempt=attempt, actor=actor, side=side, placed=placed):
-                                self.assertEqual(evaluate(expression, context), SIDE)
+                                # Attempt 1 with its placement skipped keeps the owned side label; a re-run
+                                # carrying another attempt's reading takes the moving Blacksmith label.
+                                self.assertEqual(evaluate(expression, context), SIDE if attempt == "1" else FALLBACK)
                                 for owned in ("", "0"):
                                     context["vars"]["CI_PR_POOL_OWNED"] = owned
                                     self.assertEqual(evaluate(expression, context), FALLBACK)
@@ -1588,15 +1593,15 @@ class CmuxNextWiring(unittest.TestCase):
                 live = self.push_context(runner=STD)
                 live["needs"][self.PLACEMENT]["outputs"]["session_runner"] = SESSION
                 self.assertEqual(evaluate(runs_on, live), SESSION if name in SESSION_JOBS else on(name, STD))
-                # The rescue's attempt 3 still drops the placement's label.
+                # The rescue's attempt 3 still drops the placement's label (a carried reading here).
                 live["github"].update(run_attempt="3", triggering_actor=bot)
-                self.assertEqual(evaluate(runs_on, live), overflow(name))
+                self.assertEqual(evaluate(runs_on, live), overflow(name, placed=False))
                 # No fresh placement on a person's rerun: static role labels cannot vouch for live room.
                 rerun = self.push_context("2")
                 rerun["needs"][self.PLACEMENT] = {"outputs": {}}
-                self.assertEqual(evaluate(runs_on, rerun), FALLBACK if name in GUI_JOBS else on(name, SIDE))
+                self.assertEqual(evaluate(runs_on, rerun), FALLBACK)
                 rerun["vars"]["CI_SESSION_LABEL"] = "1"
-                self.assertEqual(evaluate(runs_on, rerun), FALLBACK if name in GUI_JOBS else on(name, SIDE))
+                self.assertEqual(evaluate(runs_on, rerun), FALLBACK)
                 if name != "release-compile":
                     self.assertEqual(jobs[name]["env"]["CMUX_NEXT_RUNNER"], label_copy(runs_on))
 
@@ -1608,7 +1613,8 @@ class CmuxNextWiring(unittest.TestCase):
         for name in JOBS:
             runs_on = jobs[name]["runs-on"]
             with self.subTest(job=name):
-                self.assertEqual(evaluate(runs_on, self.push_context("3", runner=STD, triggering_actor=bot)), overflow(name))
+                self.assertEqual(evaluate(runs_on, self.push_context("3", runner=STD, triggering_actor=bot)),
+                                 overflow(name, placed=False))
                 # A bot attempt 4+ follows a refusal on attempt 3 (owned_pool_rescue
                 # REFUSAL_RESCUE_ATTEMPT): it leaves the fleet, which may have lost that runner.
                 self.assertEqual(evaluate(runs_on, self.push_context("4", runner=STD, triggering_actor=bot)), FALLBACK)
@@ -1623,10 +1629,9 @@ class CmuxNextWiring(unittest.TestCase):
                 stale = self.push_context("3", runner=STD, triggering_actor=bot)
                 stale["needs"][self.PLACEMENT]["outputs"]["retry_runner"] = FALLBACK
                 stale["needs"][self.PLACEMENT]["outputs"]["retry_jobs"] = f" {name} "
-                self.assertEqual(evaluate(runs_on, stale), overflow(name))
-                # A person's rerun needs a fresh role placement, just like a bot's rerun.
-                self.assertEqual(evaluate(runs_on, self.push_context("4", runner=STD)),
-                                 SIDE if name == "fast-tier" else FALLBACK if name in GUI_JOBS else on(name, STD))
+                self.assertEqual(evaluate(runs_on, stale), overflow(name, placed=False))
+                # A person's rerun needs a fresh placement, just like a bot's rerun: without one, Blacksmith.
+                self.assertEqual(evaluate(runs_on, self.push_context("4", runner=STD)), FALLBACK)
 
     def test_a_cmux_bot_rerun_routes_like_the_github_actions_bot(self):
         """The rescue re-runs with the cmux-bot App's token, so its re-runs' triggering actor is
@@ -1654,10 +1659,8 @@ class CmuxNextWiring(unittest.TestCase):
                 # Without a fresh role placement a person's rerun also leaves the GUI/session queue.
                 self.assertEqual(evaluate(expression, self.push_context("4", runner=STD, triggering_actor=cmux_bot)),
                                  FALLBACK, (name, key))
-                if name in GUI_JOBS:
-                    self.assertEqual(evaluate(expression, self.push_context("4", runner=STD)), FALLBACK, (name, key))
-                else:
-                    self.assertNotEqual(evaluate(expression, self.push_context("4", runner=STD)), FALLBACK, (name, key))
+                # A person's re-run carries attempt 1's reading too, so it leaves the owned queue as well.
+                self.assertEqual(evaluate(expression, self.push_context("4", runner=STD)), FALLBACK, (name, key))
 
     def test_the_rescues_first_rerun_overflows_to_blacksmith(self):
         """claude-sr2, 2026-10-21: the bot's first re-run (attempt 2) may go to Blacksmith macOS as
@@ -1675,8 +1678,7 @@ class CmuxNextWiring(unittest.TestCase):
                     # Minis first when placement is current; human reruns cannot reuse a stale role reading.
                     self.assertEqual(evaluate(expression, self.push_context(runner=STD)),
                                      SIDE if name == "fast-tier" else on(name, STD))
-                    self.assertEqual(evaluate(expression, self.push_context("2", runner=STD)),
-                                     FALLBACK if name in GUI_JOBS or name == "fast-tier" else on(name, STD))
+                    self.assertEqual(evaluate(expression, self.push_context("2", runner=STD)), FALLBACK)
                     # The rescue's attempt 2 takes the free Blacksmith slot the placement found. A GUI job's
                     # placement (rerun_main()) found no idle GUI or session runner: it names only the overflow.
                     free = self.push_context("2", runner=STD, triggering_actor=bot)
