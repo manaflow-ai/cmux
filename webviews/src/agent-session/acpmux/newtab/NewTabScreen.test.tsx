@@ -1727,11 +1727,9 @@ test("a start refused because the agent is not installed says so in plain words,
   expect(asks).toHaveLength(1);
   const harness = String(asks[0]?.[0]);
   const name = noChat().catalog.find((entry) => entry.id === harness)?.name ?? harness;
-  const card = () => container.querySelector<HTMLElement>(".acpmux-switch-failed");
+  const card = () => container.querySelector<HTMLElement>(".acpmux-start-failure");
   // Plain words, never the spawn error itself; the raw words wait under Details.
-  expect(card()?.querySelector(".acpmux-host-error-message")?.textContent).toBe(
-    translate("switch.notInstalled", { agent: name }),
-  );
+  expect(card()?.querySelector("[role=alert]")?.textContent).toBe(translate("switch.notInstalled", { agent: name }));
   expect(card()?.querySelector("[data-error-detail]")?.textContent).toBe("spawn claude-agent-acp ENOENT");
   const button = (label: string) =>
     [...card()!.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === label);

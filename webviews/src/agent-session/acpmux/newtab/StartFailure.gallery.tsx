@@ -21,8 +21,8 @@ export default componentEntry({
   load: () => Promise.resolve(StartFailure),
   styles: () => import("../styles.css"),
   widths: { narrow: 360, normal: 520, wide: 720 },
-  height: 120,
-  anchors: [{ selector: ".acpmux-switch-failed" }],
+  height: 56,
+  anchors: [{ selector: ".acpmux-start-failure" }],
   variants: {
     "not-installed": {
       note: "No Claude Code on this Mac: plain words, Install (Agents setup, then the draft sends), Retry and Dismiss.",
