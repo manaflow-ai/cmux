@@ -157,6 +157,10 @@ impl Hub {
 }
 
 #[cfg(test)]
+#[path = "github_withhold_tests.rs"]
+mod github_withhold_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, Ordering};
