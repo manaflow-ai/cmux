@@ -60,6 +60,10 @@ pub(super) struct OpenWork {
     /// so a steer's answer can be the one that ends the turn
     /// (`steer_end.rs`). Never the turn's own prompt (`prompt_request`).
     steers: Vec<(Value, Option<Value>)>,
+    /// Of those, the hub's prompt id of each (`_meta.promptId`), by request id
+    /// (`Value::to_string`): one its agent answers `STEER_NO_TURN` goes back to the queue
+    /// (`unread_steer.rs`).
+    steer_prompts: HashMap<String, String>,
     /// Agent requests to this host with no logged answer: (id, method,
     /// params, hostSeq).
     requests: Vec<(Value, String, Option<Value>, Option<u64>)>,
@@ -1117,6 +1121,11 @@ impl Hub {
                     let steer =
                         e.msg.pointer("/params/_meta/steer").and_then(Value::as_bool) == Some(true);
                     if steer && (work.prompt_request.is_some() || work.turn_carried) {
+                        let prompt =
+                            e.msg.pointer("/params/_meta/promptId").and_then(Value::as_str);
+                        if let (Some(id), Some(prompt)) = (&id, prompt) {
+                            work.steer_prompts.insert(id.to_string(), prompt.to_owned());
+                        }
                         work.steers.extend(id.map(|id| (id, None)));
                     } else {
                         work.prompt_request = id;
@@ -1317,13 +1326,19 @@ impl Hub {
                         Some(_) => None,
                         None => Some(child.await_response(request_id).await),
                     };
-                    // The steers still unanswered: one of them may end the turn.
+                    // The steers still unanswered: one of them may end the turn. One its agent
+                    // answers `STEER_NO_TURN` (the turn ended before it read it) goes back to the
+                    // queue, as the daemon that wrote it would have run it (`unread_steer.rs`).
                     let mut steer_answers = Vec::new();
-                    if rx.is_some() {
-                        for (id, logged) in &work.steers {
-                            if logged.is_none() {
-                                steer_answers.push(child.await_response(id.clone()).await);
-                            }
+                    for (id, logged) in &work.steers {
+                        if logged.is_some() {
+                            continue;
+                        }
+                        let prompt = work.steer_prompts.get(&id.to_string()).cloned();
+                        let answer = child.await_response(id.clone()).await;
+                        let answer = self.unread_steer_runs_next(session, prompt, answer);
+                        if rx.is_some() {
+                            steer_answers.push(answer);
                         }
                     }
                     let hub = self.clone();

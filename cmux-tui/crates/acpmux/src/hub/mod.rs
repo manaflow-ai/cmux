@@ -275,6 +275,7 @@ mod tool_shell;
 mod tools;
 pub(crate) mod turn_cap;
 mod turn_retry;
+mod unread_steer;
 mod update_repeats;
 mod watch;
 pub use new_request::{

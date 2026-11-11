@@ -239,7 +239,15 @@ impl Hub {
             .agent_session_id
             .ok_or_else(|| RpcError::internal("no agent session"))?;
         let text = prompt_text(&blocks);
-        let msg = json!({"text": text, "steer": true, "client": client, "promptId": prompt_id, "turnId": turn_id});
+        // With what a run of it checks again, as a turn's prompt records it (`turns.rs`): a restart
+        // that finds it unread runs it next under the same rules (`unread_steer.rs`).
+        let mut msg = json!({"text": text, "steer": true, "client": client, "promptId": prompt_id, "turnId": turn_id,
+                             "control": control.as_str(), "cloudMobile": opts.cloud_mobile, "trustGate": trust_gate});
+        // Into this turn or nowhere: a restart that finds it unread does not run it next
+        // (`unread_steer.rs`).
+        if opts.steer_only {
+            crate::no_panic::JsonExt::set(&mut msg, "steerOnly", json!(true));
+        }
         let msg = crate::prompt_provenance::marked(msg, opts.provenance.as_ref());
         self.append_prompt(session, msg, &blocks, opts.display_parts.as_ref());
         let mut accepted = json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false, "state": "steered", "steer": true});
