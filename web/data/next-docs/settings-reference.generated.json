@@ -1598,7 +1598,7 @@
           "title": "Download Updates Automatically",
           "help": "Off: cmux checks for updates and asks before it downloads one. On: updates download by themselves. Either way, cmux asks before it restarts into an update.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Updates"
         },
         {

@@ -4,7 +4,7 @@ import CmuxNextDesign
 import Foundation
 import Testing
 
-/// `updates.downloadAutomatically` is opt-in on stable and on by default in NIGHTLY and DEV. The
+/// `updates.downloadAutomatically` is on by default on every channel (Leo 2026-11-07). The
 /// channel default fills the effective settings only: cmux-next.json is shared by every channel,
 /// so nothing is written there, and a value someone wrote always wins.
 @MainActor @Suite(.serialized) struct SettingsBuildDefaultsTests {
@@ -39,14 +39,19 @@ import Testing
         }
     }
 
-    @Test func stableStaysOptIn() async throws {
+    /// Automatic download is the schema's default (Leo 2026-11-07: "Yeah, let's do that, man"), so a
+    /// build with no channel default downloads by itself too.
+    @Test func theSchemaDefaultDownloadsAutomatically() async throws {
         let (settings, home) = try await Self.settings("{}", .channel(downloadsAutomatically: false))
         defer { try? FileManager.default.removeItem(at: home) }
-        #expect(!settings.snapshot.updates.downloadAutomatically)
+        #expect(settings.snapshot.updates.downloadAutomatically)
     }
 
+    /// A value someone wrote is never filled by the build default; one that does not decode reads as
+    /// the schema's default.
     @Test func aValueSomeoneWroteWins() async throws {
-        for (json, expected) in [(#"{"updates": {"downloadAutomatically": false}}"#, false), (#"{"updates": {"downloadAutomatically": "yes"}}"#, false)] {
+        for (json, expected) in [(#"{"updates": {"downloadAutomatically": false}}"#, false),
+                                 (#"{"updates": {"downloadAutomatically": "yes"}}"#, UpdatesSettings.downloadAutomaticallyDefault)] {
             let (settings, home) = try await Self.settings(json, .channel(downloadsAutomatically: true))
             defer { try? FileManager.default.removeItem(at: home) }
             #expect(settings.snapshot.updates.downloadAutomatically == expected, "\(json) lost to the channel default")

@@ -39,18 +39,16 @@ nonisolated public enum UpdateTrack: String, Sendable, CaseIterable, Codable {
         return false
     }
 
-    /// `updates.downloadAutomatically` for an install that never set it: off on every channel, so
-    /// NIGHTLY, the tip app and DEV ask as stable does (Leo 2026-10-27: "and the whole check for
-    /// updates thing, we can do it more properly to ask before the download + install step, and
-    /// likewise for the reboot... to make it more like how it'd be in prod"). A found update waits
-    /// on the Update Available step; its Update downloads it, and the staged update waits on the
-    /// Update Ready card for Restart to Update. Turning the setting on is the opt-in to automatic
-    /// download; the relaunch still waits for Restart to Update (the nightly restart policy, which
-    /// keeps the idle install off). Stable and RC were
-    /// already off (claude-sr2 2026-10-26, relaying Leo: "maybe better as an opt in for normal users").
+    /// `updates.downloadAutomatically` for an install that never set it: on, on every channel. A
+    /// found update downloads in the background, and the staged update waits on the Update Ready
+    /// card for Restart to Update (the nightly restart policy, which keeps the idle install and the
+    /// install on quit off). Leo 2026-11-07, on "download in the background by default, but only
+    /// install when you click restart": "Yeah, let's do that, man. Let's get it done." It was off
+    /// on every channel from Leo 2026-10-27 ("ask before the download + install step"). Turning
+    /// it off makes a found update wait on the Update Available step for its Update click.
     public var downloadsAutomaticallyByDefault: Bool {
         switch self {
-        case .stable, .rc, .nightly, .nightlyNext, .development: false
+        case .stable, .rc, .nightly, .nightlyNext, .development: true
         }
     }
 }
