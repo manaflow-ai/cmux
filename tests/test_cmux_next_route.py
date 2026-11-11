@@ -123,9 +123,32 @@ _PATH_TOKEN = re.compile(r"[A-Za-z0-9_.@-]*(?:/[A-Za-z0-9_.@-]+)+|[A-Za-z0-9_-]+
 _NOT_A_READ = re.compile(r"^\s*(#|//|\"\"\")|\b(echo|printf|print|warn|die|fail|log)\b[ (]")
 
 
+# Where a shell line runs or sources a script it names: at the start of a command (after `;`, `&&`, `|`, `$(`,
+# a keyword or an opening quote) or as the argument of an interpreter or wrapper.
+_SHELL_RUN = (r"(?:^|[;&|(`{]|\b(?:then|do|else|exec|source|bash|sh|zsh|python3?|env|xcrun|nice|timeout\s+\S+|time)\b|^\s*\.)"
+              r"\s*(?:[A-Z_]+=\S*\s+)*[\"']?")
+_PY_RUN = re.compile(r"\b(?:run|call|check_call|check_output|Popen|execv[pe]?|run_path)\(")
+
+
+# Files a walked script reads that are not inputs of what it builds, each with why.
+NOT_A_BUILD_INPUT = {
+    # local-build-cache-preflight.py (reload.sh) hashes it into the SwiftPM cache key: it picks which cache a
+    # build restores, never what the build makes.
+    "scripts/ci/swiftpm-cache-layout",
+}
+
+
+def _runs(line: str, token: str, script: str) -> bool:
+    """Whether `line` of `script` runs or sources the file `token` names, not only mentions it."""
+    if script.endswith(".py"):
+        return bool(_PY_RUN.search(line))
+    return re.search(_SHELL_RUN + r"[^\s\"';|&]*" + re.escape(token) + r"(?![\w./-])", line) is not None
+
+
 def native_script_reads() -> dict[str, set[str]]:
     """{repository file: the build or packaging files that read it}. Walks the seeds, the scripts the Xcode
-    project's phases name and the shell files a walked script sources; a read is a path literal outside a
+    project's phases name, and every script a walked script runs or sources (`bash x.sh`, `"$DIR/x.sh"`,
+    `python3 x.py`, a subprocess call), however deep; a read is a path literal outside a
     comment or message that names an existing file, from the root or the script's folder, with or without
     its leading variable (`$SCRIPT_DIR/...`, `$(SRCROOT)/...`)."""
     def resolve(token: str, folder: Path) -> str | None:
@@ -161,8 +184,7 @@ def native_script_reads() -> dict[str, set[str]]:
                     continue
                 reads.setdefault(path, set()).add(script)
                 runnable = path.endswith((".sh", ".py")) or (path.startswith("scripts/") and "." not in path.rsplit("/", 1)[-1])
-                sourced = re.search(r"(\bsource|^\s*\.)\s+\S*" + re.escape(path.rsplit("/", 1)[-1]), line)
-                if runnable and (project or sourced):
+                if runnable and (project or _runs(line, token, script)):
                     pending.append(path)
     return reads
 
@@ -605,24 +627,30 @@ class PullRequestTiers(unittest.TestCase):
         reads = native_script_reads()
         self.assertIn("scripts/ghosttykit-checksums.txt", reads)
         self.assertIn("THIRD_PARTY_LICENSES.md", reads)
+        # Two scripts deep: reload.sh runs build-acpmux.sh, which runs or sources these.
+        self.assertIn("scripts/cmux-next/build-acpmux.sh", reads)
+        self.assertIn("scripts/ci/tailnet-go.sh", reads)
+        self.assertIn("scripts/ci/acpmux-build-features.sh", reads)
         bundle = route_module.WEBVIEW + route_module.BUNDLE_INPUTS + route_module.CHECKED_WEB_BUNDLES
         in_bundle = lambda path: any(fnmatch.fnmatch(path, p) for p in bundle)  # noqa: E731
         misrouted = sorted(
             f"{path} (read by {', '.join(sorted(readers))})" for path, readers in reads.items()
             # ci-web's bundle --check stands in for the app compile for the web bundles' own inputs.
             if not in_bundle(path) and not all(in_bundle(reader) for reader in readers)
-            and (route_module.web_fast(path) or route_module.ci_only(path))
+            and (route_module.web_fast(path) or route_module.ci_only(path)) and path not in NOT_A_BUILD_INPUT
         )
         self.assertEqual(misrouted, [], "add these to NATIVE_SCRIPT_INPUTS in scripts/ci/cmux_next_route.py")
         import yaml
         import workflow_paths_cover_inputs as path_filters
         workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8"))
-        kind, patterns = path_filters.filtered_events(workflow)["pull_request"]
+        filters = path_filters.filtered_events(workflow)
+        self.assertEqual(set(filters), {"push", "pull_request"})
         for path in route_module.NATIVE_SCRIPT_INPUTS:
             with self.subTest(path=path):
                 self.assertIn(path, reads, "a NATIVE_SCRIPT_INPUTS entry no build script reads any more")
-                # The router only routes what starts the workflow.
-                self.assertTrue(path_filters.admits(kind, patterns, path), "add it to cmux-next.yml's paths")
+                # The router only routes what starts the workflow: a base push must run the compiles too.
+                for event, (kind, patterns) in sorted(filters.items()):
+                    self.assertTrue(path_filters.admits(kind, patterns, path), f"add it to cmux-next.yml's {event} paths")
                 result = tiers([path])
                 self.assertEqual(result["native"], "true")
                 self.assertEqual(result["scheme"], "true")
