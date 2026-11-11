@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextPages
+import CoreText
 import Foundation
 import ImageIO
 import Testing
@@ -21,29 +22,44 @@ struct PastedImagePNGTests {
         }
     }
 
-    /// A Retina screenshot's size (3456 x 2234) with an editor's look: rows of short runs of colour.
+    /// A Retina screenshot's size (3456 x 2234) with an editor's look: lines of anti-aliased code in
+    /// a few colours. Text is what makes a screenshot's PNG slow to encode: flat shapes are not.
     static let screenshot: Data = {
         let (width, height) = (3456, 2234)
         let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
                                 space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         context.setFillColor(CGColor(red: 0.12, green: 0.12, blue: 0.14, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        let font = CTFontCreateWithName("Menlo" as CFString, 26, nil)
+        let colors = [(0.83, 0.83, 0.83), (0.61, 0.86, 1.0), (0.81, 0.57, 0.47), (0.42, 0.6, 0.33), (0.77, 0.53, 0.75)]
+        let letters = Array("abcdefghijklmnopqrstuvwxyz0123456789_(){}.;=")
         var generator = Seeded()
-        for row in stride(from: 20, to: height, by: 36) {
-            var x = 20
-            while x < width - 40 {
-                let run = Int.random(in: 8...90, using: &generator)
-                context.setFillColor(CGColor(red: .random(in: 0.4...1, using: &generator), green: .random(in: 0.4...1, using: &generator),
-                                             blue: .random(in: 0.4...1, using: &generator), alpha: 1))
-                context.fill(CGRect(x: x, y: row, width: run, height: 18))
-                x += run + Int.random(in: 6...24, using: &generator)
+        for (line, y) in stride(from: height - 40, to: 0, by: -36).enumerated() {
+            var text = String(format: "%4d  ", line)
+            while text.count < 200 {
+                text += String((0..<Int.random(in: 2...10, using: &generator)).map { _ in letters.randomElement(using: &generator)! }) + " "
             }
+            let (red, green, blue) = colors[line % colors.count]
+            let attributes: [CFString: Any] = [kCTFontAttributeName: font,
+                                               kCTForegroundColorAttributeName: CGColor(red: red, green: green, blue: blue, alpha: 1)]
+            let drawn = CTLineCreateWithAttributedString(CFAttributedStringCreate(nil, text as CFString, attributes as CFDictionary))
+            context.textPosition = CGPoint(x: 20, y: y)
+            CTLineDraw(drawn, context)
         }
         let out = NSMutableData()
         let destination = CGImageDestinationCreateWithData(out, UTType.tiff.identifier as CFString, 1, nil)!
         CGImageDestinationAddImage(destination, context.makeImage()!, nil)
         _ = CGImageDestinationFinalize(destination)
         return out as Data
+    }()
+
+    /// Whether this process reaches a pasteboard server: a fleet test step often does not, and there
+    /// every write fails and every read returns nil (as AttachmentSourceTests finds).
+    nonisolated static let hasPasteboard: Bool = {
+        let board = NSPasteboard(name: NSPasteboard.Name("cmux-pasted-png-probe-\(UUID().uuidString)"))
+        defer { board.releaseGlobally() }
+        board.clearContents()
+        return board.setString("probe", forType: .string) && board.string(forType: .string) == "probe"
     }()
 
     private func board() -> NSPasteboard {
@@ -66,7 +82,8 @@ struct PastedImagePNGTests {
         #expect(!converter.needsPNG(items: [["public.tiff", "com.apple.pasteboard.promised-file-url"]]))
     }
 
-    @Test func thePasteboardKeepsEveryTypeAndGainsAPNGOfTheSamePicture() async throws {
+    @Test(.enabled(if: hasPasteboard, "needs a pasteboard server"))
+    func thePasteboardKeepsEveryTypeAndGainsAPNGOfTheSamePicture() async throws {
         let board = board()
         defer { board.releaseGlobally() }
         board.clearContents()
@@ -86,7 +103,8 @@ struct PastedImagePNGTests {
         #expect((image.width, image.height) == (3456, 2234))
     }
 
-    @Test func aPasteboardThatChangedMeanwhileIsLeftAsItIs() async {
+    @Test(.enabled(if: hasPasteboard, "needs a pasteboard server"))
+    func aPasteboardThatChangedMeanwhileIsLeftAsItIs() async {
         let board = board()
         defer { board.releaseGlobally() }
         board.clearContents()
@@ -99,10 +117,9 @@ struct PastedImagePNGTests {
         #expect(board.data(forType: .png) == nil)
     }
 
-    /// The timing test: from the held Cmd-V to the PNG on the pasteboard, a Retina screenshot takes
-    /// well under the default encode Chromium ran (measured beside it, on the same machine), and
-    /// under 300 ms outright.
-    @Test func aHeldPasteResumesWithItsPNGFasterThanChromiumsOwnEncode() async throws {
+    /// The timing test, part one: a Retina screenshot's PNG with no filter search takes well under
+    /// the default encode Chromium's read ran, measured beside it on the same machine.
+    @Test func thePNGIsMadeFasterThanChromiumsOwnEncode() {
         let converter = PastedImagePNG()
         func median(_ run: () -> Void) -> Double {
             (0..<3).map { _ in
@@ -122,7 +139,11 @@ struct PastedImagePNGTests {
         }
         print("PastedImagePNG: ours \(Int(ours)) ms, Chromium's default encode \(Int(chromiums)) ms")
         #expect(ours * 1.5 < chromiums)
+    }
 
+    /// The timing test, part two: from the held Cmd-V to the PNG on the pasteboard, within budget.
+    @Test(.enabled(if: hasPasteboard, "needs a pasteboard server"))
+    func aHeldPasteResumesWithItsPNGWithinItsBudget() async {
         let board = board()
         defer { board.releaseGlobally() }
         board.clearContents()
@@ -143,7 +164,8 @@ struct PastedImagePNGTests {
         #expect(!heldAgain)
     }
 
-    @Test func aSecondPasteDuringTheHoldWaitsForThePNGToo() async {
+    @Test(.enabled(if: hasPasteboard, "needs a pasteboard server"))
+    func aSecondPasteDuringTheHoldWaitsForThePNGToo() async {
         let board = board()
         defer { board.releaseGlobally() }
         board.clearContents()
@@ -153,15 +175,16 @@ struct PastedImagePNGTests {
         let order = Order()
         let both: Void = await withCheckedContinuation { done in
             let first = hold.hold(board, resume: { _ in order.names.append("first") })
-            let second = hold.hold(board, resume: { added in
+            let second = first && hold.hold(board, resume: { added in
                 order.names.append("second")
                 #expect(added)
                 done.resume()
             })
-            #expect(first && second)
+            if !second { done.resume() }
         }
         _ = both
         #expect(order.names == ["first", "second"])
+        #expect(board.types?.contains(.png) == true)
         #expect(board.data(forType: .png) != nil)
     }
 }
