@@ -110,6 +110,7 @@ impl<T, E: WireError> Answer<T, E> {
                 code: Some(error.code.code().to_owned()),
                 message: error.message,
                 retryable: error.retryable,
+                retry_after: None,
             }),
         }
     }
@@ -122,6 +123,7 @@ fn local(message: String) -> ApiError {
         code: Some("cloud.client.usage".to_owned()),
         message,
         retryable: false,
+        retry_after: None,
     }
 }
 
