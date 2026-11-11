@@ -1,4 +1,4 @@
-import { PrefixFilter, PrefixFlatCache } from "../conversation/prefixFlatMap";
+import { keptPrefix, PrefixFilter, PrefixFlatCache } from "../conversation/prefixFlatMap";
 import { turnCopyParts } from "../conversation/turnCopy";
 import type { Folds } from "../conversation/viewFolds";
 import { turnWork } from "../conversation/waterfallSpans";
@@ -149,8 +149,7 @@ export type SubagentRows = { source: readonly AcpmuxRow[]; grouped: boolean; row
 export function subagentRowsFrom(rows: readonly AcpmuxRow[], expanded: Folds, previous?: SubagentRows): SubagentRows {
   if (previous && !previous.grouped) {
     const shared = previous.source;
-    let from = 0;
-    while (from < rows.length && from < shared.length && rows[from] === shared[from]) from += 1;
+    const from = keptPrefix(shared, rows);
     let grouped = false;
     for (let index = from; index < rows.length && !grouped; index += 1) grouped = isSubagentGroup(rows[index]!);
     if (!grouped) return { source: rows, grouped, rows: rows as AcpmuxRow[] };

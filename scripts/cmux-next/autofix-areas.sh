@@ -25,9 +25,12 @@ area strings 'Packages/|webviews/src/|webviews/scripts/pages/|schemas/settings/'
 # The SDK generator reads the SDK schema and its own emitters.
 area sdk 'cmux-tui/spec/|cmux-tui/bindings/codegen/'
 # The action exports (regenerated on a Mac: regenerate-action-exports.sh) read
-# CmuxNextActions, which depends on no other target, the tests that write them,
-# and for links.json the URL schemes of CmuxNextCloud's CloudConfiguration.
-area actions 'Packages/macOS/CmuxNext/Sources/CmuxNextActions/|Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/|Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests/|Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/LinkExportTests\.swift|plans/cmux-next/(action-surfaces\.json|actions\.md|links\.json)|scripts/cmux-next/regenerate-action-exports\.sh'
+# CmuxNextActions, the tests that write them, and for links.json the URL schemes
+# of CmuxNextCloud's CloudConfiguration. CmuxNextActions reads the Rust catalog
+# through the pinned CCmuxAppFFI, so a re-pin is an input too: the pseudo path
+# Package.swift#CCmuxAppFFI, which base-autofix-ffi-pin.sh adds when the pin
+# moved (the rest of Package.swift is not an input).
+area actions 'Packages/macOS/CmuxNext/Package\.swift#CCmuxAppFFI|Packages/macOS/CmuxNext/Sources/CmuxNextActions/|Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/|Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests/|Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/LinkExportTests\.swift|plans/cmux-next/(action-surfaces\.json|actions\.md|links\.json)|scripts/cmux-next/regenerate-action-exports\.sh'
 # The settings exports (regenerated on a Mac: regenerate-settings-exports.sh) read
 # CmuxNextSettings and the two export tests. Their source stamp is derived
 # (defaults_guard.py source-stamp), never committed.
@@ -43,5 +46,8 @@ area cloud 'backend/catalog/cloud-operations\.json|backend/packages/protocol/(sc
 area webviews 'webviews/'
 area ghostty 'ghostty$|scripts/ghosttykit-checksums\.txt'
 area fmt 'cmux-tui/|Native/OptChat/'
+# Every tracked Cargo.lock against its manifests (cargo-locks.py): any Cargo.toml or Cargo.lock anywhere, since a
+# manifest reaches other workspaces' locks through path dependencies (eb4f3eb1d94).
+area locks '(.*/)?Cargo\.(toml|lock)$'
 # cargo clippy --fix (pull request job only): the cmux-tui Rust it changes.
 area clippy 'cmux-tui/.*\.rs$'

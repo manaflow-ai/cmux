@@ -22,7 +22,13 @@ import sys
 import time
 import unittest
 from unittest import mock
-import git_fixture_env  # disables git auto maintenance
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 
 SOURCE = Path(__file__).resolve().parents[1]
@@ -96,8 +102,7 @@ class WebLintPrePushTests(unittest.TestCase):
         git_fixture_env.without_auto_maintenance(self.env)
         self.stub_lint_tools()
 
-        subprocess.run(["git", "init", "--quiet", "--bare", "--initial-branch=feat-cmux-next", str(self.origin)],
-                       env=self.env, check=True, capture_output=True)
+        git_fixture_env.init_repo(self.origin, "--bare", "--initial-branch=feat-cmux-next", env=self.env)
         self.repo.mkdir()
         self.git("init", "--quiet", "--initial-branch=feat-cmux-next")
         self.git("remote", "add", "origin", str(self.origin))
@@ -165,6 +170,7 @@ class WebLintPrePushTests(unittest.TestCase):
             "scripts/ci/test_execution_registry.py",
             "scripts/ci/workload_entrypoints.py",
             "scripts/normalize-pbxproj.py",
+            "scripts/webviews_bun_version.py",
             "scripts/lint_swift_namespaces.py",
             "scripts/swift_source_mask.py",
         ):
@@ -812,8 +818,7 @@ class WebLintPrePushTests(unittest.TestCase):
         self.seed_reviewed_check()
         marker = self.root / "pushed-code-ran"
         fork = self.root / "fork.git"
-        subprocess.run(["git", "init", "--quiet", "--bare", "--initial-branch=feat-cmux-next", str(fork)],
-                       env=self.env, check=True, capture_output=True)
+        git_fixture_env.init_repo(fork, "--bare", "--initial-branch=feat-cmux-next", env=self.env)
         self.git("remote", "add", "fork", str(fork))
         self.git("checkout", "--quiet", "-b", "topic")
         self.write("scripts/cmux-next/check_x.py", f"open({str(marker)!r}, 'w').close()\n")
