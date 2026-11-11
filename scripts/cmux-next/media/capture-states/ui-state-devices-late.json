@@ -1,5 +1,5 @@
 {
-  "title": "Mac Screen Your Devices: Couldn't reach the device hub, with Try Again (ui-state-fixes M5)",
+  "title": "Mac Screen Your Devices: the device list that arrives after the 10 s deadline replaces the error (ui-state-fixes M5)",
   "steps": [
     {
       "title": "Launch",
@@ -28,12 +28,12 @@
       "shot": false
     },
     {
-      "title": "A device hub whose start failed",
+      "title": "A registered hub whose socket never connects",
       "rpc": {
         "method": "debug.device_hub",
         "params": {
           "action": "capture_devices",
-          "state": "failed"
+          "state": "timeout"
         }
       },
       "wait": 1,
@@ -48,8 +48,26 @@
           "action": "open"
         }
       },
-      "wait": 3,
+      "wait": 2,
       "record": true
+    },
+    {
+      "title": "Past the 10 s list deadline: the error",
+      "wait": 11,
+      "shot": false
+    },
+    {
+      "title": "The socket connects late and the list (one shared Mac) arrives",
+      "rpc": {
+        "method": "debug.device_hub",
+        "params": {
+          "action": "capture_devices",
+          "state": "deliver"
+        }
+      },
+      "wait": 3,
+      "record": true,
+      "shot": false
     }
   ]
 }

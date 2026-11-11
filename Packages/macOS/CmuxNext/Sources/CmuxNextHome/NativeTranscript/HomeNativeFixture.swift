@@ -77,8 +77,10 @@ public final class HomeNativeFixture {
     }
 
     /// With `transcriptLoad`, the Chief's transcript reads are held (`.loading`) or fail (`.failed`).
+    /// With `cacheURL` (captures of ui-state-fixes M2), the store keeps a client cache there
+    /// (`HomeCache`, its `home.json`), so a later fixture after a relaunch draws what it holds.
     public init(attachments: Bool = false, openPanel: MadeAheadOpenPanel? = nil, compose: Bool = false,
-                transcriptLoad: TranscriptLoad? = nil) {
+                transcriptLoad: TranscriptLoad? = nil, cacheURL: URL? = nil) {
         column = compose ? HomeChatColumnView(content: NSView(), compose: HomeChatComposeButton(label: HomeConversationStrings.newMessage)) : nil
         self.attachments = attachments
         self.openPanel = openPanel
@@ -88,7 +90,7 @@ public final class HomeNativeFixture {
         case .failed: gate.failReads(true)
         case nil: break
         }
-        store = HomeStore(source: gate)
+        store = HomeStore(source: gate, cache: cacheURL.map { HomeCache(url: $0) })
         if let column {
             column.autoresizingMask = [.width, .height]
             column.showsCompose = true
@@ -149,6 +151,39 @@ public final class HomeNativeFixture {
         else { return nil }
         if chat.id != shown.conversation { await show(chat.id, chief: shown.chief, me: inbox.me.id) }
         return self.shown
+    }
+
+    // MARK: Captures of the transcript load states (ui-state-fixes M1, M2)
+
+    /// Lets the held transcript reads go (a late first page lands, after its deadline too).
+    public func debugReleaseReads() {
+        gate.release()
+    }
+
+    /// Shows the mock's team chat in place of the one shown, so the shown one closes (it stays a
+    /// kept transcript, and the client cache keeps it as a closed chat). False when none shows.
+    public func debugShowTeam() async -> Bool {
+        await showChat(team: true) != nil
+    }
+
+    /// Writes the store's client cache now and waits for the disk.
+    public func debugFlushCache() async {
+        await store.flushCache()
+    }
+
+    /// The shown conversation, its first page's state, the transcript items it draws now and the
+    /// transcript reads held by the gate.
+    public func debugLoadState() -> [String: Any] {
+        guard let shown else { return ["shown": false, "held_reads": gate.waiting] }
+        let page: String
+        switch store.transcriptFirstPage(shown.conversation) {
+        case .loaded: page = "loaded"
+        case .loading: page = "loading"
+        case .failed: page = "failed"
+        }
+        return ["shown": true, "conversation": shown.conversation.rawValue, "first_page": page,
+                "items": store.transcript(for: shown.conversation).count, "held_reads": gate.waiting,
+                "reads": gate.snapshots.count]
     }
 
     /// True when `view` is this fixture's transcript.

@@ -1,5 +1,5 @@
 {
-  "title": "Mac Screen Your Devices: Loading your devices\u2026 while the hub is idle (ui-state-fixes M5)",
+  "title": "Mac Screen Your Devices: the list was read and no other device shares Mac Screen: the empty copy (ui-state-fixes M5)",
   "steps": [
     {
       "title": "Launch",
@@ -28,15 +28,15 @@
       "shot": false
     },
     {
-      "title": "A device hub that is not started",
+      "title": "A registered, connected hub whose list has no other device",
       "rpc": {
         "method": "debug.device_hub",
         "params": {
           "action": "capture_devices",
-          "state": "loading"
+          "state": "empty"
         }
       },
-      "wait": 1,
+      "wait": 2,
       "record": true,
       "shot": false
     },

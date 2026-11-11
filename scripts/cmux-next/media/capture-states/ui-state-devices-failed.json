@@ -1,0 +1,68 @@
+{
+  "title": "Mac Screen Your Devices: Couldn't reach the device hub, with Try Again inset like the note (ui-state-fixes M5)",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "A workspace for the Mac Screen tab",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "devices"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Open it",
+      "cmux": [
+        "workspace",
+        "name:devices",
+        "focus"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "A device hub whose start failed",
+      "rpc": {
+        "method": "debug.device_hub",
+        "params": {
+          "action": "capture_devices",
+          "state": "failed"
+        }
+      },
+      "wait": 1,
+      "record": true,
+      "shot": false
+    },
+    {
+      "title": "Mac Screen home",
+      "rpc": {
+        "method": "debug.mac_screen",
+        "params": {
+          "action": "open"
+        }
+      },
+      "wait": 3,
+      "record": true
+    },
+    {
+      "title": "Try Again and the note text: frames in window points and pixels",
+      "rpc": {
+        "method": "debug.device_hub",
+        "params": {
+          "action": "capture_devices",
+          "state": "geometry"
+        }
+      },
+      "wait": 0.5,
+      "record": "file",
+      "shot": false
+    }
+  ]
+}

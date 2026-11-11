@@ -1,0 +1,73 @@
+{
+  "title": "Mac Screen Your Devices: registered, but the device list is never read (the socket never connects): past the 10 s deadline the error with Try Again (ui-state-fixes M5)",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "A workspace for the Mac Screen tab",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "devices"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Open it",
+      "cmux": [
+        "workspace",
+        "name:devices",
+        "focus"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "A registered hub whose socket never connects",
+      "rpc": {
+        "method": "debug.device_hub",
+        "params": {
+          "action": "capture_devices",
+          "state": "timeout"
+        }
+      },
+      "wait": 1,
+      "record": true,
+      "shot": false
+    },
+    {
+      "title": "Mac Screen home",
+      "rpc": {
+        "method": "debug.mac_screen",
+        "params": {
+          "action": "open"
+        }
+      },
+      "wait": 2,
+      "record": true
+    },
+    {
+      "title": "Past the 10 s list deadline",
+      "wait": 11,
+      "shot": false
+    },
+    {
+      "title": "Try Again and the note text after the deadline",
+      "rpc": {
+        "method": "debug.device_hub",
+        "params": {
+          "action": "capture_devices",
+          "state": "geometry"
+        }
+      },
+      "wait": 0.5,
+      "record": "file",
+      "shot": false
+    }
+  ]
+}

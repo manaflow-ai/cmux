@@ -1,0 +1,50 @@
+{
+  "title": "Home Chief transcript whose first read hangs: past HomeStore.firstPageDeadline (10 s) the error with Try Again, never loading forever (ui-state-fixes M1)",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "The native Home transcript, its Chief transcript read held (it never answers)",
+      "rpc": {
+        "method": "debug.home_native_fixture.open",
+        "params": {
+          "transcript": "loading"
+        }
+      },
+      "wait": 1.5,
+      "record": true
+    },
+    {
+      "title": "Before the deadline: loading",
+      "rpc": {
+        "method": "debug.home_native_fixture.capture",
+        "params": {
+          "action": "state"
+        }
+      },
+      "wait": 0.5,
+      "record": true,
+      "shot": false
+    },
+    {
+      "title": "Past the 10 s deadline",
+      "wait": 11,
+      "shot": false
+    },
+    {
+      "title": "After the deadline: first page failed, the read still held",
+      "rpc": {
+        "method": "debug.home_native_fixture.capture",
+        "params": {
+          "action": "state"
+        }
+      },
+      "wait": 0.5,
+      "record": true,
+      "shot": false
+    }
+  ]
+}
