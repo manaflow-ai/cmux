@@ -25,7 +25,7 @@ use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Condvar, Mutex, PoisonError, Weak};
+use std::sync::{Arc, Condvar, Mutex, PoisonError, Weak, mpsc};
 use std::time::{Duration, Instant};
 
 use flate2::Compression;
@@ -49,21 +49,37 @@ struct WriterState {
     stop: bool,
 }
 
+/// How long stop waits for the writer to finish a pass it is in (a pass can
+/// stall on file I/O); after that the writer stays detached.
+const STOP_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// The writer thread and the channel that closes when it returns or unwinds.
+struct WriterThread {
+    handle: std::thread::JoinHandle<()>,
+    finished: mpsc::Receiver<()>,
+}
+
 /// The background writer: one thread, woken by the first output after a
 /// write and by stop.
 #[derive(Default)]
 pub(super) struct Writer {
     state: Arc<(Mutex<WriterState>, Condvar)>,
-    thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+    thread: Mutex<Option<WriterThread>>,
 }
 
 impl Writer {
     pub(super) fn start(&self, mux: Weak<Mux>) -> anyhow::Result<()> {
         let state = self.state.clone();
-        let thread = std::thread::Builder::new()
-            .name("mux-output-store-writer".into())
-            .spawn(move || run(&mux, &state))?;
-        *self.thread.lock().unwrap_or_else(PoisonError::into_inner) = Some(thread);
+        let (finished_tx, finished) = mpsc::channel::<()>();
+        let handle = std::thread::Builder::new().name("mux-output-store-writer".into()).spawn(
+            move || {
+                // Dropped on return and on unwind, so stop sees the end.
+                let _finished = finished_tx;
+                run(&mux, &state);
+            },
+        )?;
+        *self.thread.lock().unwrap_or_else(PoisonError::into_inner) =
+            Some(WriterThread { handle, finished });
         Ok(())
     }
 
@@ -85,12 +101,23 @@ impl Writer {
             lock.lock().unwrap_or_else(PoisonError::into_inner).stop = true;
             changed.notify_all();
         }
-        if let Some(thread) = self.thread.lock().unwrap_or_else(PoisonError::into_inner).take() {
-            // The writer can hold the last Mux handle, so the Mux may drop
-            // (and stop the writer) on the writer thread itself.
-            if thread.thread().id() != std::thread::current().id() {
-                let _ = thread.join();
+        let Some(thread) = self.thread.lock().unwrap_or_else(PoisonError::into_inner).take() else {
+            return;
+        };
+        // The writer can hold the last Mux handle, so the Mux may drop (and
+        // stop the writer) on the writer thread itself.
+        if thread.handle.thread().id() == std::thread::current().id() {
+            return;
+        }
+        match thread.finished.recv_timeout(STOP_TIMEOUT) {
+            Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => {
+                // The thread has returned or unwound: this join is bounded.
+                let _ = thread.handle.join();
             }
+            Err(mpsc::RecvTimeoutError::Timeout) => eprintln!(
+                "cmux-tui: output store writer did not stop within {} ms; it stays detached",
+                STOP_TIMEOUT.as_millis()
+            ),
         }
     }
 }
