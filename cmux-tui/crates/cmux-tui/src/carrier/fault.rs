@@ -191,7 +191,7 @@ pub(crate) fn parse_spec(text: &str) -> Result<FaultSpec, String> {
 
 /// The test accounts `scripts/ci/cloud_capture_provision.py` provisions
 /// (its `TARGETS`: capture, journey, journey-guest, production,
-/// production-team, journey-production, platform-staging, platform-production). Every one is a
+/// production-team, journey-production, platform-staging, platform-production, app-review). Every one is a
 /// team-made test account on the manaflow.dev mailbox, never a person's, so
 /// any of them may drive a drill; the production probe (cmuxterm-hq
 /// synthetic-probes.yml app-chat-production) signs in as
@@ -206,6 +206,7 @@ pub(crate) const PROBE_ACCOUNTS: &[&str] = &[
     "cmux-cloud-capture-journey-prod@manaflow.dev",
     "cmux-cloud-capture-platform@manaflow.dev",
     "cmux-cloud-capture-platform-prod@manaflow.dev",
+    "cmux-app-review@manaflow.dev",
 ];
 
 /// Whether `email` is one of cmux's probe accounts: a provisioned test

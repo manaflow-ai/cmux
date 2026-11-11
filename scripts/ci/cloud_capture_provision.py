@@ -62,6 +62,11 @@ CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD (cloud-journey-prod.yml, backend.yml jour
 production projects), sealed to manaflow-ai/cmux-platform's repository secrets (no environment: its ci.yml job has
 none) as CMUX_DOGFOOD_STACK_* and CMUX_JOURNEY_PROD_STACK_*, which its deploy journeys read.
 
+`--target app-review` makes the App Store review account (cmux-app-review@manaflow.dev) in the PRODUCTION project,
+sealed to this repository's `release` environment (ios-app-store.yml's) as APP_REVIEW_STACK_EMAIL and _PASSWORD: the
+demo sign-in for the cmux iOS app's App Review (cmux-next-ios/AppStoreReview/cloud-chief-review-account.md). The log's
+Stack user id is what the operator puts on the Worker's Claude owner list. Only a person dispatches it.
+
 Runs in .github/workflows/cloud-capture-provision.yml (environment cloud-vm-staging). The bundle is
 stored with `python3 scripts/ci/sealed_secrets.py put BUNDLE`; docs/ci-sealed-secrets.md.
 Standard library only, plus the system libsodium.
@@ -167,6 +172,13 @@ TARGETS = {
                                   "EzR9/8XfEWpKYAO5ulRMqEaTWp1BuVXmv7i36gCaCwA=",
                                   "CMUX_JOURNEY_PROD_STACK_EMAIL", "CMUX_JOURNEY_PROD_STACK_PASSWORD",
                                   project=PRODUCTION_PROJECT_ID),
+    # The App Store review account for the cmux iOS app (cmux-next-ios/AppStoreReview/cloud-chief-review-account.md):
+    # a production account App Review signs in to with a password, sealed to this repository's `release` environment
+    # (ios-app-store.yml), from which a release step can fill the review form's demo account. Its own account, in no
+    # team, so rotating it signs nothing else out.
+    "app-review": Target("cmux-app-review@manaflow.dev", "cmux App Review", "manaflow-ai/cmux", "release",
+                         "3380204578043523366", "Gpf4i8CZaZMi76KGQZtNaC4tRxhxABHqWS02FaBWVnI=",
+                         "APP_REVIEW_STACK_EMAIL", "APP_REVIEW_STACK_PASSWORD", project=PRODUCTION_PROJECT_ID),
 }
 CAPTURE = TARGETS["capture"]
 EMAIL = CAPTURE.email

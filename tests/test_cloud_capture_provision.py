@@ -292,6 +292,41 @@ class Provision(unittest.TestCase):
             self.assertEqual(open_sealed(bundle["secrets"][secrets[1]], pk, sk), PASSWORD)
             self.assertIn("manaflow-ai/cmux-platform repository secrets", logs[-1])
 
+    @unittest.skipIf(SODIUM is None, "needs the system libsodium")
+    def test_the_app_review_target_has_its_own_production_account_sealed_to_the_release_environment(self):
+        # The cmux iOS app's App Store review sign-in (cmux-next-ios/AppStoreReview/cloud-chief-review-account.md).
+        target = provision.TARGETS["app-review"]
+        self.assertEqual(target.project, provision.PRODUCTION_PROJECT_ID)
+        self.assertIsNone(target.team_id)
+        self.assertNotIn(target.email, [t.email for n, t in provision.TARGETS.items() if n != "app-review"])
+        self.assertFalse(provision.GRANT_ONLY_EMAIL.fullmatch(target.email))
+        fake = FakeStack()
+        key, pk, sk = keypair()
+        logs = []
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "bundle.json"
+            action = provision.provision(stack(fake, provision.PRODUCTION_PROJECT_ID), out, log=logs.append, lib=SODIUM,
+                                         key_id="42", key=key, make_password=lambda: PASSWORD, target=target)
+            bundle = json.loads(out.read_text())
+        self.assertEqual(action, "created")
+        created = [r for r in fake.requests if r[0] == "POST" and r[1] == "/users"]
+        self.assertEqual(created[0][3]["primary_email"], "cmux-app-review@manaflow.dev")
+        self.assertEqual((bundle["repo"], bundle["environment"]), ("manaflow-ai/cmux", "release"))
+        self.assertEqual(sorted(bundle["secrets"]), ["APP_REVIEW_STACK_EMAIL", "APP_REVIEW_STACK_PASSWORD"])
+        self.assertEqual(open_sealed(bundle["secrets"]["APP_REVIEW_STACK_PASSWORD"], pk, sk), PASSWORD)
+        self.assertIn("production test account", logs[-1])
+        self.assertNotIn(PASSWORD, logs[-1])
+
+    def test_the_workflow_offers_app_review_with_the_production_key_and_no_grant_only(self):
+        text = (ROOT / ".github" / "workflows" / "cloud-capture-provision.yml").read_text()
+        options = next(line for line in text.splitlines() if line.strip().startswith("options:"))
+        self.assertIn("app-review", options)
+        environment = next(line for line in text.splitlines() if line.strip().startswith("environment:"))
+        self.assertIn("inputs.target == 'app-review'", environment)
+        grant = text.split("- name: Grant the operator plan only", 1)[1].split("- name:", 1)[0]
+        self.assertIn("inputs.target != 'app-review'", grant)
+        self.assertNotIn("schedule:", text)  # only a person dispatches it
+
     def test_an_existing_account_is_rotated_keeping_other_metadata(self):
         fake = FakeStack([{"id": "user-1", "primary_email": provision.EMAIL.upper(), "password": "old",
                            "client_read_only_metadata": {"other": 1, "cmuxVmPlan": "free"}}])

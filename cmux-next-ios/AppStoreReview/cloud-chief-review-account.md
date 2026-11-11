@@ -27,8 +27,8 @@ never here.
   - Turning the brain on for an owner not on that list is refused with `chief_claude_unavailable`.
   - Each turn also needs the payer team's prepaid credits (`src/chief-brain/brain-gateway.ts`),
     granted through the operator route `POST /v1/internal/credits` (`src/credits-admin.ts`).
-- **So the review account is marked on the server only.** Its personal team is on the secret owner
-  list and has a credits grant. The app has no review switch, no hardcoded account and no canned
+- **So the review account is marked on the server only.** Its personal team is on the owner list and
+  has a credits grant. The app has no review switch, no hardcoded account and no canned
   content: the reviewer uses the same Home, Chief and chat every person gets.
 
 ## What the app does for this path
@@ -50,24 +50,47 @@ never here.
 
 ## Operator setup, once per review account (production)
 
-1. **Make the account.** In the production sign-in project, make the review account with an email
-   whose inbox the reviewer can open from the review notes (a public disposable inbox). Mark the
-   email verified, so sign-in goes straight to the code screen. Use a fictional display name.
-2. **Sign in once.** Do this with that account in the cmux iOS app, so signup makes the Hosted
-   Chief. Tap Not now on Connect your Mac. Do not create other Chiefs or conversations.
-3. **Grant credits.** Grant the account's personal team prepaid credits through the operator
-   credits route on `cloud-api.cmux.dev`, with the billing operator key:
+Each step names the tool that already does it. Only a person starts steps 1 and 3; nothing runs them
+on a schedule.
+
+1. **Make the account.** Dispatch `.github/workflows/cloud-capture-provision.yml` on `feat-cmux-next`
+   with `target: app-review` (`scripts/ci/cloud_capture_provision.py`, target `app-review`). It runs in
+   environment `cloud-vm-production`, which asks for its approval.
+   - It finds or makes the review account in the production sign-in project, verified, with a fresh
+     random password and the `pro` plan. It checks that the password signs in, then seals the email and
+     password to this repository's `release` environment as `APP_REVIEW_STACK_EMAIL` and
+     `APP_REVIEW_STACK_PASSWORD`. The run's artifact holds only ciphertext; store it with
+     `python3 scripts/ci/sealed_secrets.py put sealed-secrets.json` (`docs/ci-sealed-secrets.md`).
+   - The log names the account's sign-in user id (not a secret), which steps 3 and 4 use. Every run
+     rotates the password, so rerunning is how it is replaced.
+   - The shipped app signs in only by emailed code or OAuth, not by password. So the reviewer needs an
+     account whose code email they can open from the review notes (a public disposable inbox). That
+     account is made by hand in the production sign-in project, verified, with a fictional display
+     name; this target's password account serves the check in step 5 and any password path.
+2. **Sign in once.** Do this with the account in the cmux iOS app, so signup makes the Hosted Chief.
+   Tap Not now on Connect your Mac. Do not create other Chiefs or conversations.
+3. **Grant credits.** Use the operator credits route on `cloud-api.cmux.dev`,
+   `POST /v1/internal/credits` (`backend/apps/api/src/credits-admin.ts`), with the billing operator
+   key (`BILLING_LEVELS_KEY`). No workflow holds that key, so a person who has it sends this:
    - action `grant`, and `stack_user` set to the account's sign-in user id;
    - a small amount that covers a few days of review turns, a unique `key`, your `actor`;
    - a `reason` such as "app review account".
    The answer names the personal team id (`team_...`).
-4. **Add the team to the owner list.** Add that `team_...` id to the production API Worker secret
-   `CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA`. Setting the secret replaces its whole value: read the current
-   list from whoever owns it, and write the list with the new id added. No deploy is needed.
-5. **Turn the Chief on.** In the app, on the review account, Home shows "Chief Is Off". Tap Turn On,
-   open Chief, send "hello" and wait for the reply. The card does not come back after a relaunch.
-   - If the card says "Chief isn't available on this account.", step 4 has not taken effect.
-     Check the secret, then leave the app and come back to get Turn On again.
+4. **Add the team to the owner list.** Open a PR that adds that `team_...` id to
+   `CHIEF_BRAIN_CLAUDE_OWNERS` in `env.production.vars` of `backend/apps/api/wrangler.jsonc`. A team
+   id is not a secret. It reaches production with the next normal promote (`backend.yml`,
+   `scripts/cmux-next/release/prod-promote.ts`); no secret is set by hand and no person holds a value.
+   - The secret `CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA` takes the same ids without a deploy, but setting it
+     replaces its whole value and no workflow sets it. Use it only when the promote cannot wait.
+5. **Check it.** In the app, on the review account, Home shows "Chief Is Off". Tap Turn On, open Chief,
+   send "hello" and wait for the reply. The card does not come back after a relaunch.
+   - If the card says "Chief isn't available on this account.", step 4 has not reached production.
+     Check that the promote carried it, then leave the app and come back to get Turn On again.
+   - Without a phone: a simulator build of a shipping configuration signs in by password from
+     `CMUX_MOBILE_STACK_EMAIL` and `CMUX_MOBILE_STACK_PASSWORD` (`CmuxMobileAuthModel`), which a job in
+     the `release` environment reads from step 1's secrets. `backend/scripts/chief-durable-evals.ts`
+     shows the same check over HTTP: `PUT /v1/chiefs/<agent>/brain {"enabled": true, ...}`, then one
+     turn.
 6. **Fill the review form.** Leave the account signed in nowhere else. In the review information
    form, enter the email, "no password: sign in with the emailed code", the public inbox link and
    the reviewer steps below.
@@ -89,9 +112,10 @@ never here.
 - The steps above work from a phone that has never signed in to the account, on a network outside
   the office.
 - The account's credits read above zero (operator credits route, action `read`).
-- The owner list still names the account's team (a replaced secret drops it).
+- The owner list still names the account's team: `CHIEF_BRAIN_CLAUDE_OWNERS` in `wrangler.jsonc`
+  on the serving commit, or the secret if it was used (a replaced secret drops it).
 
 ## After review
 
-Remove the team id from `CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA`. Archive the account's conversations. Then
+Remove the team id from the owner list (a PR to `wrangler.jsonc`, or the secret if it was used). Archive the account's conversations. Then
 change the account's inbox or delete the account, because anyone with the public inbox can sign in.
