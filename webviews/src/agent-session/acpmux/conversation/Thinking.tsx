@@ -96,18 +96,20 @@ type Roll = {
 /// words (`.cv-worked--live[data-roll]`), so no count pops off or on while the words roll.
 function useRoll(key: string | undefined, label: string, lead: Roll["lead"], tail: string): Roll {
   const [roll, setRoll] = useState<Roll>({ key, label, lead, turns: 0 });
-  // The tail as last committed, and the roll it was last committed with. Refs are read only in the
-  // layout effect, never in render: a new roll's old tail is filled in there, before paint, so only
-  // a key change costs a second render and a tick costs none.
-  const drawn = useRef({ tail, turns: roll.turns });
+  // The tail as last committed. Refs are read only in layout effects, never in render: a new roll's
+  // old tail is filled in below, before paint, so only a key change costs a second render and a tick
+  // costs none.
+  const drawn = useRef(tail);
+  // A new roll (its `turns` changed) takes the tail the last commit drew. Declared before the effect
+  // that records this commit's tail, so it still reads the one before.
+  const rolledOut = roll.out !== undefined;
   useLayoutEffect(() => {
+    if (!rolledOut) return;
     const before = drawn.current;
-    drawn.current = { tail, turns: roll.turns };
-    if (roll.out && roll.turns !== before.turns) {
-      setRoll((now) =>
-        now.out && now.turns === roll.turns ? { ...now, out: { ...now.out, tail: before.tail } } : now,
-      );
-    }
+    setRoll((now) => (now.out && now.turns === roll.turns ? { ...now, out: { ...now.out, tail: before } } : now));
+  }, [rolledOut, roll.turns]);
+  useLayoutEffect(() => {
+    drawn.current = tail;
   });
   if (key !== roll.key) {
     const rolls = key !== undefined && roll.key !== undefined;
@@ -117,7 +119,7 @@ function useRoll(key: string | undefined, label: string, lead: Roll["lead"], tai
       lead,
       // Away clears the count too: the words that come back draw no roll in.
       turns: key === undefined ? 0 : roll.turns + (rolls ? 1 : 0),
-      // Its tail is the one last drawn, filled in by the layout effect above.
+      // Its tail is the one last drawn, filled in by the first layout effect above.
       out: rolls ? { ...roll, out: undefined, tail: undefined } : undefined,
     });
   } else if (label !== roll.label) setRoll({ ...roll, label, lead });
