@@ -24,6 +24,13 @@ pub struct Tool {
 }
 
 impl Tool {
+    /// The tool takes `delivery` (its schema lists it): it parses it and
+    /// authorizes foreground delivery as such before it acts. Every other tool
+    /// acts in the background whatever `delivery` an agent names on it.
+    pub fn takes_delivery(&self) -> bool {
+        (self.schema)().pointer("/properties/delivery").is_some()
+    }
+
     pub fn schema(&self) -> Value {
         let mut schema = (self.schema)();
         if let Some(props) = schema.get_mut("properties").and_then(Value::as_object_mut) {
@@ -282,7 +289,7 @@ pub fn mcp_list() -> Value {
 }
 
 /// The instructions an agent gets with the server (MCP `instructions`).
-pub const INSTRUCTIONS: &str = "cmux Computer Use is built into cmux: use these tools to see and use apps on this computer (and on your other machines with `machine`). There is nothing to install and no other computer-use driver is needed. Look before you answer: a task usually means an app or document already open, so start with list_windows (or list_apps) and work in that window rather than replying in chat. Work in the background: list_windows, then screenshot or get_ui_tree a window, then act on element ids (best) or screenshot pixels. App menu commands are in the tree's menu bar: click a menu item to run it. Every action returns the window after acting (state: screenshot and tree), so do not take another screenshot to check. Your actions never take the person's focus or pointer; a blue cmux cursor shows them where you act. A system-wide shortcut (cmd+space for Spotlight) or a task that needs an app in front takes delivery foreground, when the person allowed it. If a call is refused, call status and tell the person which setting in Settings > Computer Use would allow it; never try to change Computer Use settings yourself.";
+pub const INSTRUCTIONS: &str = "cmux Computer Use is built into cmux: use these tools to see and use apps on this computer (and on your other machines with `machine`). There is nothing to install and no other computer-use driver is needed. When the task is about something on this computer, look before you answer: it usually means an app or document already open, so start with list_windows (or list_apps) and work in that window rather than replying in chat. Work in the background: list_windows, then screenshot or get_ui_tree a window, then act on element ids (best) or screenshot pixels. App menu commands are in the tree's menu bar: click a menu item to run it. Every action returns the window after acting (state: screenshot and tree), so do not take another screenshot to check. Background works for nearly everything: it never takes the person's focus or pointer, and a blue cmux cursor shows them where you act. Use delivery foreground only when the person allowed it (status says), and only for a system-wide shortcut (cmd+space for Spotlight) or when the person wants the app in front: when the task is to open or show them something, finish by bringing that window forward (a foreground click on its title bar raises it). Foreground takes their focus. If a call is refused, call status and tell the person which setting in Settings > Computer Use would allow it; never try to change Computer Use settings yourself.";
 
 #[cfg(test)]
 mod tests {

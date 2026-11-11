@@ -552,6 +552,9 @@ impl Engine {
                     .collect();
                 Ok((ToolOutput::ok(json!({"windows": list})), None))
             }
+            // Not focus-guarded on purpose (Access::Discover): asking for a
+            // permission shows the OS prompt or opens System Settings in front,
+            // which is what the person must see to grant it.
             "request_permission" => {
                 let which = need(args, "permission")?;
                 self.desktop.request_permission(which).map_err(|e| ToolOutput::desktop(&e))?;

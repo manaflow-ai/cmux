@@ -38,7 +38,10 @@ fn fallback_session() -> String {
 }
 
 /// Runs the server on stdin and stdout.
-pub async fn run() -> Result<()> {
+/// `primary`: cmux Computer Use is the agent's only Computer Use (the
+/// agent's own is turned off), so it is not presented as a second choice
+/// (`cmux computer-use mcp --primary`).
+pub async fn run(primary: bool) -> Result<()> {
     let var = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
     // `cmux computer-use mcp` started by an agent's own config: its session
     // is the one cmux names in the agent's env.
@@ -48,25 +51,18 @@ pub async fn run() -> Result<()> {
     let label = var(LABEL_ENV).unwrap_or_else(|| "An agent".to_owned());
     crate::parent_watch::exit_with_parent();
     let caller = Arc::new(Caller::new(SocketDaemon::from_env(), session, label));
-    serve(caller, tokio::io::BufReader::new(tokio::io::stdin()), tokio::io::stdout()).await
+    serve(caller, primary, tokio::io::BufReader::new(tokio::io::stdin()), tokio::io::stdout()).await
 }
-
-/// Set (to anything but empty or "0") in the agent's config for this server
-/// when cmux Computer Use is its only Computer Use (the agent's own is turned
-/// off): the tools are then presented as the agent's Computer Use, not as a
-/// second choice.
-pub const PRIMARY_ENV: &str = "CMUX_COMPUTER_USE_PRIMARY";
 
 /// Whether the client is an agent with its own Computer Use that people
 /// usually prefer (Codex: Codex Computer Use). Then cmux Computer Use is the
-/// second choice, used only when the person asks for it, unless the agent's
-/// config says cmux Computer Use is its only one (PRIMARY_ENV).
+/// second choice, used only when the person asks for it.
 pub fn defers_to_own_computer_use(params: &Value) -> bool {
-    let primary = std::env::var(PRIMARY_ENV).is_ok_and(|v| !v.trim().is_empty() && v.trim() != "0");
-    client_defers(params, primary)
+    client_defers(params, false)
 }
 
-/// defers_to_own_computer_use with the config's answer given.
+/// defers_to_own_computer_use, unless the server was started as the agent's
+/// only Computer Use (`primary`).
 pub fn client_defers(params: &Value, primary: bool) -> bool {
     !primary
         && params
@@ -116,7 +112,12 @@ pub fn tools_list(defer: bool) -> Value {
 
 /// Serves MCP on `input`/`output` until `input` closes, then ends the
 /// session on the worker.
-pub async fn serve<D, R, W>(caller: Arc<Caller<D>>, input: R, mut output: W) -> Result<()>
+pub async fn serve<D, R, W>(
+    caller: Arc<Caller<D>>,
+    primary: bool,
+    input: R,
+    mut output: W,
+) -> Result<()>
 where
     D: Daemon + 'static,
     R: AsyncBufRead + Unpin,
@@ -148,7 +149,7 @@ where
                 {
                     caller.set_label(name);
                 }
-                defer = defers_to_own_computer_use(&params);
+                defer = client_defers(&params, primary);
                 initialize(&params)
             }
             "ping" => json!({}),
@@ -222,7 +223,7 @@ mod defer_tests {
         for tool in listed["tools"].as_array().unwrap() {
             assert!(tool["description"].as_str().unwrap().starts_with(DEFER_PREFIX));
         }
-        // Codex whose own Computer Use is off (its config sets PRIMARY_ENV):
+        // Codex whose own Computer Use is off (served with --primary):
         // cmux Computer Use is its Computer Use, not a second choice.
         assert!(!client_defers(&codex, true));
         assert_eq!(initialize_with(&codex, false)["instructions"], tools::INSTRUCTIONS);

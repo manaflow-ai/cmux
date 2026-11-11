@@ -324,20 +324,15 @@ impl Engine {
     }
 }
 
-/// Tools that take `delivery` and authorize foreground delivery as such
-/// (the person's allowForeground). The others always act in the
-/// background, whatever `delivery` an agent names on them.
-const DELIVERY_TOOLS: &[&str] = &["click", "type_text", "press_key", "drag"];
-
 /// Whether the call raises its window on purpose: a tool that takes
-/// `delivery` with "foreground" (authorized as foreground before it acts), or
-/// a batch whose every acting step is one. A batch with any background step
-/// is guarded as a whole; a foreground word on a tool without delivery
-/// counts for nothing.
+/// `delivery` (Tool::takes_delivery: it authorizes foreground as such before
+/// it acts) with delivery foreground as the tool parses it, or a batch whose
+/// every acting step is one. A batch with any background step is guarded as
+/// a whole; a foreground word on a tool without delivery counts for nothing.
 fn asks_foreground(tool: &str, args: &Value) -> bool {
     let step_fg = |name: &str, v: &Value| {
-        DELIVERY_TOOLS.contains(&name)
-            && v.get("delivery").and_then(Value::as_str) == Some("foreground")
+        tools::find(name).is_some_and(tools::Tool::takes_delivery)
+            && matches!(parse_delivery(v), Ok(Delivery::Foreground))
     };
     if tool != "batch" {
         return step_fg(tool, args);

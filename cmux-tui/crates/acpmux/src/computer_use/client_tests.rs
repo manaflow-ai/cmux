@@ -367,7 +367,7 @@ async fn the_mcp_server_lists_its_tools_with_no_worker() {
         text
     });
     // Keep stdin open until the call answered: serve ends with its input.
-    super::super::mcp::serve(caller.clone(), input, out_w).await.unwrap();
+    super::super::mcp::serve(caller.clone(), false, input, out_w).await.unwrap();
     let text = reader.await.unwrap();
     let replies: HashMap<i64, Value> = text
         .lines()

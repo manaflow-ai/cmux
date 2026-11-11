@@ -262,6 +262,7 @@ fn a_tool_without_delivery_is_guarded_whatever_delivery_it_names() {
             json!({"window_id": "1", "element_id": "e1", "value": "x", "delivery": "foreground"}),
         ),
         ("scroll", json!({"window_id": "1", "x": 5, "y": 5, "dy": 3, "delivery": "foreground"})),
+        ("launch_app", json!({"app_id": "com.apple.Safari", "delivery": "foreground"})),
     ] {
         *r.desktop.focus.lock().unwrap() = Some(person());
         *r.desktop.steal_on_input.lock().unwrap() = Some(safari_front());
@@ -442,4 +443,29 @@ fn with_no_input_counter_nothing_is_exempt() {
     agent_raises_safari(&r);
     let out = background_click(&r, "s1", "c2", safari_other_window());
     assert_ne!(out.body["focus"]["moved_by"], "agent_foreground", "{:?}", out.body);
+}
+
+#[test]
+fn every_tool_that_takes_delivery_authorizes_foreground_as_such() {
+    // asks_foreground trusts a tool's foreground only when the tool lists
+    // delivery in its schema; this ties that list to what the tools do: with
+    // foreground input off, each of them refuses foreground before acting.
+    let r = rig();
+    let delivery_tools: Vec<&str> =
+        tools::TOOLS.iter().filter(|t| t.takes_delivery()).map(|t| t.name).collect();
+    assert_eq!(delivery_tools, ["click", "type_text", "press_key", "drag"]);
+    for name in delivery_tools {
+        let args = match name {
+            "click" => json!({"window_id": "1", "element_id": "e1"}),
+            "type_text" => json!({"window_id": "1", "text": "x"}),
+            "press_key" => json!({"window_id": "1", "keys": "a"}),
+            _ => json!({"window_id": "1", "from_x": 1, "from_y": 1, "to_x": 5, "to_y": 5}),
+        };
+        let mut args = args;
+        args["delivery"] = json!("foreground");
+        let events = r.desktop.events().len();
+        let out = r.engine.call(&ctx(name), name, &args);
+        assert_eq!(out.code.as_deref(), Some("foreground_not_allowed"), "{name}: {:?}", out.body);
+        assert_eq!(r.desktop.events().len(), events, "{name} acted");
+    }
 }
