@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42952335206",
+  "recorded_at": "2026-11-11T03:24:43Z",
+  "reason": "cmux-tui 56083c816931 changes the image's cmux-tui (pinned 6e1be83c512f)",
+  "dry_run": false,
+  "cmux_tui": "56083c8169313b860a509f2cee69d2bb0bfb9817",
+  "fixes": [
+    {
+      "sha": "c8020d8464318b43c05793e8f13554d4774c1625",
+      "mergedAt": "2026-11-11T03:04:09Z",
+      "subject": "Remote chat with no folder starts without a trust question it could never save (#40816)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-11T03:24:43Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
