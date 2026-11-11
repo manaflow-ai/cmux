@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42987991949",
+  "recorded_at": "2026-11-11T08:41:36Z",
+  "reason": "cmux-tui 475452d5782b changes the image's cmux-tui (pinned d77b28905b84)",
+  "dry_run": false,
+  "cmux_tui": "475452d5782b1790f5da24b87c6d128000793348",
+  "fixes": [
+    {
+      "sha": "475452d5782b1790f5da24b87c6d128000793348",
+      "mergedAt": "2026-11-11T08:20:52Z",
+      "subject": "perf(cmux-tui): a get of one tab, pane, screen or workspace reads its workspace, not the session (#40786)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T08:41:36Z",
+    "snapshot_id": "sh-c808303073da445ba3d4b398e14eff7f",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42987991949): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "e9cc09baac2fe6d58184a7719fa5dca66f3219e8",
+    "image": "cloud-native-auto-475452d5-42987991949-1",
+    "revision": "ci-42987991949-1",
+    "at": "2026-11-11T08:41:36Z"
+  },
+  "rolled_back": false
+}
