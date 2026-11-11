@@ -29,6 +29,7 @@ import {
   type EffortLabel,
   MODEL_MENU_MIN_WIDTH,
   menuNameFont,
+  nameLineWidth,
   naturalMenuWidth,
   setModelMenuWidth,
   useModelMenuWidth,
@@ -698,7 +699,7 @@ function Columns({
       // moves to the star's place and the star replaces it on hover.
       const need =
         text.getBoundingClientRect().left +
-        (name ?? text).scrollWidth +
+        nameLineWidth(name ?? text) +
         between +
         (mark ? gap + mark + gap * 2 : 0) +
         star.getBoundingClientRect().width;

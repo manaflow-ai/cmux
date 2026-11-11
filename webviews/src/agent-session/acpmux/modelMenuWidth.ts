@@ -105,6 +105,23 @@ export function menuNameFont(list: HTMLElement | null): string {
   return style ? `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}` : "";
 }
 
+/// A name's width on one line, in px. A models column's names wrap when the menu is narrower than them
+/// (quickModelColumns.css), so a wrapped name's box is the room it was given, not the room it needs:
+/// the row's star check (QuickModelColumns markStarRooms) reads this. The box's own width without a canvas.
+export function nameLineWidth(name: HTMLElement): number {
+  const style = name.ownerDocument.defaultView?.getComputedStyle(name);
+  canvas ??= name.ownerDocument.createElement("canvas");
+  let context: CanvasRenderingContext2D | null = null;
+  try {
+    context = canvas.getContext("2d");
+  } catch {
+    context = null;
+  }
+  if (!context || !style) return name.scrollWidth;
+  context.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+  return Math.max(name.scrollWidth, Math.ceil(context.measureText(name.textContent ?? "").width));
+}
+
 /// One row the effort column can show: its label and the mark after it (a level's or provider's check,
 /// Fast's switch).
 export type EffortLabel = { text: string; mark: "check" | "switch" };
