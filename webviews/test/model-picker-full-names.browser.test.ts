@@ -143,11 +143,14 @@ await requireBrowserLane("model-picker-full-names.browser.test.ts", async () => 
     await page.click(".acpmux-picker-button");
     const chosen = page.locator('.acpmux-cols [role=listbox] [role=option][aria-selected="true"]').first();
     await chosen.waitFor();
-    // The width a drag on the menu's edge sets: the list's size change alone must re-measure the rows.
-    // The ResizeObserver re-measures after the size change; wait for the row's answer, then read it.
+    // What a drag on the menu's edge sets (startResize): the width, and the drag's floor (260 px) in place of
+    // the default's 28.5em one. The list's size change alone must re-measure the rows: the ResizeObserver
+    // re-measures after it; wait for the row's answer, then read it.
     const marks = async (width: number, cover: string | undefined) => {
       await page.evaluate((w) => {
-        document.querySelector<HTMLElement>(".acpmux-cols")!.style.width = `${w}px`;
+        const menu = document.querySelector<HTMLElement>(".acpmux-cols")!;
+        menu.style.width = `${w}px`;
+        menu.style.minWidth = "260px";
       }, width);
       await page.waitForFunction(
         (want) =>
@@ -162,7 +165,7 @@ await requireBrowserLane("model-picker-full-names.browser.test.ts", async () => 
     };
     const wide = await marks(400, undefined);
     expect(wide.check.right).toBeLessThan(wide.star.left);
-    const narrow = await marks(240, "check");
+    const narrow = await marks(260, "check");
     expect(Math.abs(narrow.check.left - narrow.star.left)).toBeLessThan(1);
     expect(Math.abs(narrow.check.right - narrow.star.right)).toBeLessThan(1);
     await chosen.hover();
