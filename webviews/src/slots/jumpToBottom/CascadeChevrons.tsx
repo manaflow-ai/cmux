@@ -17,11 +17,11 @@ export function CascadeChevrons({ working }: JumpToBottomProps) {
     >
       {STEPS.map((step) => (
         <span key={step} className="slot-jump__step" data-step={step}>
-          <ArrowDown size={10} />
+          <ArrowDown size={12} />
         </span>
       ))}
       <span className="slot-jump__step slot-jump__lit">
-        <ArrowDown size={10} />
+        <ArrowDown size={12} />
       </span>
     </span>
   );

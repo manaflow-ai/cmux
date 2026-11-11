@@ -15,7 +15,7 @@
   display: inline-flex;
 }
 
-/* cascade: two 10px arrows in one cell, a few px apart, and a lit arrow on top of them. Still frame:
+/* cascade: two 12px arrows in one cell, a few px apart, and a lit arrow on top of them. Still frame:
    both at full strength, the lit arrow hidden. */
 .slot-jump__cascade {
   display: inline-grid;
