@@ -213,3 +213,13 @@ describe("Appearance's presets", () => {
     expect(rows.get("appearance.backgroundBlur")?.value).toBe("glass");
   });
 });
+
+test("the undo stack and Reset to Defaults still cover the look rows that moved to Sidebar, Tabs and Terminal", async () => {
+  // The pages split moved 96 Appearance rows out of the two undo pages (review of #41237): the
+  // Sidebar page is all look, the mixed pages keep only their look rows in the stack.
+  const { tracksAppearance } = await import("./appearanceUndo");
+  for (const key of ["sidebar.style", "sidebar.workspaceRow.branch", "layout.paneBorder", "focusRing.color", "terminal.fontSize"])
+    expect(tracksAppearance(key)).toBe(true);
+  for (const key of ["tabs.swapCmdTAndCmdN", "layout.focusFollowsMouse", "terminal.cursorStyle"])
+    expect(tracksAppearance(key)).toBe(false);
+});

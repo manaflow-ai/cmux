@@ -1,6 +1,7 @@
 // A time row whose range is too wide for a slider is a menu of durations (Lucas 2026-11-11: Hibernate
 // After's slider sat "all the way at 0" at an hour of a week's range).
 import { afterAll, afterEach, expect, test } from "bun:test";
+import { act } from "react";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
 
@@ -54,4 +55,19 @@ test("Hibernate After is a menu on its value; a pick writes minutes, and Customâ
   expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: HIBERNATE, value: 120 }]);
   await changeValue(native(), "__custom__");
   expect(row().querySelector(".number-field input.number")).not.toBeNull();
+});
+
+test("Customâ€¦ left with no new value closes its field, and the menu shows the row's value again", async () => {
+  page = await renderPage({ path: "/settings/general" });
+  const row = () => rowElement(page!.container, HIBERNATE);
+  const native = () => row().querySelector<HTMLSelectElement>("select.ui-select-native")!;
+  await changeValue(native(), "__custom__");
+  const field = row().querySelector<HTMLInputElement>(".number-field input.number")!;
+  await act(async () => {
+    field.focus();
+    field.blur();
+  });
+  expect(row().querySelector(".number-field input.number")).toBeNull();
+  expect(row().querySelector(".ui-select-button")?.textContent).toBe("1 hour");
+  expect(ops(page.provider, "cmux.settings.set")).toEqual([]);
 });
