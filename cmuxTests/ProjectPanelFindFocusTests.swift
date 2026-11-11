@@ -171,6 +171,97 @@ struct ProjectPanelFindFocusTests {
             "A project panel that failed to load must not claim the find shortcut"
         )
     }
+
+    /// After the right sidebar's Files view had keyboard focus, clicking a
+    /// project panel's filter field and pressing Cmd+F must reach that panel.
+    /// The app-level Find route reads the window's focus owner, so focusing
+    /// the filter has to make the main panel that owner instead of leaving the
+    /// sidebar's focus intent behind.
+    @Test(arguments: [ProjectPanelTab.files, ProjectPanelTab.buildSettings])
+    func findFromFilterFieldReachesProjectPanelAfterSidebarHadFocus(tab: ProjectPanelTab) async throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let fixture = try Harness.writeFixtureProject()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { appDelegate.windowForMainWindowId(windowId)?.close() }
+        let window = try #require(appDelegate.windowForMainWindowId(windowId))
+        window.makeKeyAndOrderFront(nil)
+        await AppKitTestEventPump().drain()
+        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+        let workspace = try #require(manager.selectedWorkspace)
+        let focusController = try #require(appDelegate.keyboardFocusCoordinator(for: window))
+        #expect(appDelegate.applyRightSidebarRemoteCommand(
+            .setMode(.files, focus: false),
+            target: RightSidebarRemoteTarget(windowId: windowId)
+        ) == .ok)
+
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let panel = try #require(workspace.newProjectSurface(
+            inPane: paneId,
+            projectPath: fixture.projectURL.path,
+            focus: true
+        ))
+        panel.activeTab = tab
+        // A unique filter text tells this panel's field apart from the other
+        // text fields in the window; it is cleared once the field is found.
+        let marker = "cmux-project-filter-\(UUID().uuidString)"
+        setFilterText(marker, on: panel, tab: tab)
+        var found: NSTextField?
+        let mounted = await Harness.settle(window) {
+            found = Harness.editableTextFields(in: window.contentView?.superview ?? window.contentView)
+                .first { $0.stringValue == marker }
+            return found != nil
+        }
+        let filterField = try #require(found, "The \(tab) filter field must mount in the main window (\(mounted))")
+        setFilterText("", on: panel, tab: tab)
+        let cleared = await Harness.settle(window) { filterField.stringValue.isEmpty }
+        try #require(cleared, "Clearing the marker must reach the filter field")
+        try #require(workspace.focusedPanelId == panel.id, "The project panel must be the focused panel")
+
+        // The right sidebar's Files view owns keyboard focus, as after a click in it.
+        let sidebarResponder = RightSidebarKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        (window.contentView?.superview ?? window.contentView)?.addSubview(sidebarResponder)
+        defer { sidebarResponder.removeFromSuperview() }
+        sidebarResponder.registerWithKeyboardFocusCoordinatorIfNeeded()
+        try #require(window.makeFirstResponder(sidebarResponder), "The sidebar responder must take focus")
+        try #require(
+            focusController.findShortcutTarget(currentResponder: window.firstResponder) == .rightSidebarFileSearch,
+            "Precondition: with the Files sidebar owning focus, Cmd+F targets the sidebar file search"
+        )
+
+        // Clicking the filter field makes it the first responder.
+        try #require(window.makeFirstResponder(filterField), "The filter field must accept focus")
+        let filterFocused = await Harness.settle(window) {
+            filterField.currentEditor().map { window.firstResponder === $0 } ?? false
+        }
+        try #require(filterFocused, "The click must leave the filter field editing")
+        await Harness.settlePasses(window)
+
+        #expect(
+            focusController.findShortcutTarget(currentResponder: window.firstResponder) == .mainPanelFind,
+            "With the project filter focused, Cmd+F must target the main panel, not the sidebar file search"
+        )
+        #expect(
+            appDelegate.performFindShortcutInActiveMainWindow(preferredWindow: window),
+            "Cmd+F from the project filter must be handled"
+        )
+        let keptFocus = await Harness.settle(window) {
+            filterField.currentEditor().map { window.firstResponder === $0 } ?? false
+        }
+        #expect(keptFocus, "Cmd+F from the project filter must leave focus in that filter, not move it to the sidebar")
+    }
+
+    private func setFilterText(_ text: String, on panel: ProjectPanel, tab: ProjectPanelTab) {
+        switch tab {
+        case .files:
+            panel.filesSearchText = text
+        case .buildSettings:
+            panel.settingsSearchText = text
+        case .targets, .schemes:
+            Issue.record("The \(tab) tab has no filter field")
+        }
+    }
 }
 
 /// A view that can take first responder, standing in for any other focus target.
@@ -343,7 +434,7 @@ private final class Harness {
     var filterField: NSTextField? { filterField(at: focusedIndex) }
 
     func filterField(at index: Int) -> NSTextField? {
-        let fields = editableTextFields(in: panes[index].hostingView)
+        let fields = Self.editableTextFields(in: panes[index].hostingView)
         return fields.count == 1 ? fields.first : nil
     }
 
@@ -373,31 +464,43 @@ private final class Harness {
     /// with a real deadline so a regression fails the expectation instead of
     /// hanging.
     func settle(until condition: () -> Bool) async -> Bool {
-        let deadline = ContinuousClock.now + .seconds(5)
-        while !condition(), ContinuousClock.now < deadline {
-            await settlePass()
-        }
-        return condition()
+        await Self.settle(window, until: condition)
     }
 
     /// Runs a few layout and run-loop passes with no condition to wait for, so
     /// SwiftUI has processed what just happened before the test acts again.
     func settlePasses(_ count: Int = 5) async {
+        await Self.settlePasses(window, count)
+    }
+
+    /// ``settle(until:)`` for any window, such as an app main window.
+    static func settle(_ window: NSWindow, until condition: () -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !condition(), ContinuousClock.now < deadline {
+            await settlePass(window)
+        }
+        return condition()
+    }
+
+    /// ``settlePasses(_:)`` for any window, such as an app main window.
+    static func settlePasses(_ window: NSWindow, _ count: Int = 5) async {
         for _ in 0..<count {
-            await settlePass()
+            await settlePass(window)
         }
     }
 
     /// The test body is itself a main-actor job, so the nested run loop can't
     /// run other main-actor jobs; yielding lets the ones already queued run.
-    private func settlePass() async {
+    private static func settlePass(_ window: NSWindow) async {
         window.displayIfNeeded()
         window.contentView?.layoutSubtreeIfNeeded()
         _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
         await Task.yield()
     }
 
-    private func editableTextFields(in view: NSView) -> [NSTextField] {
+    /// Every editable text field in `view`'s subtree.
+    static func editableTextFields(in view: NSView?) -> [NSTextField] {
+        guard let view else { return [] }
         var fields: [NSTextField] = []
         if let field = view as? NSTextField, field.isEditable {
             fields.append(field)
@@ -406,6 +509,17 @@ private final class Harness {
             fields.append(contentsOf: editableTextFields(in: subview))
         }
         return fields
+    }
+
+    /// Writes the synthetic project that loads under a fresh temporary root.
+    static func writeFixtureProject() throws -> (root: URL, projectURL: URL) {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .resolvingSymlinksInPath()
+            .appendingPathComponent("cmux-project-panel-find-\(UUID().uuidString)", isDirectory: true)
+        let projectURL = root.appendingPathComponent("Fixture.xcodeproj", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        try Data(pbxproj.utf8).write(to: projectURL.appendingPathComponent("project.pbxproj"))
+        return (root, projectURL)
     }
 
     private static let pbxproj = """
