@@ -2101,6 +2101,10 @@ path = "tests/test_review_receipt.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_receipt_read.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_merge_check_paths.py"
 lane = "linux-guard"
 

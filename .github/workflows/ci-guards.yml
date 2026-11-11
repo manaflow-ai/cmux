@@ -228,6 +228,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_review_receipt.py
 
+      - name: Validate the shared receipt reader and its newest-N receipt-read lint
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_receipt_read.py
+
       - name: Validate the gh-merge-green check-path gate
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_merge_check_paths.py

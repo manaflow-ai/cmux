@@ -503,15 +503,53 @@ class Command(unittest.TestCase):
 
         def run(args):
             calls.append(args)
-            return 0, json.dumps({"data": {"repository": {"pullRequest": pr([comment(SHIP)])}}}), ""
+            nodes = [{"__typename": "IssueComment", **comment(SHIP)}]
+            return 0, json.dumps({"data": {"repository": {"p42": {
+                "headRefOid": HEAD, "labels": {"nodes": []},
+                "timelineItems": {"pageInfo": {"hasPreviousPage": False, "startCursor": None}, "nodes": nodes}}}}}), ""
 
-        self.assertEqual(receipt.read_pr("manaflow-ai/cmux", "42", run=run)["headRefOid"], HEAD)
+        found = receipt.read_pr("manaflow-ai/cmux", "42", run=run)
+        self.assertEqual(found["headRefOid"], HEAD)
+        self.assertEqual(len(found["comments"]["nodes"]), 1)
         self.assertEqual(len(calls), 1)
         query = " ".join(calls[0])
-        # next-autoland's windows, so the two tools judge the same reviews and comments.
-        for field in ("__typename", "authorAssociation", "commit{oid}", "reviews(last:30)", "comments(last:40)",
-                      "labels(first:100){nodes{name}}"):
+        for field in ("__typename", "authorAssociation", "commit { oid }", "PULL_REQUEST_REVIEW", "ISSUE_COMMENT",
+                      "hasPreviousPage", "labels(first:100){nodes{name}}"):
             self.assertIn(field, query)
+
+    def test_a_ship_far_back_on_a_busy_pr_is_read_and_passes(self):
+        # 2026-11-11: the read was reviews(last: 30) and comments(last: 40), so a SHIP 120 items back read as "no SHIP
+        # review receipt". The shared reader pages back until an item names the head.
+        timeline = [{"__typename": "IssueComment", **comment(f"status {n}", at=FullWindow.at(n))} for n in range(200)]
+        timeline[80] = {"__typename": "IssueComment", **comment(SHIP, at=FullWindow.at(80))}
+        pages = []
+
+        def run(args):
+            text = " ".join(args)
+            before = next((a.split("=", 1)[1] for a in args if a.startswith("c42=")), None)
+            older = timeline[:int(before)] if before else timeline
+            page = older[-50:]
+            pages.append(text)
+            pr = {"timelineItems": {"pageInfo": {"hasPreviousPage": len(older) > 50,
+                                                 "startCursor": str(len(older) - len(page))}, "nodes": page}}
+            if not before:
+                pr.update(headRefOid=HEAD, labels={"nodes": []})
+            return 0, json.dumps({"data": {"repository": {"p42": pr}}}), ""
+
+        pr_read = receipt.read_pr("manaflow-ai/cmux", "42", run=run)
+        self.assertEqual(len(pages), 3)
+        self.assertIn("SHIP", receipt.decide(pr_read, HEAD)[0])
+        self.assertNotIn(timeline[80], timeline[-40:])  # the old comment window
+
+    def test_a_read_cut_short_at_the_ship_refuses(self):
+        nodes = [comment(SHIP, at=FullWindow.at(0)), *[comment("x", at=FullWindow.at(n)) for n in range(1, 5)]]
+        cut = {"headRefOid": HEAD, "reviews": {"nodes": [], "complete": False},
+               "comments": {"nodes": nodes, "complete": False}}
+        who, why = receipt.decide(cut, HEAD)
+        self.assertEqual(who, "", why)
+        self.assertIn("timeline window full", why)
+        whole = {**cut, "reviews": {"nodes": [], "complete": True}, "comments": {"nodes": nodes, "complete": True}}
+        self.assertIn("SHIP", receipt.decide(whole, HEAD)[0])
 
     def test_a_rate_limited_read_exits_3(self):
         def run(args):
