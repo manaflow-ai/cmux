@@ -305,6 +305,32 @@ public final class MacHomeFeed {
     }
     #endif
 
+    #if DEBUG
+    /// App Store screenshots (`-cmux-mobile-demo home-showcase`): a Mac's Home as a person
+    /// who runs a few agents sees it, two pinned, with no link. Fictional work, no real names.
+    public func seedShowcaseRows(macID: String) {
+        let stamp = ISO8601DateFormatter()
+        let conversations: [(kind: String, name: String, minutes: Double, unread: Int, pinned: Bool, preview: String)] = [
+            ("direct", "Pricing page", 4, 2, true, "Codex: The new pricing table is up on staging. 18 tests pass."),
+            ("group", "Release 1.2", 18, 0, true, "Claude: The release notes are drafted. Want me to tag the build?"),
+            ("direct", "Dialer retries", 9, 1, false,
+             "Claude: The dialer now retries with backoff, capped at 30 s. 24 tests pass."),
+            ("channel", "Design review", 36, 0, false, "Codex: I left three comments on the new Settings layout."),
+            ("direct", "Onboarding copy", 75, 0, false, "Claude: Here are two shorter versions of the welcome screen text."),
+            ("group", "Build runners", 140, 0, false, "Codex: All eight runners are green again after the cache fix."),
+            ("direct", "Docs search", 320, 0, false, "Claude: Search now loads its index once and keeps it between pages."),
+        ]
+        rows = conversations.enumerated().compactMap { index, row in
+            MacHomeRow(wire: [
+                "id": "showcase-\(index)", "kind": row.kind, "name": row.name, "unread": row.unread,
+                "activity_at": stamp.string(from: Date().addingTimeInterval(-row.minutes * 60)),
+                "preview": row.preview, "pinned": row.pinned, "pin_position": index,
+            ])
+        }
+        self.macID = macID
+    }
+    #endif
+
     /// The Mac Chief's own conversation on this Mac (the oldest with the owner and `agent_mux`,
     /// as the Mac's Home picks it), from the owner's list: its row is the Mac Chief.
     public private(set) var macChiefID: String?

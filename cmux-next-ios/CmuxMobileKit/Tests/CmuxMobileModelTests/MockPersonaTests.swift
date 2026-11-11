@@ -14,9 +14,10 @@ import Testing
     @Test func storePersonaIsFictional() {
         let store = MockPersona.current(environment: ["CMUX_MOBILE_MOCK_PERSONA": "store"])
         #expect(store == .store)
-        for text in [store.userName, store.userEmail, store.owner, store.teamName, store.mac("MacBook Pro")] {
-            #expect(!text.contains("Aziz"))
-            #expect(!text.contains("Manaflow"))
+        for text in [store.userName, store.userEmail, store.owner, store.teamName, store.sideProject, store.mac("MacBook Pro")] {
+            for real in [MockPersona.standard.owner, MockPersona.standard.teamName, MockPersona.standard.sideProject] {
+                #expect(!text.localizedCaseInsensitiveContains(real))
+            }
         }
         #expect(store.userEmail.hasSuffix("@example.com"))
     }

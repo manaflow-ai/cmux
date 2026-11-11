@@ -66,9 +66,10 @@ extension AppStore {
             ),
             // The waiting agent is the second tab: a tap still lands on it.
             Workspace(
-                id: "ws-ghostty", macID: "mac-studio", title: "ghostty", directory: "~/Development/ghostty", branch: "sync-upstream",
+                id: "ws-ghostty", macID: "mac-studio", title: persona.sideProject, directory: "~/Development/\(persona.sideProject)",
+                branch: "sync-upstream",
                 tabs: [
-                    WorkspaceTab(id: "t-gh-zsh", kind: .terminal, title: "zsh", subtitle: "~/Development/ghostty"),
+                    WorkspaceTab(id: "t-gh-zsh", kind: .terminal, title: "zsh", subtitle: "~/Development/\(persona.sideProject)"),
                     WorkspaceTab(id: "t-gh-codex", kind: .agent, title: "Codex", subtitle: "Resolve merge conflicts", harness: "codex",
                                  agentStatus: .waiting),
                 ],
