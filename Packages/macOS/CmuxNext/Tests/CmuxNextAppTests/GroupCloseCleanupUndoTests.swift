@@ -82,59 +82,19 @@ struct GroupCloseCleanupUndoTests {
     /// The close deletes the emptied group; its Undo brings the group back in its place with both workspaces.
     private static func undoRestores(_ setup: Setup, _ services: AppServices) async throws {
         let context = AppActionContext(services: services), personal = services.machines.local.store.personal
-        // DIAG (not for merge): each change of the groups, the open workspaces, the personal rows and the closed items, with its time.
-        let timeline = DiagTimeline(), clock = ContinuousClock(), start = clock.now
-        @MainActor func short(_ id: String?) -> String { id.map { String($0.suffix(4)) } ?? "-" }
-        @MainActor func snap() -> String {
-            let open: [String] = services.machines.daemons.flatMap(\.store.workspaces).map { workspace in
-                workspace.name + "/" + short(workspace.key?.rawValue) + "[" + short(context.personalGroupID(of: workspace)?.rawValue) + "]"
-            }
-            let rows: [String] = personal.workspaces.map { short($0.workspaceKey.rawValue) + ":" + short($0.group?.rawValue) }
-            let closed: [String] = DaemonClosedHistory.entries([.workspace], in: services).map { entry in
-                let names: [String] = entry.item.memberNames.map { $0 ?? "nil" }
-                return short(entry.item.id) + " m=\(names) g=" + short(entry.item.group?.id)
-            }
-            let groups: [String] = personal.groups.map { $0.name + "/" + short($0.id.rawValue) }
-            let ending: [String] = personal.endingGroups.map { short($0.rawValue) }
-            return "groups \(groups) ending \(ending) open \(open) rows \(rows) closed \(closed)"
-        }
-        // DIAG 5: the recorder runs beside the test (each 4 ms) and gates nothing: Undo is pressed when the ORIGINAL test presses it
-        // (the helper `until` polls each 50 ms).
-        let recorder = Task { @MainActor in
-            var last = ""
-            while !Task.isCancelled {
-                let now = snap()
-                if now != last { timeline.add("+\(start.duration(to: clock.now)) \(now)"); last = now }
-                try? await Task.sleep(for: .milliseconds(4))
-            }
-        }
-        defer { recorder.cancel(); print("DIAG-TIMELINE group \(short(setup.group.rawValue)):\n" + timeline.lines.joined(separator: "\n")) }
         try await PinnedPageTests.until({ personal.group(setup.group) == nil && setup.members.allSatisfy { services.workspace(id: $0) == nil } },
                                         within: .seconds(60),
                                         report: { "group \(personal.group(setup.group)?.name ?? "deleted"), open \(setup.members.filter { services.workspace(id: $0) != nil })" })
         try await PinnedPageTests.until({ CmuxToastCenter.shared.toasts(in: setup.window).contains { $0.id == Self.toastID } },
                                         within: .seconds(10), report: { "toasts \(CmuxToastCenter.shared.toasts(in: setup.window).map(\.message))" })
-        timeline.add("+\(start.duration(to: clock.now)) UNDO PRESSED")
         #expect(CmuxToastCenter.shared.runAction(id: Self.toastID, in: setup.window))
         @MainActor func held() -> Set<String> { Set(context.workspaces(inPersonalGroup: setup.group).map(\.name)) }
-        do {
-            try await PinnedPageTests.until({ held() == ["undo-1", "undo-2"] }, within: .seconds(60), report: {
-                "group \(personal.group(setup.group)?.name ?? "missing") holds \(held().sorted()); groups \(personal.groups.map(\.name)); DIAG \(snap())"
-            })
-        } catch {
-            timeline.add("+\(start.duration(to: clock.now)) WAIT ENDS RED: held \(held().sorted())")
-            throw error
-        }
-        timeline.add("+\(start.duration(to: clock.now)) WAIT ENDS: held \(held().sorted())")
+        try await PinnedPageTests.until({ held() == ["undo-1", "undo-2"] }, within: .seconds(60), report: {
+            "group \(personal.group(setup.group)?.name ?? "missing") holds \(held().sorted()); groups \(personal.groups.map(\.name))"
+        })
         let restored = try #require(personal.group(setup.group))
         #expect(restored.name == setup.name)
         #expect(restored.pinned == setup.pinned)
         #expect(personal.groups.map(\.id) == setup.order, "the group came back in another place: \(personal.groups.map(\.name))")
     }
-}
-
-/// DIAG (not for merge): the lines of one test's timeline.
-@MainActor private final class DiagTimeline {
-    var lines: [String] = []
-    func add(_ line: String) { lines.append(line) }
 }
