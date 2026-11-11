@@ -17,6 +17,7 @@ import unittest
 import urllib.error
 import urllib.parse
 import unittest.mock
+from collections import Counter
 import zipfile
 from pathlib import Path
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
@@ -33,6 +34,9 @@ ROOT = Path(__file__).resolve().parents[1]
 import sys  # noqa: E402
 if str(ROOT / "scripts/ci") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
+# A host's own glaeda-gh keeps real job logs: every test reads its fakes only, unless it names a fake glaeda-gh
+# (GlaedaKeptLog).
+os.environ["CMUX_GLAEDA_GH"] = ""
 import base_red_excuse as excuse  # noqa: E402
 # Another repo's files are read with git first (excuse.git_text, a network fetch), then GraphQL. Tests read them from
 # their fakes only; SourceReads runs the real git reader against a local repository.
@@ -782,6 +786,94 @@ class ListReadsNameTheirFields(unittest.TestCase):
             github, asked = self.reader([])
             self.assertEqual(excuse.base_run_jobs(REPO, run, github)[0]["run_id"], 77)  # from the cache, no read
             self.assertEqual(asked, [])
+
+
+FAKE_GLAEDA_GH = """#!/usr/bin/env python3
+import os, sys
+with open(os.environ["FAKE_GLAEDA_CALLS"], "a") as calls:
+    calls.write(" ".join(sys.argv[1:]) + "\\n")
+mode = os.environ.get("FAKE_GLAEDA", "")
+if mode == "miss":
+    sys.stderr.write("glaeda-gh: no kept log for o/r job 7; --fetch reads it once\\n")
+    sys.exit(7)
+if mode == "old":
+    sys.stderr.write("glaeda-gh: error: argument command: invalid choice: 'log'\\n")
+    sys.exit(2)
+sys.stdout.write("\\ufeff2026-10-30T12:00:00.000Z kept \\x1b[31mred\\x1b[0m log\\n")
+"""
+
+
+class GlaedaKeptLog(unittest.TestCase):
+    """A failed job's log this host's glaeda-gh kept is read there, with no gh call; anything else reads GitHub."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        for name, text in (("gh", FAKE_GH), ("glaeda-gh", FAKE_GLAEDA_GH)):
+            path = Path(self.dir.name) / name
+            path.write_text(text)
+            path.chmod(0o755)
+        self.gh_calls = Path(self.dir.name) / "gh-calls"
+        self.glaeda_calls = Path(self.dir.name) / "glaeda-calls"
+        self.gh_calls.write_text("")
+        self.glaeda_calls.write_text("")
+        env = git_fixture_env.fixture_env({"PATH": f"{self.dir.name}{os.pathsep}{os.environ.get('PATH', '')}",
+                                           "FAKE_GH_CALLS": str(self.gh_calls),
+                                           "FAKE_GLAEDA_CALLS": str(self.glaeda_calls),
+                                           "CMUX_GLAEDA_GH": str(Path(self.dir.name) / "glaeda-gh")})
+        patch = unittest.mock.patch.dict(os.environ, env)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def read(self, mode):
+        os.environ["FAKE_GLAEDA"] = mode
+        return excuse.GitHub().log(REPO, {"id": 7, "run_id": 10})
+
+    def test_a_kept_log_is_read_with_no_api_call(self):
+        raw = self.read("")
+        self.assertEqual(self.gh_calls.read_text(), "")
+        self.assertEqual(self.glaeda_calls.read_text().splitlines(), [f"log job {REPO} 7"])
+        self.assertNotIn("\ufeff", raw)
+        self.assertEqual(excuse.lines_of(raw), ["kept red log"])
+
+    def test_a_log_glaeda_gh_does_not_keep_is_read_from_github(self):
+        for mode in ("miss", "old"):
+            self.gh_calls.write_text("")
+            self.assertIn("red", self.read(mode))
+            self.assertEqual(self.gh_calls.read_text().splitlines(),
+                             [f"api --allow-escape-sequences repos/{REPO}/actions/jobs/7/logs"], mode)
+
+    def test_no_glaeda_gh_on_the_host_reads_github(self):
+        for named in ("", str(Path(self.dir.name) / "absent")):
+            os.environ["CMUX_GLAEDA_GH"] = named
+            self.gh_calls.write_text("")
+            self.assertIn("red", self.read(""))
+            self.assertEqual(len(self.gh_calls.read_text().splitlines()), 1, named)
+        self.assertEqual(self.glaeda_calls.read_text(), "")
+
+    # Readers of GET .../actions/jobs/ID/logs that do not ask glaeda-gh, and why. A new reader asks it first (or
+    # says here why it cannot): a replay or classifier that reads a log the host's mirror kept spends a read for
+    # nothing (cmux#41244's replay: about 150 reads, stopped at 51 runs).
+    UNCACHED_LOG_READERS = {
+        "base_red_checks.py": "runs in the push workflow with the Actions token (urllib), where no glaeda-gh is",
+        "cmux_next_tree_notify.py": "not switched yet: follow-up to the glaeda job-log cache",
+        "cmux_tui_tree_handoff.py": "not switched yet: follow-up to the glaeda job-log cache",
+        "nightly_ghostty_helper_reuse.py": "not switched yet: follow-up to the glaeda job-log cache",
+        "package_bisect.py": "not switched yet: follow-up to the glaeda job-log cache",
+        "web_test_failure_census.py": "not switched yet: follow-up to the glaeda job-log cache",
+    }
+
+    def test_every_job_log_reader_asks_glaeda_gh_first(self):
+        route = re.compile(r"actions/jobs/\{[^}]*\}/logs")
+        readers = {path.name for path in (ROOT / "scripts/ci").glob("*.py") if route.search(path.read_text())}
+        uncached = {name for name in readers
+                    if "glaeda_log.cached_job_log(" not in (ROOT / "scripts/ci" / name).read_text()}
+        self.assertEqual(uncached - set(self.UNCACHED_LOG_READERS), set(),
+                         "a new job log reader: ask glaeda_log.cached_job_log first, or name why not")
+        self.assertEqual(set(self.UNCACHED_LOG_READERS) - uncached, set(), "this reader asks glaeda-gh now: drop it")
+        self.assertGreaterEqual(readers - uncached, {"base_red_excuse.py", "classify_failures.py", "guard_attribution.py",
+                                                      "main_compile_attribution.py", "next_batch.py",
+                                                      "affected_tests_replay.py"})
 
 
 class PortableGhLog(unittest.TestCase):
@@ -6243,6 +6335,63 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
     # app compile passed at its head against that pin.
     STEP_B = ("Packages/macOS/CmuxNext/Package.swift",
               "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/RustSidebarClient.swift")
+
+    def unplaced_rollup_head(self):
+        """cmux#40552's unplaced checks job (RollupJobReadsItsNamedReds' fixture) as this case's head: its whole log
+        sets the pin aside (a passing step's next-batch lines), so the rollup reading asks the pin rule again."""
+        fixtures = ROOT / "tests/fixtures/test_reds"
+        job = json.loads((fixtures / "cmux-40552-checks-job-130212680188.json").read_text())
+        self.gh.jobs[1] = dict(job, id=1, run_id=10, head_sha=HEAD)
+        self.gh.logs[1] = (fixtures / "cmux-40552-checks-job-130212680188.log").read_text(encoding="utf-8")
+
+    def counted_reads(self, fail_second=False):
+        """Every network read of one judgement, by source: (kind, what) -> times read. FAIL_SECOND: a second read of
+        any source fails, as GitHub's 503 does."""
+        reads: Counter = Counter()
+        inner_json, inner_run, inner_blob, inner_release = self.gh.json, self.gh.run, self.gh.blob, self.release_file
+
+        def counted(key, read):
+            reads[key] += 1
+            if fail_second and reads[key] > 1:
+                raise excuse.Refused(f"gh: Service Unavailable (HTTP 503) on {key}")
+            return read()
+        self.gh.json = lambda route, *, paginate=False: counted(("json", route, paginate),
+                                                                lambda: inner_json(route, paginate=paginate))
+        self.gh.run = lambda args: counted(("graphql", repr(args)), lambda: inner_run(args))
+        self.gh.blob = lambda repo, ref, path: counted(("blob", path), lambda: inner_blob(repo, ref, path))
+        patched = unittest.mock.patch.object(
+            excuse, "ffi_release_file",
+            lambda repo, tag, name: counted(("release", tag, name), lambda: inner_release(repo, tag, name)))
+        patched.start()
+        self.addCleanup(patched.stop)
+        return reads
+
+    def test_review_f1_a_second_read_of_a_proven_published_pin_never_overturns_it(self):
+        # Review of cmux#41151 at bfa0db5f (F1): a Swift change's pin is a published base release it compiled against.
+        # The whole-log reading proves it and sets the pin aside; the rollup reading asks the pin rule again, and its
+        # second read of the release files got a 503, refusing what the first proof had excused.
+        self.unplaced_rollup_head()
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        reads = self.counted_reads(fail_second=True)
+        said = self.judge()
+        self.assertEqual(len(said), 1, said)
+        self.assertTrue(said[0].startswith(f"excused '{self.JOB}': only '{self.PIN}' is red"), said)
+        self.assertIn(f"pins cmux-app-ffi-{self.STEP_B_PIN}", said[0])
+        self.assertEqual(reads[("release", f"cmux-app-ffi-{self.STEP_B_PIN}", "SOURCE_SHA")], 1)
+
+    def test_one_judgement_reads_each_source_once(self):
+        # The class: every network source an excuse path reads is read once per judgement, however many paths ask.
+        self.unplaced_rollup_head()
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        reads = self.counted_reads()
+        self.assertTrue(self.judge()[0].startswith(f"excused '{self.JOB}'"))
+        self.assertTrue(reads)
+        self.assertEqual({key: n for key, n in reads.items() if n > 1}, {})
+        # A new judgement reads afresh: nothing is kept past the judgement that read it.
+        self.judge()
+        self.assertEqual(reads[("release", f"cmux-app-ffi-{self.STEP_B_PIN}", "SOURCE_SHA")], 2)
 
     def test_review_f1_a_failed_compile_job_read_falls_back_to_the_status(self):
         # Review of cmux#41151 at fd50c9b7 (F1), the same class: compile_pass_at's first source (the head's check runs)
