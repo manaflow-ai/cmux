@@ -78,38 +78,8 @@ export function hostStylesheets(
   return host === "agent-pane" ? [...reached, ...paneStylesheets()] : reached;
 }
 
-type Reader = (file: string) => string | undefined;
-
-/** The import lists of a reader made by `cachedReader`, one scan per file. */
-const importCache = new WeakMap<Reader, Map<string, string[]>>();
-
-/**
- * READ, reading each file once and scanning its imports once for as long as the reader lives. Every
- * entry's closure walks the same shared modules (the pane's App.tsx reaches most of src/), and reading
- * and scanning them again for each of ~650 entries made one trace take ~46 s of every gallery health
- * shard (2026-11-11 job logs): entries times files. With the cache it is files.
- */
-export function cachedReader(read: Reader = readSource): Reader {
-  const texts = new Map<string, string | undefined>();
-  const cached: Reader = (file) => {
-    if (!texts.has(file)) texts.set(file, read(file));
-    return texts.get(file);
-  };
-  importCache.set(cached, new Map());
-  return cached;
-}
-
 /** The relative imports of one source file, resolved to files that exist. */
-export function importsOf(file: string, read: Reader = readSource): string[] {
-  const cache = importCache.get(read);
-  const hit = cache?.get(file);
-  if (hit) return hit;
-  const out = scanImports(file, read);
-  cache?.set(file, out);
-  return out;
-}
-
-function scanImports(file: string, read: Reader): string[] {
+export function importsOf(file: string, read: (file: string) => string | undefined = readSource): string[] {
   const text = read(file);
   if (text === undefined) return [];
   const out: string[] = [];
@@ -209,7 +179,7 @@ export function touchedEntries(
 ): TouchedEntries {
   const src = options.src ?? SRC;
   const repoRoot = options.repoRoot ?? path.resolve(src, "../..");
-  const read = cachedReader(options.read ?? readSource);
+  const read = options.read ?? readSource;
   const paneStylesheets = options.paneStylesheets ?? (() => agentPaneStylesheets());
   const ids = entries.map((entry) => entry.id).sort();
   const broad = changed.filter((file) => EVERYTHING.some((pattern) => pattern.test(file)));

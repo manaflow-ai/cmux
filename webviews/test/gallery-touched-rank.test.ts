@@ -117,17 +117,3 @@ test("a string catalog under webviews/src renders every entry", () => {
   expect(result.all).toBe(true);
   expect(result.entries).toHaveLength(5);
 });
-
-test("one trace reads each file once, however many entries reach it", () => {
-  // Every entry's closure walks the same shared modules: reading them again per entry made the trace
-  // take ~46 s of every gallery health shard (2026-11-11). Entries times files is now files.
-  const reads = new Map<string, number>();
-  const counting = (file: string) => {
-    reads.set(file, (reads.get(file) ?? 0) + 1);
-    return read(file);
-  };
-  const result = touchedEntries(entries, ["webviews/src/summary/scrollEdges.ts"], { ...options, read: counting });
-  expect(result.entries).toContain("agent-pane.composer");
-  expect(Math.max(...reads.values())).toBe(1);
-  expect(reads.get(`${SRC}/summary/scrollEdges.ts`)).toBe(1);
-});

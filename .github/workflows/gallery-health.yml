@@ -342,14 +342,18 @@ jobs:
           set -euo pipefail
           cd webviews
           bun install --frozen-lockfile
+          # --no-renames: rename detection reads the blobs of every added and deleted file, and in this
+          # blob:none clone each one is a lazy fetch from GitHub. It was ~44 s of this step on every shard
+          # (2026-11-11, run 43011263411: bun install done 11:22:38, touched.ts printed 11:23:24, and
+          # touched.ts itself takes ~1.5 s). Without it a rename lists both paths, which touches no less.
           if [ "$EVENT" = pull_request ]; then
             # The merge's first parent is the base it was merged with: the diff is the pull request's change.
-            git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
+            git diff --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
           elif [ "$EVENT" = workflow_dispatch ]; then
             # The nightly full render of the base: render everything.
             echo .github/workflows/gallery-health.yml > "$RUNNER_TEMP/changed.txt"
           elif git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-            git diff --name-only "$BEFORE" HEAD > "$RUNNER_TEMP/changed.txt"
+            git diff --no-renames --name-only "$BEFORE" HEAD > "$RUNNER_TEMP/changed.txt"
           else
             # A new branch tip with no previous commit to compare: render everything.
             echo .github/workflows/gallery-health.yml > "$RUNNER_TEMP/changed.txt"
