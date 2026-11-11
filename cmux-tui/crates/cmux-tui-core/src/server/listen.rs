@@ -530,14 +530,20 @@ impl ServedSession {
         // state lock (`TerminalSessions`).
         let key = stream.peer_process_key();
         let connections = self.mux.connection_stats();
-        let permit = if let Some(terminal) =
-            self.terminal_sessions.terminal_of_peer(&self.mux, key.as_deref())
-        {
+        let terminal = self.terminal_sessions.terminal_of_peer(&self.mux, key.as_deref());
+        let permit = if let Some(terminal) = terminal {
             claim_watched_terminal_connection(connections, &*stream, Some(terminal))
         } else {
             claim_watched_connection(connections, &*stream)
         };
         let Some(permit) = permit else {
+            // Refused at the connection limit, before any line: counted by the lane it
+            // asked for (`server-stats` section `commands`).
+            connections.commands().connection_refused(if terminal.is_some() {
+                crate::diagnostics::ClientKind::Terminal
+            } else {
+                crate::diagnostics::ClientKind::Local
+            });
             refuse_busy(stream);
             return;
         };

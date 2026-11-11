@@ -23,6 +23,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+_git_fixture_spec = importlib.util.spec_from_file_location(
+    "git_fixture_env", os.path.join(os.path.dirname(os.path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts" / "cmux-next"
 CRASH = "raise RuntimeError('the check crashed before it judged anything')\n"
@@ -50,9 +56,13 @@ class NoVerdictNeverSubtracts(unittest.TestCase):
         self.installed = Path(self.tmp.name) / "installed"
         self.installed.mkdir()
         self.git("init", "-q")
+        for key, value in git_fixture_env.OPT_OUT:  # in the repository's own config too
+            self.git("config", key, value)
 
     def git(self, *args: str) -> str:
-        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        # No GIT_* from the caller (a pre-push hook's GIT_DIR would aim this at the pushing repository), then
+        # the helper's maintenance opt-out back on top.
+        env = git_fixture_env.fixture_env({k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
         return subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=fixture",
                                "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", *args],
                               check=True, capture_output=True, text=True, env=env).stdout.strip()
@@ -141,6 +151,51 @@ class NoVerdictNeverSubtracts(unittest.TestCase):
             self.gate.SCANNERS = original
         self.assertIn("Fake check", found, "a finding was subtracted against a base run that crashed")
         self.assertTrue(any("[fake] a finding" in f for f in found["Fake check"]), found)
+
+    def fake_scanner(self, source: str, prefixes=("webviews/",)):
+        """SCANNERS as one fake scanner (scripts/cmux-next/fake-check.py with SOURCE), restored after the test."""
+        self.write("scripts/cmux-next/fake-check.py", source)
+        original = self.gate.SCANNERS
+        self.gate.SCANNERS = (("Fake check", ["python3", "-I", "{s}/fake-check.py", "{root}"], prefixes),)
+        self.addCleanup(setattr, self.gate, "SCANNERS", original)
+
+    def scanner_push(self) -> tuple[str, str]:
+        self.write("webviews/a.ts", "// a finding here\nexport const a = 1\n")
+        base = self.commit("base")
+        self.write("webviews/a.ts", "// a finding here\nexport const a = 2\n")
+        return base, self.commit("head")
+
+    def test_a_scanner_that_exits_outside_its_verdict_codes_refuses(self) -> None:
+        # Codex on #40880 (F1): the process-scan checker with a bad baseline row exits 2 ("bad baseline row") on both
+        # revisions, prints the same line on both, and gate() returned []: exit 2 counted as a verdict.
+        script = SCRIPTS / "check-no-process-scan.py"
+        self.write("scripts/cmux-next/check-no-process-scan.py", script.read_text(encoding="utf-8"))
+        self.write("scripts/cmux-next/process-scan-baseline.tsv", "cmux-tui/x.rs\tnot-a-count\tkeep\treason\n")
+        self.write("cmux-tui/x.rs", "fn a() {}\n")
+        base = self.commit("base")
+        self.write("cmux-tui/x.rs", "fn a() { let _ = 1; }\n")
+        head = self.commit("head")
+        name = next(n for n, _, _ in self.gate.SCANNERS if "process scanning" in n)
+        original = self.gate.SCANNERS
+        self.gate.SCANNERS = tuple(row for row in original if row[0] == name)
+        self.addCleanup(setattr, self.gate, "SCANNERS", original)
+        found = dict(self.quiet(self.gate.gate, self.repo, base, head, {"scanners"}, False))
+        self.assertIn(name, found, "a scanner that refused to judge (exit 2) on both sides passed the push")
+        self.assertRefusedWithNoVerdict(found[name], "process scan exit 2")
+
+    def test_a_scanner_killed_by_a_signal_refuses(self) -> None:
+        self.fake_scanner("import os, signal\nprint('webviews/a.ts:1: [fake] half a report')\n"
+                          "os.kill(os.getpid(), signal.SIGKILL)\n")
+        base, head = self.scanner_push()
+        found = dict(self.quiet(self.gate.gate, self.repo, base, head, {"scanners"}, False))
+        self.assertIn("Fake check", found, "a scanner killed by a signal on both sides passed the push")
+        self.assertRefusedWithNoVerdict(found["Fake check"], "signal")
+
+    def test_a_scanner_finding_on_both_sides_still_subtracts(self) -> None:
+        # The verdict codes take nothing away from old debt: exit 1 with the same finding at the base passes.
+        self.fake_scanner("print('webviews/a.ts:1: [fake] old debt')\nraise SystemExit(1)\n")
+        base, head = self.scanner_push()
+        self.assertEqual(dict(self.quiet(self.gate.gate, self.repo, base, head, {"scanners"}, False)), {})
 
     def test_gate_own_never_takes_a_no_verdict_off(self) -> None:
         # A merge: the upstream range's run crashes the same way as the push's own, and must not take its refusal off.

@@ -47,7 +47,7 @@ never shown to anyone. The class itself is `TeamHub`.
 | Database role | `cnx-ios-dev` / `cnx-ios-prod`, then `cmux-next-ios-dev` / `cmux-next-ios` | `cmux-mobile-api` in each database |
 | Local wrangler name | `cnx-ios-api-local` | `cmux-mobile-api-local` (never deployed) |
 | npm package | `cnx-ios-api` | `cmux-mobile-api` |
-| APNs topics | `dev.cmux.cnx`, `dev.cmux.cnx.cnx`, `dev.cmux.cnx.prod` | `dev.cmux.mobile`, `dev.cmux.mobile.demo`, `dev.cmux.mobile.prod`; TestFlight stays `dev.cmux.app.internal` |
+| APNs topics | `dev.cmux.cnx`, `dev.cmux.cnx.cnx`, `dev.cmux.cnx.prod` | `dev.cmux.mobile`, `dev.cmux.mobile.demo`, `dev.cmux.mobile.prod`; TestFlight stays `dev.cmux.app.internal`; the App Store app is `com.cmux.app` (dev and prod accept both) |
 | Rate limit namespaces | 4101-4105 (dev), 4201-4205 (prod) | unchanged (numeric ids, no names) |
 
 Rate limit namespaces are numbers, the TURN key and the APNs key are shared team
@@ -72,7 +72,7 @@ Pipe values from 1Password; never paste or echo them.
 | --- | --- | --- |
 | `TURN_KEY_ID` | 1Password `Cloudflare TURN Server API Key` (vault Shared), the "Turn Token ID" in its notes | for TURN (else `/v1/ice` is STUN only) |
 | `TURN_KEY_API_TOKEN` | same item, field `credential` | for TURN |
-| `APNS_KEY_P8`, `APNS_KEY_ID`, `APNS_TEAM_ID` | the team's APNs auth key (`.p8`, PKCS#8 PEM), its key id and team `7WLXT3NR37`. Not set yet: no APNs key was found in 1Password (searched 2026-10-13). Until set, `notify` answers `configured:false` | for push |
+| `APNS_KEY_P8`, `APNS_KEY_ID`, `APNS_TEAM_ID` | the team's APNs auth key (`.p8`, PKCS#8 PEM), its key id and team `7WLXT3NR37`. Not set yet: no APNs key was found in 1Password (searched 2026-10-13). Until set, `notify` answers `configured:false`. One key signs pushes to every bundle in `APNS_TOPICS` (each push's topic is the bundle its phone registered), so it must be a team-scoped key: a key limited to one bundle gets `TopicDisallowed` for the others, which `notify` reports in `failures` | for push |
 | `STACK_SECRET_SERVER_KEY` | Stack server key of the env's primary project | optional; without it membership and invites use the caller's own token (always the case for the other projects) |
 
 ```bash

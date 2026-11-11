@@ -69,8 +69,17 @@ await requireBrowserLane("composer-hat-done-check.test.ts", async () => {
       return { right: text.right, left: text.left, baseline, cap, center: baseline - cap / 2 };
     };
     const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
-    const css = getComputedStyle(tray);
-    const px = (name: string) => parseFloat(css.getPropertyValue(name));
+    // A token can be a calc() on the density (composerLocation.css), which a custom property's computed
+    // value keeps as text: a probe's width resolves it to px.
+    const px = (name: string) => {
+      if (!getComputedStyle(tray).getPropertyValue(name).trim()) return Number.NaN;
+      const probe = document.createElement("div");
+      probe.style.cssText = `position:absolute;visibility:hidden;width:var(${name})`;
+      tray.append(probe);
+      const width = probe.getBoundingClientRect().width;
+      probe.remove();
+      return width;
+    };
     const head = tray.querySelector<HTMLElement>(".acpmux-running-tray__head");
     const headTime = head?.querySelector<HTMLElement>(".acpmux-running-tray__time[data-lone] .acpmux-done-mark__time");
     const rows = [...tray.querySelectorAll<HTMLElement>(".acpmux-agent-line")].map((line) => {

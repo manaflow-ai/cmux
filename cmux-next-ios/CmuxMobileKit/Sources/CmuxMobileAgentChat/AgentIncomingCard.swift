@@ -40,8 +40,8 @@ struct AgentIncomingCard: View {
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                tag("Chief")
-                if incoming.edited { tag("edited") }
+                AgentIncomingChip(label: "Chief")
+                if incoming.edited { AgentIncomingChip(label: "edited") }
                 Text(at, style: .time)
                     .font(.caption)
                     .foregroundStyle(.tertiary)
@@ -221,7 +221,9 @@ struct AgentIncomingCard: View {
 /// method named like a `View` modifier: a `tag(_:)` helper here lost overload resolution to
 /// SwiftUI's `View.tag(_:)` (a `String` literal beats a `LocalizedStringKey` one), so the header
 /// drew the whole card again inside itself, without end, and the transcript crashed with a stack
-/// overflow on the first agent message it laid out (TestFlight 20261110000821, 2026-11-09).
+/// overflow on the first agent message it laid out (TestFlight 20261110000821, 2026-11-09). The
+/// Chief's bubble kept two such `tag("…")` calls after the helper was gone, which compiled the same
+/// way and crashed the chat when it scrolled up to a Chief's message (AgentHistoryScrollUITests).
 struct AgentIncomingChip: View {
     let label: LocalizedStringKey
 

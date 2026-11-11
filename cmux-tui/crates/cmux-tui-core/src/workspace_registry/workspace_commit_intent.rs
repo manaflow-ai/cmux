@@ -93,7 +93,7 @@ impl WorkspaceRegistry {
             result_json: canonical_json(result)?,
             project_resource,
             previous_topology: project_resource
-                .then(|| self.resource_topology_for_workspace_commit(workspaces))
+                .then(|| self.resource_topology_for_workspace_commit(workspaces, active_workspace))
                 .transpose()?,
             stated_workspaces,
             session_id: self.session_id.clone(),
@@ -402,6 +402,70 @@ impl WorkspaceCommitIntent {
             resource_revision,
         })
     }
+}
+
+/// Add to `deltas` what a workspace commit that moves the active workspace
+/// changes below the workspaces: the active screen and its active pane at
+/// each end that stays live get a new `focused` (as `focus_deltas` states
+/// for a focus change). `before` holds those screens (see
+/// `resource_topology_for_workspace_commit`). Without these two upserts per
+/// end the journal kept `focused: true` for the screen and the pane of the
+/// workspace the focus left, until a later projection had that workspace in
+/// its scope: an events client then showed two focused screens.
+pub(super) fn push_focus_move_upserts(
+    deltas: &mut Vec<Value>,
+    before: &ResourceTopologySnapshot,
+    live_workspaces: &HashSet<WorkspacePublicId>,
+    active_workspace: Option<&str>,
+) -> anyhow::Result<()> {
+    let previous = before.active_workspace.as_ref().map(WorkspacePublicId::as_str);
+    if previous == active_workspace {
+        return Ok(());
+    }
+    let tabs_by_pane = crate::resource_screen::tabs_by_pane(&before.tabs);
+    let panes_by_id = crate::resource_screen::panes_by_id(&before.panes);
+    for workspace in [previous, active_workspace].into_iter().flatten() {
+        let Some(screen) = before
+            .active_screens
+            .iter()
+            .find(|(id, _)| id.as_str() == workspace && live_workspaces.contains(id))
+            .and_then(|(_, screen)| screen.as_ref())
+            .and_then(|id| before.screens.iter().find(|screen| &screen.public_id == id))
+        else {
+            continue;
+        };
+        let focused = active_workspace == Some(workspace);
+        let sequence = deltas.len();
+        deltas.push(serde_json::json!({
+            "kind":"upsert",
+            "sequence":sequence,
+            "resource":"screen",
+            "id":screen.public_id,
+            "value":crate::resource_screen::screen_value(
+                screen,
+                focused,
+                &tabs_by_pane,
+                &panes_by_id,
+            )?,
+        }));
+        if let Some(pane) = panes_by_id.get(&screen.active_pane) {
+            let sequence = deltas.len();
+            deltas.push(serde_json::json!({
+                "kind":"upsert",
+                "sequence":sequence,
+                "resource":"pane",
+                "id":pane.public_id,
+                "value":{
+                    "id":pane.public_id,
+                    "screen_id":pane.screen_id,
+                    "name":pane.name,
+                    "focused":focused,
+                    "zoomed":screen.zoomed_pane.as_ref() == Some(&pane.public_id),
+                },
+            }));
+        }
+    }
+    Ok(())
 }
 
 /// `deltas` without the workspace upserts whose decorated value `stated` holds already (the public fold:

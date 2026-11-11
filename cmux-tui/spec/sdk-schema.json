@@ -3919,9 +3919,126 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "first_tab": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "create-workspace with first_tab (workspace-first-tab-v1): the new-frontend-browser-tab reply for the workspace's first tab."
     }
    },
    "additional_properties": false
+  },
+  "WorkspaceFirstTab": {
+   "kind": "tagged_union",
+   "tag": "kind",
+   "variants": {
+    "browser": {
+     "kind": "object",
+     "fields": {
+      "kind": {
+       "type": {
+        "kind": "literal",
+        "value": "browser"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "url": {
+       "type": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "engine": {
+       "type": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "title": {
+       "type": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "presence": "optional",
+       "nullable": true,
+       "default": null
+      },
+      "favicon_url": {
+       "type": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "presence": "optional",
+       "nullable": true,
+       "default": null
+      },
+      "profile_id": {
+       "type": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "presence": "optional",
+       "nullable": true,
+       "default": null
+      },
+      "cols": {
+       "type": {
+        "kind": "scalar",
+        "name": "uint16"
+       },
+       "presence": "optional",
+       "nullable": true,
+       "default": null
+      },
+      "rows": {
+       "type": {
+        "kind": "scalar",
+        "name": "uint16"
+       },
+       "presence": "optional",
+       "nullable": true,
+       "default": null
+      },
+      "owner": {
+       "type": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "presence": "optional",
+       "nullable": true,
+       "default": null
+      },
+      "idempotency_key": {
+       "type": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "presence": "optional",
+       "nullable": true,
+       "default": null
+      },
+      "activate": {
+       "type": {
+        "kind": "scalar",
+        "name": "boolean"
+       },
+       "presence": "optional",
+       "nullable": false,
+       "default": true
+      }
+     },
+     "additional_properties": false
+    }
+   }
   },
   "ProviderWorkspaceMutationResult": {
    "kind": "object",
@@ -6519,6 +6636,14 @@
      "presence": "optional",
      "nullable": false
     },
+    "commands": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsCommands"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
     "journal_followers": {
      "type": {
       "kind": "ref",
@@ -6538,6 +6663,7 @@
     "locks is present only when the request names it in include.",
     "hook_queue is present only when the request names it in include and the session serves a socket.",
     "disk is present only when the request names it in include and the session keeps its registry on disk.",
+    "commands is present only when the request names it in include.",
     "journal_followers is present only when the request names it in include."
    ]
   },
@@ -6574,6 +6700,165 @@
     "queued_events counts the hook event lines in this session's queues (hook-spool/ beside the socket): events no daemon answered yet, and answered ones a sender has not removed yet.",
     "reset_dropped_events counts hook events that cmux session NAME reset-state dropped with a session's saved state, for every session whose socket shares this one's directory.",
     "undeliverable_events counts hook events a live daemon took several times in a row and never answered (it closed on them, or did not reply within its own longest journal wait), so their senders gave them up, for every session whose socket shares this one's directory."
+   ]
+  },
+  "ServerStatsCommands": {
+   "kind": "object",
+   "fields": {
+    "names": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "name_limit": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "hist_bounds_ns": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "uint64"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "rows": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsCommandRow"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "connections": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsCommandConnections"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "Counts every request the daemon handled since it started, by command name and by client kind; always on.",
+    "names counts the command names that have rows of their own; past name_limit the requests of a further name count in the row named other.",
+    "hist_bounds_ns holds the upper bounds, in nanoseconds, of the first 15 buckets of each hist: 250000 (0.25 ms), then each twice the one before, up to 4096000000; the last bucket has no upper bound.",
+    "rows has one entry for each name and kind with a request, the largest total_ns first.",
+    "connections has one entry for each client kind with a connection."
+   ]
+  },
+  "ServerStatsCommandRow": {
+   "kind": "object",
+   "fields": {
+    "name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "kind": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "count": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "total_ns": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "max_ns": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "hist": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "uint64"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "name is a legacy command name, a protocol 2 method name or other (a line that is neither, a command word the daemon does not know, an app-private frame); never a word of a request.",
+    "kind is one of the daemon's own words: unknown, local, terminal, hook, plugin, app, tui, cli, mcp, remote-probe, remote-link, remote, websocket, other. A kind that set-client-info declared outside that list counts as other.",
+    "total_ns and max_ns are the handler's time from the decoded line to its reply queued for the connection's writer; the wait in the connection's queue is not counted.",
+    "hist has 16 counts: the requests below hist_bounds_ns[0], then one bucket for each bound, then the requests at or above the last bound."
+   ]
+  },
+  "ServerStatsCommandConnections": {
+   "kind": "object",
+   "fields": {
+    "kind": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "accepted": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "refused": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "accepted counts the connections that registered, under the kind each has now.",
+    "refused counts the connections dropped at the connection limit, under the kind known at that moment (terminal, local, websocket or remote)."
    ]
   },
   "ServerStatsResourceProjection": {
@@ -13341,6 +13626,17 @@
        }
       ]
      },
+     "first_tab": {
+      "type": {
+       "kind": "ref",
+       "name": "WorkspaceFirstTab"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "workspace-first-tab-v1",
+      "description": "The workspace's first tab, made in the same request: {kind: \"browser\"} with the fields of new-frontend-browser-tab except pane, workspace, split and after. A first tab that cannot be made takes the workspace back; a replayed create replays a keyed tab and makes no second unkeyed one. The reply's first_tab is new-frontend-browser-tab's reply."
+     },
      "origin": {
       "type": {
        "kind": "scalar",
@@ -18466,7 +18762,7 @@
    "stream": null,
    "constraints": [
     "Owner-only diagnostics; never journaled and safe to poll.",
-    "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk, journal_followers); unknown names are ignored."
+    "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk, commands, journal_followers); unknown names are ignored."
    ]
   },
   "paste-image": {
@@ -19337,6 +19633,17 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "workspace": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "frontend-browser-tab-workspace-v1",
+      "description": "Instead of pane: the tab goes in this workspace's active pane, or is the first tab of an empty workspace (no terminal is made for it to replace). Refused with split."
      },
      "title": {
       "type": {

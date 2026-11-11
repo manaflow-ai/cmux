@@ -8,6 +8,8 @@
 # so the manifest download returned 404 on almost every push (nightly runs 33941558929
 # and 33943122606 died in "Bundle the cmux-tui client" with `curl: (56) ... 404`).
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../scripts/cmux-next/tests/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RESOLVER="$ROOT_DIR/scripts/ci/resolve-cmux-tui-client-commit.sh"
