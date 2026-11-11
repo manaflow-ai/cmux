@@ -1,0 +1,91 @@
+name: Long-running VM hassle (staging)
+
+# How much of a hassle a long-running NEXT Cloud VM is to set up, redo and clean up, in steps a person types and
+# seconds (scripts/cmux-next/vm-hassle.ts; Leo, 2026-11-10: "are they a hassle to set up? Are they a hassle to
+# redo? Are they a hassle to clean up?"). It walks each flow's steps on staging as the agent test account, today's
+# path and the path with the CLI cuts, and writes the {flow, steps, seconds, leftovers} table to the job summary.
+# Also REDO under fault (machines broken on purpose, in parallel) and CLEANUP after a cancelled create: reliability
+# by breaking it fast and repeatedly, never a soak. A measurement, not a gate: it runs on a pull request that
+# changes the script or this file, and by hand.
+#
+# Every machine, snapshot and preview link the run made is deleted at its end, pass, fail or cancel (the script's
+# own cleanup and SIGTERM handler, each delete retried under one key while the API says it was cut off); the
+# always() step deletes what a run killed before its cleanup left, by its tag.
+#
+# Secrets: the staging agent test account (CMUX_JOURNEY_DEV_STACK_*) in cmux-next-cloud-journey, as
+# cloud-journey-pr.yml reads it. Same-repo pull requests only. Without the pair the script writes the documented
+# path (the counts from the code) and passes.
+
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - scripts/cmux-next/vm-hassle*.ts
+      - .github/workflows/vm-hassle.yml
+  workflow_dispatch:
+    inputs:
+      path:
+        description: "before, after or both"
+        required: false
+        default: both
+      fault_rounds:
+        description: "REDO-under-fault rounds (each breaks 3 machines at once), 0 to 5"
+        required: false
+        default: "1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vm-hassle-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hassle:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    environment:
+      name: cmux-next-cloud-journey
+      deployment: false
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - name: Tag this run
+        id: tag
+        run: echo "tag=vh-$(date +%s | xargs printf '%x')${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+      - name: Measure (staging)
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_JOURNEY_DEV_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_JOURNEY_DEV_STACK_PASSWORD }}
+          HASSLE_PATH: ${{ inputs.path || 'both' }}
+          HASSLE_TAG: ${{ steps.tag.outputs.tag }}
+          HASSLE_FAULT_ROUNDS: ${{ inputs.fault_rounds || '1' }}
+        run: |
+          set -o pipefail
+          out="$RUNNER_TEMP/vm-hassle"
+          status=0
+          bun scripts/cmux-next/vm-hassle.ts --backend staging --path "$HASSLE_PATH" --tag "$HASSLE_TAG" --fault-rounds "$HASSLE_FAULT_ROUNDS" --out "$out" </dev/null || status=$?
+          cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "(no summary written)" >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+      - name: Delete what a cut-off run left
+        if: always()
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_JOURNEY_DEV_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_JOURNEY_DEV_STACK_PASSWORD }}
+          HASSLE_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          if [ -z "${CMUX_DOGFOOD_STACK_EMAIL:-}" ] || [ -z "$HASSLE_TAG" ]; then exit 0; fi
+          bun scripts/cmux-next/vm-hassle.ts --backend staging --cleanup-tag "$HASSLE_TAG" </dev/null
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: vm-hassle
+          path: ${{ runner.temp }}/vm-hassle
+          if-no-files-found: ignore
+          retention-days: 3

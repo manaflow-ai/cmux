@@ -202,7 +202,7 @@ class Journey {
 
 type Answer = { status: number; body: any };
 
-async function http(method: string, url: string, body: unknown, headers: Record<string, string>, timeoutMs = 30_000): Promise<Answer> {
+export async function http(method: string, url: string, body: unknown, headers: Record<string, string>, timeoutMs = 30_000): Promise<Answer> {
   const res = await fetch(url, {
     method,
     headers: { ...(body === undefined ? {} : { "content-type": "application/json" }), ...headers },
@@ -247,7 +247,7 @@ const DELETE_BUDGET_MS = 180_000;
 /** The ops API says a provider call was cut off and the same idempotency key may be sent again. */
 export const opRetryable = (body: any): boolean => body?.ok !== true && body?.error?.code === "mutation.indeterminate" && body?.error?.retryable === true;
 
-class Api {
+export class Api {
   bearer = "";
   constructor(readonly origin: string, readonly team?: string) {}
   private headers(): Record<string, string> {
@@ -286,10 +286,10 @@ class Api {
   }
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Test-side bounded wait on a machine field (the product never polls; this is the harness). */
-async function waitMachine(api: Api, machine: string, want: (m: any) => boolean, budgetMs: number, goneOk = false): Promise<any> {
+export async function waitMachine(api: Api, machine: string, want: (m: any) => boolean, budgetMs: number, goneOk = false): Promise<any> {
   const t0 = Date.now();
   let last: any = null;
   let lastError = "";
@@ -315,11 +315,11 @@ async function sign(key: CryptoKey, message: string): Promise<string> {
   return Buffer.from(sig).toString("base64url");
 }
 
-type ExecResult = { code: number; stdout: string; stderr: string };
-type Exec = (command: string, timeoutMs?: number) => Promise<ExecResult>;
+export type ExecResult = { code: number; stdout: string; stderr: string };
+export type Exec = (command: string, timeoutMs?: number) => Promise<ExecResult>;
 
 /** The CLI's exec (cloud_client_session.rs): mint a client session, then the provider's exec-await. */
-function directExec(api: Api, machine: string, journey: Journey): Exec {
+export function directExec(api: Api, machine: string, journey: Pick<Journey, "secrets">): Exec {
   let session: { token: string; vm_id: string; linux_user: string; api_base_url: string; expires_at: number } | null = null;
   let guestRoute = false;
   const guestExec: Exec = async (command, timeoutMs = 60_000) => {
@@ -1556,7 +1556,7 @@ export async function deleteJourneyMachines(ids: string[], scopes: MachineScope[
 }
 
 /** The Stack password sign-in the journey uses: the agent test account's access token. */
-async function passwordSignIn(stack: (typeof STACK)[StackName], email: string, password: string): Promise<{ access: string; refresh: string }> {
+export async function passwordSignIn(stack: (typeof STACK)[StackName], email: string, password: string): Promise<{ access: string; refresh: string }> {
   const r = await http("POST", `${STACK_API}/api/v1/auth/password/sign-in`, { email, password }, {
     "x-stack-access-type": "client",
     "x-stack-project-id": stack.project,
