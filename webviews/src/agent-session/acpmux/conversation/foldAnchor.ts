@@ -131,13 +131,16 @@ export function toggleState(control: HTMLElement): string | undefined {
 /// a regroup, keepOpenedLineModel.ts) and a transcript row; anything else is not found again.
 const LINE_IDS = ["data-tool-id", "data-tool-group", "data-tool-run"] as const;
 
-/// A selector that finds `node` again once React draws it anew, or undefined.
+/// A selector that finds `node` again once React draws it anew, or undefined. The id is looked for
+/// under each of the three names: a group that grows into a run draws its key as `data-tool-run`.
 export function lineSelector(node: HTMLElement): string | undefined {
   if (typeof node.getAttribute !== "function") return undefined;
   const escape = (value: string) => value.replace(/["\\]/g, "\\$&");
   for (const name of LINE_IDS) {
     const value = node.getAttribute(name);
-    if (value) return `${node.tagName.toLowerCase()}[${name}="${escape(value)}"]`;
+    if (!value) continue;
+    const tag = node.tagName.toLowerCase();
+    return LINE_IDS.map((any) => `${tag}[${any}="${escape(value)}"]`).join(", ");
   }
   const row = node.getAttribute("data-row-id");
   return row && node.classList?.contains("acpmux-row") ? `.acpmux-row[data-row-id="${escape(row)}"]` : undefined;

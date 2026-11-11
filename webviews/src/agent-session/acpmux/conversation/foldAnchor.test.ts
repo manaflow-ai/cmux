@@ -493,7 +493,16 @@ describe("a hold under a slow render", () => {
     ).window;
     const [row, call, plain] = [...document.body.children] as HTMLElement[];
     expect(document.querySelector(lineSelector(row!)!)).toBe(row);
-    expect(lineSelector(call!)).toBe('button[data-tool-id="t1"]');
+    expect(document.querySelector(lineSelector(call!)!)).toBe(call);
     expect(lineSelector(plain!)).toBeUndefined();
+  });
+
+  test("a group's line a regroup draws as a run's line is found again by its key", () => {
+    const { document } = new JSDOM('<div><button data-tool-group="k1"></button></div>').window;
+    const group = document.querySelector<HTMLElement>("button")!;
+    const find = lineSelector(group)!;
+    // A fourth call turns the group into a run: React draws the same key as `data-tool-run`.
+    document.querySelector("div")!.innerHTML = '<button data-tool-run="k1"></button>';
+    expect(document.querySelector(find)).toBe(document.querySelector("[data-tool-run]"));
   });
 });
