@@ -1,8 +1,9 @@
 # regex-after-token.json is a byte-for-byte copy of this file; check-test-determinism.py --self-test refuses a copy
 # whose sha256 differs. To update it, copy the file at a newer commit and change commit and sha256 together.
+# The commit is #1271's head (not yet merged); re-pin if its merge changes the file.
 repo: manaflow-ai/cmux-platform
 pull: 1271
-commit: b34d8d19db66659ab1a622d2a5529507b6576c16
+commit: 34a927f5dc788d251deb22ac4bd989e609ec7c9d
 path: test/node/fixtures/regex-after-token.json
-blob: 758e10bcbb371810dc404a413c48aa8971b930bb
-sha256: 0f87917d997a590a23e76da6a5cd57cf7c7f6c5d037a0808ae96e9ebdf6077ed
+blob: 752b043f6c3dc39a187aed6f0d18af5fc831b2f3
+sha256: 6738b65006f554a42c12770428d9fb277b0510c802c10d2ef0d6d7430d2887ab
