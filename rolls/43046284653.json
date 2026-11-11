@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43046284653",
+  "recorded_at": "2026-11-11T15:21:05Z",
+  "reason": "cmux-tui 9eff58865d2e changes the image's cmux-tui (pinned 533272641fa3)",
+  "dry_run": false,
+  "cmux_tui": "9eff58865d2e906d3694ba252cd59e1e973cd9a8",
+  "fixes": [
+    {
+      "sha": "9eff58865d2e906d3694ba252cd59e1e973cd9a8",
+      "mergedAt": "2026-11-11T06:58:14-08:00",
+      "subject": "acpmux: leave out repeated command lists from a restarted agent's initialize answers (#41247)"
+    },
+    {
+      "sha": "bd2624f0295c66fa5d27b1aa6e290eeeaec6d408",
+      "mergedAt": "2026-11-11T06:57:31-08:00",
+      "subject": "acpmux: fix the lost_home_writes launch-roots flake (the chat text save raced the home replace) (#41331)"
+    },
+    {
+      "sha": "abb5c0169935514cb04d42965905c736a145f9c6",
+      "mergedAt": "2026-11-11T06:51:05-08:00",
+      "subject": "Agent pane allowlist: relay the methods the page already sends (run elsewhere, bg output and stop, cold archive, presets, prompt coach) (#41127)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-11T15:21:05Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
