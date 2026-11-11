@@ -13,6 +13,9 @@ extension MainPaneGutterSuites {
     /// chrome around the curved main pane are shaded darker than the pane. The setting applies live,
     /// from cmux.json through the settings applier to the open window.
     @MainActor struct SidebarSurfaceTests {
+        /// The density and chrome style when the case began (a new value per case): ``reset()`` puts them back.
+        private let kept = (density: DesignSettings.shared.densityTokens, style: DesignSettings.shared.chromeStyle)
+
         /// A window root in a titled, full-size-content window, as the app shows it, sidebar shown.
         func openRoot() -> (NSWindow, WindowRootView) {
             _ = NSApplication.shared
@@ -39,6 +42,15 @@ extension MainPaneGutterSuites {
             let snapshot = CmuxConfigSnapshot.parse(.object(members), validDensities: SettingsApplier.validDensities,
                                                     validMetrics: SettingsApplier.validMetrics)
             return SettingsApplier(registry: ActionRegistry.standard()).apply(snapshot)
+        }
+
+        /// Undoes a case's loads: loads an empty file, so every key the case set is back at its default, then puts back
+        /// the density and chrome style the case found (the empty file's are Default and `default`, not theirs).
+        func reset() {
+            load(.object([:]))
+            let design = DesignSettings.shared
+            if design.densityTokens != kept.density { design.densityTokens = kept.density }
+            if design.chromeStyle != kept.style { design.chromeStyle = kept.style }
         }
 
         func appearance(_ members: [String: JSONValue]) -> JSONValue {
@@ -91,7 +103,7 @@ extension MainPaneGutterSuites {
         }
 
         @Test func withPaneOutlinesTheSidebarDrawsTheMainPanesSurface() async {
-            defer { load(.object([:])) }
+            defer { reset() }
             load(outlined())
             let (window, root) = openRoot()
             defer { window.close() }
@@ -101,7 +113,7 @@ extension MainPaneGutterSuites {
         }
 
         @Test func separateKeepsTheOldShadedSidebar() async {
-            defer { load(.object([:])) }
+            defer { reset() }
             load(appearance(["sidebarSurface": .string("separate")]))
             let (window, root) = openRoot()
             defer { window.close() }
@@ -111,7 +123,7 @@ extension MainPaneGutterSuites {
         }
 
         @Test func switchingTheSettingRepaintsTheOpenWindow() async {
-            defer { load(.object([:])) }
+            defer { reset() }
             load(outlined())
             let (window, root) = openRoot()
             defer { window.close() }
@@ -133,7 +145,7 @@ extension MainPaneGutterSuites {
         }
 
         @Test func aBadValueKeepsTheDefaultAndSaysWhy() async {
-            defer { load(.object([:])) }
+            defer { reset() }
             let diagnostics = load(outlined(["sidebarSurface": .string("purple")]))
             #expect(diagnostics.contains { $0.path == "appearance.sidebarSurface" && $0.kind == .invalidValue })
             let (window, root) = openRoot()
@@ -146,7 +158,7 @@ extension MainPaneGutterSuites {
         /// shared surface still draws the pane's own color there (Lawrence 2026-10-19: "it should
         /// just have a border on the sidebar, not a different color"; no faint tonal step).
         @Test func withNoLinesTheSidebarStillDrawsTheMainPanesSurface() async {
-            defer { load(.object([:])) }
+            defer { reset() }
             load(appearance(["borders": .string("none")]))
             let (window, root) = openRoot()
             defer { window.close() }
@@ -159,6 +171,7 @@ extension MainPaneGutterSuites {
         /// The default inside the curved main pane: the sidebar is the pane's color, parted by its
         /// hairline edge line.
         @Test func byDefaultTheSidebarIsThePanesColorWithAnEdgeLine() async {
+            defer { reset() }
             load(.object([:]))
             let (window, root) = openRoot()
             defer { window.close() }
@@ -171,7 +184,7 @@ extension MainPaneGutterSuites {
 
         /// Cards draw no pane outline; the shared surface still draws the pane's color beside them.
         @Test func withoutPaneOutlinesTheSidebarStillDrawsThePanesColor() async {
-            defer { load(.object([:])) }
+            defer { reset() }
             load(.object(["layout": .object(["paneSeparation": .string("cards")])]))
             let (window, root) = openRoot()
             defer { window.close() }
@@ -186,7 +199,7 @@ extension MainPaneGutterSuites {
         /// window's own color and parts it with a hairline on its edge; `bare` keeps no lines.
         @Test(arguments: ChromeStyle.allCases)
         func everyWindowStyleDrawsTheSidebarOnTheWindowsColor(style: ChromeStyle) async {
-            defer { load(.object([:])) }
+            defer { reset() }
             load(appearance(["chromeStyle": .string(style.rawValue)]))
             let (window, root) = openRoot()
             defer { window.close() }
@@ -206,6 +219,23 @@ extension MainPaneGutterSuites {
                 #expect(Metrics.sidebarBorderWidth > 0, "\(style): the sidebar shows no edge line")
                 #expect(Metrics.sidebarBorderWidth <= 1, "\(style): the sidebar line is \(Metrics.sidebarBorderWidth) pt, not a hairline")
             }
+        }
+
+        /// A case leaves the process's density and chrome style as it found them. The empty load that undoes a case
+        /// applies the file's Default density (#37274) and the `default` style ``load(_:)`` pins, and a suite that runs
+        /// later in the same process reads them: NewTabReplaceInPlaceTests.swift:210 measured its tab slots at Default after this suite (tip run
+        /// 42718506331).
+        @Test func aCaseLeavesTheDensityAndChromeStyleItFound() {
+            let design = DesignSettings.shared
+            let before = (density: design.densityTokens, style: design.chromeStyle)
+            defer { (design.densityTokens, design.chromeStyle) = before }
+            design.densityTokens = DensityPreset.spacious.tokens
+            design.chromeStyle = .bare
+            let suite = SidebarSurfaceTests()
+            suite.load(outlined(["sidebarSurface": .string("separate")]))
+            suite.reset()
+            #expect(design.densityTokens == DensityPreset.spacious.tokens, "the density is \(design.densityTokens.id)")
+            #expect(design.chromeStyle == .bare, "the chrome style is \(design.chromeStyle)")
         }
     }
 }
