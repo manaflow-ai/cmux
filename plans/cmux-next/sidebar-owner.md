@@ -2021,3 +2021,8 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   footer, the update card and the titlebar). `sidebar.surfaceDim.dark` and `.light` default to 0 and stay as Debug
   toggles; the Codex fills, inks, rows and headings stay. The sidebar's ground is a chrome-layer color: a change to it
   needs Leo's words (`Chrome-Look-OK:`), see the chrome pixel check.
+- 2026-11-11 (#40826, nightly one-click restart): 65a6531739d adds `sidebar.updateCard.layout` (`card`, `compact`,
+  `button`) for the Update Ready card; `card` stays the default, so the shipped look does not change until Leo picks.
+  Gallery: `AARestartToUpdateGalleryTests` (each layout, ready and installing, dark and light). 09f49ddeb6f keeps
+  `height(for:)` a one-argument function for its callers: no visual change. Sidebar-Look: Leo 2026-11-10, "the
+  nightly automatically downloads and installs/unpacks and you simply click and it restarts with the new version".

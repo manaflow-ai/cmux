@@ -110,6 +110,11 @@ class WorkflowShape(unittest.TestCase):
                 self.assertTrue(runner.endswith(
                     "|| github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}"), runner)
                 self.assertNotIn("vars.LINUX_RUNNER", runner)
+        # Never a mini for them: an owned Mac's runner setup and teardown (20-60 s) dwarfs their ~5 s of work
+        # (2026-11-11: resolve on a mini 41 s p50, hosted Ubuntu 5 s), on the fast gate's critical path.
+        place = step_named(job(doc, "portable-placement")["steps"], "Place")["env"]
+        self.assertEqual(set(place["LINUX_ONLY"].split()), light)
+        self.assertEqual(set(place["JOBS"].split()), light)
         for key, each in doc["jobs"].items():
             if key in light or key == "portable-placement":
                 continue
