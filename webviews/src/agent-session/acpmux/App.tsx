@@ -309,7 +309,13 @@ import {
 import { lingeringTrayItems, trayItemEnd, useTrayLinger } from "./subagents/trayLinger";
 import { useSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
 import { SelectionReplyChip } from "./conversation/SelectionReply";
-import { quoteInReply, setQuoteReplySink } from "./conversation/selectionReplyModel";
+import {
+  quoteInReply,
+  quoteMarkdown,
+  setQuoteReplySink,
+  setSelectionActionSinks,
+} from "./conversation/selectionReplyModel";
+import { askSelectionInSideChat } from "./conversation/selectionSideChat";
 import { answerPrompt, askQuote } from "./conversation/nextStepAsk";
 import { AgentTonesContext, agentTone, agentTones } from "./subagents/agentTones";
 import { useSummaryCard, useSummaryColumn } from "./summary/cardState";
@@ -6697,6 +6703,37 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // New side chat and `/side`: forked on this Mac, or on the chat's own machine (a Cloud or SSH
   // chat), in the chat's folder there (sideChatRow.ts).
   const sidePlace = sideChatPlace({ quick, localCwd, onMachine: snapshot.sideChatOnMachine });
+  // The selection bar's Copy, Ask in side chat and Add to chat (#40948, conversation/SelectionReply.tsx),
+  // registered once; they read the chat as it is when clicked.
+  const selectionChat = useRef({ snapshot, sidePlace });
+  selectionChat.current = { snapshot, sidePlace };
+  useEffect(
+    () =>
+      setSelectionActionSinks({
+        // The app's pasteboard, as the right-click menu's copies; the page's clipboard without a host.
+        copy: (text) => void postNative("pane.copyText", { text }).catch(() => copyText(text)),
+        // The right-click menu's Attach selection as context: a chip in the composer, the draft kept.
+        // Where the chat's composer is not there to take a chip (a subagent pane's composer, or a
+        // Sandboxed receipt or handoff review in its place), the text goes as Quote in Reply does,
+        // which those keep, so it is never dropped.
+        addToChat: (text) => {
+          const composer = subagentQuote.current ? null : composerHandle.current;
+          const attachment = composer ? transcriptSelectionAttachment(text) : undefined;
+          if (composer && attachment) {
+            composer.attach(attachment);
+            composer.focus();
+          } else quoteReply(quoteMarkdown(text));
+        },
+        // `/side <prompt>`'s path, asked about the quote, from any selection (selectionSideChat.ts).
+        askInSideChat: (text) =>
+          void askSelectionInSideChat(text, selectionChat.current.snapshot, selectionChat.current.sidePlace, {
+            side: (params) => callNative("chat.side", params),
+            notice: (text) => notices.transient(text),
+            t: translate,
+          }),
+      }),
+    [notices, quoteReply],
+  );
   // Stop reaches acpmux even when pressed while the pane reconnects (stopThroughReconnect.ts).
   const stopThroughReconnect = useStopThroughReconnect(snapshot, cancelTurn);
   const keptStopping = stopThroughReconnect.stopping;
