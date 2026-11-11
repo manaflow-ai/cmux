@@ -83,7 +83,7 @@ const fakeStack = (team: { server_metadata?: unknown; client_read_only_metadata?
   const sent: Array<Sent> = []
   const http = async (r: Request) => {
     const path = new URL(r.url).pathname.replace(/^\/api\/v1/, "")
-    const body = r.method === "GET" ? undefined : await r.json().catch(() => undefined)
+    const body: any = r.method === "GET" ? undefined : await r.json().catch(() => undefined)
     sent.push({ method: r.method, path, body })
     if (r.method === "GET") return team === null ? new Response("{}", { status: 404, headers: { "x-stack-known-error": "TEAM_NOT_FOUND" } }) : Response.json({ display_name: "Personal", ...team })
     if (r.method === "PATCH") { if (team) team.client_read_only_metadata = body.client_read_only_metadata; return Response.json({}) }
