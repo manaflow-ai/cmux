@@ -5484,6 +5484,22 @@ _ATTRIBUTION_CONSTRUCTS: list[tuple[str, str, str]] = [
     ("jsx text holding //", "web/tests/b18.test.tsx", "    const el = <a>http://x</a>; const o = {\n      a: 1 };\n"),
     ("jsx text holding // and a hole", "web/tests/b19.test.tsx",
      "    const el = <p>see http://x {name}</p>; const o = {\n      a: 1 };\n"),
+    # A line terminator after `return` or `yield` ends the statement (ASI), also inside a comment: the `{}` on the next
+    # line is a block, and the slash after it starts a regex literal (review of #41357, F1).
+    ("js regex literal after a block on the line after return", "web/tests/b20.test.ts",
+     "    return\n    {} /a{/.test(s);\n"),
+    ("js regex literal after return, a comment over lines and a block", "web/tests/b21.test.ts",
+     "    return /*\n    */ {} /a{/.test(s);\n"),
+    ("js regex literal after return, a line comment and a block", "web/tests/b22.test.ts",
+     "    return // why\n    {} /a{/.test(s);\n"),
+    ("js regex literal after a block on the line after yield", "web/tests/b23.test.ts", "    yield\n    {} /a{/.test(s);\n"),
+    # ECMAScript identifiers continue with U+200C and U+200D: `x\u200cif` is one name, not `x` and `if` (F2).
+    ("js division after a call to a name joined by ZWNJ", "web/tests/b24.test.ts",
+     "    const r = { w: x\u200cif(y) / 2 };\n"),
+    ("js division after a name joined by ZWJ", "web/tests/b25.test.ts",
+     "    const r = { w: x\u200dreturn / 2 }; const re = /\\}/;\n"),
+    ("jsx text holding // in a .js file", "web/tests/b26.test.js",
+     "    const el = <a>http://x</a>; const o = {\n      a: 1 };\n"),
     ("swift multi-line string", "cmuxTests/A1Tests.swift", "        let json = \"\"\"\n        {\"a\": 1\n        \"\"\"\n"),
     ("swift raw string with quotes", "cmuxTests/A2Tests.swift", "        let s = #\"a \"{\" b\"#\n"),
     ("swift multi-line raw string", "cmuxTests/A3Tests.swift",
@@ -5575,6 +5591,19 @@ ATTRIBUTION_FIXTURES.append(
     )
 )
 
+# `a <b` is a comparison, not a JSX tag: the `{}` after it (a block, by ASI) is no attribute, and the slash after
+# that is not a tag's `/>`. The lexer cannot tell the block from an object there, so it does not guess (F3).
+for _suffix in (".ts", ".tsx", ".js"):
+    ATTRIBUTION_FIXTURES.append(
+        (
+            f"js comparison then a block's }} and a slash ({_suffix})",
+            f"web/tests/b27.test{_suffix}",
+            _js_attribution_fixture("    a <b\n    {} />foo{/.test(s);\n"),
+            RULE_SLEEP_THEN_ASSERT,
+            {7: f"{UNRESOLVED_SCOPE_PREFIX}: regex literal or division at 4:8>"},
+        )
+    )
+
 # Guards: what the lexer must still read as code (each passed before the lexer too).
 ATTRIBUTION_GUARDS: list[tuple[str, str, str, str, dict[int, str]]] = [
     ("js division is no regex literal", "web/tests/g1.test.ts",
@@ -5600,6 +5629,10 @@ ATTRIBUTION_GUARDS: list[tuple[str, str, str, str, dict[int, str]]] = [
     ("jsx nested elements in a hole", "web/tests/g12.test.tsx",
      _js_attribution_fixture("    const el = <ul>{items.map((i) => <li key={i}>{i}</li>)}</ul>;\n"), RULE_SLEEP_THEN_ASSERT,
      {6: "pane.b"}),
+    ("js division after a returned object on the same line", "web/tests/g13.test.ts",
+     _js_attribution_fixture("    return {} / 2; const re = /\\}/;\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
+    ("jsx self-closing tag after an attribute's } in a .js file", "web/tests/g14.test.js",
+     _js_attribution_fixture("    const el = <Tile size={2} />;\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
     ("jsx text: an apostrophe and a closing tag", "web/tests/g2.test.tsx",
      _js_attribution_fixture("    const el = cond && <p>Don't {name}</p>;\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
     ("python comment holding a triple quote", "tests/test_g3.py",
@@ -5684,17 +5717,24 @@ def _attribution_self_test() -> list[str]:
 
 # The regex-after-token table shared with manaflow-ai/cmux-platform#1271's JS tokenizer: each case is a source
 # and whether the text `echo` after its slash is code (a hit) or a comment. regex-after-token.json is a pinned
-# byte copy (its .pin sidecar names the commit and sha256); cmux adds rows there, through #1271's table.
+# byte copy (its .pin sidecar names the commit and sha256). cmux-rows.json holds the rows cmux has sent to #1271's
+# table and that are not in the pinned copy yet; a row there with "unresolved": true is one a strict lexer cannot
+# decide, so its expected answer is "unresolved" (a tokenizer that scans both readings reads it as a hit).
 REGEX_AFTER_TOKEN_DIR = pathlib.Path(__file__).resolve().parent / "fixtures" / "regex-after-token"
 
 
 def _regex_after_token_cases(table: dict) -> list[tuple[str, bool, bool]]:
-    """(source, hit, forks) for every row and generated case of TABLE; FORKS where the shared tokenizer cannot
-    decide the slash (it starts with an `undecided_before` token) and keeps the union of both readings."""
+    """(source, hit, forks) for every row and generated case of TABLE; FORKS where the slash cannot be decided (the
+    row says "unresolved", or starts with an `undecided_before` token): a strict lexer must report it unresolved,
+    and the shared tokenizer keeps the union of both readings."""
     generate = table.get("generate", {})
     undecided = generate.get("undecided_before", [])
     cases = [
-        (row["source"], row["hit"], any(row["source"].startswith(f"{before} /") for before in undecided))
+        (
+            row["source"],
+            row["hit"],
+            bool(row.get("unresolved")) or any(row["source"].startswith(f"{before} /") for before in undecided),
+        )
         for row in table["rows"]
     ]
     for befores, line, hit, forks in (
@@ -5711,8 +5751,8 @@ def _regex_after_token_cases(table: dict) -> list[tuple[str, bool, bool]]:
 
 
 def _regex_after_token_self_test() -> tuple[list[str], int]:
-    """Run the lexer over the shared table: each case gives the table's answer, or is unresolved
-    (fails --strict) where the table forks. Returns the failures and the number of cases."""
+    """Run the lexer over the shared table and cmux's rows, strictly: each case the table decides gives its answer,
+    and each it cannot decide is unresolved (fails --strict), never a guess. Returns the failures and the count."""
     import hashlib
 
     failures: list[str] = []
@@ -5729,19 +5769,22 @@ def _regex_after_token_self_test() -> tuple[list[str], int]:
             f"({pin.get('repo')}@{pin.get('commit')}:{pin.get('path')}); copy that file unchanged or re-pin it"
         )
     cases = 0
-    for source, hit, forks in _regex_after_token_cases(json.loads(shared.read_text(encoding="utf-8"))):
-        cases += 1
-        target = source.index("echo")
-        _, comments, unresolved = _lexical_positions_and_unresolved(source, ".tsx")
-        if any(offset < target for offset in unresolved):
-            if not forks:
-                failures.append(f"REGEX-AFTER-TOKEN {shared.name}: unresolved where the table decides: {source!r}")
-            continue
-        if (not comments[target]) != hit:
-            failures.append(
-                f"REGEX-AFTER-TOKEN {shared.name}: the text after the slash reads as "
-                f"{'a comment' if hit else 'code'}, the table says {'code' if hit else 'a comment'}: {source!r}"
-            )
+    for path in (shared, REGEX_AFTER_TOKEN_DIR / "cmux-rows.json"):
+        for source, hit, forks in _regex_after_token_cases(json.loads(path.read_text(encoding="utf-8"))):
+            cases += 1
+            target = source.index("echo")
+            _, comments, unresolved = _lexical_positions_and_unresolved(source, ".tsx")
+            if any(offset < target for offset in unresolved):
+                if not forks:
+                    failures.append(f"REGEX-AFTER-TOKEN {path.name}: unresolved where the table decides: {source!r}")
+                continue
+            if forks:
+                failures.append(f"REGEX-AFTER-TOKEN {path.name}: decided where it cannot be sure: {source!r}")
+            elif (not comments[target]) != hit:
+                failures.append(
+                    f"REGEX-AFTER-TOKEN {path.name}: the text after the slash reads as "
+                    f"{'a comment' if hit else 'code'}, the table says {'code' if hit else 'a comment'}: {source!r}"
+                )
     return failures, cases
 
 

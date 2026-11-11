@@ -1,0 +1,23 @@
+{
+  "about": [
+    "Rows cmux has sent to the shared regex-after-token table (regex-after-token.json, pinned in regex-after-token.json.pin) and that the pinned copy does not hold yet, in its row form, read as TSX. From the review of manaflow-ai/cmux#41357: F1 (ASI after return or yield), F2 (ECMAScript identifiers continue with U+200C and U+200D), F3 (a comparison is no JSX tag). \"unresolved\": true marks a row a strict lexer cannot decide: its expected answer is unresolved, and a tokenizer that scans both readings keeps the union (a hit). Drop a row here once the pinned table holds it."
+  ],
+  "rows": [
+    {
+      "source": "return\n{} /[//]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "review of manaflow-ai/cmux#41357, F1: a line terminator after return inserts a semicolon, so the {} on the next line is a block and a / after it starts a regex (a terminator inside a comment counts too)"
+    },
+    {
+      "source": "const a = x‌if(y) / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "F2: an ECMAScript identifier continues with U+200C (ZWNJ) and U+200D (ZWJ): x‌if is one name, not the keyword if; after the ) of its call, a / divides"
+    },
+    {
+      "source": "a <b\n{} />[//]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "unresolved": true,
+      "why": "F3: <b after a name is a comparison, not a JSX tag, so the / after the {} is no />; by ASI the {} is a block and the / starts a regex, but a tokenizer that does not apply ASI to a name cannot tell the block from an object: unresolved (the union reads it as a hit)"
+    }
+  ]
+}
