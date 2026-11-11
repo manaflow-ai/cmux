@@ -130,6 +130,7 @@ impl Mux {
                 entity,
                 workspace_revision: None,
                 transaction: None,
+                mutation: None,
             }
         };
         let projection_result = self.with_state(|state| {

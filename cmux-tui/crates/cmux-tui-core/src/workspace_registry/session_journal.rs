@@ -879,33 +879,6 @@ pub(crate) fn migrate_resource_events_to_session_journal(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn append_resource_journal_record(
-    transaction: &Transaction<'_>,
-    revision: u64,
-    previous_revision: u64,
-    origin: &str,
-    idempotency_key: &str,
-    operation: &str,
-    patch: Option<&ResourcePatch>,
-    result: &Value,
-    changes: &Value,
-) -> anyhow::Result<()> {
-    append_resource_journal_record_at(
-        transaction,
-        revision,
-        previous_revision,
-        origin,
-        idempotency_key,
-        operation,
-        patch,
-        result,
-        changes,
-        unix_epoch_ms()?,
-        true,
-    )
-}
-
 pub(crate) fn append_resource_effect_journal_record(
     transaction: &Transaction<'_>,
     idempotency_key: &str,
@@ -994,6 +967,7 @@ pub(crate) fn append_resource_effect_journal_record(
     Ok(())
 }
 
+/// Gives the changes as the record states them (`session_journal/resource_record.rs`).
 #[allow(clippy::too_many_arguments)]
 fn append_resource_journal_record_at(
     transaction: &Transaction<'_>,
@@ -1007,7 +981,7 @@ fn append_resource_journal_record_at(
     changes: &Value,
     occurred_at_ms: u64,
     with_current_state: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Value> {
     validate_identifier("journal operation", operation)?;
     // Every upsert carries the state fields a fresh snapshot shows, whatever
     // path produced it (state-ownership.md: clients rebuild from events).
@@ -1067,7 +1041,7 @@ fn append_resource_journal_record_at(
             actor: actor.as_deref(),
         },
     )?;
-    Ok(())
+    Ok(decorated)
 }
 
 /// The registry journal's write budget per kind (`cmux_tui_platform::write_budget`): a kind past
@@ -2704,7 +2678,9 @@ pub(crate) mod kind_read;
 pub(crate) mod kind_read_tests;
 mod live_terminal;
 pub(crate) mod reducer_records;
+mod resource_record;
 use digest_reader::DigestReader;
+pub(crate) use resource_record::{append_resource_journal_record, journal_resource_record};
 #[cfg(test)]
 mod actor_tests;
 
