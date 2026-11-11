@@ -61,8 +61,10 @@ LOCK = ROOT / "scripts/ci/zig-packages.lock"
 # The Ghostty sources whose Zig trees cmux builds (submodules at the repo root),
 # and the repo's own Zig packages (bindings).
 SOURCES = ("ghostty-next", "ghostty")
-# URL prefixes on hosts we control. A dependency URL under one of these is not
-# a third-party fetch; any other URL must be mirrored in the lock.
+# URL prefixes on hosts we control: the lock's mirror must be under one. Every
+# URL dependency, these hosts' included, must be in the lock: a package on our
+# host can still name a third-party package, and only its lock entry's deps
+# let the transitive scan see that.
 ALLOWED_PREFIXES = (
     "https://github.com/manaflow-ai/",
 )
@@ -273,10 +275,13 @@ def check(online: bool, sources: list[str]) -> int:
                     problems.append(f"{rel}: .{dep.name} ({dep.url}) has no .hash, so it cannot be pinned or mirrored")
                     continue
                 found.add(dep.hash)
-                if allowed(dep.url):
-                    continue
                 entry = lock.entries.get(dep.hash)
-                if entry is None:
+                if entry is None and allowed(dep.url):
+                    # On our host, but its own build.zig.zon can still name a third-party
+                    # package: only a lock entry (its deps, re-read by --online) lets the
+                    # transitive scan below see through it.
+                    problems.append(f"{rel}: .{dep.name} ({dep.url}) is on a host we control but {dep.hash} is not in {LOCK.relative_to(ROOT)}, so its own dependencies are never checked")
+                elif entry is None:
                     problems.append(f"{rel}: .{dep.name} fetches {dep.url} (a third-party host) and {dep.hash} is not mirrored in {LOCK.relative_to(ROOT)}")
                 elif name != "cmux" and name not in entry.tags:
                     problems.append(f"{rel}: {dep.hash} is mirrored but not tagged {name}, so {name}'s seed skips it")
@@ -293,7 +298,7 @@ def check(online: bool, sources: list[str]) -> int:
             seen.add(h)
             entry = lock.entries.get(h)
             if entry is None:
-                continue  # an allowed-host package not mirrored, or reported above
+                continue  # reported above: every URL dependency must be in the lock
             for dep in entry.deps:
                 if dep not in lock.entries:
                     problems.append(f"{h} (mirrored) depends on {dep}, which is not mirrored: a build would fetch it from its third-party host")

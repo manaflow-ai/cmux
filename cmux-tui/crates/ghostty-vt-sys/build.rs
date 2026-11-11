@@ -128,6 +128,10 @@ fn main() {
         for name in build_support::PROXY_VARS {
             command.env(name, build_support::NO_ROUTE_PROXY);
         }
+        // An inherited bypass list (`NO_PROXY=*`, or a host) would route around the proxy.
+        for name in build_support::NO_PROXY_VARS {
+            command.env_remove(name);
+        }
     }
     let status = command.arg("--prefix").arg(&prefix).status().unwrap_or_else(|e| {
         panic!("failed to run `{zig} build` in {}: {e}", ghostty_dir.display())

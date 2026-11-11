@@ -62,9 +62,11 @@ mirror_only="${CMUX_ZIG_MIRROR_ONLY:-}"
 export CMUX_ZIG_MIRROR_ONLY="$mirror_only"
 # Mirror only: Zig's HTTP client takes these proxies (std.http.Client
 # initDefaultProxies), and nothing listens on port 9, so any fetch Zig itself
-# makes fails at once. curl in the seed ran before, without them.
+# makes fails at once. curl in the seed ran before, without them. An inherited
+# NO_PROXY/no_proxy (`*`, or a host) would let Zig bypass that proxy, so both go.
 zig_env=()
 if [[ "$mirror_only" == 1 ]]; then
+  zig_env=(-u NO_PROXY -u no_proxy)
   for name in http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY; do zig_env+=("$name=http://127.0.0.1:9"); done
 fi
 cd "$source_dir"

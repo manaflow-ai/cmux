@@ -113,6 +113,7 @@ class Detector(unittest.TestCase):
         self.write(self.ZON, [
             f"translate_c-2.0.0-T {SHA} src,vt https://deps.files.ghostty.org/tc.tar.gz aro-0.0.0-A",
             f"aro-0.0.0-A {SHA} src,vt git+https://codeberg.org/ziglang/arocc#d0c8 -",
+            f"itijah-0.2.1-I {SHA} src https://github.com/manaflow-ai/itijah/archive/abc.tar.gz -",
         ])
         code, err = self.run_check()
         self.assertEqual(code, 0, err)
@@ -122,7 +123,7 @@ class Detector(unittest.TestCase):
         code, err = self.run_check()
         self.assertEqual(code, 1)
         self.assertIn("deps.files.ghostty.org/tc.tar.gz (a third-party host)", err)
-        self.assertNotIn("itijah", err)  # on a host we control
+        self.assertNotIn("itijah-0.2.1-I is not mirrored", err)  # on a host we control, reported as unchecked
         self.assertIn("next:", err)
 
     def test_a_transitive_third_party_dependency_not_mirrored_fails(self):
@@ -133,6 +134,26 @@ class Detector(unittest.TestCase):
         code, err = self.run_check()
         self.assertEqual(code, 1)
         self.assertIn("depends on aro-0.0.0-A, which is not mirrored", err)
+
+    def test_a_package_on_our_host_missing_from_the_lock_fails(self):
+        # Its own build.zig.zon could name a third-party package nobody checks.
+        self.write(self.ZON, [
+            f"translate_c-2.0.0-T {SHA} src,vt https://deps.files.ghostty.org/tc.tar.gz aro-0.0.0-A",
+            f"aro-0.0.0-A {SHA} src,vt git+https://codeberg.org/ziglang/arocc#d0c8 -",
+        ])
+        code, err = self.run_check()
+        self.assertEqual(code, 1)
+        self.assertIn("is on a host we control but itijah-0.2.1-I is not in", err)
+
+    def test_a_package_on_our_host_naming_an_unmirrored_dependency_fails(self):
+        self.write(self.ZON, [
+            f"translate_c-2.0.0-T {SHA} src,vt https://deps.files.ghostty.org/tc.tar.gz aro-0.0.0-A",
+            f"aro-0.0.0-A {SHA} src,vt git+https://codeberg.org/ziglang/arocc#d0c8 -",
+            f"itijah-0.2.1-I {SHA} src https://github.com/manaflow-ai/itijah/archive/abc.tar.gz N-thirdparty",
+        ])
+        code, err = self.run_check()
+        self.assertEqual(code, 1)
+        self.assertIn("itijah-0.2.1-I (mirrored) depends on N-thirdparty, which is not mirrored", err)
 
     def test_vt_set_must_be_closed(self):
         self.write(self.ZON, [
@@ -204,7 +225,7 @@ class FetchScriptMirrorOnly(unittest.TestCase):
             (t / "bin").mkdir()
             fake = t / "bin/zig"
             fake.write_text('#!/usr/bin/env bash\nif [[ "$1" == env ]]; then exit 1; fi\n'
-                            'echo "proxy=${https_proxy:-none}" >> "$FAKE_ZIG_LOG"\n')
+                            'echo "proxy=${https_proxy:-none} no_proxy=${NO_PROXY-unset},${no_proxy-unset}" >> "$FAKE_ZIG_LOG"\n')
             fake.chmod(0o755)
             log = t / "log"
             env = {"PATH": f"{t / 'bin'}:/usr/bin:/bin", "HOME": tmp, "FAKE_ZIG_LOG": str(log),
@@ -214,11 +235,17 @@ class FetchScriptMirrorOnly(unittest.TestCase):
             return log.read_text()
 
     def test_ci_runs_zig_with_no_route_out(self):
-        self.assertEqual(self.run_fetch({"CI": "true"}).strip(), "proxy=http://127.0.0.1:9")
+        self.assertEqual(self.run_fetch({"CI": "true"}).strip(), "proxy=http://127.0.0.1:9 no_proxy=unset,unset")
+
+    def test_an_inherited_bypass_list_cannot_route_around_the_proxy(self):
+        # NO_PROXY=* (or a host) would send Zig straight to the third-party host.
+        got = self.run_fetch({"CI": "true", "NO_PROXY": "*", "no_proxy": "codeberg.org"}).strip()
+        self.assertEqual(got, "proxy=http://127.0.0.1:9 no_proxy=unset,unset")
 
     def test_off_ci_and_turned_off_zig_keeps_its_network(self):
-        self.assertEqual(self.run_fetch({}).strip(), "proxy=none")
-        self.assertEqual(self.run_fetch({"CI": "true", "CMUX_ZIG_MIRROR_ONLY": "0"}).strip(), "proxy=none")
+        self.assertEqual(self.run_fetch({}).strip(), "proxy=none no_proxy=unset,unset")
+        self.assertEqual(self.run_fetch({"CI": "true", "CMUX_ZIG_MIRROR_ONLY": "0", "NO_PROXY": "*"}).strip(),
+                         "proxy=none no_proxy=*,unset")
 
 
 if __name__ == "__main__":

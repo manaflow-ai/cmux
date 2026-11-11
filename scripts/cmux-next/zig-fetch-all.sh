@@ -42,9 +42,11 @@ if [[ "${CMUX_ZIG_SEED:-1}" != 0 ]]; then
     "$root/scripts/ci/seed-zig-package-archives.sh" "$cache" "$dir" || true
   fi
 fi
-# Mirror only: Zig's HTTP client takes these proxies and nothing listens on port 9.
+# Mirror only: Zig's HTTP client takes these proxies and nothing listens on port 9;
+# an inherited NO_PROXY/no_proxy would bypass them, so both are dropped.
 proxy=(env)
 if [[ "$mirror_only" == 1 ]]; then
+  proxy+=(-u NO_PROXY -u no_proxy)
   for name in http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY; do proxy+=("$name=http://127.0.0.1:9"); done
 fi
 

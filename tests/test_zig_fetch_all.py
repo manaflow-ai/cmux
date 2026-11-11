@@ -32,7 +32,8 @@ def run(failures: int, attempts: int, extra: dict[str, str] | None = None) -> tu
     zig = bin_dir / "zig"
     zig.write_text(FAKE_ZIG)
     zig.chmod(0o755)
-    env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "FAKE_ZIG_LOG": str(log),
+    base = {k: v for k, v in os.environ.items() if k not in ("NO_PROXY", "no_proxy")}  # a runner's own bypass list
+    env = {**base, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "FAKE_ZIG_LOG": str(log),
            "FAKE_ZIG_FAILURES": str(failures), "CMUX_ZIG_FETCH_ATTEMPTS": str(attempts),
            "CMUX_ZIG_FETCH_BACKOFF_S": "0", "CMUX_ZIG_FETCH_TIMEOUT_S": "30", "CMUX_ZIG_SEED": "0",
            **(extra or {})}
@@ -68,7 +69,7 @@ def test_mirror_only_gives_zig_no_route_out() -> None:
     # Zig reads only the packages the mirror seeded.
     global FAKE_ZIG
     proxy_log = Path(tempfile.mkdtemp()) / "proxy.log"
-    fake = FAKE_ZIG.replace('echo "$PWD $*"', f'echo "${{https_proxy:-none}}" >> {proxy_log}; echo "$PWD $*"')
+    fake = FAKE_ZIG.replace('echo "$PWD $*"', f'echo "${{https_proxy:-none}}${{NO_PROXY+,bypass}}${{no_proxy+,bypass}}" >> {proxy_log}; echo "$PWD $*"')
     saved, FAKE_ZIG = FAKE_ZIG, fake
     try:
         result, _, _ = run(failures=0, attempts=1, extra={"CI": "true", "CMUX_ZIG_MIRROR_ONLY": ""})
@@ -76,6 +77,10 @@ def test_mirror_only_gives_zig_no_route_out() -> None:
         assert proxy_log.read_text().split() == ["http://127.0.0.1:9"]
         result, _, _ = run(failures=0, attempts=1, extra={"CI": "true", "CMUX_ZIG_MIRROR_ONLY": "0"})
         assert proxy_log.read_text().split() == ["http://127.0.0.1:9", "none"]
+        # An inherited bypass list (NO_PROXY=*) must not route Zig around the proxy.
+        result, _, _ = run(failures=0, attempts=1, extra={"CI": "true", "CMUX_ZIG_MIRROR_ONLY": "", "NO_PROXY": "*", "no_proxy": "*"})
+        assert result.returncode == 0, result.stderr
+        assert proxy_log.read_text().split() == ["http://127.0.0.1:9", "none", "http://127.0.0.1:9"]
     finally:
         FAKE_ZIG = saved
 

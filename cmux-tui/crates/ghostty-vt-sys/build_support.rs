@@ -206,6 +206,8 @@ pub const ZIG_PACKAGE_LOCK: &str = "../../../scripts/ci/zig-packages.lock";
 pub const NO_ROUTE_PROXY: &str = "http://127.0.0.1:9";
 pub const PROXY_VARS: [&str; 6] =
     ["http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"];
+/// Bypass lists Zig honors; mirror-only removes them so nothing routes around the proxy.
+pub const NO_PROXY_VARS: [&str; 2] = ["NO_PROXY", "no_proxy"];
 
 /// One package of the mirror: its Zig package hash and the copy's URL.
 #[derive(Debug, PartialEq, Eq)]
@@ -560,6 +562,7 @@ pub fn osVersionMin(tag: std.Target.Os.Tag) ?std.Target.Query.OsVersion {
             assert!(PROXY_VARS.contains(&scheme.to_uppercase().as_str()));
         }
         assert_eq!(NO_ROUTE_PROXY, "http://127.0.0.1:9");
+        assert_eq!(NO_PROXY_VARS, ["NO_PROXY", "no_proxy"]);
     }
 
     #[test]

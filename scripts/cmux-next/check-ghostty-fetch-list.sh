@@ -69,6 +69,7 @@ case "$mode" in
     [[ -n "$mirror_only" ]] || { [[ "${CI:-}" == true ]] && mirror_only=1 || mirror_only=0; }
     proxy=(env)
     if [[ "$mirror_only" == 1 ]]; then
+      proxy+=(-u NO_PROXY -u no_proxy)  # a bypass list would route around the proxy
       for name in http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY; do proxy+=("$name=http://127.0.0.1:9"); done
     fi
     CMUX_ZIG_MIRROR_ONLY="$mirror_only" CMUX_ZIG_LOCK_TAG=vt "$ROOT/scripts/ci/seed-zig-package-archives.sh" "$ZIG_GLOBAL_CACHE_DIR" "$src"
