@@ -9,11 +9,11 @@
 // table keeps each printed row on its own line, columns aligned, its right edge fading while more
 // lies past (blockWrap.ts `outputWraps`); Wrap lines flips every output block the other way.
 import { cornerAction } from "./cornerActions";
-import { memo, useLayoutEffect, useMemo, useRef, type ReactNode, type RefObject } from "react";
+import { memo, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useT } from "../i18n";
 import { outputWraps, useBlockWrap } from "./blockWrap";
 import { Lines, PreviewMore, WrapButton } from "./BlockParts";
-import { lineCount, SIDEWAYS_SCROLLER, usePreview, useSidewaysEdge } from "./blockPartsModel";
+import { lineCount, PREVIEW_LINES, SIDEWAYS_SCROLLER, usePreview, useSidewaysEdge } from "./blockPartsModel";
 import { commandFolder } from "./commandFolder";
 import { CopyButton } from "./CopyButton";
 import { menuPartRef } from "./menuParts";
@@ -53,8 +53,13 @@ export function ShellBlock({
   const { folder, rest } = command ? commandFolder(command) : { folder: undefined, rest: undefined };
   const shaped = useMemo(() => outputWraps(raw.text), [raw.text]);
   const [wrap] = useBlockWrap("output", shaped);
+  const body = useRef<HTMLPreElement>(null);
+  // Wrapped, a few printed lines can still take more than eight rows (one 10,000-character line):
+  // they are cut to eight rows too, with Show all, as a call's output is (outputViewport.ts).
+  const lines = whole ? 0 : lineCount(raw.text);
+  const tall = useWrappedRows(body, wrap && lines > 0 && lines <= PREVIEW_LINES);
   // The output's lines, though a long output draws only its end until opened (none to cut when whole).
-  const preview = usePreview(whole ? 0 : lineCount(raw.text), reveal);
+  const preview = usePreview(lines, reveal, tall);
   const shown = previewedOutput(raw, preview);
   const marked = shown.cut || Boolean(cut && shown.shown);
   // `outputTail` returns a suffix, so keep the source line number alongside it. Without this,
@@ -63,7 +68,6 @@ export function ShellBlock({
     raw.text && shown.shown && shown.shown !== raw.text
       ? raw.text.slice(0, raw.text.length - shown.shown.length).split("\n").length - 1
       : 0;
-  const body = useRef<HTMLPreElement>(null);
   useSidewaysEdge(body);
   // Following first, so the fade reads where the box ends up, not where it was.
   useFollowEnd(body, shown.shown, live && preview.cut);
@@ -171,6 +175,45 @@ export const ShellCommand = memo(function ShellCommand({ command }: { command: s
     </pre>
   );
 });
+
+/// Whether the output in `ref` takes more than `PREVIEW_LINES` rows, while `watching` (wrapped, with
+/// no more printed lines than the cap: more lines are cut by their count). It measures the output
+/// span, whose height the box's own cap never changes, once on mount and on each resize, so a reflow
+/// (the font loading, the pane narrowing) or a streamed chunk updates it.
+function useWrappedRows(ref: RefObject<HTMLElement | null>, watching: boolean): boolean {
+  const [tall, setTall] = useState(false);
+  useLayoutEffect(() => {
+    const box = ref.current;
+    if (!box || !watching) return;
+    const measure = () => {
+      const output = box.querySelector(".cv-shell__output");
+      const row = parseFloat(box.ownerDocument.defaultView?.getComputedStyle(box).lineHeight ?? "");
+      setTall(Boolean(output && row > 0 && output.getBoundingClientRect().height > PREVIEW_LINES * row + 1));
+    };
+    measure();
+    const view = box.ownerDocument.defaultView;
+    if (!view?.ResizeObserver) return;
+    const sized = new view.ResizeObserver(measure);
+    sized.observe(box);
+    const watched = new Set<Element>();
+    const watchOutput = () => {
+      const output = box.querySelector(".cv-shell__output");
+      if (output && !watched.has(output)) {
+        watched.add(output);
+        sized.observe(output);
+      }
+      measure();
+    };
+    watchOutput();
+    const changed = new view.MutationObserver(watchOutput);
+    changed.observe(box, { childList: true });
+    return () => {
+      sized.disconnect();
+      changed.disconnect();
+    };
+  }, [ref, watching]);
+  return watching && tall;
+}
 
 /// While `following`, keeps the box scrolled to its newest line as `content` grows, unless the
 /// reader scrolled up from the end; scrolling back to the end follows again. A late reflow (the mono

@@ -15,7 +15,7 @@ import path from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { LEO_LINE, UNBROKEN } from "../src/agent-session/acpmux/conversation/ToolOutputWrap.gallery";
+import { HUGE, LEO_LINE, UNBROKEN } from "../src/agent-session/acpmux/conversation/ToolOutputWrap.gallery";
 
 await requireBrowserLane("tool-output-wraps-down-browser.test.ts", async () => {
   const ENTRY = "agent-pane.tool-output-wrap";
@@ -57,7 +57,7 @@ await requireBrowserLane("tool-output-wraps-down-browser.test.ts", async () => {
         if (!/context was destroyed|navigat/i.test(String(error))) throw error;
       }
     }
-    await page.waitForFunction(() => document.querySelectorAll("[data-gallery-block] [data-wrap]").length === 4);
+    await page.waitForFunction(() => document.querySelectorAll("[data-gallery-block] [data-wrap]").length === 5);
     return page;
   };
 
@@ -102,6 +102,32 @@ await requireBrowserLane("tool-output-wraps-down-browser.test.ts", async () => {
           expect(output.wrap).toBe("true");
           expect(output.scrollWidth).toBe(output.clientWidth);
           expect(output.rows).toBeGreaterThan(1);
+          // One 10,000-character line, wrapped, is cut to eight rows with Show all, as a long output is
+          // (Codex review of #41108): it never fills the transcript with hundreds of rows.
+          const huge = await page.evaluate(() => {
+            const body = document.querySelector<HTMLElement>('[data-gallery-block="huge"] .cv-shell__body')!;
+            const row = parseFloat(getComputedStyle(body).lineHeight);
+            return {
+              preview: body.getAttribute("data-preview"),
+              rows: body.clientHeight / row,
+              scrollWidth: body.scrollWidth,
+              clientWidth: body.clientWidth,
+              more: Boolean(document.querySelector('[data-gallery-block="huge"] .cv-output-more')),
+            };
+          });
+          expect(HUGE.length).toBeGreaterThanOrEqual(10_000);
+          expect(huge.preview).toBe("cut");
+          expect(huge.rows).toBeLessThanOrEqual(9);
+          expect(huge.scrollWidth).toBe(huge.clientWidth);
+          expect(huge.more).toBe(true);
+          await page.locator('[data-gallery-block="huge"] .cv-output-more').click();
+          await page.waitForFunction(
+            () =>
+              document.querySelector('[data-gallery-block="huge"] .cv-shell__body')?.getAttribute("data-preview") ===
+              "all",
+          );
+          // Open, it still offers Show less.
+          expect(await page.locator('[data-gallery-block="huge"] .cv-output-more').count()).toBe(1);
           // A table keeps each row whole, its columns aligned, and scrolls for what runs past.
           const table = await measure(page, "table");
           expect(table.wrap).toBe("false");
