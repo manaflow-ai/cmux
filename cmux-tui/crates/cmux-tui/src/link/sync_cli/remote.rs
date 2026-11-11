@@ -307,6 +307,21 @@ impl Remote {
         }
     }
 
+    /// `fs.mkdir` of `name` in `parent`, which must exist. True when this call
+    /// made it, false when a folder was there already.
+    pub(super) fn mkdir(&mut self, parent: &str, name: &str) -> anyhow::Result<bool> {
+        match self.call("fs.mkdir", json!({ "path": parent, "name": name })) {
+            Ok(_) => Ok(true),
+            Err(error)
+                if refusal_code(&error) == Some("fs.exists")
+                    && self.is_dir(&format!("{}/{name}", parent.trim_end_matches('/')))? =>
+            {
+                Ok(false)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     /// The socket's read timeout: how long one read waits with nothing
     /// coming ([`IO_DEADLINE`] from [`Remote::connect`]).
     fn read_timeout(&self) -> Option<Duration> {

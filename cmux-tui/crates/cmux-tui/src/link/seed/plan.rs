@@ -404,6 +404,10 @@ impl Repo {
         if let Some(upstream) = self.upstream.as_deref().and_then(|name| self.commit(name)) {
             bases.extend(self.merge_base(&upstream));
         }
+        // A branch with no upstream (or a fetch refspec of one branch, so no
+        // default branch here) is still seeded when the remote has HEAD or an
+        // ancestor of it on any branch this Mac fetched.
+        bases.extend(self.nearest_on_remote());
         let remote = &self.remote;
         let default = [
             format!("refs/remotes/{remote}/HEAD"),
@@ -428,6 +432,32 @@ impl Repo {
             "-q",
             format!("{name}^{{commit}}").as_str(),
         ]))
+    }
+
+    /// The newest commit of HEAD's history that a remote-tracking branch of
+    /// [`Self::remote`] has: HEAD itself when it is pushed (the bundle then
+    /// carries only the uncommitted state), else the first commit where
+    /// HEAD's own commits meet what the remote has. None when no fetched
+    /// branch of the remote shares HEAD's history.
+    fn nearest_on_remote(&self) -> Option<String> {
+        let remotes = format!("--remotes={}", self.remote);
+        // One walk of HEAD's own commits: none means HEAD is on the remote.
+        let own = git::text(git::at(&self.top).args([
+            "rev-list",
+            "--boundary",
+            self.head.as_str(),
+            "--not",
+            remotes.as_str(),
+        ]))
+        .ok()?;
+        if own.trim().is_empty() {
+            // With no remote branch nothing is excluded and HEAD's whole
+            // history is listed, so an empty list means one of them has HEAD.
+            return Some(self.head.clone());
+        }
+        // `-SHA` lines are the boundary: commits the remote has, parents of
+        // HEAD's own; the first is the newest the walk met.
+        own.lines().find_map(|line| line.strip_prefix('-')).map(str::to_owned)
     }
 
     fn merge_base(&self, other: &str) -> Option<String> {

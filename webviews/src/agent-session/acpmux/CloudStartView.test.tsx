@@ -292,9 +292,29 @@ test("the clone row words each part of a seed and of a copy", () => {
       fallback: "not_git",
       progress: { filesDone: 1204, filesTotal: 8310, receivedBytes: 312 * 1024 * 1024, bytesTotal: 2.1 * 1024 ** 3 },
     })?.detail,
-  ).toBe("Copying the folder instead · 1,204 of 8,310 files · 312 MB of 2.1 GB");
+  ).toBe("Copying the folder instead, because it is not a git repository · 1,204 of 8,310 files · 312 MB of 2.1 GB");
   expect(row({ state: "done", phase: "complete" })?.detail).toBeUndefined();
-  expect(row({ state: "done", phase: "complete", fallback: "not_git" })?.detail).toBe("Copying the folder instead");
+  expect(row({ state: "done", phase: "complete", fallback: "not_git" })?.detail).toBe(
+    "Copying the folder instead, because it is not a git repository",
+  );
+  // A code the card has no words for still says it copies.
+  expect(row({ state: "done", phase: "complete", fallback: "git_failed" })?.detail).toBe("Copying the folder instead");
+});
+
+test("a copy's steps before its first file show, and keep saying why it copies", () => {
+  const row = (clone: NonNullable<CloudStartProgress["clone"]>) =>
+    startupChecklist({ key: "k", task: "hi", state: "starting", hasRepository: true, clone }, undefined, 0, "en")[1];
+  // RED before: a pushed repository whose plan found no base showed only
+  // "Copying the folder instead · 0 of 46,516 files" for minutes, with no reason and no movement.
+  expect(
+    row({ state: "running", phase: "prepare", fallback: "no_base", progress: { objects: 1, totalObjects: 4 } })?.detail,
+  ).toBe("Copying the folder instead, because none of its commits are on GitHub · Checking files · 25%");
+  expect(
+    row({ state: "running", phase: "folders", fallback: "no_base", progress: { objects: 3, totalObjects: 4 } })?.detail,
+  ).toBe("Copying the folder instead, because none of its commits are on GitHub · Making folders · 75%");
+  expect(row({ state: "running", phase: "copy", fallback: "seed.needs_github" })?.detail).toBe(
+    "Copying the folder instead, because the Cloud machine can't read the repository",
+  );
 });
 
 test("a seed that needs the GitHub App links its install from the clone row", () => {
