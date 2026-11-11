@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "7a24f97fc9023c64975b3cf682d8547574314e365527da1ab226b82c3d3eac43";
+inline constexpr std::string_view kProtocolIrSha256 = "64b6943e7829ef9a3daee2da66c346cfb2a8a2f7cb50674beffb6d797e6ac7ae";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -166,6 +166,9 @@ struct Screen;
 struct SelectionPane;
 struct SelectionScreen;
 struct SendExpectAgent;
+struct ServerStatsCommandConnections;
+struct ServerStatsCommandRow;
+struct ServerStatsCommands;
 struct ServerStatsConnections;
 struct ServerStatsDisk;
 struct ServerStatsDiskFile;
@@ -5059,6 +5062,32 @@ struct SendResult {
     friend bool operator==(const SendResult&, const SendResult&) = default;
 };
 
+struct ServerStatsCommandConnections {
+    std::uint64_t accepted{};
+    std::string kind{};
+    std::uint64_t refused{};
+    friend bool operator==(const ServerStatsCommandConnections&, const ServerStatsCommandConnections&) = default;
+};
+
+struct ServerStatsCommandRow {
+    std::uint64_t count{};
+    std::vector<std::uint64_t> hist{};
+    std::string kind{};
+    std::uint64_t max_ns{};
+    std::string name{};
+    std::uint64_t total_ns{};
+    friend bool operator==(const ServerStatsCommandRow&, const ServerStatsCommandRow&) = default;
+};
+
+struct ServerStatsCommands {
+    std::vector<ServerStatsCommandConnections> connections{};
+    std::vector<std::uint64_t> hist_bounds_ns{};
+    std::uint64_t name_limit{};
+    std::uint64_t names{};
+    std::vector<ServerStatsCommandRow> rows{};
+    friend bool operator==(const ServerStatsCommands&, const ServerStatsCommands&) = default;
+};
+
 struct ServerStatsConnections {
     std::uint64_t accepted{};
     std::uint64_t active{};
@@ -5305,6 +5334,7 @@ struct ServerStatsWritePath {
 };
 
 struct ServerStatsResult {
+    std::optional<ServerStatsCommands> commands{};
     ServerStatsConnections connections{};
     std::optional<ServerStatsDisk> disk{};
     std::optional<ServerStatsHookQueue> hook_queue{};
@@ -7386,6 +7416,24 @@ template <>
 struct Codec<SendExpectAgent> {
     static Result<Json> encode(const SendExpectAgent& value);
     static Result<SendExpectAgent> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsCommandConnections> {
+    static Result<Json> encode(const ServerStatsCommandConnections& value);
+    static Result<ServerStatsCommandConnections> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsCommandRow> {
+    static Result<Json> encode(const ServerStatsCommandRow& value);
+    static Result<ServerStatsCommandRow> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsCommands> {
+    static Result<Json> encode(const ServerStatsCommands& value);
+    static Result<ServerStatsCommands> decode(const Json& value);
 };
 
 template <>

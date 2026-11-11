@@ -1570,6 +1570,35 @@ class SendExpectAgent:
 
 
 @dataclass(frozen=True)
+class ServerStatsCommandConnections:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsCommandConnections'
+    accepted: int
+    kind: str
+    refused: int
+
+
+@dataclass(frozen=True)
+class ServerStatsCommandRow:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsCommandRow'
+    count: int
+    hist: List[int]
+    kind: str
+    max_ns: int
+    name: str
+    total_ns: int
+
+
+@dataclass(frozen=True)
+class ServerStatsCommands:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsCommands'
+    connections: List[ServerStatsCommandConnections]
+    hist_bounds_ns: List[int]
+    name_limit: int
+    names: int
+    rows: List[ServerStatsCommandRow]
+
+
+@dataclass(frozen=True)
 class ServerStatsConnections:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsConnections'
     accepted: int
@@ -1818,6 +1847,7 @@ class ServerStatsResult:
     registry_lock: ServerStatsRegistryLock
     schema: int
     uptime_ms: int
+    commands: Union[ServerStatsCommands, MissingType] = field(default=MISSING)
     disk: Union[ServerStatsDisk, MissingType] = field(default=MISSING)
     hook_queue: Union[ServerStatsHookQueue, MissingType] = field(default=MISSING)
     journal_followers: Union[ServerStatsJournalFollowers, MissingType] = field(default=MISSING)
@@ -6604,6 +6634,9 @@ __all__ = [
     'SelectionPane',
     'SelectionScreen',
     'SendExpectAgent',
+    'ServerStatsCommandConnections',
+    'ServerStatsCommandRow',
+    'ServerStatsCommands',
     'ServerStatsConnections',
     'ServerStatsDisk',
     'ServerStatsDiskFile',

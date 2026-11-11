@@ -9239,6 +9239,213 @@ Result<SendExpectAgent> Codec<SendExpectAgent>::decode(const Json& value) {
     return result;
 }
 
+Result<Json> Codec<ServerStatsCommandConnections>::encode(const ServerStatsCommandConnections& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_accepted = encode_value(value.accepted);
+    if (!encoded_accepted) return std::move(encoded_accepted).error();
+    object.emplace("accepted", std::move(encoded_accepted).value());
+    auto encoded_kind = encode_value(value.kind);
+    if (!encoded_kind) return std::move(encoded_kind).error();
+    object.emplace("kind", std::move(encoded_kind).value());
+    auto encoded_refused = encode_value(value.refused);
+    if (!encoded_refused) return std::move(encoded_refused).error();
+    object.emplace("refused", std::move(encoded_refused).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsCommandConnections> Codec<ServerStatsCommandConnections>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsCommandConnections result{};
+    const Json* field_accepted = value.find("accepted");
+    if (!field_accepted) {
+        return make_error(ErrorCode::decode, "missing required field 'accepted'");
+    }
+    if (field_accepted) {
+        auto decoded = decode_value<std::uint64_t>(*field_accepted);
+        if (!decoded) return std::move(decoded).error();
+        result.accepted = std::move(decoded).value();
+    }
+    const Json* field_kind = value.find("kind");
+    if (!field_kind) {
+        return make_error(ErrorCode::decode, "missing required field 'kind'");
+    }
+    if (field_kind) {
+        auto decoded = decode_value<std::string>(*field_kind);
+        if (!decoded) return std::move(decoded).error();
+        result.kind = std::move(decoded).value();
+    }
+    const Json* field_refused = value.find("refused");
+    if (!field_refused) {
+        return make_error(ErrorCode::decode, "missing required field 'refused'");
+    }
+    if (field_refused) {
+        auto decoded = decode_value<std::uint64_t>(*field_refused);
+        if (!decoded) return std::move(decoded).error();
+        result.refused = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<ServerStatsCommandRow>::encode(const ServerStatsCommandRow& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_count = encode_value(value.count);
+    if (!encoded_count) return std::move(encoded_count).error();
+    object.emplace("count", std::move(encoded_count).value());
+    auto encoded_hist = encode_value(value.hist);
+    if (!encoded_hist) return std::move(encoded_hist).error();
+    object.emplace("hist", std::move(encoded_hist).value());
+    auto encoded_kind = encode_value(value.kind);
+    if (!encoded_kind) return std::move(encoded_kind).error();
+    object.emplace("kind", std::move(encoded_kind).value());
+    auto encoded_max_ns = encode_value(value.max_ns);
+    if (!encoded_max_ns) return std::move(encoded_max_ns).error();
+    object.emplace("max_ns", std::move(encoded_max_ns).value());
+    auto encoded_name = encode_value(value.name);
+    if (!encoded_name) return std::move(encoded_name).error();
+    object.emplace("name", std::move(encoded_name).value());
+    auto encoded_total_ns = encode_value(value.total_ns);
+    if (!encoded_total_ns) return std::move(encoded_total_ns).error();
+    object.emplace("total_ns", std::move(encoded_total_ns).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsCommandRow> Codec<ServerStatsCommandRow>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsCommandRow result{};
+    const Json* field_count = value.find("count");
+    if (!field_count) {
+        return make_error(ErrorCode::decode, "missing required field 'count'");
+    }
+    if (field_count) {
+        auto decoded = decode_value<std::uint64_t>(*field_count);
+        if (!decoded) return std::move(decoded).error();
+        result.count = std::move(decoded).value();
+    }
+    const Json* field_hist = value.find("hist");
+    if (!field_hist) {
+        return make_error(ErrorCode::decode, "missing required field 'hist'");
+    }
+    if (field_hist) {
+        auto decoded = decode_value<std::vector<std::uint64_t>>(*field_hist);
+        if (!decoded) return std::move(decoded).error();
+        result.hist = std::move(decoded).value();
+    }
+    const Json* field_kind = value.find("kind");
+    if (!field_kind) {
+        return make_error(ErrorCode::decode, "missing required field 'kind'");
+    }
+    if (field_kind) {
+        auto decoded = decode_value<std::string>(*field_kind);
+        if (!decoded) return std::move(decoded).error();
+        result.kind = std::move(decoded).value();
+    }
+    const Json* field_max_ns = value.find("max_ns");
+    if (!field_max_ns) {
+        return make_error(ErrorCode::decode, "missing required field 'max_ns'");
+    }
+    if (field_max_ns) {
+        auto decoded = decode_value<std::uint64_t>(*field_max_ns);
+        if (!decoded) return std::move(decoded).error();
+        result.max_ns = std::move(decoded).value();
+    }
+    const Json* field_name = value.find("name");
+    if (!field_name) {
+        return make_error(ErrorCode::decode, "missing required field 'name'");
+    }
+    if (field_name) {
+        auto decoded = decode_value<std::string>(*field_name);
+        if (!decoded) return std::move(decoded).error();
+        result.name = std::move(decoded).value();
+    }
+    const Json* field_total_ns = value.find("total_ns");
+    if (!field_total_ns) {
+        return make_error(ErrorCode::decode, "missing required field 'total_ns'");
+    }
+    if (field_total_ns) {
+        auto decoded = decode_value<std::uint64_t>(*field_total_ns);
+        if (!decoded) return std::move(decoded).error();
+        result.total_ns = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<ServerStatsCommands>::encode(const ServerStatsCommands& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_connections = encode_value(value.connections);
+    if (!encoded_connections) return std::move(encoded_connections).error();
+    object.emplace("connections", std::move(encoded_connections).value());
+    auto encoded_hist_bounds_ns = encode_value(value.hist_bounds_ns);
+    if (!encoded_hist_bounds_ns) return std::move(encoded_hist_bounds_ns).error();
+    object.emplace("hist_bounds_ns", std::move(encoded_hist_bounds_ns).value());
+    auto encoded_name_limit = encode_value(value.name_limit);
+    if (!encoded_name_limit) return std::move(encoded_name_limit).error();
+    object.emplace("name_limit", std::move(encoded_name_limit).value());
+    auto encoded_names = encode_value(value.names);
+    if (!encoded_names) return std::move(encoded_names).error();
+    object.emplace("names", std::move(encoded_names).value());
+    auto encoded_rows = encode_value(value.rows);
+    if (!encoded_rows) return std::move(encoded_rows).error();
+    object.emplace("rows", std::move(encoded_rows).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsCommands> Codec<ServerStatsCommands>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsCommands result{};
+    const Json* field_connections = value.find("connections");
+    if (!field_connections) {
+        return make_error(ErrorCode::decode, "missing required field 'connections'");
+    }
+    if (field_connections) {
+        auto decoded = decode_value<std::vector<ServerStatsCommandConnections>>(*field_connections);
+        if (!decoded) return std::move(decoded).error();
+        result.connections = std::move(decoded).value();
+    }
+    const Json* field_hist_bounds_ns = value.find("hist_bounds_ns");
+    if (!field_hist_bounds_ns) {
+        return make_error(ErrorCode::decode, "missing required field 'hist_bounds_ns'");
+    }
+    if (field_hist_bounds_ns) {
+        auto decoded = decode_value<std::vector<std::uint64_t>>(*field_hist_bounds_ns);
+        if (!decoded) return std::move(decoded).error();
+        result.hist_bounds_ns = std::move(decoded).value();
+    }
+    const Json* field_name_limit = value.find("name_limit");
+    if (!field_name_limit) {
+        return make_error(ErrorCode::decode, "missing required field 'name_limit'");
+    }
+    if (field_name_limit) {
+        auto decoded = decode_value<std::uint64_t>(*field_name_limit);
+        if (!decoded) return std::move(decoded).error();
+        result.name_limit = std::move(decoded).value();
+    }
+    const Json* field_names = value.find("names");
+    if (!field_names) {
+        return make_error(ErrorCode::decode, "missing required field 'names'");
+    }
+    if (field_names) {
+        auto decoded = decode_value<std::uint64_t>(*field_names);
+        if (!decoded) return std::move(decoded).error();
+        result.names = std::move(decoded).value();
+    }
+    const Json* field_rows = value.find("rows");
+    if (!field_rows) {
+        return make_error(ErrorCode::decode, "missing required field 'rows'");
+    }
+    if (field_rows) {
+        auto decoded = decode_value<std::vector<ServerStatsCommandRow>>(*field_rows);
+        if (!decoded) return std::move(decoded).error();
+        result.rows = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<ServerStatsConnections>::encode(const ServerStatsConnections& value) {
     (void)value;
     Json::Object object;
@@ -11243,6 +11450,11 @@ Result<ServerStatsResourceProjection> Codec<ServerStatsResourceProjection>::deco
 Result<Json> Codec<ServerStatsResult>::encode(const ServerStatsResult& value) {
     (void)value;
     Json::Object object;
+    if (value.commands) {
+        auto encoded = encode_value(*value.commands);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("commands", std::move(encoded).value());
+    }
     auto encoded_connections = encode_value(value.connections);
     if (!encoded_connections) return std::move(encoded_connections).error();
     object.emplace("connections", std::move(encoded_connections).value());
@@ -11299,6 +11511,12 @@ Result<ServerStatsResult> Codec<ServerStatsResult>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     ServerStatsResult result{};
+    const Json* field_commands = value.find("commands");
+    if (field_commands) {
+        auto decoded = decode_value<ServerStatsCommands>(*field_commands);
+        if (!decoded) return std::move(decoded).error();
+        result.commands = std::move(decoded).value();
+    }
     const Json* field_connections = value.find("connections");
     if (!field_connections) {
         return make_error(ErrorCode::decode, "missing required field 'connections'");

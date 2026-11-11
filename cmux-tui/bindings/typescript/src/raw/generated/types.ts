@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7a24f97fc9023c64975b3cf682d8547574314e365527da1ab226b82c3d3eac43. */
+/* cmux-tui mux protocol 12, IR 64b6943e7829ef9a3daee2da66c346cfb2a8a2f7cb50674beffb6d797e6ac7ae. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1096,6 +1096,29 @@ export type SendExpectAgent = {
   "session"?: (string) | null;
 };
 
+export type ServerStatsCommandConnections = {
+  "accepted": bigint;
+  "kind": string;
+  "refused": bigint;
+};
+
+export type ServerStatsCommandRow = {
+  "count": bigint;
+  "hist": Array<bigint>;
+  "kind": string;
+  "max_ns": bigint;
+  "name": string;
+  "total_ns": bigint;
+};
+
+export type ServerStatsCommands = {
+  "connections": Array<ServerStatsCommandConnections>;
+  "hist_bounds_ns": Array<bigint>;
+  "name_limit": bigint;
+  "names": bigint;
+  "rows": Array<ServerStatsCommandRow>;
+};
+
 export type ServerStatsConnections = {
   "accepted": bigint;
   "active": bigint;
@@ -1296,6 +1319,7 @@ export type ServerStatsResourceProjection = {
 };
 
 export type ServerStatsResult = {
+  "commands"?: ServerStatsCommands;
   "connections": ServerStatsConnections;
   "disk"?: ServerStatsDisk;
   "hook_queue"?: ServerStatsHookQueue;
