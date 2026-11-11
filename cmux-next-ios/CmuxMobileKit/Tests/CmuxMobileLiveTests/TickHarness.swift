@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import Testing
 
 // TickHarness: no soaks. Time, the network, memory pressure and the disk are
 // scripted, so thousands of reconnects, deltas or events with hours between
@@ -225,7 +226,7 @@ enum TickFootprint {
 }
 
 /// Wall time, virtual time and footprint for one run, printed as one
-/// `MATRIX` line.
+/// `MATRIX` line and attached to the test.
 struct TickReport {
     let cell: String
     let variant: String
@@ -257,6 +258,8 @@ struct TickReport {
         if let data = try? JSONSerialization.data(withJSONObject: line, options: [.sortedKeys]),
            let text = String(data: data, encoding: .utf8) {
             print("MATRIX \(text)")
+            // The simulator route keeps attachments, not the runner's stdout.
+            Attachment.record("MATRIX \(text)\n", named: "MATRIX-\(cell)-\(variant).txt")
         }
         return wall
     }
