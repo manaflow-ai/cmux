@@ -307,11 +307,14 @@ public final class MacHomeFeed {
 
     #if DEBUG
     /// App Store screenshots (`-cmux-mobile-demo home-showcase`): a Mac's Home as a person
-    /// who runs a few agents sees it, two pinned, with no link. Fictional work, no real names.
-    public func seedShowcaseRows(macID: String) {
+    /// who runs a few agents sees it, with no link: its Chief's conversation (`chiefConversationID`,
+    /// listed as the Mac Chief) newest, two pinned. Fictional work, no real names.
+    public func seedShowcaseRows(macID: String, chiefConversationID: String) {
         let stamp = ISO8601DateFormatter()
         let conversations: [(kind: String, name: String, minutes: Double, unread: Int, pinned: Bool, preview: String)] = [
-            ("direct", "Pricing page", 4, 2, true, "Codex: The new pricing table is up on staging. 18 tests pass."),
+            ("chief", "Chief", 1, 1, false,
+             "Heads up: Claude in cmux is asking to run cargo test -p cmux-mobile-link. Want me to allow it?"),
+            ("direct", "Pricing page", 4, 0, true, "Codex: The new pricing table is up on staging. 18 tests pass."),
             ("group", "Release 1.2", 18, 0, true, "Claude: The release notes are drafted. Want me to tag the build?"),
             ("direct", "Dialer retries", 9, 1, false,
              "Claude: The dialer now retries with backoff, capped at 30 s. 24 tests pass."),
@@ -322,11 +325,12 @@ public final class MacHomeFeed {
         ]
         rows = conversations.enumerated().compactMap { index, row in
             MacHomeRow(wire: [
-                "id": "showcase-\(index)", "kind": row.kind, "name": row.name, "unread": row.unread,
-                "activity_at": stamp.string(from: Date().addingTimeInterval(-row.minutes * 60)),
+                "id": row.kind == "chief" ? chiefConversationID : "showcase-\(index)", "kind": row.kind, "name": row.name,
+                "unread": row.unread, "activity_at": stamp.string(from: Date().addingTimeInterval(-row.minutes * 60)),
                 "preview": row.preview, "pinned": row.pinned, "pin_position": index,
             ])
         }
+        macChiefID = chiefConversationID
         self.macID = macID
     }
     #endif

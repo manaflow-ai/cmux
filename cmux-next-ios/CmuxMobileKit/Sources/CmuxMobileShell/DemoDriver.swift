@@ -90,7 +90,8 @@ struct DemoDriver {
             shell.tab = .home
         case "home-showcase":
             // Home with a Mac's conversations and no link, for App Store screenshots (`MacHomeFeed.seedShowcaseRows`).
-            MacHomeFeed.shared.seedShowcaseRows(macID: "mac-studio")
+            MacHomeFeed.shared.seedShowcaseRows(
+                macID: "mac-studio", chiefConversationID: ChiefSources.shared.mac.conversationID ?? "showcase-chief")
             shell.tab = .home
         case "chief-open":
             // Opens Chief and leaves it to real touches (verify/imsg-parity.sh).
