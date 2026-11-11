@@ -2,7 +2,8 @@ import { useStore } from "../context";
 import { text } from "../strings";
 import type { EditorProps } from "./types";
 
-/** A choice with up to three values and a non-null default: native radios drawn as segments. */
+/** A choice with up to three short values and a non-null default (Editor `fitsSegments`): native
+ * radios drawn as segments. */
 export function SegmentedEditor({ row, value, disabled, labelId }: EditorProps) {
   const store = useStore();
   return (
