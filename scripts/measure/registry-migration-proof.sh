@@ -10,6 +10,7 @@
 #     [records=N sparse_head=N sparse_records=N] [rested_agents=N] [live_rows=N]
 #     [second_records=200000] [second_build_timeout=1800]
 #     [bin=/abs/release/cmux-tui synth=/abs/release/synth_registry [debug_bin=/abs/debug/cmux-tui]]
+#     [session=rmp]
 # records=, sparse_head= and sparse_records= write the SPARSE form of a long-lived journal (the
 # head far above the records the file holds; synth_registry's doc); rested_agents= adds agents
 # with every record below any floor; live_rows= is the count of records above the last
@@ -17,7 +18,8 @@
 # its rebuild (an owner rebuilds only with 100,000 records at or below the floor), and
 # second_build_timeout= is the longest wait in seconds for that rebuild. bin= and synth= take
 # binaries that another host built from the same commit: this script then compiles nothing
-# (debug_bin= for the free-space arm; without it that arm is left out).
+# (debug_bin= for the free-space arm; without it that arm is left out). session= is the session
+# name of the registry; a state= dir must hold a registry of that session.
 # It builds release `cmux-tui` and cmux-tui-core's `synth_registry` example (and a debug
 # `cmux-tui` with debug=1, for the free-space arm: only a debug owner has that test seam), writes
 # the registry (synth_registry --shape lawrence), then runs registry-migration-proof.py: real owner
@@ -61,6 +63,7 @@ for kv in "$@"; do
     bin=*) bin="${kv#*=}" ;;
     synth=*) synth="${kv#*=}" ;;
     debug_bin=*) debug_bin="${kv#*=}" ;;
+    session=*) session="${kv#*=}" ;;
     *) echo "error: unknown argument $kv" >&2; exit 2 ;;
   esac
 done
