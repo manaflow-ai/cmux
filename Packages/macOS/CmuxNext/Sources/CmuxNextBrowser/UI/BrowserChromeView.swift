@@ -75,6 +75,8 @@ public final class BrowserChromeView: NSView {
     let forwardButton: ChromeIconButton
     let reloadButton: ChromeIconButton
     private let progressLine = ProgressLineView()
+    /// Where `browser.showLoadingBar` is read; `render` reads it, so a Settings change shows at once.
+    private let design: DesignSettings
     /// The page area: the page, docked DevTools and the page overlays. It is
     /// square; the pane's one rounded content area clips this whole view.
     let contentContainer = NSView()
@@ -169,8 +171,12 @@ public final class BrowserChromeView: NSView {
         set { loads.onPageFinished = newValue }
     }
 
-    public init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine()) {
+    /// - Parameter design: the settings the chrome follows live (`browser.showLoadingBar`); the
+    ///   app's own by default, a fresh `DesignSettings()` in tests.
+    public init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(),
+                design: DesignSettings = .shared) {
         self.tab = tab
+        self.design = design
         addressBar = AddressBarView(suggestionEngine: suggestionEngine)
         // Chromium toolbar glyphs: plain arrows, not chevrons.
         backButton = ChromeIconButton(icon: .browserToolbarBack, label: Strings.back, action: nil, target: nil, toolbar: true, toolTip: false)
@@ -410,7 +416,8 @@ public final class BrowserChromeView: NSView {
         }
         updateAddress(for: state)
         updateMachineBadge()
-        progressLine.set(progress: state.progress, visible: loading)
+        // Off by default (`browser.showLoadingBar`): Stop is the loading cue; the line stays hidden.
+        progressLine.set(progress: state.progress, visible: loading && design.browserShowsLoadingBar)
 
         pageStatus.render(state)
 

@@ -44544,6 +44544,268 @@
         }
       }
     },
+    "settings.browser.showLoadingBar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Loading Bar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "読み込みバーを表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار شريط التحميل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži traku učitavanja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis indlæsningslinje"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ladebalken anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar barra de carga"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher la barre de chargement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra barra di caricamento"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញរបារផ្ទុក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "로딩 막대 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis lastelinje"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż pasek ładowania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar barra de carregamento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать полосу загрузки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงแถบการโหลด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yükleme Çubuğunu Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати смугу завантаження"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện thanh tải"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示加载条"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示載入列"
+          }
+        }
+      }
+    },
+    "settings.browser.showLoadingBar.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A thin progress line under the address bar while a page loads. The Stop button shows either way."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ページの読み込み中、アドレスバーの下に細い進行状況の線を表示します。停止ボタンはどちらの場合も表示されます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خط تقدم رفيع أسفل شريط العنوان أثناء تحميل الصفحة. يظهر زر الإيقاف في الحالتين."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tanka linija napretka ispod adresne trake dok se stranica učitava. Dugme Zaustavi se prikazuje u oba slučaja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En tynd statuslinje under adresselinjen, mens en side indlæses. Stop-knappen vises under alle omstændigheder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine dünne Fortschrittslinie unter der Adressleiste, während eine Seite lädt. Die Stopp-Taste wird in jedem Fall angezeigt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una línea de progreso fina bajo la barra de direcciones mientras se carga una página. El botón Detener se muestra en ambos casos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une fine ligne de progression sous la barre d’adresse pendant le chargement d’une page. Le bouton Arrêter s’affiche dans tous les cas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una sottile linea di avanzamento sotto la barra degli indirizzi mentre una pagina si carica. Il pulsante Interrompi appare in ogni caso."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ទាត់វឌ្ឍនភាពស្តើងនៅក្រោមរបារអាសយដ្ឋាន ពេលទំព័រកំពុងផ្ទុក។ ប៊ូតុងឈប់បង្ហាញក្នុងករណីទាំងពីរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "페이지를 불러오는 동안 주소 표시줄 아래에 얇은 진행 선을 표시합니다. 중지 버튼은 어느 경우에나 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En tynn fremdriftslinje under adressefeltet mens en side lastes inn. Stopp-knappen vises uansett."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cienka linia postępu pod paskiem adresu podczas ładowania strony. Przycisk Zatrzymaj jest widoczny w obu przypadkach."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma linha de progresso fina abaixo da barra de endereço enquanto a página carrega. O botão Parar aparece de qualquer forma."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тонкая линия прогресса под адресной строкой во время загрузки страницы. Кнопка «Остановить» отображается в любом случае."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เส้นความคืบหน้าบาง ๆ ใต้แถบที่อยู่ขณะที่หน้ากำลังโหลด ปุ่มหยุดจะแสดงไม่ว่ากรณีใด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir sayfa yüklenirken adres çubuğunun altında ince bir ilerleme çizgisi. Durdur düğmesi her durumda görünür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тонка лінія поступу під адресним рядком під час завантаження сторінки. Кнопка «Зупинити» показується в будь-якому разі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một vạch tiến trình mỏng dưới thanh địa chỉ khi trang đang tải. Nút Dừng vẫn hiện trong mọi trường hợp."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "页面加载时在地址栏下方显示一条细进度线。无论是否开启，都会显示“停止”按钮。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "頁面載入時在網址列下方顯示一條細進度線。無論是否開啟，都會顯示「停止」按鈕。"
+          }
+        }
+      }
+    },
     "settings.browser.showBookmarksBar": {
       "extractionState": "manual",
       "localizations": {

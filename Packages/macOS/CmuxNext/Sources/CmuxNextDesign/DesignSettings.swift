@@ -309,6 +309,8 @@ public final class DesignSettings {
     public var tabBarOrder: TabBarOrder = .aboveToolbar
     /// `browser.toolbarPosition`: the omnibar row above or below the page.
     public var browserToolbarPosition: ToolbarPosition = .top
+    /// `browser.showLoadingBar`: the progress line under a loading page's toolbar. Off by default.
+    public var browserShowsLoadingBar = false
     /// `appearance.paneBackgrounds`: one background for the window or a copy per pane.
     public var paneBackgrounds: PaneBackgroundMode = .shared
 

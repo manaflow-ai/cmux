@@ -8,6 +8,12 @@ extension BrowserToolbarButtonsSetting {
     public nonisolated static let values = ["media", "zoom", "favorites", "downloads", "designMode", "profile", "theme", "devTools"]
 }
 
+extension BrowserLoadingBarSetting {
+    /// `browser.showLoadingBar`.
+    public nonisolated static let configPath = ["browser", "showLoadingBar"]
+    public nonisolated static let fallback = false
+}
+
 extension BrowserDefaultEngine {
     /// `browser.defaultEngine`: The engine a browser tab uses when it is created without one. BrowserDefaultEngine is hand-written: it parses the browser section.
     public nonisolated static let configPath = ["browser", "defaultEngine"]
@@ -260,6 +266,16 @@ nonisolated enum BrowserSettingsSchema {
                 ]),
                 default: .array(BrowserToolbarButtonsSetting.fallback.map { .string($0) }),
                 keywords: ["toolbar", "buttons", "pin", "more", "extensions", "devtools", "bookmarks"]
+            ),
+            SettingDescriptor(
+                BrowserLoadingBarSetting.configPath,
+                section: .browser,
+                group: group,
+                title: SettingsText.keyed("settings.browser.showLoadingBar", "Show Loading Bar"),
+                help: SettingsText.keyed("settings.browser.showLoadingBar.help", "A thin progress line under the address bar while a page loads. The Stop button shows either way."),
+                kind: .toggle,
+                default: .bool(BrowserLoadingBarSetting.fallback),
+                keywords: ["loading", "progress", "bar", "line", "omnibar"]
             ),
         ]
     }
