@@ -86,7 +86,8 @@ import Testing
         let root = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: root) }
         let full = Counter()
-        let store = KeptVersionStore(root: root.appending(path: "versions"), teamID: { _ in full.add(); return "TEAM" })
+        let store = KeptVersionStore(root: root.appending(path: "versions"), teamID: { _ in full.add(); return "TEAM" },
+                                     quickTeamID: { _ in "TEAM" })
         let app = root.appending(path: "a/cmux.app", directoryHint: .isDirectory)
         try Self.makeBundle(at: app, build: "100")
         try store.keep(bundle: app, build: "100", limit: 2, record: KeptRecord(build: "100", teamID: "TEAM"), check: .later)

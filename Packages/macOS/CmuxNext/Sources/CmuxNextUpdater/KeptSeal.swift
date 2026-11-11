@@ -22,15 +22,21 @@ nonisolated public struct KeptSeal: Codable, Equatable, Sendable {
 
     /// The seal of `bundle` now; nil when it cannot be read.
     public init?(bundle: URL) {
-        let rootURL = bundle.standardizedFileURL.resolvingSymlinksInPath()
-        let root = rootURL.path
-        guard let walker = FileManager.checked.enumerator(at: rootURL, includingPropertiesForKeys: nil) else { return nil }
+        let root = bundle.path
+        // Every item by its path relative to the bundle, walked by name with lstat (a symlink is an
+        // item, never followed), so nothing depends on how the bundle's own path resolves.
         var paths: [String] = [""]
-        // The enumerator names each item under `rootURL` as given (it does not follow symlinks).
-        while let next = walker.nextObject() as? URL {
-            let path = next.path
-            guard path.hasPrefix(root + "/") else { return nil }
-            paths.append(String(path.dropFirst(root.count + 1)))
+        var folders: [String] = [""]
+        while let folder = folders.popLast() {
+            let full = folder.isEmpty ? root : root + "/" + folder
+            guard let names = try? FileManager.checked.contentsOfDirectory(atPath: full) else { return nil }
+            for name in names {
+                let path = folder.isEmpty ? name : folder + "/" + name
+                var info = stat()
+                guard lstat(root + "/" + path, &info) == 0 else { return nil }
+                paths.append(path)
+                if info.st_mode & S_IFMT == S_IFDIR { folders.append(path) }
+            }
         }
         paths.sort()
         var hash = SHA256()
