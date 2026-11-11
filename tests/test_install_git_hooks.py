@@ -1395,6 +1395,47 @@ cat > node_modules/.bin/vp <<'VP'
             finally:
                 path.write_bytes(reviewed)
 
+    def test_installed_post_merge_skips_a_trusted_checkout_without_the_copy_manifest(self):
+        # dep-fleet-6 on #40979: the installed post-merge (shared by every worktree of the clone) reads what the checks
+        # copy is made from out of scripts/git-hooks/checks-copy-inputs. A worktree at a trusted main that predates
+        # that list has none, so a dirty tests/workflow_jobs.py or scripts/swift_source_mask.py was never compared
+        # and the old installer copied it into the shared hooks. With no list there is nothing to check those
+        # sources against: the hook warns and installs nothing, dirty or clean.
+        (self.repo / "scripts/git-hooks/checks-copy-inputs").unlink()
+        for relative in ("tests/workflow_jobs.py", "scripts/swift_source_mask.py"):
+            (self.repo / relative).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(SOURCE / relative, self.repo / relative)
+        marker = self.root / "installer-ran"
+        installer = self.repo / INSTALLER
+        installer.write_text(f"#!/bin/sh\ntouch {shlex.quote(str(marker))}\n", encoding="utf-8")
+        installer.chmod(0o755)
+        self.git("add", ".")
+        self.git(
+            "-c", "user.name=Merge Test",
+            "-c", "user.email=merge@example.invalid",
+            "commit", "-qm", "trusted main before checks-copy-inputs",
+        )
+        self.git("remote", "add", "upstream", "https://github.com/manaflow-ai/cmux.git")
+        self.git("update-ref", "refs/remotes/upstream/main", "HEAD")
+        installed_hook = SOURCE / "scripts/git-hooks/post-merge"
+
+        for relative in (None, "tests/workflow_jobs.py", "scripts/swift_source_mask.py"):
+            with self.subTest(dirty=relative):
+                path = self.repo / relative if relative else None
+                reviewed = path.read_bytes() if path else b""
+                try:
+                    if path:
+                        path.write_bytes(reviewed + b"\n# dirty candidate\n")
+                    result = subprocess.run(["/bin/bash", str(installed_hook)], cwd=self.repo, env=self.env,
+                                            text=True, capture_output=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertFalse(marker.exists(), "the installer ran in a checkout with no copy manifest")
+                    self.assertIn("checks-copy-inputs", result.stderr, "must say why it skipped the install")
+                finally:
+                    if path:
+                        path.write_bytes(reviewed)
+                    marker.unlink(missing_ok=True)
+
     def test_global_hooks_path_warns_and_succeeds(self):
         global_hooks = self.root / "global-hooks"
         global_hooks.mkdir()
