@@ -83,6 +83,34 @@ test("a stall only counts while nothing waits on the person, and only for its ow
   expect(cloudStartStalled(asking, "k-1")).toBe(asking);
 });
 
+/// RED before: the timer re-armed on every push, and a copy pushes about 4 lines a second, so a copy
+/// that sat at "0 of 46,516 files" for 20 minutes never stalled. Now only a push that moves the start
+/// (a step, a phase, a count) puts the stall off.
+test("a start whose pushes repeat the same progress stalls; one that moves does not", () => {
+  const { armed, schedule } = manualSchedule();
+  const t0 = 1_000_000;
+  const copying = { key: "k-1", step: "folder", clone: { state: "running", phase: "copy", progress: { files_done: 0, files_total: 46_516 } } };
+  let current = cloudStartPushed(begun(), copying, t0);
+  expect(current?.advancedAt).toBe(t0);
+  // Four minutes of the same line: no movement, so the start's clock does not reset.
+  for (let second = 1; second <= 240; second += 1) current = cloudStartPushed(current, copying, t0 + second * 1000);
+  expect(current?.advancedAt).toBe(t0);
+  watchCloudStartStall(current, () => undefined, CLOUD_START_STALL_MS, schedule, t0 + 240_000);
+  expect(armed.at(-1)!.ms).toBe(CLOUD_START_STALL_MS - 240_000);
+  // Long past the stall time, a repeat still arms at once.
+  watchCloudStartStall(current, () => undefined, CLOUD_START_STALL_MS, schedule, t0 + CLOUD_START_STALL_MS + 5_000);
+  expect(armed.at(-1)!.ms).toBe(0);
+  // A file landed: the start moved, and the full stall time starts again.
+  const moved = { ...copying, clone: { ...copying.clone, progress: { files_done: 1, files_total: 46_516 } } };
+  current = cloudStartPushed(current, moved, t0 + 300_000);
+  expect(current?.advancedAt).toBe(t0 + 300_000);
+  watchCloudStartStall(current, () => undefined, CLOUD_START_STALL_MS, schedule, t0 + 300_000);
+  expect(armed.at(-1)!.ms).toBe(CLOUD_START_STALL_MS);
+  // A new phase moves it too.
+  const folders = { ...copying, clone: { state: "running", phase: "folders", progress: { objects: 10, objects_total: 4706 } } };
+  expect(cloudStartPushed(current, folders, t0 + 310_000)?.advancedAt).toBe(t0 + 310_000);
+});
+
 test("the stalled card says plainly that what is typed moves to the chat as a draft", () => {
   const markup = renderToStaticMarkup(<CloudStartView start={{ ...begun(), step: "machine", stalled: true }} bubble />);
   expect(markup).toContain("what you type here moves to it as a draft");
