@@ -12,12 +12,16 @@ Fails when a page directory has no row, when a row's kind is unknown, and, with 
 that is new since the base is not `page` (no change adds debt). A row whose directory is gone is a
 note: delete the row.
 
+The Command Palette (Cmd+Shift+P) is Swift (question 3 of the decision test): a file of its target
+that imports WebKit or the pages module, or names a web view type, fails.
+
   python3 scripts/cmux-next/check-react-pages.py [--base REV] [ROOT]
 """
 from __future__ import annotations
 
 import argparse
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -26,6 +30,28 @@ PAGES = "webviews/src/pages"
 KINDS = ("page", "debt", "review")
 # Not pages: code the pages share.
 SHARED = {"shared"}
+# The Command Palette's target: its rows, pages and previews are AppKit.
+PALETTE = "Packages/macOS/CmuxNext/Sources/CmuxNextPalette"
+WEB_IMPORT = re.compile(r"^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:public|package|internal|fileprivate|private)\s+)?import\s+"
+                        r"(?:WebKit|CmuxNextPages)\b")
+WEB_VIEW = re.compile(r"\b(?:WKWebView|PageWebView)\b")
+
+
+def palette_findings(root: pathlib.Path) -> list[str]:
+    """One finding per line of the palette's target that brings in a web view (comment lines do not count)."""
+    found: list[str] = []
+    directory = root / PALETTE
+    for path in sorted(directory.rglob("*.swift")) if directory.is_dir() else []:
+        try:
+            lines = path.read_text(errors="replace").splitlines()
+        except OSError:
+            continue
+        for number, line in enumerate(lines, 1):
+            code = line.split("//", 1)[0]
+            if WEB_IMPORT.search(code) or WEB_VIEW.search(code):
+                found.append(f"{path.relative_to(root)}:{number}: the Command Palette is Swift; no web view in its "
+                             f"rows, pages or previews (question 3, plans/cmux-next/language-layers.md): {line.strip()[:120]}")
+    return found
 
 
 def rows(text: str) -> dict[str, tuple[str, str]]:
@@ -82,6 +108,8 @@ def main() -> int:
             if name not in before and kind in ("debt", "review"):
                 findings.append(f"{LIST}: {name} is a new '{kind}' row since {args.base}; a change adds no "
                                 f"React page for native chrome or Home (build it in Swift)")
+
+    findings += palette_findings(root)
 
     if findings:
         print("REACT-PAGES: the layer rule fails:", file=sys.stderr)
