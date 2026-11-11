@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "build": "4296131014501",
+  "notes": "notes/4296131014501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 40885,
+      "title": "acpmux: cap a watch's match at 2 KiB and keep that much of each stub's text",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41038,
+      "title": "Settings file: the client makes a relative CMUX_NEXT_CONFIG_FILE absolute before it spawns the owner; test the client-wins restart",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41019,
+      "title": "base_red_excuse: a checked-in list of every scripts/ci path it loads, held by an AST drift test",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41026,
+      "title": "gallery health: upload only the screenshots a reader needs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41047,
+      "title": "Sidebar: one surface with the chrome again (the Codex dim is a Debug toggle, off)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40365,
+      "title": "acpmux: a launcher profile of Claude Code is judged by Claude Code's modes (W6-G)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41053,
+      "title": "app FFI: the bundled SQLite keeps block sizes itself (SQLITE_WITHOUT_ZONEMALLOC)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41007,
+      "title": "acpmux: name the program behind an unverified sender",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41043,
+      "title": "base-red classifier: every failed_view caller must choose a head or base role (no default)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41011,
+      "title": "language-boundaries: a Swift-to-React port needs react-port-ok from Lawrence or Leo",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41033,
+      "title": "New Tab: ↑ and ↓ walk a wrapped prompt's lines before the suggestions",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40879,
+      "title": "Agent chat tests: no state leaks between test files, and a detector that names a new one",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41049,
+      "title": "cmux NEXT: no launch crash in SQLite: the early malloc zone reports block sizes",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40953,
+      "title": "Device hub: a silent device goes offline within 75 s; signaling peers hear peer-left; DO calls have a deadline",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40880,
+      "title": "ci: a pre-push layer never subtracts a run that gave no verdict; PyYAML missing names its install line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41014,
+      "title": "base_red_excuse: read health.json from a gallery-health zip by range, not the whole 190 MB zip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40542,
+      "title": "base-red: failed_steps_log places each line by the log's step order, never names or whole-second times; base-red-watch shares it",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
