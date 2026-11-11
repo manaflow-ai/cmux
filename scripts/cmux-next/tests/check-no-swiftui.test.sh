@@ -2,6 +2,8 @@
 # check-no-swiftui.py (NO-SWIFTUI): a macOS file that imports SwiftUI outside
 # the allowlist fails, a stale allowlist entry fails, an AppKit file passes.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 CHECK="$ROOT_DIR/scripts/cmux-next/check-no-swiftui.py"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/cmux-check-no-swiftui.XXXXXX")"
@@ -286,4 +288,28 @@ printf '%s\n' "$SRC/C/Two.swift" "$SRC/B/One.swift" "$SRC/B/One.swift" > "$repo/
 code=0; python3 -I "$CHECK" --base "$base5" "$repo" >/dev/null 2>"$tmp/err" || code=$?
 [[ $code -eq 1 ]] && grep -q "^NO-SWIFTUI: $LIST: keep it sorted" "$tmp/err" \
   || { echo "FAIL: must fail: a duplicate added to an allowlist already unsorted (got $code)" >&2; cat "$tmp/err" >&2; exit 1; }
+# A restored file: its entry may come back while the file is the blob its no-swiftui-restored.tsv row names.
+printf "%s\n" "$SRC/B/One.swift" "$SRC/C/Two.swift" > "$repo/$LIST"
+commit base6-restore
+base6=$(git -C "$repo" rev-parse HEAD)
+RESTORED=scripts/cmux-next/no-swiftui-restored.tsv
+mkdir -p "$repo/$SRC/R"; printf "import SwiftUI\nstruct Back {}\n" > "$repo/$SRC/R/Back.swift"
+printf "%s\n" "$SRC/B/One.swift" "$SRC/C/Two.swift" "$SRC/R/Back.swift" > "$repo/$LIST"
+git -C "$repo" add -A
+code=0; python3 -I "$CHECK" --base "$base6" "$repo" >/dev/null 2>"$tmp/err" || code=$?
+[[ $code -eq 1 ]] && grep -q "R/Back.swift is new since" "$tmp/err" \
+  || { echo "FAIL: must fail: a new entry with no restored row (got $code)" >&2; cat "$tmp/err" >&2; exit 1; }
+blob=$(git -C "$repo" hash-object --no-filters -- "$SRC/R/Back.swift")
+printf "# path\tblob\twhy\n%s\t%s\t%s\n" "$SRC/R/Back.swift" "$blob" "deleted by an earlier commit, back unchanged" > "$repo/$RESTORED"
+git -C "$repo" add -A
+python3 -I "$CHECK" --base "$base6" "$repo" >/dev/null 2>"$tmp/err" && grep -q "note: .*R/Back.swift .*restored as blob" "$tmp/err" \
+  || { echo "FAIL: must pass with a note: a restored file that is its row blob" >&2; cat "$tmp/err" >&2; exit 1; }
+printf "import SwiftUI\nstruct Back { let more = 1 }\n" > "$repo/$SRC/R/Back.swift"
+git -C "$repo" add -A
+code=0; python3 -I "$CHECK" --base "$base6" "$repo" >/dev/null 2>"$tmp/err" || code=$?
+[[ $code -eq 1 ]] && grep -q "R/Back.swift is new since" "$tmp/err" \
+  || { echo "FAIL: must fail: a restored file changed after its row was written (got $code)" >&2; cat "$tmp/err" >&2; exit 1; }
+printf "%s\t%s\t\n" "$SRC/R/Back.swift" "$(git -C "$repo" hash-object --no-filters -- "$SRC/R/Back.swift")" > "$repo/$RESTORED"
+code=0; python3 -I "$CHECK" --base "$base6" "$repo" >/dev/null 2>"$tmp/err" || code=$?
+[[ $code -eq 1 ]] || { echo "FAIL: must fail: a restored row with no reason (got $code)" >&2; cat "$tmp/err" >&2; exit 1; }
 echo "check-no-swiftui: ok"

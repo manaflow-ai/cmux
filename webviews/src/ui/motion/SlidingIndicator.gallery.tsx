@@ -13,7 +13,7 @@ const switchTabs: Play = async (ctx) => {
 
 // Picked: pill-spring. The reference (a game character menu, private reference
 // zenless-zone-zero/live/motion-sunbringer-menu-animation-sheet) is a chunky pill whose fill slides between tabs; the spring
-// lands it fast (settled by ~140 ms) with a touch of give, while the labels change on the click.
+// lands it fast (at its end by ~130 ms, never past it), while the labels change on the click.
 export default componentEntry<IndicatorDemoProps>({
   id: "ui.motion-sliding-indicator",
   title: "Sliding selection indicator",

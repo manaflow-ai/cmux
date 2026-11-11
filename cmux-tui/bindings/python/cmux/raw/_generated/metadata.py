@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '4092e18628956f6f0140e6c2a2f97a370ff80cf2f567a54c4d066c1240242b1d'
+IR_SHA256 = '1a6166df73d405404f1ff03c1ff225da9bcd2c4651b610d13b72dc5c7af633bb'
 
 
 @dataclass(frozen=True)
@@ -1357,6 +1357,7 @@ COMMANDS = {
         {
             'expected_generation': CommandFieldMetadata(None, None),
             'expected_revision': CommandFieldMetadata(None, None),
+            'first_tab': CommandFieldMetadata(None, 'workspace-first-tab-v1'),
             'key': CommandFieldMetadata(None, None),
             'mutation_id': CommandFieldMetadata(None, None),
             'name': CommandFieldMetadata(None, None),
@@ -2299,6 +2300,7 @@ COMMANDS = {
             'split': CommandFieldMetadata(None, 'frontend-browser-tab-split-v1'),
             'title': CommandFieldMetadata(None, None),
             'url': CommandFieldMetadata(None, None),
+            'workspace': CommandFieldMetadata(None, 'frontend-browser-tab-workspace-v1'),
         },
     ),
     'new-pane': CommandMetadata(
@@ -3180,6 +3182,19 @@ COMMANDS = {
             'selection_fg': CommandFieldMetadata(9, None),
         },
     ),
+    'set-divider-visible': CommandMetadata(
+        'set-divider-visible',
+        'control',
+        12,
+        'split-divider-visibility-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'split': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(None, None),
+            'visible': CommandFieldMetadata(None, None),
+        },
+    ),
     'set-frontend-browser-history': CommandMetadata(
         'set-frontend-browser-history',
         'control',
@@ -3560,6 +3575,7 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'around': CommandFieldMetadata(12, 'split-around-v1'),
             'before': CommandFieldMetadata(12, 'split-before-v1'),
             'cols': CommandFieldMetadata(None, None),
             'cwd': CommandFieldMetadata(12, 'terminal-env-v1'),
@@ -4076,6 +4092,8 @@ EVENTS = {
     'daemon-shutdown': EventMetadata('daemon-shutdown', 12, None, ('control',), 'emitted'),
     'detached': EventMetadata('detached', 5, None, ('attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
     'empty': EventMetadata('empty', 5, None, ('subscribe',), 'emitted'),
+    'feed-reports-changed': EventMetadata('feed-reports-changed', 12, 'feed-client-v1', ('subscribe',), 'emitted'),
+    'feed-view-changed': EventMetadata('feed-view-changed', 12, 'feed-client-v1', ('subscribe',), 'emitted'),
     'frame': EventMetadata('frame', 6, None, ('attach-browser',), 'emitted'),
     'frontend-projection-changed': EventMetadata('frontend-projection-changed', 7, None, ('subscribe',), 'emitted'),
     'graphics-status': EventMetadata('graphics-status', 10, None, ('subscribe',), 'emitted'),

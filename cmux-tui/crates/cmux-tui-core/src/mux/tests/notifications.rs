@@ -1400,3 +1400,31 @@ fn w6d_c_daemon_stop_posts_a_held_desktop_notification() {
     assert!(posted(&stored), "the held OSC 9 was lost at the stop: {stored:?}");
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// A cleared notification leaves nothing behind in memory: its post record (event number and
+/// poster) goes with its ledger row. Before, `notification_posts` dropped a post only when its
+/// row was evicted from the 256-row ledger, which a cleared row never is: every post that was
+/// cleared stayed for the daemon's life (agents post at each turn end; the panel clears them).
+#[test]
+fn clearing_notifications_frees_their_post_records() {
+    let mux = test_mux();
+    let terminal = mux.new_workspace(None, None).unwrap();
+    for round in 0..300 {
+        mux.create_durable_notification(
+            &Actor::Daemon,
+            &format!("post-{round}"),
+            "turn ended".into(),
+            None,
+            "".into(),
+            NotificationLevel::Info,
+            Some(terminal.id),
+            NotificationSource::Cli,
+        )
+        .unwrap();
+        let clear = WorkspaceMutation::daemon(format!("clear-{round}"), "test").unwrap();
+        mux.clear_notifications(&clear, None, None).unwrap();
+    }
+    assert!(mux.resource_notifications(8).is_empty());
+    let posts = mux.notification_posts.lock().unwrap().len();
+    assert_eq!(posts, 0, "cleared notifications keep {posts} post records");
+}

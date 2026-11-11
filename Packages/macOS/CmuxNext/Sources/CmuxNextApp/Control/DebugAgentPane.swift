@@ -14,7 +14,7 @@ import WebKit
 /// one). Never changes app or window focus; `open_menu` moves focus inside
 /// the page to the menu's button, as a click does.
 ///
-/// `action`: `seed_rows` (`count`, default 5000; `fixture: "worked-turn"`
+/// `action`: `seed_rows` (`count`, default 5000; `fixture: "link"`/`"github-link"`, linkFixture.ts; `"worked-turn"`
 /// seeds a turn that edits three files instead, for the changes view, and `"short"` one-line
 /// turns answered "ok N", for the thread minimap's density, and `"incoming"` received agent
 /// messages, for the received-message card, and `"shared"` a shared chat, for chat multiplayer's

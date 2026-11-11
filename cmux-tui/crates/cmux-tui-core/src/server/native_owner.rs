@@ -73,6 +73,7 @@ const COMMANDS: &[&str] = &[
     "rename-workspace",
     "rename-pane",
     "set-split-ratio",
+    "set-divider-visible",
     "set-viewport-pane-width",
     "set-row-heights",
     "undo-layout",
@@ -113,6 +114,9 @@ const CAPABILITIES: &[&str] = &[
     VIEWPORT_COLUMN_RESIZE_CAPABILITY,
     LAYOUT_UNDO_CAPABILITY,
     LAYOUT_DELTA_CAPABILITY,
+    // Both ride commands this carrier already admits (`set-divider-visible`, `split`).
+    crate::mux::SPLIT_DIVIDER_VISIBILITY_CAPABILITY,
+    split_kind::SPLIT_AROUND_CAPABILITY,
     SESSION_IDENTITY_CAPABILITY,
     TERMINAL_ENV_CAPABILITY,
     TERMINAL_PLACEMENT_ENV_CAPABILITY,
@@ -131,6 +135,7 @@ const CAPABILITIES: &[&str] = &[
     AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
     AGENT_SESSION_START_VM_KIND_CAPABILITY,
     AGENT_SESSION_START_MODEL_CAPABILITY,
+    AGENT_SESSION_START_MODE_CAPABILITY,
     agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY,
     agent_session_attach::AGENT_SESSION_CONTEXT_CAPABILITY,
     agent_session_attach::AGENT_SESSION_BTW_CAPABILITY,
@@ -303,6 +308,7 @@ pub(super) fn raw_command(mux: &Mux, client: u64, command: &Command) -> bool {
         | Command::RenameWorkspace { .. }
         | Command::RenamePane { .. }
         | Command::SetSplitRatio { .. }
+        | Command::SetDividerVisible { .. }
         | Command::SetViewportPaneWidth { .. }
         | Command::SetRowHeights { .. }
         | Command::UndoLayout { .. }

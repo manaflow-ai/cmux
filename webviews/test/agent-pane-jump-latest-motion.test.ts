@@ -224,7 +224,7 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
       document.addEventListener(
         "click",
         (event) => {
-          if ((event.target as Element | null)?.closest?.(".acpmux-jump-latest"))
+          if ((event.target as Element | null)?.closest?.(".acpmux-jump-latest:not(.acpmux-jump-up)"))
             holder.__clickedAt ??= performance.now();
         },
         { capture: true },
@@ -295,7 +295,7 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
       await page.keyboard.press("Shift+Enter");
     }
     await untilStill(page);
-    await page.locator(".acpmux-jump-latest[data-shown]").waitFor();
+    await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]").waitFor();
   }
   /// Wait for the browser's scroll completion event, then confirm the landing frame is at the
   /// current end. A streamed reply can move the end after an earlier scrollend, so scroll events
@@ -350,7 +350,7 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
       const start = (await measure(page)).top;
       await startFrames(page);
       const settled = waitForJumpSettle(page);
-      await page.locator(".acpmux-jump-latest").click();
+      await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)").click();
       await settled;
       const frames = await stopFrames(page);
       const end = await measure(page);
@@ -376,7 +376,7 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
       const start = await measure(page);
       await startFrames(page);
       const settled = waitForJumpSettle(page);
-      await page.locator(".acpmux-jump-latest").click();
+      await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)").click();
       // The reply: a paragraph every frame painted, starting with the glide.
       send(record("mux", "turn_started", {}));
       for (let index = 1; index <= 12; index++) {
@@ -427,12 +427,12 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
     await page.mouse.move(view.x + view.width / 2, view.y + 120);
     await page.mouse.wheel(0, -900);
     await untilStill(page);
-    await page.locator(".acpmux-jump-latest[data-shown]").waitFor();
+    await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]").waitFor();
     const capture = process.env.CMUX_JUMP_CAPTURE_DIR;
     if (capture) await page.screenshot({ path: path.join(capture, `${name}-before.png`) });
     await startFrames(page);
     const settled = waitForJumpSettle(page);
-    await page.locator(".acpmux-jump-latest").click();
+    await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)").click();
     send(record("mux", "turn_started", {}));
     for (let index = 1; index <= 12; index++) {
       send(
@@ -476,15 +476,15 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
     await page.mouse.move(view.x + view.width / 2, view.y + 120);
     await page.mouse.wheel(0, -900);
     await untilStill(page);
-    await page.locator(".acpmux-jump-latest[data-shown]").waitFor();
-    await page.locator(".acpmux-jump-latest").click();
+    await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]").waitFor();
+    await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)").click();
     // Menu/key-equivalent commands are bridged on window while focus remains in the composer.
     await page.locator(".acpmux-md").focus();
     await page.evaluate(() => window.dispatchEvent(new Event("cmux-acpmux-previousTurn")));
     await untilStill(page);
     const stopped = await measure(page);
     expect(stopped.fromEnd).toBeGreaterThan(80);
-    await page.locator(".acpmux-jump-latest[data-shown]").waitFor();
+    await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]").waitFor();
     // An unrelated render must not revive the cancelled bottom-follow owner.
     send(record("mux", "turn_started", {}));
     send(record("in", "agent_message_chunk", chunk("A reply arriving after native turn navigation.")));

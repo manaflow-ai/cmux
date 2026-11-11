@@ -168,7 +168,7 @@ extension HomeService {
         // The tree reports a just-created home after its event; wait for it
         // (this task is cancelled by the next connection).
         var found: WorkspaceModel?
-        for await workspace in ObservationStream({ local.store.workspaces.first { $0.resourceID == home } }) {
+        for await workspace in ObservationStream({ local.store.listedWorkspace(resourceID: home) }) {
             if let workspace { found = workspace; break }
         }
         guard !Task.isCancelled, let workspace = found else { return }

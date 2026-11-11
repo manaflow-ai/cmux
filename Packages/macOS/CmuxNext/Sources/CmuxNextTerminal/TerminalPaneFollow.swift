@@ -12,7 +12,8 @@ public nonisolated struct TerminalPaneFollowSizes: Sendable, Equatable {
     /// The size the host asked of the surface: the frame it wants (its window's commit owns every terminal frame, cmux-ad
     /// m19), else the surface view's frame. Not `area` while the surface is held.
     public var asked: CGSize
-    /// What shows: the surface layer's bounds.
+    /// What shows: the last frame Ghostty showed on the surface layer (its present callback, ``TerminalPresents``), in
+    /// points at the layer's scale; zero before the first frame.
     public var shown: CGSize
     /// A size was asked of Ghostty and its frame is not shown yet (the frame owner keeps the old one meanwhile).
     public var inFlight: Bool
@@ -91,8 +92,10 @@ extension TerminalSession {
         guard surface.isShown, surface.superview === view else { return nil }
         let ownership = surface.frameOwnership
         let asked = ownership.embedderPresents ? (ownership.wanted?.size ?? surface.frame.size) : surface.frame.size
-        return TerminalPaneFollowSizes(area: view.surfaceSize(forHostSize: view.bounds.size), asked: asked,
-                                       shown: surface.layer?.bounds.size ?? surface.bounds.size,
+        let scale = max(surface.layer?.contentsScale ?? 1, 1)
+        let shown = surface.bridge.takeUnretainedValue().presents.last
+            .map { CGSize(width: CGFloat($0.widthPixels) / scale, height: CGFloat($0.heightPixels) / scale) } ?? .zero
+        return TerminalPaneFollowSizes(area: view.surfaceSize(forHostSize: view.bounds.size), asked: asked, shown: shown,
                                        inFlight: ownership.inFlight != nil)
     }
 }

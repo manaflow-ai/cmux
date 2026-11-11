@@ -55,6 +55,11 @@ impl Mux {
             rest_results.push(result);
         }
         #[cfg(test)]
+        crate::walk_counters::projection_prepared(
+            projection.patch.changes.len(),
+            projection.changes.as_array().map_or(0, Vec::len),
+        );
+        #[cfg(test)]
         if let Some(hook) = self
             .resource_projection_before_commit
             .lock()

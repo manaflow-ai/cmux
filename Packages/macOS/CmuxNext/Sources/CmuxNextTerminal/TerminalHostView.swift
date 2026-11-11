@@ -20,7 +20,7 @@ public final class TerminalHostView: NSView {
     }
     /// The label over the last screen while the link is down (click-through), built the first time
     /// a label shows: a new terminal's "connected" or quick "Restoring…" builds and shows nothing.
-    private lazy var statusLabel = TerminalStatusLabel(clock: statusClock, install: { [weak self] banner in
+    lazy var statusLabel = TerminalStatusLabel(clock: statusClock, install: { [weak self] banner in
         self?.addChrome(banner, .statusLabel)
     }, didReveal: { [weak self] in self?.needsLayout = true })
     private let statusClock: any Clock<Duration>
@@ -44,6 +44,8 @@ public final class TerminalHostView: NSView {
     private var retryButton: TerminalRetryButton?
     /// "Sized for <device>" with Take over, bottom-trailing, while another view sets the grid.
     private var sizedForChip: TerminalSizedForChip?
+    /// Classic's hatch over the pane space the grid does not use while the chip shows.
+    private var sizeHatch: TerminalSizeHatchView?
     private var restartAction: (@MainActor () -> Void)?
     /// The App's `tab.restart` for this tab; nil hides the button (a daemon
     /// without `tab-restart-v1`, a tab that cannot restart).
@@ -179,12 +181,13 @@ public final class TerminalHostView: NSView {
     /// The layers of what the host shows over its surface, back to front. The surface and a held
     /// frame over it (``TerminalFrameHold``, directly above the surface) are below all of them.
     private enum ChromeLayer: Int, Comparable {
-        case scroller, accessory, statusLabel, overlay
+        case hatch, scroller, accessory, statusLabel, overlay
         static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
     }
 
     /// The layer of `view`, nil for the surface, a held frame and anything else that is not chrome.
     private func chromeLayer(of view: NSView) -> ChromeLayer? {
+        if view === sizeHatch { return .hatch }
         if view === scroller { return .scroller }
         if view === bottomAccessory { return .accessory }
         if view === statusLabel.banner { return .statusLabel }
@@ -258,6 +261,39 @@ public final class TerminalHostView: NSView {
     /// The "Sized for" chip's text, nil while hidden (diagnostics and tests).
     var sizedForText: String? {
         sizedForChip?.shown.map { TerminalSizedForChip.text(for: $0) }
+    }
+
+    /// The grid's rect in this view while another view sets it smaller than the terminal's area
+    /// (y up), nil otherwise: where the hatch stops.
+    var sizedForGridRect: CGRect? {
+        guard let shown = sizedForChip?.shown, let model = current?.session?.model,
+              model.cellPixelSize.width > 0, model.cellPixelSize.height > 0 else { return nil }
+        let scale = window?.backingScaleFactor ?? 2
+        let size = CGSize(width: CGFloat(shown.grid.columns) * model.cellPixelSize.width / scale,
+                          height: CGFloat(shown.grid.rows) * model.cellPixelSize.height / scale)
+        let area = CGRect(x: terminalBounds.minX, y: terminalBounds.minY,
+                          width: max(0, terminalBounds.width - scrollerWidth), height: terminalBounds.height)
+        let origin = firstCellOrigin
+        let grid = CGRect(x: area.minX + origin.x, y: area.maxY - origin.y - size.height, width: size.width, height: size.height)
+        // Hatch only where the grid leaves room: a cropped grid fills the area.
+        guard grid.maxX < area.maxX - 1 || grid.minY > area.minY + 1 else { return nil }
+        return grid.intersection(area)
+    }
+
+    private func layoutSizeHatch() {
+        let grid = sizedForGridRect
+        if grid == nil, sizeHatch == nil { return }
+        if sizeHatch == nil {
+            let hatch = TerminalSizeHatchView()
+            sizeHatch = hatch
+            addChrome(hatch, .hatch)
+        }
+        guard let sizeHatch else { return }
+        let area = CGRect(x: terminalBounds.minX, y: terminalBounds.minY,
+                          width: max(0, terminalBounds.width - scrollerWidth), height: terminalBounds.height)
+        if sizeHatch.frame != area { sizeHatch.frame = area }
+        sizeHatch.ground = hatchGround
+        sizeHatch.show(grid: grid.map { $0.offsetBy(dx: -area.minX, dy: -area.minY) })
     }
 
     func showSizedFor(_ sizedFor: TerminalSizedFor?) {
@@ -477,6 +513,7 @@ public final class TerminalHostView: NSView {
             layoutStatus(buttons: buttons)
         }
         let inset = Metrics.panelInset
+        layoutSizeHatch()
         if let sizedForChip, !sizedForChip.isHidden {
             // Bottom-trailing, clear of the scroller: where a padded grid leaves room.
             let trailing = bounds.width - scrollerWidth - inset
@@ -555,6 +592,7 @@ public final class TerminalHostView: NSView {
     /// background (`appearance.surfaces.terminal`) replaces all of these;
     /// the surfaces then draw a transparent default background.
     fileprivate func paintBackground() {
+        sizeHatch?.ground = hatchGround
         let (scope, tokens) = (themeScope, themeTokens)
         // The window root's backdrop (`WindowRootView.backdrop`): the scope's art and its own tint.
         let backdrop = WindowBackdrop(tokens, reduceTransparency: ReduceTransparency.shared.isEnabled,
@@ -573,20 +611,26 @@ public final class TerminalHostView: NSView {
         guard !backdrop.panesPaintBackground else {
             // The program set its own background (OSC 11): the host beside the surface (a held frame's grow strip) has
             // the colour of its empty cells.
-            if let program = current?.session?.model.backgroundOverride {
-                layer?.backgroundColor = program.cgColor
-                return
-            }
-            guard let rgb = theme?.colors?.background else {
-                layer?.backgroundColor = GhosttyRuntime.shared.backgroundColor.cgColor
-                return
-            }
-            layer?.backgroundColor = CGColor(srgbRed: CGFloat(rgb.r) / 255, green: CGFloat(rgb.g) / 255, blue: CGFloat(rgb.b) / 255, alpha: 1)
+            layer?.backgroundColor = current?.session?.model.backgroundOverride?.cgColor ?? Self.opaqueGround(theme)
             return
         }
         let around = superview?.themeTokens.surfaceBackground.withAlpha(1)
         let own = tokens.surfaceBackground.withAlpha(1)
         layer?.backgroundColor = theme == nil || own == around ? nil : own.withAlpha(backdrop.tintOpacity).cgColor
+    }
+
+    /// The terminal background under the Sized for hatch: the user's terminal surface color, else the program's
+    /// own (OSC 11), else the theme's or the config's.
+    private var hatchGround: CGColor {
+        performWithTheme { Palette.surfaceOverride(.terminal) }?.cgColor
+            ?? current?.session?.model.backgroundOverride?.cgColor
+            ?? Self.opaqueGround(theme)
+    }
+
+    /// The background of `theme`'s empty cells, else the config's (``ground(theme:in:)`` gives a waiting pane the same).
+    static func opaqueGround(_ theme: GhosttyThemeConfig?) -> CGColor {
+        guard let rgb = theme?.colors?.background else { return GhosttyRuntime.shared.backgroundColor.cgColor }
+        return CGColor(srgbRed: CGFloat(rgb.r) / 255, green: CGFloat(rgb.g) / 255, blue: CGFloat(rgb.b) / 255, alpha: 1)
     }
 }
 

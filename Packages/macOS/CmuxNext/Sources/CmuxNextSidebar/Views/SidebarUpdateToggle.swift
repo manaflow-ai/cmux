@@ -109,7 +109,7 @@ final class SidebarUpdateToggle: NSView {
     /// selection spring (`Motion.sidebar`); with animation off it lands in one frame. Layout and
     /// `updateLayer` set the same values with actions disabled, which leaves the slide running.
     private func slideSwitch() {
-        Motion.sidebar.transaction(spring: .selection) {
+        Motion.sidebar.transaction(spring: .selection, in: window) {
             knob.frame = Self.knobFrame(in: box.frame, isOn: isOn)
             performWithTheme {
                 let colors = Self.switchColors(isOn: isOn)

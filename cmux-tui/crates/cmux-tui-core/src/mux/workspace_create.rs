@@ -280,6 +280,7 @@ impl Mux {
                     entity,
                     workspace_revision: Some(revision),
                     transaction: None,
+                    mutation: None,
                 },
                 selection_resync,
             )

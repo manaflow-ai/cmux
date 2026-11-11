@@ -433,7 +433,7 @@ class CmuxBotTokenWorkflowShape(unittest.TestCase):
     def test_artifact_publisher_keeps_the_r2_environment_secret_boundary(self) -> None:
         document = yaml.safe_load((ROOT / ".github/workflows/dogfood-artifact-publish.yml").read_text())
         publish = document["jobs"]["publish"]
-        self.assertEqual(publish["environment"], "artifacts")
+        self.assertEqual(publish["environment"]["name"], "artifacts")
         self.assertFalse(any(step.get("id") == "cmux-bot-token" for step in publish["steps"]))
         for step in publish["steps"]:
             token = step.get("env", {}).get("GH_TOKEN")

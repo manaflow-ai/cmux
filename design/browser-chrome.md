@@ -197,6 +197,30 @@ not a banner).
   Any answer fades it out and the chrome answers the host. After cookies came over by any path
   (this card, File > Import from Browser, Import Cookies from Browser) it never shows again.
 
+## Bookmarks bar
+
+The strip under the toolbar that shows the Bookmarks Bar folder's items. It is native AppKit
+(`CmuxNextBookmarks/UI/BookmarksBarView.swift`, `BookmarkBarItemView.swift`, `BookmarkFolderMenu.swift`,
+`BookmarksBarView+Drag.swift`), filled by the app through `BookmarksBarSource`
+(`BookmarksBarHostSource` over the app's `BookmarksBarHost`, the same model path as the star and the manager page).
+
+- **Hosting.** Each browser tab's chrome holds one bar view as its accessory bar (height
+  `controlHeight + space2`). The bar paints no fill: the chrome gives the accessory band the toolbar's
+  fill, so the toolbar and the bar read as one band. No glass (the toolbar has none). A bar off its
+  window rebuilds when it is shown again.
+- **Layout (Standard density, pt).** Items `controlHeight` tall, `space1` apart, from the pane chrome
+  inset; a small icon and the title in the body step; widest item `tabMaxWidth * 0.8`. What does not fit
+  goes behind the chevron; Other Bookmarks keeps the trailing end when it has anything.
+- **States.** No fill at rest, the gray hover fill fading at the quick motion step, the pressed fill
+  at once. Empty bar with Other Bookmarks: the caption hint in the faint ink. A drop shows a 2 pt
+  line between items.
+- **Menus.** Folders, the chevron and Other Bookmarks open a native `NSMenu` (a submenu fills when it
+  opens) with Open All past one link and "(empty)" for none. Right-click is the registry's Bookmark or
+  Bookmarks Bar menu.
+- **Clicks.** Click opens in the tab, Cmd-click or the middle button in a background tab, Shift or
+  Cmd-Shift in a new tab. Drag an item to reorder it (pasteboard type `com.cmuxterm.bookmark-id`);
+  drop a link to bookmark it there.
+
 ## Keyboard
 
 - Toolbar: every control is a button in tab order; Space or Return presses it. Shortcuts

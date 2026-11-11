@@ -281,6 +281,15 @@ extension DaemonConnection {
         _ = try await request(SetSplitRatioRequest(split: split, ratio: ratio, transaction: transaction))
     }
 
+    /// `set-divider-visible`: needs `split-divider-visibility-v1`; a daemon without it gets
+    /// `missingCapabilities` and no request.
+    public func setDividerVisible(_ split: SplitID, visible: Bool) async throws {
+        guard identity?.supports(DaemonCapability.splitDividerVisibility.rawValue) == true else {
+            throw DaemonError.missingCapabilities([DaemonCapability.splitDividerVisibility.rawValue])
+        }
+        _ = try await request(SetDividerVisibleRequest(split: split, visible: visible))
+    }
+
     public func setColumnWidth(of pane: PaneID, width: Double, transaction: UInt64? = nil) async throws {
         _ = try await request(SetColumnWidthRequest(pane: pane, width: width, transaction: transaction))
     }

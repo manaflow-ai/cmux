@@ -21,28 +21,65 @@ import Testing
         }
     }
 
+    /// The local daemon's read side, standing in for `history.entries.list` (the page visits are
+    /// the daemon's alone): `read` answers `rows` matching the query. Everything else is the app's
+    /// own HistoryService, as PageFactory wires it: `entry(id:)` (the open pages' shown rows, then the
+    /// daemon) and the remove, site remove and clear that also drop the omnibar's suggestions.
+    final class Daemon: HistoryPageEditing {
+        let service: HistoryService
+        var rows: [HistoryEntry] = []
+        init(_ service: HistoryService) { self.service = service }
+        func read(_ query: HistoryQuery) async -> HistoryRead { HistoryRead(entries: query.apply(to: rows)) }
+        func entry(id: String) async -> HistoryEntry? { await service.entry(id: id) }
+        func remove(_ entry: HistoryEntry) { service.remove(entry) }
+        func removePages(host: String) { service.removePages(host: host) }
+        func clear(kinds: Set<HistoryEntry.Kind>, range: HistoryRange) { service.clear(kinds: kinds, range: range) }
+    }
+
     struct World {
         let services: AppServices
+        let daemon: Daemon
         let provider: HistoryCookieBackupsPageProvider
         let relay: Relay
         var suggestions: InMemoryBrowserHistory { services.cache.history }
+
+        /// Another History page on the same app, wired as PageFactory wires it.
+        func page() -> HistoryCookieBackupsPageProvider {
+            let provider = HistoryCookieBackupsPageProvider { nil }
+            provider.relay = Relay()
+            provider.history = daemon
+            services.history.pages.add(provider)
+            return provider
+        }
+
+        /// The page's list of `text` (page visits).
+        @discardableResult
+        func list(_ text: String, on page: HistoryCookieBackupsPageProvider? = nil) async throws -> [String] {
+            let listed = try await (page ?? provider).call("cmux.history.entries.list", params: ["text": .string(text), "kinds": .array([.string("page")])],
+                                                           context: PageCallContext(page: "cmux.history"))
+            return (listed["entries"]?.arrayValue ?? []).compactMap { $0["id"]?.stringValue }
+        }
     }
 
     /// The History page's provider wired as PageFactory wires it (the app's HistoryService), over the default profile's
-    /// omnibar history with `urls` visited (no daemon: the app's own log).
+    /// omnibar history with `urls` visited, which the daemon stand-in lists.
     static func world(_ urls: [String]) async throws -> World {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         services.history.attach(services.cache.history, profile: .default)
+        let daemon = Daemon(services.history)
         for (index, url) in urls.enumerated() {
-            services.cache.history.recordVisit(url: try #require(URL(string: url)), title: "Page \(index)", at: Date().addingTimeInterval(Double(-index)))
+            let at = Date().addingTimeInterval(Double(-index))
+            services.cache.history.recordVisit(url: try #require(URL(string: url)), title: "Page \(index)", at: at)
+            daemon.rows.append(HistoryEntry(id: "page:default:\(index + 1)", kind: .page, time: at, title: "Page \(index)", detail: url,
+                                            payload: .page(url: url, profile: "default")))
         }
-        _ = await services.history.flushLocalHistory(profile: .default)
         let provider = HistoryCookieBackupsPageProvider { nil }
         let relay = Relay()
         provider.relay = relay
-        provider.history = services.history
-        return World(services: services, provider: provider, relay: relay)
+        provider.history = daemon
+        services.history.pages.add(provider)
+        return World(services: services, daemon: daemon, provider: provider, relay: relay)
     }
 
     static func click(_ at: TimeInterval) -> PageCallContext {
@@ -56,9 +93,8 @@ import Testing
     @Test func aRemovedPageLeavesTheSuggestions() async throws {
         let world = try await Self.world(["https://a.example/one", "https://b.example/two"])
         #expect(Self.suggested(world) == ["https://a.example/one", "https://b.example/two"])
-        let entries = await world.services.history.entries(HistoryQuery(kinds: [.page]))
-        let entry = try #require(entries.first { $0.detail == "https://a.example/one" })
-        _ = try await world.provider.call("cmux.history.entries.remove", params: ["ids": .array([.string(entry.id)])], context: Self.click(1))
+        let id = try #require(try await world.list("a.example").first)
+        _ = try await world.provider.call("cmux.history.entries.remove", params: ["ids": .array([.string(id)])], context: Self.click(1))
         #expect(Self.suggested(world) == ["https://b.example/two"])
         #expect(world.relay.sent.isEmpty, "the remove skipped the app's History path")
     }
@@ -89,48 +125,20 @@ import Testing
         #expect(world.relay.sent.isEmpty)
     }
 
-    /// cmux#37302 review: an older visit, past the 5,000-row window `entry(id:)` searches, that a
-    /// page shows as a search hit can be removed and opened from that page, even after another
-    /// History page listed another query: each page keeps the rows it showed.
+    /// cmux#37302 review: a search hit the daemon's by-id lookup no longer finds (an older visit,
+    /// past its 5,000-row window) can be removed and opened from the page that shows it, even after
+    /// another History page listed another query: each page keeps the rows it showed.
     @Test func anOlderSearchHitCanBeRemovedAndOpened() async throws {
-        _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
-        let history = services.cache.history
-        services.history.attach(history, profile: .default)
-        let start = Date().addingTimeInterval(-86_400)
-        history.recordVisit(url: try #require(URL(string: "https://old.example/target")), title: "Old target", at: start)
-        for batch in 0..<3 {
-            for index in 0..<1_700 {
-                let n = batch * 1_700 + index
-                history.recordVisit(url: try #require(URL(string: "https://new.example/\(n)")), title: "New \(n)", at: start.addingTimeInterval(Double(n + 1)))
-            }
-            _ = await services.history.flushLocalHistory(profile: .default)
-        }
-        let hit = try #require(await services.history.read(HistoryQuery(text: "old.example", kinds: [.page])).entries.first)
-        #expect(await services.history.entry(id: hit.id) == nil, "the id window no longer misses the older visit; this test shows nothing")
-
-        // Two History pages, wired as PageFactory wires them: A searches the old visit, then B lists another query.
-        func page() -> HistoryCookieBackupsPageProvider {
-            let provider = HistoryCookieBackupsPageProvider { nil }
-            provider.relay = Relay()
-            provider.history = services.history
-            services.history.pages.add(provider)
-            return provider
-        }
-        let pageA = page(), pageB = page()
-        let listed = try await pageA.call("cmux.history.entries.list", params: ["text": "old.example", "kinds": .array([.string("page")])],
-                                          context: PageCallContext(page: "cmux.history"))
-        let rows = try #require(listed["entries"]?.arrayValue)
-        #expect(rows.compactMap { $0["id"]?.stringValue } == [hit.id])
-        _ = try await pageB.call("cmux.history.entries.list", params: ["text": "new.example/5", "kinds": .array([.string("page")])],
-                                 context: PageCallContext(page: "cmux.history"))
-        #expect(pageB.shown[hit.id] == nil)
+        let world = try await Self.world(["https://old.example/target", "https://new.example/1", "https://new.example/2"])
+        let pageA = world.provider, pageB = world.page()
+        let hit = try #require(try await world.list("old.example", on: pageA).first)
+        #expect(try await world.list("new.example", on: pageB).count == 2)
+        #expect(pageB.shown[hit] == nil)
         // A's Open (`history.open` resolves through `entry(id:)`) and A's remove both find the row A shows.
-        #expect(await services.history.entry(id: hit.id)?.id == hit.id)
-        _ = try await pageA.call("cmux.history.entries.remove", params: ["ids": .array([.string(hit.id)])], context: Self.click(9))
-        #expect(!history.entries.contains { $0.url.absoluteString == "https://old.example/target" })
-        let after = await services.history.read(HistoryQuery(text: "old.example", kinds: [.page])).entries
-        #expect(after.isEmpty, "the remove left the visit in the log")
+        #expect(await world.services.history.entry(id: hit)?.detail == "https://old.example/target")
+        _ = try await pageA.call("cmux.history.entries.remove", params: ["ids": .array([.string(hit)])], context: Self.click(9))
+        #expect(!Self.suggested(world).contains("https://old.example/target"))
+        #expect(Self.suggested(world).contains("https://new.example/1"))
     }
 
     /// The app's read model behind the page's list (as the native page showed it).

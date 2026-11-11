@@ -16,6 +16,13 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/defaults_guard.py"
@@ -420,6 +427,16 @@ struct Flags: TunableFactory {
         self.base = self.repo.commit("steps aside")
         head = self.head(extra={"Packages/macOS/CmuxNext/Sources/CmuxNextActions/KeyBindingDefaults.swift":
                                 swift.replace("]", '    "splitRight",\n]')})
+        result = self.check(head)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("DEFAULTS steps-aside.yieldsToTerminal: + splitRight", result.stdout)
+
+    def test_a_default_that_steps_aside_in_the_rust_catalog_fails(self):
+        rust = "pub static YIELDS_TO_TERMINAL: &[&str] = &[\n    \"focusHistoryBack\",\n];\n"
+        self.repo.write("cmux-tui/crates/cmux-action-catalog/src/bindings.rs", rust)
+        self.base = self.repo.commit("steps aside in Rust")
+        head = self.head(extra={"cmux-tui/crates/cmux-action-catalog/src/bindings.rs":
+                                rust.replace("];", '    "splitRight",\n];')})
         result = self.check(head)
         self.assertEqual(result.returncode, 1)
         self.assertIn("DEFAULTS steps-aside.yieldsToTerminal: + splitRight", result.stdout)
@@ -829,7 +846,7 @@ struct Flags: TunableFactory {
         path.write_text(json.dumps(pull), encoding="utf-8")
         result = self.repo.guard("check", "--base", self.base, "--head", head, "--pull-json", str(path),
                                  "--repo", "manaflow-ai/cmux",
-                                 env={"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"})
+                                 env=git_fixture_env.fixture_env({"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}))
         result.calls = calls.read_text(encoding="utf-8").splitlines() if calls.exists() else []
         return result
 

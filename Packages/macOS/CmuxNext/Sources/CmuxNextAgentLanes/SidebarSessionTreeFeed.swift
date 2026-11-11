@@ -29,8 +29,15 @@ public final class SidebarSessionTreeFeed {
     }
 
     private var task: Task<Void, Never>?
-    /// What `start` follows: every machine's workspaces and this Mac's host, for ``workspaces(showing:)``.
-    private var workspaceModels: (@MainActor @Sendable () -> [WorkspaceModel])?
+    /// Follows the workspace list (which workspaces, never their fields) while the pass runs.
+    private var listTask: Task<Void, Never>?
+    /// One observation per workspace of its agent chats (main-thread-scheduling.md section 3, O2): a tab change
+    /// re-reads that workspace's tabs only, never every workspace's.
+    private var observed: ObservedItems<WorkspaceModel, WorkspaceChats>?
+    /// The workspaces `start` lists now, in order.
+    private var listed: [WorkspaceModel] = []
+    /// Each listed workspace's agent chats, joined: what the pass and ``workspaces(showing:)`` read.
+    private let joined = JoinedChats()
     private var localHost: String?
     /// Also read by ``checksFailing(_:)``, the Priority view's Red CI.
     let pullRequests = SidebarPullRequestStore()
@@ -44,25 +51,58 @@ public final class SidebarSessionTreeFeed {
         var showsTree = true
     }
 
+    /// One workspace's agent chat tabs, in model order (its name only for the DEBUG pull request fixture).
+    nonisolated struct WorkspaceChats: Equatable, Sendable {
+        var id: SidebarWorkspaceID
+        var refs: [AgentSessionRef]
+        var name: String?
+    }
+
+    /// The joined chats of every listed workspace; nil while the pass does not run (setting off).
+    @Observable @MainActor final class JoinedChats {
+        var chats: [WorkspaceChats]?
+    }
+
     /// Follows the setting, the lanes and every machine's `workspaces` from now on. `localHost` is
-    /// this Mac's `install:<id>`: the lanes are this Mac's acpmux sessions.
+    /// this Mac's `install:<id>`: the lanes are this Mac's acpmux sessions. The workspace list is observed
+    /// without reading any workspace's fields, and each workspace's chats are their own observation, so one
+    /// tab's change re-reads its workspace only and the pass reads the joined chats, never a tab.
     public func start(workspaces: @escaping @MainActor @Sendable () -> [WorkspaceModel], localHost: String?,
                       lanes: AgentLaneStore = .shared, remote: RemoteAgentSessionLinks = .shared,
                       recorded: AgentSessionParents? = nil, tree: SidebarSessionTree = .shared) {
         guard task == nil else { return }
-        (workspaceModels, self.localHost) = (workspaces, localHost)
+        self.localHost = localHost
         let storedParents = recorded ?? self.recordedParents
         let pullRequests = pullRequests
         let fixture = SidebarPullRequestFixture.enabled
+        let joined = joined
+        observed = ObservedItems(item: { workspace in Self.chats(of: workspace, named: fixture) }, same: { $0 == $1 },
+                                 changed: { [weak self] in self?.settle() })
+        // task-owner: the app (one feed for the app's life); event-driven (Observation)
+        listTask = Task { [weak self] in
+            for await trigger in ObservationStream({ () -> ObservationTrigger<[WorkspaceModel]?> in
+                let sections = DesignSettings.shared.sidebarSections
+                return ObservationTrigger(Self.readsPullRequests(sections) || Self.readsBadges(sections) ? workspaces() : nil)
+            }) {
+                guard let self else { return }
+                guard let models = trigger.value else {
+                    observed?.cancelAll()
+                    listed = []
+                    if joined.chats != nil { joined.chats = nil }
+                    continue
+                }
+                listed = models
+                settle()
+            }
+        }
         // task-owner: the app (one feed for the app's life); event-driven (Observation)
         task = Task {
             for await pass in ObservationStream({ () -> Pass? in
                 let sections = DesignSettings.shared.sidebarSections
-                guard Self.readsPullRequests(sections) || Self.readsBadges(sections) else { return nil }
+                guard Self.readsPullRequests(sections) || Self.readsBadges(sections), let listed = joined.chats else { return nil }
                 // Each local session's links only (`AgentLaneStore.links(_:)`): an agent's new step or state passes nothing
                 // again; with the badges on this pass ran over every workspace on every agent event.
-                let models = workspaces()
-                let chats = Self.chats(models)
+                let chats = listed.map { ($0.id, $0.refs) }
                 var links: [String: AgentLaneLinks] = [:]
                 for (_, refs) in chats {
                     for ref in refs where ref.host == localHost {
@@ -74,7 +114,9 @@ public final class SidebarSessionTreeFeed {
                                      localHost: localHost, pullRequests: pullRequests.answers)
                 pass.showsTree = sections.sessionTree
                 // Captures: sample pull requests on every row, and no GitHub reads.
-                if fixture { (pass.state.pullRequests, pass.asks) = (SidebarPullRequestFixture.badges(models), []) }
+                if fixture {
+                    (pass.state.pullRequests, pass.asks) = (SidebarPullRequestFixture.badges(listed.map { (id: $0.id, name: $0.name ?? "") }), [])
+                }
                 return pass
             }) {
                 Self.publish(pass, to: tree)
@@ -83,12 +125,21 @@ public final class SidebarSessionTreeFeed {
         }
     }
 
+    /// The listed workspaces' chats now: only workspaces new to the list are read (their own observations
+    /// keep the rest); the joined list is written only when it changed.
+    private func settle() {
+        guard let observed else { return }
+        let chats = observed.items(for: listed, id: { "\(ObjectIdentifier($0))" })
+        if joined.chats != chats { joined.chats = chats }
+    }
+
     /// The workspaces whose agent tab shows one of `sessions` (this Mac's acpmux sessions), with that
-    /// session: the Needs You tray's answerable items (``SidebarApprovals``). One pass over the tabs,
-    /// and none while `sessions` is empty; nil host (before `start`, no install id) finds none.
+    /// session: the Needs You tray's answerable items (``SidebarApprovals``). It reads the joined chats
+    /// (none while the pass does not run: the tray is the session tree's), never a tab; none while
+    /// `sessions` is empty; nil host (before `start`, no install id) finds none.
     func workspaces(showing sessions: Set<String>) -> [SidebarWorkspaceID: String] {
-        guard !sessions.isEmpty, let workspaceModels, let localHost else { return [:] }
-        return Self.workspaces(showing: sessions, in: Self.chats(workspaceModels()), localHost: localHost)
+        guard !sessions.isEmpty, let localHost, let chats = joined.chats else { return [:] }
+        return Self.workspaces(showing: sessions, in: chats.map { ($0.id, $0.refs) }, localHost: localHost)
     }
 
     /// ``workspaces(showing:)`` over each workspace's agent chats: a tab of another machine never
@@ -115,8 +166,16 @@ public final class SidebarSessionTreeFeed {
     /// Each workspace's agent chat tabs, in model order.
     static func chats(_ workspaces: [WorkspaceModel]) -> [(SidebarWorkspaceID, [AgentSessionRef])] {
         workspaces.map { workspace in
-            (SidebarWorkspaceID(workspace.id), workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap(\.agentSession))
+            let chats = chats(of: workspace, named: false)
+            return (chats.id, chats.refs)
         }
+    }
+
+    /// One workspace's agent chat tabs, in model order; with its name when `named` (the DEBUG fixture's badges).
+    static func chats(of workspace: WorkspaceModel, named: Bool) -> WorkspaceChats {
+        WorkspaceChats(id: SidebarWorkspaceID(workspace.id),
+                       refs: workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap(\.agentSession),
+                       name: named ? workspace.name : nil)
     }
 
     static func pass(_ chats: [(SidebarWorkspaceID, [AgentSessionRef])], lanes: [String: AgentActivityLane],

@@ -26,6 +26,10 @@ assert spec.loader is not None
 # dataclasses resolves annotations through sys.modules.
 sys.modules[spec.name] = watchdog
 spec.loader.exec_module(watchdog)
+# tests/process_gone.py by path: `python3 -I` puts no script folder on sys.path.
+_process_gone_spec = importlib.util.spec_from_file_location("process_gone", ROOT / "tests" / "process_gone.py")
+process_gone = importlib.util.module_from_spec(_process_gone_spec)
+_process_gone_spec.loader.exec_module(process_gone)
 
 
 def progress_after(output: str) -> "watchdog.InFlight":
@@ -215,23 +219,8 @@ def fake_test_command(body: str) -> list[str]:
     return [sys.executable, "-u", "-c", textwrap.dedent(body)]
 
 
-def pid_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-
 def wait_for_exit(pid: int, seconds: float = 5.0) -> bool:
-    deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
-        if not pid_alive(pid):
-            return True
-        time.sleep(0.05)
-    return False
+    return process_gone.died(pid, within=seconds)
 
 
 class WatchdogProcessTests(unittest.TestCase):

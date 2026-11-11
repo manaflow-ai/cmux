@@ -253,9 +253,9 @@ pub(super) fn resolve_workspace_index(
     if id.is_none() && key.is_none() {
         anyhow::bail!("workspace or key is required");
     }
-    let by_id = id.and_then(|id| state.workspaces.iter().position(|workspace| workspace.id == id));
-    let by_key =
-        key.and_then(|key| state.workspaces.iter().position(|workspace| workspace.key == key));
+    // By the state's own indexes: a scan of every workspace for each request grew with the session.
+    let by_id = id.and_then(|id| state.workspace_index(id));
+    let by_key = key.and_then(|key| state.workspace_index_by_key(key));
     match (id, key, by_id, by_key) {
         (Some(id), _, None, _) => anyhow::bail!("unknown workspace {id}"),
         (_, Some(key), _, None) => anyhow::bail!("unknown workspace key {key}"),
@@ -319,6 +319,7 @@ pub(super) fn close_surface_delta(
             entity,
             workspace_revision: None,
             transaction: None,
+            mutation: None,
         });
     }
     close_pane_delta(state, notifications, pane_id)
@@ -347,6 +348,7 @@ pub(super) fn close_pane_delta(
             entity,
             workspace_revision: None,
             transaction: None,
+            mutation: None,
         });
     }
     close_screen_delta(state, notifications, screen.id)
@@ -373,6 +375,7 @@ pub(super) fn close_screen_delta(
         entity,
         workspace_revision: None,
         transaction: None,
+        mutation: None,
     })
 }
 
@@ -398,6 +401,7 @@ pub(super) fn close_workspace_delta(
         entity,
         workspace_revision: None,
         transaction: None,
+        mutation: None,
     })
 }
 
@@ -552,11 +556,17 @@ pub(super) fn remove_surface(
     let old_order = pane.tabs.clone();
     pane.tabs.remove(idx);
     if !pane.tabs.is_empty() {
-        // The app's rule, from the one place it lives: the tab before the
-        // closed one, else the one after it; an unselected close keeps it.
+        // The app's rule, from the one place it lives (Chrome's, positional
+        // here: the daemon keeps no opener): the tab after the closed one,
+        // else the one before it; an unselected close keeps it.
         let shown: HashSet<SurfaceId> = pane.tabs.iter().copied().collect();
-        let pick =
-            cmux_focus_core::close_focus::tab(selected.as_ref(), &old_order, &pane.tabs, &shown);
+        let pick = cmux_focus_core::close_focus::tab(
+            selected.as_ref(),
+            &old_order,
+            &pane.tabs,
+            &shown,
+            &cmux_focus_core::close_focus::TabRelations::<SurfaceId>::default(),
+        );
         pane.active_tab =
             pick.and_then(|pick| pane.tabs.iter().position(|id| *id == pick)).unwrap_or(0);
         fence_layout_undo_for_tab_membership(state, &[pane_id]);

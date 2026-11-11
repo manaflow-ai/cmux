@@ -30,6 +30,8 @@ public final class Tab implements WireValue {
     private final Field<String> terminalIncarnation;
     private final Field<String> terminalResourceId;
     private final String title;
+    private final Field<String> titleActivity;
+    private final Field<String> titleText;
 
     private Tab(Builder builder) {
         this.browserError = builder.browserError;
@@ -57,6 +59,8 @@ public final class Tab implements WireValue {
         this.terminalResourceId = builder.terminalResourceId;
         if (!builder.titleSet) throw new IllegalArgumentException("title is required");
         this.title = Wire.nonNull(builder.title, "title");
+        this.titleActivity = builder.titleActivity;
+        this.titleText = builder.titleText;
     }
 
     public static Builder builder() { return new Builder(); }
@@ -79,6 +83,8 @@ public final class Tab implements WireValue {
     public Field<String> terminalIncarnation() { return terminalIncarnation; }
     public Field<String> terminalResourceId() { return terminalResourceId; }
     public String title() { return title; }
+    public Field<String> titleActivity() { return titleActivity; }
+    public Field<String> titleText() { return titleText; }
 
     public static Tab fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "Tab");
@@ -141,6 +147,14 @@ public final class Tab implements WireValue {
         }
         Object rawTitle = Wire.required(object, "title");
         builder.title(Wire.string(rawTitle, "Tab.title"));
+        Object rawTitleActivity = Wire.optional(object, "title_activity");
+        if (!Wire.isMissing(rawTitleActivity)) {
+            builder.titleActivity(rawTitleActivity == null ? null : Wire.string(rawTitleActivity, "Tab.title_activity"));
+        }
+        Object rawTitleText = Wire.optional(object, "title_text");
+        if (!Wire.isMissing(rawTitleText)) {
+            builder.titleText(Wire.string(rawTitleText, "Tab.title_text"));
+        }
         return builder.build();
     }
 
@@ -165,17 +179,19 @@ public final class Tab implements WireValue {
         Wire.put(object, "terminal_incarnation", terminalIncarnation);
         Wire.put(object, "terminal_resource_id", terminalResourceId);
         Wire.put(object, "title", title);
+        Wire.put(object, "title_activity", titleActivity);
+        Wire.put(object, "title_text", titleText);
         return Collections.unmodifiableMap(object);
     }
 
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof Tab that)) return false;
-        return Objects.equals(browserError, that.browserError) && Objects.equals(browserFramesStalled, that.browserFramesStalled) && Objects.equals(browserSource, that.browserSource) && Objects.equals(browserStatus, that.browserStatus) && Objects.equals(dead, that.dead) && Objects.equals(kind, that.kind) && Objects.equals(name, that.name) && Objects.equals(notification, that.notification) && Objects.equals(programStatus, that.programStatus) && Objects.equals(shortId, that.shortId) && Objects.equals(size, that.size) && Objects.equals(supportsClearHistoryKeyFallback, that.supportsClearHistoryKeyFallback) && Objects.equals(surface, that.surface) && Objects.equals(terminalHostFallback, that.terminalHostFallback) && Objects.equals(terminalId, that.terminalId) && Objects.equals(terminalIncarnation, that.terminalIncarnation) && Objects.equals(terminalResourceId, that.terminalResourceId) && Objects.equals(title, that.title);
+        return Objects.equals(browserError, that.browserError) && Objects.equals(browserFramesStalled, that.browserFramesStalled) && Objects.equals(browserSource, that.browserSource) && Objects.equals(browserStatus, that.browserStatus) && Objects.equals(dead, that.dead) && Objects.equals(kind, that.kind) && Objects.equals(name, that.name) && Objects.equals(notification, that.notification) && Objects.equals(programStatus, that.programStatus) && Objects.equals(shortId, that.shortId) && Objects.equals(size, that.size) && Objects.equals(supportsClearHistoryKeyFallback, that.supportsClearHistoryKeyFallback) && Objects.equals(surface, that.surface) && Objects.equals(terminalHostFallback, that.terminalHostFallback) && Objects.equals(terminalId, that.terminalId) && Objects.equals(terminalIncarnation, that.terminalIncarnation) && Objects.equals(terminalResourceId, that.terminalResourceId) && Objects.equals(title, that.title) && Objects.equals(titleActivity, that.titleActivity) && Objects.equals(titleText, that.titleText);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(browserError, browserFramesStalled, browserSource, browserStatus, dead, kind, name, notification, programStatus, shortId, size, supportsClearHistoryKeyFallback, surface, terminalHostFallback, terminalId, terminalIncarnation, terminalResourceId, title); }
+    public int hashCode() { return Objects.hash(browserError, browserFramesStalled, browserSource, browserStatus, dead, kind, name, notification, programStatus, shortId, size, supportsClearHistoryKeyFallback, surface, terminalHostFallback, terminalId, terminalIncarnation, terminalResourceId, title, titleActivity, titleText); }
 
     @Override
     public String toString() { return "Tab" + toWire(); }
@@ -206,6 +222,8 @@ public final class Tab implements WireValue {
         private Field<String> terminalResourceId = Field.omitted();
         private String title;
         private boolean titleSet;
+        private Field<String> titleActivity = Field.omitted();
+        private Field<String> titleText = Field.omitted();
 
         public Builder browserError(String value) {
             this.browserError = Field.ofNullable(value);
@@ -284,6 +302,14 @@ public final class Tab implements WireValue {
         public Builder title(String value) {
             this.title = value;
             this.titleSet = true;
+            return this;
+        }
+        public Builder titleActivity(String value) {
+            this.titleActivity = Field.ofNullable(value);
+            return this;
+        }
+        public Builder titleText(String value) {
+            this.titleText = Field.of(value);
             return this;
         }
         public Tab build() { return new Tab(this); }

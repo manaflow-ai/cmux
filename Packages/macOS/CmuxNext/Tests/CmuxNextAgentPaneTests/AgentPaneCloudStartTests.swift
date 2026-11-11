@@ -1,3 +1,4 @@
+import CmuxNextSettings
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -258,6 +259,21 @@ struct AgentPaneCloudStartTests {
         let unnamed = try #require(AgentPaneCloudStart(params: ["task": "t", "key": UUID().uuidString]))
         #expect(unnamed.seed(cwd: "/w").model == nil)
         #expect(unnamed.seed(cwd: "/w").harness == nil)
+    }
+
+    /// What the sending tab's composer held while the start ran (its unsent text) is the started chat's
+    /// draft, shown and never sent, beside the prompt that goes by itself; an attachment-only start too.
+    @Test func theStartedChatsDraftIsWhatTheSendingTabTypedMeanwhile() throws {
+        let start = try #require(AgentPaneCloudStart(params: Self.good))
+        let seed = start.seed(cwd: "/w", draft: "and the nightly")
+        #expect(seed.draft == "and the nightly")
+        #expect(seed.prompt == "fix the build")
+        #expect(start.seed(cwd: "/w").draft == nil)
+        let image = JSONValue.object(["id": .string("shot"), "kind": .string("image"), "name": .string("shot.png")])
+        let chipsOnly = try #require(AgentPaneCloudStart(params: ["task": "", "key": UUID().uuidString, "attachments": [image.foundationObject]]))
+        let attached = chipsOnly.seed(cwd: nil, draft: "and the nightly")
+        #expect(attached.draft == "and the nightly")
+        #expect(attached.promptAttachments == [image])
     }
 
     @Test func aChatWithNoProjectStartsInTheMachinesOwnFolder() throws {

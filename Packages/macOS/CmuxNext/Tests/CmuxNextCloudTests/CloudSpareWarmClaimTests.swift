@@ -6,8 +6,10 @@ import Testing
 /// `cmux.cloud.copyLoginOnClaim` is on, and it names that exact machine to Rust's `warm-spare`, which keys
 /// the copy in flight on it.
 @Suite struct CloudSpareWarmClaimTests {
-    @Test func theCopyOnClaimIsOffByDefault() throws {
+    @Test func theCopyOnClaimIsOnByDefault() throws {
         let defaults = try #require(UserDefaults(suiteName: "CloudSpareWarmClaimTests-\(UUID().uuidString)"))
+        #expect(CloudMoveCLI.copiesLoginOnClaim(defaults))
+        defaults.set(false, forKey: CloudMoveCLI.copyLoginOnClaimKey)
         #expect(!CloudMoveCLI.copiesLoginOnClaim(defaults))
         defaults.set(true, forKey: CloudMoveCLI.copyLoginOnClaimKey)
         #expect(CloudMoveCLI.copiesLoginOnClaim(defaults))
@@ -23,6 +25,9 @@ import Testing
         #expect(CloudMoveCLI.spareWarmRequest(platform: platform, account: "user_a", end: nil, claimed: nil)["claimed"] == nil)
         let finished = CloudMoveCLI.spareWarmRequest(platform: platform, account: "user_a", end: .finished("vm_0123456789abcdefghij"), claimed: nil)
         #expect(finished["finished"] as? String == "vm_0123456789abcdefghij" && finished["claimed"] == nil)
+        // An installed copy is named as such: Rust keeps it as the start's login receipt.
+        let installed = CloudMoveCLI.spareWarmRequest(platform: platform, account: "user_a", end: .installed("vm_0123456789abcdefghij"), claimed: nil)
+        #expect(installed["installed"] as? String == "vm_0123456789abcdefghij" && installed["finished"] == nil && installed["claimed"] == nil)
     }
 
     @Test func aReservationsMachineIsTheOneItAnswered() {

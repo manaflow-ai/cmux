@@ -267,6 +267,17 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 .collect();
             json!({ "active": active, "refusal": refusal, "allowed": allowed })
         }
+        // The account's teams as every team list shows them: whose each is, its plan, the active one.
+        b"cloud_auth_team_rows" => {
+            #[derive(Deserialize)]
+            struct Request {
+                #[serde(default)]
+                teams: Vec<auth::TeamFacts>,
+                active: Option<String>,
+            }
+            let request: Request = read(request)?;
+            json!({ "rows": auth::team_rows(&request.teams, request.active.as_deref()) })
+        }
         b"cloud_vm_agent_key_request" => {
             #[derive(Deserialize)]
             struct Request {
