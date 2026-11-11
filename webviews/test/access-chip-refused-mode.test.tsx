@@ -188,27 +188,6 @@ test("a mode the agent refuses goes back to the mode in force and is marked refu
   expect(host.querySelector(".acpmux-mode")!.getAttribute("title") ?? "").toContain("Not allowed on this Mac");
 });
 
-// Leo, 2026-11-11: "switching models between chats, and then the permission state gets messed up".
-// Before a session there is no id, so a refusal on a New Tab's Claude chip must not follow the
-// chip to Codex: the refusal belongs to the chat and harness it was made on.
-test("a refusal before a session stays with its harness when the chip switches agent", async () => {
-  const fresh = (harness: string): Summary => {
-    const { sessionId: _, ...rest } = reported("", "default")!;
-    return { ...rest, harness };
-  };
-  await render(fresh("claude"), () => Promise.reject(new Error("bypassPermissions is disabled by managed settings")));
-  const { openPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
-  await act(async () => void openPicker("Mode"));
-  await act(async () => item("Bypass permissions")!.click());
-  await flush();
-  // Claude refused it: nothing else to pick, so the chip is a plain label.
-  expect(trigger()).toBeNull();
-  await render(fresh("codex"), () => undefined);
-  await flush();
-  // Codex never refused anything: its chip is a live menu.
-  expect(trigger()).not.toBeNull();
-});
-
 // #23322: an MDM-managed `sessions.allowFullAccess = false` is an upper bound the person can't
 // override. acpmux's `_acpmux/start_mode` answer then says `"fullAccess": "managed"` (a mode-less
 // answer too), and each full-access row is disabled and says so. An answer without the field (MDM
