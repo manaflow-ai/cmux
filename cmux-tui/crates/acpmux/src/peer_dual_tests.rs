@@ -384,7 +384,10 @@ async fn a_load_the_switch_cut_off_is_sent_again_on_the_next_link() {
     for switched in [true, false] {
         let (reply, mut waiting) = oneshot::channel();
         peer.pending.lock().await.insert("7".to_owned(), reply);
-        peer.switch_retry.lock().unwrap().insert("7".to_owned(), (line.to_owned(), 2));
+        peer.switch_retry
+            .lock()
+            .unwrap()
+            .insert("7".to_owned(), (line.to_owned(), Arc::new(AtomicU64::new(2))));
         peer.switched.store(switched, Ordering::SeqCst);
         peer.fail_link_requests(&mut out_rx).await;
         assert_eq!(peer.pending.lock().await.contains_key("7"), switched);
@@ -617,9 +620,9 @@ async fn a_load_made_right_after_a_switch_is_sent_once() {
     }
     {
         let mut retry = peer.switch_retry.lock().unwrap();
-        retry.insert("7".to_owned(), (old.to_owned(), 2));
+        retry.insert("7".to_owned(), (old.to_owned(), Arc::new(AtomicU64::new(2))));
         // Sent on link 3 already, by its caller.
-        retry.insert("8".to_owned(), (new.to_owned(), 3));
+        retry.insert("8".to_owned(), (new.to_owned(), Arc::new(AtomicU64::new(3))));
     }
     peer.resend_switched(3).await;
     let again = out_rx.try_recv().expect("the old link's load goes again");

@@ -342,11 +342,12 @@ impl Peer {
         // A client's cancel of a request the shadow carried a copy of goes on both paths as is
         // (review F1 of #41285): the link's path is in doubt, and the peer stops whichever copy
         // runs on hearing it on either (`server/dual_requests.rs`).
+        // Never dropped (review F2 of #41361): a full shadow queue is waited out, as the link's
+        // own cancel is (`PeerCancel::send`), or the shadow's copy would run on unstopped.
         if let Some(request) = cancelled_request(&text) {
-            if self.dual_keys.lock_or_recover().remove(&request)
-                && shadow.tx.try_send(text.clone()).is_ok()
-            {
+            if self.dual_keys.lock_or_recover().remove(&request) {
                 self.dual_stats.sent(text.len());
+                self.shadow_cancel(&shadow.tx, text.clone(), &request);
             }
             return text;
         }
@@ -365,6 +366,30 @@ impl Peer {
             }
         }
         stamped
+    }
+
+    /// `cancel` on the shadow, whose queue may be full: then sent once there is room. Only a
+    /// shadow that ended drops it, and then its connection is gone with the copy's caller.
+    fn shadow_cancel(&self, tx: &mpsc::Sender<String>, cancel: String, request: &str) {
+        let cancel = match tx.try_send(cancel) {
+            Ok(()) => return,
+            Err(mpsc::error::TrySendError::Full(cancel)) => Some(cancel),
+            Err(mpsc::error::TrySendError::Closed(_)) => None,
+        };
+        let (tx, peer, request) = (tx.clone(), self.name.clone(), request.to_owned());
+        let gone = move || {
+            tracing::debug!(target: crate::request_cancel::LOG_TARGET, peer = %peer, id = %request, "the shadow ended before its cancel went out");
+        };
+        match (cancel, tokio::runtime::Handle::try_current()) {
+            (Some(cancel), Ok(rt)) => {
+                rt.spawn(async move {
+                    if tx.send(cancel).await.is_err() {
+                        gone();
+                    }
+                });
+            }
+            _ => gone(),
+        }
     }
 
     /// The chat event `seq` of chat `sid` (`method`, `params`) from `source`, read on link
@@ -672,8 +697,15 @@ impl Peer {
                 let tx = self.pending.lock().await.remove(&key);
                 self.on_wire.lock_or_recover().remove(&key);
                 self.dual_keys.lock_or_recover().remove(&key);
-                if let Some(tx) = tx {
-                    let _ = tx.send(Ok(result.unwrap_or(Value::Null)));
+                match tx {
+                    Some(tx) => {
+                        let _ = tx.send(Ok(result.unwrap_or(Value::Null)));
+                    }
+                    // Nobody waits: a cancelled request's late answer is dropped and logged, as
+                    // the link's is (review F4 of #41361).
+                    None => {
+                        self.cancelled.lock_or_recover().take_late(&key, "shadow");
+                    }
                 }
                 Vec::new()
             }
