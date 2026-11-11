@@ -89,6 +89,11 @@ jobs:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           JOBS: resolve post
+          # Never a mini: an owned Mac's ephemeral runner spends 20-60 s setting up and tearing down
+          # ("Set up runner", "Complete runner") around these jobs' ~5 s of work. resolve placed on a mini
+          # ran 41 s at p50 and 67 s at p90 against 5 s and 7 s on hosted Ubuntu (2026-11-11 timing
+          # records, 27 and 224 jobs), on the fast gate's critical path. Fleet Linux, when free, still takes them.
+          LINUX_ONLY: resolve post
           # Only the owned-pool rescue bot's third attempt may re-place these
           # light jobs. Other workflows and manual retries stay fail-closed.
           PORTABLE_ATTEMPT3_RESCUE: '1'

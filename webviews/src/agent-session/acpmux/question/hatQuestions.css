@@ -114,6 +114,23 @@
   background: none;
   padding: 0;
 }
+/* The shared × (ui/DismissButton.tsx) at the head's end: it keeps its room while hidden, so the
+   head's text is laid out beside it and a hover moves nothing. Muted, as the pager. */
+.acpmux-hat-questions__dismiss {
+  width: var(--ds-control-icon, 20px);
+  height: var(--ds-control-icon, 20px);
+  min-height: 0;
+  color: var(--agent-muted);
+}
+/* The gallery's comparison arm: the × over the band's corner, in no room of its own. */
+.acpmux-hat-questions[data-dismiss="corner"] .acpmux-hat-questions__body {
+  position: relative;
+}
+.acpmux-hat-questions[data-dismiss="corner"] .acpmux-hat-questions__dismiss {
+  position: absolute;
+  top: var(--ds-space-1, 4px);
+  right: var(--ds-space-1, 4px);
+}
 /* What a started chat's question is about (its header), after who asks, quieter than the question. */
 .acpmux-hat-questions__about {
   flex: 0 1 auto;
