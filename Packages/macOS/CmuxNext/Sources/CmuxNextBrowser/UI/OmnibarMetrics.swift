@@ -2,8 +2,8 @@ public import CoreGraphics
 public import CmuxNextDesign
 
 /// The omnibar's sizes at one density (https://github.com/manaflow-ai/cmux/issues/28734): the bar,
-/// its text, the toolbar buttons beside it and their icons. Standard (the `compact` preset, level 0,
-/// the default) is today's Helium bar exactly: a 28 pt bar and buttons, 14 pt text, 13 pt chip
+/// its text, the toolbar buttons beside it and their icons. Compact (the `compact` preset, level 0)
+/// is the Helium bar exactly: a 28 pt bar and buttons, 14 pt text, 13 pt chip
 /// icons, 20 pt toolbar icons, 18 pt trailing icons. Comfortable (level 1) is Chrome's roomier bar:
 /// 34 pt (`kToolbarButtonHeight`), 15 pt text (`TypeScale.field` to `TypeScale.title`). Other densities sit on the same line by their level
 /// (`DensityTokens.resolve`), so Ultra-compact is tighter than today and Spacious roomier, and a
