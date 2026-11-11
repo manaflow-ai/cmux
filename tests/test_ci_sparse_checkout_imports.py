@@ -2013,6 +2013,20 @@ _SHELL_SHAPES: tuple[tuple[str, bool, str, str | None], ...] = (
     ("{ { cd scripts/ci; }; :; }\npython3 x", True, "x", _CI),
     ("{ cd scripts/ci; } || exit 1\npython3 x", True, "x", _CI),
     ("if true; then { cd scripts/a; }; fi\npython3 x", True, "x", None),
+    # Review of #41068 and the generative oracle's seeds at cc20acab: a group's status keeps whether
+    # its failure was exempt from errexit, a set -e / +e that not every path runs leaves errexit
+    # unknown, and a cd in a group that also has ! or a redirect is unknown.
+    ("{ ! cd scripts/ci; }\npython3 x", True, "x", None),  # seed 15746
+    ("{ cd scripts/ci > / && :; }\npython3 x", True, "x", None),
+    ("{ ! : && cd scripts/a > /; } ; python3 x", True, "x", None),  # seed 17557
+    ("{ ! cd .. && true; }\npython3 x", True, "x", None),  # seed 35154
+    ("{ set -e && ! { ! { cd lib > /; }\n} && ( cd ci && true )\n}\npython3 x", True, "x", None),  # seed 38087
+    ("set +e || set -e || set -e\ncd scripts/ci > /\npython3 x", True, "x", None),  # seed 46581
+    ("true || { false || set -e; } && true\ncd lib > / ; python3 x", False, "x", None),  # seed 27650
+    ("{ false && set -e && cd scripts/ci > /; }\npython3 x", False, "x", None),  # seed 40274
+    ("{ cd scripts/ci && :; }\npython3 x", True, "x", None),
+    ("{ cd scripts/ci && :; } || exit 1\npython3 x", True, "x", _CI),
+    ("set +e\nset -e\ncd scripts/ci\npython3 x", True, "x", _CI),
     # Outside the grammar: the directory is unknown from there on.
     ("go() { cd scripts/ci; }\npython3 x", True, "x", None),
     ("function go {\n  cd scripts/ci\n}\npython3 x", True, "x", None),
@@ -2726,6 +2740,29 @@ class SparseCheckoutImportTests(unittest.TestCase):
             "DYNAMIC_IMPORT_AUDIT: scripts/ci/vend.py scripts/ci/vendor/x.py: no call in scripts/ci/vend.py "
             "matches it; re-check the call and the entry",
             self._misses(listed, run=run, audit=audit, more=other),
+        )
+
+    def test_fixture_review_41068_f2_an_unknown_directory_probes_every_tracked_folder(self) -> None:
+        # '../../shared/x.py' names shared/x.py from scripts/ci, a folder that is not on the way to it:
+        # from an unknown directory the entry is live, and the load unverifiable, not stale.
+        audit = {("scripts/ci/vend.py", "shared/x.py"): "optional: vend.py runs without it"}
+        more = {
+            **self.VENDOR,
+            "scripts/ci/vend.py": self.VENDOR["scripts/ci/vend.py"].replace("vendor/x.py", "../../shared/x.py"),
+            "shared/x.py": "",
+        }
+        self.assertEqual(
+            self._misses(
+                self.block("scripts/ci/vend.py"),
+                run=self.block("true || cd scripts/ci", "python3 scripts/ci/vend.py"),
+                audit=audit,
+                more=more,
+            ),
+            [
+                "w.yml run Check out: scripts/ci/vend.py calls importlib.util.spec_from_file_location('v', "
+                "'../../shared/x.py') (line 3), which this check cannot follow; make the import static or audit "
+                "it in DYNAMIC_IMPORT_AUDIT"
+            ],
         )
 
     def test_fixture_fixed_sys_path_insert_joins_the_search_path(self) -> None:
