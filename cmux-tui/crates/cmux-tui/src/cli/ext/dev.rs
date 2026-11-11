@@ -41,9 +41,10 @@ pub(super) const BUILD_TIMEOUT: Duration = Duration::from_secs(120);
 /// counts, as a daemon request does (`daemon::REQUEST_DEADLINE`).
 const PICKUP_DEADLINE: Duration = Duration::from_secs(30);
 
-/// How long the load check may take (the daemon's own trial waits 5 s).
-// timeout: a hang breaker over the daemon's own 5 s trial, which answers apps-mount-failed itself
-const PROBE_DEADLINE: Duration = Duration::from_secs(10);
+/// How long the load check may take from `apps-mount` to the interface's first scene. Nothing in the
+/// daemon bounds a cold host's first render (it sends `apps-mount-failed` only for a spawn failure,
+/// a host exit or a missing export), so this is that render's only limit, the same as a pickup.
+const PROBE_DEADLINE: Duration = PICKUP_DEADLINE;
 
 /// Package files copied per reload (a runaway folder costs no more).
 const MAX_FILES: usize = 2_000;

@@ -42,6 +42,9 @@ SWIFT_SOCKET_TIMEOUT = re.compile(r"\bSO_(?:SNDTIMEO|RCVTIMEO)\b")
 RUST_DURATION = re.compile(rf"\bDuration::from_(secs|millis)\(\s*({NUM})\s*\)")
 RUST_CONST_NAME = re.compile(r"\b(?:const|static)\s+\w*(?:TIMEOUT|BUDGET|DEADLINE|WAIT)\w*\b", re.I)
 RUST_TIMEOUT_CALL = re.compile(r"(?:tokio::time::timeout|\.timeout\s*\(|\bwait_timeout\b)")
+# A Duration constant named a LIMIT is a deadline too (cli/app/wait.rs RECONNECT_GONE_LIMIT). Only
+# its own declaration counts: a count named LIMIT (a usize) near some other Duration is not one.
+RUST_LIMIT_CONST = re.compile(r"\b(?:const|static)\s+\w*LIMIT\w*\s*:\s*(?:std::time::)?Duration\b")
 
 TS_HARD_TIMEOUT = re.compile(
     rf"\b(?:[A-Za-z_]*timeout(?:Ms|_ms)|[A-Za-z_]*deadline)\b\s*(?:\??\s*:\s*[^=,;]+)?(?:=|:)[^;\n]*?({NUM})\b",
@@ -147,7 +150,11 @@ def scan_source(text: str, rel: str) -> list[dict]:
             index = bisect.bisect_right(line_starts, match.start()) - 1
             value = _value(match.group(2), match.group(1))
             context = "\n".join(lines[max(0, index - 3) : min(len(lines), index + 4)])
-            if value < FLOOR_MS and (RUST_CONST_NAME.search(context) or RUST_TIMEOUT_CALL.search(context)):
+            if value < FLOOR_MS and (
+                RUST_CONST_NAME.search(context)
+                or RUST_TIMEOUT_CALL.search(context)
+                or RUST_LIMIT_CONST.search(lines[index])
+            ):
                 raw = raw_lines[index] if index < len(raw_lines) else ""
                 _hit(hits, "rust-duration", index + 1, raw, raw_lines)
     return hits

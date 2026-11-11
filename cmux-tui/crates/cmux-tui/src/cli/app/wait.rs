@@ -22,15 +22,16 @@ const FIRST_NOTE_AFTER: Duration = Duration::from_secs(2);
 // timeout: the interval between progress notes; the wait itself goes on
 const NOTE_EVERY: Duration = Duration::from_secs(5);
 /// The first wait before a new connection after the app dropped one; each next wait doubles, up to
-/// [`RECONNECT_MAX_WAIT`], until the request's deadline (`run::not_run_deadline`): an app restarting
-/// its control server takes as long as it takes, never a fixed two tries.
+/// [`RECONNECT_MAX_WAIT`], until the request's deadline (`run::not_run_deadline`): a control server
+/// that is back within [`RECONNECT_GONE_LIMIT`] is healed, never after a fixed two tries.
 // timeout: a reconnect backoff's first step, not a deadline
 const RECONNECT_FIRST_WAIT: Duration = Duration::from_millis(200);
 // timeout: a reconnect backoff's cap, not a deadline
 const RECONNECT_MAX_WAIT: Duration = Duration::from_secs(2);
 /// How long after a dropped connection the app's socket may stay missing or refusing, retried with the doubling
-/// waits above, before the app counts as quit: a control server that restarts slowly still heals, and a quit app
-/// fails here, not at the request's whole deadline.
+/// waits above, before the app counts as quit: a control server back within it heals, and a quit app fails
+/// here, not at the request's whole deadline.
+// timeout: tells a quit app from a restarting one; a restart slower than this reports app.unreachable
 const RECONNECT_GONE_LIMIT: Duration = Duration::from_secs(5);
 
 /// `run::request_with_retry` with progress notes while it waits; a transport

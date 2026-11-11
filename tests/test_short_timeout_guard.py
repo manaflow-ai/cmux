@@ -72,6 +72,16 @@ class ShortTimeoutGuardTests(unittest.TestCase):
             ["rust-duration", "rust-duration", "rust-duration"],
         )
 
+        # A Duration constant named a LIMIT is a deadline with no other deadline word near it
+        # (cli/app/wait.rs RECONNECT_GONE_LIMIT); a usize LIMIT beside a pace is not one.
+        path = "cmux-tui/crates/cmux-tui/src/cli/app/wait.rs"
+        limit = "/// After this the app counts as quit.\nconst RECONNECT_GONE_LIMIT: Duration = Duration::from_secs(5);\n"
+        self.assertEqual([(hit["pattern"], hit["line"]) for hit in guard.scan_source(limit, path)], [("rust-duration", 2)])
+        reasoned = "// timeout: tells a quit app from a restarting one\nconst GONE_LIMIT: std::time::Duration = std::time::Duration::from_secs(5);\n"
+        self.assertEqual(guard.scan_source(reasoned, path), [])
+        count = "const MAX_LIMIT: usize = 200;\n/// How often to read.\nconst RECHECK: Duration = Duration::from_secs(1);\n"
+        self.assertEqual(guard.scan_source(count, path), [])
+
         ts = (
             "const deadline = performance.now() + 2_000;\n"
             "const timeoutMs = 30_000;\n"
