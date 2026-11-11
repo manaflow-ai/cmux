@@ -135,4 +135,21 @@ describe("a team-scoped check syncs a Stack team the webhook never mirrored", { 
     const fake = { stack: s.w.fake, pace: async () => true, now: () => Date.now() }
     expect(await selectTeam(workerEnv, p, s.team, fake)).toMatchObject({ ok: true, principal: { team: s.team } })
   })
+
+  // Review F1: healing one team took the person's Stack read for the window, and the next user.teams.list got an
+  // empty map, so a second unmirrored team went unlisted for ten minutes. The window now hands back the same teams.
+  it("healing one team leaves the person's other unmirrored teams to the next list", async () => {
+    const s = await setup("First")
+    const other = crypto.randomUUID()
+    await useStack(other, s.w)
+    s.w.teams.set(other, "Second")
+    s.w.members.set(`${other}:${s.me}`, "Leo")
+    const p = { identity: `test:${s.me}`, kind: "session" as const, user: s.user, team: personalTeamIdFor(s.user), stack_user_id: s.me }
+    const fake = { stack: s.w.fake, pace: async () => true, now: () => Date.now() }
+    expect(await selectTeam(workerEnv, p, s.team, fake)).toMatchObject({ ok: true, principal: { team: s.team } })
+    const r = await listUserTeams(workerEnv, p, fake)
+    const ids = (r as { value: { teams: Array<{ id: string }> } }).value.teams.map((t) => t.id)
+    expect(ids).toContain(s.team)
+    expect(ids).toContain(teamIdOf(other))
+  })
 })
