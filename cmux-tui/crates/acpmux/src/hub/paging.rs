@@ -701,7 +701,7 @@ impl Hub {
                 before,
                 limit,
                 max_bytes,
-                &kinds,
+                (&kinds, over, pattern),
                 session.as_deref(),
             );
         }
@@ -777,10 +777,9 @@ impl Hub {
         before: u64,
         limit: usize,
         max_bytes: Option<usize>,
-        kinds: &[&str],
+        (kinds, over, pattern): (&[&str], Option<usize>, Option<&str>),
         session: Option<&Session>,
     ) -> Result<EventPage> {
-        let bounded = max_bytes.is_some();
         let mut newest = std::collections::VecDeque::new();
         let (mut bytes, mut has_more) = (0usize, false);
         self.store.scan_kinds(id, kinds, &mut |mut rec| {
@@ -791,7 +790,7 @@ impl Hub {
                 return true;
             }
             self.display_logged(session, &mut rec);
-            let (rec, rec_bytes) = fit(rec, bounded);
+            let (rec, rec_bytes) = fit(rec, over, pattern);
             newest.push_back((rec, rec_bytes));
             bytes += rec_bytes;
             // The oldest held goes once it is past the count, or past the size with a newer
