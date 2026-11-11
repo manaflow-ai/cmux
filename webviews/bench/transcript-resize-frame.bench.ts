@@ -38,7 +38,19 @@ await vite.listen();
 const pagePath = "/test/browser/transcript-fling.html";
 await warmViteServer(vite, pagePath);
 const browser = await chromium.launch({ headless: true });
-type Drag = { work: number[]; intervals: number[]; reactMs: number; layoutMs: number; spans: Record<string, number> };
+type Drag = {
+  work: number[];
+  intervals: number[];
+  reactMs: number;
+  layoutMs: number;
+  spans: Record<string, number>;
+  /// Frames where two mounted rows overlap on screen (a row drawn over the one under it).
+  overlaps: number;
+  /// The most the latest row's bottom moved from where it rested before the drag, over its frames.
+  drift: number;
+  /// How far the latest row's bottom moved from the drag's last frame to after the width held.
+  settleJump: number;
+};
 const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!;
 const pct = (values: number[], p: number) => {
   const sorted = [...values].sort((a, b) => a - b);
@@ -70,6 +82,21 @@ try {
           ].map(Math.round);
           const work: number[] = [];
           const stamps: number[] = [];
+          // Read once the frame rendered (layout is clean then: no read here forces one).
+          const latestFoot = () => {
+            const rows = scroller.querySelectorAll<HTMLElement>(".acpmux-thread > .acpmux-row");
+            const last = rows[rows.length - 1];
+            return last ? scroller.getBoundingClientRect().bottom - last.getBoundingClientRect().bottom : 0;
+          };
+          const overlapping = () => {
+            const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-thread > .acpmux-row")];
+            const boxes = rows.map((row) => row.getBoundingClientRect()).sort((a, b) => a.top - b.top);
+            return boxes.some((box, i) => i > 0 && box.top < boxes[i - 1]!.bottom - 0.5);
+          };
+          const rest = latestFoot();
+          let overlaps = 0;
+          let drift = 0;
+          let lastFoot = rest;
           await new Promise<void>((done) => {
             let index = 0;
             const tick = (now: number) => {
@@ -80,15 +107,25 @@ try {
               root.style.width = `${widths[index]}px`;
               index += 1;
               const channel = new MessageChannel();
-              channel.port1.onmessage = () => work.push(performance.now() - start);
+              channel.port1.onmessage = () => {
+                work.push(performance.now() - start);
+                lastFoot = latestFoot();
+                drift = Math.max(drift, Math.abs(lastFoot - rest));
+                if (overlapping()) overlaps += 1;
+              };
               channel.port2.postMessage(0);
               requestAnimationFrame(tick);
             };
             requestAnimationFrame(tick);
           });
-          // Let the last frame's task land.
+          // Let the last frame's task land, then the width hold and the rows be placed at it.
           await new Promise((resolve) => setTimeout(resolve, 50));
-          const stats = acpmuxPerf.stats() as unknown as {
+          const stats0 = acpmuxPerf.stats();
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          for (let frame = 0; frame < 3; frame += 1) await new Promise(requestAnimationFrame);
+          const settleJump = Math.abs(latestFoot() - lastFoot);
+          if (overlapping()) overlaps += 1;
+          const stats = stats0 as unknown as {
             react?: { p95_ms: number };
             layout?: { p95_ms: number };
             spans?: Record<string, { p95_ms: number }>;
@@ -100,6 +137,9 @@ try {
             reactMs: stats.react?.p95_ms ?? 0,
             layoutMs: stats.layout?.p95_ms ?? 0,
             spans: Object.fromEntries(Object.entries(stats.spans ?? {}).map(([k, v]) => [k, v.p95_ms])),
+            overlaps,
+            drift: Math.round(drift * 10) / 10,
+            settleJump: Math.round(settleJump * 10) / 10,
           };
         },
         { wide: WIDE, narrow: NARROW, steps: STEPS },
@@ -140,6 +180,7 @@ try {
         `transcript-resize-frame turns=${turns} drag#${round}: frames=${run.work.length} ` +
           `work_ms p50/p95/max=${pct(run.work, 0.5)}/${pct(run.work, 0.95)}/${pct(run.work, 1)} ` +
           `over_budget=${over} dropped=${dropped} interval_p95=${pct(run.intervals, 0.95)} react_p95=${run.reactMs} layout_p95=${run.layoutMs} ` +
+          `overlap_frames=${run.overlaps} latest_drift_px=${run.drift} settle_jump_px=${run.settleJump} ` +
           `spans_p95=${JSON.stringify(run.spans)}`,
       );
     });
