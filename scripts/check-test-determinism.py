@@ -3954,7 +3954,8 @@ def detect_git_bare_repo_unmanaged(code_lines: list[str], path_suffix: str) -> l
 
 
 
-_SH_SOURCES_GIT_FIXTURE = re.compile(r"(?:^|[\s;&|(])(?:source|\.)\s+\S*git-fixture\.sh\b")
+# The path may hold spaces inside a substitution: source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh".
+_SH_SOURCES_GIT_FIXTURE = re.compile(r"(?:^|[\s;&|(])(?:source|\.)\s+[^;&|\n]*git-fixture\.sh\b")
 _SH_TRAP = re.compile(r"(?:^|[\s;&|(])trap\s+(?!-[pl]\b)(.*)")
 _SH_QUOTED = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"")
 _SH_EXIT_SIGNAL = re.compile(r"(?:^|\s)(?:EXIT|SIGEXIT|0)(?=\s|[;&|)]|$)")
@@ -4503,6 +4504,11 @@ def _self_test() -> int:
         (
             "scripts/cmux-next/tests/trap_after.test.sh",
             'source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\ntmp=$(mktemp -d)\ntrap \'rm -rf "$tmp"\' EXIT\n',
+            {RULE_GIT_FIXTURE_EXIT_TRAP},
+        ),
+        (
+            "scripts/cmux-next/tests/trap_after_dirname.test.sh",
+            'source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # opt out\ntmp=$(mktemp -d)\ntrap \'rm -rf "$tmp"\' EXIT\n',
             {RULE_GIT_FIXTURE_EXIT_TRAP},
         ),
         (

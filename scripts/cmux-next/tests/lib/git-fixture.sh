@@ -43,23 +43,24 @@ git_fixture_trap_exit() {
   _git_fixture_caller_exit=$1
 }
 
-_git_fixture_on_exit() {
-  local status=$?
+# Removes the folder; the caller's cleanup then runs from the trap itself (not inside this function), so it sees the
+# script's own positional parameters, as a direct `trap CMD EXIT` would.
+_git_fixture_remove_dir() {
   [[ -z "$_git_fixture_cleanup_dir" ]] || rm -rf -- "$_git_fixture_cleanup_dir"
-  if [[ -n "$_git_fixture_caller_exit" ]]; then
-    (exit "$status")
-    eval "$_git_fixture_caller_exit"
-  fi
 }
+_git_fixture_exit_trap='_git_fixture_status=$?; _git_fixture_remove_dir; (exit "$_git_fixture_status"); eval "${_git_fixture_caller_exit:-:}"'
+
 # Once per shell (a second source keeps the first folder and caller cleanup): the caller's exit cleanup starts as
 # what was trapped on EXIT before sourcing, then git_fixture_trap_exit replaces it.
-if [[ "$(trap -p EXIT)" != "trap -- '_git_fixture_on_exit' EXIT" ]]; then
-  _git_fixture_caller_exit=$(trap -p EXIT)
-  _git_fixture_caller_exit=${_git_fixture_caller_exit#trap -- }
+_git_fixture_previous_exit=$(trap -p EXIT)
+if [[ "$_git_fixture_previous_exit" != *_git_fixture_remove_dir* ]]; then
+  _git_fixture_caller_exit=${_git_fixture_previous_exit#trap -- }
   eval "_git_fixture_caller_exit=${_git_fixture_caller_exit% EXIT}"
   _git_fixture_cleanup_dir=
-  trap _git_fixture_on_exit EXIT
+  # shellcheck disable=SC2064  # expand the variable now: it holds the trap text, whose $? expands at exit
+  trap "$_git_fixture_exit_trap" EXIT
 fi
+unset _git_fixture_previous_exit
 
 # Only when unset: an empty GIT_CONFIG_GLOBAL means "no global config" and is kept (Codex F2 on cmux#40871).
 if [[ -z "${GIT_CONFIG_GLOBAL+x}" ]]; then
