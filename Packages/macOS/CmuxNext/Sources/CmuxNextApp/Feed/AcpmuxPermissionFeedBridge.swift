@@ -78,6 +78,8 @@ final class AcpmuxPermissionFeedBridge {
     private var reconnect: Task<Void, Never>?
     private var backoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
     private var nextID = 10
+    /// Recovery's info reads, kept for the bridge's life: one outstanding per session, a late answer posted.
+    private let pendingReads = AcpmuxPendingReads.feed
     /// The session-list filters this connection's acpmux serves (its `initialize`).
     private var listGate = AcpmuxSessionListGate(capabilities: [])
     /// Waiting requests by id; a reply is its `result` as JSON bytes (Sendable).
@@ -166,9 +168,7 @@ final class AcpmuxPermissionFeedBridge {
         guard let connection else { return nil }
         nextID += 1
         let id = nextID
-        let request: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method, "params": params]
-        guard var data = try? JSONSerialization.data(withJSONObject: request) else { return nil }
-        data.append(0x0A)
+        let data = Data(acpmuxRequest: id, method: method, params: params)
         let reply: Data? = await withCheckedContinuation { waiter in
             replies[id] = waiter
             connection.send(data)
@@ -218,7 +218,7 @@ final class AcpmuxPermissionFeedBridge {
     /// Prompts pending before this connection, each session read on its own (``AcpmuxPendingReads/feed``).
     private func recoverPending() async {
         guard let rows = await listGate.pendingSessions(call: { await self.call($0, $1) }) else { return }
-        await AcpmuxPendingReads.feed.forEachPrompt(rows, read: { [weak self] in await self?.call("_acpmux/info", ["sessionId": $0]) }) { [weak self] session, permission, request in
+        await pendingReads.forEachPrompt(rows, read: { [weak self] in await self?.call("_acpmux/info", ["sessionId": $0]) }) { [weak self] session, permission, request in
             await self?.post(session: session, permission: permission, request: request)
         }
     }
