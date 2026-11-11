@@ -21,8 +21,7 @@ import os
 @MainActor final class CloudAgentCheck {
     /// The probe's whole budget: a probe that has not answered by then lets the start go on.
     nonisolated static let probeTimeout: TimeInterval = 2.5
-    /// The model a Claude start with none named runs: acpmux's catalog default for a new Claude chat
-    /// (cmux-tui acpmux `start_defaults`), so a used-up Opus window stops it.
+    /// The model a Claude start with none named runs (acpmux's catalog default), so a used-up Opus window stops it.
     nonisolated static let defaultModel = "claude-opus-5-5"
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
 
@@ -99,10 +98,7 @@ import os
         return answer.refusal?.message
     }
 
-    /// The full Claude model id a start of `model` runs, which the probe asks and the rule reads: the
-    /// default for none (or `default`); a context-window suffix dropped (`claude-opus-5-5[1m]`, whose
-    /// limits are its model's, and which the API does not take); a family alias (`opus`, `opusplan`,
-    /// `sonnet`, `haiku`) as that family's current id; any other `claude-` id as it is.
+    /// The full Claude id a start of `model` runs, probed and read: no `[1m]` suffix, an alias as its family's id, none as the default.
     nonisolated static func modelID(_ model: String?) -> String {
         let id = (model ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased().split(separator: "[", maxSplits: 1).first.map(String.init) ?? ""
         return id.hasPrefix("claude-") ? id : ["opus", "sonnet", "haiku"].first { id.hasPrefix($0) }.map { "claude-\($0)-5-5" } ?? defaultModel
