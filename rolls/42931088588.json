@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42931088588",
+  "recorded_at": "2026-11-11T00:36:00Z",
+  "reason": "cmux-tui 7c3da7fe85d2 changes the image's cmux-tui (pinned 4bddccd2944d)",
+  "dry_run": false,
+  "cmux_tui": "7c3da7fe85d296116b160a529e588a908e95dfbb",
+  "fixes": [
+    {
+      "sha": "7c3da7fe85d296116b160a529e588a908e95dfbb",
+      "mergedAt": "2026-11-10T16:09:32-08:00",
+      "subject": "Cloud: the person's pre-approval rides on every Cloud call (#40393)"
+    },
+    {
+      "sha": "e6924f5e988f1e9384289ab61d3748bd92597a9c",
+      "mergedAt": "2026-11-11T00:09:27Z",
+      "subject": "cmux-tui: a printing terminal at rest writes nothing to the registry (#40735)"
+    },
+    {
+      "sha": "21f9d43e937f7e2df6dd734bc3acbcbf38db6811",
+      "mergedAt": "2026-11-10T16:07:39-08:00",
+      "subject": "Sidebar: match the Codex sidebar at Default (dimmer surface and fills, softer titles, 30 pt rows) (#39984)"
+    },
+    {
+      "sha": "5af8bd4e61bf9568b3826bbd948491ca59465d2c",
+      "mergedAt": "2026-11-10T16:04:51-08:00",
+      "subject": "Revert \"cmux-tui-core: registry connections keep their hot statements compiled\""
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T00:36:00Z",
+    "snapshot_id": "sh-63112ec4b5ea4974b948a6aba2c076ed",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42931088588): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "5fab7b37e041e29aeaddfd07ce56a5192026a0e4",
+    "image": "cloud-native-auto-7c3da7fe-42931088588-1",
+    "revision": "ci-42931088588-1",
+    "at": "2026-11-11T00:36:00Z"
+  },
+  "rolled_back": false
+}
