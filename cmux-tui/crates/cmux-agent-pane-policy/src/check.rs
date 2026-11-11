@@ -197,9 +197,15 @@ pub struct Facts {
     pub needs_gesture: bool,
     /// The gesture the frame needs is a click (`policy.json` `click_only`):
     /// the check passed it only because the host holds one
-    /// ([`FrameState::gesture`]). The host spends the person's gesture on
-    /// it, one granting frame for each gesture, and still redeems the
-    /// frame's `ticket` when it has one. Implies `needs_gesture`.
+    /// ([`FrameState::gesture`]). One click answers one time: the host
+    /// spends the click that it named, and its gesture grant, on this frame,
+    /// and holds no click after it until the person clicks again. (The
+    /// Swift transport spends its grant only and keeps the click's time;
+    /// a host on this check must not copy that.) A `ticket` in the facts is
+    /// still the host's to redeem, and it does not stand in for the click: a
+    /// host that spends the click when it gives the ticket gets a refuse for
+    /// the ticketed frame (see the difference note in [`check_frame`]).
+    /// Implies `needs_gesture`.
     pub needs_click: bool,
     pub needs_path_check: bool,
     pub setting: Option<Setting>,
