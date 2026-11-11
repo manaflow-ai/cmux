@@ -140,6 +140,9 @@ def main() -> int:
     env = dict(kv.split("=", 1) for kv in args.env)
     home = args.home or Path(tempfile.mkdtemp(prefix="smx-home-"))
     d = Daemon(args.acpmux, home, args.config, env)
+    # The daemon refuses a config another user may write (a umask of 002).
+    if (home / "config.json").exists():
+        os.chmod(home / "config.json", 0o600)
     d.start()
     host = os.uname().nodename
     specs = [tuple(s.split("=", 1)) for s in args.harness]
