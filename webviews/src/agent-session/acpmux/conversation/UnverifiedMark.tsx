@@ -7,6 +7,9 @@
 // send`) draws a terminal prompt instead, and says what acpmux checked: "Program checked by
 // acpmux: next-autoland on build-box", that no agent was proven, and the program's path (Leo,
 // 2026-11-11: "generally the "unverified sender" things should be more verified").
+// A sender that only named itself (`--from`, a notice's sender) says that name is its claim:
+// "Claimed to be ci-watch, not proven". One of our own tools proves its name with the host's
+// sender token (acpmux sender_token.rs) and draws no mark at all.
 import { useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { SenderProgram } from "./incomingMessage";
@@ -21,10 +24,24 @@ export function programMarkText(t: Translate, program: SenderProgram): { label: 
   return { label, title };
 }
 
-export function UnverifiedMark({ className, program }: { className?: string; program?: SenderProgram }) {
+export function UnverifiedMark({
+  className,
+  program,
+  claimed,
+}: {
+  className?: string;
+  program?: SenderProgram;
+  /// The name the sender gave itself, which acpmux did not prove.
+  claimed?: string;
+}) {
   const t = useT();
   const checked = program && programMarkText(t, program);
-  const label = checked ? checked.label : t("message.senderUnverified");
+  const name = claimed?.trim();
+  const label = checked
+    ? checked.label
+    : name
+      ? t("message.claimedNotProven", { name })
+      : t("message.senderUnverified");
   return (
     // A glyph with a name, no image file: the mark's words are its label and tooltip.
     <span

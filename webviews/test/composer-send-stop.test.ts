@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
-import { playFailures } from "./support/galleryPlay";
+import { playFailures, playNotice } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("composer-send-stop.test.ts", async () => {
@@ -66,10 +66,9 @@ await requireBrowserLane("composer-send-stop.test.ts", async () => {
       stop: document.querySelector('button[aria-label="Stop"]') !== null,
       calls: (window as unknown as { cmuxGalleryLog: { method: string }[] }).cmuxGalleryLog.map(({ method }) => method),
     }));
-    const play = await page.evaluate(() => ({
-      status: document.documentElement.dataset.galleryPlay,
-      report: JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),
-    }));
+    const report = await page.evaluate(() =>
+      JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),
+    );
     await page.close();
     expect(state).toEqual({
       send: false,
@@ -83,17 +82,8 @@ await requireBrowserLane("composer-send-stop.test.ts", async () => {
     // gallery report and fail no behavior test (support/galleryPlay.ts). Each problem the stage
     // reported, those too, is printed as a workflow notice, which the runner keeps for a file that
     // passes (scripts/ci/run-webviews-tests.sh), so a run on a slow runner still says what it was.
-    if (play.status !== "pass") {
-      const report = JSON.parse(play.report ?? "{}") as {
-        error?: string;
-        steps?: { step: string; status: string; problems: string[] }[];
-      };
-      const problems = (report.steps ?? []).flatMap((step) =>
-        step.problems.map((problem) => `${step.step}: ${problem}`),
-      );
-      const said = [report.error, ...problems].filter(Boolean).join("; ") || `no problem named: ${play.report}`;
-      console.log(`::notice title=composer-send-stop play::status ${play.status}; ${said.replace(/\s+/g, " ")}`);
-    }
-    expect(playFailures(play.report)).toEqual([]);
+    const notice = playNotice("composer-send-stop", report);
+    if (notice) console.log(notice);
+    expect(playFailures(report)).toEqual([]);
   });
 });
