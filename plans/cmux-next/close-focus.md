@@ -313,19 +313,20 @@ tabs after.
   next selection of a tab that was not listed, while it still shows the opener, makes the
   relation: put after the current tab (the default) it is a task opener, not reported as
   foreground; put at the end or the start it is the quick opener. Known gap: the expectation
-  ends at the pane's next selection change, or when the pane no longer lists the opener, so a
-  create that fails or lands in another strip leaves it until then.
+  ends at the pane's next selection change that is not a close's own, or when the pane no
+  longer lists the opener, so a create that fails or lands in another strip leaves it until then.
 - `made`, a link's tab or a tab an action inside another tab opens: `BrowserPageRequests`
   (`inheritsFromOpener`), a task opener, when the two tabs are in one pane.
 - `selected`: every change of `TabSelectionMemory` reports to the state. A person's gesture is
   marked before the change: `PaneController.select` (a click, a shortcut, the palette) and
   `TabSelectionMemory.jump` (tab search, a pinned row, a notification, a link to a tab,
-  `tab.focus`). A run of the CLI, MCP, a script, a remote client or a page makes no gesture
-  (`ActionRunScope.isPersonsAction`; `PaneController.select` also needs a source that is not the
-  CLI). Code with no action run around it counts as the person's: a click, and also a `cmux://`
-  link and the Computer Use reveal, which call `revealTab` with no run. A pinned row of the
-  sidebar always counts as a click. A gesture can only end relations, so a call that counts as
-  one by mistake gives the pick by position.
+  `tab.focus`). A run whose origin is not `user` (the CLI, MCP, a script, a remote client, a
+  page) makes no gesture (`ActionRunScope.isPersonsAction`; `PaneController.select` also needs a
+  source that is not the CLI). A run with the origin `user` counts as the person's, and so does
+  code with no action run around it (a click). A `cmux://` link runs as `link.open` with the
+  origin `user`, so it is a gesture; a socket request that names the origin `user` is one too.
+  A pinned row of the sidebar always counts as a click. A gesture can only end relations, so a
+  call that counts as one by mistake gives the pick by position.
   The selection a close causes is not a gesture
   and the rule does not hear of it (`closeSelects`).
 - A typed navigation in a browser tab forgets the pane's relations, except the first one in a
