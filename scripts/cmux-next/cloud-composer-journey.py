@@ -74,6 +74,10 @@ EVIDENCE_SCAN = matrix_mod.EVIDENCE_SCAN
 HUGE_PLAIN_BYTES = matrix_mod.HUGE_PLAIN_BYTES
 
 FOLDERS = ("small-repo", "parent", "plain", "over-limit", "none")
+# Opt-in (--untrusted-cell, or --only untrusted): a small repo this Mac does not trust, never trusted first.
+# It runs once (personal, default) and must be refused before any lease, naming this Mac as where to trust it.
+UNTRUSTED = "untrusted"
+UNTRUSTED_WORDS = "this Mac"
 ACCOUNTS = ("personal", "team", "removed")
 MODES = ("default", "bypass")
 # A refusal of a folder past the cap must come before a machine, and fast (size_cap.rs checks first).
@@ -101,6 +105,10 @@ def parse_args(argv=None):
     parser.add_argument("--credentials-file")
     parser.add_argument("--grant-claude-login", action="store_true",
                         help="with --app: the launched app's scratch cmux.json says yes to the Claude login copy")
+    parser.add_argument("--untrusted-cell", action="store_true",
+                        help="also run one cell (untrusted/personal/default) on a small repo this Mac does not trust, "
+                             "skipping the trust step; it passes on a refusal before any lease that names this Mac "
+                             "(also chosen by --only untrusted)")
     parser.add_argument("--harness", default="",
                         help="with --cli: the agent each start runs (cmux chat --harness), e.g. codex when the "
                              "default agent's own usage limit is spent")
@@ -139,7 +147,7 @@ def fixture(kind: str, root: Path) -> Path | None:
     path = root / kind
     if kind == "none":
         return None
-    if kind == "small-repo":
+    if kind in ("small-repo", UNTRUSTED):
         small_repo(path)
     elif kind == "parent":
         # Leo's ~/Projects: a parent of many repos. Small here; what matters is that it is a parent.
@@ -310,8 +318,10 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
         picked = journey.pane("pick_folder", pane, cwd=str(folder))
         if picked.get("error"):
             problems.append(f"folder pick: {picked['error']}")
-        # A folder the person has not trusted asks first; the composer's own button answers.
-        journey.pane("click", pane, text="Trust")  # trust.trust
+        # A folder the person has not trusted asks first; the composer's own button answers. The untrusted
+        # cell leaves the question unanswered: the start must refuse it before a lease.
+        if folder_kind != UNTRUSTED:
+            journey.pane("click", pane, text="Trust")  # trust.trust
     run = journey.pane("run_mode", pane, mode="cloud")
     cell["run_mode"] = run.get("runMode")
     if run.get("error") or run.get("runMode") != "cloud":
@@ -389,6 +399,7 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
     if said_unavailable and (outcome == "started" or made):
         problems.append("the composer said Cloud isn't available, yet a start ran")
     # Outcome rules.
+    untrusted_rules(folder_kind, outcome, message, problems)
     if outcome == "started":
         if folder_kind == "over-limit" and OVER_LIMIT_MUST_REFUSE:
             problems.append("a folder past the copy cap was started instead of refused")
@@ -451,7 +462,7 @@ def cell_cli(journey: Journey, folder_kind: str, folder: Path | None, account: s
         words[3:3] = ["--harness", journey.args.harness]
     # The composer cell clicks Trust on its folder; a Cloud copy is trusted on the machine only when this Mac
     # trusts the source, so the CLI cell trusts it the same way first and puts it back to unknown after.
-    trusted = folder is not None and folder_kind != "over-limit" and \
+    trusted = folder is not None and folder_kind not in ("over-limit", UNTRUSTED) and \
         journey.cmux("setup", "trust", str(folder), "--level", "trusted", timeout=60)[0] == 0
     try:
         code, out, err = journey.cmux(*words, timeout=timeout + 120)
@@ -461,6 +472,8 @@ def cell_cli(journey: Journey, folder_kind: str, folder: Path | None, account: s
     answer = journey.parsed(out) if code == 0 else {}
     made = sorted((set(journey.machine_rows()) - before) | ({answer["machine_id"]} if answer.get("machine_id") else set()))
     cell["machines_made"] = made
+    untrusted_rules(folder_kind, "started" if code == 0 else "refused",
+                    "" if code == 0 else (journey.error(out, err).get("message") or clean(err or out, 300)), problems)
     if code == 0:
         cell["outcome"] = "started"
         cell["replied"] = reply_token in str(answer.get("reply") or "")
@@ -485,6 +498,16 @@ def cell_cli(journey: Journey, folder_kind: str, folder: Path | None, account: s
     cell["seconds"] = round(time.monotonic() - started, 1)
     cell["result"] = "pass" if not problems else "fail: " + "; ".join(problems)
     return cell
+
+
+def untrusted_rules(folder_kind: str, outcome: str, message: str, problems: list[str]) -> None:
+    """The untrusted cell: refused before any lease (the shared rules catch a lease), naming this Mac."""
+    if folder_kind != UNTRUSTED:
+        return
+    if outcome == "started":
+        problems.append("a folder this Mac does not trust was started instead of refused")
+    elif outcome in ("refused", "kept") and UNTRUSTED_WORDS not in message:
+        problems.append(f"the untrusted-folder refusal does not name {UNTRUSTED_WORDS}: {clean(message, 120)!r}")
 
 
 # Report ----------------------------------------------------------------------------------------------------
@@ -561,13 +584,16 @@ def main(argv=None) -> int:
             if not journey.composer:
                 report["result"] = f"fail: the app has no debug.agent_pane ({probe.get('error')})"
                 return finish(report, out, 1)
-        fixtures = {kind: fixture(kind, root) for kind in FOLDERS}
+        untrusted = args.untrusted_cell or UNTRUSTED in [w for w in args.only.split(",") if w]
+        fixtures = {kind: fixture(kind, root) for kind in FOLDERS + ((UNTRUSTED,) if untrusted else ())}
         personal = journey.team_id()
         report["teams"] = {"personal": personal, "team": args.team, "removed": args.removed_team}
         order = [a for a in ("personal", "team", "removed") if a in ACCOUNTS]
         for account in order:
             team = {"personal": personal, "team": args.team, "removed": args.removed_team}[account]
             wanted = [(f, m) for f in FOLDERS for m in MODES if selected(args.only, f, account, m)]
+            if untrusted and account == "personal":
+                wanted.append((UNTRUSTED, "default"))
             if not wanted:
                 continue
             setup = ""
