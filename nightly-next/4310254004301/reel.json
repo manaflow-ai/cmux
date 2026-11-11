@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "build": "4310254004301",
+  "notes": "notes/4310254004301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 40264,
+      "title": "Themes can swap the agent chat's Jump to latest arrow: the second theme slot",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41379,
+      "title": "arch-ratchet: --update recovers from a measured_sha a squash orphaned",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41420,
+      "title": "ci log reader: escapes end at every splitlines boundary; failed_steps_log.py is the single source others vendor",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41429,
+      "title": "gallery health: the base gallery is built once a run, and a shard's two base renders run at once",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41428,
+      "title": "chat perf: a capture longer than 5 s reaches Chromium with its own deadline; longtask blocking time",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41359,
+      "title": "cmux NEXT capture: permission-feed-peer reads a peer by its qualified id only and fails when the prompt stays",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41418,
+      "title": "check-test-hooks: put a generic alias's arguments in for its parameters",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41240,
+      "title": "acpmux info reads: one outstanding per session, and a late answer is posted",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41445,
+      "title": "cmux-api prod logs: dispatch only, default-deny public output",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41085,
+      "title": "Cloud start: an agent that cannot run is refused before the lease",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41432,
+      "title": "Merge driver: a TypeScript file's imports merge per name (App.tsx's top conflict source); conflict-replay measures what conflicts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41246,
+      "title": "transcript: scrolling up does no forced layout per scroll event or per prompt it mounts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41392,
+      "title": "acpmux: every cancel path settles what the normal finish does (review of #41361, F2-F4)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41439,
+      "title": "ci: a file timeout its base-red tests explain is red on the base; sideways-scrollbar waits 15 s for its block",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41333,
+      "title": "base red: change areas treat a manual test that runs a test as a dead end; the CI guard profile reports each check",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41327,
+      "title": "cmux NEXT capture: a permission feed scene for Needs you",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41161,
+      "title": "Chrome layer colour check returns with measured colours, a picture case and a web counterpart (#41100)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41217,
+      "title": "transcript: the scrollbar thumb keeps its size and only moves up while older history loads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41417,
+      "title": "Icons: fork is a branch mark",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40541,
+      "title": "Agent chat: + > Record Screen… records the app with the system toolbar and attaches the video",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
