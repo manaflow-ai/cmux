@@ -200,6 +200,12 @@ import {
   SCROLL_ANCHOR_SETTLE_MS,
 } from "./virtualTranscriptModel";
 
+/// How soon after the box's last width a new one counts as the same live resize (a drag's frames come
+/// every 8 to 17 ms; a window's or a strip's one-off change never has a second within it), and how
+/// long a width holds before the whole chat is measured at it.
+const LIVE_RESIZE_MS = 120;
+/// The rows past each end of the mounted ones a live resize's frame still measures at the new width.
+const LIVE_RESIZE_ROWS = 40;
 /// The last measured transcript box on this page: a transcript mounting again starts from it.
 const lastTranscriptBox = { height: 600, width: 760 };
 
@@ -1622,6 +1628,15 @@ function TranscriptView({
   };
   /// When the view last changed size: the passes that settle the rows after it never glide.
   const resizedAt = useRef(Number.NEGATIVE_INFINITY);
+  /// A live resize (a divider or window edge dragged): the box's width changed again within
+  /// LIVE_RESIZE_MS of its last change. Each frame of it measures only the rows around the view
+  /// (layoutConversation `resizing`); the whole chat is measured once, when the width holds.
+  const liveResize = useRef<{ at: number; live: boolean; timer?: ReturnType<typeof setTimeout> }>({
+    at: Number.NEGATIVE_INFINITY,
+    live: false,
+  });
+  const [resizeSettled, settleResize] = useReducer((count: number) => count + 1, 0);
+  useEffect(() => () => clearTimeout(liveResize.current.timer), []);
   // The last transcript box on this page until this one is measured (before its first paint, below).
   const [height, setHeight] = useState(() => lastTranscriptBox.height);
   // The native pane's width, distinct from the transcript scroller's width when Push always reserves
@@ -1879,6 +1894,8 @@ function TranscriptView({
   // left then, and kept room above the stack for FLOOR_HOLD_MS that then glided away (#24182).
   useLayoutEffect(() => noteQueue(), [sessionId, queueIds, noteQueue]);
   const [width, setWidth] = useState(() => lastTranscriptBox.width);
+  /// The width the box last measured at, read by its ResizeObserver to tell a width change.
+  const widthRef = useRef(width);
   // The page zoom the column's cap is divided by: a new one measures every row again.
   const { scale: chatScale } = useChatSizing();
   // The user's chat look (font, sizes, width; chatDisplay.ts): a new one measures every row again.
@@ -1897,7 +1914,8 @@ function TranscriptView({
   const measurementCache = useRef(new Map<string, import("./model").PreparedRow>());
   /// The last estimate, whose unchanged leading rows the next one keeps.
   const lastEstimate = useRef<
-    { rows: readonly AcpmuxRow[]; layout: ConversationLayout; width: number; sessionId?: string } | undefined
+    | { rows: readonly AcpmuxRow[]; layout: ConversationLayout; width: number; sessionId?: string; partial?: boolean }
+    | undefined
   >(undefined);
   /// Estimated heights by row object, for the registry they were measured with.
   const rowHeights = useRef<{ registry: NativeRegistry; heights: RowHeights }>({
@@ -2133,6 +2151,8 @@ function TranscriptView({
         look: ReturnType<typeof useChatDisplay>;
         /// So does a new attachment view (inline or strip, UserBubble.tsx).
         view: typeof attachmentView;
+        /// Placed over a live resize's partial estimate (rows out of view at the last width's heights).
+        partial: boolean;
         first: number;
         last: number;
         /// Rows mounted outside that range because a margin drag's selection holds them (at most two).
@@ -2419,7 +2439,23 @@ function TranscriptView({
       // box past the content width, never below 0, so a box with no layout box (jsdom) keeps its
       // content width.
       const nextLane = Math.max(0, node.offsetWidth - node.clientWidth);
-      setWidth(node.clientWidth + nextLane);
+      const nextWidth = node.clientWidth + nextLane;
+      if (resized && nextWidth !== widthRef.current) {
+        // A second width within LIVE_RESIZE_MS is a live resize: its frames measure the rows in view,
+        // and the whole chat is measured once LIVE_RESIZE_MS after its last width.
+        const live = liveResize.current;
+        const now = performance.now();
+        live.live = now - live.at < LIVE_RESIZE_MS;
+        live.at = now;
+        clearTimeout(live.timer);
+        live.timer = setTimeout(() => {
+          if (!live.live) return;
+          live.live = false;
+          settleResize();
+        }, LIVE_RESIZE_MS);
+      }
+      widthRef.current = nextWidth;
+      setWidth(nextWidth);
       setLane(nextLane);
       const shellWidth = node.closest<HTMLElement>(".acpmux-shell")?.clientWidth;
       setPaneWidth(shellWidth && shellWidth > 0 ? shellWidth : node.clientWidth + nextLane);
@@ -2759,18 +2795,42 @@ function TranscriptView({
       rowHeights.current = { registry, heights: new WeakMap() };
     const rowWidth = scaledRowWidth;
     const last = lastEstimate.current;
+    // A live resize's frame at a new width: only the rows around the mounted ones are measured, the
+    // rest keep the last layout's heights (O(rows in view), not O(rows)). Its settle (`resizeSettled`)
+    // measures every row at the width that held; a partial layout is never a base to keep rows from.
+    void resizeSettled;
+    const placedRange = lastPlaced.current;
+    const resizing =
+      !fresh &&
+      liveResize.current.live &&
+      last &&
+      last.width !== rowWidth &&
+      last.sessionId === sessionId &&
+      placedRange
+        ? {
+            rows: last.rows,
+            layout: last.layout,
+            from: Math.max(0, placedRange.first - LIVE_RESIZE_ROWS),
+            to: placedRange.last + LIVE_RESIZE_ROWS,
+          }
+        : undefined;
     const layout = layoutConversation(
       rows,
       rowWidth,
       cache,
       (row, measureWidth) => registry[rowKind(row)]?.measure?.(row, measureWidth),
       measurementSession.current === sessionId ? rowHeights.current.heights : undefined,
-      !fresh && last && last.width === rowWidth && last.sessionId === sessionId ? last : undefined,
+      !fresh && last && !last.partial && last.width === rowWidth && last.sessionId === sessionId ? last : undefined,
       sessionId,
+      resizing,
     );
-    lastEstimate.current = { rows, layout, width: rowWidth, sessionId };
-    return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
-  }, [rows, registry, sessionId, chatLook, attachmentView, scaledRowWidth]);
+    lastEstimate.current = { rows, layout, width: rowWidth, sessionId, partial: resizing !== undefined };
+    return {
+      layout,
+      partial: resizing !== undefined,
+      ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0,
+    };
+  }, [rows, registry, sessionId, chatLook, attachmentView, scaledRowWidth, resizeSettled]);
   // A row that draws moves only the rows below it: place them again, measuring none.
   const measured = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
@@ -2792,6 +2852,8 @@ function TranscriptView({
       last.registry === registry &&
       last.look === chatLook &&
       last.view === attachmentView &&
+      // A placement over a live resize's partial estimate keeps nothing once every row is measured.
+      !last.partial &&
       drawn.size > 0
     ) {
       const limit = Math.min(rows.length, last.rows.length);
@@ -2890,6 +2952,7 @@ function TranscriptView({
       registry,
       look: chatLook,
       view: attachmentView,
+      partial: estimated.partial,
       first: last?.first ?? 0,
       last: last?.last ?? 0,
       held: last?.held ?? [],

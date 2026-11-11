@@ -3144,6 +3144,12 @@ export function layoutConversation(
   previous?: { rows: readonly AcpmuxRow[]; layout: ConversationLayout },
   /// The chat the rows are from, which keys the messages the person opened (incomingOpened.ts).
   sessionId?: string,
+  /// A live resize (a divider dragged): the last layout, at another width, and the rows around the
+  /// view `[from, to)`. Only those rows are measured at `width`; every other row that is the same
+  /// object keeps its height from that layout until the resize settles and a full layout runs. A drag
+  /// frame then costs the rows in view, not the whole chat (Leo, 2026-11-11: "the dragging
+  /// responsiveness is slow for agent chat but fast for browser hmmm").
+  resizing?: { rows: readonly AcpmuxRow[]; layout: ConversationLayout; from: number; to: number },
 ): ConversationLayout {
   const gaps = new Float64Array(rows.length);
   const marks = new Uint8Array(rows.length);
@@ -3196,6 +3202,14 @@ export function layoutConversation(
     const kept = known?.get(row);
     let height: number;
     if (kept && kept.width === width && kept.edge === edge) height = kept.height;
+    else if (
+      resizing &&
+      (index < resizing.from || index >= resizing.to) &&
+      index < resizing.layout.heights.length &&
+      resizing.rows[index] === row
+    )
+      // Out of view during a live resize: its height at the last width, never recorded as this width's.
+      height = resizing.layout.heights[index]!;
     else {
       const customHeight = measureOverride?.(row, width);
       const custom = customHeight !== undefined && Number.isFinite(customHeight) && customHeight >= 0;
