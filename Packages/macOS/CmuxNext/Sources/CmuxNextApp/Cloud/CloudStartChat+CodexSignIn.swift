@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCloudCredentials
 import CmuxNextCloudUI
 import CmuxNextDesign
 import CmuxNextSettings
@@ -15,8 +16,7 @@ extension CloudStartChat {
     /// The person's answer in cmux.json; nil when never asked.
     @MainActor static func codexSignInConsent(_ services: AppServices) -> Bool? {
         guard let settings = services.settings else { return nil }
-        return CloudCodexSignInConsentSetting().consent(file: settings.fileRoot, effective: settings.snapshot.root,
-                                                       managed: settings.managedKey(forPath: CloudCodexSignInConsentSetting.configPath) != nil)
+        return CloudCodexSignInConsentSetting().consent(file: settings.fileRoot, effective: settings.snapshot.root, managed: settings.managedKey(forPath: CloudCodexSignInConsentSetting.configPath) != nil, copiesWithoutConsent: CloudCredentialTransfer.copiesWithoutConsent(isDogfoodBuild: DevTools.isEnabled)) // DEV/NIGHTLY: no answer is yes, as for Claude
     }
 
     /// The holder's ``CloudCodexHolder/consent``: whether the person's yes stands now.
