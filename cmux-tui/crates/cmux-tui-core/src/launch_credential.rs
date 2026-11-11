@@ -452,3 +452,7 @@ fn valid_kid(kid: &str) -> bool {
         && kid.len() <= 32
         && kid.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
 }
+
+#[cfg(test)]
+#[path = "launch_credential_tests.rs"]
+mod tests;
