@@ -137,7 +137,7 @@ struct CloudStartChat {
             guard await CloudMoveFolder.isFolder(folder.root) else { throw CloudMoveFolder.Gone() } // removed while the machine came up
             // Each copy goes to a new folder of the send's own, under its account as its pin; a retry whose
             // copy finished opens its chat without copying again, which would overwrite what it changed.
-            // A refused git seed asks "Copy the folder to <machine>?" first (CloudSeedRefusal): Cancel keeps Retry on this machine.
+            // A refused git seed copies the folder with no question; only a copy too large for a machine asks first (CloudSeedRefusal): Cancel keeps Retry on this machine.
             let copy: Copied
             do {
                 copy = try await copyFolder(folder, key: start.key, account: account, to: machine, cli: cli,
@@ -175,8 +175,8 @@ struct CloudStartChat {
     /// `account` as its pin: the composer's Cloud start and `cmux cloud start-session --from-folder` alike
     /// (``CloudStartSession``). A start whose copy under `key` already finished on `machine` gets that copy's folder,
     /// never copied again: that would overwrite what its chat changed. `progress` gets the copy's progress lines.
-    /// A machine that can't clone the folder from its git remote asks the person before the whole folder is copied
-    /// (``CloudSeedRefusal``); their Cancel throws `declined(reason)`. A copy that times out or doesn't launch throws `failed(error)`.
+    /// A machine that can't clone the folder from its git remote gets the whole folder copied; only a copy too large for
+    /// a machine asks the person first (``CloudSeedRefusal``), and their Cancel throws `declined(reason)`. A copy that times out or doesn't launch throws `failed(error)`.
     func copyFolder(_ folder: CloudMoveFolder, key: String, account: [String?], to machine: CloudMachineSession, cli: CloudMoveCLI,
                     declined: (String) -> any Error, failed: (any Error) -> any Error,
                     progress: (SeedProgress) -> Void) async throws -> Copied {
@@ -334,8 +334,8 @@ extension CloudStartSession {
         guard start.uploads(folder) else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderMissing(local)) }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         try Self.checked(account, now: services.cloud.account, request.asked(machine: name))
-        // A refused git seed asks "Copy the folder to <machine>?" in the active window as the composer's start does
-        // (CloudSeedRefusal); Cancel, a dismissal or no window refuses the start with cmux-tui's reason.
+        // A refused git seed copies the folder as the composer's start does; a copy too large for a machine asks in the
+        // active window first (CloudSeedRefusal), and Cancel, a dismissal or no window refuses the start with cmux-tui's reason.
         struct Declined: Error { let reason: String }
         let asked = request.asked(machine: name)
         let copy: CloudStartChat.Copied
