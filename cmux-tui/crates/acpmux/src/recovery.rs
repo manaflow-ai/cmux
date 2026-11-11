@@ -447,14 +447,17 @@ pub fn spawn_failed(e: &anyhow::Error, harness: &str, program: &str, cwd: &Path)
     // The program is gone (an agent CLI uninstalled after acpmux found it): the same typed
     // refusal as a chat asked of an agent that is not here, so the pane offers Install.
     let missing = cwd.is_dir() && io.kind() == std::io::ErrorKind::NotFound;
-    let mut data = json!({
-        "errorKind": kind::SPAWN_FAILED,
-        "recovery": recovery,
-        "details": {"binary": program, "cwd": cwd, "harness": harness},
-    });
-    if missing {
-        data["code"] = json!(crate::harness_install::NOT_INSTALLED);
-    }
+    let details = json!({"binary": program, "cwd": cwd, "harness": harness});
+    let data = if missing {
+        json!({
+            "errorKind": kind::SPAWN_FAILED,
+            "code": crate::harness_install::NOT_INSTALLED,
+            "recovery": recovery,
+            "details": details,
+        })
+    } else {
+        json!({"errorKind": kind::SPAWN_FAILED, "recovery": recovery, "details": details})
+    };
     RpcError::internal(message).with_data(data)
 }
 

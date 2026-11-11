@@ -5,7 +5,7 @@
 // (harnessSetup.ts: the installer, acpmux's rescan, a sign-in when the CLI is signed out); once the
 // agent is ready the failed start runs again and the message the person typed, which the failed
 // start handed back to the composer, goes.
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { CHIEF_FAMILY } from "./agents";
 import {
   clearHarnessSetup,
@@ -92,8 +92,12 @@ export type MissingHarnessDeps = {
 /// The notice's props while a chat's agent is missing (or its install runs), else undefined.
 export function useMissingHarness(deps: MissingHarnessDeps): MissingHarnessNoticeProps | undefined {
   const setup = useHarnessSetup();
+  // The latest deps for the click handlers and the ready step, kept after each commit (never
+  // written during render).
   const latest = useRef(deps);
-  latest.current = deps;
+  useLayoutEffect(() => {
+    latest.current = deps;
+  });
   /// An install this notice started (`from: "notice"`): its ready step starts the chat here. A pick
   /// in the model menu replaces it, and the notice no longer drives that one.
   const ours = setup?.pick.from === "notice" ? setup : undefined;
