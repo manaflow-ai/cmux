@@ -93,6 +93,8 @@ await requireBrowserLane("composer-attach-one-stage.test.ts", async () => {
   /// An image whose size nobody told is unseen until its own picture is in (attachmentIntakeModel.ts
   /// PICTURE_WAIT_MS): at most this long.
   const PICTURE_WAIT_MS = 250;
+  /// The longest one painted frame the headless WebKit lane stalls for (seen: 231 to 504 ms).
+  const STALLED_FRAME_MS = 300;
   /// The stand-in host holds a video's read (poster, length) until the test lets it go, after the chip
   /// is ready: the native read's place, with no fixed wait.
   const RELEASE_VIDEO_READ = "one-stage-release-video-read";
@@ -610,7 +612,11 @@ await requireBrowserLane("composer-attach-one-stage.test.ts", async () => {
           const bound = kind === "untoldImage" ? 500 + PICTURE_WAIT_MS : 500;
           const firstFrameAfterPicture =
             pasteToPictureMs === null ? undefined : frameTimes.find((at) => at >= pasteToPictureMs);
-          expect(pasteToReadyMs!).toBeLessThanOrEqual(Math.max(bound, firstFrameAfterPicture ?? 0));
+          // Capped: one stalled frame (STALLED_FRAME_MS) past the bound at most, so a decode moved back onto
+          // the page's own thread still fails here however late the picture lands.
+          expect(pasteToReadyMs!).toBeLessThanOrEqual(
+            Math.min(bound + STALLED_FRAME_MS, Math.max(bound, firstFrameAfterPicture ?? 0)),
+          );
         });
         if (kind !== "file")
           test(`${engine} ${kind}: the sent tile has the composer's shape`, () => {
