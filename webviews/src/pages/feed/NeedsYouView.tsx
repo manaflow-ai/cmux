@@ -21,11 +21,7 @@ export function NeedsYouView(props: FeedProps) {
     const first = requests[0]!;
     return (
       <section className="feed-needs" data-style="bar" aria-label={`${t("group.needsYou")}, ${total}`}>
-        <button
-          type="button"
-          className="feed-needs-opener"
-          onClick={() => store.open(first.id)}
-        >
+        <button type="button" className="feed-needs-opener" onClick={() => store.open(first.id)}>
           <Glyph item={{ ...first, row: { ...first.row, urgent: false } }} />
           <span className="feed-needs-text">
             <span className="feed-needs-headline">{`${t("group.needsYou")} ${total}`}</span>
@@ -42,9 +38,7 @@ export function NeedsYouView(props: FeedProps) {
       <div className="feed-needs-header">
         <span className="feed-needs-title">{t("group.needsYou")}</span>
         <span className="feed-needs-count feed-num">{total}</span>
-        {more > 0 ? (
-          <span className="feed-needs-more">{format("needsYou.more", String(more))}</span>
-        ) : null}
+        {more > 0 ? <span className="feed-needs-more">{format("needsYou.more", String(more))}</span> : null}
       </div>
       {shown.map((item) =>
         style === "cards" ? (

@@ -58751,6 +58751,77 @@
 
       ],
       "category" : "sidebar",
+      "cliName" : "sidebar toggle-right",
+      "computed" : {
+        "canonical_action_id" : "toggleRightSidebar",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "daily"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "b",
+        "modifiers" : [
+          "opt",
+          "cmd"
+        ]
+      },
+      "description" : null,
+      "focuses" : false,
+      "group" : "SidebarActionCatalog",
+      "hint" : null,
+      "id" : "toggleRightSidebar",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "files",
+        "explorer",
+        "panel"
+      ],
+      "mainMenu" : "view",
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "keyboard",
+        "menu"
+      ],
+      "symbol" : "sidebar.right",
+      "targets" : [
+
+      ],
+      "title" : "Toggle Right Sidebar",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "sidebar",
       "cliName" : "sidebar focus",
       "computed" : {
         "canonical_action_id" : "focusSidebar",
@@ -58963,6 +59034,460 @@
 
       ],
       "title" : "Reveal and Focus Workspace in Sidebar",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "sidebar",
+      "cliName" : "sidebar focus-right",
+      "computed" : {
+        "canonical_action_id" : "focusRightSidebar",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "e",
+        "modifiers" : [
+          "shift",
+          "cmd"
+        ]
+      },
+      "description" : null,
+      "focuses" : true,
+      "group" : "SidebarActionCatalog",
+      "hint" : null,
+      "id" : "focusRightSidebar",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "files",
+        "explorer",
+        "panel"
+      ],
+      "mainMenu" : "view",
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "focusMove"
+        },
+        "contextMenuExemption" : "focusMove",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "keyboard",
+        "menu"
+      ],
+      "symbol" : "sidebar.squares.right",
+      "targets" : [
+
+      ],
+      "title" : "Focus Right Sidebar",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "sidebar",
+      "cliName" : "sidebar show-files",
+      "computed" : {
+        "canonical_action_id" : "switchRightSidebarToFiles",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SidebarActionCatalog",
+      "hint" : null,
+      "id" : "switchRightSidebarToFiles",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "right sidebar",
+        "explorer"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "doc.text",
+      "targets" : [
+
+      ],
+      "title" : "Show Files",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "sidebar",
+      "cliName" : "sidebar show-find",
+      "computed" : {
+        "canonical_action_id" : "switchRightSidebarToFind",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SidebarActionCatalog",
+      "hint" : null,
+      "id" : "switchRightSidebarToFind",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "right sidebar",
+        "search"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "text.magnifyingglass",
+      "targets" : [
+
+      ],
+      "title" : "Show Find",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "sidebar",
+      "cliName" : "sidebar show-vault",
+      "computed" : {
+        "canonical_action_id" : "switchRightSidebarToSessions",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SidebarActionCatalog",
+      "hint" : null,
+      "id" : "switchRightSidebarToSessions",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "right sidebar",
+        "sessions"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "archivebox",
+      "targets" : [
+
+      ],
+      "title" : "Show Vault",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "sidebar",
+      "cliName" : "sidebar show-feed",
+      "computed" : {
+        "canonical_action_id" : "switchRightSidebarToFeed",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SidebarActionCatalog",
+      "hint" : null,
+      "id" : "switchRightSidebarToFeed",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "right sidebar",
+        "activity"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "dot.radiowaves.left.and.right",
+      "targets" : [
+
+      ],
+      "title" : "Show Feed in Right Sidebar",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "sidebar",
+      "cliName" : "sidebar show-dock",
+      "computed" : {
+        "canonical_action_id" : "switchRightSidebarToDock",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SidebarActionCatalog",
+      "hint" : null,
+      "id" : "switchRightSidebarToDock",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "right sidebar"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "dock.rectangle",
+      "targets" : [
+
+      ],
+      "title" : "Show Dock",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "sidebar",
+      "cliName" : "sidebar show-cloud",
+      "computed" : {
+        "canonical_action_id" : "switchRightSidebarToMachines",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SidebarActionCatalog",
+      "hint" : null,
+      "id" : "switchRightSidebarToMachines",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "right sidebar",
+        "machines"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "cloud",
+      "targets" : [
+
+      ],
+      "title" : "Show Cloud",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -115038,6 +115563,10 @@
         "machine",
         "ssh"
       ],
+      "switchRightSidebarToMachines" : [
+        "machine",
+        "machines"
+      ],
       "terminal.decreaseFontSize" : [
         "font"
       ],
@@ -115097,6 +115626,7 @@
       "terminal.decreaseFontSize",
       "terminal.increaseFontSize",
       "terminal.setTheme",
+      "toggleRightSidebar",
       "toggleSidebar",
       "toggleSplitZoom",
       "workspace.newOnMachine"
