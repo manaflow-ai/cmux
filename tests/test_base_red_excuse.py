@@ -6536,6 +6536,7 @@ class GalleryBaseLoadCrash(unittest.TestCase):
             gh.chmod(0o755)
             with unittest.mock.patch.dict(os.environ, {"PATH": f"{where}:{os.environ['PATH']}"}):
                 reader = excuse.GitHub()
+                reader.artifact_file = reader.artifact_file_whole  # the download the range read falls back to
                 self.assertEqual(json.loads(reader.artifact_file(REPO, 7, "health.json"))["fresh"][0]["state"],
                                  GALLERY_STATE)
                 self.assertIsNone(reader.artifact_file(REPO, 7, "missing.json"))
@@ -6583,7 +6584,7 @@ class GalleryBaseLoadCrash(unittest.TestCase):
                 unittest.mock.patch.object(excuse.os, "killpg", lambda pid, sig: killed.append((pid, sig))), \
                 unittest.mock.patch.object(excuse, "ARTIFACT_SECONDS", 0.2):
             with self.assertRaisesRegex(excuse.Refused, "took over 0.2 seconds"):
-                excuse.GitHub().artifact_file(REPO, 7, "health.json")
+                excuse.GitHub().artifact_file_whole(REPO, 7, "health.json")
         self.assertEqual(timers, [0.2])
         self.assertTrue(started[0].options.get("start_new_session"))  # gh in a group of its own
         self.assertEqual(killed[0], (4242, excuse.signal.SIGKILL))
