@@ -230,6 +230,11 @@ import Testing
     /// to its publish (cmux-tui `cmux-config`, `lock_config`); this test is that writer. While it
     /// holds the lock, the socket's `settings.set` must not write: it would edit a text the other
     /// writer is about to replace, and one of the two edits would be lost.
+    ///
+    /// Nothing reports "waiting for the lock", so the proof that the socket write waited is the
+    /// lock's own answer: held past `SettingsFileLock.patience` (5 s, the code's own deadline),
+    /// the write refuses with `settings_busy` and has written nothing. A write that ignored the
+    /// lock answers at once with success instead.
     @Test func aSocketWriteWaitsForTheWriterThatHoldsTheSettingsLock() async throws {
         let (router, settings, directory) = try make()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -240,15 +245,19 @@ import Testing
         defer { close(lock) }
         try #require(flock(lock, LOCK_EX) == 0, "the other writer takes the lock")
         let read = try String(contentsOf: url, encoding: .utf8)
+        let held = await call(router, "settings.set", ["path": "notifications.mutedWorkspaces", "value": ["ws-0"], "origin": "script"])
+        guard case .failure(let busy) = held else {
+            Issue.record("the socket wrote the file while another writer held its lock: \(held)")
+            return
+        }
+        #expect(busy.code == "settings_busy", "\(busy)")
+        #expect(try String(contentsOf: url, encoding: .utf8) == read, "the socket wrote the file while another writer held its lock")
+        // The write sent again gets the lock only once the other writer has published its edit of
+        // the text it read and let go of the lock; both edits survive.
         let write = Task {
             await router.handle(ControlRequest(id: "1", method: "settings.set",
                                                params: ["path": "notifications.mutedWorkspaces", "value": ["ws-1"], "origin": "script"]))
         }
-        // Room for the socket write to reach the file. Nothing reports "waiting for the lock", so
-        // this is a bounded wait: with the lock honored the write cannot finish inside it.
-        try await Task.sleep(for: .milliseconds(500))
-        #expect(try String(contentsOf: url, encoding: .utf8) == read, "the socket wrote the file while another writer held its lock")
-        // The other writer publishes its edit of the text it read, then lets go of the lock.
         try Data(#"{"appearance":{"density":"compact"}}"#.utf8).write(to: url, options: .atomic)
         #expect(flock(lock, LOCK_UN) == 0)
         let answer = await write.value

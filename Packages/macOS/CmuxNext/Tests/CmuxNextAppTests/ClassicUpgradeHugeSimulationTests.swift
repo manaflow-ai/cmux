@@ -74,7 +74,10 @@ struct ClassicUpgradeHugeSimulationTests {
             let again = try await run.sim.relaunch()
             let relaunch = clock.now - start
             print(String(format: "CLASSIC-SIM huge-relaunch decision=%@ took=%.2fs", String(describing: again.decision), relaunch.simSeconds))
-            #expect(again.opened.isEmpty && relaunch < .seconds(2), "\(again) in \(relaunch)")
+            // A relaunch on the finished run reads classic's save and the ledger and stops there: the save is
+            // the one the ledger recorded, so it makes nothing. The decision, not the time, says it did no work
+            // (the time is printed above, for the record).
+            #expect(again.decision == .skip(.unchanged) && again.opened.isEmpty, "\(again) in \(relaunch)")
             await run.sim.shutdown()
         }
     }
