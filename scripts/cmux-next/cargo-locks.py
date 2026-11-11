@@ -25,7 +25,8 @@ toolchain installs): a lock's consistency does not depend on the toolchain, and 
 lacks would otherwise leave that workspace unchecked.
 
 Callers: the pre-push gate (prepush-gate.py, CARGO_LOCK_CHECK) on any push that changes a Cargo.toml or
-Cargo.lock; the base autofix (base-autofix.sh --locks) after a feat-cmux-next push that does.
+Cargo.lock; rust-workspaces.yml's plan job on every pull request and push, with --strict (CI is the backstop: an
+unchecked workspace is red there); the base autofix (base-autofix.sh --locks) after a feat-cmux-next push that does.
 
 Usage: scripts/cmux-next/cargo-locks.py check|fix [--repo DIR] [--strict] [--jobs N]
 """

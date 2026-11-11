@@ -119,3 +119,15 @@ class StaleSpellingTests(unittest.TestCase):
                 self.assertEqual(module.judge(Path("/w"), "", {}), ("stale", ""))
         module.cargo = lambda args, cwd, env: (101, "error: failed to get `x` as a dependency\n")
         self.assertEqual(module.judge(Path("/w"), "", {})[0], "unchecked")
+
+
+class CiIsStrictTests(unittest.TestCase):
+    """CI is the backstop: its lock check runs with --strict, so an unchecked workspace is red (router review F1 on
+    #41009: a pinned toolchain or a registry error left a workspace unchecked and the step passed)."""
+
+    def test_rust_workspaces_runs_the_check_strict(self):
+        workflow = (SOURCE / ".github/workflows/rust-workspaces.yml").read_text()
+        runs = [line for line in workflow.splitlines() if "cargo-locks.py check" in line]
+        self.assertTrue(runs)
+        for line in runs:
+            self.assertIn("--strict", line)
