@@ -40,7 +40,10 @@ works there (`acpmux session stop NAME` first) and while the worktree has uncomm
 commits on no other branch or remote; the refusal names `--discard`. It removes the branch when
 cmux made it (`acpmux new --worktree [--branch]`, `cmux workspace create --worktree`), never a
 branch that was there before, and the project folder once its last worktree is gone. The app's
-`cmux git worktree remove` follows the same rules (`cmux_git::worktree`).
+`cmux git worktree remove` follows the same rules (`cmux_git::worktree`). It knows the branches
+cmux made by their `branch.<branch>.cmuxCreated` mark: a `cmux/<name>` branch that an older cmux
+made before the mark existed stays. Find these with `git branch --list 'cmux/*'` and delete one
+with `git branch -D <name>`.
 
 Paths: a worktree prints as `~/.cmux/worktrees/<project>/<name>` (on macOS a link to
 `~/.cmux/worktrees.noindex`); `--only`, `worktree remove` and `chats list --folder` take either

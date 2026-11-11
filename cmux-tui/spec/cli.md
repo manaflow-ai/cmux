@@ -1224,7 +1224,10 @@ with its ignored files, and the project folder in `~/.cmux/worktrees` goes
 once its last worktree is gone (never the root, never a folder that holds
 anything). Its branch goes too, with its settings, when `git worktree create`
 made it (marked `branch.<branch>.cmuxCreated`; never from the name or a
-recorded base); any other branch stays, with its commits. Without `--discard` it refuses,
+recorded base); any other branch stays, with its commits. A `cmux/<name>`
+branch that an older cmux made before the mark existed stays too: find these
+with `git branch --list 'cmux/*'` and delete one with `git branch -D <name>`.
+Without `--discard` it refuses,
 changing nothing, with `extra.message` saying what keeps it and naming
 `--discard`, with
 `uncommitted_changes` (tracked or untracked files; `extra.files` lists up to 20,

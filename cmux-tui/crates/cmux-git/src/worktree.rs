@@ -332,18 +332,22 @@ pub fn typed_current_dir() -> std::io::Result<PathBuf> {
 }
 
 /// `relative` (or the current folder) as an absolute path in the spelling
-/// the person typed: against [`typed_current_dir`], `.` and `..` taken as a
-/// shell takes them (`/tmp/a/../x` is `/tmp/x`); the resolved path when that
-/// spelling names something else (a `..` out of a link).
+/// the person typed: a relative path against [`typed_current_dir`], `.` and
+/// `..` taken as a shell takes them (`/tmp/a/../x` is `/tmp/x`); the resolved
+/// path when that spelling names something else (a `..` out of a link). An
+/// absolute path does not read the current folder, which may be gone (a
+/// shell in a removed worktree).
 ///
 /// ```
 /// let here = cmux_git::worktree::typed_folder(None).unwrap();
 /// assert!(here.is_absolute());
 /// ```
 pub fn typed_folder(relative: Option<&Path>) -> std::io::Result<PathBuf> {
-    let current = typed_current_dir()?;
-    let Some(relative) = relative else { return Ok(current) };
-    let joined = current.join(relative);
+    let joined = match relative {
+        Some(path) if path.is_absolute() => path.to_path_buf(),
+        Some(path) => typed_current_dir()?.join(path),
+        None => return typed_current_dir(),
+    };
     let typed = lexical(&joined);
     if same_folder(&typed, &joined) { Ok(typed) } else { Ok(resolved(&joined)) }
 }
