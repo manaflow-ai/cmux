@@ -12,16 +12,25 @@ afterAll(() => restore());
 const { renderPage, settle, ops } = await import("./testing");
 const { homes, categoryById } = await import("./categories");
 const { PERSONALIZATION_KEYS, PERSONALIZATION_PARTS } = await import("./components/PersonalizationCard");
+const { DENSITY_CARD_ROWS } = await import("./density");
+const { ROW_LEVELS } = await import("./rowLevelsData");
+/** The keys only Personalization draws (SectionView HUB_KEYS): its parts' and its density card's. */
+const HUB_KEYS = new Set([...PERSONALIZATION_KEYS, ...DENSITY_CARD_ROWS]);
 
 const rowKeys = (container: HTMLElement) =>
   [...container.querySelectorAll<HTMLElement>(".row[data-row-key]")].map((row) => row.dataset.rowKey!);
 
-test("every key Personalization draws has its one home in another category", () => {
-  expect(categoryById("personalization").groups).toEqual([]);
+// The Theme page moved here (page-layout.json: legacy_ids ["theme"]), so the theme keys' home is this
+// page, by its App Theme group; every other key it draws has its home in another category.
+const THEME_KEYS = new Set(["appearance.theme", "appearance.appTheme", "appearance.accent"]);
+
+test("every key Personalization draws has its one home: the theme here, the rest in another category", () => {
+  expect(categoryById("personalization").groups.map((group) => group.key)).toEqual(["settings.group.appTheme"]);
   for (const key of PERSONALIZATION_KEYS) {
     const home = homes.get(key);
     expect(home, key).toBeDefined();
-    expect(home!.category, key).not.toBe("personalization");
+    if (THEME_KEYS.has(key)) expect(home!.category, key).toBe("personalization");
+    else expect(home!.category, key).not.toBe("personalization");
   }
 });
 
@@ -60,7 +69,10 @@ test("the page draws each part under its jump bar: theme, background, Chief, tex
   page.unmount();
 });
 
-test("every row it draws is the same row on its home page, and More in … opens that page", async () => {
+// Personalization is the one page that draws its own keys (SectionView HUB_KEYS): their home pages
+// no longer draw them a second time. A row it repeats from a card of another page (the Chief's chat
+// rows in Look) is still that same row on its home page, unless that page hides it.
+test("every row it draws is drawn once: its own keys on no other page, the rest on their home, and More in … opens that page", async () => {
   const page = await renderPage({ path: "/settings/personalization" });
   await settle();
   const drawn = rowKeys(page.container);
@@ -68,13 +80,16 @@ test("every row it draws is the same row on its home page, and More in … opens
   const byHome = new Map<string, string[]>();
   for (const key of drawn) {
     const home = homes.get(key)!.category;
+    if (home === "personalization") continue;
     byHome.set(home, [...(byHome.get(home) ?? []), key]);
   }
   for (const [home, keys] of byHome) {
     await act(async () => page.history.push(`/settings/${home}`));
     await settle();
     const there = new Set(rowKeys(page.container));
-    for (const key of keys) expect(there.has(key), `${key} on ${home}`).toBe(true);
+    // A row hidden on its home page (rowLevelsData.ts) shows only here and in search.
+    for (const key of keys)
+      expect(there.has(key), `${key} on ${home}`).toBe(!HUB_KEYS.has(key) && ROW_LEVELS.levels[key] !== "hidden");
   }
   // Each part's More in … links go to the homes of what it draws, and every home has its link.
   for (const part of PERSONALIZATION_PARTS) {
@@ -82,6 +97,8 @@ test("every row it draws is the same row on its home page, and More in … opens
     await settle();
     const section = page.container.querySelector<HTMLElement>(`[data-part="${part.id}"]`)!;
     const drawnHomes = new Set(rowKeys(section).map((key) => homes.get(key)!.category));
+    // The theme's home is this page, so its part links nowhere.
+    drawnHomes.delete("personalization");
     for (const home of drawnHomes) expect(part.homes, `${part.id} links ${home}`).toContain(home);
     for (const home of part.homes) {
       await act(async () => page.history.push("/settings/personalization"));
@@ -102,7 +119,11 @@ test("a pick on Personalization is the write Settings makes, and Settings shows 
   await act(async () => pet().querySelector<HTMLElement>('[data-pet="fox"]')!.click());
   await settle();
   expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: "home.chiefPetMascot", value: "fox" }]);
+  // Chief no longer draws the pet card (Personalization is its one home): coming back shows the pick.
   await act(async () => page.history.push("/settings/chief"));
+  await settle();
+  expect(pet()).toBeNull();
+  await act(async () => page.history.push("/settings/personalization"));
   await settle();
   const checked = [...pet().querySelectorAll<HTMLElement>(".chief-pet-choice")].find(
     (choice) => choice.getAttribute("aria-pressed") === "true",

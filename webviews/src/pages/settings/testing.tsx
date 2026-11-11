@@ -44,6 +44,8 @@ export async function renderPage(
     path?: string;
     locale?: string;
     setup?: (provider: MockSettingsProvider) => void;
+    /** Leave every card's More Options closed (the default opens them, so a test reaches every row). */
+    closedMore?: boolean;
   } = {},
 ): Promise<Rendered> {
   setLocale(options.locale ?? "en");
@@ -63,6 +65,7 @@ export async function renderPage(
     root.render(<SettingsPage store={store} history={history} />);
   });
   await settle();
+  if (!options.closedMore) await openMoreOptions(container);
   return {
     provider: mock.provider,
     store,
@@ -75,6 +78,14 @@ export async function renderPage(
       mock.close();
     },
   };
+}
+
+/** Opens every closed More Options on the page (a page a test renders, or one it navigated to). */
+export async function openMoreOptions(container: ParentNode): Promise<void> {
+  const closed = [...container.querySelectorAll<HTMLElement>('.more-options[aria-expanded="false"]')];
+  if (closed.length === 0) return;
+  await act(async () => closed.forEach((toggle) => toggle.click()));
+  await settle();
 }
 
 export function rowElement(container: ParentNode, key: string): HTMLElement {

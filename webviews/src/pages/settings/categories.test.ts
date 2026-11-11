@@ -31,8 +31,8 @@ test("the categories are the approved ones, in order", () => {
   expect(categories.map((category) => category.id)).toEqual([
     "general",
     "updates",
+    // Personalization holds the theme; old Theme links open it (next tests).
     "personalization",
-    "theme",
     "appearance",
     // Settings overhaul (2026-11-07): the sidebar, tabs and panes, and the New Tab page have pages.
     "sidebar",
@@ -59,6 +59,10 @@ test("the categories are the approved ones, in order", () => {
     "experimental",
     "development",
   ]);
+});
+
+test("old Theme links open Personalization", () => {
+  expect(categoryOf("theme")).toBe("personalization");
 });
 
 test("Mobile opens its own page, and old Server links open Devices", () => {

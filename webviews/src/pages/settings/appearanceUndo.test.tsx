@@ -89,7 +89,8 @@ describe("Appearance's floating Undo, Redo and Reset", () => {
   });
 
   test("picking a background is undoable and redoable, and the buttons name the step", async () => {
-    page = await renderPage({ path: "/settings/appearance" });
+    // The background picker's one home is Personalization, which shows the same bar.
+    page = await renderPage({ path: "/settings/personalization" });
     const tile = page.container.querySelector<HTMLButtonElement>('.backdrop-tile[aria-label="Shuffle Paintings"]')!;
     await click(tile);
     expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: "appearance.background", value: "daily" }]);

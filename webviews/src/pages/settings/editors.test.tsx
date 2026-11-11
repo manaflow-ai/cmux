@@ -10,6 +10,10 @@ const restore = installDom();
 afterAll(() => restore());
 const { changeValue, click, fire, ops, renderPage, resetRow, rowElement, run, settle } = await import("./testing");
 const { fitsSegments } = await import("./editors/Editor");
+const { isDuration } = await import("./editors/DurationEditor");
+const { ROW_LEVELS } = await import("./rowLevelsData");
+const { PERSONALIZATION_KEYS } = await import("./components/PersonalizationCard");
+const { DENSITY_CARD_ROWS } = await import("./density");
 
 let page: Rendered | null = null;
 afterEach(() => {
@@ -32,6 +36,8 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
     case "choice_or_url":
       return has('option[value="__address__"]') ? null : "no Self-Hosted Server… choice";
     case "number":
+      // A time row with a wide range is a menu of durations (DurationEditor), not a slider.
+      if (isDuration(row)) return has("select") && !has('input[type="range"]') ? null : "no duration menu";
       return has('input[type="range"]') && has("input.number") ? null : "no slider + field";
     case "color":
       return has('input[type="color"]') && has("input.hex") ? null : "no swatch + hex field";
@@ -77,6 +83,18 @@ describe("editors", () => {
       const failures: string[] = [];
       page = await renderPage({ path: `/settings/${category.id}` });
       for (const row of category.groups.flatMap((group) => group.rows)) {
+        // A hidden row is not on its page (search, the palette, the CLI and cmux.json have it;
+        // rowLevelsData.ts), and Personalization is the one page that draws what it holds.
+        const hub =
+          category.id !== "personalization" &&
+          (PERSONALIZATION_KEYS.includes(row.key) || DENSITY_CARD_ROWS.has(row.key));
+        // The Machines card draws machine colors as a color well per machine (checked below).
+        const hidden = ROW_LEVELS.levels[row.key] === "hidden" && row.key !== "appearance.machineColors";
+        if (hidden || hub) {
+          if (page.container.querySelector(`[data-row-key="${row.key}"]`))
+            failures.push(`${row.key}: drawn on ${category.id}`);
+          continue;
+        }
         // The Theme section draws appearance.theme as its theme picker.
         if (row.key === "appearance.theme" || row.key === "appearance.appTheme") {
           if (!page.container.querySelector("[data-theme-picker]")) failures.push(`${row.key}: no theme picker`);
@@ -129,7 +147,8 @@ describe("editors", () => {
     });
 
   test("the window material is a material choice, never a radius slider", async () => {
-    page = await renderPage({ path: "/settings/appearance" });
+    // Personalization is the one page that draws the background rows.
+    page = await renderPage({ path: "/settings/personalization" });
     const material = rowElement(page.container, "appearance.backgroundBlur");
     expect(material.querySelector('input[type="range"]')).toBeNull();
     const values = [...material.querySelectorAll("option")].map((option) => option.getAttribute("value"));
@@ -141,7 +160,8 @@ describe("editors", () => {
   });
 
   test("opacity is a percent slider: preview while dragging, one settings.set on release", async () => {
-    page = await renderPage({ path: "/settings/appearance" });
+    // Personalization is the one page that draws the background rows.
+    page = await renderPage({ path: "/settings/personalization" });
     const row = rowElement(page.container, "appearance.backgroundOpacity");
     expect(row.querySelector(".unit")?.textContent).toBe("%");
     const slider = row.querySelector<HTMLInputElement>('input[type="range"]')!;
@@ -165,7 +185,9 @@ describe("editors", () => {
           op !== "cmux.settings.snapshot" &&
           op !== "cmux.settings.host.lists" &&
           op !== "cmux.settings.section.actions" &&
-          op !== "cmux.settings.backdrop.image.screen_saver",
+          op !== "cmux.settings.backdrop.image.screen_saver" &&
+          // Personalization's theme studio reads its colors when the page opens.
+          op !== "cmux.settings.theme.colors",
       );
     expect(order).toEqual([
       "cmux.settings.preview",
@@ -177,7 +199,8 @@ describe("editors", () => {
   });
 
   test("an unset slider sits at the value the host derives (the theme's opacity), live", async () => {
-    page = await renderPage({ path: "/settings/appearance" });
+    // Personalization is the one page that draws the background rows.
+    page = await renderPage({ path: "/settings/personalization" });
     const row = rowElement(page.container, "appearance.backgroundOpacity");
     const slider = () => row.querySelector<HTMLInputElement>('input[type="range"]')!.value;
     await run(() =>
