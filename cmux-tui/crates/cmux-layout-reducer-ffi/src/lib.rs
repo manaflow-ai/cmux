@@ -17,6 +17,7 @@
 //! one call that reads the harness and both probes' output; `cloud_start_*`:
 //! the refusal, the account checks and the folder a start may copy;
 //! `cloud_folder_too_broad`, `cloud_vm_kind`, `cloud_login_fingerprint`;
+//! `cloud_agent_check`: whether the start's agent can run, before its lease;
 //! `cloud_ask_answer`, `cloud_ask_first`: who may answer an agent's Cloud ask;
 //! `cloud_sequence_*`: the start's one sequencer, its step order and times; and
 //! `cloud_harness_login_provider`, `cloud_guest_kind`, `cloud_guest_kind_probe`,
@@ -275,6 +276,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: harness_login::Inputs =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&harness_login::decide(&request)).map_err(|_| ERR_INVALID)?
+            }
+            b"cloud_agent_check" => {
+                use cmux_cloud_start_core::agent_check;
+                let request: agent_check::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&agent_check::check(&request)).map_err(|_| ERR_INVALID)?
             }
             b"cloud_capability_header" => {
                 use cmux_cloud_start_core::capability;
