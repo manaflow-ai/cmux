@@ -688,7 +688,7 @@ class Derivation:
     def __init__(self, repo: Path, upstream_ref: str):
         self.repo, self.upstream_ref = repo, upstream_ref
         self._totals: dict[str, dict[str, int] | None] = {}
-        self._rises: dict[str, object] = {}
+        self._rises: dict[tuple[str, bool], dict[str, int] | None] = {}
         self._ancestor: dict[tuple[str, str], bool] = {}
         self._parents: dict[str, int] = {}
 
@@ -707,13 +707,12 @@ class Derivation:
 
     def rise(self, sha: str, row: str) -> int:
         """ROW's rise in commit SHA over its first parent, from git objects only (as raised_by counts it)."""
-        if sha not in self._rises:
-            try:
-                self._rises[sha] = load_counts().delta_count(self.repo, f"{sha}^1", sha, use_worktree=False)
-            except RuntimeError:
-                self._rises[sha] = None
-        delta = self._rises[sha]
-        return max(0, delta.total(row)) if delta is not None else 0
+        key = (sha, row == APP_LINES)
+        if key not in self._rises:
+            rows = {APP_LINES} if row == APP_LINES else set(load_counts().ROW_IDS)
+            self._rises[key] = commit_rises(self.repo, sha, rows)
+        rises = self._rises[key]
+        return max(0, rises[row]) if rises is not None else 0
 
     def totals_where_met(self, sha: str) -> dict[str, int] | None:
         """The full-count totals where SHA meets UPSTREAM_REF (what --update's upstream_rises counts), or None."""
@@ -971,6 +970,48 @@ def run_push(repo: Path, ranges: list, upstream_ref: str = UPSTREAM,
         return False
 
 
+APP_LINES = "app_lines"
+
+
+def app_lines_rise(repo: Path, sha: str) -> int | None:
+    """app_lines' change in commit SHA over its first parent, or None when only delta_count can tell (a root commit,
+    a commit that changes a Package.swift, so its closure may differ from its parent's).
+
+    app_lines is the newlines of every counted Swift file (ReadPaths.is_source) whose module (package_of) is
+    CmuxNextApp, so with one closure at both ends the change is the newline difference of the App files the commit
+    changes. Equal to delta_count's app_lines (test_app_lines_rise_matches_the_delta_count), without its type lookups:
+    milliseconds a commit where delta_count takes seconds, which is what lets --update attribute weeks of base commits
+    (4,366 after the orphaned 9c4b1ccc1285)."""
+    counts = load_counts()
+    code, out = git(repo, "diff-tree", "-r", "--no-renames", "--no-commit-id", "--name-only", "-z", f"{sha}^1", sha)
+    if code != 0:
+        return None
+    changed = [x for x in out.split("\0") if x]
+    if any(x == "Package.swift" or x.endswith("/Package.swift") for x in changed):
+        return None
+    try:
+        scope = counts.read_paths(repo, sha)
+    except RuntimeError:
+        return None
+    app = [x for x in changed if scope.is_source(x) and counts.package_of(x) == counts.APP_PACKAGE]
+    texts = counts.Git(repo).read([(rev, x) for x in app for rev in (f"{sha}^1", sha)])
+    return sum((texts[(sha, x)] or "").count("\n") - (texts[(f"{sha}^1", x)] or "").count("\n") for x in app)
+
+
+def commit_rises(repo: Path, sha: str, rows: set[str]) -> dict[str, int] | None:
+    """{row: change} of ROWS in commit SHA over its first parent, from git objects only; None for a root commit.
+    app_lines alone takes app_lines_rise; any other row, the full delta_count."""
+    if rows <= {APP_LINES}:
+        fast = app_lines_rise(repo, sha)
+        if fast is not None:
+            return {APP_LINES: fast}
+    try:
+        delta = load_counts().delta_count(repo, f"{sha}^1", sha, use_worktree=False)
+    except RuntimeError:
+        return None
+    return {row: delta.total(row) for row in rows}
+
+
 def raised_by(repo: Path, since: str, until: str, rows: set[str]) -> dict[str, list[tuple[str, int, str]]]:
     """{row: [(sha, rise, "author: subject")]} of the non-merge commits in SINCE..UNTIL that raised a row.
 
@@ -985,19 +1026,23 @@ def raised_by(repo: Path, since: str, until: str, rows: set[str]) -> dict[str, l
         scopes = [counts.read_paths(repo, rev) for rev in (since, until)]
     except RuntimeError:
         return found  # an end is not a commit here (a measured_sha rebased away)
-    paths = sorted({p for scope in scopes for p in scope.sources + scope.count_inputs}) + [":(glob)**/Package.swift"]
+    if rows <= {APP_LINES}:
+        # Only an App file or a manifest (which may move a file into or out of the App) can change app_lines.
+        dirs = {f"{p}/Sources/{counts.APP_PACKAGE}" for scope in scopes for p in scope.packages}
+        paths = sorted(dirs | {p for scope in scopes for p in scope.count_inputs}) + [":(glob)**/Package.swift"]
+    else:
+        paths = sorted({p for scope in scopes for p in scope.sources + scope.count_inputs}) + [":(glob)**/Package.swift"]
     code, out = git(repo, "log", "--no-merges", "--reverse", "--format=%H%x1f%an%x1f%s", f"{since}..{until}", "--", *paths)
     if code != 0:
         return found
     for line in out.splitlines():
         sha, author, subject = (line.split("\x1f") + ["", ""])[:3]
-        try:
-            delta = counts.delta_count(repo, f"{sha}^1", sha, use_worktree=False)
-        except RuntimeError:
+        rises = commit_rises(repo, sha, rows)
+        if rises is None:
             continue  # a root commit: nothing to count against
         for row in rows:
-            if delta.total(row) > 0:
-                found[row].append((sha, delta.total(row), f"{author}: {subject}"))
+            if rises[row] > 0:
+                found[row].append((sha, rises[row], f"{author}: {subject}"))
     return found
 
 

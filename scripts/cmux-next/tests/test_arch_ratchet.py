@@ -1742,6 +1742,32 @@ class RatchetTests(Repo):
         self.assertIn(f"--anchor {recording}", "\n".join(ratchet.audit_lines(result)))
         self.assertEqual([c["sha"] for c in result["over"]["stateful_singletons"]["raised_by"]], [landed[:11]])
 
+    def test_app_lines_rise_matches_the_delta_count(self):
+        app = f"{SRC}/CmuxNextApp"
+        steps = [
+            ({f"{app}/A.swift": "struct A {}\nlet a = 1\n"}, ()),  # a new App file
+            ({f"{app}/A.swift": "struct A {}\n", f"{app}/Nested/B.swift": "struct B {}\n\n\n"}, ()),  # an edit, a nested one
+            ({f"{app}/C.txt": "not swift\n", f"{SRC}/CmuxNextDomain/D.swift": "struct D {}\n"}, ()),  # not App Swift
+            ({}, (f"{app}/Nested/B.swift",)),  # a removal
+            ({f"{app}/E.swift": "struct E {}"}, ()),  # no final newline
+        ]
+        for files, removed in steps:
+            for path, text in files.items():
+                self.write(path, text)
+            for path in removed:
+                self.remove(path)
+            sha = self.commit("an App change")
+            want = counts.delta_count(self.repo, f"{sha}^1", sha, use_worktree=False).total("app_lines")
+            self.assertEqual(ratchet.app_lines_rise(self.repo, sha), want, files or removed)
+            self.assertEqual(ratchet.commit_rises(self.repo, sha, {"app_lines"}), {"app_lines": want})
+        # A manifest change may move the closure: only the full delta count tells.
+        self.write(counts.MANIFEST, MANIFEST % "")
+        self.write(f"{app}/F.swift", "struct F {}\n")
+        sha = self.commit("a manifest and an App file")
+        self.assertIsNone(ratchet.app_lines_rise(self.repo, sha))
+        want = counts.delta_count(self.repo, f"{sha}^1", sha, use_worktree=False).total("app_lines")
+        self.assertEqual(ratchet.commit_rises(self.repo, sha, {"app_lines"}), {"app_lines": want})
+
     def test_an_exception_added_and_applied_in_one_push_passes_both_rules(self):
         self.assertEqual(self.update()[0], 0)
         base = self.commit("record")
