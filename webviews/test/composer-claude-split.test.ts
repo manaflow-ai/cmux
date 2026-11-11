@@ -281,7 +281,8 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
               const r = element.getBoundingClientRect();
               return r.width ? { left: r.left, right: r.right } : null;
             };
-            const check = row.querySelector(".ui-menu-check")?.textContent?.trim() ?? "";
+            // The check is drawn (MenuCheckGlyph, an SVG), not a text glyph.
+            const check = row.querySelector(".ui-menu-check .ui-menu-check-glyph");
             return {
               checked: row.hasAttribute("data-checked"),
               check: check ? box(".ui-menu-check") : null,
