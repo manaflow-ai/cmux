@@ -39,6 +39,7 @@ dependencies = [
  "cmux-relay",
  "cmux-remote",
  "cmux-remote-protocol",
+ "cmux-scope",
  "cmux-sdk",
  "cmux-server",
  "cmux-server-core",
@@ -1173,6 +1174,7 @@ dependencies = [
  "bytes",
  "cmux-cloud-config",
  "cmux-cloud-environment",
+ "cmux-cloud-machine",
  "cmux-cloud-wire",
  "futures",
  "getrandom 0.3.4",
@@ -1817,6 +1819,7 @@ dependencies = [
  "rand_core 0.9.5",
  "rcgen",
  "ring",
+ "rustls",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1850,6 +1853,15 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
+]
+
+[[package]]
+name = "cmux-scope"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]
@@ -2031,6 +2043,7 @@ dependencies = [
  "cmux-cloud-codex-holder",
  "cmux-cloud-config",
  "cmux-cloud-environment",
+ "cmux-cloud-machine",
  "cmux-cloud-start-core",
  "cmux-cloud-wire",
  "cmux-config",
@@ -2186,6 +2199,7 @@ dependencies = [
  "ghostty-vt",
  "jsonschema",
  "libc",
+ "memchr",
  "notify",
  "parking_lot",
  "proptest",
