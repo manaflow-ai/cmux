@@ -199,10 +199,17 @@ function Harness({
         },
         account: { sessionId: "chat-1", accounts },
         search: {
-          find: (query) =>
-            list.flatMap((family) =>
-              [...family.models, ...family.more].filter((row) => row.name.toLowerCase().includes(query)),
-            ),
+          // A trailing level word names the level a match lands with, as the real search's does ("sol high").
+          find: (query) => {
+            const words = query.split(" ");
+            const named = ["low", "medium", "high"].includes(words.at(-1) ?? "") ? words.pop() : undefined;
+            const text = words.join(" ");
+            return list.flatMap((family) =>
+              [...family.models, ...family.more]
+                .filter((row) => row.name.toLowerCase().includes(text))
+                .map((row) => (named ? { ...row, effort: named } : row)),
+            );
+          },
           pick(row) {
             calls.picks.push(row);
           },
@@ -351,6 +358,37 @@ test("a chat on Ultracode carries Extra High to a model that has it", async () =
   expect(calls.picks[0]).toMatchObject({ id: "codex-Nova", effort: "xhigh" });
 });
 
+test("a Claude Code model shown but not picked lists Ultracode, and its pick lands it", async () => {
+  // Lucas 2026-11-11: Ultracode showed only once the model was picked. Its harness offers it on every
+  // model that runs Extra High (QuickFamily.ultracode), so a highlighted model lists it too.
+  const sonnet = model("claude", "Sonnet", { efforts: ["low", "high", "xhigh"], defaultEffort: "high" });
+  const nova = model("codex", "Nova", { efforts: ["low", "high", "xhigh"], defaultEffort: "low" });
+  const calls = await openMenu(
+    [
+      { ...claude, ultracode: true, models: [...claude.models, sonnet] },
+      { ...codex, models: [...codex.models, nova] },
+      gemini,
+    ],
+    "medium",
+  );
+  await press("ArrowDown");
+  await press("ArrowDown");
+  expect(row("Sonnet").hasAttribute("data-hl")).toBe(true);
+  expect(calls.picks).toEqual([]);
+  expect(levels().map((level) => level.name)).toEqual(["Ultracode", "Extra High", "High", "Low"]);
+  const ultracode = [...tune().querySelectorAll<HTMLElement>("[role=radio]")].find(
+    (node) => node.textContent === "Ultracode",
+  )!;
+  await click(ultracode);
+  expect(calls.picks.at(-1)).toMatchObject({ id: "claude-Sonnet", effort: "ultracode" });
+  // A harness that does not offer it lists none, Extra High or not.
+  await click(tab("Codex"));
+  await press("ArrowDown");
+  await press("ArrowDown");
+  expect(row("Nova").hasAttribute("data-hl")).toBe(true);
+  expect(levels().map((level) => level.name)).not.toContain("Ultracode");
+});
+
 test("another model, then a level, then Fast each land at once, the level kept with Fast", async () => {
   const calls = await openMenu();
   await click(tab("Codex"));
@@ -462,6 +500,33 @@ test("Escape clears a search before it closes the menu", async () => {
   });
   await settle();
   expect(calls.open).toBe(false);
+});
+
+test("a level picked by hand under a search does not outlast the menu: the same search reopened shows its own level", async () => {
+  const calls = await openMenu();
+  const search = async (text: string) => {
+    const input = popup().querySelector<HTMLInputElement>(".acpmux-cols-search input")!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input, text);
+      input.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+    });
+    await settle();
+  };
+  const checked = () => levels().find((level) => level.checked)?.name;
+  await search("sol high");
+  expect(checked()).toBe("High");
+  const low = [...tune().querySelectorAll<HTMLElement>("[role=radio]")].find((node) => node.textContent === "Low")!;
+  await click(low);
+  expect(checked()).toBe("Low");
+  // Escape clears the search, then closes the menu; the chip opens it again.
+  await press("Escape");
+  await press("Escape");
+  expect(calls.open).toBe(false);
+  await act(async () => document.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
+  await settle();
+  await search("sol high");
+  expect(checked()).toBe("High");
 });
 
 test("a re-render never takes the keyboard back from a control outside the menu", async () => {

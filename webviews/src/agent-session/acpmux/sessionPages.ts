@@ -11,6 +11,29 @@ import { translate } from "./i18n";
 export const SESSION_PAGE = 200;
 /** Later pages one list reads at most (a million sessions) before reading the whole list instead. */
 const MAX_PAGES = 5000;
+/** Times a later page that failed for another reason is asked again, from the same cursor, before
+ * the whole list is read instead. */
+const PAGE_RETRIES = 3;
+/** The wait before a failed page is asked again, when acpmux names none. */
+const PAGE_RETRY_MS = 500;
+/** The longest wait a refusal's `retryAfterMs` is followed for. */
+const MAX_PAGE_RETRY_MS = 10_000;
+
+/** acpmux's reply to a list read past its pace (`list.paced`): the page is asked again after its
+ * `retryAfterMs`, from the same cursor, for as long as this list is current. Read whole instead,
+ * every paced page cost the whole list in one reply, itself paced and read again 2 s later: 31 MB
+ * replies about seven times a minute on one Mac (2026-11-11: "im at 100% cpu rn"). */
+function paced(error: unknown): boolean {
+  const data = (error as { data?: { reason?: unknown; retryable?: unknown } } | undefined)?.data;
+  return data?.reason === "list.paced" || data?.retryable === true;
+}
+
+/** How long to wait before asking a page again after `error`: acpmux's `retryAfterMs`, else a moment. */
+function retryWait(error: unknown): number {
+  const data = (error as { data?: { retryAfterMs?: unknown } } | undefined)?.data;
+  const ms = Number(data?.retryAfterMs);
+  return Number.isFinite(ms) && ms > 0 ? Math.min(ms, MAX_PAGE_RETRY_MS) : PAGE_RETRY_MS;
+}
 
 type Request = (method: string, params: Record<string, unknown>) => Promise<any>;
 type Summary = { sessionId: string } & Record<string, any>;
@@ -105,7 +128,7 @@ export class SessionPager<S extends Summary> {
    * comes as its first rows and a `nextCursor`; the rest is read by `_acpmux/sessions` from it.
    */
   async whole(): Promise<S[]> {
-    let page = wholePageOf<S>(await this.request("_acpmux/watch", { enabled: true }));
+    let page = wholePageOf<S>(await this.pacedRequest("_acpmux/watch", { enabled: true }));
     const sessions = page.sessions;
     const seen = new Set<string>();
     for (let next = page.next; next !== undefined; next = page.next) {
@@ -115,11 +138,24 @@ export class SessionPager<S extends Summary> {
           `acpmux gave the page cursor ${JSON.stringify(next)} twice`,
         );
       seen.add(next);
-      page = wholePageOf<S>(await this.request("_acpmux/sessions", { cursor: next }), next);
+      page = wholePageOf<S>(await this.pacedRequest("_acpmux/sessions", { cursor: next }), next);
       for (const session of page.sessions) sessions.push(session);
     }
     // The pages come in an order updates do not change (hash order), not newest first.
     return seen.size > 0 ? sessions.sort(newestFirst) : sessions;
+  }
+
+  /** `request`, asked again after acpmux's wait while acpmux paces it (`paced`), so a whole-list
+   *  read resumes from the page it reached instead of starting over. Any other failure throws. */
+  private async pacedRequest(method: string, params: Record<string, unknown>): Promise<any> {
+    for (;;) {
+      try {
+        return await this.request(method, params);
+      } catch (error) {
+        if (!paced(error)) throw error;
+        await new Promise((resolve) => setTimeout(resolve, retryWait(error)));
+      }
+    }
   }
 
   /**
@@ -177,8 +213,10 @@ export class SessionPager<S extends Summary> {
 
   /**
    * Reads every page after `first`, handing `add` the sessions the pane lacks. Answers false when
-   * a newer list replaced the one `first` started. A page that fails, a cursor that comes back,
-   * or a list past `MAX_PAGES` falls back to the whole list (`whole`); when that fails too, it throws.
+   * a newer list replaced the one `first` started. A paced page is asked again from its cursor
+   * after acpmux's wait until it comes (`paced`); one that fails otherwise, `PAGE_RETRIES` times.
+   * One that still fails, a cursor that comes back, or a list past `MAX_PAGES` falls back to the
+   * whole list (`whole`); when that fails too, it throws.
    */
   async rest(first: SessionPage<S>, held: () => S[], add: (sessions: S[]) => void): Promise<boolean> {
     const run = first.run;
@@ -193,12 +231,18 @@ export class SessionPager<S extends Summary> {
       if (seen.has(next) || seen.size >= MAX_PAGES) page = { sessions: await this.whole() };
       else {
         seen.add(next);
-        try {
-          page = pageOf<S>(await this.request("_acpmux/sessions", { limit: SESSION_PAGE, cursor: next }));
-        } catch {
-          if (run !== this.run) return false;
-          page = { sessions: await this.whole() };
+        let read: SessionPage<S> | undefined;
+        for (let tries = 0; read === undefined; tries += 1) {
+          try {
+            read = pageOf<S>(await this.request("_acpmux/sessions", { limit: SESSION_PAGE, cursor: next }));
+          } catch (error) {
+            if (run !== this.run) return false;
+            if (!paced(error) && tries >= PAGE_RETRIES) break;
+            await new Promise((resolve) => setTimeout(resolve, retryWait(error)));
+            if (run !== this.run) return false;
+          }
         }
+        page = read ?? { sessions: await this.whole() };
       }
       if (run !== this.run) return false;
       const fresh = page.sessions.filter(
