@@ -25,6 +25,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+# scripts/ci/guard_findings.py, imported by name (tests/test_script_module_loads.py): each finding is its own check
+# of the guard step, so a red on the base never masks a new one.
+if str(REPO_ROOT / "scripts" / "ci") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "scripts" / "ci"))
+import guard_findings  # noqa: E402
 ALLOWLIST = REPO_ROOT / "scripts" / "lint-short-gates-allowlist.txt"
 
 # The slow paths: Cloud start and connect, the CLI's app and daemon calls, the app's daemon connection.
@@ -250,6 +256,7 @@ def main(argv: list[str]) -> int:
         )
         for hit in hits:
             print(hit.show(), file=sys.stderr)
+        guard_findings.report((hit.show() for hit in hits), root=REPO_ROOT)
         return 1
     print(f"lint-short-gates: ok ({len(files)} files, {len(entries)} allowlisted gates)")
     return 0

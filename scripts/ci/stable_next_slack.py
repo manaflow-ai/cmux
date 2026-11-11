@@ -29,6 +29,12 @@ import os
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
+
+# The workflow checks out only the files it runs (python3 -I puts no script folder on sys.path);
+# deadline_http.py is beside this script.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
 
 # Gate order and plain names, as people read them in Slack.
 LANES = [
@@ -150,8 +156,8 @@ def github(path: str) -> object:
     api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
     request = urllib.request.Request(f"{api}{path}", headers={
         "Authorization": f"Bearer {os.environ.get('GITHUB_TOKEN', '')}", "Accept": "application/vnd.github+json"})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return json.load(response)
+    _, body, _ = deadline_http.request(request, 30, raise_errors=True)
+    return json.loads(body)
 
 
 def job_reasons(job: str, level: str = "failure") -> str:
@@ -176,8 +182,8 @@ def call(method: str, token: str, body: dict) -> dict:
     request = urllib.request.Request(
         f"{os.environ.get('SLACK_API_URL', 'https://slack.com/api')}/{method}", data=json.dumps(body).encode(),
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json; charset=utf-8"})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        answer = json.load(response)
+    _, body, _ = deadline_http.request(request, 30, raise_errors=True)
+    answer = json.loads(body)
     if not answer.get("ok"):
         raise RuntimeError(f"{method}: {answer.get('error', 'not ok')}")
     return answer

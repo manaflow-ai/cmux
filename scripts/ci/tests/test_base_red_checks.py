@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-import importlib.util
 import pathlib
+import sys
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("base_red_checks", ROOT / "base_red_checks.py")
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
+# By name, as tests/test_base_red_excuse.py imports it: one module object for the file.
+sys.path.insert(0, str(ROOT))
+import base_red_checks as module  # noqa: E402
 
 
 class BaseRedChecksTests(unittest.TestCase):

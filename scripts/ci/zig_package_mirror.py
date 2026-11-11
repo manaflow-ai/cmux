@@ -52,9 +52,12 @@ import io
 import re
 import sys
 import tarfile
-import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
+
+# deadline_http.py is beside this script: one deadline for the whole download, not a per-read timeout.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 LOCK = ROOT / "scripts/ci/zig-packages.lock"
@@ -332,8 +335,8 @@ def fetch(url: str) -> bytes:
     last: Exception | None = None
     for _ in range(3):
         try:
-            with urllib.request.urlopen(url, timeout=120) as response:  # noqa: S310 (https mirror)
-                return response.read()
+            _, body, _ = deadline_http.request(url, 120, raise_errors=True)
+            return body
         except Exception as error:  # retried
             last = error
     raise RuntimeError(f"could not download {url}: {last}")
