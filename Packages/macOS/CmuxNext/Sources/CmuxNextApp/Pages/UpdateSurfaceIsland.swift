@@ -114,7 +114,7 @@ final class UpdateSurfaceProvider: PageProvider {
         guard stream == "cmux.changelog.surface.changes" else { throw PageError.unknownOp(stream) }
         // task-owner: the page's subscription; cancelled with it.
         let task = Task { @MainActor [weak self] in
-            for await (highlights, _) in ObservationStream({ [weak self] in (self?.highlights, self?.services?.updater.revertOffer, self?.services?.updater.revert) }) {
+            for await (highlights, _, _) in ObservationStream({ [weak self] in (self?.highlights, self?.services?.updater.revertOffer, self?.services?.updater.revert) }) {
                 guard let self else { return }
                 guard let value = try? json(highlights) else { continue }
                 services?.updater.log.append("update surface \(kind.rawValue): data \(highlights == nil ? "none" : "\(highlights?.items.count ?? 0) items")")
