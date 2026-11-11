@@ -132,14 +132,16 @@ pub(super) fn prepare_session_event_stream(
                 .map_err(|_| {
                     ResourceError::validation_invalid(Some("cursor"), "cursor revision is invalid")
                 })?;
-            // The live position, when the cursor has one this process gave.
-            // Without one the stream sends every terminal with a live
-            // change: a cursor of two fields does not say which the client
-            // has, and a position of another daemon process says nothing
-            // about this one's.
-            let live = cursor
-                .field("live")
-                .as_str()
+            // The live position, when the cursor has one this process gave
+            // and the connection sent `session-live-cursor-v1`: the field
+            // is not read for a connection that did not ask. Without one
+            // the stream sends every terminal with a live change: a cursor
+            // of two fields does not say which the client has, and a
+            // position of another daemon process says nothing about this
+            // one's.
+            let live = live_cursor
+                .then(|| cursor.field("live").as_str())
+                .flatten()
                 .and_then(|text| mux.terminal_live_sequence_of(text))
                 .unwrap_or(0);
             Ok::<_, ResourceError>((generation, revision, live))
