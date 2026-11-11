@@ -102,6 +102,18 @@ impl MacDesktop {
         self.require_input()?;
         if delivery == Delivery::Foreground {
             self.raise(t)?;
+            // Raising does not prove the window takes keys: an app-modal alert,
+            // a sheet or a floating panel of the app can stay its key window,
+            // and keys (or a menu command such as Close or Delete) would act
+            // there instead. AX requests are answered by the app in order, so
+            // its focused window now reflects the raise.
+            let (app, win) = self.ax_window(t)?;
+            if !app.element("AXFocusedWindow").is_some_and(|f| f.same(&win)) {
+                return Err(DesktopError::Unsupported(format!(
+                    "window {} did not become the app's key window when raised (an alert, sheet or panel of the app has it), so keys would reach another window; take a screenshot of the app and deal with that window first",
+                    t.window.id
+                )));
+            }
             return Ok(Route::Hid);
         }
         let (app, win) = self.ax_window(t)?;
