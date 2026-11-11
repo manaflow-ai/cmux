@@ -136,7 +136,9 @@ export function HatQuestionsStage({
       >
         <div style={{ flex: 1 }} />
         <div className="acpmux-dock" style={{ "--cv-inset": "16px" } as CSSProperties}>
-          {questions.length > 0 && <HatQuestions questions={questions} actions={actions} look={look} replyLook={replyLook} />}
+          {questions.length > 0 && (
+            <HatQuestions questions={questions} actions={actions} look={look} replyLook={replyLook} />
+          )}
           <div className="acpmux-composer">
             <form
               className="acpmux-composer-box"

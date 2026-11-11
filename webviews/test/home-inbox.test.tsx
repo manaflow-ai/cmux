@@ -228,7 +228,9 @@ test("every other chat's ask is a row, newest first, and the current chat's is n
   ]);
   expect(inbox.host.textContent).not.toContain("Edit App.tsx");
   // A question's choices answer it here; another computer's chat has none, and its row opens the chat.
-  const choices = [...inbox.rowOf("Which sign-in?").querySelectorAll('.acpmux-home-inbox-answers [data-tone="choice"]')];
+  const choices = [
+    ...inbox.rowOf("Which sign-in?").querySelectorAll('.acpmux-home-inbox-answers [data-tone="choice"]'),
+  ];
   expect(choices.map((button) => button.textContent)).toEqual(["OAuth", "Passkeys"]);
   await act(async () => (inbox.rowOf("Release notes").querySelector(".acpmux-home-inbox-open") as HTMLElement).click());
   expect(inbox.opened).toEqual(["remote"]);
@@ -263,7 +265,9 @@ test("a question's choice answers it in place, with that option, for its chat", 
   const inbox = await mount();
   const row = inbox.rowOf("Which sign-in?");
   await act(async () => {
-    [...row.querySelectorAll<HTMLButtonElement>('[data-tone="choice"]')].find((b) => b.textContent === "Passkeys")!.click();
+    [...row.querySelectorAll<HTMLButtonElement>('[data-tone="choice"]')]
+      .find((b) => b.textContent === "Passkeys")!
+      .click();
   });
   expect(inbox.sent.map(({ sessionId, permissionId, optionId }) => [sessionId, permissionId, optionId])).toEqual([
     ["auth", "p-auth", "Passkeys"],
@@ -395,7 +399,15 @@ test("replyElsewhere: an Other answer goes in the person's own words", async () 
   const question = {
     id: "p-auth",
     source: { harness: "claude", session: "auth", permission: "p-auth", answerOption: "p-auth-yes" },
-    items: [{ id: "q0", prompt: "Which sign-in?", options: [{ id: "OAuth", label: "OAuth" }], multiSelect: false, allowsOther: true }],
+    items: [
+      {
+        id: "q0",
+        prompt: "Which sign-in?",
+        options: [{ id: "OAuth", label: "OAuth" }],
+        multiSelect: false,
+        allowsOther: true,
+      },
+    ],
     state: { kind: "pending" },
   } as unknown as Parameters<typeof reply>[0];
   const calls: unknown[] = [];
@@ -408,7 +420,12 @@ test("replyElsewhere: an Other answer goes in the person's own words", async () 
   expect(calls).toEqual([
     [
       "chat.asks.answer",
-      { sessionId: "auth", permissionId: "p-auth", optionId: "p-auth-yes", answers: { "Which sign-in?": "Both, OAuth first" } },
+      {
+        sessionId: "auth",
+        permissionId: "p-auth",
+        optionId: "p-auth-yes",
+        answers: { "Which sign-in?": "Both, OAuth first" },
+      },
     ],
   ]);
 });
