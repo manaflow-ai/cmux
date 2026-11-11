@@ -38,6 +38,16 @@ public struct ScreenSharingConnectDemoRoot: View {
     public var body: some View {
         ScreenSharingViewerScreen(viewer: viewer, retry: { viewer.request(viewer.lastScope) }, close: {})
             .onAppear { viewer.request(.full) }
+            // This root stands outside RootView, so it applies Settings › Appearance itself.
+            .preferredColorScheme(Self.colorScheme)
+    }
+
+    static var colorScheme: ColorScheme? {
+        switch UserDefaults.standard.string(forKey: "cmuxMobile.settings.appearance") {
+        case "dark": .dark
+        case "light": .light
+        default: nil
+        }
     }
 
     @MainActor static func makeViewer() -> ScreenSharingViewer {

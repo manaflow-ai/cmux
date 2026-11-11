@@ -21,6 +21,8 @@ final class UIStateDeadlineCaptureUITests: XCTestCase {
     private func chief(_ appearance: XCUIDevice.Appearance, _ look: String) throws {
         XCUIDevice.shared.appearance = appearance
         let app = XCUIApplication()
+        // Settings › Appearance for this launch: the system setting alone left the app light.
+        app.launchArguments += ["-cmuxMobile.settings.appearance", appearance == .dark ? "dark" : "light"]
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchEnvironment["CMUX_MOBILE_CHIEF_SIM"] = "ws://127.0.0.1:9/ws?conversation=direct"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-no-restore", "-cmux-mobile-demo", "chief-open"]
@@ -59,6 +61,8 @@ final class UIStateDeadlineCaptureUITests: XCTestCase {
     private func feed(_ appearance: XCUIDevice.Appearance, _ look: String) throws {
         XCUIDevice.shared.appearance = appearance
         let app = XCUIApplication()
+        // Settings › Appearance for this launch: the system setting alone left the app light.
+        app.launchArguments += ["-cmuxMobile.settings.appearance", appearance == .dark ? "dark" : "light"]
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-no-restore", "-cmux-mobile-demo", "feed-connecting"]
         app.launch()
@@ -75,7 +79,8 @@ final class UIStateDeadlineCaptureUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Your Macs are offline"].exists, "offline title")
         pace(1)
         attach(app, "i2-feed-\(look)-10-offline")
-        let retry = app.descendants(matching: .any)["feed.offline.retry"].firstMatch
+        // The offline stack's identifier covers its Retry button's own, so it is found by its label.
+        let retry = app.buttons["Retry"].firstMatch
         XCTAssertTrue(retry.exists, "Retry\n\(app.debugDescription)")
         retry.tap()
         pace(0.6)
@@ -95,6 +100,8 @@ final class UIStateDeadlineCaptureUITests: XCTestCase {
     private func screenSharing(_ appearance: XCUIDevice.Appearance, _ look: String) throws {
         XCUIDevice.shared.appearance = appearance
         let app = XCUIApplication()
+        // Settings › Appearance for this launch: the system setting alone left the app light.
+        app.launchArguments += ["-cmuxMobile.settings.appearance", appearance == .dark ? "dark" : "light"]
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-CmuxMobileScreenSharingConnectDemo"]
         app.launch()
