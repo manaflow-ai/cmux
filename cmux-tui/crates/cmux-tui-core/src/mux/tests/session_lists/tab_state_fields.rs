@@ -250,24 +250,63 @@ fn a_session_wide_tab_list_carries_each_state_field_on_a_file_registry() {
 /// the live tabs only: its work and its memory follow the list, not the age of the session.
 #[test]
 fn a_session_wide_tab_list_reads_the_state_rows_of_live_tabs_only() {
+    const LIVE_TABS: &str = "SELECT public_id FROM resource_tabs WHERE deleted_revision IS NULL";
+    const STATE_ROW: &str = r#"INSERT INTO tab_state(tab_id, zoom, back_json)
+                               VALUES(?1, 2.0, '["https://closed.example"]')"#;
     let mux = session_of(4);
     give_each_state_table_a_row(&mux);
-    let connection = mux.registry_connection.get();
-    for closed in 0..40 {
-        connection
-            .execute(
-                r#"INSERT INTO tab_state(tab_id, zoom, back_json)
-                   VALUES(?1, 2.0, '["https://closed.example"]')"#,
-                [format!("tab_closed_{closed}")],
-            )
-            .unwrap();
+    // Three more tabs get a state row, and then the person closes them.
+    let workspace = mux.new_workspace(Some("closing".into()), Some((80, 24))).unwrap();
+    let pane = mux.with_state(|state| state.pane_of(workspace.id).unwrap());
+    let before = tab_ids(&mux, LIVE_TABS);
+    let surfaces =
+        (0..3).map(|_| mux.new_tab(Some(pane), None, Some((80, 24))).unwrap()).collect::<Vec<_>>();
+    let opened = tab_ids(&mux, LIVE_TABS)
+        .into_iter()
+        .filter(|tab| !before.contains(tab))
+        .collect::<Vec<_>>();
+    assert_eq!(opened.len(), 3, "three tabs opened: {opened:?}");
+    {
+        let connection = mux.registry_connection.get();
+        for tab in &opened {
+            connection.execute(STATE_ROW, [tab]).unwrap();
+        }
+        // Rows of tabs that the registry does not know.
+        for unknown in 0..40 {
+            connection.execute(STATE_ROW, [format!("tab_unknown_{unknown}")]).unwrap();
+        }
     }
-    let held = crate::state::values::session_tab_state_rows(&connection).unwrap();
+    for surface in &surfaces {
+        assert!(mux.close_surface(surface.id).unwrap());
+    }
+    let closed = tab_ids(
+        &mux,
+        "SELECT s.tab_id FROM tab_state AS s
+         JOIN resource_tabs AS t ON t.public_id = s.tab_id
+         WHERE t.deleted_revision IS NOT NULL",
+    );
+    assert_eq!(closed, opened, "a closed tab keeps its tab row (marked deleted) and its state row");
+    let held =
+        crate::state::values::session_tab_state_rows(&mux.registry_connection.get()).unwrap();
     assert_eq!(
         held, 1,
-        "one live tab has a state row and 40 rows are of tabs that are not live: the list held \
-         {held} rows"
+        "one live tab has a state row; 3 rows are of closed tabs and 40 of tabs that the registry \
+         does not know: the list held {held} rows"
     );
+}
+
+/// The tab ids that `sql` selects, sorted.
+fn tab_ids(mux: &Arc<Mux>, sql: &str) -> Vec<String> {
+    let connection = mux.registry_connection.get();
+    let mut ids = connection
+        .prepare(sql)
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    ids.sort();
+    ids
 }
 
 /// The time of the session-wide lists on a FILE registry, as a printed row beside the row of
