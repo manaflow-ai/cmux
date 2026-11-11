@@ -26,7 +26,19 @@
           "action": "state"
         }
       },
-      "wait": 0.5,
+      "wait": 3,
+      "record": true,
+      "shot": false
+    },
+    {
+      "title": "Settled (the stills follow): the same failed first page, the inline error row with Try Again",
+      "rpc": {
+        "method": "debug.home_native_fixture.capture",
+        "params": {
+          "action": "state"
+        }
+      },
+      "wait": 1,
       "record": true,
       "shot": false
     }
