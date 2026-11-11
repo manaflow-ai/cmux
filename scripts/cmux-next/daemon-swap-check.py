@@ -603,7 +603,7 @@ def flood_report(screen: str, step: int) -> dict:
 
 
 class Typist:
-    """Types `echo K >> FILE` into one terminal every 10 ms through whichever
+    """Types the line `K` into one terminal (cat into FILE) every 10 ms through whichever
     daemon answers on the socket, before, during and after the swap. Each K is
     `acked` (the daemon answered ok), `refused` (no daemon took the
     connection: never delivered), `rejected` (a daemon answered an error) or
@@ -615,6 +615,15 @@ class Typist:
         import threading
         self.daemon, self.term, self.path = daemon, term, path
         self.base = round_no * 1_000_000
+        # The terminal runs cat into PATH, not a shell: an interactive shell's line editor
+        # drops typeahead under load (10-16 lines in about one run in ten on a loaded build
+        # Mac, the bytes on the tty), which is the shell, not the swap. cat writes every line
+        # it reads. exec keeps the shell's pid, so the terminal's process is the same.
+        if term.get("typing_into") != path:
+            data(daemon.socket, {"cmd": "send", "terminal_id": term["terminal_id"],
+                                 "text": f"exec cat >> {shlex.quote(str(path))}\n"})
+            wait_until("typist cat", now() + 15, lambda: path.exists())
+            term["typing_into"] = path
         self.status: dict[int, str] = {}
         self.stop = threading.Event()
         self.thread = threading.Thread(target=self.run, daemon=True)
@@ -634,7 +643,7 @@ class Typist:
                     try:
                         # By the stable terminal id: a surface id does not survive a swap.
                         conn.sendall((json.dumps({"cmd": "send", "terminal_id": self.term["terminal_id"],
-                                                  "text": f"echo {k} >> {self.path}\n"}) + "\n").encode())
+                                                  "text": f"{k}\n"}) + "\n").encode())
                         sent = True
                         buf = b""
                         while not buf.endswith(b"\n"):
@@ -655,7 +664,7 @@ class Typist:
         self.thread.join(timeout=30)
         end = f"END{self.base}"
         surface = resolve(self.daemon.socket, self.term["terminal_id"])["surface"]
-        data(self.daemon.socket, {"cmd": "send", "surface": surface, "text": f"echo {end} >> {self.path}\n"})
+        data(self.daemon.socket, {"cmd": "send", "surface": surface, "text": f"{end}\n"})
         wait_until("typist end line", deadline,
                    lambda: self.path.exists() and end in self.path.read_text().split())
         seen: dict[int, int] = {}
@@ -734,7 +743,7 @@ def one_swap(daemon: Daemon, builds: list[Path], step: int, terms: list[dict], s
     claim_hosts(daemon.state, started)
     old_pid = daemon.proc.pid
     typist_term = next((t for t in terms if t["kind"] == "typist"), None)
-    typist = Typist(daemon, typist_term, work / f"typed-{step}.txt", step) if typist_term else None
+    typist = Typist(daemon, typist_term, work / "typed.txt", step) if typist_term else None
     if typist:
         typist.start()
         time.sleep(0.3)
