@@ -210,7 +210,9 @@ unsafe impl Sync for Cf {}
 impl Cf {
     /// Takes ownership of a reference returned by a Create/Copy function.
     pub fn created(p: CFTypeRef) -> Option<Self> {
-        (!p.is_null()).then_some(Cf(p))
+        // Not `then_some(Cf(p))`: that builds Cf(NULL) first and drops it,
+        // and CFRelease(NULL) traps.
+        if p.is_null() { None } else { Some(Cf(p)) }
     }
 
     /// Retains a borrowed (Get rule) reference.
