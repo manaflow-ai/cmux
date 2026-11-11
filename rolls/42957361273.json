@@ -1,0 +1,87 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42957361273",
+  "recorded_at": "2026-11-11T04:17:14Z",
+  "reason": "cmux-tui 1b88230023fc changes the image's cmux-tui (pinned f525e71cfb57)",
+  "dry_run": false,
+  "cmux_tui": "1b88230023fcbc5a1ed14a6745ecaac99adb73eb",
+  "fixes": [
+    {
+      "sha": "c53fc079bd995ae35b46330f1de874e8d6bdd352",
+      "mergedAt": "2026-11-10T19:50:25-08:00",
+      "subject": "acpmux: no deadline fails a repository-sync wait while the seed is alive"
+    },
+    {
+      "sha": "1dd2ce2777322d4b70475f7d79195f5f92279fb9",
+      "mergedAt": "2026-11-10T19:50:25-08:00",
+      "subject": "acpmux: test that a write waits for a live repository seed past ten minutes"
+    },
+    {
+      "sha": "297fda439f7c0cd252374b25d1f4265b5cbff29c",
+      "mergedAt": "2026-11-10T19:50:24-08:00",
+      "subject": "acpmux: a waited send's reply is its own turn's, read from the log by its turn id"
+    },
+    {
+      "sha": "2b190641a4d964d3844f5a7cf6f3a39463666563",
+      "mergedAt": "2026-11-10T19:50:24-08:00",
+      "subject": "acpmux: test that a queued send's reply is its own turn's"
+    },
+    {
+      "sha": "91ff543a2403b0d12fc88ab31789ea6b933d5c15",
+      "mergedAt": "2026-11-10T19:50:23-08:00",
+      "subject": "acpmux: wait --print prints the last turn's own reply, also when it is empty"
+    },
+    {
+      "sha": "0f595f3db20397457dc1befcdd983fc4ed5db711",
+      "mergedAt": "2026-11-10T19:50:22-08:00",
+      "subject": "acpmux: test that wait --print after a turn without text prints no earlier reply"
+    },
+    {
+      "sha": "3f1b68b84148be19a3e155191404496e5b3205a9",
+      "mergedAt": "2026-11-10T19:50:21-08:00",
+      "subject": "acpmux: a prompt queued behind a chat's turn is a turn still coming for its waiters"
+    },
+    {
+      "sha": "9bc1aae7cc9fe631a32a316762c65cd241396aac",
+      "mergedAt": "2026-11-10T19:50:19-08:00",
+      "subject": "acpmux: test that a prompt queued behind the ending turn is a turn still coming"
+    },
+    {
+      "sha": "39d9cdaf8019d7af7002b1b6ce80a8a17eab9dcc",
+      "mergedAt": "2026-11-10T19:50:17-08:00",
+      "subject": "acpmux: a wait ends when its caller's connection closes"
+    },
+    {
+      "sha": "5028f022b1ab5fb217a86cc4af8bc80b5f247a27",
+      "mergedAt": "2026-11-10T19:50:14-08:00",
+      "subject": "acpmux: test that a completion wait whose caller left reads no lane report"
+    },
+    {
+      "sha": "b325523caf9842ba3b6854ae98f68470f890eb69",
+      "mergedAt": "2026-11-10T19:50:14-08:00",
+      "subject": "acpmux: a temporary file a killed host left never stops the next host record"
+    },
+    {
+      "sha": "b6eef7eba75ca89da9c10ffa07adae724deefec7",
+      "mergedAt": "2026-11-10T19:50:13-08:00",
+      "subject": "acpmux: test that a temporary file a killed host left never stops the next host record"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T04:17:14Z",
+    "snapshot_id": "sh-64b0a02163c44e5b85c797058169b354",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42957361273): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "cb759311471d1c38609edf4fdb7da69f20c86966",
+    "image": "cloud-native-auto-1b882300-42957361273-1",
+    "revision": "ci-42957361273-1",
+    "at": "2026-11-11T04:17:14Z"
+  },
+  "rolled_back": false
+}
