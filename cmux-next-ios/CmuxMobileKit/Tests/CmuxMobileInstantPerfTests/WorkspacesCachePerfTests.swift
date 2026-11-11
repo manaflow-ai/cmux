@@ -17,7 +17,7 @@ import Testing
 struct WorkspacesCachePerfTests {
     /// The cache's rows the first screen is built from, read as the coordinator reads them at launch.
     static func restoredRows(_ store: LiveSnapshotStore) -> (macs: [MacDevice], rows: [Workspace])? {
-        guard let snapshot = store.load(accountID: WorkspaceCacheFixture.accountID) else { return nil }
+        guard let snapshot = store.loadFirstScreen(accountID: WorkspaceCacheFixture.accountID) else { return nil }
         return (snapshot.macs, snapshot.macs.flatMap { snapshot.workspaces[$0.id]?.workspaces ?? [] })
     }
 
@@ -47,8 +47,17 @@ struct WorkspacesCachePerfTests {
         let god = try await paint(.god)
         InstantPerfReport.record(
             "workspaces_cold_paint_from_cache", target: 16, small: small, god: god,
-            knownRed: [.godBudget, .ratio],
-            why: "the launch decodes the whole saved list (every workspace, tab and screen) and builds the inbox over all of it before the first frame",
-            note: "\(WorkspaceCacheFixture.count(.small)) vs \(WorkspaceCacheFixture.count(.god)) workspaces cached for one Mac, no link")
+            // Green since the head/tail cache: the launch reads each Mac's first screen of rows (one
+            // small file) and builds the inbox over those; the rest is read off the main thread.
+            note: "\(WorkspaceCacheFixture.count(.small)) vs \(WorkspaceCacheFixture.count(.god)) workspaces cached for one Mac, no link; first-screen read \(Self.read(.small)) vs \(Self.read(.god))")
+    }
+
+    /// The bytes and rows the first screen read for `size`'s cache.
+    static func read(_ size: InstantPerfSize) -> String {
+        let (store, directory) = WorkspaceCacheFixture.store(size)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        _ = store.loadFirstScreen(accountID: WorkspaceCacheFixture.accountID)
+        guard let read = store.lastFirstScreenRead else { return "none" }
+        return "\(read.bytes) B, \(read.rows) rows"
     }
 }
