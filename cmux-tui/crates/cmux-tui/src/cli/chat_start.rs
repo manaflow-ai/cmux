@@ -675,18 +675,22 @@ fn made_for_other_than_chat(title: &str) -> bool {
 /// tie, so the same list always picks the same VM. None of those: a new VM.
 fn cloud_vm(listed: &Value) -> Result<Machine, Value> {
     let me = listed.pointer("/account/user").and_then(Value::as_str);
-    // The list's times are one fixed form (`2026-11-10T23:56:32Z`), so their text sorts as they do.
-    let used_at = |row: &Value| text(row, "last_active_at").or_else(|| text(row, "created_at"));
     let chosen = usable_vms(listed)?
         .into_iter()
         .filter(|row| text(row, "status") == Some("running"))
         .filter(|row| !made_for_other_than_chat(text(row, "title").unwrap_or("")))
         .filter(|row| me.is_none_or(|me| text(row, "created_by") == Some(me)))
-        .filter_map(|row| text(row, "machine_id").map(|id| (used_at(row), id)))
+        .filter_map(|row| text(row, "machine_id").map(|id| (last_used(row), id)))
         .max_by(|(left_at, left), (right_at, right)| {
             left_at.cmp(right_at).then_with(|| right.cmp(left))
         });
     Ok(chosen.map_or(Machine::New, |(_, id)| Machine::Target(id.to_owned())))
+}
+
+/// When VM `row` was last used: its `last_active_at`, else its `created_at`. The list's times are
+/// one fixed form (`2026-11-10T23:56:32Z`), so their text sorts as they do.
+fn last_used(row: &Value) -> Option<&str> {
+    text(row, "last_active_at").or_else(|| text(row, "created_at"))
 }
 
 /// The app's existing Cloud VM with machine id `id`, else the one VM titled `name`, from its
