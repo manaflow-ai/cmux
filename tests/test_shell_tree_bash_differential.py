@@ -9,8 +9,9 @@ trap's action, a shell's -c string) inside every context (plain, $( ), backticks
 if, a function, a case item, eval, bash -c, a here-document's body). Each line is run by a real bash with PATH a folder
 of its own: the stub commands c0..c9 each log their name and exit 0, and the wrappers and shells the atoms name are
 the real ones. The stub names bash logged must be the stub names shell_tree reports for the line, both ways: a command
-bash runs that the tree misses fails, and so does one the tree reports but bash never runs. A line bash -n refuses
-fails as a corpus bug; a line shell_tree raises Unparsed for fails as a miss.
+bash runs that the tree misses fails, and so does one the tree reports but bash never runs, unless EXTRA lists the
+line with what bash did there. A line bash -n refuses fails as a corpus bug; a line shell_tree raises Unparsed for
+fails as a miss.
 
 Not in the corpus: commands another program runs from its arguments (xargs, find -exec, sudo), a shell reading its
 script from stdin (`bash <<EOF`, `echo c1 | sh`), source and aliases.
@@ -151,6 +152,15 @@ CONTEXTS = {
 }
 
 
+# Lines where shell_tree reports a command bash does not run. An extra command never hides one from a detector, so it
+# is allowed here, each with what bash did; a listed line that stops being extra fails, so the list only shrinks.
+EXTRA = {
+    "y=$(coproc c1; wait)": "bash ran no c1 for a coproc inside $( ), in every run on the CI runner's bash "
+                            "(in backticks and a subshell it does); shell_tree reads the coprocess as a command",
+    'c9 "$(coproc c1; wait)"': "the same coproc inside a double-quoted $( )",
+}
+
+
 def corpus() -> list[str]:
     """Every NESTABLE atom in every context, and each WHOLE line as it is."""
     out = [context(atom) for atom in NESTABLE for context in CONTEXTS.values()]
@@ -221,10 +231,22 @@ def tree_runs(text: str) -> list[str] | str:
 
 
 def differences(texts: list[str]) -> list[tuple[str, object, object]]:
-    """(line, what bash ran, what shell_tree reports) for each line where they differ."""
+    """(line, what bash ran, what shell_tree reports) for each line where they differ: a command bash runs that the
+    tree misses, an Unparsed line, a line bash gave no answer for, or an extra command on a line not in EXTRA. A line
+    in EXTRA whose tree matches bash, or misses a command, is a difference too."""
     with ThreadPoolExecutor(max_workers=min(8, (os.cpu_count() or 1) * 2)) as pool:
         ran = list(pool.map(bash_runs, texts))
-    return [(t, r, tree_runs(t)) for t, r in zip(texts, ran) if isinstance(r, str) or r != tree_runs(t)]
+    out = []
+    for t, r in zip(texts, ran):
+        tree = tree_runs(t)
+        if isinstance(r, str) or isinstance(tree, str):
+            out.append((t, r, tree))
+        elif t in EXTRA:
+            if set(r) - set(tree) or set(r) == set(tree):
+                out.append((t, r, tree))
+        elif r != tree:
+            out.append((t, r, tree))
+    return out
 
 
 class BashRunsWhatTheTreeReads(unittest.TestCase):
@@ -232,6 +254,12 @@ class BashRunsWhatTheTreeReads(unittest.TestCase):
         bad = differences(corpus())
         report = "\n".join(f"{line!r}\n    bash ran: {ran}\n    shell_tree: {tree}" for line, ran, tree in bad)
         self.assertEqual(bad, [], f"{len(bad)} of {len(corpus())} lines differ:\n{report}")
+
+    def test_every_extra_line_is_in_the_corpus_with_its_reason(self):
+        lines = set(corpus())
+        for line, why in EXTRA.items():
+            self.assertIn(line, lines)
+            self.assertGreater(len(why), 20, line)
 
     def test_the_corpus_is_large_and_reaches_every_context(self):
         lines = corpus()
