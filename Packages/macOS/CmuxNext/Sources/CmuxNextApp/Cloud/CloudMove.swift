@@ -355,9 +355,11 @@ struct CloudMove {
         return session
     }
 
-    /// Why `session` did not connect, in the person's words.
+    /// Why `session` did not connect, in the person's words: with the last connect's failure when it
+    /// failed (a helper that cannot start, a refused connect), so a start never ends on a bare "didn't connect".
     static func notConnected(_ session: CloudMachineSession) -> String {
-        CloudMoveStrings.notConnected(session.machine.title)
+        guard session.linkEnded != nil, let reason = session.linkFailureReason else { return CloudMoveStrings.notConnected(session.machine.title) }
+        return CloudMoveStrings.notConnected(session.machine.title, because: reason)
     }
 
     /// Shows the moved chat on `machine`: a new Cloud workspace with a terminal

@@ -23,6 +23,10 @@ public enum CloudLinkError: Error, Equatable, Sendable, CustomStringConvertible,
     case notUp(state: String)
     /// The op failed with the app server's error code.
     case failed(code: String, message: String)
+    /// This Mac's connection helper (`cmux carrier serve`) refused to start, at the step `code`, for a
+    /// reason another connect cannot change (`handshake`: it has no device key, such as a Keychain that
+    /// refused it). A wait for the link ends on it instead of connecting again (``endsWaits(_:)``).
+    case helperRefused(code: String, message: String)
     /// This resolver is not available yet.
     case unsupported
 
@@ -37,12 +41,37 @@ public enum CloudLinkError: Error, Equatable, Sendable, CustomStringConvertible,
         case .unsafeSocket(let detail), .invalidAnswer(let detail):
             "cmux didn't connect: the Cloud app's answer for this machine failed a safety check (\(detail)). Click Connect to try again."
         case .notUp(let state): "The machine's connection isn't ready yet (\(state)). Click Connect to try again."
-        case .failed(let code, let message): "Could not connect to the Cloud machine (\(message.isEmpty ? code : message)). Click Connect to try again."
+        case .failed(let code, let message), .helperRefused(let code, let message): "Could not connect to the Cloud machine (\(message.isEmpty ? code : message)). Click Connect to try again."
         case .unsupported: "This version of cmux can't connect to the Cloud machine this way. Update cmux, then click Connect."
         }
     }
 
     public var errorDescription: String? { description }
+
+    /// A failure no new connect can change (``helperRefused(code:message:)``): a wait for the link ends
+    /// on it with its reason rather than connecting again until its deadline.
+    public static func endsWaits(_ error: any Error) -> Bool {
+        if case .helperRefused? = error as? CloudLinkError { return true }
+        return false
+    }
+
+    /// Why a connect failed, in the link's own words and without the next step ("Click Connect"), for a
+    /// start or a move that says it in its own sentence. Nil when the error says nothing more than that.
+    public static func failureReason(_ error: any Error) -> String? {
+        let reason: String
+        switch error as? CloudLinkError {
+        case .failed(let code, let message)?, .helperRefused(let code, let message)?: reason = message.isEmpty ? code : message
+        case .helperNotRunning(let why)?: reason = why
+        case .notUp(let state)?: reason = state
+        case .disconnected?, nil: return droppedReason(error)
+        case .revoked(let why)?: reason = why
+        case .unsafeSocket(let detail)?, .invalidAnswer(let detail)?: reason = detail
+        case .openDirectory?, .unsupported?: return nil
+        }
+        var trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        while trimmed.hasSuffix(".") { trimmed.removeLast() }
+        return trimmed.isEmpty ? nil : trimmed
+    }
 
     /// The link went down or was revoked: a machine that ran lost it. Any
     /// other error (a provider's refusal, a failed check) is not a drop.
