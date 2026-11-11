@@ -185,6 +185,10 @@ public struct RootView: View {
             } else {
                 // Built once, on the first sign-in (start() also retries held transactions).
                 billing = auth.makeBillingModel(bundleIdentifier: Bundle.main.bundleIdentifier)
+                #if DEBUG
+                // Screenshot rig (BillingDemo): the real plans screen over an in-memory server.
+                if let demo = BillingDemo() { billing = demo.makeModel(bundleIdentifier: Bundle.main.bundleIdentifier ?? "dev.cmux.mobile") }
+                #endif
                 billing?.start()
             }
         }
@@ -573,6 +577,9 @@ struct ShellView: View {
             content: ShellTabs(shell: shell).environment(shell.store).environment(billing)
         )
         .ignoresSafeArea()
+        #if DEBUG
+        .modifier(BillingDemoSheet(billing: billing))
+        #endif
         .cmuxMobileToast($shell.toast)
         .modifier(LiveCallHost(shell: shell))
         .sheet(item: $shell.shareURL) { item in
