@@ -97,7 +97,17 @@ export function MessageCopy({ text }: { text: string }) {
 /// Fork from here, with Claude's tooltip: the title, then that this chat stays as it is. The host
 /// operation can take long enough to look inert, so press feedback starts before the promise is
 /// dispatched and a ref closes the same-frame duplicate-click window.
-export function ForkButton({ onFork, throughSeq }: { onFork(): unknown; throughSeq?: number }) {
+/// `unavailable`: why this message cannot be forked (its agent forks only from its latest reply):
+/// the control stays, dimmed, and says so, rather than vanishing from some messages only.
+export function ForkButton({
+  onFork,
+  throughSeq,
+  unavailable,
+}: {
+  onFork(): unknown;
+  throughSeq?: number;
+  unavailable?: string;
+}) {
   const t = useT();
   const inFlight = useRef(false);
   const [state, setState] = useState<"idle" | "pending" | "done" | "failed">("idle");
@@ -139,6 +149,19 @@ export function ForkButton({ onFork, throughSeq }: { onFork(): unknown; throughS
     );
   };
   if (readOnly) return null;
+  if (unavailable)
+    return (
+      <button
+        type="button"
+        className="cv-iconbtn cv-iconbtn--compact cv-fork-button"
+        aria-label={`${t("turn.fork")}: ${unavailable}`}
+        title={unavailable}
+        aria-disabled="true"
+        data-fork-state="unavailable"
+      >
+        <TurnFork size={ROW_ICON} />
+      </button>
+    );
   return (
     <button
       type="button"

@@ -221921,6 +221921,138 @@
         }
       }
     },
+    "turn.forkLatestOnly" : {
+      "comment" : "Agent pane: the Fork button's tooltip on an earlier message of a chat whose agent forks only at its end",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يمكن لهذا الوكيل التفرع من آخر رد له فقط"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ovaj agent se može granati samo od svog posljednjeg odgovora"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne agent kan kun forgrene fra sit seneste svar"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dieser Agent kann nur ab seiner letzten Antwort abzweigen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This agent can fork only from its latest reply"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Este agente solo puede bifurcar desde su última respuesta"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cet agent ne peut bifurquer qu’à partir de sa dernière réponse"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Questo agente può creare un fork solo dalla sua ultima risposta"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このエージェントは最新の返信からのみフォークできます"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ភ្នាក់ងារនេះអាចបំបែកបានតែពីការឆ្លើយតបចុងក្រោយរបស់វាប៉ុណ្ណោះ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 에이전트는 최신 답변에서만 포크할 수 있습니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne agenten kan bare forgrene fra sitt siste svar"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ten agent może rozgałęzić tylko od swojej ostatniej odpowiedzi"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Este agente só pode bifurcar a partir da última resposta"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Этот агент может ответвиться только от своего последнего ответа"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เอเจนต์นี้แยกได้จากคำตอบล่าสุดเท่านั้น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu ajan yalnızca son yanıtından çatallanabilir"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Цей агент може відгалузитися лише від своєї останньої відповіді"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tác tử này chỉ có thể tách nhánh từ câu trả lời mới nhất"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此智能体只能从其最新回复分叉"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此代理只能從其最新回覆分叉"
+          }
+        }
+      }
+    },
     "turn.forkDetail" : {
       "comment" : "Agent pane: the line under Fork from here in its tooltip: what forking does",
       "extractionState" : "manual",
