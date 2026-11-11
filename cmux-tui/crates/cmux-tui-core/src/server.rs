@@ -137,11 +137,11 @@ mod mobile_chat;
 pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_FOLDERS_CAPABILITY,
     AGENT_SESSION_FORK_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
-    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_MODEL_CAPABILITY,
-    AGENT_SESSION_START_NO_CWD_CAPABILITY, AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
-    AGENT_SESSION_START_VM_KIND_CAPABILITY, AGENT_SESSION_TRUST_CAPABILITY,
-    AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
-    set_link_share_app_scheme, start_link_share_bridge,
+    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_MODE_CAPABILITY,
+    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_NO_CWD_CAPABILITY,
+    AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
+    AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter,
+    AgentStartHost, AgentStartHostSource, set_link_share_app_scheme, start_link_share_bridge,
 };
 #[cfg(unix)]
 pub(crate) use agent_session_attach::{
@@ -1471,6 +1471,10 @@ enum Command {
         /// generates a UUIDv4 key and returns it.
         #[serde(default)]
         key: Option<String>,
+        /// `workspace-first-tab-v1`: the workspace's first tab, made in the
+        /// same request (`{kind: "browser", url, engine, ...}`).
+        #[serde(default)]
+        first_tab: Option<frontend_browser_history::FirstTabParams>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
