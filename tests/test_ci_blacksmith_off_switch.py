@@ -183,12 +183,12 @@ class Workflow(unittest.TestCase):
         text = (ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text(encoding="utf-8")
         jobs = yaml.safe_load(text)["jobs"]
         self.assertIn("vars.CI_BLACKSMITH_OFF != '1'", jobs["probe"]["if"])
-        self.assertIn("vars.CI_BLACKSMITH_OFF == '1' && 'ubuntu-24.04'", jobs["watch"]["runs-on"])
+        self.assertNotIn("CI_BLACKSMITH_OFF", jobs["watch"]["runs-on"], "no runs-on text changes for the switch")
         steps = {step.get("name"): step for step in jobs["watch"]["steps"]}
         self.assertEqual(steps["Probe and switch"]["env"]["CI_BLACKSMITH_OFF"], "${{ vars.CI_BLACKSMITH_OFF }}")
         pools = steps["Point the runner pools at live members"]
         self.assertEqual(pools["env"]["CI_BLACKSMITH_OFF"], "${{ vars.CI_BLACKSMITH_OFF }}")
-        self.assertIn('if [ "$CI_BLACKSMITH_OFF" = 1 ]; then\n  python3 scripts/ci/runner_pools.py', pools["run"])
+        self.assertIn('if [ "$CI_BLACKSMITH_OFF" != 1 ] && [ -n "$SPILL_TOOLING" ]', pools["run"])
         self.assertIn("steps.switch.outputs.outcome != 'off'", steps["End this run's stuck probe"]["if"])
 
 

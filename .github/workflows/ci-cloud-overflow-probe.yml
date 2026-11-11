@@ -94,10 +94,7 @@ jobs:
     # watch queued 19 minutes (17:53Z-18:12Z), so the hosted light rescue below ran about
     # every 20-25 minutes instead of every pass (cmuxterm-hq#6671). It needs no macOS
     # (Python and gh only).
-    # While CI_BLACKSMITH_OFF is '1' (Leo, 2026-11-10: "just stop using blacksmith temporarily") it runs on
-    # GitHub-hosted Ubuntu, an ephemeral VM: this job is what moves the runner variables off Blacksmith, so it
-    # cannot wait for Blacksmith itself.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_BLACKSMITH_OFF == '1' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds the App key that writes runner variables; never a probed size
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds the App key that writes runner variables; never a probed size
     timeout-minutes: 25
     permissions:
       actions: write
@@ -229,9 +226,7 @@ jobs:
           # '1': every pool takes its off label (runner_pools.py), and no spill moves linux back onto Blacksmith.
           CI_BLACKSMITH_OFF: ${{ vars.CI_BLACKSMITH_OFF }}
         run: |
-          if [ "$CI_BLACKSMITH_OFF" = 1 ]; then
-            python3 scripts/ci/runner_pools.py
-          elif [ -n "$SPILL_TOOLING" ] && [ -f "$SPILL_TOOLING" ]; then
+          if [ "$CI_BLACKSMITH_OFF" != 1 ] && [ -n "$SPILL_TOOLING" ] && [ -f "$SPILL_TOOLING" ]; then
             python3 "$SPILL_TOOLING" --policy-root "$GITHUB_WORKSPACE" && exit 0
             echo "::warning title=Runner pools::the linux pool spill failed; main's runner_pools.py runs alone"
             python3 scripts/ci/runner_pools.py

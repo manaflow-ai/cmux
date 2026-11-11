@@ -177,6 +177,9 @@ jobs:
       - name: Validate the runner pools and their reconciler
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_runner_pools.py
+      - name: Validate the CI_BLACKSMITH_OFF switch
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_blacksmith_off_switch.py
 
       - name: Validate fast checks take their size from the linux runner pool
         if: ${{ matrix.group == 'ci' }}
