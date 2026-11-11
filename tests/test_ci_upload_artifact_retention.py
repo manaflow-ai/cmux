@@ -35,6 +35,12 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# scripts/ci/guard_findings.py, imported by name (tests/test_script_module_loads.py): each finding is its own check
+# of the guard step, so a red on the base never masks a new one.
+if str(ROOT / "scripts" / "ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+import guard_findings  # noqa: E402
 ALLOWLIST = ROOT / "tests/upload_artifact_retention_allowlist.json"
 MAX_DAYS = 3
 LARGE_TOKENS = {"app", "dsym", "dsyms", "xcresult", "capture", "captures", "zip", "dmg",
@@ -178,6 +184,7 @@ class WorkflowTests(unittest.TestCase):
         allow = load_allowlist()
         found = violations()
         unlisted = {k: v for k, v in found.items() if k not in allow}
+        guard_findings.report(f"{k}: {'; '.join(v)}" for k, v in unlisted.items())
         self.assertEqual(unlisted, {}, "\n".join(
             [f"{k}: {'; '.join(v)}" for k, v in sorted(unlisted.items())]
             + ["Use retention-days: 1 for a same-run handoff and R2 (scripts/ci/upload-r2-object.py) "

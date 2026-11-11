@@ -354,3 +354,17 @@ Packages/macOS/CmuxNext/Tests/CmuxNextErrorJournalTests/ErrorJournalDemandReadTe
 tests/test_cmux_next_base_tier.py	assert-on-duration	a clock difference held in a name, first seen when assert-on-duration followed names; move to a scaling ratio or a recorded clock
 webviews/test/agent-pane-chat-unavailable.test.ts	assert-on-duration	a clock difference held in a name, first seen when assert-on-duration followed names; move to a scaling ratio or a recorded clock
 tests/test_base_red_excuse.py	assert-on-duration	a clock difference held in a name; cmux#41236 moves it to a scaling ratio, remove this line when it lands
+# Guard-group tip reds of 2026-11-11 (cmux-next guards run 43029632892). Absence checks: each sleep follows the state
+# change under test, and no event marks that nothing happened; give the code a processed-work counter to await, then remove.
+Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AgentPaneActAsMePillBuildTests.swift	sleep-then-assert	absence check from #40837: a follower that waits on a grant still off builds no pill; no event marks a follower that did nothing
+Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AgentPaneChromiumMoveTests.swift	sleep-then-assert	from #40052: the fake's size answer comes back in a later turn (line 200) and a page at its rest size is asked no size wait (232, absence); await the answer's delivery, then remove
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudPauseStopsCarrierTests.swift	sleep-then-assert	absence check from #41073: a paused machine is dialed no more; no event marks a dial that did not happen
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/PaneVerbsKeyTurnTests.swift	sleep-then-assert	absence checks from #40278: the daemon's echo of a shown zoom or swap applies the layout no more times; no event marks an apply that did not happen
+Packages/macOS/CmuxNext/Tests/CmuxNextControlTests/SocketSettingsWriteTests.swift	sleep-then-assert	absence check from #40464: the 500 ms wait before asserting the locked file is unchanged; give the router a "waiting for the lock" signal to await, then remove
+# Timing is the behavior under test, or the host is a fixture string the test never requests.
+tests/test_ci_cmux_next_compile_status.py	assert-on-duration	each elapsed bound (15-20 s) proves the step hands off within its bound instead of the 40-minute long poll it replaced: the hang is the behavior under test, and the bound sits ten times above the expected time
+tests/test_ci_cmux_next_compile_status.py	live-network-host	the URLs are detector fixture strings fed to unbounded_retries(); the test never requests them
+tests/test_ci_no_bare_urlopen.py	assert-on-duration	deadline_http's own deadline tests: that a request ends at its deadline (not before, not long after) is the behavior under test, served by a local socket
+tests/test_ci_no_bare_urlopen.py	sleep-then-assert	deadline_http's own deadline tests: the sleep spends the deadline itself (a shared Deadline already past, or a refused send that must stay unsent past it); no state is awaited
+tests/test_cmux_next_prepush_gate.py	assert-on-duration	the advisory run's own timeout is the behavior under test: a hung check must be cut near its 3 s deadline (bound 63 s), not run its 300 s sleep
+tests/test_ios_app_review_gate.py	live-network-host	https://cmux.com/support is the URL the gate's fetch() is handed; the connection class and getaddrinfo are mocked, so nothing is requested

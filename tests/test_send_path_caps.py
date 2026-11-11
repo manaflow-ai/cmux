@@ -45,10 +45,17 @@ import json
 import os
 import re
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# scripts/ci/guard_findings.py, imported by name (tests/test_script_module_loads.py): each finding is its own check
+# of the guard step, so a red on the base never masks a new one.
+if str(ROOT / "scripts" / "ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+import guard_findings  # noqa: E402
 ALLOWLIST = Path(__file__).resolve().parent / "send-path-cap-allowlist.json"
 SOURCE_SUFFIXES = (".rs", ".ts", ".tsx", ".js", ".mjs", ".cjs", ".swift")
 REASON = re.compile(r"(debt|safe|platform): \S")
@@ -414,6 +421,7 @@ class SendPathCaps(unittest.TestCase):
         base = base_allowlist()
         if base is not None:
             bad += grown(base, allow)
+        guard_findings.report(bad)
         self.assertEqual(bad, [], f"send-path cap guard ({HOW}):\n  " + "\n  ".join(bad))
 
     def test_paths_are_declared(self):

@@ -27,6 +27,12 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# scripts/ci/guard_findings.py, imported by name (tests/test_script_module_loads.py): each finding is its own check
+# of the guard step, so a red on the base never masks a new one.
+if str(ROOT / "scripts" / "ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+import guard_findings  # noqa: E402
 CI = ROOT / "scripts" / "ci"
 sys.path.insert(0, str(CI))
 
@@ -126,6 +132,7 @@ class NoBareUrlopen(unittest.TestCase):
                                 f"lower its count in tests/test_ci_no_bare_urlopen.py")
         for relative in sorted(set(LEGACY) - seen):
             problems.append(f"scripts/ci/{relative} has no urlopen call left: drop it from LEGACY")
+        guard_findings.report(problems)
         self.assertEqual(problems, [], "\n".join(problems))
 
     def test_the_transport_itself_never_calls_urlopen(self):

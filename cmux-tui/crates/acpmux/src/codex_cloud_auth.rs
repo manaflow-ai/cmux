@@ -174,8 +174,10 @@ where
 /// Whether `host` resolves within two seconds (`agent-auth.sh` treats curl's exit 6 as unreachable).
 pub async fn host_resolves(host: String) -> bool {
     let target = if host.contains(':') { host } else { format!("{host}:443") };
-    let lookup =
-        tokio::time::timeout(std::time::Duration::from_secs(2), tokio::net::lookup_host(target));
+    // The same reachability bound as the image's agent-auth.sh (curl exit 6).
+    // timeout: a miss falls back to the person's own sign-in; it refuses no launch
+    let resolve_bound = std::time::Duration::from_secs(2);
+    let lookup = tokio::time::timeout(resolve_bound, tokio::net::lookup_host(target));
     match lookup.await {
         Ok(Ok(mut addrs)) => addrs.next().is_some(),
         _ => false,
