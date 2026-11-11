@@ -1,7 +1,7 @@
 // Every block in the agent chat column starts on the column's left edge (Leo 2026-10-14: a
 // recurring left indent on the queue and other blocks inserted over the composer). The column edge
 // is the composer card's left; each block's visible left is its own box when it paints (fill,
-// border or shadow), else where its first text or icon starts. Real gallery frames at a wide and
+// background image, border or shadow), else where its first text or icon starts. Real gallery frames at a wide and
 // a narrow pane; the failure lists every offender with its offset from the edge in px. A user
 // bubble stands at the right, so the transcript reads the other rows.
 //
@@ -73,7 +73,11 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
     const painted = (el: Element) => {
       const s = getComputedStyle(el);
       const fill = s.backgroundColor !== "rgba(0, 0, 0, 0)" && s.backgroundColor !== "transparent";
-      return fill || parseFloat(s.borderLeftWidth) > 0 || s.boxShadow !== "none";
+      // A mark drawn only as a gradient paints too: the ringed dot that starts the live line while
+      // the chat waits for the reader (conversation.css `.cv-needs-input-glyph`). Without it the
+      // line's visible left was its pill, 20px in: the dot's 12px and the 8px gap after it.
+      const image = s.backgroundImage !== "none";
+      return fill || image || parseFloat(s.borderLeftWidth) > 0 || s.boxShadow !== "none";
     };
     const shown = (el: Element) => {
       const s = getComputedStyle(el);
