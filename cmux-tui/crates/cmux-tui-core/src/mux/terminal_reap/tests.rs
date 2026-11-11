@@ -425,3 +425,76 @@ fn terminal_reap_attached_terminal_survives_the_guarded_reap_close() {
     .unwrap();
     mux.close_surface(placed.id).unwrap();
 }
+
+/// The owner binds its socket after it starts the reaper thread, so a second
+/// owner that loses the bind must not reap: a held reaper runs no pass, even
+/// with a zero grace and a detached terminal, until the owner releases it.
+#[test]
+fn terminal_reap_a_held_reaper_does_not_reap_until_released() {
+    let mux = Mux::new_for_test("terminal-reap-held", SurfaceOptions::default());
+    mux.set_terminal_reap_grace(Duration::ZERO).unwrap();
+    let scratch = mux.new_workspace(Some("scratch".into()), Some((80, 24))).unwrap();
+    let detached = mux.new_workspace(Some("detached".into()), Some((80, 24))).unwrap();
+    let detached_id = host_id(&mux, &detached);
+    close_workspace_of(&mux, &detached);
+    let held = prepare_terminal_reaper(&mux).unwrap();
+    assert!(mux.terminal_reaper_advertised(), "identify does not list a held reaper");
+    // A running reaper with a zero grace ends the detached terminal on its
+    // first pass, at once; a held one never does.
+    let watch_until = Instant::now() + Duration::from_millis(500);
+    while Instant::now() < watch_until {
+        assert_eq!(
+            lifecycle(&mux, &detached_id),
+            TerminalLifecycle::Running,
+            "the held reaper ended a terminal before the owner released it"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let reaper = held.release();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while lifecycle(&mux, &detached_id) != TerminalLifecycle::Tombstoned {
+        assert!(Instant::now() < deadline, "the released reaper did not end the detached terminal");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    reaper.stop();
+    mux.close_surface(scratch.id).unwrap();
+}
+
+/// A cancelled held reaper ends its thread, and `identify` no longer lists
+/// the reaper when `cancel` returns.
+#[test]
+fn terminal_reap_a_cancelled_held_reaper_is_no_longer_advertised() {
+    let mux = Mux::new_for_test("terminal-reap-held-cancel", SurfaceOptions::default());
+    let held = prepare_terminal_reaper(&mux).unwrap();
+    assert!(mux.terminal_reaper_advertised());
+    held.cancel();
+    assert!(!mux.terminal_reaper_advertised(), "a cancelled held reaper is still advertised");
+}
+
+/// A bind or a later startup step that fails drops the held reaper without a
+/// join: the thread still ends, and `identify` stops listing the reaper.
+#[test]
+fn terminal_reap_a_dropped_held_reaper_is_no_longer_advertised() {
+    let mux = Mux::new_for_test("terminal-reap-held-drop", SurfaceOptions::default());
+    let held = prepare_terminal_reaper(&mux).unwrap();
+    assert!(mux.terminal_reaper_advertised());
+    drop(held);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while mux.terminal_reaper_advertised() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!mux.terminal_reaper_advertised(), "a dropped held reaper is still advertised");
+}
+
+/// A reaper that ends late clears only its own subscription, never that of a
+/// reaper started after it.
+#[test]
+fn terminal_reap_an_ended_reaper_does_not_clear_a_newer_reapers_advertisement() {
+    let mux = Mux::new_for_test("terminal-reap-held-newer", SurfaceOptions::default());
+    let older = prepare_terminal_reaper(&mux).unwrap();
+    let newer = start_terminal_reaper(&mux).unwrap();
+    older.cancel();
+    assert!(mux.terminal_reaper_advertised(), "an ended older reaper cleared the newer one");
+    newer.stop();
+    assert!(!mux.terminal_reaper_advertised());
+}
