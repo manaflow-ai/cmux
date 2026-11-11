@@ -848,5 +848,41 @@
    "a"
   ],
   "refused": true
+ },
+ {
+  "name": "preset approval for own session",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/presets",
+   "params": {
+    "name": "night",
+    "approveMode": true,
+    "approveDigest": "sha256:ab",
+    "sessionId": "a"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": false
+ },
+ {
+  "name": "preset approval for other session",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/presets",
+   "params": {
+    "name": "night",
+    "approveMode": true,
+    "approveDigest": "sha256:ab",
+    "sessionId": "b"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
  }
 ]
