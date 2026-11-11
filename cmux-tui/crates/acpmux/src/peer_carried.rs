@@ -166,14 +166,10 @@ impl Carriers {
         self.entries.remove(key);
     }
 
+    /// The pending keys it holds an entry for.
     #[cfg(test)]
-    pub(super) fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    #[cfg(test)]
-    pub(super) fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+    pub(super) fn keys(&self) -> Vec<String> {
+        self.entries.keys().cloned().collect()
     }
 }
 

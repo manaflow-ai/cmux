@@ -229,7 +229,7 @@ async fn a_request_sent_on_both_paths_is_answered_once() {
     tokio::time::sleep(Duration::from_millis(100)).await;
     // Only the rig's unanswered initialize is still pending.
     assert!(!rig.peer.pending.lock().await.contains_key(&id.to_string()));
-    assert!(rig.peer.carried.lock().unwrap().is_empty());
+    assert!(carried_unanswered(&rig.peer).await.is_empty());
 }
 
 #[tokio::test]
@@ -702,7 +702,7 @@ async fn a_cancel_goes_on_every_path_that_carried_a_copy() {
         Some((json!(method::CANCEL_REQUEST), on_link["id"].clone())),
         "the shadow, which carried a copy, carries its cancel: {on_shadow_cancel:?}"
     );
-    assert!(rig.peer.carried.lock().unwrap().is_empty(), "nothing waits on the shadow");
+    assert!(carried_unanswered(&rig.peer).await.is_empty(), "nothing waits on the shadow");
 }
 
 /// The shadow `peer` copies to from now, on the link it is on, with its queue's reader.
@@ -1003,11 +1003,7 @@ async fn the_carriers_record_is_empty_after_every_request_finished() {
         send(&mut rig.primary, json!({"jsonrpc": "2.0", "id": sent["id"], "result": {}})).await;
         tokio::time::timeout(WAIT, attaching).await.unwrap().unwrap().unwrap();
     }
-    let deadline = tokio::time::Instant::now() + WAIT;
-    while !rig.peer.carried.lock().unwrap().is_empty() && tokio::time::Instant::now() < deadline {
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    assert_eq!(rig.peer.carried.lock().unwrap().len(), 0, "after {N} requests on both paths");
+    assert_eq!(carried_unanswered(&rig.peer).await, Vec::<String>::new(), "after {N} requests");
     // And a request cancelled after the switch leaves nothing either.
     let (cancel, cancelled) = oneshot::channel();
     let peer = rig.peer.clone();
@@ -1020,9 +1016,21 @@ async fn the_carriers_record_is_empty_after_every_request_finished() {
     rig.peer.link_ended();
     cancel.send(()).unwrap();
     assert!(tokio::time::timeout(WAIT, asking).await.unwrap().unwrap().is_none());
+    assert_eq!(carried_unanswered(&rig.peer).await, Vec::<String>::new(), "after the switch");
+}
+
+/// The entries of the carriers record whose request nobody waits for any more, waiting up to
+/// [`WAIT`] for the cleanup of a caller that just left: none, when the record is bounded. The
+/// rig's own handshake (`initialize`, never answered) is still owed, so it stays.
+async fn carried_unanswered(peer: &Peer) -> Vec<String> {
     let deadline = tokio::time::Instant::now() + WAIT;
-    while !rig.peer.carried.lock().unwrap().is_empty() && tokio::time::Instant::now() < deadline {
+    loop {
+        let pending: Vec<String> = peer.pending.lock().await.keys().cloned().collect();
+        let mut left: Vec<String> = peer.carried.lock().unwrap().keys();
+        left.retain(|key| !pending.contains(key));
+        if left.is_empty() || tokio::time::Instant::now() >= deadline {
+            return left;
+        }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    assert!(rig.peer.carried.lock().unwrap().is_empty());
 }
