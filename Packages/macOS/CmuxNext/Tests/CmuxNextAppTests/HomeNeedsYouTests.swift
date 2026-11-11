@@ -166,21 +166,15 @@ import Testing
     }
 
     /// `permission-feed-peer-resolved`: answered on the peer, the bridge withdraws the item and
-    /// Needs you hides it. Known on feat-cmux-next: recovery posts the item under the row's qualified
-    /// id (`AcpmuxPendingReads.sessionKey`), while the bridge looks for it under the notice's raw
-    /// `sessionId`, finds nothing and withdraws nothing; #41295 keys the notices the same way. Marked
-    /// intermittent so it neither fails before #41295 nor fails #41295 once it lands; drop the
-    /// wrapper then.
+    /// Needs you hides it.
     @Test func thePermissionFeedPeerResolvedSceneWithdrawsThePrompt() async throws {
         let scene = try await PermissionFeedScene.start()
         defer { scene.stop() }
         try await scene.posted()
         scene.capture.notifyPending()
         scene.capture.resolve()
-        await withKnownIssue("#41295: the bridge withdraws a peer prompt by the notice's raw id", isIntermittent: true) {
-            try await scene.withdrawn()
-            #expect(scene.waiting == 0, "Needs you hid the answered prompt")
-        }
+        try await scene.withdrawn()
+        #expect(scene.waiting == 0, "Needs you hid the answered prompt")
     }
 
     /// The scenes' acpmux reads a peer session by the ids acpmux itself routes on its unix socket:
