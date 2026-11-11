@@ -137,6 +137,7 @@ test("the same turn in a Codex chat folds its work and every earlier message und
       .map(longAt),
   ).toEqual([17]);
   expect(assistants(view).some((row) => SHORT.test(row.text ?? ""))).toBe(false);
+  // No tool line beside the closed fold; the edited-files card (`merged`) stays.
   expect(view.filter((row) => row.kind === "activity" && !row.merged)).toEqual([]);
   expect(view.find((row) => row.kind === "turnSummary")?.folded).toBe(true);
 });

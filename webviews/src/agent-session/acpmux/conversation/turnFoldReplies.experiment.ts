@@ -6,9 +6,11 @@ import { defineExperiment } from "../../../experiments/experiment";
 /// happen", then "those intermediate messages should be counted differently than other tool calls
 /// like it's a special never-fold type"); the arms differ only in the work between replies.
 /// Compare in `agent-pane.turn-fold-replies`.
-/// Lawrence, 2026-11-11 standup: the closed fold "does not hide enough stuff", match Codex. The
-/// `answer` arm is the default: as the Codex app ends a turn, only the final answer stays outside
-/// the closed "Worked for"; the earlier replies read in order once it opens.
+/// The `replies` arm draws a closed "Worked for" as chatgpt.com does: nothing beside it but what the
+/// agent said to the person, never a tool call (2026-11-10: "it says 'worked for 36s' but if i hide
+/// it, it still shows a bunch of tool calls"). The `answer` arm, the default, hides one step more, as
+/// the Codex app ends a turn: only the final answer stays outside the closed fold, and the earlier
+/// replies read in order once it opens (2026-11-11 standup: the closed fold "does not hide enough").
 export const turnFoldReplies = defineExperiment({
   id: "turn-fold-replies",
   title: "Replies in a closed turn fold",
