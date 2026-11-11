@@ -122,9 +122,11 @@ extension UpdaterService {
     @discardableResult
     public func rollback(to build: String?, inputs: RollbackInputs, relaunch: (URL) -> Void) throws -> KeptVersion {
         let target = try rollbackDecision(to: build, inputs: inputs).get()
+        UpdateDropBack.mark("revert.decided")
         let bundle = Bundle.main.bundleURL
         try RollbackSwap.perform(current: bundle, currentBuild: identity.build, target: target,
                                  store: keptVersions, limit: preferences.keepPreviousVersions)
+        UpdateDropBack.mark("revert.swapped")
         defaults.set(identity.build, forKey: Self.skipsBuildsThroughKey)
         defaults.set(target.build, forKey: Self.pickedBuildKey)
         controller?.skipsBuildsThrough = identity.build

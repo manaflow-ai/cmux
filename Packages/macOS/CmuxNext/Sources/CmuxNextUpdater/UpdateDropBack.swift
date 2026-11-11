@@ -22,9 +22,18 @@ public struct UpdateDropBack {
     /// offered, and the app relaunches into the kept build with every session kept.
     @discardableResult
     public func run(to build: String? = nil, checkOnly: Bool = false, stateDirectories: [URL?]) async throws -> KeptVersion {
+        if !checkOnly { Self.mark("revert.clicked") }
         let inputs = await updater.rollbackInputs(stateDirectories: stateDirectories)
         if checkOnly { return try updater.rollbackDecision(to: build, inputs: inputs).get() }
+        Self.mark("revert.inputs_read")
         return try updater.rollback(to: build, inputs: inputs, relaunch: Self.relaunchAfterExit)
+    }
+
+    /// The update harness's timeline (DEV harness copies only; a no-op everywhere else).
+    nonisolated static func mark(_ name: String) {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        UpdateHarness.mark(name)
+        #endif
     }
 
     /// ``run(to:checkOnly:stateDirectories:)`` for an action: nil when it ran, else what the
@@ -58,6 +67,7 @@ public struct UpdateDropBack {
         // task-owner: one spawn, then the quit; ends with the app.
         Task { @MainActor in
             do { try await ProcessLauncher(label: "com.cmuxterm.next.relaunch", priority: .userBlocking).launched(helper) } catch { return }
+            mark("revert.relaunch_helper")
             NSApplication.terminateFromRunLoop()
         }
     }
@@ -71,6 +81,12 @@ public struct UpdateDropBack {
         var information: CFDictionary?
         guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &information) == errSecSuccess
         else { return nil }
-        return (information as? [String: Any])?[kSecCodeInfoTeamIdentifier as String] as? String
+        let team = (information as? [String: Any])?[kSecCodeInfoTeamIdentifier as String] as? String
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // The update harness signs its copies ad hoc (no team): one name stands for that, so its
+        // rollback runs the release path (harness copies only: a DEV bundle on a loopback feed).
+        if team == nil, UpdateHarness.current != nil { return UpdateHarness.adHocTeam }
+        #endif
+        return team
     }
 }
