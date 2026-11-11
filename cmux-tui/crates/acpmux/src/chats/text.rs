@@ -462,9 +462,19 @@ impl ChatText {
 /// Not under a lost home (`config::mark_home_lost`), as the chat index saves its own cache: the
 /// home there may be another daemon's now, and the text is user data.
 fn save(path: &Path, saved: &Saved) -> anyhow::Result<()> {
-    crate::config::refuse_lost_home(path)?;
+    let checked = crate::config::refuse_lost_home(path);
+    if let Some(hook) = SAVE_CHECKED.get() {
+        hook(checked.is_ok());
+    }
+    checked?;
     Ok(cmux_chat_index::write_json_private(path, saved)?)
 }
+
+/// Test seam: called on the saving thread between a save's home check and its write, with
+/// whether the check passed. `tests/lost_home_writes.rs` holds the text thread's save there
+/// while it replaces the home, so the order its race depends on is the test's, not the clock's.
+#[doc(hidden)]
+pub static SAVE_CHECKED: std::sync::OnceLock<fn(bool)> = std::sync::OnceLock::new();
 
 #[cfg(test)]
 #[path = "text_tests.rs"]
