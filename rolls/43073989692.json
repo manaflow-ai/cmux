@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43073989692",
+  "recorded_at": "2026-11-11T18:18:57Z",
+  "reason": "cmux-tui 08296ad13058 changes the image's cmux-tui (pinned d0255dc03525)",
+  "dry_run": false,
+  "cmux_tui": "08296ad13058fbdfac1485bfd81da6fb9761a712",
+  "fixes": [
+    {
+      "sha": "08296ad13058fbdfac1485bfd81da6fb9761a712",
+      "mergedAt": "2026-11-11T09:46:25-08:00",
+      "subject": "acpmux tests: a forum test's held turn counts as running once its prompt went out (forum flakes) (#41346)"
+    },
+    {
+      "sha": "9f9788c79d787862f16f762a8f6cc4b0428e5fad",
+      "mergedAt": "2026-11-11T17:43:59Z",
+      "subject": "cmux-tui test: the history page test records its trail steps in the past (#40556)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T18:18:57Z",
+    "snapshot_id": "sh-0e2d4e7df7f6410f85a5cb8bde9403d1",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43073989692): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "5d288e55e5a1c0c122782025c4df95902079b495",
+    "image": "cloud-native-auto-08296ad1-43073989692-1",
+    "revision": "ci-43073989692-1",
+    "at": "2026-11-11T18:18:57Z"
+  },
+  "rolled_back": false
+}
