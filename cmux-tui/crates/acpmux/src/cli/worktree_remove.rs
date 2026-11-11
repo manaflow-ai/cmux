@@ -26,6 +26,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Result, anyhow};
 use cmux_git::Repository;
 use cmux_git::worktree::{self as shared, KeptWork};
+use cmux_json::JsonSet as _;
 use cmux_worktree_care::policy::Session;
 use serde_json::{Value, json};
 
@@ -112,18 +113,18 @@ async fn live_sessions() -> Result<Option<Vec<Session>>> {
                 .await
                 .map_err(|_| unread("no answer".into()))?
                 .map_err(|e| unread(e.to_string()))?;
-        for row in page["sessions"].as_array().into_iter().flatten() {
-            let Some(cwd) = row["cwd"].as_str() else { continue };
+        for row in page.get("sessions").and_then(Value::as_array).into_iter().flatten() {
+            let Some(cwd) = row.get("cwd").and_then(Value::as_str) else { continue };
             found.push(Session {
-                name: row["name"].as_str().unwrap_or_default().to_owned(),
+                name: row.get("name").and_then(Value::as_str).unwrap_or_default().to_owned(),
                 cwd: PathBuf::from(cwd),
                 open: true,
-                updated_ms: row["updatedAt"].as_u64().unwrap_or_default(),
+                updated_ms: row.get("updatedAt").and_then(Value::as_u64).unwrap_or_default(),
             });
         }
-        match page["nextCursor"].as_str() {
+        match page.get("nextCursor").and_then(Value::as_str) {
             Some(cursor) if !cursor.is_empty() && cursors.insert(cursor.to_owned()) => {
-                params["cursor"] = json!(cursor);
+                params.set("cursor", json!(cursor));
             }
             _ => return Ok(Some(found)),
         }
@@ -186,7 +187,7 @@ fn usage(message: &str) -> anyhow::Error {
 /// A refusal: nothing was changed.
 fn refused(reason: &str, message: String, data: Value) -> anyhow::Error {
     let mut data = data;
-    data["reason"] = json!(reason);
+    data.set("reason", json!(reason));
     AppError::new(Code::Runtime, reason, message).with_data(data).into()
 }
 
@@ -255,7 +256,7 @@ fn kept_refusal(kept: &KeptWork, shown: &Path) -> anyhow::Error {
         KeptWork::Unpushed { branch, count } => json!({"branch": branch, "count": count}),
     };
     let mut data = data;
-    data["root"] = json!(shown);
+    data.set("root", json!(shown));
     refused(kept.reason(), format!("{}: {}", shown.display(), kept.message()), data)
 }
 
