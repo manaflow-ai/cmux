@@ -31,7 +31,7 @@ When the --timeout budget runs out it prints `waited=<seconds>` and a
 names them (2026-10-20: a wait that ran out with a lane still QUEUED read
 "nothing reported; waited 0m00s"). A rate-limited read refuses at once with the
 reset time instead of polling on. A read that timed out, or failed with a 5xx or network
-error, is retried with backoff (from --interval, doubling to 5 minutes) inside the --timeout
+error, is retried with backoff (from --interval but at least 1s, doubling to 5 minutes) inside the --timeout
 budget; when the budget ends that way, the refusal says the reads kept failing (#40271,
 2026-11-10: one slow read refused a merge after 90 minutes of waiting).
 Exit 0: pass (maybe with reds to excuse); 1: refused (the reason on stderr);
@@ -100,7 +100,7 @@ class ReadFailed(Refused):
 TRANSIENT = re.compile(r"HTTP 5\d\d|bad gateway|service unavailable|gateway time-?out|timed? ?out|"
                        r"connection (reset|refused|closed)|error connecting|unexpected EOF|TLS handshake|"
                        r"temporary failure|something went wrong", re.I)
-MAX_BACKOFF = 300
+MIN_BACKOFF, MAX_BACKOFF = 1, 300
 
 
 def _load_rate_limit():
@@ -350,7 +350,7 @@ def run(repo: str, number: str, sha: str, timeout: float, interval: float, touch
     """files: the caller's full changed-file list; `gh pr view --json files` stops at 100."""
     read = read or gh_json
     start = clock()
-    failed, backoff = 0, interval
+    failed, backoff = 0, max(interval, MIN_BACKOFF)
     while True:
         try:
             pr = read("pr", "view", number, "--repo", repo, "--json", "headRefOid,baseRefName,statusCheckRollup,files")
@@ -358,12 +358,13 @@ def run(repo: str, number: str, sha: str, timeout: float, interval: float, touch
             failed += 1
             waited = clock() - start
             if waited >= timeout:
+                reads = "read" if failed == 1 else "reads"
                 raise WaitRanOut(f"the --wait budget of {int(timeout)}s ran out after {int(waited)}s: {failed} "
-                                 f"reads timed out or failed, the last: {error}", waited, []) from None
+                                 f"{reads} timed out or failed, the last: {error}", waited, []) from None
             sleep(min(backoff, timeout - waited))
             backoff = min(backoff * 2, MAX_BACKOFF)
             continue
-        backoff = interval
+        backoff = max(interval, MIN_BACKOFF)
         if pr.get("headRefOid") != sha:
             raise Refused(f"the head moved to {pr.get('headRefOid')} while waiting on {sha}")
         if base is not None and pr.get("baseRefName") != base:

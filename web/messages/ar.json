@@ -509,7 +509,18 @@
         "grantedBody": "منح فريق cmux صلاحية Team لفريق {team}. لا يوجد اشتراك لإدارته.",
         "seatsUsed": "{members} من {seats} مستخدمة",
         "overSeat": "لدى {team} ‏{members} أعضاء و{seats} مقاعد مدفوعة. تتبع المقاعد عدد الأعضاء، لذا يتحدث الاشتراك تلقائيًا.",
-        "addSeats": "إضافة مقاعد"
+        "addSeats": "إضافة مقاعد",
+        "enterprise": {
+          "current": "الخطة الحالية",
+          "body": "{team} على خطة مخصصة متفق عليها مع فريق cmux. تواصل مع فريق cmux لتغييرها.",
+          "price": "السعر",
+          "perMonth": "{amount}/شهريًا",
+          "machines": "الأجهزة السحابية",
+          "pool": "وحدات vCPU / الذاكرة المشتركة",
+          "largest": "أكبر جهاز",
+          "size": "{vcpus} vCPU / {gb} GB",
+          "noLimit": "بلا حد"
+        }
       },
       "teamList": {
         "heading": "نطاقات الفوترة",
