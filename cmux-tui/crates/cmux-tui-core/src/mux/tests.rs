@@ -64,6 +64,7 @@ mod restart;
 mod rows;
 mod session_lists;
 mod signaled_mutex;
+mod snapshot_read;
 mod split_ratio;
 mod stack_layout;
 mod surface_notifications;
@@ -75,6 +76,7 @@ mod terminal_moves;
 mod terminal_publisher;
 mod terminal_registry;
 mod terminal_views;
+mod unreadable_exit_sidecar;
 mod view_close_replay;
 mod viewport_columns;
 #[cfg(unix)]
