@@ -1384,17 +1384,31 @@ def step_errors(view: FailedView) -> set[tuple[str, str]]:
 # signature as from a placed one (#40542 left every unplaced pin red refused, the base's own too: cmux#41086 on
 # 2026-11-11), and what else is red beside a pin it sets aside is then compared whole, without the pin's parts.
 class UnplacedSignature(NamedTuple):
-    steps: frozenset
+    steps: Counter  # (name, conclusion) of each failed step, counted (#41158's review F1)
     tests: Counter
     errors: Counter
     crashes: frozenset = frozenset()
 
 
+def failed_step_keys(job: dict) -> Counter:
+    """How many of JOB's steps failed under each (name, conclusion): an excuse key that keeps a failed step's identity.
+    A step's name alone (a set of names) let two failed steps of one name match the base's one, and a cancelled step
+    match the base's failure (#41158's review F1)."""
+    return Counter((str(step.get("name") or ""), str(step.get("conclusion")))  # step-name: classify
+                   for step in job.get("steps") or []
+                   if step.get("conclusion") not in (None, "success", "skipped"))
+
+
+def step_keys_text(keys: Counter) -> str:
+    """KEYS (failed_step_keys) as an audit line names them: `name (conclusion)`, and `x N` when more than one."""
+    return "; ".join(f"{name} ({conclusion})" + (f" x{count}" if count > 1 else "")
+                     for (name, conclusion), count in sorted(keys.items()))
+
+
 def unplaced_signature(job: dict, log: str) -> UnplacedSignature:
     """UnplacedSignature of JOB's whole LOG (see above): the failed steps by the jobs API, and how often each
     failing-test line and error line appears in every line but the runner's echo of a script."""
-    steps = frozenset(str(step.get("name") or "") for step in job.get("steps") or []  # step-name: classify
-                      if step.get("conclusion") not in (None, "success", "skipped"))
+    steps = failed_step_keys(job)
     output = test_reds.lines_of(log)
     named = test_reds.failed_names(output)
     # The failing tests by name, digits kept (never normalise_error's masking: test2() is not test3()), each counted
@@ -1441,7 +1455,7 @@ def unplaced_without_ffi_pin(head: UnplacedSignature) -> UnplacedSignature:
     """HEAD without the app FFI pin's own parts, as without_ffi_pin: its check step, its error lines and the rollup's
     line naming it. The rollup step stays: the base must have failed it too."""
     pin, rollup = normalise_error(FFI_PIN_ERROR), normalise_error(f"red check: {FFI_PIN_CHECK}")
-    return head._replace(steps=head.steps - {FFI_PIN_CHECK},
+    return head._replace(steps=Counter({key: n for key, n in head.steps.items() if key[0] != FFI_PIN_CHECK}),
                          errors=Counter({error: n for error, n in head.errors.items()
                                          if not error.startswith(pin) and error != rollup}))
 
@@ -1463,8 +1477,8 @@ def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, f
         raise Refused(f"'{name}': {UNPLACED_WHY}, and its log names no failing test or error line; nothing to "
                       "compare with the base")
     if head.steps != found.steps:
-        raise Refused(f"'{name}': {UNPLACED_WHY}; compared whole, its failed steps {sorted(head.steps)} are not "
-                      f"{where}'s {sorted(found.steps)}")
+        raise Refused(f"'{name}': {UNPLACED_WHY}; compared whole, its failed steps ({step_keys_text(head.steps)}) are "
+                      f"not {where}'s ({step_keys_text(found.steps)})")
     for what, mine, theirs in (("failing tests", head.tests, found.tests), ("error lines", head.errors, found.errors)):
         if mine != theirs:
             more, fewer = sorted((mine - theirs).elements()), sorted((theirs - mine).elements())
@@ -1473,7 +1487,7 @@ def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, f
                           + (f"; more on the base: {'; '.join(fewer)[:300]}" if fewer else ""))
     said = sorted(head.tests) or sorted(head.errors)
     return (f"excused '{name}': its log does not map onto its steps, so it was compared whole: the same failed steps "
-            f"({'; '.join(sorted(head.steps))[:200]}), failing tests and error lines, as often each, as {where}: "
+            f"({step_keys_text(head.steps)[:200]}), failing tests and error lines, as often each, as {where}: "
             f"{'; '.join(said)[:400]}")
 
 
@@ -3446,7 +3460,7 @@ ROLLUP_ANNOTATION = re.compile(r"^red check: (.+)$")
 ANNOTATION_STEP_CAP = 10
 EXIT_ANNOTATION = re.compile(r"^Process completed with exit code \d+\.?$")
 # A compiler's error line: `path/File.swift:12:5: error: message` (the column optional).
-COMPILE_ERROR = re.compile(r"([\w.+-]+\.[A-Za-z]\w*):(\d+)(?::\d+)?: (?:fatal )?error: (.+)$")
+COMPILE_ERROR = re.compile(r"([^\s:'\"]*[\w.+-]+\.[A-Za-z]\w*):(\d+)(?::\d+)?: (?:fatal )?error: (.+)$")
 # The per-step reading is for one caller only: update_branch's choice to merge the base in, which only makes CI run
 # again. A land (merge_hold's classifier_refusal, actions_verdict) never gets it (#41117's review F1).
 PER_STEP_PURPOSE = "update-branch"
@@ -3484,10 +3498,21 @@ def rolled_up_reds(repo: str, job: dict, github, cache: dict) -> set[str] | None
     return reds or None
 
 
+def repo_path(path: str) -> str:
+    """PATH as an excuse compares it: in full, repository-relative when it is under the runner's checkout root
+    (test_reds.volatile's <workspace>), never its file name alone: Other/A.swift is not Sources/A.swift (#41158's
+    review F2). A path under another root stays as printed, so it matches only itself."""
+    said = test_reds.volatile(path.strip())
+    said = said.removeprefix("<workspace>/")
+    while said.startswith("./"):
+        said = said[2:]
+    return said
+
+
 def path_errors(notes: list[dict]) -> set[tuple[str, int, str]]:
-    """(file name, line, error with numbers masked) of each error annotation in NOTES that names a file: a check's or a
-    compiler's own error, never a rollup marker or the runner's exit line."""
-    return {(Path(str(note.get("path"))).name, int(note.get("start_line") or 0),
+    """(repository path, line, error with numbers masked) of each error annotation in NOTES that names a file: a check's
+    or a compiler's own error, never a rollup marker or the runner's exit line."""
+    return {(repo_path(str(note.get("path"))), int(note.get("start_line") or 0),
              normalise_error(str(note.get("message") or "").strip()))
             for note in notes if (note.get("annotation_level") or "failure") == "failure" and note.get("path")
             and not ROLLUP_ANNOTATION.match(str(note.get("message") or "").strip())
@@ -3505,7 +3530,7 @@ def step_evidence(view: "FailedView | Unplaced", step_name: str) -> tuple[set[st
     if not lines:
         return None
     texts = test_reds.lines_of("\n".join(lines))
-    errors = {f"{Path(match[1]).name}:{match[2]}: {normalise_error(match[3])}"
+    errors = {f"{repo_path(match[1])}:{match[2]}: {normalise_error(match[3])}"
               for text in texts if (match := COMPILE_ERROR.search(text))}
     return set(test_reds.failed_names(texts)), errors
 
@@ -3877,6 +3902,15 @@ def compare_window(repo: str, base: str, name: str, head: tuple, head_view: Fail
     for kind, head, seen in compared:
         if missing := sorted(head - seen):
             raise Refused(f"'{name}': {kind} not on {base} {runs}: {'; '.join(missing)[:600]}")
+    # The failed steps by name compared above; here by identity: each head failed step's (name, conclusion), as often
+    # as the head has it, on one base verdict of the window (#41158's review F1: a cancelled step is not a failed one,
+    # and a step that failed twice is not the base's one failure).
+    best: Counter = Counter()
+    for _, view, *_ in window:
+        best |= failed_step_keys(view.job)
+    if missing := (mine := failed_step_keys(head_view.job)) - best:
+        raise Refused(f"'{name}': failed steps not on {base} {runs} with the same conclusion, as often: "
+                      f"{step_keys_text(missing)[:400]} (the head's: {step_keys_text(mine)[:200]})")
     if head_pairs is not None and compared[-1][0] == "errors":
         printed = set().union(*(entry[3] for entry in window if len(entry) > 3))
         if missing := sorted(f"{error} (step '{step}')" for step, error in head_pairs
@@ -5037,8 +5071,11 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         elif got.unplaced is not None:
             # The pin's rules read this PR's paths, never the log's layout: an unplaced head is judged by them too.
             u = got.unplaced
-            pinned, aside = ffi_pin_step_a(repo, base, sha, name, set(u.steps), set(u.errors), set(u.tests),
-                                           set(u.crashes), github)
+            # A failed step's name read twice is not one red: the pin rule (by names) is not asked, and the whole
+            # comparison below refuses a pin red it would read.
+            if all(count == 1 for count in u.steps.values()):
+                pinned, aside = ffi_pin_step_a(repo, base, sha, name, {step for step, _ in u.steps}, set(u.errors),
+                                               set(u.tests), set(u.crashes), github)
         if pinned is not None:
             audit.append(pinned)
             continue
