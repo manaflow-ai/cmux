@@ -79,7 +79,8 @@ struct TabCloseEntryPointsTests {
             }, report: { "the new tab \(made()?.id ?? "none"): the pane holds \(pane.orderedIDs.map(\.rawValue)), selects \(pane.stripModel.selectedID?.rawValue ?? "none")" })
             let new = try #require(made())
 
-            // To b2 (no opener, not the new tab's opener) and back, each by the jump.
+            // To b2 (no opener, not the new tab's opener) and back, each by the jump. No window is ordered in on the test host.
+            services.showJumpWindow = { _, _ in }
             for jump in [ids[3], new.id] {
                 #expect(services.revealTab(jump), "the jump to \(jump)")
                 try await PinnedPageTests.until({ pane.stripModel.selectedID?.rawValue == jump },

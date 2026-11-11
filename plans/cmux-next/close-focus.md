@@ -313,15 +313,20 @@ tabs after.
   next selection of a tab that was not listed, while it still shows the opener, makes the
   relation: put after the current tab (the default) it is a task opener, not reported as
   foreground; put at the end or the start it is the quick opener. Known gap: the expectation
-  ends at the pane's next selection change, so a create that fails or lands in another strip
-  leaves it until then.
+  ends at the pane's next selection change, or when the pane no longer lists the opener, so a
+  create that fails or lands in another strip leaves it until then.
 - `made`, a link's tab or a tab an action inside another tab opens: `BrowserPageRequests`
   (`inheritsFromOpener`), a task opener, when the two tabs are in one pane.
 - `selected`: every change of `TabSelectionMemory` reports to the state. A person's gesture is
   marked before the change: `PaneController.select` (a click, a shortcut, the palette) and
   `TabSelectionMemory.jump` (tab search, a pinned row, a notification, a link to a tab,
-  `tab.focus`), each only in a person's own run (`ActionRunScope.isPersonsAction`). The CLI, the
-  socket, MCP and a script never make a gesture. The selection a close causes is not a gesture
+  `tab.focus`). A run of the CLI, MCP, a script, a remote client or a page makes no gesture
+  (`ActionRunScope.isPersonsAction`; `PaneController.select` also needs a source that is not the
+  CLI). Code with no action run around it counts as the person's: a click, and also a `cmux://`
+  link and the Computer Use reveal, which call `revealTab` with no run. A pinned row of the
+  sidebar always counts as a click. A gesture can only end relations, so a call that counts as
+  one by mistake gives the pick by position.
+  The selection a close causes is not a gesture
   and the rule does not hear of it (`closeSelects`).
 - A typed navigation in a browser tab forgets the pane's relations, except the first one in a
   quick look-up tab (Chromium's code: a New Tab page at the end of the strip). A new tab after
