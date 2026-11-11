@@ -45,6 +45,7 @@ case $arm in
       -c "mcp_servers.cmux_computer_use.command=\"$cmux\""
       -c 'mcp_servers.cmux_computer_use.args=["computer-use","mcp"]'
       -c "mcp_servers.cmux_computer_use.env.CMUX_TUI_SOCKET=\"$(getconf DARWIN_USER_TEMP_DIR)cmux-tui-$(id -u)/cmux-app-$(cat "$HOME/cub-assets/cmux-tag" 2>/dev/null || echo cuparity2).sock\""
+      -c 'mcp_servers.cmux_computer_use.env.CMUX_COMPUTER_USE_PRIMARY="1"'
       -c 'mcp_servers.cmux_computer_use.tool_timeout_sec=120') ;;
   *) echo "unknown arm $arm" >&2; exit 2 ;;
 esac

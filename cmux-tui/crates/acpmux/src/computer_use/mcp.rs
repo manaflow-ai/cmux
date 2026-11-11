@@ -51,14 +51,28 @@ pub async fn run() -> Result<()> {
     serve(caller, tokio::io::BufReader::new(tokio::io::stdin()), tokio::io::stdout()).await
 }
 
+/// Set (to anything but empty or "0") in the agent's config for this server
+/// when cmux Computer Use is its only Computer Use (the agent's own is turned
+/// off): the tools are then presented as the agent's Computer Use, not as a
+/// second choice.
+pub const PRIMARY_ENV: &str = "CMUX_COMPUTER_USE_PRIMARY";
+
 /// Whether the client is an agent with its own Computer Use that people
 /// usually prefer (Codex: Codex Computer Use). Then cmux Computer Use is the
-/// second choice, used only when the person asks for it.
+/// second choice, used only when the person asks for it, unless the agent's
+/// config says cmux Computer Use is its only one (PRIMARY_ENV).
 pub fn defers_to_own_computer_use(params: &Value) -> bool {
-    params
-        .pointer("/clientInfo/name")
-        .and_then(Value::as_str)
-        .is_some_and(|name| name.to_ascii_lowercase().contains("codex"))
+    let primary = std::env::var(PRIMARY_ENV).is_ok_and(|v| !v.trim().is_empty() && v.trim() != "0");
+    client_defers(params, primary)
+}
+
+/// defers_to_own_computer_use with the config's answer given.
+pub fn client_defers(params: &Value, primary: bool) -> bool {
+    !primary
+        && params
+            .pointer("/clientInfo/name")
+            .and_then(Value::as_str)
+            .is_some_and(|name| name.to_ascii_lowercase().contains("codex"))
 }
 
 /// What an agent that has its own Computer Use is told.
@@ -71,8 +85,12 @@ pub const DEFER_PREFIX: &str =
 
 /// The `initialize` result.
 pub fn initialize(params: &Value) -> Value {
-    let instructions =
-        if defers_to_own_computer_use(params) { DEFER_INSTRUCTIONS } else { tools::INSTRUCTIONS };
+    initialize_with(params, defers_to_own_computer_use(params))
+}
+
+/// The `initialize` result, deferring or not.
+pub fn initialize_with(params: &Value, defer: bool) -> Value {
+    let instructions = if defer { DEFER_INSTRUCTIONS } else { tools::INSTRUCTIONS };
     json!({
         "protocolVersion": crate::secret_mcp::protocol_version(params),
         "capabilities": {"tools": {"listChanged": false}},
@@ -204,8 +222,13 @@ mod defer_tests {
         for tool in listed["tools"].as_array().unwrap() {
             assert!(tool["description"].as_str().unwrap().starts_with(DEFER_PREFIX));
         }
+        // Codex whose own Computer Use is off (its config sets PRIMARY_ENV):
+        // cmux Computer Use is its Computer Use, not a second choice.
+        assert!(!client_defers(&codex, true));
+        assert_eq!(initialize_with(&codex, false)["instructions"], tools::INSTRUCTIONS);
         let claude = json!({"clientInfo": {"name": "claude-code", "version": "2"}});
         assert!(!defers_to_own_computer_use(&claude));
+        assert!(!client_defers(&claude, false));
         assert_eq!(initialize(&claude)["instructions"], tools::INSTRUCTIONS);
         assert!(
             !tools_list(false)["tools"][0]["description"]
