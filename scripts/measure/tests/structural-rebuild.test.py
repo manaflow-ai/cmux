@@ -10,6 +10,10 @@ ROOT = Path(__file__).resolve().parents[3]
 spec = importlib.util.spec_from_file_location("structural_rebuild", ROOT / "scripts/measure/structural-rebuild.py")
 sr = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sr)
+# tests/process_gone.py by path: `python3 -I` puts no script folder on sys.path.
+spec = importlib.util.spec_from_file_location("process_gone", ROOT / "tests/process_gone.py")
+process_gone = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(process_gone)
 
 with tempfile.TemporaryDirectory(prefix="structural-rebuild-") as tmp:
     log = Path(tmp) / "cmux-reload-srebuild.log"
@@ -81,11 +85,8 @@ with tempfile.TemporaryDirectory(prefix="structural-rebuild-") as tmp:
     # reload.sh takes the cleanup's SIGTERM at once: the run does not sit out the grace and SIGKILL it.
     assert time.monotonic() - sent < 10, f"cleanup took {time.monotonic() - sent:.1f} s"
     assert (Path(tmp) / "unwound").read_text() == "yes"
-    try:
-        os.kill(child, 0)
-        raise AssertionError(f"the reload's child {child} outlived the run")
-    except ProcessLookupError:
-        pass
+    # The child, reparented once reload.sh ended, is gone once it has exited: a zombie not reaped yet counts.
+    assert process_gone.died(child), f"the reload's child {child} outlived the run"
 # A process in the reload's group that ignores SIGTERM is SIGKILLed after the grace, even once reload.sh is gone.
 with tempfile.TemporaryDirectory(prefix="structural-rebuild-") as tmp:
     (Path(tmp) / "scripts").mkdir()
@@ -104,12 +105,12 @@ with tempfile.TemporaryDirectory(prefix="structural-rebuild-") as tmp:
     run.send_signal(signal.SIGTERM)
     _, err = run.communicate(timeout=60)
     assert "ended by signal" in err, (run.returncode, err)
-    try:
-        os.kill(child, 0)
-        os.kill(child, signal.SIGKILL)
+    if not process_gone.died(child):
+        try:
+            os.kill(child, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
         raise AssertionError(f"the reload's child {child}, which ignores SIGTERM, outlived the run")
-    except ProcessLookupError:
-        pass
 # macOS answers killpg with EPERM once the group holds only zombies: the cleanup takes that as gone, not an error
 # that would cut it short and replace the stop that started it.
 class Gone:

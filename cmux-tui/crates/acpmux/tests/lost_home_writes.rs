@@ -2,7 +2,9 @@
 //! writes into the replacement, whenever its home watch hears of it (`daemon/home_watch.rs`).
 //! Each writer under the home is checked with the home already replaced and the lost-home flag
 //! never set, so no watch timing decides the result: the home this daemon holds is the folder
-//! it locked (`config::hold_home`), not a path.
+//! it locked (`config::hold_home`), not a path. One test forces the race a path check leaves
+//! open instead: the chat text save checks the home, the home is replaced, then the save writes.
+//! Each hold point it uses asserts it was reached in the state the test names.
 //!
 //! The held home is process-wide, so each test runs its body in a process of its own
 //! ([`isolated`]) under nextest and `cargo test` alike.
@@ -48,9 +50,14 @@ fn isolated(name: &str, body: impl FnOnce(&Path)) {
     );
 }
 
-/// The daemon holds `home`, then it is moved to `home.old` and a new folder is made at `home`.
+/// The daemon holds `home`, then it is replaced ([`replace`]).
 fn replace_held(home: &Path) {
     acpmux::config::hold_home();
+    replace(home);
+}
+
+/// `home` is moved to `home.old` and a new folder is made at `home`.
+fn replace(home: &Path) {
     std::fs::rename(home, home.with_extension("old")).unwrap();
     std::fs::create_dir(home).unwrap();
 }
@@ -88,37 +95,56 @@ fn the_chat_index_cache_is_not_written_into_a_replaced_home() {
 #[test]
 fn launch_roots_are_not_recorded_into_a_replaced_home() {
     isolated("launch_roots_are_not_recorded_into_a_replaced_home", |home| {
-        record_a_launch_root(home, false);
+        replace_held(home);
+        let service = acpmux::chats::ChatService::start(sources(home));
+        let ended = service.subscribe();
+        record_a_launch_root(home, &service);
+        end_service(service, ended);
+        assert_eq!(left(home), Vec::<String>::new(), "a launch root was recorded in the new home");
     });
 }
 
-/// The same, with the chat text thread's first save held between its home check and its write
-/// until the launch root is recorded (`chats::text::SAVE_CHECKED`): a save that checked the
-/// home before it was replaced writes into the replacement, whatever the clock does.
-#[test]
-fn launch_roots_with_the_text_save_held_at_its_check() {
-    isolated("launch_roots_with_the_text_save_held_at_its_check", |home| {
-        record_a_launch_root(home, true);
-    });
-}
-
-/// Replaces the home, starts the chat service, records a launch root, then waits for the
-/// service's own threads to let it go, so a write they make late is seen too. `hold`: the
-/// text thread's save waits at its home check until the root is recorded.
+/// The race itself, in the order the test sets (`chats::text::SAVE_CHECKED`): the service starts
+/// in the held home, the chat text thread's first save passes its home check and is held there,
+/// the home is replaced, a launch root is recorded, and only then does the save go on. Neither
+/// write lands in the replacement: `config::refuse_lost_home` by path cannot rule that out for a
+/// check that passed before the replacement, so the save writes through the folder it holds.
 ///
-/// The home is replaced before the service starts, as the module promises for every writer: the
-/// service's text thread saves on its own time, and a save that checked the home before the
-/// replacement writes into the replacement (`config::refuse_lost_home` cannot rule that out).
-fn record_a_launch_root(home: &Path, hold: bool) {
-    if hold {
-        acpmux::chats::text::SAVE_CHECKED.set(held_save).unwrap();
-    }
-    replace_held(home);
-    let service = acpmux::chats::ChatService::start(sources(home));
-    let mut ended = service.subscribe();
-    if hold {
-        held_save_checked();
-    }
+/// Unix only: the save goes through the held folder's descriptor, and Windows has no `*at`
+/// calls. There each step checks the home's file id again instead
+/// (`lost_home_race_tests::a_replaced_home_is_refused_by_its_file_id_and_the_same_home_passes`).
+#[cfg(unix)]
+#[test]
+fn a_text_save_that_checked_before_the_home_was_replaced_is_not_written_into_it() {
+    isolated(
+        "a_text_save_that_checked_before_the_home_was_replaced_is_not_written_into_it",
+        |home| {
+            acpmux::chats::text::SAVE_CHECKED.set(held_save).unwrap();
+            acpmux::config::hold_home();
+            let service = acpmux::chats::ChatService::start(sources(home));
+            let ended = service.subscribe();
+            // The hold point is reached in the state this test names: the check passed, before
+            // the replacement. A save whose check already failed would prove nothing here.
+            assert_eq!(
+                held_save_checked(),
+                Some(true),
+                "the text save was not held past its check"
+            );
+            replace(home);
+            record_a_launch_root(home, &service);
+            release_held_save();
+            end_service(service, ended);
+            assert_eq!(
+                left(home),
+                Vec::<String>::new(),
+                "the held text save wrote into the new home"
+            );
+        },
+    );
+}
+
+/// Records a launch root for the service.
+fn record_a_launch_root(home: &Path, service: &Arc<acpmux::chats::ChatService>) {
     let root = home.parent().unwrap().join("claude-projects");
     std::fs::create_dir_all(&root).unwrap();
     service.record_launch_roots(&[cmux_chat_index::RootSpec {
@@ -126,41 +152,54 @@ fn record_a_launch_root(home: &Path, hold: bool) {
         path: root,
         label: None,
     }]);
-    if hold {
-        release_held_save();
-    }
-    // The service ends when its text thread lets go of it, after any save it was making; its
-    // change channel closes then.
-    drop(service);
-    while !matches!(ended.blocking_recv(), Err(tokio::sync::broadcast::error::RecvError::Closed)) {}
-    assert_eq!(left(home), Vec::<String>::new(), "a launch root was recorded in the new home");
 }
 
+/// Drops the service and waits for its own threads to let it go, so a write they make late is
+/// seen too: the service ends when its text thread lets go of it, after any save it was making;
+/// its change channel closes then.
+fn end_service<T: Clone>(
+    service: Arc<acpmux::chats::ChatService>,
+    mut ended: tokio::sync::broadcast::Receiver<T>,
+) {
+    drop(service);
+    while !matches!(ended.blocking_recv(), Err(tokio::sync::broadcast::error::RecvError::Closed)) {}
+}
+
+#[cfg(unix)]
 /// The held save: whether its home check passed, and whether the test let it go on.
 static HELD: std::sync::Mutex<(Option<bool>, bool)> = std::sync::Mutex::new((None, false));
+#[cfg(unix)]
 static HELD_MOVED: std::sync::Condvar = std::sync::Condvar::new();
 
-/// `SAVE_CHECKED` on the text thread: tells the test the check ran, and holds a save whose check
-/// passed until [`release_held_save`].
+#[cfg(unix)]
+/// `SAVE_CHECKED` on the text thread: tells the test whether the first save's check passed, and
+/// holds that save, when it passed, until [`release_held_save`]. Later saves go on.
 fn held_save(passed: bool) {
     let mut held = HELD.lock().unwrap();
-    held.0.get_or_insert(passed);
+    if held.0.is_some() {
+        return;
+    }
+    held.0 = Some(passed);
     HELD_MOVED.notify_all();
     if passed {
         let _released = HELD_MOVED.wait_while(held, |held| !held.1).unwrap();
     }
 }
 
-fn held_save_checked() {
+#[cfg(unix)]
+/// Waits for the text thread's first save to reach its check, and says whether the check passed.
+fn held_save_checked() -> Option<bool> {
     // timeout: only a text thread that never saves ends here; the order is the hook's.
     let (held, waited) = HELD_MOVED
         .wait_timeout_while(HELD.lock().unwrap(), std::time::Duration::from_secs(120), |held| {
             held.0.is_none()
         })
         .unwrap();
-    assert!(!waited.timed_out(), "the chat text thread never saved: {:?}", held.0);
+    assert!(!waited.timed_out(), "the chat text thread never saved");
+    held.0
 }
 
+#[cfg(unix)]
 fn release_held_save() {
     HELD.lock().unwrap().1 = true;
     HELD_MOVED.notify_all();
