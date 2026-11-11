@@ -236,13 +236,13 @@ jobs:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 45
-    # Eight shards, so a shard's render and its base replay both fit the timeout: with four, a
-    # full render took ~27 minutes and the replay of its red states (every red state is rendered
-    # again up to twice more when it stays red) ~14 more, past 45 minutes.
+    # Sixteen shards, so a shard runs in under 10 minutes as the gallery grows: at eight, with three
+    # cases at once, a shard's render took 9 to 13 minutes and its job 11 to 17 (run 42946512341,
+    # 2026-11-11). With four, a full render took ~27 minutes and its base replay ~14 more.
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
     steps:
       # A pull request renders its merge with base (the event's merge ref), as the other PR gates do:
       # a branch cut before a base fix must not keep failing on what base already fixed. A push
@@ -383,7 +383,7 @@ jobs:
           CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
           cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
           bun health.ts --manifest "$RUNNER_TEMP/manifest.json" --gallery-dir "$RUNNER_TEMP/gallery" \
-            --output-dir "$RUNNER_TEMP/health" --shard-count 8 --shard-index "$SHARD"
+            --output-dir "$RUNNER_TEMP/health" --shard-count 16 --shard-index "$SHARD"
 
       # The rulebook's base reds are warnings: each red state of a pull request is rendered again on
       # the base it merged with (the merge's first parent), and each red state of a push on the tip
