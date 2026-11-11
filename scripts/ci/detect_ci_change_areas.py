@@ -645,7 +645,12 @@ def _python_runner_names(root: Path, runner: str, test: str) -> Optional[bool]:
 def _nothing_imports_test(root: Path, test: str) -> bool:
     """True when no tracked file but the test, its inert registry entry, the
     test path lists and documentation names its module, outside a Python file
-    that names it only as a string (a path) rather than importing it."""
+    that names it only in comments or docstrings.
+
+    A string is a caller: `subprocess.run([sys.executable, "tests/test_x.py"])`,
+    an exec or a runner list runs the test though nothing imports it, and the
+    walk cannot follow who runs that caller, so it is unknown and never a dead
+    end (a launcher a Mac job runs reached a manual test that way, #41333's review F1)."""
     # Only a test the registry declares in a lane no job runs (manual, say)
     # counts; an unregistered test nothing names still fails open.
     if not _registry_lane_is_inert(root, test):
@@ -664,7 +669,7 @@ def _nothing_imports_test(root: Path, test: str) -> bool:
                 text = (root / namer).read_text(encoding="utf-8", errors="replace")
             except OSError:
                 return False
-            if _python_names(text, stem, imports_only=True) is False:
+            if _python_names(text, stem) is False:
                 continue
         return False
     return True

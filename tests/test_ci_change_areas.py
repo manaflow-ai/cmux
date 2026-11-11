@@ -2496,6 +2496,33 @@ def test_helper_named_by_product_source_or_a_native_test_fails_open() -> None:
     assert helper_areas({}, references=native) is None
 
 
+def test_helper_a_manual_test_a_launcher_runs_by_subprocess_is_not_a_dead_end() -> None:
+    """A caller the walk can't follow is unknown, never unreachable. A macOS job runs a Python launcher,
+    the launcher runs manual test A by subprocess, A runs manual test B the same way, and B runs the
+    helper. Nothing imports A or B, but a string path in a subprocess call runs them, so the chain
+    reaches the Mac job and the helper selects every area (None), as it did before a manual test
+    that runs a test became a dead end."""
+    chain = {
+        ".github/workflows/ci.yml": "jobs:\n  guards:\n    uses: ./.github/workflows/ci-guards.yml\n"
+                                    "  mac:\n    runs-on: macos-15\n    steps:\n"
+                                    "      - run: python3 scripts/launch_manual_checks.py\n",
+        "scripts/launch_manual_checks.py": "import subprocess, sys\n"
+                                           "subprocess.run([sys.executable, \"tests/test_manual_outer.py\"], check=True)\n",
+        "tests/test_manual_outer.py": "import subprocess, sys\n"
+                                      "subprocess.run([sys.executable, \"tests/test_manual_inner.py\"], check=True)\n",
+        "tests/test_manual_inner.py": "import subprocess, sys\n"
+                                      "subprocess.run([sys.executable, \"scripts/ci/helper.py\"], check=True)\n",
+        "tests/test-execution.toml": 'version = 1\n'
+                                     '[[test]]\npath = "tests/test_manual_outer.py"\nlane = "manual"\n'
+                                     '[[test]]\npath = "tests/test_manual_inner.py"\nlane = "manual"\n',
+    }
+    assert helper_areas(chain) is None
+    # With no caller at all, the outer manual test is a dead end, and so is the chain.
+    no_launcher = {path: text for path, text in chain.items() if path != "scripts/launch_manual_checks.py"}
+    no_launcher[".github/workflows/ci.yml"] = ROUTED_TREE[".github/workflows/ci.yml"]
+    assert helper_areas(no_launcher) == areas()
+
+
 def test_helper_a_test_only_unrouted_workflows_run_names_reaches_no_lane() -> None:
     """feat-cmux-next's cmux-next.yml and nightly.yml, outside ci.yml's call tree, run tests (the
     checks-workflow test, the nightly strip test) that name ci.yml helpers. Such a test is a dead end
@@ -5532,6 +5559,46 @@ def test_trusted_router_reads_new_guard_tests_from_the_pr_head() -> None:
                 os.environ[module.HEAD_TEST_REFERENCE_ROOT_ENV] = previous
 
 
+def test_serial_and_parallel_runs_report_every_failure_and_write_each_check() -> None:
+    """CMUX_TEST_WORKERS=1 runs the tests in order in one process. A red test there must not stop the
+    run: every failure is printed and written to $CMUX_GUARD_CHECK_RESULTS, as in the forked run."""
+    probe = textwrap.dedent('''
+        import sys
+        path = sys.argv[1]
+        namespace = {"__name__": "change_areas_runner_probe", "__file__": path}
+        with open(path, encoding="utf-8") as handle:
+            exec(compile(handle.read(), path, "exec"), namespace)
+        for name in [name for name in namespace if name.startswith("test_")]:
+            del namespace[name]
+        def test_first_red():
+            raise AssertionError("first red")
+        def test_second_red():
+            raise AssertionError("second red")
+        def test_green():
+            pass
+        namespace.update(test_first_red=test_first_red, test_second_red=test_second_red, test_green=test_green)
+        sys.exit(namespace["_main"]())
+    ''')
+    for workers in ("1", "2"):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            checks = Path(temp_dir) / "checks.tsv"
+            result = subprocess.run(
+                [sys.executable, "-c", probe, str(Path(__file__).resolve())],
+                cwd=ROOT,
+                env={**os.environ, "CMUX_TEST_WORKERS": workers, "CMUX_GUARD_CHECK_RESULTS": str(checks)},
+                capture_output=True, text=True, timeout=300,
+            )
+            assert result.returncode == 1, (workers, result.returncode, result.stderr[-2000:])
+            assert "FAIL: test_first_red" in result.stderr, (workers, result.stderr[-2000:])
+            assert "FAIL: test_second_red" in result.stderr, (workers, result.stderr[-2000:])
+            assert "2 of 3 tests failed" in result.stderr, (workers, result.stderr[-2000:])
+            written = checks.read_text(encoding="utf-8").splitlines() if checks.exists() else []
+            assert written == [
+                "0\ttests/test_ci_change_areas.py::test_first_red",
+                "0\ttests/test_ci_change_areas.py::test_second_red",
+            ], (workers, written)
+
+
 def _run_named_test(name: str) -> tuple[str, str | None]:
     import traceback
 
@@ -5555,13 +5622,17 @@ def _main() -> int:
     workers = int(requested) if requested else len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else 1
     # Off Linux only an explicit CMUX_TEST_WORKERS forks (scripts/ci/run_ci_guards.py
     # sets it on macOS, where the serial run takes about two minutes).
+    failures = []
     if workers <= 1 or (sys.platform != "linux" and not requested):
+        # The same collector as the forked run: a red test does not stop the
+        # ones after it, and every red is printed and written below.
         for name in names:
-            globals()[name]()
-        return 0
+            name, error = _run_named_test(name)
+            if error:
+                failures.append((name, error))
+        return _report(failures, names)
     import multiprocessing
 
-    failures = []
     with multiprocessing.get_context("fork").Pool(workers, maxtasksperchild=1) as pool:
         results = pool.imap_unordered(_run_named_test, names)
         pending = set(names)
@@ -5580,6 +5651,11 @@ def _main() -> int:
             pending.discard(name)
             if error:
                 failures.append((name, error))
+    return _report(failures, names)
+
+
+def _report(failures: list[tuple[str, str]], names: list[str]) -> int:
+    """Prints every red test and writes one check per red for the guard runner."""
     for name, error in sorted(failures):
         print(f"FAIL: {name}\n{error}", file=sys.stderr)
     # One check per red test for the guard runner (scripts/ci/run_ci_guards.py), so a
