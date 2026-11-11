@@ -7,8 +7,9 @@
 //! Prints `acpmux-cli-disk-writes: {...}` with the daemon's write counters (`/proc/<pid>/io`:
 //! `wchar`, bytes passed to `write`, sockets included; `write_bytes`, bytes dirtied for the
 //! disk) and the home's growth, per invocation and per 1,000. Linux only (it reads /proc).
-//! Ignored by default (1,000 turns); run it with `--ignored`, `ACPMUX_DISK_BENCH_SENDS` and
-//! `ACPMUX_DISK_BENCH_PROMPT_BYTES` to change the shape.
+//! It runs in the acpmux suite (100 calls, about 20 s in a debug build), so a change that copies
+//! a prompt into the log again fails CI; `ACPMUX_DISK_BENCH_SENDS=1000` gives the PR numbers, and
+//! `ACPMUX_DISK_BENCH_PROMPT_BYTES` changes the prompt.
 #![cfg(target_os = "linux")]
 
 #[path = "support/daemon_env.rs"]
@@ -76,9 +77,8 @@ impl Drop for Shutdown<'_> {
 }
 
 #[test]
-#[ignore = "1,000 turns: run with --ignored for the numbers"]
 fn bytes_written_per_1000_cli_invocations() {
-    let sends = env_or("ACPMUX_DISK_BENCH_SENDS", 1_000).max(1);
+    let sends = env_or("ACPMUX_DISK_BENCH_SENDS", 100).max(1);
     let prompt_bytes = env_or("ACPMUX_DISK_BENCH_PROMPT_BYTES", 16 * 1024);
     let dir = scratch();
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fake_claude_stream.py");
@@ -128,5 +128,14 @@ fn bytes_written_per_1000_cli_invocations() {
         per(home) <= budget,
         "the home grew {} bytes per call (budget {budget}): {report}",
         per(home)
+    );
+    // What the daemon passed to `write` (files and sockets): a file rewritten at the same size
+    // passes the growth check above and fails this one. 149,153 bytes a call before #41526,
+    // 50,799 after, for 16 KiB prompts.
+    let written = 4 * prompt_bytes as u64 + 32 * 1024;
+    assert!(
+        per(wchar) <= written,
+        "the daemon wrote {} bytes per call (budget {written}): {report}",
+        per(wchar)
     );
 }
