@@ -71,6 +71,10 @@ struct ProjectPanelFindFocusTests {
     /// A second Cmd+F after focus moved elsewhere must take focus back, however
     /// focus left and whether or not SwiftUI has processed the loss yet; the
     /// request cannot be a one-shot that the first press spends.
+    ///
+    /// The processed variant is best effort. The field's `FocusState` is not
+    /// observable from here, so `afterLossIsProcessed` only gives SwiftUI a few
+    /// more passes; under load both variants can exercise the same path.
     @Test(arguments: ProjectPanelFocusLoss.allCases, [false, true])
     func startSearchRefocusesFilterFieldAfterFocusLeaves(
         loss: ProjectPanelFocusLoss,
@@ -564,10 +568,14 @@ private final class Harness {
         await Self.settle(window, until: condition)
     }
 
-    /// Runs a few layout and run-loop passes with no condition to wait for, so
-    /// SwiftUI has processed what just happened before the test acts again.
+    /// Runs a few layout and run-loop passes with no condition to wait for,
+    /// giving SwiftUI a chance to process what just happened before the test
+    /// acts again. It is a best-effort wait, not a signal: nothing here can
+    /// confirm that SwiftUI has processed anything.
     func settlePasses(_ count: Int = 5) async {
-        await Self.settlePasses(window, count)
+        for _ in 0..<count {
+            await Self.settlePass(window)
+        }
     }
 
     /// ``settle(until:)`` for any window, such as an app main window.
@@ -577,13 +585,6 @@ private final class Harness {
             await settlePass(window)
         }
         return condition()
-    }
-
-    /// ``settlePasses(_:)`` for any window, such as an app main window.
-    static func settlePasses(_ window: NSWindow, _ count: Int = 5) async {
-        for _ in 0..<count {
-            await settlePass(window)
-        }
     }
 
     /// The test body is itself a main-actor job, so the nested run loop can't
