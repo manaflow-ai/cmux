@@ -41,6 +41,19 @@
 //! The agent terminals are journal subjects only: 170 of them for any
 //! number of workspaces, and none is a row of `resource_terminals`.
 //!
+//! [`ShapeOptions::rested_agents`] more terminals each have an agent that
+//! started, ran one turn and then wrote no record again: every record of
+//! such an agent is at the start of the journal ([`ShapeReport::rested_through`]
+//! is the last one), so it is below any retention floor near the head. Only
+//! a saved reducer state holds these agents after retention. They are in the
+//! saved roster; the History fold keeps its newest sessions only, so a large
+//! registry has dropped them there.
+//!
+//! With [`ShapeOptions::sparse_head`] the journal starts with a sparse part
+//! (`synth_sparse.rs`): records at low sequence numbers with holes, as the
+//! first output cleanup left them, and the shape above goes after it. The
+//! record target then counts the records that the file holds, not the head.
+//!
 //! [`counts`] reads the numbers of any registry file, read-only.
 
 use std::collections::BTreeSet;
@@ -51,6 +64,7 @@ use std::time::{Duration, Instant};
 use anyhow::Context;
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
 use super::{ORIGIN, SEAL_OWNER_SPAN, SynthOptions, Writer, create_workspaces, seal};
 use crate::history_ops::AGENT_FOLD_STATE_ID;
@@ -105,6 +119,8 @@ const MAX_FOLD_OWNERS: u32 = 400;
 /// about three quarters of it.
 const FILL_ALPHABET: &[u8; 64] =
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+/// The session ids of the rested agents start with this.
+const RESTED_SESSION_PREFIX: &str = "synth-rested-";
 
 /// What [`generate_shape`] writes. [`Default`] is the 1 GB class.
 #[derive(Debug, Clone)]
@@ -122,6 +138,16 @@ pub struct ShapeOptions {
     pub workspaces: u32,
     /// Terminals with an agent.
     pub agent_terminals: usize,
+    /// More terminals, each with an agent that has all its records at the
+    /// start of the journal (the module doc).
+    pub rested_agents: usize,
+    /// The journal sequence where the sparse part ends (0: no sparse part).
+    pub sparse_head: u64,
+    /// Records that the shape's writers put in the sparse part.
+    pub sparse_records: u64,
+    /// For a small test: the journal head after the sparse part, moved there
+    /// by SQL (`synth_sparse.rs`; 0: not moved).
+    pub sparse_stretch: u64,
     /// Records left live (not sealed) at the head.
     pub live_rows: u64,
     /// Percent of all records that the ingress commit writes, each with an
@@ -149,6 +175,10 @@ impl Default for ShapeOptions {
             records: None,
             workspaces: 826,
             agent_terminals: 170,
+            rested_agents: 0,
+            sparse_head: 0,
+            sparse_records: 0,
+            sparse_stretch: 0,
             live_rows: 500,
             receipt_percent: 36,
             subjects_per_record: 12,
@@ -161,7 +191,8 @@ impl Default for ShapeOptions {
 }
 
 impl ShapeOptions {
-    /// The journal head to reach.
+    /// The records to reach: the journal head, or with a sparse part the
+    /// records that the file holds.
     pub fn record_target(&self) -> u64 {
         self.records.unwrap_or(self.target_bytes / self.bytes_per_record.max(1))
     }
@@ -197,6 +228,12 @@ pub struct ShapeReport {
     pub session_puts: u64,
     /// Rows the ingress commit wrote (each with a receipt).
     pub ingress_rows: u64,
+    /// Agents with every record at the start of the journal, and the
+    /// sequence of the last of those records (0 with no such agent).
+    pub rested_agents: u64,
+    pub rested_through: u64,
+    /// The sparse part, when the options ask for one.
+    pub sparse: Option<SparseReport>,
     /// Highest sequence in a sealed segment.
     pub sealed_through: u64,
     pub segments_sealed: u64,
@@ -217,11 +254,16 @@ impl ShapeReport {
                     "terminal_progress": self.progress_rows,
                     "session_puts": self.session_puts,
                     "ingress_commit_rows": self.ingress_rows,
+                    "rested_agents": self.rested_agents,
+                    "rested_through": self.rested_through,
                     "sealed_through": self.sealed_through,
                     "segments_sealed": self.segments_sealed,
                     "segments_backdated": self.segments_backdated,
                 }),
             );
+            if let Some(sparse) = &self.sparse {
+                fields.insert("sparse".into(), sparse.to_json());
+            }
             fields.insert("elapsed_s".into(), json!((seconds * 10.0).round() / 10.0));
         }
         report
@@ -263,17 +305,35 @@ pub fn generate_shape(state_root: &Path, options: &ShapeOptions) -> anyhow::Resu
                 step: 0,
                 tools: 0,
             })
+            // The rested agents: after the lanes that the rounds turn through.
+            .chain((0..options.rested_agents).map(|index| Lane {
+                terminal: format!("term_00000000000040008001{index:012x}"),
+                session: format!("{RESTED_SESSION_PREFIX}{index}"),
+                sessions: 1,
+                step: 0,
+                tools: 0,
+            }))
             .collect(),
+        active: options.agent_terminals,
         counters: Counters::default(),
         history: None,
     };
     shape.open_registry()?;
-    let records = options.record_target();
-    let sealed_end = records.saturating_sub(options.live_rows.min(records));
     shape.start_sessions()?;
+    let rested_through = shape.rest_agents()?;
+    let sparse = shape.sparse_part()?;
+    // The places below are counted in records. After a sparse part the
+    // journal head is `offset` sequences above the records that the file holds.
+    let offset = match &sparse {
+        Some(sparse) => shape.head()?.saturating_sub(sparse.kept),
+        None => 0,
+    };
+    let target = options.record_target();
+    let records = target + offset;
+    let sealed_end = records.saturating_sub(options.live_rows.min(target));
 
     // The History fold stops here, behind every later record.
-    let fold_at = records.saturating_sub(records * HISTORY_BEHIND_PERCENT / 100).min(sealed_end);
+    let fold_at = records.saturating_sub(target * HISTORY_BEHIND_PERCENT / 100).min(sealed_end);
     shape.append_to(fold_at)?;
     shape.close_registry()?;
     fold_history(state_root, &base)?;
@@ -281,7 +341,8 @@ pub fn generate_shape(state_root: &Path, options: &ShapeOptions) -> anyhow::Resu
     shape.history = shape.registry()?.journal_reducer_state(AGENT_FOLD_STATE_ID)?;
 
     // Fifteen checkpoints over the window below the sealed end.
-    let window = (u128::from(sealed_end) * CHECKPOINT_WINDOW / CHECKPOINT_WINDOW_OF) as u64;
+    let window = (u128::from(sealed_end.saturating_sub(offset)) * CHECKPOINT_WINDOW
+        / CHECKPOINT_WINDOW_OF) as u64;
     for index in 1..CHECKPOINTS {
         // Each checkpoint needs a journal head of its own, also when an
         // owner's own records moved the head past the planned place.
@@ -298,7 +359,7 @@ pub fn generate_shape(state_root: &Path, options: &ShapeOptions) -> anyhow::Resu
     shape.close_registry()?;
     let (sealed_through, segments_sealed) = seal(state_root, &base)?;
     shape.open_registry()?;
-    shape.append(options.live_rows.min(records))?;
+    shape.append(options.live_rows.min(target))?;
     shape.save_roster()?;
     let segments_backdated = shape.backdate_segments()?;
     shape.finish()?;
@@ -311,6 +372,9 @@ pub fn generate_shape(state_root: &Path, options: &ShapeOptions) -> anyhow::Resu
         progress_rows: shape.counters.progress_rows,
         session_puts: shape.writer.written.session_puts,
         ingress_rows: shape.counters.ingress_rows,
+        rested_agents: options.rested_agents as u64,
+        rested_through,
+        sparse,
         sealed_through,
         segments_sealed,
         segments_backdated,
@@ -395,7 +459,10 @@ struct Shape {
     /// session puts, its roster fold and its payload validation.
     writer: Writer,
     registry: Option<WorkspaceRegistry>,
+    /// The first [`Self::active`] lanes take the rounds; the lanes after
+    /// them are the rested agents.
     lanes: Vec<Lane>,
+    active: usize,
     counters: Counters,
     /// The History fold as the daemon's fold saved it (version, cursor,
     /// snapshot).
@@ -455,13 +522,39 @@ impl Shape {
         Ok(head)
     }
 
-    /// A `SessionStart` of every lane.
+    /// A `SessionStart` of every lane that takes the rounds.
     fn start_sessions(&mut self) -> anyhow::Result<()> {
-        for lane in 0..self.lanes.len() {
+        for lane in 0..self.active {
             self.hook_row(lane, "SessionStart", AGENT_OTHER_FILL_BYTES)?;
             self.counters.agent_other += 1;
         }
         Ok(())
+    }
+
+    /// Every record of each rested agent: its session starts, runs one turn
+    /// with one tool, and stops. Returns the journal head after the last one
+    /// (0 with no rested agent).
+    fn rest_agents(&mut self) -> anyhow::Result<u64> {
+        if self.lanes.len() == self.active {
+            return Ok(0);
+        }
+        for lane in self.active..self.lanes.len() {
+            for (event, fill) in [
+                ("SessionStart", AGENT_OTHER_FILL_BYTES),
+                ("UserPromptSubmit", AGENT_OTHER_FILL_BYTES),
+                ("PreToolUse", STATE_CHANGED_FILL_BYTES),
+                ("PostToolUse", STATE_CHANGED_FILL_BYTES),
+                ("Stop", AGENT_OTHER_FILL_BYTES),
+            ] {
+                self.hook_row(lane, event, fill)?;
+                if fill == STATE_CHANGED_FILL_BYTES {
+                    self.counters.state_changed += 1;
+                } else {
+                    self.counters.agent_other += 1;
+                }
+            }
+        }
+        self.head()
     }
 
     /// Append rows until the journal head is `stop`.
@@ -552,7 +645,7 @@ impl Shape {
 
     /// A tool event of the next lane: `agent.state.changed`.
     fn state_changed(&mut self) -> anyhow::Result<()> {
-        let index = (self.counters.state_changed % self.lanes.len() as u64) as usize;
+        let index = (self.counters.state_changed % self.active as u64) as usize;
         let lane = self.lanes.get_mut(index).context("agent lane")?;
         lane.tools += 1;
         let event = if lane.tools % 2 == 1 { "PreToolUse" } else { "PostToolUse" };
@@ -564,7 +657,7 @@ impl Shape {
     /// The next turn event of the next lane; after the session's last turn
     /// its end, and the start of the lane's next session.
     fn agent_other(&mut self) -> anyhow::Result<()> {
-        let index = (self.counters.other_turns % self.lanes.len() as u64) as usize;
+        let index = (self.counters.other_turns % self.active as u64) as usize;
         self.counters.other_turns += 1;
         let step = self.lanes.get(index).context("agent lane")?.step;
         if step < TURNS_PER_SESSION * 2 {
@@ -683,7 +776,7 @@ impl Shape {
     /// One `terminal.progress` row with a filler payload (not the daemon's
     /// writer, which needs a live terminal).
     fn progress_row(&mut self) -> anyhow::Result<()> {
-        let index = (self.counters.progress_rows % self.lanes.len() as u64) as usize;
+        let index = (self.counters.progress_rows % self.active as u64) as usize;
         let terminal = self.lanes.get(index).context("agent lane")?.terminal.clone();
         let mut subjects = vec![JournalSubject { kind: "terminal".into(), id: terminal.clone() }];
         subjects.extend(self.padding(index, 2));
@@ -793,6 +886,11 @@ fn reducer_state(raw: Option<String>) -> Option<(u64, u64, String)> {
     Some((version, cursor, snapshot))
 }
 
+/// True for the session id of a rested agent of the generator.
+fn rested(session: Option<&str>) -> bool {
+    session.is_some_and(|session| session.starts_with(RESTED_SESSION_PREFIX))
+}
+
 /// The counts of a registry file, as one JSON object with no path and no
 /// row content. The connection is read-only: no migration runs and no row is
 /// written (for a file in WAL mode SQLite may make the `-shm` and `-wal`
@@ -822,8 +920,27 @@ pub fn counts(registry_path: &Path) -> anyhow::Result<Value> {
     let mut wal = registry_path.as_os_str().to_os_string();
     wal.push("-wal");
 
-    let roster = reducer_state(meta(&format!("journal_reducer.{AGENT_ROSTER_REDUCER_ID}")));
-    let history = reducer_state(meta(&format!("journal_reducer.{AGENT_FOLD_STATE_ID}")));
+    let roster_raw = meta(&format!("journal_reducer.{AGENT_ROSTER_REDUCER_ID}"));
+    let history_raw = meta(&format!("journal_reducer.{AGENT_FOLD_STATE_ID}"));
+    let roster = reducer_state(roster_raw.clone());
+    let history = reducer_state(history_raw.clone());
+    // A reducer's base (`journal_reducer_base.<id>`): its bytes, version,
+    // cursor and a hash of the value, so two reads show a change.
+    let base = |reducer: &str| -> Value {
+        let Some(raw) = meta(&format!("journal_reducer_base.{reducer}")) else {
+            return Value::Null;
+        };
+        let state = reducer_state(Some(raw.clone()));
+        json!({
+            "bytes": raw.len(),
+            "sha256": Sha256::digest(raw.as_bytes())
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>(),
+            "version": state.as_ref().map(|(version, _, _)| *version),
+            "cursor": state.as_ref().map(|(_, cursor, _)| *cursor),
+        })
+    };
     let live = number("SELECT COUNT(*) FROM session_journal");
     let sealed = number("SELECT COALESCE(SUM(record_count), 0) FROM journal_segments");
     let floor = meta("journal_retention_floor").and_then(|floor| floor.parse::<u64>().ok());
@@ -841,6 +958,21 @@ pub fn counts(registry_path: &Path) -> anyhow::Result<Value> {
                 .ok()
                 .map(|fold| fold.len())
         }),
+        "roster_rested": roster.as_ref().and_then(|(version, _, snapshot)| {
+            AgentRoster::migrate(*version as u32, snapshot).map(|roster| {
+                roster.entries.values().filter(|entry| rested(entry.session.as_deref())).count()
+            })
+        }),
+        "history_rested": history.as_ref().and_then(|(_, _, snapshot)| {
+            serde_json::from_str::<cmux_history::AgentSessionFold>(snapshot).ok().map(|fold| {
+                let sessions = fold.ordered();
+                sessions.iter().filter(|one| rested(Some(one.session_id.as_str()))).count()
+            })
+        }),
+        "roster_state_bytes": roster_raw.as_ref().map(String::len),
+        "history_state_bytes": history_raw.as_ref().map(String::len),
+        "roster_base": base(AGENT_ROSTER_REDUCER_ID),
+        "history_base": base(AGENT_FOLD_STATE_ID),
         "history_cursor": history.as_ref().map(|(_, cursor, _)| *cursor),
         "roster_cursor": roster.as_ref().map(|(_, cursor, _)| *cursor),
         "journal_head": query_journal_head(&connection).ok(),
@@ -856,6 +988,10 @@ pub fn counts(registry_path: &Path) -> anyhow::Result<Value> {
         "auto_vacuum": number("PRAGMA auto_vacuum"),
     }))
 }
+
+#[path = "synth_sparse.rs"]
+mod sparse;
+pub use sparse::SparseReport;
 
 #[cfg(test)]
 #[path = "synth_shape_tests.rs"]

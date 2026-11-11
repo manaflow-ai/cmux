@@ -919,3 +919,6 @@ fn retention_deletes_in_place_when_no_rebuild_can_run() {
         "retention deleted through {pruned_through}; the old run ends at {old_run}"
     );
 }
+
+#[path = "sparse_tests.rs"]
+mod sparse;

@@ -81,7 +81,7 @@ impl Mux {
         let (seed, pruned_through, base) = {
             let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
             let seed = crate::workspace_registry::premigrate::rebuild_seed(&registry);
-            let base = super::agent_roster_restore::roster_base(&registry);
+            let base = agent_roster_restore::roster_base(&registry);
             (seed, registry.journal_pruned_through().unwrap_or(0), base)
         };
         // Journal retention deleted the first records: a fold of what is

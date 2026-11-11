@@ -4,6 +4,11 @@ fn number(counts: &Value, key: &str) -> u64 {
     counts[key].as_u64().unwrap_or_else(|| panic!("{key} is not a number in {counts}"))
 }
 
+/// The History fold's cursor: every record of a rested agent is below it.
+fn history_floor(counts: &Value) -> u64 {
+    number(counts, "history_cursor")
+}
+
 /// A small registry of the shape: the counts say what the module doc says,
 /// and an owner opens the file.
 #[test]
@@ -15,6 +20,7 @@ fn a_small_registry_of_the_shape_has_its_counts_and_opens() {
         records: Some(6_000),
         workspaces: 3,
         agent_terminals: 5,
+        rested_agents: 3,
         live_rows: 100,
         seal_age_minutes: 120,
         young_segments: 1,
@@ -28,7 +34,15 @@ fn a_small_registry_of_the_shape_has_its_counts_and_opens() {
     assert!(head >= 6_000 && records >= 6_000, "{json}");
     assert_eq!(number(&json, "checkpoints"), 16, "{json}");
     assert_eq!(number(&json, "roster_cursor"), head, "{json}");
-    assert!(number(&json, "roster_agents") > 0, "{json}");
+    // 5 agents that take the rounds and 3 with every record at the start.
+    assert_eq!(number(&json, "roster_agents"), 8, "{json}");
+    assert_eq!(number(&json, "roster_rested"), 3, "{json}");
+    assert_eq!(number(&json, "history_rested"), 3, "{json}");
+    assert_eq!(report.rested_agents, 3, "{json}");
+    // 5 session starts, then 5 records of each rested agent, after what the
+    // first owner wrote.
+    assert!((15..history_floor(&json)).contains(&report.rested_through), "{json}");
+    assert!(number(&json, "roster_state_bytes") > 0 && json["roster_base"].is_null(), "{json}");
     // The History fold is saved behind the head, by the daemon's own fold.
     let history_cursor = number(&json, "history_cursor");
     assert!((3_000..=4_800).contains(&history_cursor), "{json}");
@@ -62,6 +76,99 @@ fn a_small_registry_of_the_shape_has_its_counts_and_opens() {
     let mux = crate::Mux::open_persistent(options.session, crate::SurfaceOptions::default(), &root)
         .unwrap();
     assert!(mux.session_journal_head().unwrap() >= head);
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// The shape with a sparse part: the journal head is far above the records
+/// that the file holds, the first segment starts at sequence 1, each hole
+/// is a pruned range, and an owner reads and opens the file.
+#[test]
+fn a_registry_with_a_sparse_part_has_holes_at_low_sequences_and_opens() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-synth-sparse-{}", crate::workspace_registry::new_uuid_v4()));
+    let options = ShapeOptions {
+        session: "synth-sparse".into(),
+        records: Some(9_000),
+        workspaces: 3,
+        agent_terminals: 5,
+        rested_agents: 3,
+        live_rows: 100,
+        seal_age_minutes: 120,
+        young_segments: 1,
+        sparse_head: 40_000,
+        sparse_records: 3_000,
+        ..ShapeOptions::default()
+    };
+    let report = generate_shape(&root, &options).unwrap();
+    let json = report.to_json();
+    let sparse = report.sparse.as_ref().expect("the report has the sparse part");
+    assert_eq!(sparse.head, 40_000, "{json}");
+    assert!((3_000..3_010).contains(&sparse.records), "{json}");
+    assert_eq!(sparse.output_rows, 3_000, "{json}");
+    assert!(sparse.empty_output_rows > 30_000, "{json}");
+    // The cleanup kept the records that are not superseded session puts.
+    assert!((2_000..3_500).contains(&sparse.kept), "{json}");
+    // About one hole for each burst of 2 records.
+    assert!(sparse.pruned_ranges >= 1_000, "{json}");
+    assert!(sparse.bytes_after < sparse.bytes_before, "{json}");
+    assert_eq!(sparse.stretched_to, 0, "{json}");
+
+    // The file holds the record target; the head is above it by the holes.
+    let head = number(&json, "journal_head");
+    let records = number(&json, "records");
+    assert!((9_000..9_500).contains(&records), "{json}");
+    assert!(head >= 40_000 + 9_000 - sparse.kept, "{json}");
+    assert_eq!(number(&json, "pruned_ranges"), sparse.pruned_ranges, "{json}");
+    assert_eq!(number(&json, "retention_floor"), 0, "{json}");
+    assert_eq!(number(&json, "checkpoints"), 16, "{json}");
+    assert_eq!(number(&json, "roster_cursor"), head, "{json}");
+    assert_eq!(number(&json, "roster_agents"), 8, "{json}");
+    assert_eq!(number(&json, "roster_rested"), 3, "{json}");
+    assert_eq!(number(&json, "history_rested"), 3, "{json}");
+    // The History fold crossed the sparse part and stopped behind the head.
+    let history_cursor = number(&json, "history_cursor");
+    assert!(history_cursor > 40_000 && history_cursor < head - 1_000, "{json}");
+
+    let connection = Connection::open(&report.registry_path).unwrap();
+    let (first_start, first_end, first_records): (i64, i64, i64) = connection
+        .query_row(
+            "SELECT start_sequence, end_sequence, record_count FROM journal_segments
+             ORDER BY start_sequence LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(first_start, 1, "{json}");
+    assert!(first_end - first_start + 1 > first_records * 4, "the first segment has no holes");
+    // No removed row is left, and the swapped file is not kept.
+    let output: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM session_journal WHERE kind = 'terminal.output'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(output, 0, "{json}");
+    drop(connection);
+    let previous = crate::workspace_registry::output_cleanup::previous_path(&report.registry_path);
+    assert!(!previous.exists(), "the generator left the file that the swap replaced");
+
+    // An owner reads the journal from sequence 0 through the holes.
+    let mux = crate::Mux::open_persistent(options.session, crate::SurfaceOptions::default(), &root)
+        .unwrap();
+    assert!(mux.session_journal_head().unwrap() >= head);
+    let mut cursor = 0;
+    let mut read = 0;
+    loop {
+        let page = mux.session_journal_after(cursor, 1_024).unwrap();
+        let Some(last) = page.records.last() else { break };
+        assert!(last.sequence > cursor, "the read does not move past {cursor}");
+        cursor = last.sequence;
+        read += page.records.len() as u64;
+    }
+    assert!(read >= records, "an owner read {read} of {records} records");
     mux.shutdown();
     drop(mux);
     std::fs::remove_dir_all(&root).ok();

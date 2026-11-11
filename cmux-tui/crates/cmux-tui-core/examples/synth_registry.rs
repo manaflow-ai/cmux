@@ -44,6 +44,20 @@
 //!   changes the 4,300), or `--records N`
 //! - `--workspaces W` (default 826), `--agent-terminals T` (default 170;
 //!   journal subjects only, whatever W is), `--live-rows L` (default 500)
+//! - `--rested-agents R` (default 0): R more terminals, each with an agent
+//!   whose every record is at the start of the journal, below any retention
+//!   floor near the head; `counts` says how many of them the saved roster
+//!   (`roster_rested`) and the saved History fold (`history_rested`) hold
+//! - `--sparse-head N --sparse-records R` (default 0: no sparse part): the
+//!   journal starts with R records spread over the sequences up to N, and
+//!   the rows between them are rows that the first output cleanup removes
+//!   (mostly `terminal.output` rows with empty fields, which no build
+//!   wrote). The generator then runs that cleanup: the file starts with
+//!   segments at low sequence numbers that have holes, and one pruned range
+//!   for each hole. `--records` and `--target-bytes` then count the records
+//!   that the file holds; the journal head is higher. The output's `sparse`
+//!   object says what the part holds. `--sparse-stretch S` (a small test
+//!   only) then moves the journal head to S by SQL
 //! - `--seal-age-minutes M`: move every segment's `sealed_at_ms` M minutes
 //!   back (default 0: not); `--young-segments K`: but not the newest K
 //! - `--receipt-percent P` (default 36): the share of all records that the
@@ -103,6 +117,10 @@ fn main() -> anyhow::Result<()> {
             "--records" => shape.records = Some(value()?.parse()?),
             "--bytes-per-record" => shape.bytes_per_record = value()?.parse()?,
             "--agent-terminals" => shape.agent_terminals = value()?.parse()?,
+            "--rested-agents" => shape.rested_agents = value()?.parse()?,
+            "--sparse-head" => shape.sparse_head = value()?.parse()?,
+            "--sparse-records" => shape.sparse_records = value()?.parse()?,
+            "--sparse-stretch" => shape.sparse_stretch = value()?.parse()?,
             "--live-rows" => shape.live_rows = value()?.parse()?,
             "--seal-age-minutes" => shape.seal_age_minutes = value()?.parse()?,
             "--young-segments" => shape.young_segments = value()?.parse()?,
