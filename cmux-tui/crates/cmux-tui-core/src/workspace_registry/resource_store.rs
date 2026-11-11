@@ -5,11 +5,13 @@ use crate::resource::{NotificationPublicId, TerminalPublicId};
 pub(crate) use events_page::query_resource_events_after;
 use serde_json::json;
 mod patch_apply;
+mod terminal_live;
 mod topology_load;
 use patch_apply::decorate_snapshot_result;
 pub(crate) use patch_apply::{
     apply_resource_patch, apply_resource_patch_timed, apply_resource_patch_unrecorded,
 };
+pub(crate) use terminal_live::{LiveTerminalRows, query_live_terminal};
 pub(crate) use topology_load::{
     load_resource_topology, load_resource_topology_scoped, load_session_panes, load_session_tabs,
     load_terminal_tabs, load_topology_frame,
