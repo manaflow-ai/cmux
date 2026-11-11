@@ -6,7 +6,13 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { SelectionReplyChip } from "./SelectionReply";
-import { configureSelectionReply, quoteMarkdown, selectionReplyPlace, setQuoteReplySink } from "./selectionReplyModel";
+import {
+  configureSelectionReply,
+  quoteMarkdown,
+  selectionReplyPlace,
+  selectionReplyTarget,
+  setQuoteReplySink,
+} from "./selectionReplyModel";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -333,4 +339,59 @@ test("a backward multi-line drag: spots near its end are measured there, not nea
   for (const rect of text) expect(covers(place, rect)).toBe(false);
   // Over the selected line between, nearest the end.
   expect(place).toEqual({ left: 364, top: 166 });
+});
+
+// Leo, 2026-11-11 (ask-ee3b78191e): "this reply is in the wrong spot ... if you go close, you
+// still get it. But if you go deep into it, there's something that messes up there." A drag that
+// lets go deep in the blank space past a paragraph selects to the next block's start: the range's
+// last box is caret-thin at that block's left. The chip goes over the last selected character.
+const TWO_PARAGRAPHS = `<div data-row-id="answer"><div class="cv-md"><p id=first>Retry only on 429 and 503.</p>
+<p id=second>Then give up.</p></div></div>`;
+
+function selectAcross(doc: Document, boxes: Rect[], backward = false) {
+  const view = doc.defaultView! as unknown as { Range: typeof Range };
+  const range = doc.createRange();
+  const first = doc.getElementById("first")!.firstChild!;
+  const second = doc.getElementById("second")!.firstChild!;
+  range.setStart(first, backward ? first.textContent!.length : 6);
+  range.setEnd(second, backward ? 4 : 0);
+  view.Range.prototype.getClientRects = () =>
+    boxes.map((box) => ({
+      ...box,
+      width: box.right - box.left,
+      height: box.bottom - box.top,
+    })) as unknown as DOMRectList;
+  const selection = doc.getSelection()!;
+  selection.removeAllRanges();
+  if (backward) {
+    selection.setBaseAndExtent(second, 4, first, first.textContent!.length);
+  } else selection.addRange(range);
+}
+
+test("a drag that ends deep in the blank space past a paragraph: the chip centres on its last character", () => {
+  const doc = mount(TWO_PARAGRAPHS);
+  // "only on 429 and 503." from x 148 to 308 on the 200 line, then a caret-thin box at the next
+  // paragraph's start (x 100, the 240 line).
+  selectAcross(doc, [
+    { left: 148, right: 308, top: 200, bottom: 222 },
+    { left: 100, right: 100, top: 240, bottom: 262 },
+  ]);
+  const target = selectionReplyTarget(doc)!;
+  expect({ left: target.left, top: target.top, bottom: target.bottom }).toEqual({ left: 308, top: 200, bottom: 222 });
+});
+
+test("a backward drag that lets go deep in the blank space before a paragraph: the chip goes on its first character", () => {
+  const doc = mount(TWO_PARAGRAPHS);
+  // From "Then" on the 240 line back up past the end of the 200 line: a caret-thin box at the
+  // first paragraph's end, then "Then".
+  selectAcross(
+    doc,
+    [
+      { left: 308, right: 308, top: 200, bottom: 222 },
+      { left: 100, right: 132, top: 240, bottom: 262 },
+    ],
+    true,
+  );
+  const target = selectionReplyTarget(doc)!;
+  expect({ left: target.left, top: target.top }).toEqual({ left: 100, top: 240 });
 });
