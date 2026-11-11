@@ -371,9 +371,11 @@ def find_modules(
 #   - sys.path.insert(0, P) and sys.path.append(P): P joins both runs' search path, each insert(0)
 #     in front of everything before it (so the last one wins), each append at the end, but only when
 #     their order is provable: every such call is a statement of its own directly in the module body
-#     and they all sit in one file of the closure, or no two of the folders involved offer the same
-#     top-level module name, so order cannot change what loads (changes that only name the entry
-#     folder are harmless in any order). Otherwise each one is unverifiable. A search path that keeps changing
+#     and they all sit in one file of the closure, or no top-level name is offered twice among the
+#     folders the path can hold (the entry folder, PYTHONPATH's, the inserted ones, the repo root),
+#     the stdlib and this interpreter's installed distributions, counting .py files, extension
+#     modules and every folder (package or namespace) from the tree's full file list, so order cannot
+#     change what loads (changes that only name the entry folder are harmless in any order). Otherwise each one is unverifiable. A search path that keeps changing
 #     which file a module loads from is reported as "path search does not settle (A <-> B)";
 #   - importlib.util.spec_from_file_location(name, P): the file at P joins the closure and must be
 #     checked out, inside a `try:` or not. It is optional only when DYNAMIC_IMPORT_AUDIT says so,
@@ -658,41 +660,109 @@ def dynamic_calls(
 SEARCH_DOES_NOT_SETTLE = "path search does not settle"
 
 
-def _module_names(root: Path, folder: str) -> set[str]:
-    """Top-level module names a folder offers: x.py files and x/ folders (packages or namespaces)."""
+class NameProof:
+    """Proves that the order of some search-path folders cannot change what an import loads: no
+    top-level name is offered by two of them, nor by one of them and the stdlib
+    (sys.stdlib_module_names) or an installed distribution of this interpreter. The folders are the
+    ones asked about plus the repo root; names come from the tree's full file list, built once per
+    find_misses run (module_name_index), never from the sparse list or an earlier run."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self._index: dict[str, set[str]] | None = None
+        self._outside: set[str] | None = None
+
+    def disjoint(self, folders: list[str]) -> bool:
+        if self._index is None:
+            self._index = module_name_index(self.root)
+            self._outside = set(sys.stdlib_module_names) | _installed_names()
+        seen: set[str] = set()
+        for folder in dict.fromkeys(["", *folders]):
+            offered = self._index.get(folder, set())
+            if offered & seen or offered & self._outside:
+                return False
+            seen |= offered
+        return True
+
+
+def _tree_files(root: Path) -> list[str]:
+    """Every file of the tree: `git ls-files` (the checkout's revision) when `root` is a git work tree,
+    else every file on disk (a test fixture). Never the sparse list."""
     try:
-        entries = list((root / folder).iterdir()) if (root / folder).is_dir() else []
-    except OSError:
-        return set()
-    names = set()
-    for entry in entries:
-        if entry.is_dir() and entry.name.isidentifier():
-            names.add(entry.name)
-        elif entry.suffix == ".py" and entry.stem.isidentifier():
-            names.add(entry.stem)
+        listed = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z"], capture_output=True, text=True, check=True
+        ).stdout
+        if (root / ".git").exists():
+            return [rel for rel in listed.split("\0") if rel]
+    except (OSError, subprocess.CalledProcessError):
+        pass
+    out = []
+    for folder, dirs, names in os.walk(root):
+        dirs[:] = [d for d in dirs if d != ".git"]
+        out += [os.path.relpath(os.path.join(folder, n), root).replace(os.sep, "/") for n in names]
+    return out
+
+
+def _top_name(entry: str, is_file: bool) -> str | None:
+    """The top-level module name a folder entry offers, or None. A file: x.py, or an extension module
+    x.so / x.pyd with or without an ABI tag (x.cpython-312-x86_64-linux-gnu.so). A folder: any folder
+    with an identifier name, since Python imports one without __init__.py as a namespace package."""
+    if not is_file:
+        return entry if entry.isidentifier() else None
+    if entry.endswith(".py"):
+        name = entry[:-3]
+    elif entry.endswith((".so", ".pyd")):
+        name = entry.split(".", 1)[0]
+    else:
+        return None
+    return name if name.isidentifier() else None
+
+
+def module_name_index(root: Path) -> dict[str, set[str]]:
+    """folder (repo-relative, "" for the root) -> the top-level names it offers, from one pass over
+    the tree's full file list (see _tree_files and _top_name)."""
+    index: dict[str, set[str]] = {}
+    for rel in _tree_files(root):
+        parts = rel.split("/")
+        for depth in range(len(parts)):
+            name = _top_name(parts[depth], depth == len(parts) - 1)
+            if name is not None:
+                index.setdefault("/".join(parts[:depth]), set()).add(name)
+    return index
+
+
+def _installed_names() -> set[str]:
+    """Top-level names the distributions installed for this interpreter (sys.executable) provide."""
+    import importlib.metadata
+
+    names = set(importlib.metadata.packages_distributions())
+    for dist in importlib.metadata.distributions():
+        top = dist.read_text("top_level.txt") or ""
+        names.update(line.strip() for line in top.splitlines() if line.strip())
     return names
 
 
 def _search_path(
-    root: Path, rel_ops: list[tuple[str, tuple]], base: str, extra: tuple[str, ...], audited: frozenset
+    names: "NameProof",
+    rel_ops: list[tuple[str, tuple]],
+    base: str,
+    extra: tuple[str, ...],
+    audited: frozenset,
 ) -> tuple[list[str], list[str], list[tuple[str, str, int, str]]]:
     """(folders in front, folders at the end, path changes that cannot be ordered) from the closure's
     fixed sys.path changes, as (file, ops) in the order ModuleFinder met the files.
 
     Changes that only name the entry folder (already sys.path[0]) leave the search unchanged in any
     order. Otherwise the order must be provable: every change is a module-level statement (see
-    dynamic_calls) and they all sit in one file; or no two folders of the search path involved (the
-    changed ones, the entry folder, PYTHONPATH's) offer the same top-level module name, so any order
-    loads the same files. When neither holds, each change that is not audited by (file, call,
+    dynamic_calls) and they all sit in one file; or NameProof.disjoint holds for every folder the
+    search path can hold, so any order loads the same files. When neither holds, each change that is not audited by (file, call,
     argument text) is unverifiable and none is learned; audited ones are dropped."""
     ops = [(rel, op) for rel, file_ops in rel_ops for op in file_ops]
     if all(op[1] == base for _, op in ops):
         return [], [], []
     files = {rel for rel, _ in ops}
-    folders = list(dict.fromkeys([base, *extra, *(op[1] for _, op in ops)]))
-    offered = [_module_names(root, folder) for folder in folders]
-    disjoint = sum(len(n) for n in offered) == len(set().union(*offered))
-    if disjoint or (len(files) == 1 and all(op[2] for _, op in ops)):
+    ordered = len(files) == 1 and all(op[2] for _, op in ops)
+    if ordered or names.disjoint([base, *extra, *(op[1] for _, op in ops)]):
         front: list[str] = []
         back: list[str] = []
         for _, (kind, folder, *_rest) in ops:
@@ -710,9 +780,13 @@ def _search_path(
     return [], [], unordered
 
 
-@lru_cache(maxsize=None)
 def full_run(
-    root: Path, script: str, extra: tuple[str, ...], how: tuple[str, str] | None, audited: frozenset = frozenset()
+    root: Path,
+    script: str,
+    extra: tuple[str, ...],
+    how: tuple[str, str] | None,
+    audited: frozenset = frozenset(),
+    names: NameProof | None = None,
 ) -> tuple[dict[str, str], dict[str, str], tuple[str, ...], tuple, tuple[tuple[str, str, int, str], ...]]:
     """ModuleFinder over the full tree: (places, importers, the search path used, the files loaded by
     path as (file, loader), unresolved dynamic calls as (file, call, line, argument text)). The
@@ -722,6 +796,7 @@ def full_run(
     one unresolved (script, SEARCH_DOES_NOT_SETTLE, 0, "A <-> B") naming the files that trade places."""
     base = how[1] if how else script.rsplit("/", 1)[0]
     module = how[0] if how else None
+    names = names or NameProof(root)
     front: list[str] = []
     back: list[str] = []
     loaded: dict[str, str] = {}  # file -> the file that loads it
@@ -741,7 +816,7 @@ def full_run(
                 if (rel, file) not in audited:
                     new_loaded.setdefault(file, rel)
             unresolved += [(rel, call, line, text) for call, line, text in calls]
-        new_front, new_back, unordered = _search_path(root, rel_ops, base, extra, audited)
+        new_front, new_back, unordered = _search_path(names, rel_ops, base, extra, audited)
         unresolved += unordered
         state = (front, back, loaded)
         states.append((state, places))
@@ -994,6 +1069,9 @@ def find_misses(root: Path, audit: dict[tuple[str, ...], str] | None = None) -> 
     root = root.resolve()
     audit = audit or {}
     audited = {normal_audit_key(key) for key in audit}
+    frozen_audit = frozenset(audit)
+    names = NameProof(root)  # one full-tree name index per run
+    memo: dict[tuple, tuple] = {}  # full_run results within this run
     misses = []
     for workflow, job_id, step, entries, doc, job in non_cone_sparse_steps(root):
         listed = listed_ci_scripts(entries, root)
@@ -1008,7 +1086,11 @@ def find_misses(root: Path, audit: dict[tuple[str, ...], str] | None = None) -> 
             configs, bad = pythonpath_configs(doc, job, script, how, root)
             runs += [(script, how, extra) for extra in configs]
             bad_paths += [f"{prefix}{script} {why}" for why in bad]
-        full = {run: full_run(root, run[0], run[2], run[1], frozenset(audit)) for run in runs}
+        full = {}
+        for run in runs:
+            if run not in memo:
+                memo[run] = full_run(root, run[0], run[2], run[1], frozen_audit, names)
+            full[run] = memo[run]
         files = set(listed)
         for places, *_ in full.values():
             files |= _files_for(places, root)
