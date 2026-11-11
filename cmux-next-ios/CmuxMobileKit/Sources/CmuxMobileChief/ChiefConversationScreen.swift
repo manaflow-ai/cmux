@@ -89,6 +89,9 @@ public struct ChiefConversationScreen: View {
             // The conversation draws one store; a new backend (Try Again, a new link) makes a
             // new store, so the open screen is rebuilt on it instead of waiting on the old one.
             .id(ObjectIdentifier(session.store))
+            // Focus carries only to a screen rebuilt in place; one that never
+            // showed leaves none for the next visit (its text stays).
+            .onDisappear { session.dropCarriedComposerFocus() }
             .ignoresSafeArea()
             .toolbar(.hidden, for: .navigationBar)
             .navigationBarBackButtonHidden()
@@ -626,7 +629,6 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     private var focusesCarriedComposer = false
     /// The field had the keyboard when the scene left the foreground.
     private var composerFocusedWhenSceneLeft = false
-    private var sceneObservers: [any NSObjectProtocol] = []
 
     /// Gives the unsent text and focus to the screen replacing this one.
     func handOffComposer() {
@@ -649,30 +651,36 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     }
 
     /// Back in the foreground the field gets its keyboard again if it had it
-    /// when the app left, whatever hid it meanwhile.
+    /// when the app left, whatever hid it meanwhile. Selector observers end
+    /// with the screen.
     private func observeSceneActivation() {
         let center = NotificationCenter.default
-        sceneObservers.append(center.addObserver(forName: UIScene.willDeactivateNotification, object: nil, queue: .main) { [weak self] note in
-            MainActor.assumeIsolated {
-                guard let self, let scene = note.object as? UIScene, scene === self.view.window?.windowScene else { return }
-                self.composerFocusedWhenSceneLeft = self.composerTextView?.isFirstResponder == true
-            }
-        })
-        sceneObservers.append(center.addObserver(forName: UIScene.didActivateNotification, object: nil, queue: .main) { [weak self] note in
-            MainActor.assumeIsolated {
-                guard let self, let scene = note.object as? UIScene, scene === self.view.window?.windowScene else { return }
-                let refocus = self.composerFocusedWhenSceneLeft
-                self.composerFocusedWhenSceneLeft = false
-                guard refocus, self.canFocusComposer, self.composerTextView?.isFirstResponder == false else { return }
-                self.focusComposer()
-            }
-        })
+        center.addObserver(self, selector: #selector(sceneWillDeactivate(_:)), name: UIScene.willDeactivateNotification, object: nil)
+        center.addObserver(self, selector: #selector(sceneDidActivate(_:)), name: UIScene.didActivateNotification, object: nil)
     }
 
-    /// On screen, in front, with nothing presented over it.
+    @objc private func sceneWillDeactivate(_ note: Notification) {
+        guard let scene = note.object as? UIScene, scene === view.window?.windowScene else { return }
+        composerFocusedWhenSceneLeft = composerTextView?.isFirstResponder == true
+    }
+
+    @objc private func sceneDidActivate(_ note: Notification) {
+        guard let scene = note.object as? UIScene, scene === view.window?.windowScene else { return }
+        let refocus = composerFocusedWhenSceneLeft
+        composerFocusedWhenSceneLeft = false
+        guard refocus, canFocusComposer, composerTextView?.isFirstResponder == false else { return }
+        focusComposer()
+    }
+
+    /// On screen, in front, with nothing presented over it (here or by an
+    /// ancestor, such as a sheet from Home).
     private var canFocusComposer: Bool {
-        view.window != nil && !isCovered && !handedOffComposer
-            && presentedViewController == nil && conversation.presentedViewController == nil
+        guard let window = view.window, !isCovered, !handedOffComposer,
+              presentedViewController == nil, conversation.presentedViewController == nil else { return false }
+        var top = window.rootViewController
+        while let presented = top?.presentedViewController { top = presented }
+        guard let top else { return false }
+        return top === self || view.isDescendant(of: top.view)
     }
 
     public override func viewDidLayoutSubviews() {
