@@ -74,6 +74,11 @@ beforeAll(() => {
   host = dom.window.document.getElementById("root")!;
 });
 
+let clearCloudModePickSync: () => void = () => {};
+beforeAll(async () => {
+  clearCloudModePickSync = (await import("../src/agent-session/acpmux/cloudModePick")).clearCloudModePick;
+});
+
 afterEach(async () => {
   // The Cloud mode pick lives in the page's memory until the page goes.
   (await import("../src/agent-session/acpmux/cloudModePick")).clearCloudModePick();
@@ -289,6 +294,50 @@ test("both Cloud sends start the agent and mode the chip names, for every face h
     expect(sentRow).toBeDefined();
     expect(widest).toContain(sentRow!.name);
   }
+});
+
+// A real app's New Agent Chat opens a session on this Mac before the first send (journey run
+// 43021965230): it has an id, and may report modes, with none current. Cloud picked, that session is
+// not the one that runs, so the chip still names the Cloud start's mode and a pick shows.
+function withLocalSession(snapshot: Snapshot, modes: { id: string; name: string }[]): Snapshot {
+  return {
+    ...snapshot,
+    summary: {
+      ...snapshot.summary!,
+      sessionId: "local-session-1",
+      ...(modes.length ? { modes: { availableModes: modes } } : {}),
+    } as Summary,
+  };
+}
+
+const CLAUDE_MODES = [
+  { id: "default", name: "Manual" },
+  { id: "acceptEdits", name: "Accept edits" },
+  { id: "plan", name: "Plan" },
+  { id: "bypassPermissions", name: "Bypass permissions" },
+];
+
+for (const [face, modes] of [
+  ["claude", CLAUDE_MODES],
+  ["claude", []],
+  ["unii", []],
+] as const) {
+  test(`with Cloud picked and a local ${face} session already open (${modes.length ? "with" : "no"} modes), the chip names the Cloud start's mode and a pick`, async () => {
+    clearCloudModePickSync();
+    await render(withLocalSession(await newChat(true, face), [...modes]));
+    expect(chipText()).toBe("Manual");
+    const rows = await openModeMenu();
+    expect(rows.some((row) => row.includes("Bypass permissions"))).toBe(true);
+    expect(rows.some((row) => row.includes("Accept edits"))).toBe(false);
+    await render(withLocalSession(await newChat(true, face, "bypassPermissions"), [...modes]));
+    expect(chipText()).toBe("Bypass permissions");
+  });
+}
+
+test("with Cloud picked and no harness listed yet, the chip names the machine's default agent's mode", async () => {
+  const snapshot = await newChat(true);
+  await render({ ...snapshot, summary: { ...snapshot.summary!, harness: undefined } as unknown as Summary });
+  expect(chipText()).toBe("Manual");
 });
 
 test("the Cloud start request carries the picked mode to the host, and only a pick", async () => {
