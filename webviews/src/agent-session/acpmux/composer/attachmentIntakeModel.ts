@@ -232,6 +232,33 @@ export function hostShapes(
   });
 }
 
+/// The event the host fires once it has told a gesture's shapes (AgentPaneGestureShapes.swift).
+export const HOST_SHAPES_EVENT = "cmux-attach-shapes";
+
+/// Calls `told` with the host's shapes for `files` (hostShapes) if the host tells them within
+/// `waitMs` of now: it reads the files' headers off its main thread, so they may land a moment after
+/// the gesture reaches the page. Returns a function that stops listening.
+export function onHostShapes(
+  files: readonly (File | MadeFile)[],
+  kind: DroppedKind | undefined,
+  waitMs: number,
+  told: (shapes: ({ width: number; height: number } | undefined)[]) => void,
+): () => void {
+  if (typeof window === "undefined" || !kind) return () => {};
+  const stop = () => {
+    clearTimeout(deadline);
+    window.removeEventListener(HOST_SHAPES_EVENT, heard);
+  };
+  const heard = () => {
+    stop();
+    told(hostShapes(files, kind));
+  };
+  window.addEventListener(HOST_SHAPES_EVENT, heard);
+  // timeout: a host that tells nothing (an older one) leaves the files to their own header reads.
+  const deadline = setTimeout(stop, waitMs);
+  return stop;
+}
+
 /// How long a pasted image's tile is held unseen for its header (sizeFromHeader): a few bytes of a file
 /// in memory, read in a frame or two (the page's first read of one can take a few frames).
 const HEADER_WAIT_MS = 120;
@@ -501,6 +528,17 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       ...(isMadeFile(file) ? {} : { bytes: file.size }),
       scope: batch.scope,
     }));
+    // The host tells the shapes it read off its main thread, if they came after the gesture: the first
+    // answer, its or a file's own header read, shows each unseen tile.
+    if (shown.some((chip) => chip.sizing))
+      onHostShapes(files, kind, HEADER_WAIT_MS, (late) =>
+        late.forEach((size, index) => {
+          const file = files[index]!;
+          if (!size || isMadeFile(file)) return;
+          if (isVideoName(file.name)) shaped(shown[index]!.id, toldVideoShape(file, size));
+          else sized(shown[index]!.id, size);
+        }),
+      );
     // Each image's own picture, on its tile while the tile still loads.
     files.forEach((file, index) => {
       const id = shown[index]!.id;

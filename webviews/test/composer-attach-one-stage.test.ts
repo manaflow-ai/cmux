@@ -27,7 +27,7 @@ import { chromium, webkit, type Browser, type BrowserType, type Page } from "pla
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
-type Kind = "image" | "bigImage" | "untoldImage" | "video" | "file";
+type Kind = "image" | "bigImage" | "untoldImage" | "lateImage" | "video" | "file";
 type Sample = {
   at: number;
   box?: { width: number; height: number };
@@ -67,6 +67,9 @@ await requireBrowserLane("composer-attach-one-stage.test.ts", async () => {
     bigImage: { name: "Screenshot 2026-11-10 at 4.22.40 PM.png", type: "image/png" },
     // The same screenshot from an older host that tells no size first: its tile reads the header.
     untoldImage: { name: "Screenshot 2026-11-10 at 4.23.02 PM.png", type: "image/png" },
+    // The same screenshot whose size the host tells just after the paste reaches the page (its read is
+    // off the host's main thread).
+    lateImage: { name: "Screenshot 2026-11-10 at 4.23.30 PM.png", type: "image/png" },
     video: { name: "Screen Recording 2026-11-10 at 4.21.16 PM.mov", type: "video/quicktime" },
     file: { name: "build-logs.zip", type: "application/zip" },
   };
@@ -75,6 +78,10 @@ await requireBrowserLane("composer-attach-one-stage.test.ts", async () => {
     image: { width: 2880, height: 1800 },
     bigImage: { width: 2048, height: 1280 },
     video: { width: 1920, height: 1080 },
+  };
+  /// Told after the paste's task, as the host's off-main read answers.
+  const TOLD_LATE: Partial<Record<Kind, { width: number; height: number }>> = {
+    lateImage: { width: 2880, height: 1800 },
   };
   /// An image whose size nobody told is unseen until its header answers: at most this long.
   const HEADER_WAIT_MS = 120;
@@ -206,7 +213,7 @@ await requireBrowserLane("composer-attach-one-stage.test.ts", async () => {
           ink.putImageData(pixels, 0, 0);
           const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
           file = new File([blob], name, { type });
-        } else if (kind === "image" || kind === "untoldImage") {
+        } else if (kind === "image" || kind === "untoldImage" || kind === "lateImage") {
           const canvas = document.createElement("canvas");
           canvas.width = 2880;
           canvas.height = 1800;
@@ -317,7 +324,7 @@ await requireBrowserLane("composer-attach-one-stage.test.ts", async () => {
 
   const paste = (page: Page, kind: Kind) =>
     page.evaluate(
-      ({ kind, prompt, told }) => {
+      ({ kind, prompt, told, late }) => {
         const data = new DataTransfer();
         const file = (window as ProbeWindow).__files![kind]!;
         data.items.add(file);
@@ -335,8 +342,18 @@ await requireBrowserLane("composer-attach-one-stage.test.ts", async () => {
         if (event.clipboardData !== data) Object.defineProperty(event, "clipboardData", { value: data });
         (window as ProbeWindow).__probe!.pasteAt = performance.now();
         field.dispatchEvent(event);
+        if (late)
+          // fixed-wait: the host's off-main header read answering after the paste's own task.
+          setTimeout(() => {
+            (window as { __cmuxAttachShapes?: unknown }).__cmuxAttachShapes = {
+              kind: "paste",
+              at: Date.now(),
+              shapes: [{ name: file.name, ...late }],
+            };
+            window.dispatchEvent(new Event("cmux-attach-shapes"));
+          }, 0);
       },
-      { kind, prompt: PROMPT, told: TOLD[kind] },
+      { kind, prompt: PROMPT, told: TOLD[kind], late: TOLD_LATE[kind] },
     );
 
   /// The attachment is final: its ready chip, with its picture drawn where it has one.
@@ -531,7 +548,12 @@ await requireBrowserLane("composer-attach-one-stage.test.ts", async () => {
           results.set(`${engine}/${kind}`, await measure(engine, kind));
         }, 120_000);
         const of = () => results.get(`${engine}/${kind}`)!;
-        if (kind === "untoldImage")
+        if (kind === "lateImage")
+          test(`${engine} ${kind}: told just after the paste, the chip is there within a frame of it`, () => {
+            expect(of().framesToFirstBox).not.toBeNull();
+            expect(of().framesToFirstBox!).toBeLessThanOrEqual(1);
+          });
+        else if (kind === "untoldImage")
           test(`${engine} ${kind}: without the host's size, the chip is there once its header answers`, () => {
             expect(of().pasteToFirstBoxMs).not.toBeNull();
             expect(of().pasteToFirstBoxMs!).toBeLessThanOrEqual(HEADER_WAIT_MS + 50);

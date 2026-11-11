@@ -2,20 +2,20 @@ import AppKit
 import CmuxNextCompat
 import ImageIO
 
-/// The pixel size of each image and movie a drop, paste or pick brings in, told to the page before the page
-/// gets the gesture, so its chip draws at its final shape in its first frame (Leo, 2026-11-11:
-/// "attachments should be faster? if you're literally just pointing to a file path, why would it ever
-/// take time to load anything anyways?"). Read from each file's header only (ImageIO's properties,
-/// no decode, no cache), on the main actor as the gesture goes to the page: a local file's header is
-/// a few hundred bytes. The page reads `window.__cmuxAttachShapes` in the gesture's own task
-/// (composer/attachmentIntakeModel.ts `hostShape`); without it (an older host, a Chromium page's drop
-/// the page saw first) it reads the header itself.
-enum AgentPaneGestureShapes {
+/// The pixel size of each image and movie a drop, paste or pick brings in, told to the page as the
+/// gesture goes to it, so its chip draws at its final shape at once (Leo, 2026-11-11: "attachments
+/// should be faster? if you're literally just pointing to a file path, why would it ever take time to
+/// load anything anyways?"). Read from each file's header only (ImageIO's properties, no decode, no
+/// cache), off the main thread. The script sets `window.__cmuxAttachShapes` and fires
+/// `cmux-attach-shapes`: the page takes it in the gesture's own task when it is there first, or on the
+/// event while its tiles wait unseen for their shape (composer/attachmentIntakeModel.ts `hostShapes`,
+/// `onHostShapes`). Without it (an older host) the page reads each header itself.
+nonisolated enum AgentPaneGestureShapes {
     /// At most this many files are measured: a drop of a whole folder's images reads its headers
     /// in the page as before.
     static let maxFiles = 16
 
-    struct Shape: Encodable, Equatable {
+    struct Shape: Encodable, Equatable, Sendable {
         /// WebKit's `File.name` for the file (its URL's last component); nil for a pasted bitmap with
         /// no file, which the page matches to the paste's only image.
         let name: String?
@@ -105,17 +105,22 @@ enum AgentPaneGestureShapes {
     }
 
     /// The bitmap a paste with no file carries (a screenshot copied to the clipboard): its bytes, read
-    /// once, whether they are a PNG, and its size from their header.
-    static func pastedBitmap(on pasteboard: NSPasteboard) -> (data: Data, png: Bool, shape: Shape?)? {
+    /// once on the main thread (the pasteboard is AppKit's), and whether they are a PNG.
+    @MainActor static func pastedBitmap(on pasteboard: NSPasteboard) -> (data: Data, png: Bool)? {
         // Text copied from a spreadsheet, slide or document carries a picture of itself too: that
         // paste is the text, and its picture is never drawn or written.
         if pasteboard.availableType(from: [.string, .rtf, .html]) != nil { return nil }
         for type in [NSPasteboard.PasteboardType.png, .tiff] {
             guard let data = pasteboard.data(forType: type) else { continue }
-            let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary)
-            return (data, type == .png, source.flatMap { shape(of: $0, name: nil) })
+            return (data, type == .png)
         }
         return nil
+    }
+
+    /// A pasted bitmap's size from its bytes' header.
+    static func bitmapShape(_ data: Data) -> Shape? {
+        CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary)
+            .flatMap { shape(of: $0, name: nil) }
     }
 
     static func shape(of source: CGImageSource, name: String?) -> Shape? {
@@ -131,15 +136,16 @@ enum AgentPaneGestureShapes {
     }
 
     /// The script that hands `shapes` of a `kind` gesture to the page; nil when there are none.
-    static func script(_ shapes: [Shape], kind: AgentPaneDroppedPaths.Kind) -> String? {
+    /// `at`: when the gesture happened (ms since 1970), so the page keeps it only for that gesture.
+    static func script(_ shapes: [Shape], kind: AgentPaneDroppedPaths.Kind, at: Double) -> String? {
         guard !shapes.isEmpty else { return nil }
         struct Told: Encodable {
             let kind: String
             let at: Double
             let shapes: [Shape]
         }
-        let told = Told(kind: kind.rawValue, at: Date().timeIntervalSince1970 * 1000, shapes: shapes)
+        let told = Told(kind: kind.rawValue, at: at, shapes: shapes)
         guard let data = try? JSONEncoder().encode(told), let json = String(data: data, encoding: .utf8) else { return nil }
-        return "window.__cmuxAttachShapes = \(json);"
+        return "window.__cmuxAttachShapes = \(json); window.dispatchEvent(new Event('cmux-attach-shapes'));"
     }
 }

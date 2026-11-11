@@ -74,10 +74,11 @@ struct AgentPaneGestureShapesTests {
     }
 
     @Test func theScriptCarriesTheGesturesKindAndShapes() throws {
-        #expect(AgentPaneGestureShapes.script([], kind: .paste) == nil)
-        let script = try #require(AgentPaneGestureShapes.script([.init(name: nil, width: 4, height: 3)], kind: .choose))
+        #expect(AgentPaneGestureShapes.script([], kind: .paste, at: 1) == nil)
+        let script = try #require(AgentPaneGestureShapes.script([.init(name: nil, width: 4, height: 3)], kind: .choose, at: 1))
         #expect(script.hasPrefix("window.__cmuxAttachShapes = {"))
         #expect(script.contains("\"kind\":\"choose\""))
         #expect(script.contains("\"width\":4"))
+        #expect(script.hasSuffix("window.dispatchEvent(new Event('cmux-attach-shapes'));"))
     }
 }

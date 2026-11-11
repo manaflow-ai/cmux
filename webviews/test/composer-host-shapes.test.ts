@@ -3,7 +3,11 @@
 // header as a drop, paste or pick goes to the page (AgentPaneGestureShapes.swift), so the chip has its
 // final shape in its first frame. These pin how the page matches what it was told to the files.
 import { afterEach, expect, test } from "bun:test";
-import { hostShapes } from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
+import {
+  HOST_SHAPES_EVENT,
+  hostShapes,
+  onHostShapes,
+} from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
 
 const scope = globalThis as { __cmuxAttachShapes?: unknown };
 const png = (name: string) => new File([new Uint8Array(8)], name, { type: "image/png" });
@@ -71,4 +75,28 @@ test("a drop never takes what a paste told, and an unnamed size never sizes a dr
   expect(hostShapes([png("a.png")], "drop")).toEqual([undefined]);
   scope.__cmuxAttachShapes = { kind: "drop", at: Date.now(), shapes: [{ width: 1512, height: 982 }] };
   expect(hostShapes([png("image.png")], "drop")).toEqual([undefined]);
+});
+
+test("shapes the host tells a moment after the gesture reach its files; none after the wait", async () => {
+  const target = new EventTarget();
+  const scopeWindow = globalThis as { window?: unknown };
+  const saved = scopeWindow.window;
+  scopeWindow.window = target;
+  try {
+    const heard: unknown[] = [];
+    onHostShapes([png("a.png")], "paste", 1_000, (shapes) => heard.push(shapes));
+    tell([{ name: "a.png", width: 2880, height: 1800 }]);
+    target.dispatchEvent(new Event(HOST_SHAPES_EVENT));
+    expect(heard).toEqual([[{ width: 2880, height: 1800 }]]);
+    // Heard once: a later gesture's event is not this one's.
+    tell([{ name: "a.png", width: 10, height: 10 }]);
+    target.dispatchEvent(new Event(HOST_SHAPES_EVENT));
+    expect(heard).toHaveLength(1);
+    const stop = onHostShapes([png("a.png")], "paste", 1_000, (shapes) => heard.push(shapes));
+    stop();
+    target.dispatchEvent(new Event(HOST_SHAPES_EVENT));
+    expect(heard).toHaveLength(1);
+  } finally {
+    scopeWindow.window = saved;
+  }
 });
