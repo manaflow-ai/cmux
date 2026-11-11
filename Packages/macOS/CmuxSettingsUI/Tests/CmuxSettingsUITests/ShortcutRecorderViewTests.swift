@@ -40,6 +40,66 @@ struct ShortcutRecorderViewTests {
         #expect(!button.isRecording)
     }
 
+    @Test func carbonCommandEscapeFireRecordsForASystemWideRecorderWithKeyFocus() throws {
+        let button = RecorderHostButton(frame: .zero)
+        defer { button.cancelRecordingIfActive() }
+        button.recordsSystemWideHotkey = true
+        var recordedStroke: ShortcutStroke?
+        button.onStroke = { recordedStroke = $0 }
+        button.startRecording()
+        try #require(button.isRecording)
+
+        let handled = RecorderHostButton.deliverCarbonEscapeHotKey(id: 1, to: button, hasKeyFocus: true)
+
+        #expect(handled)
+        #expect(recordedStroke == ShortcutStroke(key: "escape", command: true, keyCode: UInt16(kVK_Escape)))
+        #expect(!button.isRecording)
+    }
+
+    @Test func carbonCommandEscapeFireIsIgnoredForAForegroundRecorder() throws {
+        // macOS withholds the Cmd+Escape keyDown, so a foreground binding could
+        // never fire it; the recorder must not let one be saved.
+        let button = RecorderHostButton(frame: .zero)
+        defer { button.cancelRecordingIfActive() }
+        var recordedStroke: ShortcutStroke?
+        button.onStroke = { recordedStroke = $0 }
+        button.startRecording()
+        try #require(button.isRecording)
+
+        let handled = RecorderHostButton.deliverCarbonEscapeHotKey(id: 1, to: button, hasKeyFocus: true)
+
+        #expect(!handled)
+        #expect(recordedStroke == nil)
+        #expect(button.isRecording)
+    }
+
+    @Test func carbonCommandEscapeFireIsIgnoredWithoutKeyFocusOrForUnknownIDs() throws {
+        let button = RecorderHostButton(frame: .zero)
+        defer { button.cancelRecordingIfActive() }
+        button.recordsSystemWideHotkey = true
+        var recordedStroke: ShortcutStroke?
+        button.onStroke = { recordedStroke = $0 }
+        button.startRecording()
+        try #require(button.isRecording)
+
+        #expect(!RecorderHostButton.deliverCarbonEscapeHotKey(id: 1, to: button, hasKeyFocus: false))
+        #expect(!RecorderHostButton.deliverCarbonEscapeHotKey(id: 0, to: button, hasKeyFocus: true))
+        #expect(!RecorderHostButton.deliverCarbonEscapeHotKey(id: 99, to: button, hasKeyFocus: true))
+        #expect(!RecorderHostButton.deliverCarbonEscapeHotKey(id: 1, to: nil, hasKeyFocus: true))
+        #expect(recordedStroke == nil)
+        #expect(button.isRecording)
+    }
+
+    @Test func carbonCommandEscapeFireIsIgnoredWhenNotRecording() {
+        let button = RecorderHostButton(frame: .zero)
+        button.recordsSystemWideHotkey = true
+        var recordedStroke: ShortcutStroke?
+        button.onStroke = { recordedStroke = $0 }
+
+        #expect(!RecorderHostButton.deliverCarbonEscapeHotKey(id: 1, to: button, hasKeyFocus: true))
+        #expect(recordedStroke == nil)
+    }
+
     @Test func bareFirstStrokeCanBeAcceptedWhenModifierRequirementIsDisabled() throws {
         let button = RecorderHostButton(frame: .zero)
         defer {

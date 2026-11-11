@@ -35,6 +35,7 @@ public struct ShortcutRecorderView: NSViewRepresentable {
     private let chordsEnabled: Bool
     private let hasPendingRejection: Bool
     private let firstStrokeRequiresModifier: Bool
+    private let recordsSystemWideHotkey: Bool
 
     /// Creates a single-stroke recorder.
     ///
@@ -52,12 +53,14 @@ public struct ShortcutRecorderView: NSViewRepresentable {
         placeholder: String = String(localized: "shortcut.unbound.displayValue", defaultValue: "None"),
         hasPendingRejection: Bool = false,
         firstStrokeRequiresModifier: Bool = true,
+        recordsSystemWideHotkey: Bool = false,
         onStroke: @escaping (ShortcutStroke) -> Void,
         onBareKeyRejected: (() -> Void)? = nil
     ) {
         self.placeholder = placeholder
         self.hasPendingRejection = hasPendingRejection
         self.firstStrokeRequiresModifier = firstStrokeRequiresModifier
+        self.recordsSystemWideHotkey = recordsSystemWideHotkey
         self.onStroke = onStroke
         self.onChord = nil
         self.onBareKeyRejected = onBareKeyRejected
@@ -79,6 +82,7 @@ public struct ShortcutRecorderView: NSViewRepresentable {
         chordsEnabled: Bool,
         hasPendingRejection: Bool = false,
         firstStrokeRequiresModifier: Bool = true,
+        recordsSystemWideHotkey: Bool = false,
         onStroke: @escaping (ShortcutStroke) -> Void,
         onChord: @escaping (StoredShortcut) -> Void,
         onBareKeyRejected: (() -> Void)? = nil
@@ -86,6 +90,7 @@ public struct ShortcutRecorderView: NSViewRepresentable {
         self.placeholder = placeholder
         self.hasPendingRejection = hasPendingRejection
         self.firstStrokeRequiresModifier = firstStrokeRequiresModifier
+        self.recordsSystemWideHotkey = recordsSystemWideHotkey
         self.onStroke = onStroke
         self.onChord = onChord
         self.onBareKeyRejected = onBareKeyRejected
@@ -97,6 +102,7 @@ public struct ShortcutRecorderView: NSViewRepresentable {
         button.placeholder = placeholder
         button.chordsEnabled = chordsEnabled
         button.firstStrokeRequiresModifier = firstStrokeRequiresModifier
+        button.recordsSystemWideHotkey = recordsSystemWideHotkey
         button.onStroke = onStroke
         button.onChord = onChord
         button.onBareKeyRejected = onBareKeyRejected
@@ -108,6 +114,7 @@ public struct ShortcutRecorderView: NSViewRepresentable {
         nsView.placeholder = placeholder
         nsView.chordsEnabled = chordsEnabled
         nsView.firstStrokeRequiresModifier = firstStrokeRequiresModifier
+        nsView.recordsSystemWideHotkey = recordsSystemWideHotkey
         nsView.onStroke = onStroke
         nsView.onChord = onChord
         nsView.onBareKeyRejected = onBareKeyRejected
@@ -146,7 +153,9 @@ public final class RecorderHostButton: NSButton {
     /// system-wide hotkey signature so both handlers can share the application target.
     private static let carbonEscapeHotKeySignature: OSType = 0x434D5243 // "CMRC"
     private static var carbonEscapeHotKeyHandler: EventHandlerRef?
-    private static var carbonEscapeHotKeyRefs: [EventHotKeyRef] = []
+    // Mutated only on the main thread; `nonisolated(unsafe)` so the nonisolated
+    // `deinit` can release the registration, like `eventMonitor` below.
+    private nonisolated(unsafe) static var carbonEscapeHotKeyRefs: [EventHotKeyRef] = []
 
     /// Whether a recorder is currently armed and capturing keystrokes for
     /// rebinding.
@@ -187,6 +196,15 @@ public final class RecorderHostButton: NSButton {
     /// bind a plain typing key as an app-level shortcut. Content-scoped actions
     /// that intentionally use bare keys may set this to `false`.
     public var firstStrokeRequiresModifier: Bool = true
+    /// Whether this recorder binds a system-wide hotkey.
+    ///
+    /// macOS withholds the Command-Escape keyDown from normal app event
+    /// delivery, so only a binding registered as a Carbon system-wide hotkey
+    /// can ever fire it. When this is `true`, the recorder registers a
+    /// temporary recorder-only Carbon hotkey to capture Command-Escape. It
+    /// stays `false` for foreground shortcuts, so Command-Escape cannot be
+    /// saved for an action that would never receive it.
+    public var recordsSystemWideHotkey: Bool = false
     public var onStroke: ((ShortcutStroke) -> Void)?
     public var onChord: ((StoredShortcut) -> Void)?
     public var onBareKeyRejected: (() -> Void)?
@@ -233,8 +251,7 @@ public final class RecorderHostButton: NSButton {
 
     deinit {
         if isRecording {
-            // AppKit views deallocate on the main thread.
-            MainActor.assumeIsolated { Self.unregisterCarbonEscapeHotKeys() }
+            Self.unregisterCarbonEscapeHotKeys()
         }
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
@@ -393,12 +410,15 @@ public final class RecorderHostButton: NSButton {
         return flags
     }
 
+    /// Registers the recorder-only Carbon hotkeys for `recorder`, replacing any
+    /// previous registration. Does nothing unless the recorder is armed and binds
+    /// a system-wide hotkey.
     private static func registerCarbonEscapeHotKeys(for recorder: RecorderHostButton) {
         // No key-window requirement here: recording already stops when the window
         // resigns key, and the handler checks key window and first responder on fire.
         // Requiring it at registration skipped Cmd+Escape when recording started
         // while the window was still becoming key.
-        guard recorder.isRecording else { return }
+        guard recorder.isRecording, recorder.recordsSystemWideHotkey else { return }
 
         installCarbonEscapeHotKeyHandlerIfNeeded()
         unregisterCarbonEscapeHotKeys()
@@ -423,13 +443,15 @@ public final class RecorderHostButton: NSButton {
         }
     }
 
-    private static func unregisterCarbonEscapeHotKeys() {
+    /// Releases every recorder-only Carbon hotkey. Nonisolated so `deinit` can call it.
+    private nonisolated static func unregisterCarbonEscapeHotKeys() {
         for hotKeyRef in carbonEscapeHotKeyRefs {
             UnregisterEventHotKey(hotKeyRef)
         }
         carbonEscapeHotKeyRefs.removeAll()
     }
 
+    /// Installs the shared application-target handler for recorder-only hotkeys, once.
     private static func installCarbonEscapeHotKeyHandlerIfNeeded() {
         guard carbonEscapeHotKeyHandler == nil else { return }
 
@@ -473,31 +495,48 @@ public final class RecorderHostButton: NSButton {
         // Carbon dispatches application-target hotkeys on the main thread, the
         // same assumption SystemWideHotkeyController makes for its handler.
         return MainActor.assumeIsolated {
-            let modifierSets = carbonEscapeModifierSets()
-            let index = Int(hotKeyID.id - 1)
-            guard modifierSets.indices.contains(index),
-                  let recorder = activeRecorder,
-                  recorder.isRecording,
-                  recorder.window?.isKeyWindow == true,
-                  recorder.window?.firstResponder === recorder,
-                  let recordingEvent = NSEvent.keyEvent(
-                    with: .keyDown,
-                    location: .zero,
-                    modifierFlags: modifierFlags(fromCarbonModifiers: modifierSets[index]),
-                    timestamp: ProcessInfo.processInfo.systemUptime,
-                    windowNumber: recorder.window?.windowNumber ?? 0,
-                    context: nil,
-                    characters: "\u{1b}",
-                    charactersIgnoringModifiers: "\u{1b}",
-                    isARepeat: false,
-                    keyCode: UInt16(kVK_Escape)
-                  ) else {
-                return OSStatus(eventNotHandledErr)
-            }
-
-            recorder.handleRecordingEvent(recordingEvent)
-            return OSStatus(noErr)
+            let recorder = activeRecorder
+            let hasKeyFocus = recorder?.window?.isKeyWindow == true
+                && recorder?.window?.firstResponder === recorder
+            return deliverCarbonEscapeHotKey(id: hotKeyID.id, to: recorder, hasKeyFocus: hasKeyFocus)
+                ? OSStatus(noErr)
+                : OSStatus(eventNotHandledErr)
         }
+    }
+
+    /// Feeds a recorder-only Carbon hotkey fire to `recorder` through the same
+    /// path as a real key event. Returns whether the fire was consumed.
+    ///
+    /// - Parameters:
+    ///   - id: The fired `EventHotKeyID.id`, one-based into `carbonEscapeModifierSets()`.
+    ///   - recorder: The armed recorder, if any.
+    ///   - hasKeyFocus: Whether the recorder's window is key and the recorder is first responder.
+    static func deliverCarbonEscapeHotKey(id: UInt32, to recorder: RecorderHostButton?, hasKeyFocus: Bool) -> Bool {
+        let modifierSets = carbonEscapeModifierSets()
+        guard id > 0 else { return false }
+        let index = Int(id - 1)
+        guard modifierSets.indices.contains(index),
+              let recorder,
+              recorder.isRecording,
+              recorder.recordsSystemWideHotkey,
+              hasKeyFocus,
+              let recordingEvent = NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: modifierFlags(fromCarbonModifiers: modifierSets[index]),
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: recorder.window?.windowNumber ?? 0,
+                context: nil,
+                characters: "\u{1b}",
+                charactersIgnoringModifiers: "\u{1b}",
+                isARepeat: false,
+                keyCode: UInt16(kVK_Escape)
+              ) else {
+            return false
+        }
+
+        recorder.handleRecordingEvent(recordingEvent)
+        return true
     }
 
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -545,7 +584,7 @@ public final class RecorderHostButton: NSButton {
         // Bare Escape aborts a chord-in-progress without committing. Modified
         // Escape is a recordable global-hotkey stroke.
         if event.keyCode == UInt16(kVK_Escape),
-           event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty {
+           event.modifierFlags.isDisjoint(with: [.command, .option, .control, .shift]) {
             pendingFirst = nil
             stopRecording()
             return
