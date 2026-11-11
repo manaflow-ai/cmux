@@ -12,11 +12,16 @@ public final class WebKitSetupGate {
     public enum State: Sendable { case unknown, probing, ready, slow }
     public private(set) var state = State.unknown
     public static let timeout: Duration = .seconds(2)
+    /// How long a slow setup waits before it is asked again.
+    public static let recheck: Duration = .seconds(30)
     /// The blocking request, run on a thread of its own; tests put a wedged one in its place.
     public var request: @Sendable () -> Void = WebKitSetupGate.issueSandboxExtension
-    private let timer = DemandTimer(owner: "WebKitSetupGate.timeout")
+    private let timer: DemandTimer
 
-    public init() {}
+    /// - Parameter clock: The probe's timeout runs on it (tests pass a manual clock).
+    public init(clock: any Clock<Duration> = ContinuousClock()) {
+        timer = DemandTimer(owner: "WebKitSetupGate.timeout", clock: clock)
+    }
 
     /// Starts the request once; `answered` runs on the main actor if it answers in time.
     public func probe(answered: @escaping @MainActor () -> Void) {
