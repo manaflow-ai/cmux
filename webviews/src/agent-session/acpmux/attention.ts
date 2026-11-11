@@ -11,7 +11,8 @@
 //
 // One record per page: an input moves `lastInputAt` and nothing else; a single timer, armed once
 // per away/back change and re-armed only when it fires early, turns the reader away. No work per
-// pointer move beyond a store.
+// pointer move beyond a store. It listens only while something subscribes: a page with no chat
+// client (a guest's fed transcript) keeps no listener, and the last client's dispose removes them.
 
 /// How long without a pointer move, wheel, key or focus on the page before the reader counts as
 /// away. Long enough to read a reply without touching anything; short enough that stepping away
@@ -39,7 +40,8 @@ export type Attention = {
 
 type AttentionTarget = Pick<Window, "addEventListener" | "removeEventListener">;
 
-/// Watches `target` for input. `now` and the timers are the page's unless a test passes its own.
+/// Watches `target` for input while it has a subscriber; with none it says the reader is here and
+/// listens to nothing. `now` and the timers are the page's unless a test passes its own.
 export function createAttention(
   target: AttentionTarget,
   idleMs = ATTENTION_IDLE_MS,
@@ -49,7 +51,6 @@ export function createAttention(
     clear: (id) => clearTimeout(id as ReturnType<typeof setTimeout>),
   },
 ): Attention {
-  // A page that just loaded was opened by someone: here until the idle time passes untouched.
   let lastInputAt = now();
   let here = true;
   let timer: unknown;
@@ -76,33 +77,47 @@ export function createAttention(
     here = true;
     changed();
   };
-  for (const name of INPUTS) target.addEventListener(name, input, { capture: true, passive: true });
-  target.addEventListener("focus", input);
-  arm(idleMs);
+  const start = () => {
+    for (const name of INPUTS) target.addEventListener(name, input, { capture: true, passive: true });
+    target.addEventListener("focus", input);
+    // Watching starts with a reader here: whoever opened the chat did it by hand.
+    lastInputAt = now();
+    here = true;
+    arm(idleMs);
+  };
+  const stop = () => {
+    for (const name of INPUTS) target.removeEventListener(name, input, { capture: true });
+    target.removeEventListener("focus", input);
+    if (timer !== undefined) timers.clear(timer);
+    timer = undefined;
+    here = true;
+  };
   return {
     present: () => here,
-    touch: input,
+    touch: () => {
+      if (listeners.size > 0) input();
+    },
     subscribe(listener) {
+      if (listeners.size === 0) start();
       listeners.add(listener);
-      return () => void listeners.delete(listener);
+      return () => {
+        if (!listeners.delete(listener) || listeners.size > 0) return;
+        stop();
+      };
     },
     dispose() {
-      for (const name of INPUTS) target.removeEventListener(name, input, { capture: true });
-      target.removeEventListener("focus", input);
-      if (timer !== undefined) timers.clear(timer);
-      timer = undefined;
+      if (listeners.size > 0) stop();
       listeners.clear();
     },
   };
 }
 
-let page: Attention | undefined;
+let page: { target: AttentionTarget; attention: Attention } | undefined;
 
-/// The page's own attention, made on first use; always present where there is no window (tests
-/// without a DOM, workers).
+/// The page's own attention, made on first use (and again for another window, as tests swap it);
+/// none where there is no window (tests without a DOM, workers), where the reader counts as here.
 export function pageAttention(): Attention | undefined {
-  if (page) return page;
   if (typeof window === "undefined" || typeof window.addEventListener !== "function") return undefined;
-  page = createAttention(window);
-  return page;
+  if (page?.target !== window) page = { target: window, attention: createAttention(window) };
+  return page.attention;
 }

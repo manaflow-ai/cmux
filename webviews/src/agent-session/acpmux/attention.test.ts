@@ -85,6 +85,22 @@ test("moves arm no timer of their own: one per idle time at most", () => {
   expect(h.changes()).toBe(0);
 });
 
+test("it listens only while subscribed: the last unsubscribe removes every listener", () => {
+  const h = harness();
+  const listening = () => [...h.handlers.values()].reduce((n, set) => n + set.size, 0);
+  expect(listening()).toBeGreaterThan(0);
+  const second = h.attention.subscribe(() => {});
+  second();
+  expect(listening()).toBeGreaterThan(0);
+  h.attention.dispose();
+  expect(listening()).toBe(0);
+  // Unwatched, the reader counts as here and a touch arms nothing.
+  expect(h.attention.present()).toBe(true);
+  const armed = h.armed();
+  h.attention.touch();
+  expect(h.armed()).toBe(armed);
+});
+
 test("dispose stops listening and tells no one", () => {
   const h = harness();
   h.attention.dispose();
