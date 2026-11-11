@@ -36,8 +36,10 @@ struct ClassicUpgradeHugeProfileTests {
                 Issue.record("no migration run: \(String(describing: launch.failure))")
                 return
             }
-            Self.daemon = Self.daemonPID(under: mac.root.path)
-            print("CLASSIC-PROFILE daemon_pid=\(Self.daemon.map(String.init) ?? "none") \(Self.daemonCommands())")
+            // The daemon this simulation's connection reached, by its handshake pid: never picked from the host's
+            // processes, where another run's daemon looks the same.
+            Self.daemon = sim.services.daemon.identity?.pid
+            print("CLASSIC-PROFILE daemon_pid=\(Self.daemon.map(String.init) ?? "none") \(Self.daemon.map(Self.daemonCommand) ?? "")")
             await Self.profile("early", sim: sim, daemon: Self.daemon)
         case 1:
             let sim = try #require(Self.sim)
@@ -135,59 +137,19 @@ struct ClassicUpgradeHugeProfileTests {
         }
     }
 
-    /// The daemon the simulation started: a `cmux-tui` this process started (at any depth), else the newest `cmux-tui`
-    /// whose command line names the Mac's root, else the newest `cmux-tui` (a daemon detaches from its parent).
-    private static func daemonPID(under root: String) -> pid_t? {
+    /// The command line of `pid` (the simulation's own daemon), for the log: which daemon the profile sampled. Read by
+    /// its pid, never from every process on the host, where another run's `cmux-tui` would look the same.
+    private static func daemonCommand(_ pid: pid_t) -> String {
         let ps = Process()
         ps.executableURL = URL(fileURLWithPath: "/bin/ps")
-        ps.arguments = ["-axww", "-o", "pid=,ppid=,command="]
-        let pipe = Pipe()
-        ps.standardOutput = pipe
-        ps.standardInput = FileHandle.nullDevice
-        guard (try? ps.run()) != nil else { return nil }
-        let text = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        ps.waitUntilExit()
-        var rows: [ProcessRow] = []
-        for line in text.split(separator: "\n") {
-            let fields = line.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
-            guard fields.count == 3, let pid = pid_t(fields[0]), let parent = pid_t(fields[1]) else { continue }
-            let command = String(fields[2])
-            if !command.contains("/bin/sample") { rows.append(ProcessRow(pid: pid, parent: parent, command: command)) }
-        }
-        var mine: Set<pid_t> = [getpid()]
-        while true {
-            let children = rows.filter { (row: ProcessRow) in mine.contains(row.parent) }.map { (row: ProcessRow) in row.pid }
-            let next = mine.union(children)
-            if next.count == mine.count { break }
-            mine = next
-        }
-        let daemons = rows.filter { (row: ProcessRow) in row.command.contains("cmux-tui") }
-        let newest = { (candidates: [ProcessRow]) -> ProcessRow? in candidates.max { (a: ProcessRow, b: ProcessRow) in a.pid < b.pid } }
-        // The simulator's session is `cn-upgrade-<id>` (`ClassicUpgradeSimulator`), on the daemon's command line.
-        let pick = newest(daemons.filter { (row: ProcessRow) in row.command.contains("cn-upgrade-") })
-            ?? newest(daemons.filter { (row: ProcessRow) in mine.contains(row.pid) })
-            ?? newest(daemons.filter { (row: ProcessRow) in row.command.contains(root) })
-        return pick?.pid
-    }
-
-    /// The `cmux-tui` command lines running now, for the log (which daemon the profile sampled).
-    private static func daemonCommands() -> String {
-        let ps = Process()
-        ps.executableURL = URL(fileURLWithPath: "/bin/ps")
-        ps.arguments = ["-axww", "-o", "pid=,command="]
+        ps.arguments = ["-ww", "-o", "command=", "-p", String(pid)]
         let pipe = Pipe()
         ps.standardOutput = pipe
         ps.standardInput = FileHandle.nullDevice
         guard (try? ps.run()) != nil else { return "" }
         let text = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         ps.waitUntilExit()
-        return text.split(separator: "\n").filter { $0.contains("cmux-tui") }.map { String($0.prefix(200)) }.joined(separator: " | ")
-    }
-
-    private struct ProcessRow {
-        var pid: pid_t
-        var parent: pid_t
-        var command: String
+        return String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))
     }
 
     /// User plus system CPU seconds of `pid` (`proc_pid_rusage`).
