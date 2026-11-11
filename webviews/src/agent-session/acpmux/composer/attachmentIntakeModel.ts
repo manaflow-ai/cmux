@@ -16,7 +16,7 @@ import {
 } from "../attachments";
 import type { UploadCancelled, UploadProgressReport, UploadResult } from "../cloudUploads";
 import { type StringKey, type Translate, useT } from "../i18n";
-import { keptThumb, keepThumb } from "./imagePool";
+import { decoded, keptThumb, keepThumb } from "./imagePool";
 import { imageSize, MAX_DECODE_PIXELS, thumbRatio } from "./imageWork";
 import { intakeFiles, type IntakeError } from "./intakeFiles";
 import { pastesPlaced } from "./composerCopy";
@@ -231,7 +231,9 @@ export async function instantPreview(file: File | MadeFile): Promise<string | un
     const reader = new FileReader();
     reader.onload = () => {
       const url = String(reader.result);
-      resolve(url.startsWith("data:image/") ? url : undefined);
+      if (!url.startsWith("data:image/")) return resolve(undefined);
+      // Decoded before its tile shows, so the tile's first frame has its picture.
+      void decoded(url).then(() => resolve(url));
     };
     reader.onerror = () => resolve(undefined);
     reader.readAsDataURL(file);
