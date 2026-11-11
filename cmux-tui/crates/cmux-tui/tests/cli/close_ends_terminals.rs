@@ -507,3 +507,216 @@ fn w7c_a_subscriber_sees_the_agent_end_with_its_terminal() {
     run(&server, &["tab", &tab, "close"]);
     assert_agent_end_event(&rx, &agents[1], "tab close");
 }
+
+/// Milliseconds since the Unix epoch, now.
+fn now_ms() -> u64 {
+    u64::try_from(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()).unwrap()
+}
+
+/// The `ends_at_ms` a close result names (a decimal string or a number).
+fn ends_at_ms(result: &Value) -> u64 {
+    let value = result
+        .pointer("/value/ends_at_ms")
+        .or_else(|| result.get("ends_at_ms"))
+        .unwrap_or_else(|| panic!("the close result has no ends_at_ms: {result}"));
+    value
+        .as_u64()
+        .or_else(|| value.as_str().and_then(|text| text.parse().ok()))
+        .unwrap_or_else(|| panic!("ends_at_ms is not a time: {result}"))
+}
+
+/// With a reaper (its grace 30 s), a close leaves the terminals it closed
+/// running with no tab and names when they end; `closed reopen` in that
+/// window shows the SAME process again; `--now` ends them at once; a bulk
+/// close follows the same rule; the text names the grace and the reopen.
+#[test]
+fn w7c_a_close_leaves_its_terminals_for_the_grace_and_reopen_keeps_them() {
+    let server = HeadlessServer::start_with_reap_grace("w7c-grace", 30);
+    let made = run(&server, &["workspace", "create", "--name", "w7c-grace"]);
+    let pane = field(&made, "pane_id");
+    let split = run(&server, &["pane", &pane, "split", "--right"]);
+    let (tab, held) = (field(&split, "tab_id"), field(&split, "terminal_id"));
+    run(&server, &["terminal", &held, "write", "--text", "W7C_SAME=w7c_same_shell\r"]);
+
+    let before = now_ms();
+    let closed = run(&server, &["tab", &tab, "close"]);
+    assert_eq!(listed(&closed, "ending_terminal_ids"), [held.as_str()], "{closed}");
+    assert_eq!(listed(&closed, "ended_terminal_ids"), Vec::<String>::new(), "{closed}");
+    let ends = ends_at_ms(&closed);
+    assert!(
+        ends >= before + 25_000 && ends <= now_ms() + 35_000,
+        "a close with a 30 s grace ends its terminals at {ends}, not about 30 s after {before}"
+    );
+    assert_runs_tabless(&server, &held, "a close in the grace");
+
+    run(&server, &["closed", "reopen"]);
+    let found = record(&server, &held);
+    assert!(
+        found.as_ref().is_some_and(|record| {
+            runs(&found) && record["tab_ids"].as_array().is_some_and(|tabs| !tabs.is_empty())
+        }),
+        "closed reopen in the grace did not show terminal {held} again: {}",
+        found.unwrap_or_default()
+    );
+    run(&server, &["terminal", &held, "write", "--text", "echo got_$W7C_SAME\r"]);
+    let screen = wait_for_screen(&server, &held, "got_w7c_same_shell");
+    assert!(screen.contains("got_w7c_same_shell"), "the reopened tab is a new shell:\n{screen}");
+
+    // `--now` ends them at once.
+    let split = run(&server, &["pane", &pane, "split", "--right"]);
+    let (tab, now) = (field(&split, "tab_id"), field(&split, "terminal_id"));
+    let closed = run(&server, &["tab", &tab, "close", "--now"]);
+    assert_eq!(listed(&closed, "ended_terminal_ids"), [now.as_str()], "{closed}");
+    assert_ended(&server, &now, "tab close --now");
+
+    // A bulk close leaves them for the grace too.
+    let anchor = field(&run(&server, &["tab", "create", "terminal", "--pane", &pane]), "tab_id");
+    let sibling =
+        field(&run(&server, &["tab", "create", "terminal", "--pane", &pane]), "terminal_id");
+    let closed = run(&server, &["tab", &anchor, "close", "--others"]);
+    assert!(
+        listed(&closed, "ending_terminal_ids").contains(&sibling),
+        "a bulk close did not leave {sibling} for the grace: {closed}"
+    );
+    assert_runs_tabless(&server, &sibling, "a bulk close in the grace");
+
+    // The text names the grace and the way to keep them.
+    let split = run(&server, &["pane", &pane, "split", "--right"]);
+    let (tab, shown_terminal) = (field(&split, "tab_id"), field(&split, "terminal_id"));
+    let shown = run_human(&server, &["tab", &tab, "close"]);
+    assert!(
+        shown.contains(&shown_terminal) && shown.contains("30") && shown.contains("closed reopen"),
+        "the close did not say {shown_terminal} ends in 30 s and how to keep it:\n{shown}"
+    );
+}
+
+/// The reaper ends a closed terminal when the grace ends.
+#[test]
+fn w7c_the_reaper_ends_a_closed_terminal_when_the_grace_ends() {
+    let server = HeadlessServer::start_with_reap_grace("w7c-grace-end", 2);
+    let made = run(&server, &["workspace", "create", "--name", "w7c-grace-end"]);
+    let pane = field(&made, "pane_id");
+    let split = run(&server, &["pane", &pane, "split", "--right"]);
+    let (tab, closing) = (field(&split, "tab_id"), field(&split, "terminal_id"));
+    let closed = run(&server, &["tab", &tab, "close"]);
+    assert_eq!(listed(&closed, "ending_terminal_ids"), [closing.as_str()], "{closed}");
+    assert_ended(&server, &closing, "the 2 s grace");
+    assert_no_tabless(&server, "the 2 s grace");
+}
+
+/// Runs `cmux --json workspace <workspace> close` from inside `caller`, in a
+/// new process session (so the daemon cannot match the caller's terminal by
+/// its session) with `credential` as its launch credential (None: no
+/// credential). The close's JSON result.
+fn close_from_inside(
+    server: &HeadlessServer,
+    root: &std::path::Path,
+    caller: &str,
+    workspace: &str,
+    credential: Option<&std::path::Path>,
+) -> Value {
+    let out = root.join("close.json");
+    let code = root.join("close.code");
+    let credential = match credential {
+        Some(path) => format!("CMUX_LAUNCH_CREDENTIAL=\"$(cat '{}')\"", path.display()),
+        None => "-u CMUX_LAUNCH_CREDENTIAL".to_owned(),
+    };
+    let script = format!(
+        "env {credential} perl -MPOSIX -e 'if (my $p = fork) {{ waitpid($p, 0); exit($? >> 8) }} \
+         POSIX::setsid() or die; exec @ARGV' -- sh -c \"'{bin}' --json --socket '{socket}' \
+         workspace {workspace} close > '{out}' 2>&1; echo \\$? > '{code}'\"\r",
+        bin = bin(),
+        socket = server.socket.display(),
+        out = out.display(),
+        code = code.display(),
+    );
+    run(server, &["terminal", caller, "write", "--text", &script]);
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !fs::read_to_string(&code).is_ok_and(|code| code.ends_with('\n')) {
+        assert!(Instant::now() < deadline, "the close run in {caller} did not finish");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let printed = fs::read_to_string(&out).unwrap();
+    assert_eq!(fs::read_to_string(&code).unwrap().trim(), "0", "the close failed: {printed}");
+    printed
+        .lines()
+        .rev()
+        .find_map(|line| serde_json::from_str(line).ok().filter(Value::is_object))
+        .unwrap_or_else(|| panic!("the close printed no JSON: {printed}"))
+}
+
+/// A close run from inside a terminal, in a process the daemon cannot match
+/// to that terminal by session or by credential (a `setsid` wrapper with no
+/// launch credential), still spares the caller's terminal: the daemon finds
+/// it from the socket peer's process and its ancestors.
+#[test]
+fn w7c_a_close_from_a_new_process_session_spares_the_callers_terminal() {
+    let root = unique_temp_dir("w7c-peer");
+    fs::create_dir_all(&root).unwrap();
+    let server = HeadlessServer::start("w7c-peer");
+    let made = run(&server, &["workspace", "create", "--name", "w7c-peer"]);
+    let (workspace, pane, caller) =
+        (field(&made, "workspace_id"), field(&made, "pane_id"), field(&made, "terminal_id"));
+    let other = field(&run(&server, &["pane", &pane, "split", "--right"]), "terminal_id");
+
+    let closed = close_from_inside(&server, &root, &caller, &workspace, None);
+    assert_ended(&server, &other, "workspace close from a new process session");
+    assert_eq!(listed(&closed, "ended_terminal_ids"), [other.as_str()], "{closed}");
+    assert_eq!(listed(&closed, "running_terminal_ids"), [caller.as_str()], "{closed}");
+    assert_runs_tabless(&server, &caller, "workspace close from a new process session");
+
+    drop(server);
+    let _ = fs::remove_dir_all(root);
+}
+
+/// A close whose request carries ANOTHER terminal's launch credential (the
+/// actor is that terminal) still does not end the terminal the request runs
+/// in: no close ends a terminal whose process tree holds the socket peer.
+#[test]
+fn w7c_a_close_never_ends_the_terminal_its_peer_runs_in() {
+    let root = unique_temp_dir("w7c-peer-tree");
+    fs::create_dir_all(&root).unwrap();
+    let server = HeadlessServer::start("w7c-peer-tree");
+    let lender =
+        field(&run(&server, &["workspace", "create", "--name", "w7c-lender"]), "terminal_id");
+    let credential = root.join("lender.credential");
+    let written = root.join("lender.done");
+    run(
+        &server,
+        &[
+            "terminal",
+            &lender,
+            "write",
+            "--text",
+            &format!(
+                "printf %s \"$CMUX_LAUNCH_CREDENTIAL\" > '{}'; touch '{}'\r",
+                credential.display(),
+                written.display()
+            ),
+        ],
+    );
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !written.exists() {
+        assert!(Instant::now() < deadline, "terminal {lender} did not write its credential");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    assert!(
+        fs::read_to_string(&credential).is_ok_and(|credential| !credential.is_empty()),
+        "terminal {lender} has no launch credential"
+    );
+
+    let made = run(&server, &["workspace", "create", "--name", "w7c-peer-tree"]);
+    let (workspace, pane, caller) =
+        (field(&made, "workspace_id"), field(&made, "pane_id"), field(&made, "terminal_id"));
+    let other = field(&run(&server, &["pane", &pane, "split", "--right"]), "terminal_id");
+
+    let closed = close_from_inside(&server, &root, &caller, &workspace, Some(&credential));
+    assert_ended(&server, &other, "workspace close with another terminal's credential");
+    assert_eq!(listed(&closed, "ended_terminal_ids"), [other.as_str()], "{closed}");
+    assert_eq!(listed(&closed, "running_terminal_ids"), [caller.as_str()], "{closed}");
+    assert_runs_tabless(&server, &caller, "workspace close with another terminal's credential");
+    assert!(runs(&record(&server, &lender)), "the close ended the lender {lender}");
+
+    drop(server);
+    let _ = fs::remove_dir_all(root);
+}

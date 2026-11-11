@@ -411,12 +411,12 @@ fn w5r_stop_with_end_terminals_removes_terminal_state_and_keeps_chiefs_and_conve
     assert_eq!(stopped["removed_terminal_state"], true, "{stopped}");
 }
 
-/// W7-C (bench round 6, friction 4): the TUI's close-tab key (prefix, `x`)
-/// left the closed tab's shell running with no tab until the reaper's grace
-/// (30 s) ran out. The key ends the terminal of the tab it closed, as the
-/// CLI's `tab <t> close` does.
+/// W7-C (lead decision 2026-11-11, one close model): the TUI's close-tab
+/// key (prefix, `x`) leaves the closed tab's terminal running with no tab
+/// for the reaper's grace (30 s), as `cmux tab <t> close` does, and `cmux
+/// closed reopen` in that window shows the same terminal again.
 #[test]
-fn w7c_tui_close_tab_key_ends_the_tabs_terminal() {
+fn w7c_tui_close_tab_key_leaves_the_terminal_for_the_grace() {
     let fixture = Fixture::new("w7c-key");
     fixture.server("ensure", &[]);
     let client = Client::start(&fixture);
@@ -432,17 +432,34 @@ fn w7c_tui_close_tab_key_ends_the_tabs_terminal() {
     // Ctrl-b, then `x`: close the active tab.
     client.type_bytes(b"\x02x");
     let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
+    let closed = loop {
         let (now_placed, tabless) = fixture.running_terminals();
-        if now_placed.len() < placed.len() && tabless.is_empty() {
-            break;
+        if now_placed.len() < placed.len() && tabless.len() == 1 {
+            break tabless[0].clone();
         }
         assert!(
             Instant::now() < deadline,
             "10 s after the close-tab key: {} terminal(s) with a tab (before: {}), \
-             running with no tab: {tabless:?}\nclient stderr:\n{}",
+             running with no tab: {tabless:?} (want the closed one)\nclient stderr:\n{}",
             now_placed.len(),
             placed.len(),
+            client.stderr()
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    assert!(placed.contains(&closed), "{closed} was not a placed terminal: {placed:?}");
+
+    fixture.cli(&["closed", "reopen"]);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let (now_placed, tabless) = fixture.running_terminals();
+        if now_placed.contains(&closed) && tabless.is_empty() {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "closed reopen did not show {closed} again: with a tab {now_placed:?}, \
+             with no tab {tabless:?}\nclient stderr:\n{}",
             client.stderr()
         );
         std::thread::sleep(Duration::from_millis(100));

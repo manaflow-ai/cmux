@@ -83,6 +83,29 @@ impl HeadlessServer {
         launch_cwd: Option<&std::path::Path>,
         env: &[(&str, &str)],
     ) -> Self {
+        Self::start_with_daemon_args(name, config_contents, launch_cwd, env, &[])
+    }
+
+    /// A headless daemon that also runs the unplaced-terminal reaper with
+    /// `seconds` of grace (a plain fixture runs none).
+    fn start_with_reap_grace(name: &str, seconds: u64) -> Self {
+        let seconds = seconds.to_string();
+        Self::start_with_daemon_args(
+            name,
+            None,
+            None,
+            &[],
+            &["--terminal-reap-grace-seconds", &seconds],
+        )
+    }
+
+    fn start_with_daemon_args(
+        name: &str,
+        config_contents: Option<&str>,
+        launch_cwd: Option<&std::path::Path>,
+        env: &[(&str, &str)],
+        daemon_args: &[&str],
+    ) -> Self {
         let dir = unique_temp_dir(name);
         fs::create_dir_all(&dir).unwrap();
         let socket = dir.join("mux.sock");
@@ -100,6 +123,7 @@ impl HeadlessServer {
             .arg(&socket)
             .arg("--state")
             .arg(&state)
+            .args(daemon_args)
             .env("CMUX_TUI_CONFIG", &config)
             // A login shell (`--shell` runs `$SHELL -lc`) must not see an SSH
             // session: a Blacksmith Testbox's /etc/profile.d/blacksmith.sh then
