@@ -12,8 +12,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "What's New"
+            "state": "translated",
+            "value": "الجديد"
           }
         },
         "bs": {
@@ -30,20 +30,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "What's New"
+            "state": "translated",
+            "value": "Neuigkeiten"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "What's New"
+            "state": "translated",
+            "value": "Novedades"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "What's New"
+            "state": "translated",
+            "value": "Nouveautés"
           }
         },
         "it": {
@@ -66,8 +66,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "What's New"
+            "state": "translated",
+            "value": "새로운 기능"
           }
         },
         "nb": {
@@ -120,14 +120,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "What's New"
+            "state": "translated",
+            "value": "新功能"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "What's New"
+            "state": "translated",
+            "value": "新功能"
           }
         }
       }
@@ -143,8 +143,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Loading…"
+            "state": "translated",
+            "value": "جارٍ التحميل…"
           }
         },
         "bs": {
@@ -161,20 +161,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Loading…"
+            "state": "translated",
+            "value": "Wird geladen …"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Loading…"
+            "state": "translated",
+            "value": "Cargando…"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Loading…"
+            "state": "translated",
+            "value": "Chargement…"
           }
         },
         "it": {
@@ -197,8 +197,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Loading…"
+            "state": "translated",
+            "value": "불러오는 중…"
           }
         },
         "nb": {
@@ -251,14 +251,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Loading…"
+            "state": "translated",
+            "value": "正在载入…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Loading…"
+            "state": "translated",
+            "value": "正在載入…"
           }
         }
       }
@@ -274,8 +274,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Versions"
+            "state": "translated",
+            "value": "الإصدارات"
           }
         },
         "bs": {
@@ -292,19 +292,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Versions"
+            "state": "translated",
+            "value": "Versionen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Versions"
+            "state": "translated",
+            "value": "Versiones"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Versions"
           }
         },
@@ -328,8 +328,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Versions"
+            "state": "translated",
+            "value": "버전"
           }
         },
         "nb": {
@@ -382,14 +382,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Versions"
+            "state": "translated",
+            "value": "版本"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Versions"
+            "state": "translated",
+            "value": "版本"
           }
         }
       }
@@ -405,8 +405,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "No release notes yet."
+            "state": "translated",
+            "value": "لا توجد ملاحظات إصدار بعد."
           }
         },
         "bs": {
@@ -423,20 +423,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "No release notes yet."
+            "state": "translated",
+            "value": "Noch keine Versionshinweise."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "No release notes yet."
+            "state": "translated",
+            "value": "Aún no hay notas de la versión."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "No release notes yet."
+            "state": "translated",
+            "value": "Aucune note de version pour l’instant."
           }
         },
         "it": {
@@ -459,8 +459,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "No release notes yet."
+            "state": "translated",
+            "value": "아직 릴리스 노트가 없습니다."
           }
         },
         "nb": {
@@ -513,14 +513,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "No release notes yet."
+            "state": "translated",
+            "value": "暂无发行说明。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "No release notes yet."
+            "state": "translated",
+            "value": "尚無版本說明。"
           }
         }
       }
@@ -536,8 +536,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Installed"
+            "state": "translated",
+            "value": "مثبّت"
           }
         },
         "bs": {
@@ -554,20 +554,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Installed"
+            "state": "translated",
+            "value": "Installiert"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Installed"
+            "state": "translated",
+            "value": "Instalada"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Installed"
+            "state": "translated",
+            "value": "Installée"
           }
         },
         "it": {
@@ -590,8 +590,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Installed"
+            "state": "translated",
+            "value": "설치됨"
           }
         },
         "nb": {
@@ -644,14 +644,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Installed"
+            "state": "translated",
+            "value": "已安装"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Installed"
+            "state": "translated",
+            "value": "已安裝"
           }
         }
       }
@@ -667,8 +667,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "The notes for this version are not available offline yet."
+            "state": "translated",
+            "value": "ملاحظات هذا الإصدار غير متاحة دون اتصال بعد."
           }
         },
         "bs": {
@@ -685,20 +685,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "The notes for this version are not available offline yet."
+            "state": "translated",
+            "value": "Die Hinweise zu dieser Version sind noch nicht offline verfügbar."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "The notes for this version are not available offline yet."
+            "state": "translated",
+            "value": "Las notas de esta versión aún no están disponibles sin conexión."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "The notes for this version are not available offline yet."
+            "state": "translated",
+            "value": "Les notes de cette version ne sont pas encore disponibles hors ligne."
           }
         },
         "it": {
@@ -721,8 +721,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "The notes for this version are not available offline yet."
+            "state": "translated",
+            "value": "이 버전의 노트는 아직 오프라인에서 볼 수 없습니다."
           }
         },
         "nb": {
@@ -775,14 +775,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "The notes for this version are not available offline yet."
+            "state": "translated",
+            "value": "此版本的说明尚无法离线查看。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "The notes for this version are not available offline yet."
+            "state": "translated",
+            "value": "此版本的說明尚無法離線檢視。"
           }
         }
       }
@@ -798,8 +798,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "What's New in %@"
+            "state": "translated",
+            "value": "الجديد في %@"
           }
         },
         "bs": {
@@ -816,20 +816,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "What's New in %@"
+            "state": "translated",
+            "value": "Neu in %@"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "What's New in %@"
+            "state": "translated",
+            "value": "Novedades de %@"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "What's New in %@"
+            "state": "translated",
+            "value": "Nouveautés de %@"
           }
         },
         "it": {
@@ -852,8 +852,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "What's New in %@"
+            "state": "translated",
+            "value": "%@의 새로운 기능"
           }
         },
         "nb": {
@@ -906,14 +906,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "What's New in %@"
+            "state": "translated",
+            "value": "%@ 的新功能"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "What's New in %@"
+            "state": "translated",
+            "value": "%@ 的新功能"
           }
         }
       }
@@ -929,8 +929,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "All Changes"
+            "state": "translated",
+            "value": "كل التغييرات"
           }
         },
         "bs": {
@@ -947,20 +947,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "All Changes"
+            "state": "translated",
+            "value": "Alle Änderungen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "All Changes"
+            "state": "translated",
+            "value": "Todos los cambios"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "All Changes"
+            "state": "translated",
+            "value": "Toutes les modifications"
           }
         },
         "it": {
@@ -983,8 +983,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "All Changes"
+            "state": "translated",
+            "value": "모든 변경 사항"
           }
         },
         "nb": {
@@ -1037,14 +1037,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "All Changes"
+            "state": "translated",
+            "value": "所有更改"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "All Changes"
+            "state": "translated",
+            "value": "所有變更"
           }
         }
       }
@@ -3084,7 +3084,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nightly"
+            "value": "ナイトリー"
           }
         },
         "km": {
@@ -5550,7 +5550,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "; "
+            "value": "؛ "
           }
         },
         "bs": {
@@ -6360,7 +6360,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Home"
+            "value": "Start"
           }
         },
         "es": {
@@ -9509,8 +9509,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go back to an earlier build"
+            "state": "translated",
+            "value": "الرجوع إلى إصدار سابق"
           }
         },
         "bs": {
@@ -9527,20 +9527,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go back to an earlier build"
+            "state": "translated",
+            "value": "Zu einem früheren Build zurückgehen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go back to an earlier build"
+            "state": "translated",
+            "value": "Volver a una compilación anterior"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go back to an earlier build"
+            "state": "translated",
+            "value": "Revenir à un build antérieur"
           }
         },
         "it": {
@@ -9563,8 +9563,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go back to an earlier build"
+            "state": "translated",
+            "value": "이전 빌드로 되돌리기"
           }
         },
         "nb": {
@@ -9617,14 +9617,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go back to an earlier build"
+            "state": "translated",
+            "value": "返回较早的版本"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go back to an earlier build"
+            "state": "translated",
+            "value": "返回較早的版本"
           }
         }
       }
@@ -9641,8 +9641,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Going back…"
+            "state": "translated",
+            "value": "جارٍ الرجوع…"
           }
         },
         "bs": {
@@ -9659,20 +9659,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Going back…"
+            "state": "translated",
+            "value": "Gehe zurück …"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Going back…"
+            "state": "translated",
+            "value": "Volviendo…"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Going back…"
+            "state": "translated",
+            "value": "Retour en cours…"
           }
         },
         "it": {
@@ -9695,8 +9695,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Going back…"
+            "state": "translated",
+            "value": "되돌리는 중…"
           }
         },
         "nb": {
@@ -9749,14 +9749,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Going back…"
+            "state": "translated",
+            "value": "正在返回…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Going back…"
+            "state": "translated",
+            "value": "正在返回…"
           }
         }
       }
@@ -9773,8 +9773,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Could not go back."
+            "state": "translated",
+            "value": "تعذّر الرجوع."
           }
         },
         "bs": {
@@ -9791,20 +9791,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Could not go back."
+            "state": "translated",
+            "value": "Zurückgehen nicht möglich."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Could not go back."
+            "state": "translated",
+            "value": "No se pudo volver."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Could not go back."
+            "state": "translated",
+            "value": "Impossible de revenir."
           }
         },
         "it": {
@@ -9827,8 +9827,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Could not go back."
+            "state": "translated",
+            "value": "되돌릴 수 없습니다."
           }
         },
         "nb": {
@@ -9881,14 +9881,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Could not go back."
+            "state": "translated",
+            "value": "无法返回。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Could not go back."
+            "state": "translated",
+            "value": "無法返回。"
           }
         }
       }
@@ -9905,8 +9905,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "This Mac kept that build: cmux reopens into it at once, with every terminal and agent."
+            "state": "translated",
+            "value": "احتفظ هذا الـ Mac بذلك الإصدار: يعيد cmux الفتح عليه فورًا، مع كل طرفية ووكيل."
           }
         },
         "bs": {
@@ -9923,20 +9923,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "This Mac kept that build: cmux reopens into it at once, with every terminal and agent."
+            "state": "translated",
+            "value": "Dieser Mac hat diesen Build behalten: cmux öffnet sich sofort darin neu, mit jedem Terminal und Agenten."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "This Mac kept that build: cmux reopens into it at once, with every terminal and agent."
+            "state": "translated",
+            "value": "Este Mac guardó esa compilación: cmux se vuelve a abrir en ella al instante, con cada terminal y agente."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "This Mac kept that build: cmux reopens into it at once, with every terminal and agent."
+            "state": "translated",
+            "value": "Ce Mac a conservé ce build : cmux se rouvre dessus immédiatement, avec chaque terminal et agent."
           }
         },
         "it": {
@@ -9959,8 +9959,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "This Mac kept that build: cmux reopens into it at once, with every terminal and agent."
+            "state": "translated",
+            "value": "이 Mac에 해당 빌드가 보관되어 있어 cmux가 모든 터미널과 에이전트와 함께 바로 그 빌드로 다시 엽니다."
           }
         },
         "nb": {
@@ -10013,14 +10013,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "This Mac kept that build: cmux reopens into it at once, with every terminal and agent."
+            "state": "translated",
+            "value": "这台 Mac 保留了该版本：cmux 会立即以它重新打开，所有终端和智能体都保留。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "This Mac kept that build: cmux reopens into it at once, with every terminal and agent."
+            "state": "translated",
+            "value": "這台 Mac 保留了該版本：cmux 會立即以它重新開啟，所有終端機和代理程式都保留。"
           }
         }
       }
@@ -10037,8 +10037,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux downloads and checks that build first, then reopens into it."
+            "state": "translated",
+            "value": "ينزّل cmux ذلك الإصدار ويفحصه أولًا، ثم يعيد الفتح عليه."
           }
         },
         "bs": {
@@ -10055,20 +10055,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux downloads and checks that build first, then reopens into it."
+            "state": "translated",
+            "value": "cmux lädt diesen Build zuerst und prüft ihn, dann öffnet es sich darin neu."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux downloads and checks that build first, then reopens into it."
+            "state": "translated",
+            "value": "cmux primero descarga y comprueba esa compilación, y luego se vuelve a abrir en ella."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux downloads and checks that build first, then reopens into it."
+            "state": "translated",
+            "value": "cmux télécharge et vérifie d’abord ce build, puis se rouvre dessus."
           }
         },
         "it": {
@@ -10091,8 +10091,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux downloads and checks that build first, then reopens into it."
+            "state": "translated",
+            "value": "cmux가 먼저 해당 빌드를 다운로드하고 확인한 다음 그 빌드로 다시 엽니다."
           }
         },
         "nb": {
@@ -10145,14 +10145,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux downloads and checks that build first, then reopens into it."
+            "state": "translated",
+            "value": "cmux 会先下载并检查该版本，然后以它重新打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux downloads and checks that build first, then reopens into it."
+            "state": "translated",
+            "value": "cmux 會先下載並檢查該版本，然後以它重新開啟。"
           }
         }
       }
@@ -10169,8 +10169,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Other builds"
+            "state": "translated",
+            "value": "إصدارات أخرى"
           }
         },
         "bs": {
@@ -10187,20 +10187,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Other builds"
+            "state": "translated",
+            "value": "Andere Builds"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Other builds"
+            "state": "translated",
+            "value": "Otras compilaciones"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Other builds"
+            "state": "translated",
+            "value": "Autres builds"
           }
         },
         "it": {
@@ -10223,8 +10223,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Other builds"
+            "state": "translated",
+            "value": "다른 빌드"
           }
         },
         "nb": {
@@ -10277,14 +10277,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Other builds"
+            "state": "translated",
+            "value": "其他版本"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Other builds"
+            "state": "translated",
+            "value": "其他版本"
           }
         }
       }
@@ -10301,8 +10301,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reading recent builds…"
+            "state": "translated",
+            "value": "جارٍ قراءة الإصدارات الأخيرة…"
           }
         },
         "bs": {
@@ -10319,20 +10319,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reading recent builds…"
+            "state": "translated",
+            "value": "Neueste Builds werden gelesen …"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reading recent builds…"
+            "state": "translated",
+            "value": "Leyendo las compilaciones recientes…"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reading recent builds…"
+            "state": "translated",
+            "value": "Lecture des builds récents…"
           }
         },
         "it": {
@@ -10355,8 +10355,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reading recent builds…"
+            "state": "translated",
+            "value": "최근 빌드를 읽는 중…"
           }
         },
         "nb": {
@@ -10409,14 +10409,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reading recent builds…"
+            "state": "translated",
+            "value": "正在读取最近的版本…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reading recent builds…"
+            "state": "translated",
+            "value": "正在讀取最近的版本…"
           }
         }
       }
@@ -10433,8 +10433,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Running"
+            "state": "translated",
+            "value": "قيد التشغيل"
           }
         },
         "bs": {
@@ -10451,20 +10451,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Running"
+            "state": "translated",
+            "value": "Läuft"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Running"
+            "state": "translated",
+            "value": "En uso"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Running"
+            "state": "translated",
+            "value": "En cours"
           }
         },
         "it": {
@@ -10487,8 +10487,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Running"
+            "state": "translated",
+            "value": "실행 중"
           }
         },
         "nb": {
@@ -10541,14 +10541,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Running"
+            "state": "translated",
+            "value": "正在运行"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Running"
+            "state": "translated",
+            "value": "正在執行"
           }
         }
       }
@@ -10565,8 +10565,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Pulled"
+            "state": "translated",
+            "value": "مسحوب"
           }
         },
         "bs": {
@@ -10583,20 +10583,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Pulled"
+            "state": "translated",
+            "value": "Zurückgezogen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Pulled"
+            "state": "translated",
+            "value": "Retirada"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Pulled"
+            "state": "translated",
+            "value": "Retiré"
           }
         },
         "it": {
@@ -10619,8 +10619,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Pulled"
+            "state": "translated",
+            "value": "철회됨"
           }
         },
         "nb": {
@@ -10673,14 +10673,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Pulled"
+            "state": "translated",
+            "value": "已撤回"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Pulled"
+            "state": "translated",
+            "value": "已撤回"
           }
         }
       }
@@ -10697,8 +10697,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Kept"
+            "state": "translated",
+            "value": "محفوظ"
           }
         },
         "bs": {
@@ -10715,20 +10715,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Kept"
+            "state": "translated",
+            "value": "Behalten"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Kept"
+            "state": "translated",
+            "value": "Guardada"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Kept"
+            "state": "translated",
+            "value": "Conservé"
           }
         },
         "it": {
@@ -10751,8 +10751,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Kept"
+            "state": "translated",
+            "value": "보관됨"
           }
         },
         "nb": {
@@ -10805,14 +10805,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Kept"
+            "state": "translated",
+            "value": "已保留"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Kept"
+            "state": "translated",
+            "value": "已保留"
           }
         }
       }
@@ -10829,8 +10829,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go back"
+            "state": "translated",
+            "value": "الرجوع"
           }
         },
         "bs": {
@@ -10847,20 +10847,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go back"
+            "state": "translated",
+            "value": "Zurückgehen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go back"
+            "state": "translated",
+            "value": "Volver"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go back"
+            "state": "translated",
+            "value": "Revenir"
           }
         },
         "it": {
@@ -10883,8 +10883,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go back"
+            "state": "translated",
+            "value": "되돌리기"
           }
         },
         "nb": {
@@ -10937,14 +10937,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go back"
+            "state": "translated",
+            "value": "返回"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go back"
+            "state": "translated",
+            "value": "返回"
           }
         }
       }
@@ -10961,8 +10961,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go back"
+            "state": "translated",
+            "value": "رجوع"
           }
         },
         "bs": {
@@ -10979,20 +10979,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go back"
+            "state": "translated",
+            "value": "Zurück"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go back"
+            "state": "translated",
+            "value": "Volver"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go back"
+            "state": "translated",
+            "value": "Revenir"
           }
         },
         "it": {
@@ -11015,8 +11015,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go back"
+            "state": "translated",
+            "value": "되돌리기"
           }
         },
         "nb": {
@@ -11069,14 +11069,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go back"
+            "state": "translated",
+            "value": "返回"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go back"
+            "state": "translated",
+            "value": "返回"
           }
         }
       }
