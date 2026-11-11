@@ -8690,6 +8690,31 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
             self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP, red, red))
         self.assertEqual(len(asked), 1)
 
+    def test_a_compiler_warnings_quoted_source_is_no_error_line(self):
+        # cmux#41046: the base's build quoted a warning's source 11 times, the head's 6.
+        quote = ["53 |     static func interrupted(_ error: Error) -> Bool {",
+                 "   |                                      `- warning: use of protocol 'Error' as a type"]
+        red = ["✘ Test reconnectsAfterSleep() failed after 1.000 seconds with 1 issue."]
+        said = self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, quote + red, quote * 2 + red))
+        self.assertIn("compared whole", said)
+
+    def test_the_daemon_tests_live_suites_red_the_base_shares_is_excused(self):
+        # cmux#40598 at b22f9eff (run 42972264329): 'Run the live-daemon suites' red the same way on base run
+        # 42976173821; the daemon job's log is unplaced.
+        daemon, live = "cmux-next daemon tests", "Run the live-daemon suites"
+        red = ["✘ Test keepLeavesTheDaemonAndTerminalsForTheNextLaunch() recorded an issue at "
+               "QuitSessionsTests.swift:18:13: Expectation failed: (hosts.count → 2) == 1",
+               "✘ Test keepLeavesTheDaemonAndTerminalsForTheNextLaunch() failed after 205.578 seconds with 1 issue.",
+               "✘ Test endTerminalsShutdownRepliesOnTheSubscribedSocket() failed after 1.746 seconds with 1 issue.",
+               "##[error]2 red tests: keepLeavesTheDaemonAndTerminalsForTheNextLaunch() QuitSessionsTests.swift:18; "
+               "endTerminalsShutdownRepliesOnTheSubscribedSocket() BranchTeardownTests.swift:59"]
+        said = self.judge(UnplacedGitHub(daemon, live, red, red))
+        self.assertIn(f"excused '{daemon}': its log does not map onto its steps, so it was compared whole", said)
+        # One more failing test on the head is its own.
+        mine = red + ["✘ Test aNewDaemonTest() failed after 1.000 seconds with 1 issue."]
+        with self.assertRaisesRegex(excuse.Refused, "more on this head: .*aNewDaemonTest"):
+            self.judge(UnplacedGitHub(daemon, live, mine, red))
+
     def test_tests_that_differ_only_in_a_digit_are_different_tests(self):
         head = ["✘ Test test2() failed after 1.000 seconds with 1 issue."]
         base = ["✘ Test test3() failed after 1.000 seconds with 1 issue."]
