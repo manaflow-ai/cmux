@@ -46,7 +46,14 @@ import type {
   StartSource,
   TurnTokenSplit,
 } from "./model";
-import { QUEUED_MESSAGE, SINCE_DIVIDER, TURN_RETRY, type AcpmuxSince, type AcpmuxTurnRetry } from "./model";
+import {
+  PROMPT_PENDING_AFTER_MS,
+  QUEUED_MESSAGE,
+  SINCE_DIVIDER,
+  TURN_RETRY,
+  type AcpmuxSince,
+  type AcpmuxTurnRetry,
+} from "./model";
 import { addSplit, callTokenSplit, NO_TOKENS, resultTokenSplit } from "./tokenSplit";
 import { continuesTurn } from "./turnStart";
 import { HOST_ERROR_DEADLINE_MS, hostIsReconnecting } from "./hostRetry";
@@ -9815,6 +9822,7 @@ export class AcpmuxDirectClient {
       promptId,
       sessionId,
       sentAt: at,
+      ...(steer ? { queued: true } : {}),
       ...(this.summary?.host ? { connection: String(this.summary.host) } : {}),
     };
     this.deliveries.set(promptId, { delivery, rowId, timers: [] });
@@ -12017,15 +12025,80 @@ export class AcpmuxDirectClient {
   get isClosed(): boolean {
     return this.closed;
   }
-  /// The shown chat `sessionId` has prompt `promptId`: its record or its queue row.
+  /// The shown chat `sessionId` has prompt `promptId`: its record, its queue row, or a sent row the
+  /// attach drew for it (a chat opened from acpmux's view holds rows, not every record).
   showsPrompt(sessionId: string, promptId: string): boolean {
     if (this.selectedSessionId !== sessionId) return false;
-    return (
-      this.queue.some((entry) => entry.id === promptId) ||
+    if (this.queue.some((entry) => entry.id === promptId)) return true;
+    if (
       this.events.some(
         (event) => (event.kind === "user_message" || event.kind === "queued") && event.msg?.promptId === promptId,
       )
-    );
+    )
+      return true;
+    for (const row of this.rows.values())
+      if (row.kind === "user" && row.promptId === promptId && !row.pending && !row.failed) return true;
+    return false;
+  }
+  /// A prompt an earlier connection lost before this pane heard acpmux take it (lostPrompt.ts): it
+  /// shows here as its own row, on its way, until acpmux's record of it lands on that same row (the
+  /// echo settles it as any send's does) or the wait gives up (`failLostPrompt`). Never a second
+  /// copy: nothing when the chat already shows it, or shows another chat.
+  drawLostPrompt(sessionId: string, promptId: string, input: string, attachments: ComposerAttachment[]): boolean {
+    if (this.closed || this.selectedSessionId !== sessionId || this.showsPrompt(sessionId, promptId)) return false;
+    const rowId = `local-${promptId}`;
+    if (this.rows.has(rowId)) return true;
+    const at = Date.now();
+    const delivery: PromptDelivery = { state: "sending", promptId, sessionId, sentAt: at - PROMPT_PENDING_AFTER_MS };
+    this.deliveries.get(promptId)?.timers.forEach(clearTimeout);
+    this.deliveries.set(promptId, { delivery, rowId, timers: [] });
+    this.promptRowKeys.set(promptId, rowId);
+    this.optimisticPromptRows.set(promptId, rowId);
+    this.optimisticPromptTexts.set(promptId, input);
+    if (attachments.length) this.optimisticPromptAttachments.set(promptId, attachments);
+    this.rows.set(rowId, {
+      id: rowId,
+      version: 1,
+      at,
+      kind: "user",
+      text: input,
+      ...(attachments.length ? { images: attachedImages(attachments), retryAttachments: attachments } : {}),
+      pending: true,
+      delivery,
+    });
+    this.emit();
+    return true;
+  }
+  /// The lost prompt drawn by `drawLostPrompt` never showed in acpmux's record: its row fails with
+  /// Retry, which sends it again under the same prompt id (acpmux runs a prompt id once), never a
+  /// line apart from the row while the row still looks sent. False when there is no such row.
+  failLostPrompt(promptId: string, error: unknown): boolean {
+    const entry = this.deliveries.get(promptId);
+    const row = entry ? this.rows.get(entry.rowId) : undefined;
+    if (!entry || !row || entry.delivery.state !== "sending") return false;
+    const input = this.optimisticPromptTexts.get(promptId) ?? row.text ?? "";
+    const attachments = this.optimisticPromptAttachments.get(promptId) ?? [];
+    this.optimisticPromptRows.delete(promptId);
+    this.optimisticPromptTexts.delete(promptId);
+    this.optimisticPromptAttachments.delete(promptId);
+    const code = (error as { code?: unknown } | null)?.code;
+    this.rows.set(entry.rowId, {
+      ...row,
+      pending: false,
+      failed: true,
+      error: failedSendText(error, false, attachments),
+      version: row.version + 1,
+    });
+    this.failedPrompts.set(entry.rowId, { input, attachments, promptId });
+    this.setDelivery(promptId, {
+      state: "failed",
+      failedAt: Date.now(),
+      hop: "connection",
+      ...(typeof code === "string" ? { code } : {}),
+      error: error instanceof Error ? error.message : errorMessage(error),
+    });
+    this.emit();
+    return true;
   }
   /// Whether the host's prompt journal keeps a prompt of these blocks that this connection lost
   /// (Swift `AgentPanePromptRelay`): only on a connection to this Mac's acpmux.
@@ -12039,10 +12112,17 @@ export class AcpmuxDirectClient {
   /// sends again on this one: true once this chat shows it (its record, its queue row, or acpmux's
   /// acceptance), false when it does not within `timeoutMs`, this pane shows (or moves to) another
   /// chat, or this connection closes.
-  awaitResent(sessionId: string, promptId: string, timeoutMs: number): Promise<boolean> {
+  /// `draw`: the prompt as it was sent, drawn meanwhile as its own row on its way (`drawLostPrompt`).
+  awaitResent(
+    sessionId: string,
+    promptId: string,
+    timeoutMs: number,
+    draw?: { input: string; attachments: ComposerAttachment[] },
+  ): Promise<boolean> {
     if (this.closed || this.selectedSessionId !== sessionId) return Promise.resolve(false);
     const shown = () => this.showsPrompt(sessionId, promptId);
     if (shown()) return Promise.resolve(true);
+    if (draw) this.drawLostPrompt(sessionId, promptId, draw.input, draw.attachments);
     return new Promise((resolve) => {
       const done = (landed: boolean) => {
         clearTimeout(timer);
