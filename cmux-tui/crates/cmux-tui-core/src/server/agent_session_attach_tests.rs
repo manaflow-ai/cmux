@@ -846,6 +846,7 @@ include!("agent_session_answers_tests.rs");
 include!("agent_session_children_tests.rs");
 include!("agent_session_context_tests.rs");
 include!("agent_session_media_tests.rs");
+include!("agent_session_real_acpmux_tests.rs");
 
 // MARK: Capability and trust
 
