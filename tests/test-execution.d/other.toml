@@ -694,6 +694,11 @@ lane = "manual"
 reason = "Run by hand with python3 when stable_next.py or stable-next.yml changes; repository policy adds no new CI tests."
 
 [[test]]
+path = "tests/test_stable_next_slack.py"
+lane = "manual"
+reason = "Run by hand with python3 when stable_next_slack.py or stable-next.yml's Slack jobs change; repository policy adds no new CI tests."
+
+[[test]]
 path = "tests/test_stale_agent_prs.py"
 lane = "linux-guard"
 

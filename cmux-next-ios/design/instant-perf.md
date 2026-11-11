@@ -36,11 +36,18 @@ on every PR that touches `cmux-next-ios/**`):
 
 | Metric | What is timed | Small | God | Target |
 |---|---|---|---|---|
-| `home_list_first_screen` | `home-inbox` reply bytes to the list the first screen draws (JSON, `MacHomeRow.rows`, `MacHomeList`) | 20 rows | 5,000 rows | 16 ms |
-| `home_list_one_row_update` | one row changes in place in a list of N: what the feed does, the `home-inbox` reply read again, compared and listed; the note has `MacHomeList.Memo` alone | 20 rows | 5,000 rows | 4 ms |
+| `home_list_first_screen` | the first window's `home-inbox` reply bytes (20 rows and the list's `total`, as cmux-mobile-host cuts it) to the list the first screen draws (`MacHomeReply`, `MacHomeList`); the note has the whole list that follows off the main actor | 20 rows | 5,000 rows | 16 ms |
+| `home_list_one_row_update` | one row changes in place in a list of N: what the feed does, the `ids` read's reply (that row and its index) parsed, put in place (`MacHomeRows.apply`) and the list patched (`MacHomeList.Memo`); the note has the memo alone | 20 rows | 5,000 rows | 4 ms |
 | `chat_open_last_messages` | `AgentChatStore` on a fake acpmux, until it holds the newest turn, finished | ~40 records | 50,000 records | 150 ms |
 | `chat_reconnect_catch_up` | link back (`bind`), reattach, until the newest turn shows (tail-first since slice 3: the gap before the newest page fills after, untimed; its time is in the note) | 10 missed | 20,000 missed | 150 ms |
 | `chat_older_page` | one scroll-up page of older history (`loadEarlier`) | 450-record chat | 50,000 records | 50 ms |
+
+Home reads windows (since the windowed Home read): the first screen asks cmux-mobile-host for
+`limit: 20` rows of the scoped list (`chief_policy.rs`, `InboxWindow`), the whole list follows in
+one read parsed off the main actor, and an event reads only its conversation's row (`ids`, with
+its `index` and the list's `total`). The rows this phone last read show before any of it
+(`MacHomeRowsCache`: the first 200 rows per account and Mac, 2 MB in all, deleted at sign-out).
+A host without windows refuses the params and the phone reads the whole list, as before.
 
 The god fixtures are degenerate on purpose: Home rows with pins, ~80 Chiefs
 working, one preview in ten a long Markdown reply, six months of dates; the chat
