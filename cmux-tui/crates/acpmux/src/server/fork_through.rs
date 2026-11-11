@@ -111,6 +111,17 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     // `live`: the whole chat as it is now (Fork Conversation), its running turn cut off
     // there (`hub/fork.rs`).
     let live = params.get("live").and_then(Value::as_bool).unwrap_or(false);
+    // A switch (`harness`, `model`) forks the chat as it is now: with `live` only, never at a turn
+    // or before a prompt, which would drop the target and make an ordinary fork.
+    let switch =
+        ["harness", "model"].iter().any(|key| params.get(*key).is_some_and(|v| !v.is_null()));
+    if switch
+        && (!live || params.get("throughSeq").is_some() || params.get("beforePromptId").is_some())
+    {
+        return Err(RpcError::invalid_params(
+            "harness and model fork the chat as it is now: send them with live, without throughSeq or beforePromptId",
+        ));
+    }
     // A chat on another computer (a peer's, a Cloud machine's) forks there as it is now: the
     // `session/fork` goes to that machine (`peer_forward.rs`), onto another harness too (a pick
     // of another harness's model, sent; Leo 2026-11-11: "across any and all conditions of
@@ -330,5 +341,54 @@ mod tests {
             through.message,
             "forking a chat on another computer through a turn is not supported yet"
         );
+    }
+
+    /// A switch onto another harness forks the chat as it is now: `harness` or `model` with a turn
+    /// or a prompt boundary, or without `live`, is refused rather than dropped (a fork that ignored
+    /// the picked harness would send the message to the old model).
+    #[tokio::test]
+    async fn a_switch_needs_live_and_no_boundary() {
+        let hub = hub_with_a_peer_chat();
+        for params in [
+            json!({"sessionId": "hb/peer-chat-1", "harness": "codex"}),
+            json!({"sessionId": "hb/peer-chat-1", "live": true, "throughSeq": 3, "harness": "codex"}),
+            json!({"sessionId": "hb/peer-chat-1", "beforePromptId": "p", "requestId": "r", "model": "m"}),
+        ] {
+            let err = to_session_fork(&hub, &params).await.unwrap_err();
+            assert!(err.message.contains("send them with live"), "{params}: {}", err.message);
+        }
+    }
+
+    /// A Web switch of a peer's chat passes this daemon's guard to that peer (forwarded `via: web`,
+    /// where the peer's own guard applies the Web's rules); an unknown chat is still refused.
+    #[tokio::test]
+    async fn a_web_switch_of_a_peer_chat_goes_to_the_peer() {
+        let hub = hub_with_a_peer_chat();
+        let mut fork = to_session_fork(
+            &hub,
+            &json!({"sessionId": "hb/peer-chat-1", "live": true, "harness": "codex"}),
+        )
+        .await
+        .unwrap();
+        let web = crate::hub::Control::Web;
+        super::super::remote_guard::web_starts_asking(
+            &hub,
+            web,
+            false,
+            method::SESSION_FORK,
+            &mut fork,
+        )
+        .await
+        .unwrap();
+        let mut unknown = json!({"sessionId": "nope", "_meta": {"acpmux": {"harness": "codex"}}});
+        let refused = super::super::remote_guard::web_starts_asking(
+            &hub,
+            web,
+            false,
+            method::SESSION_FORK,
+            &mut unknown,
+        )
+        .await;
+        assert!(refused.is_err());
     }
 }
