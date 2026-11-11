@@ -227,3 +227,55 @@ fn sizes_and_counts_read_plainly() {
     );
     assert_eq!(take(&["--", "--allow-large"]), (words(&["--", "--allow-large"]), false));
 }
+
+/// Grants of this thread's tests are kept under `state`.
+fn grants_in(state: &Path) {
+    super::TEST_STATE.with(|dir| *dir.borrow_mut() = Some(state.to_path_buf()));
+}
+
+/// `--allow-large` grants the folder at the size it had then, plus a margin (1 GiB or 10%, and
+/// 10,000 files or 10%): a folder that grows within it still goes, one that grows past it is
+/// refused again, with what was found.
+#[test]
+fn a_granted_folder_that_grows_past_its_margin_is_refused_again() {
+    let state = tempfile::tempdir().unwrap();
+    grants_in(state.path());
+    let root = tempfile::tempdir().unwrap();
+    let top = std::fs::canonicalize(root.path()).unwrap();
+    for index in 0..20 {
+        write(&top, &format!("f{index}.txt"), 1);
+    }
+    with_limits(10, 5, || {
+        assert!(super::check_plain(&top).is_err(), "past the limits before any grant");
+        super::allow(&top).unwrap();
+        assert_eq!(super::check_plain(&top), Ok(()), "the folder as granted goes");
+        // Sparse files: no disk spent.
+        std::fs::File::create(top.join("within.img")).unwrap().set_len(512 * 1024 * 1024).unwrap();
+        assert_eq!(super::check_plain(&top), Ok(()), "half a GiB more is within the margin");
+        std::fs::File::create(top.join("past.img"))
+            .unwrap()
+            .set_len(2 * 1024 * 1024 * 1024)
+            .unwrap();
+        let large = super::check_plain(&top).expect_err("2.5 GiB more is past the margin");
+        assert!(large.bytes > 2 * 1024 * 1024 * 1024, "{large:?}");
+    });
+}
+
+/// A grant that does not say the size it was given for (an older `--allow-large`, a bare path)
+/// is no grant: the folder is counted and refused as before.
+#[test]
+fn a_grant_without_its_size_is_no_grant() {
+    let state = tempfile::tempdir().unwrap();
+    grants_in(state.path());
+    let root = tempfile::tempdir().unwrap();
+    let top = std::fs::canonicalize(root.path()).unwrap();
+    for index in 0..20 {
+        write(&top, &format!("f{index}.txt"), 1);
+    }
+    let path = super::grant_path(&top).unwrap();
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, top.as_os_str().as_encoded_bytes()).unwrap();
+    with_limits(u64::MAX, 5, || {
+        assert!(super::check_plain(&top).is_err(), "an old grant lets nothing through");
+    });
+}
