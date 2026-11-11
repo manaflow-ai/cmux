@@ -26,16 +26,21 @@ fn phase_doing(phase: &str) -> &'static str {
     }
 }
 
-/// The error of a wait for startup that ran past `wait` while in `phase`.
-pub(crate) fn startup_wait_error(phase: &str, wait: std::time::Duration) -> crate::rpc::RpcError {
+/// The error of a wait for startup that ran past `wait` while in `phase`: `undone` is what the
+/// request did not do (`no session was created`).
+pub(crate) fn startup_wait_error(
+    phase: &str,
+    wait: std::time::Duration,
+    undone: &str,
+) -> crate::rpc::RpcError {
     let mut error = crate::rpc::RpcError::deadline_exceeded(
         &format!("daemon startup (phase {phase}: {})", phase_doing(phase)),
         wait,
     );
-    error.message.push_str(
-        "; no session was created. `acpmux --json daemon status` shows the phase \
-         (`loading.phase`); try again once it reads ready",
-    );
+    error.message.push_str(&format!(
+        "; {undone}. `acpmux --json daemon status` shows the phase \
+         (`loading.phase`); try again once it reads ready"
+    ));
     if let Some(data) = error.data.as_mut().and_then(serde_json::Value::as_object_mut) {
         data.insert("phase".into(), serde_json::json!(phase));
     }
@@ -168,12 +173,13 @@ impl Hub {
     pub(crate) async fn wait_startup_within(
         &self,
         wait: std::time::Duration,
+        undone: &str,
     ) -> Result<(), crate::rpc::RpcError> {
         if tokio::time::timeout(wait, self.wait_startup()).await.is_ok() {
             return Ok(());
         }
         let phase = self.loading_status()["phase"].as_str().unwrap_or("unknown").to_owned();
-        Err(startup_wait_error(&phase, wait))
+        Err(startup_wait_error(&phase, wait, undone))
     }
 
     /// Run `--version` on proxy launchers off the executor and mark the ones

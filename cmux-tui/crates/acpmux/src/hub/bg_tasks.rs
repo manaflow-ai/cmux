@@ -33,6 +33,8 @@ const OUTPUT_MAX: u64 = 1 << 20;
 const OUTPUT_DEFAULT: u64 = 64 << 10;
 /// The tail each listed task shows.
 const LIST_TAIL: u64 = 1 << 10;
+/// The output a task that exited 127 is searched for its shell's "not found" line.
+const NOT_FOUND_TAIL: u64 = 4 << 10;
 /// How long a start waits for its runner's answer.
 const START_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
@@ -107,6 +109,13 @@ impl Hub {
         if command.trim().is_empty() {
             return Err(RpcError::invalid_params("command is empty"));
         }
+        // The agent's environment is the one a spawn builds, and a spawn waits for the daemon's
+        // startup: its login environment (`login_env`: the login PATH, `~/.local/bin` with
+        // `cmux-ci`, `glaeda-gh`, `lane-gh`), and its vault. An agent that outlived a restart
+        // (an adopted host) asks before that: built then, its task got the daemon's own bare
+        // PATH (systemd's, launchd's) and every tool there exited 127 (2026-11-11).
+        self.wait_startup_within(super::startup::NEW_SESSION_STARTUP_WAIT, "no task was started")
+            .await?;
         // One start at a time: the running count and a purge's stop see every task.
         let _one = self.bg_starts.lock().await;
         // A chat stopped before a restart is Closed with no closing flag: both count.
@@ -640,6 +649,14 @@ pub(super) fn bg_view(dir: &std::path::Path, r: &Record, tail: u64) -> Value {
         // Set when the spool failed (a full disk): output after it is gone, so it is incomplete.
         "outputError": r.output_error,
     });
+    // A command the shell did not find (exit 127): its "not found" line names it
+    // (`bg_run::outcome`). Read only for that exit, its output's last bytes.
+    if state == "exited" && r.exit_code == Some(bg_run::NOT_FOUND_EXIT) {
+        let end = bg_run::read_output(dir, &r.id, None, NOT_FOUND_TAIL).unwrap_or_default();
+        if let Some(name) = bg_run::not_found_command(&String::from_utf8_lossy(&end.data)) {
+            view.set("commandNotFound", json!(name));
+        }
+    }
     if r.result_line {
         let end = bg_run::read_output(dir, &r.id, None, LIST_TAIL).unwrap_or_default();
         let text = String::from_utf8_lossy(&end.data);

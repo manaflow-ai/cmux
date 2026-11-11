@@ -42,15 +42,17 @@ async fn a_slow_startup_that_ends_within_the_wait_is_waited_for() {
         tokio::time::sleep(NEW_SESSION_STARTUP_WAIT / 2).await;
         finisher.startup_ready.send_replace(true);
     });
-    hub.wait_startup_within(NEW_SESSION_STARTUP_WAIT).await.expect("a slow startup is waited for");
+    hub.wait_startup_within(NEW_SESSION_STARTUP_WAIT, "no session was created")
+        .await
+        .expect("a slow startup is waited for");
 }
 
 #[test]
 fn the_error_says_what_each_phase_is_doing() {
     let wait = std::time::Duration::from_secs(1);
-    let adopting = super::startup::startup_wait_error("adopting", wait);
+    let adopting = super::startup::startup_wait_error("adopting", wait, "no session was created");
     assert!(adopting.message.contains("reattaching the agent hosts"), "{}", adopting.message);
     assert!(adopting.message.contains("no session was created"), "{}", adopting.message);
-    let store = super::startup::startup_wait_error("loading-store", wait);
+    let store = super::startup::startup_wait_error("loading-store", wait, "no session was created");
     assert!(store.message.contains("session index"), "{}", store.message);
 }

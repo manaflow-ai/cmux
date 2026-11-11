@@ -323,6 +323,36 @@ pub fn label(description: Option<&str>, command: &str) -> String {
     cut
 }
 
+/// The shell's exit for a command it could not find (bash, dash and zsh alike).
+pub const NOT_FOUND_EXIT: i32 = 127;
+
+/// The command the last "not found" line of a shell in `text` names: bash's `bash: line 1:
+/// cmux-ci: command not found`, zsh's `zsh: command not found: cmux-ci`, dash's `sh: 1: cmux-ci:
+/// not found`. 2026-11-11: `cmux-ci` and `glaeda-gh` exited 127 in tasks started before the
+/// daemon read the login PATH, and their ends read like an ordinary failed test.
+pub fn not_found_command(text: &str) -> Option<String> {
+    text.lines().rev().find_map(|line| {
+        let line = line.trim();
+        let name = if let Some(head) = line.strip_suffix(": command not found") {
+            head.rsplit(": ").next()?
+        } else if let Some((_, tail)) = line.split_once("command not found: ") {
+            tail
+        } else {
+            // dash: the shell, its line number, the name.
+            let mut parts = line.strip_suffix(": not found")?.rsplitn(3, ": ");
+            let name = parts.next()?;
+            let number = parts.next()?;
+            parts.next()?;
+            if number.is_empty() || !number.bytes().all(|b| b.is_ascii_digit()) {
+                return None;
+            }
+            name
+        };
+        let name = label(None, name.trim().trim_matches(['`', '\'', '"']));
+        (!name.is_empty()).then_some(name)
+    })
+}
+
 /// Why a task's exit may not be its command's own (`bg_exit_masking`), e.g. `last stage is
 /// echo`; never for a task that prints its own outcome last (`resultLine`, `run_wait`).
 pub fn exit_warning(view: &serde_json::Value) -> Option<String> {
@@ -336,7 +366,9 @@ pub fn exit_warning(view: &serde_json::Value) -> Option<String> {
 /// `ok` (exit 0) or `failed` (any other end). The condensed-tool contract: the line is the first
 /// line of every `bg_*` result and its `summary`, the status its `status`. An exit 0 whose
 /// command may hide a failure ([`exit_warning`]) says so: `(exit 0; this command's exit may not
-/// be its own: last stage is echo)`.
+/// be its own: last stage is echo)`. An exit 127 says a command was not found, naming the one
+/// its output's "not found" line names (`commandNotFound`, [`not_found_command`]), so it never
+/// reads as the command's own failure: `(exit 127: command not found: cmux-ci)`.
 pub fn outcome(view: &serde_json::Value) -> (String, &'static str) {
     use serde_json::Value;
     let s = |k: &str| view.get(k).and_then(Value::as_str).unwrap_or_default();
@@ -373,6 +405,13 @@ pub fn outcome(view: &serde_json::Value) -> (String, &'static str) {
                 ),
                 None => ("finished", " (exit 0)".to_owned(), "ok"),
             },
+            Some(n) if n == i64::from(NOT_FOUND_EXIT) => {
+                let end = match view.get("commandNotFound").and_then(Value::as_str) {
+                    Some(name) => format!(" (exit {n}: command not found: {name})"),
+                    None => format!(" (exit {n}: a command was not found)"),
+                };
+                ("finished", end, "failed")
+            }
             Some(n) => ("finished", format!(" (exit {n})"), "failed"),
             None => ("finished", String::new(), "failed"),
         },
@@ -737,6 +776,19 @@ mod tests {
         assert_eq!(ok, ("Background command finished: build (exit 0)".to_owned(), "ok"));
         let bad = view(json!({"state": "exited", "exitCode": 2, "command": "x"}));
         assert_eq!(bad, ("Background command finished: x (exit 2)".to_owned(), "failed"));
+        // Exit 127 is a command the shell did not find, named when the output names it.
+        let missing = view(json!({"state": "exited", "exitCode": 127, "command": "cmux-ci test",
+            "commandNotFound": "cmux-ci"}));
+        assert_eq!(
+            missing,
+            (
+                "Background command finished: cmux-ci test (exit 127: command not found: cmux-ci)"
+                    .to_owned(),
+                "failed"
+            )
+        );
+        let unnamed = view(json!({"state": "exited", "exitCode": 127, "command": "x"}));
+        assert_eq!(unnamed.0, "Background command finished: x (exit 127: a command was not found)");
         let killed = view(json!({"state": "killed", "signal": 9, "command": "x"}));
         assert_eq!(killed, ("Background command killed: x (signal 9)".to_owned(), "failed"));
         assert_eq!(view(json!({"state": "stopped", "command": "x"})).1, "failed");
@@ -756,6 +808,23 @@ mod tests {
         let long = label(None, &"a".repeat(500));
         assert_eq!(long.chars().count(), LABEL_MAX);
         assert!(long.ends_with('…'));
+    }
+
+    /// A shell's "not found" line names its command, the last one when there are several:
+    /// bash (with and without a line number), zsh and dash; other lines name none.
+    #[test]
+    fn a_not_found_line_names_its_command() {
+        let named = |text: &str| not_found_command(text);
+        assert_eq!(named("bash: line 1: cmux-ci: command not found").as_deref(), Some("cmux-ci"));
+        assert_eq!(named("bash: glaeda-gh: command not found\n").as_deref(), Some("glaeda-gh"));
+        assert_eq!(named("zsh: command not found: lane-gh").as_deref(), Some("lane-gh"));
+        assert_eq!(named("sh: 1: router-review: not found").as_deref(), Some("router-review"));
+        let two = "bash: line 1: a: command not found\nok\nbash: line 2: b: command not found\n";
+        assert_eq!(named(two).as_deref(), Some("b"));
+        assert_eq!(named("bash: line 1: `bun: command not found").as_deref(), Some("bun"));
+        assert_eq!(named("test 3 failed: file not found"), None);
+        assert_eq!(named("error: config: not found"), None);
+        assert_eq!(named("FAILED tests/x.py\nexit 127"), None);
     }
 
     /// Rotation keeps the newest two segments, named by their start, and a read by whole-output
