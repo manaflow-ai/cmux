@@ -3,6 +3,8 @@
   "entries": [
     {"name": "matrix core", "kind": "cargo", "path": "cmux-tui", "package": "cmux-tui-core", "filter": "mux::tests::matrix", "owner": "op-next-split", "bead": "cx-gkyi1"},
     {"name": "sidebar layout reducer", "kind": "cargo", "path": "cmux-tui", "package": "cmux-layout-reducer", "owner": "op-next-split", "bead": "cx-29ch2"},
+    {"name": "agent pane policy vs the macOS host", "kind": "cargo", "path": "cmux-tui", "package": "cmux-agent-pane-policy", "filter": "macos_hosts", "owner": "op-next-agent-pane"},
+    {"name": "agent pane policy vs the page", "kind": "cargo", "path": "cmux-tui", "package": "cmux-agent-pane-policy", "filter": "the_page_sends", "owner": "op-next-agent-pane"},
     {"name": "home motion tokens", "kind": "swift", "package": "Packages/Shared/CmuxHomeRender", "filter": "MotionTokenTests", "owner": "op-next-newtab", "bead": "cx-29ch2"},
     {"name": "home intent mapping", "kind": "swift", "package": "Packages/Shared/CmuxHomeRender", "filter": "IntentMappingTests", "owner": "op-next-newtab", "bead": "cx-29ch2"},
     {"name": "matrix entries", "kind": "swift", "package": "Packages/macOS/CmuxNext", "filter": "ModelMatrixTests", "owner": "op-next-split", "bead": "cx-gkyi1"},

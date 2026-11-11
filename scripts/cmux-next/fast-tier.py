@@ -201,7 +201,9 @@ def build_packages(root, entries, dry_run, timing):
                            f"{package} test plan"))]
     cargo = []
     for path in dict.fromkeys(e["path"] for e in entries if e["kind"] == "cargo"):
-        packages = [arg for e in entries if e["kind"] == "cargo" and e["path"] == path for arg in ("-p", e["package"])]
+        # Two entries of one package (each with its own filter) build it once, as swift does.
+        names = dict.fromkeys(e["package"] for e in entries if e["kind"] == "cargo" and e["path"] == path)
+        packages = [arg for name in names for arg in ("-p", name)]
         cargo.append((["cargo", "test", "--locked", "--no-run", *packages], path, path))
     builds = swift + cargo
     if dry_run:
