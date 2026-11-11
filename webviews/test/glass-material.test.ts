@@ -109,7 +109,9 @@ await requireBrowserLane("glass-material.test.ts", async () => {
           expect(layerAlpha(shadow, RETURN_BAND), `${id} return along the bottom and right`).toBeGreaterThan(0.05);
           expect(layerAlpha(shadow, SHEEN), `${id} sheen under the top edge`).toBeGreaterThan(0.03);
           expect(layerAlpha(shadow, DEPTH), `${id} depth shadow`).toBeGreaterThan(0.05);
-          expect(layerAlpha(shadow, DEPTH), `${id} depth shadow`).toBeLessThan(colorScheme === "dark" ? 0.3 : 0.12);
+          // Under the floating glass's 55% dark (this harness's root is color-scheme dark, so both
+          // cases read the dark branch); the geometry check below tells it from the floating depth.
+          expect(layerAlpha(shadow, DEPTH), `${id} depth shadow`).toBeLessThan(0.3);
           expect(layerAlpha(shadow, FLOATING_DEPTH), `${id} floating glass's depth`).toBe(-1);
           // The specular light is brighter than its return: lit from above.
           expect(layerAlpha(shadow, SPECULAR_BAND)).toBeGreaterThan(layerAlpha(shadow, RETURN_BAND));
