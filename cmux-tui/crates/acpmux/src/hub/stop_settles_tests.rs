@@ -401,7 +401,7 @@ async fn a_stop_its_agent_dies_on_ends_the_turn_stopped_and_starts_the_agent_aga
     );
     assert_eq!(s.meta().last_turn.as_ref().map(|t| t["status"].clone()), Some(json!("cancelled")));
     // The caller still hears why the process ended, as for any stopped turn that failed.
-    let _ = answer;
+    assert!(answer.is_err(), "{answer:?}");
     // The agent the exit took starts again on the same conversation: the chat is not left
     // disconnected waiting for a Retry.
     record(&hub, &s, "mux", "stop_restarted", |_| true).await;
@@ -436,6 +436,8 @@ async fn an_agent_that_dies_without_a_stop_still_fails_its_turn() {
     let result = record(&hub, &s, "mux", "turn_result", |_| true).await;
     assert_eq!(result.msg["status"], "failed", "{:?}", result.msg);
     record(&hub, &s, "mux", "turn_error", |_| true).await;
+    // An exit is a cause a continuation retries: close the chat so none runs on after the test.
+    hub.kill(&s, false).await.unwrap();
 }
 
 /// A chat closed while its turn runs (`session/close`, `kill`): acpmux sends the cancel and then
