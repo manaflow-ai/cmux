@@ -78,7 +78,7 @@ extension SidebarBridge {
     }
 
     /// Keeps `model.itemInfo` current: a built-in whose action this build
-    /// does not register draws dimmed.
+    /// does not register draws dimmed; with it, the drawn order's hold (`SidebarLaunchOrderHold`).
     func observeSections() {
         let model = model
         let registry = services.registry
@@ -118,7 +118,7 @@ extension SidebarBridge {
                 let suppressed = AppPresence(apps.apps).suppressed
                 if model.suppressedApps != suppressed { model.suppressedApps = suppressed }
             }
-        }
+        }.cancelling(SidebarLaunchOrderHold(home: store, document: { [weak services] in services?.sidebarDoc.store }).follow(model))
     }
 
     /// Built-in tooltips use the same shortcut text as menus.
