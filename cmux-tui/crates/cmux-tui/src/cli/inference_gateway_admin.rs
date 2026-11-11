@@ -342,7 +342,68 @@ pub(super) fn run_route_if_requested(args: &[String]) -> Option<i32> {
     }
     let mut words = vec!["route".to_owned()];
     words.extend(rest.iter().cloned());
-    Some(run_words(&words, global.output == super::OutputMode::Json))
+    let json_out = global.output == super::OutputMode::Json;
+    if let Some((machine, agent)) =
+        app_route(&words, &|k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty()))
+        && super::app::connect_command(&global).is_ok()
+    {
+        let probe = vec![
+            "cloud".to_owned(),
+            "exec".to_owned(),
+            "--target".to_owned(),
+            format!("machine:{machine}"),
+            "--command".to_owned(),
+            probe_command(&agent),
+        ];
+        let step = super::cloud_start_chat::app_step(&global, &probe);
+        let answer = app_route_answer(&machine, &agent, step);
+        print(&answer, json_out);
+        return Some(if answer.get("ok").and_then(Value::as_bool) == Some(true) { 0 } else { 1 });
+    }
+    Some(run_words(&words, json_out))
+}
+
+/// The machine and agent of a `route` that goes through the cmux app, as `cmux vm exec` does: the app runs the probe
+/// on the machine (`cloud exec`) with its own sign-in, so no `--api` or token is needed. `None` when the words name a
+/// direct API path (`--api`, `--team`, `--token-file`, `--token-command`, or `CMUX_CLOUD_ACCESS_TOKEN`) or do not parse.
+pub(super) fn app_route(
+    words: &[String],
+    env: &dyn Fn(&str) -> Option<String>,
+) -> Option<(String, String)> {
+    let direct = ["--api", "--team", "--token-file", "--token-command"];
+    if env("CMUX_CLOUD_ACCESS_TOKEN").is_some()
+        || words.iter().any(|w| direct.iter().any(|d| w == d || w.starts_with(&format!("{d}="))))
+    {
+        return None;
+    }
+    // The API origin is not used on this path: any valid one lets the rest parse.
+    let placeholder =
+        |k: &str| (k == "CMUX_CLOUD_API_URL").then(|| "https://api.cmux.invalid".to_owned());
+    match parse(words, &placeholder).ok()? {
+        (_, Verb::Route { machine, agent }) => Some((machine, agent)),
+        _ => None,
+    }
+}
+
+/// The route answer from the app's `cloud exec` of the probe: its stdout read as [`probe_answer`] reads the API's.
+pub(super) fn app_route_answer(machine: &str, agent: &str, step: Result<Value, Value>) -> Value {
+    match step {
+        Ok(answer) => probe_answer(
+            machine,
+            agent,
+            answer.get("stdout").and_then(Value::as_str).unwrap_or_default(),
+        ),
+        Err(error) => {
+            let reason = error
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("the cmux app did not run it");
+            error_json(
+                "machine.exec_failed",
+                &format!("the machine did not run the probe: {reason}"),
+            )
+        }
+    }
 }
 
 /// Parses and runs a verb; prints its answer.
@@ -377,6 +438,52 @@ mod tests {
     }
     fn env(k: &str) -> Option<String> {
         (k == "CMUX_CLOUD_API_URL").then(|| "https://api.cmux.test".to_owned())
+    }
+
+    /// `inference route --machine` with no API flags goes through the app (as `vm exec`); any direct flag keeps the API path.
+    #[test]
+    fn a_route_without_api_flags_goes_through_the_app() {
+        let none = |_: &str| None;
+        let machine = "vm_abcdefghij0123456789";
+        assert_eq!(
+            app_route(&words(&["route", "--machine", machine, "--agent", "claude"]), &none),
+            Some((machine.to_owned(), "claude".to_owned()))
+        );
+        assert_eq!(
+            app_route(&words(&["route", "--machine", machine, "--api", "https://a.test"]), &none),
+            None
+        );
+        assert_eq!(
+            app_route(&words(&["route", "--machine", machine, "--token-file=/t"]), &none),
+            None
+        );
+        let token = |k: &str| (k == "CMUX_CLOUD_ACCESS_TOKEN").then(|| "t".to_owned());
+        assert_eq!(app_route(&words(&["route", "--machine", machine]), &token), None);
+        assert_eq!(app_route(&words(&["route", "--machine", "nope"]), &none), None);
+    }
+
+    /// The app's exec answer reads like the API's: the route from stdout, or the exec's failure.
+    #[test]
+    fn the_apps_exec_answer_is_the_route() {
+        let routed = app_route_answer(
+            "vm_a",
+            "codex",
+            Ok(json!({"stdout": "{\"ok\":true,\"route\":\"team_key\"}\n200", "exit_code": 0})),
+        );
+        assert_eq!(routed["route"], "team_key");
+        let shared = app_route_answer(
+            "vm_a",
+            "codex",
+            Ok(json!({"stdout": "not found\n404", "exit_code": 0})),
+        );
+        assert_eq!(shared["route"], "shared_coderouter");
+        let failed = app_route_answer(
+            "vm_a",
+            "codex",
+            Err(json!({"code": "unavailable", "message": "vm_a is paused"})),
+        );
+        assert_eq!(failed["error"]["code"], "machine.exec_failed");
+        assert!(failed["error"]["message"].as_str().unwrap().contains("vm_a is paused"));
     }
 
     #[test]

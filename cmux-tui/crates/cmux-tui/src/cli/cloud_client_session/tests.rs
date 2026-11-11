@@ -607,3 +607,33 @@ fn a_machine_from_another_backend_is_refused_before_any_request() {
     assert!(refusal.message.contains("nothing was sent"), "{}", refusal.message);
     assert!(seen.recv_timeout(Duration::from_millis(200)).is_err());
 }
+
+/// `access exec` with no API or credential goes through the app's `cloud exec` (as `vm exec`); `access new` never does
+/// (the app mints no client session), and any API flag or variable keeps the direct path.
+#[test]
+fn exec_without_an_api_or_credential_goes_through_the_app() {
+    let machine = "vm_abcdefghij0123456789";
+    let none = |_: &str| None;
+    let exec =
+        parse(&strings(&["exec", "--target", &format!("vm:{machine}"), "--", "uname", "-a"]))
+            .unwrap();
+    assert_eq!(
+        app_exec(&exec, none),
+        Some(strings(&["--target", &format!("machine:{machine}"), "--command", "uname -a"]))
+    );
+    let token = |key: &str| (key == TOKEN_ENV).then(|| "t".to_owned());
+    assert_eq!(app_exec(&exec, token), None);
+    let with_api = parse(&strings(&[
+        "exec",
+        "--target",
+        machine,
+        "--cloud-api",
+        "https://a.test",
+        "--",
+        "id",
+    ]))
+    .unwrap();
+    assert_eq!(app_exec(&with_api, none), None);
+    let new = parse(&strings(&["create", "--target", machine])).unwrap();
+    assert_eq!(app_exec(&new, none), None);
+}
