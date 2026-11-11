@@ -1,0 +1,13 @@
+{
+ "title": "The hovered link's address at the bottom left of a page (Lawrence 2026-11-09: \"this bottom left thing is missing padding now\"): the address sits inside its pill with padding on both sides, in the caption font",
+ "steps": [
+  {"title": "Launch", "wait": 2, "shot": false},
+  {"title": "Browser workspace", "rpc": {"method": "action.run", "params": {"action": "newBrowserWorkspace", "focus": true}}, "wait": 4, "shot": false},
+  {"title": "A page (example.com: synthetic, no one's names)", "rpc": {"method": "debug.omnibar_type", "params": {"text": "https://example.com/"}}, "wait": 6, "shot": false},
+  {"title": "One large link on the page", "rpc": {"method": "browser.page.eval", "params": {"script": "document.body.innerHTML = '<a href=\"https://github.com/manaflow-ai/trellis/blob/main/LICENSE\" style=\"display:block;font:40px system-ui;padding:120px 80px\">LICENSE</a>'; true"}}, "wait": 1, "shot": false},
+  {"title": "The pointer rests on the link: its address shows at the bottom left", "rpc": {"method": "browser.page.mouse", "params": {"kind": "move", "x": 140, "y": 160}}, "wait": 2},
+  {"title": "A long address is cut in the middle and keeps its padding", "rpc": {"method": "browser.page.eval", "params": {"script": "document.querySelector('a').href = 'https://github.com/manaflow-ai/trellis/blob/main/' + 'docs/reference/'.repeat(30) + 'LICENSE'; true"}}, "wait": 0.5, "shot": false},
+  {"title": "Move off and back on so the page reports the new address", "rpc": {"method": "browser.page.mouse", "params": {"kind": "move", "x": 5, "y": 5}}, "wait": 0.5, "shot": false},
+  {"title": "The long address", "rpc": {"method": "browser.page.mouse", "params": {"kind": "move", "x": 150, "y": 170}}, "wait": 2}
+ ]
+}
