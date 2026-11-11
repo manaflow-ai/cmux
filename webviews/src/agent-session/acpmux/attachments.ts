@@ -38,6 +38,12 @@ export type ComposerAttachment = {
   originalName?: string;
   /** A video link's poster, length and key frames, as the host read them (composer/videoAttachments.ts). */
   video?: VideoInfo;
+  /**
+   * A video link's tile shape (width over height), read from its file's header when it was pasted,
+   * dropped or picked (composer/videoShape.ts): the loading tile, the chip and the sent message's tile
+   * all draw it, so the poster arriving fills the box and never resizes it. Unset, its video's.
+   */
+  videoShape?: number;
   /** The speech in that video, as the host heard it (composer/videoTranscript.ts); the prompt's hidden context. */
   transcript?: VideoTranscript;
   /** The app it came from, as the host said (composer/attachmentSources.ts); none when unknown. */
