@@ -43,21 +43,57 @@ def on_self_hosted_selector(job: Mapping[str, Any]) -> bool:
     return bool(SELF_HOSTED.search(workflow_jobs.runs_on(job)))
 
 
+WORKSPACE_PREFIX = re.compile(r"^\$\{\{\s*github\.workspace\s*\}\}(/|$)")
+
+
+def workspace_relative(path: str) -> str | None:
+    """`path` as a directory under the workspace ("" for the workspace itself); None when it is elsewhere or holds
+    an expression this cannot place."""
+    path = WORKSPACE_PREFIX.sub("", path.strip())
+    if path.startswith("/") or "${{" in path or "$" in path:
+        return None
+    parts = [part for part in path.split("/") if part not in ("", ".")]
+    if ".." in parts:
+        return None
+    return "/".join(parts)
+
+
+def condition(step: Mapping[str, Any]) -> str:
+    return " ".join(str(step.get("if", "")).split())
+
+
+def cleans(step: Mapping[str, Any], options: Mapping[str, Any]) -> bool:
+    """A checkout that removes the untracked files under its path: `clean` absent or literally true (an
+    expression may be false), and it cannot fail past (`continue-on-error`)."""
+    clean = options.get("clean", True)
+    return (clean is True or str(clean).strip().lower() == "true") and not step.get("continue-on-error")
+
+
 def stale_downloads(job: Mapping[str, Any]) -> list[str]:
     """The download-artifact steps of one job whose output directory can hold an earlier job's files."""
     found = []
-    cleaned = False
+    cleaned: list[tuple[str, str]] = []  # (directory under the workspace, the `if:` its checkout ran under)
     for step in job.get("steps") or []:
         if not isinstance(step, dict):
             continue
         uses = str(step.get("uses", ""))
         options = step.get("with") if isinstance(step.get("with"), dict) else {}
         if uses.startswith("actions/checkout"):
-            cleaned = str(options.get("clean", "true")).lower() != "false"
+            directory = workspace_relative(str(options.get("path", "")))
+            if directory is not None and cleans(step, options):
+                cleaned.append((directory, condition(step)))
         elif uses.startswith("actions/download-artifact"):
             path = str(options.get("path", "")).strip()
-            if not FRESH_PATH.match(path) and not cleaned:
-                found.append(f"{step.get('name') or uses}: path {path or '(the workspace)'!r}")
+            if FRESH_PATH.match(path):
+                continue
+            target = workspace_relative(path)
+            when = condition(step)
+            if target is not None and any(
+                    (not ran_if or ran_if == when) and (not directory or target == directory
+                                                         or target.startswith(directory + "/"))
+                    for directory, ran_if in cleaned):
+                continue
+            found.append(f"{step.get('name') or uses}: path {path or '(the workspace)'!r}")
     return found
 
 

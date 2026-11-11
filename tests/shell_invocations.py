@@ -11,8 +11,11 @@ A caller asks one of two questions and the two fail closed in opposite direction
 
 An Invocation is `certain` only when nothing in or before the simple command is beyond this lexer: a command or
 process substitution (`$(..)`, backticks, `<(..)`), an arithmetic or parameter expansion in its program word, a
-program that runs its arguments (eval, source, xargs, find, sudo, `bash -c` ...), a function or alias defined
-anywhere in the script, or a script the lexer could not finish (an unterminated quote or substitution). Commands
+program that runs its arguments (eval, source, xargs, find, `bash -c` ...), a function or alias defined anywhere in
+the script, or a script the lexer could not finish (an unterminated quote or substitution). A wrapper (env, nice,
+nohup, timeout, sudo, command, exec ...) and a shell given a script are read through one table of which operand
+runs (_WRAPPERS, _shell_script): an option it does not model, or a mode that does not run the first operand as a
+script (`bash -n`, `-s`, `-i`, `-o NAME`, `--rcfile`, `command -v`), leaves the command uncertain. Commands
 inside a substitution, and those in an unquoted heredoc body's `$(..)`, are reported uncertain. Not modeled, and
 documented here so no caller reads more into "certain" than it holds: control flow. A command in an `if`, after
 `&&` / `||`, or after `exit` is reported as a command bash would run if control reached it. tests/
@@ -35,11 +38,58 @@ _REDIRECTS = {"<<<", "<<-", "<<", "<&", "<>", "<", ">>", "&>>", "&>", ">&", ">|"
 _HEREDOCS = {"<<", "<<-"}
 # Words a simple command may start with before the program it runs.
 _KEYWORDS = {"if", "elif", "while", "until", "!", "then", "else", "do", "{", "}"}
-_PREFIX_COMMANDS = {"exec", "time", "command", "env", "nohup", "builtin"}
-_SHELLS = {"bash", "sh", "zsh"}
 # Programs that run what their arguments name (or evaluate text), so the commands they run are not in the words.
-_RUNS_ARGUMENTS = {"eval", "source", ".", "xargs", "find", "sudo", "timeout", "nice", "watch", "setsid", "flock",
-                   "su", "ssh", "trap", "parallel", "chroot", "stdbuf", "ionice"}
+_RUNS_ARGUMENTS = {"eval", "source", ".", "xargs", "find", "watch", "flock", "su", "ssh", "trap", "parallel",
+                   "chroot"}
+
+
+class _Wrapper(NamedTuple):
+    """Which operand of a wrapper runs as the program. Options are read one by one: a flag in `flags` is skipped,
+    one in `values` takes a value (joined, `-n5` / `--adjustment=5`, or the next word), one in `no_run` means the
+    operand is not run (`command -v x`). Any other option, or an option word holding an expansion, leaves the
+    program unknown: the command may run anything and is not certain. `--` ends the options."""
+    flags: frozenset[str] = frozenset()
+    values: frozenset[str] = frozenset()
+    no_run: frozenset[str] = frozenset()
+    assignments: bool = False  # NAME=VALUE words may come before the program (env, the `time` keyword)
+    operands_before: int = 0  # operands before the program (timeout's DURATION)
+    numeric: bool = False  # `-N` is an option (nice -10)
+    # The program certainly starts, as itself, in this directory, when bash reaches the command. False where the
+    # wrapper may refuse, defer, kill or relocate it (sudo, timeout, setsid's fork, builtin's builtins-only).
+    certain: bool = True
+
+
+def _options(*names: str) -> frozenset[str]:
+    return frozenset(names)
+
+
+# One table for every wrapper; tests/test_shell_invocations.py runs each certain one in real bash.
+_WRAPPERS: dict[str, _Wrapper] = {
+    "env": _Wrapper(flags=_options("-i", "--ignore-environment", "-0", "--null", "-v", "--debug"),
+                    values=_options("-u", "--unset"), assignments=True),
+    "nice": _Wrapper(values=_options("-n", "--adjustment"), numeric=True),
+    "nohup": _Wrapper(),
+    "stdbuf": _Wrapper(values=_options("-i", "-o", "-e", "--input", "--output", "--error")),
+    "command": _Wrapper(flags=_options("-p"), no_run=_options("-v", "-V")),
+    "exec": _Wrapper(flags=_options("-c", "-l"), values=_options("-a")),
+    "time": _Wrapper(flags=_options("-p"), assignments=True),
+    "timeout": _Wrapper(flags=_options("--preserve-status", "--foreground", "-v", "--verbose"),
+                        values=_options("-s", "--signal", "-k", "--kill-after"), operands_before=1, certain=False),
+    "sudo": _Wrapper(flags=_options("-E", "-H", "-n", "-P", "-S", "-A", "-N", "--preserve-env", "--set-home",
+                                    "--non-interactive", "--preserve-groups", "--stdin", "--askpass"),
+                     values=_options("-u", "-g", "-p", "-r", "-t", "-T", "-C", "-h", "--user", "--group",
+                                     "--prompt", "--role", "--type", "--command-timeout", "--close-from", "--host"),
+                     no_run=_options("-l", "-v", "-k", "-K", "-V", "--list", "--validate"), certain=False),
+    "setsid": _Wrapper(flags=_options("-c", "--ctty", "-f", "--fork", "-w", "--wait"), certain=False),
+    "ionice": _Wrapper(flags=_options("-t", "--ignore"), values=_options("-c", "--class", "-n", "--classdata"),
+                       certain=False),
+    "builtin": _Wrapper(certain=False),
+}
+_SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
+# Shell options that keep "run the first operand as a script": the rest (-c text, -s stdin, -i interactive,
+# -n noexec, -t one command, -r restricted, -l login profile, -D, -o/-O NAME, --rcfile FILE ...) are uncertain.
+_SHELL_FLAGS = frozenset("abefhkmpuvxBCEHPT")
+_SHELL_LONG_FLAGS = frozenset({"--noprofile", "--norc", "--posix", "--noediting", "--verbose"})
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _ARRAY_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\+?=$")
 _FUNCTION_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_.:@-]*$")
@@ -417,30 +467,134 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
     return found + inner, complete
 
 
+def _opaque(word: Token) -> bool:
+    return word.dynamic or "\x00" in word.text
+
+
+def _unwrap(words: list[Token], index: int, wrapper: _Wrapper) -> tuple[int | None, bool]:
+    """The index of the program `words[index]` (a wrapper) runs, and whether it runs it for certain; None when the
+    options leave the program unknown or say nothing runs."""
+    i = index + 1
+    while i < len(words):
+        word = words[i]
+        text = word.text
+        if _opaque(word):
+            return None, False
+        if text == "--":
+            i += 1
+            break
+        if not text.startswith("-") or text == "-":
+            break
+        if wrapper.numeric and re.fullmatch(r"-[0-9]+", text):
+            i += 1
+            continue
+        if text.startswith("--"):
+            name, joined = text.split("=", 1)[0], "=" in text
+            if name in wrapper.no_run:
+                return None, False
+            if name in wrapper.values:
+                i += 1 if joined else 2
+                continue
+            if name in wrapper.flags:
+                i += 1
+                continue
+            return None, False
+        taken = False
+        for at, letter in enumerate(text[1:], start=1):
+            option = "-" + letter
+            if option in wrapper.no_run:
+                return None, False
+            if option in wrapper.values:
+                taken = at == len(text) - 1  # `-u NAME`: the value is the next word; `-uNAME`: the rest
+                break
+            if option not in wrapper.flags:
+                return None, False
+        i += 2 if taken else 1
+    while wrapper.assignments and i < len(words) and _ASSIGNMENT.match(words[i].text):
+        if _opaque(words[i]):
+            return None, False
+        i += 1
+    for _ in range(wrapper.operands_before):
+        if i >= len(words) or _opaque(words[i]):
+            return None, False
+        i += 1
+    return i, wrapper.certain
+
+
+def _shell_script(words: list[Token], index: int) -> tuple[int | None, bool]:
+    """The index of the script a shell (`words[index]`) runs as its first operand, and whether that is certain.
+    None when it runs text or stdin instead (-c, -s, no operand), so it may run anything. A mode this does not
+    model as "run the script" (-n, -i, -t, -o NAME, --rcfile FILE ...) keeps the operand but is not certain, and
+    may run any program. `--` or `-` ends the options: the next word is the script."""
+    i = index + 1
+    certain = True
+    while i < len(words):
+        word = words[i]
+        text = word.text
+        if _opaque(word):
+            return None, False
+        if text in ("--", "-"):
+            i += 1
+            break
+        if not text.startswith(("-", "+")) or len(text) < 2:
+            break
+        if text.startswith("--"):
+            if text in ("--rcfile", "--init-file"):
+                i += 2
+                certain = False
+                continue
+            if text not in _SHELL_LONG_FLAGS:
+                certain = False
+            i += 1
+            continue
+        taken = False
+        for at, letter in enumerate(text[1:], start=1):
+            if letter in "cs":
+                return None, False  # `bash -c TEXT` runs TEXT; `bash -s` reads its script from stdin
+            if letter in "oO":
+                certain = False
+                taken = at == len(text) - 1
+                break
+            if letter not in _SHELL_FLAGS:
+                certain = False
+        i += 2 if taken else 1
+    if i >= len(words):
+        return None, False  # no operand: the shell reads its script from stdin
+    return i, certain
+
+
 def _classify(command: _Command, defined: set[str]) -> Invocation | None:
     words = command.words
     start = 0
-    prefixed = False
     while start < len(words) and (
             _ASSIGNMENT.match(words[start].text)
-            or (words[start].text in _KEYWORDS and not words[start].quoted)
-            or words[start].text in _PREFIX_COMMANDS):
-        prefixed = prefixed or words[start].text in _PREFIX_COMMANDS
+            or (words[start].text in _KEYWORDS and not words[start].quoted)):
         start += 1
     certain = not command.dynamic and not command.nested
     any_program = False
-    if start < len(words) and words[start].text in _SHELLS and not words[start].quoted:
-        start += 1
-        while start < len(words) and words[start].text.startswith("-"):
-            option = words[start].text
-            if (not option.startswith("--") and "c" in option[1:]) or option == "-s":
-                any_program = True  # `bash -c 'text'` and `bash -s` run text this detector does not read
-            start += 1
+    while start < len(words) and not _opaque(words[start]):
+        name = words[start].text
+        if name in _WRAPPERS:
+            program, sure = _unwrap(words, start, _WRAPPERS[name])
+        elif name in _SHELLS:
+            program, sure = _shell_script(words, start)
+        else:
+            break
+        if program is None:
+            return Invocation([w.text for w in words[start:]], False, True)
+        if program >= len(words):
+            # `env` or `nice` alone runs itself; `exec` or `time` alone runs nothing.
+            return Invocation([w.text for w in words[start:]], certain and sure, False)
+        certain = certain and sure
+        start = program
+        if name in _SHELLS:
+            # An unmodeled mode (-i reads rc files, --rcfile FILE, -l a profile) may run a file the words name
+            # only as an option value, or none.
+            any_program = not sure
+            break  # the operand is a script file, whatever its name
     if start >= len(words):
         return None  # only assignments and redirections: nothing is run (a substitution's commands are separate)
     program = words[start]
-    if prefixed and program.text.startswith("-"):
-        certain, any_program = False, True  # an option of env/time/command: the program is further on
     if program.dynamic or "\x00" in program.text or program.text.startswith("$"):
         certain, any_program = False, True
     if program.text in _RUNS_ARGUMENTS or program.text in defined:
