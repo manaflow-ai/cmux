@@ -192,7 +192,10 @@ export function ProjectChooser({
             icon
           ))}
         <span>{label}</span>
-        <ChevronIcon />
+        {/* Inside a sentence ("What should we build in cmux?") the underlined name is the control, with
+            no caret after it, as Codex draws it (Austin 2026-11-11: "We just do exactly what Codex is
+            doing here"). */}
+        {!inline && <ChevronIcon />}
       </button>
       <Popover
         open={open}

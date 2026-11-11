@@ -649,6 +649,12 @@ impl WorkspaceRegistry {
         tx.commit()?;
         Ok(())
     }
+    /// Retry rows this thread cleared in a commit of their own (test seam).
+    #[cfg(test)]
+    pub(crate) fn agent_hook_clears_own_commit_for_test() -> usize {
+        AGENT_HOOK_CLEARS_OWN_COMMIT.with(Cell::get)
+    }
+
     pub(crate) fn stage_agent_hook_pending(
         transaction: &Transaction<'_>,
         producer_id: &str,
@@ -775,14 +781,9 @@ impl WorkspaceRegistry {
         origin: &str,
         idempotency_key: &str,
     ) -> anyhow::Result<()> {
-        self.connection
-            .get()
-            .prepare_cached(
-                "DELETE FROM resource_agent_hook_pending
-             WHERE producer_id = ?1 AND origin = ?2 AND idempotency_key = ?3",
-            )?
-            .execute(params![producer_id, origin, idempotency_key])?;
-        Ok(())
+        #[cfg(test)]
+        AGENT_HOOK_CLEARS_OWN_COMMIT.with(|count| count.set(count.get() + 1));
+        clear_agent_hook_pending_on(&self.connection.get(), producer_id, origin, idempotency_key)
     }
 
     fn record_agent_hook_pending_failure(
@@ -5279,5 +5280,27 @@ fn ensure_no_foreign_key_violations(transaction: &Transaction<'_>) -> anyhow::Re
             "resource topology foreign-key violation: table={table} rowid={rowid} parent={parent:?} index={index}"
         );
     }
+    Ok(())
+}
+
+#[cfg(test)]
+thread_local! {
+    static AGENT_HOOK_CLEARS_OWN_COMMIT: Cell<usize> = const { Cell::new(0) };
+}
+
+/// Delete a projected hook's retry row on `connection` (its own commit, or a
+/// statement of the caller's transaction: the journal writer's batch).
+pub(crate) fn clear_agent_hook_pending_on(
+    connection: &Connection,
+    producer_id: &str,
+    origin: &str,
+    idempotency_key: &str,
+) -> anyhow::Result<()> {
+    connection
+        .prepare_cached(
+            "DELETE FROM resource_agent_hook_pending
+             WHERE producer_id = ?1 AND origin = ?2 AND idempotency_key = ?3",
+        )?
+        .execute(params![producer_id, origin, idempotency_key])?;
     Ok(())
 }
