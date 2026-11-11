@@ -426,33 +426,58 @@ pub fn unmatched_chord_allowed(is_service_shortcut: bool, denies_any: bool) -> b
     !(is_service_shortcut && denies_any)
 }
 
-/// The NSKeyEquivalent "default" values in `pbs -dump` output (one per
-/// service that has a shortcut).
+/// Every value of each NSKeyEquivalent dictionary in `pbs -dump` output
+/// (default and localized ones), keeping those that are a key equivalent:
+/// modifier marks ($ ^ ~ @) and one key, which may be a function-key
+/// character such as \Uf704 (written that way in the dump).
 pub fn service_equivalents(dump: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut rest = dump;
     while let Some(i) = rest.find("NSKeyEquivalent") {
-        rest = &rest[i..];
-        let Some(open) = rest.find('{') else { break };
-        let Some(close) = rest[open..].find('}') else { break };
-        let body = &rest[open + 1..open + close];
-        if let Some(d) = body.find("default") {
-            let value = body[d + "default".len()..]
-                .trim_start()
-                .trim_start_matches('=')
-                .trim()
-                .trim_end_matches(';')
-                .trim()
-                .trim_matches('"');
-            // A key equivalent is a few modifier marks and one key; longer
-            // values are menu titles that this dump also files here.
-            if !value.is_empty() && value.chars().count() <= 5 {
-                out.push(value.to_string());
+        rest = &rest[i + "NSKeyEquivalent".len()..];
+        let after = rest.trim_start();
+        let Some(after) = after.strip_prefix('=') else { continue };
+        let after = after.trim_start();
+        // Only a dictionary value: "{ ... }".
+        let Some(body_start) = after.strip_prefix('{') else { continue };
+        let Some(close) = body_start.find('}') else { break };
+        for entry in body_start[..close].split(';') {
+            let Some((_, value)) = entry.split_once('=') else { continue };
+            let value = unescape_dump(value.trim().trim_matches('"'));
+            if is_key_equivalent(&value) && !out.contains(&value) {
+                out.push(value);
             }
         }
-        rest = &rest[open + close..];
+        rest = &body_start[close..];
     }
     out
+}
+
+/// "\Uf704" in a property-list dump is U+F704.
+fn unescape_dump(s: &str) -> String {
+    let mut out = String::new();
+    let mut rest = s;
+    while let Some(i) = rest.find("\\U") {
+        out.push_str(&rest[..i]);
+        let hex = rest.get(i + 2..i + 6).unwrap_or("");
+        match u32::from_str_radix(hex, 16).ok().and_then(char::from_u32) {
+            Some(c) if hex.len() == 4 => {
+                out.push(c);
+                rest = &rest[i + 6..];
+            }
+            _ => {
+                out.push_str(&rest[i..i + 2]);
+                rest = &rest[i + 2..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Modifier marks and exactly one key.
+pub fn is_key_equivalent(value: &str) -> bool {
+    value.chars().filter(|c| !matches!(c, '$' | '^' | '~' | '@')).count() == 1
 }
 
 /// Whether background keys may go to the target window: it is the key
@@ -501,11 +526,10 @@ pub fn step_confirmed(capped: bool, read: f64, target: f64, min: f64, max: f64) 
     !capped && step_reached(read, target, min, max)
 }
 
-/// One node kept by [`breadth_first`]: its parent's slot and its depth.
+/// One node kept by [`breadth_first`] and its parent's slot.
 pub struct BfsSlot<N> {
     pub node: N,
     pub parent: Option<usize>,
-    pub depth: usize,
 }
 
 /// Breadth-first from `root`, keeping at most `budget` nodes and not
@@ -529,7 +553,7 @@ pub fn breadth_first<N>(
         }
         let Some(children) = visit(&node, depth) else { continue };
         let slot = slots.len();
-        slots.push(BfsSlot { node, parent, depth });
+        slots.push(BfsSlot { node, parent });
         if children.is_empty() {
             continue;
         }

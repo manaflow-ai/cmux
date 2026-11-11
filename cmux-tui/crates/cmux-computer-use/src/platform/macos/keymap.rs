@@ -196,16 +196,14 @@ pub fn menu_item_matches(
     menu_mods: i64,
 ) -> bool {
     let has = |m: Modifier| combo.modifiers.contains(&m);
-    // A shifted character ("+", "?") is its key with Shift: cmd++ is
-    // cmd+shift+=, as the menu reports it.
-    let implied_shift = matches!(&combo.key, Key::Char(c) if char_key(*c).is_some_and(|(_, shift)| shift) && !c.is_ascii_alphabetic());
-    let wanted = (if has(Modifier::Shift) || implied_shift { MENU_SHIFT } else { 0 })
-        | (if has(Modifier::Alt) { MENU_OPTION } else { 0 })
+    // Option, Control and Command must be the same.
+    let wanted = (if has(Modifier::Alt) { MENU_OPTION } else { 0 })
         | (if has(Modifier::Control) { MENU_CONTROL } else { 0 })
         | (if has(Modifier::Meta) { 0 } else { MENU_NO_COMMAND });
-    if menu_mods & 0x0f != wanted {
+    if menu_mods & (MENU_OPTION | MENU_CONTROL | MENU_NO_COMMAND) != wanted {
         return false;
     }
+    let menu_shift = menu_mods & MENU_SHIFT != 0;
     match (&combo.key, cmd_char.filter(|c| !c.is_empty())) {
         (Key::Char(c), Some(item)) => {
             let mut chars = item.chars();
@@ -213,12 +211,20 @@ pub fn menu_item_matches(
             if chars.next().is_some() {
                 return false;
             }
-            // The same key: the same letter, or the same key code ("=" and "+").
-            i.to_lowercase().eq(c.to_lowercase())
-                || matches!((char_key(i), char_key(*c)), (Some((a, _)), Some((b, _))) if a == b && !c.is_ascii_alphabetic())
+            // Compare the physical key and Shift. AppKit stores Zoom In as "+"
+            // with Command only: the character carries the Shift ("+" is
+            // shift+=), and letters are reported upper-case without meaning
+            // Shift (Shift is then the MENU_SHIFT bit).
+            let (Some((item_code, item_char_shift)), Some((key_code_, key_char_shift))) = (char_key(i), char_key(*c))
+            else {
+                return i.to_lowercase().eq(c.to_lowercase()) && menu_shift == has(Modifier::Shift);
+            };
+            let item_shift = menu_shift || (item_char_shift && !i.is_ascii_alphabetic());
+            let key_shift = has(Modifier::Shift) || (key_char_shift && !c.is_ascii_alphabetic());
+            item_code == key_code_ && item_shift == key_shift
         }
         (key, None) => match (key_code(key), virtual_key) {
-            (Some((code, _)), Some(v)) => i64::from(code) == v,
+            (Some((code, _)), Some(v)) => i64::from(code) == v && menu_shift == has(Modifier::Shift),
             _ => false,
         },
         _ => false,
@@ -245,6 +251,11 @@ pub fn service_shortcut(equivalent: &str) -> Option<(u16, u64)> {
         }
     }
     let key = key?;
+    // NSF1FunctionKey (U+F704) .. NSF24FunctionKey.
+    if let n @ 0xF704..=0xF71B = key as u32 {
+        let (code, _) = key_code(&Key::F((n - 0xF704 + 1) as u8))?;
+        return Some((code, flags));
+    }
     let (code, shift) = char_key(key)?;
     if shift || key.is_ascii_uppercase() {
         // A capital or shifted character means Shift (services write "B" for ⇧⌘B).

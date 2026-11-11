@@ -342,6 +342,8 @@ impl Desktop for MacDesktop {
 
     fn set_menu_guard(&self, guard: Arc<dyn MenuGuard>) {
         *self.menu_guard.write().unwrap_or_else(|e| e.into_inner()) = Some(guard);
+        workspace::warm_app_names();
+        let _ = workspace::service_shortcuts();
     }
 
     fn click(&self, target: &PointerTarget, spec: &ClickSpec) -> DResult<ActionOutcome> {

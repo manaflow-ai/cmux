@@ -57,7 +57,7 @@ pub struct FakeDesktop {
     /// Whether `restore_focus` works.
     pub restore_works: bool,
     /// The menu guard the engine set ([`Desktop::set_menu_guard`]).
-    pub menu_guard: Mutex<Option<std::sync::Arc<dyn crate::desktop::MenuGuard>>>,
+    pub menu_guard: Mutex<Option<std::sync::Arc<dyn MenuGuard>>>,
 }
 
 impl FakeDesktop {
@@ -149,7 +149,7 @@ impl FakeDesktop {
 }
 
 impl Desktop for FakeDesktop {
-    fn set_menu_guard(&self, guard: std::sync::Arc<dyn crate::desktop::MenuGuard>) {
+    fn set_menu_guard(&self, guard: std::sync::Arc<dyn MenuGuard>) {
         *self.menu_guard.lock().unwrap() = Some(guard);
     }
 

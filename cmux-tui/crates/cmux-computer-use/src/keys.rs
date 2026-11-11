@@ -144,12 +144,12 @@ impl KeyCombo {
 mod tests {
     #[test]
     fn a_trailing_double_plus_is_the_plus_key() {
-        let c = super::KeyCombo::parse("cmd++").unwrap();
-        assert_eq!((c.modifiers.clone(), c.key.clone()), (vec![super::Modifier::Meta], super::Key::Char('+')));
-        let c = super::KeyCombo::parse("ctrl+shift++").unwrap();
-        assert_eq!(c.key, super::Key::Char('+'));
+        let c = KeyCombo::parse("cmd++").unwrap();
+        assert_eq!((c.modifiers.clone(), c.key), (vec![Modifier::Meta], Key::Char('+')));
+        let c = KeyCombo::parse("ctrl+shift++").unwrap();
+        assert_eq!(c.key, Key::Char('+'));
         assert_eq!(c.modifiers.len(), 2);
-        assert!(super::KeyCombo::parse("nope++").is_err());
+        assert!(KeyCombo::parse("nope++").is_err());
     }
 
     use super::*;

@@ -158,7 +158,7 @@ impl MacDesktop {
     /// Whether the window's app is the frontmost app, where the person's
     /// keys and caret are.
     fn is_persons_app(&self, t: &Target) -> bool {
-        super::workspace::app_for_pid(t.window.pid).is_some_and(|a| a.active)
+        workspace::app_for_pid(t.window.pid).is_some_and(|a| a.active)
     }
 
     /// Refuses, in the background, an element whose activation opens a menu
@@ -444,8 +444,13 @@ pub(super) fn press_keys(
             roles::ShortcutPick::None => {
                 // A cut-off search could have missed a menu item of a denied
                 // app; that matters only while some app is denied.
-                let service = keymap::is_service_shortcut(code, flags, &workspace::service_shortcuts());
-                if (!complete && d.denies_any()) || !roles::unmatched_chord_allowed(service, d.denies_any()) {
+                let denies_any = d.denies_any();
+                // Read the Services shortcuts only while something is denied;
+                // before a successful read, every unmatched chord counts as one.
+                let service = denies_any
+                    && workspace::service_shortcuts()
+                        .is_none_or(|list| keymap::is_service_shortcut(code, flags, &list));
+                if (!complete && denies_any) || !roles::unmatched_chord_allowed(service, denies_any) {
                     return Err(DesktopError::Unsupported(if service {
                         "this shortcut runs a Service, which can hand the selection to an app on the Computer Use deny list; use the app's menu items in the tree".into()
                     } else {

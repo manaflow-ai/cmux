@@ -85,6 +85,9 @@ unsafe extern "C" {
     pub fn CFNumberGetValue(n: CFTypeRef, ty: CFIndex, out: *mut c_void) -> u8;
     pub fn CFNumberCreate(alloc: CFTypeRef, ty: CFIndex, value: *const c_void) -> CFTypeRef;
     pub fn CFBooleanGetValue(b: CFTypeRef) -> u8;
+    pub fn CFDictionaryGetCount(d: CFTypeRef) -> CFIndex;
+    pub fn CFDictionaryGetKeysAndValues(d: CFTypeRef, keys: *mut CFTypeRef, values: *mut CFTypeRef);
+    pub fn CFPreferencesCopyAppValue(key: CFTypeRef, app: CFTypeRef) -> CFTypeRef;
     pub static kCFBooleanTrue: CFTypeRef;
     pub static kCFBooleanFalse: CFTypeRef;
     pub static kCFTypeArrayCallBacks: Opaque;
@@ -291,6 +294,29 @@ impl Cf {
             let n = CFArrayGetCount(self.0);
             (0..n).filter_map(|i| Cf::retained(CFArrayGetValueAtIndex(self.0, i))).collect()
         }
+    }
+
+    /// The values of a CFDictionary, retained (empty for anything else).
+    pub fn dict_values(&self) -> Vec<Cf> {
+        // SAFETY: checked to be a CFDictionary; the out arrays hold count entries.
+        unsafe {
+            if self.type_id() != CFDictionaryGetTypeID() {
+                return Vec::new();
+            }
+            let n = CFDictionaryGetCount(self.0).max(0) as usize;
+            let mut keys = vec![std::ptr::null(); n];
+            let mut values = vec![std::ptr::null(); n];
+            CFDictionaryGetKeysAndValues(self.0, keys.as_mut_ptr(), values.as_mut_ptr());
+            values.into_iter().filter_map(Cf::retained).collect()
+        }
+    }
+
+    /// A user default of another app (`CFPreferencesCopyAppValue`), or None.
+    pub fn preference(key: &str, app: &str) -> Option<Cf> {
+        let k = Cf::string(key)?;
+        let a = Cf::string(app)?;
+        // SAFETY: both live; the result is +1 or null.
+        Cf::created(unsafe { CFPreferencesCopyAppValue(k.0, a.0) })
     }
 
     /// A value of a CFDictionary by string key, retained.

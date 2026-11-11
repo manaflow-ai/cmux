@@ -3,7 +3,7 @@
 //! `cargo test -p cmux-computer-use -- --ignored macos_desktop_smoke --nocapture`).
 
 use super::*;
-use crate::desktop::{Button, Point, Rect};
+use crate::desktop::{Button, MenuGuard, Point, Rect};
 use crate::keys::{Key, KeyCombo, Modifier};
 
 #[test]
@@ -270,7 +270,7 @@ fn shortcuts_match_menu_items_by_char_and_modifiers() {
     // An item with no Command (MENU_NO_COMMAND) never matches a cmd chord.
     assert!(!m("cmd+f", Some("F"), None, keymap::MENU_NO_COMMAND));
     // Non-character equivalents compare the virtual key code.
-    let (left, _) = keymap::key_code(&crate::keys::Key::Left).unwrap();
+    let (left, _) = keymap::key_code(&Key::Left).unwrap();
     assert!(m("cmd+left", None, Some(i64::from(left)), 0));
     assert!(!m("cmd+right", None, Some(i64::from(left)), 0));
     // Punctuation and digits match as typed.
@@ -295,7 +295,7 @@ fn stepping_targets_take_numbers_and_percentages() {
 
 /// A guard over the real policy decision (deny list and protected apps).
 struct PolicyGuard(crate::policy::PolicyConfig);
-impl crate::desktop::MenuGuard for PolicyGuard {
+impl MenuGuard for PolicyGuard {
     fn app_blocked(&self, id: &str, name: &str) -> bool {
         crate::policy::is_blocked(&self.0, &crate::policy::TargetApp { id: id.into(), name: name.into() }).is_some()
     }
@@ -428,7 +428,7 @@ fn the_menu_walk_is_breadth_first_within_budget_and_depth() {
     assert_eq!(order, vec![0, 1, 2, 3, 5, 6]);
     assert!(!truncated);
     assert_eq!(slots[3].parent, Some(1)); // 3 under 1
-    assert_eq!(slots[5].depth, 3);
+    assert_eq!(slots[5].parent, Some(3)); // 6 under 3, three levels down
     // Budget: every top-level item before any deeper one, and the cut is reported.
     let (slots, truncated) = roles::breadth_first(0u32, 3, 10, |n, _| Some(kids(*n)));
     assert_eq!(slots.iter().map(|s| s.node).collect::<Vec<_>>(), vec![0, 1, 2]);
@@ -466,6 +466,18 @@ fn services_shortcuts_are_read_from_the_pasteboard_server_dump() {
     }
     "#;
     assert_eq!(roles::service_equivalents(dump), vec!["B".to_string(), "$^@C".to_string()]);
+    // Localized values and function keys (written \Uf704 in the dump) count too;
+    // a value that is not a dictionary is skipped, not latched onto a later one.
+    let dump2 = r#"
+        NSKeyEquivalent = "@x";
+        NSMenuItem = { default = "Q"; };
+        NSKeyEquivalent = { de = "@$E"; default = "@\Uf704"; };
+    "#;
+    assert_eq!(roles::service_equivalents(dump2), vec!["@$E".to_string(), "@\u{f704}".to_string()]);
+    let (f1, _) = keymap::key_code(&Key::F(1)).unwrap();
+    assert_eq!(keymap::service_shortcut("@\u{f704}"), Some((f1, keymap::FLAG_COMMAND)));
+    assert!(roles::is_key_equivalent("$^@C"));
+    assert!(!roles::is_key_equivalent("New Workspace"));
     let (b, _) = keymap::char_key('b').unwrap();
     let (c, _) = keymap::char_key('c').unwrap();
     // "B" is ⇧⌘B (a capital means Shift; Command is implied).
@@ -486,11 +498,22 @@ fn services_shortcuts_are_read_from_the_pasteboard_server_dump() {
 fn shifted_punctuation_matches_its_menu_item() {
     use crate::keys::KeyCombo;
     let m = |combo: &str, ch: &str, mods: i64| keymap::menu_item_matches(&KeyCombo::parse(combo).unwrap(), Some(ch), None, mods);
-    // Zoom In is ⌘+ in the menu ("+", no Shift bit) and ⇧⌘= on the keyboard.
-    assert!(m("cmd+shift+=", "+", keymap::MENU_SHIFT) || m("cmd+shift+=", "+", 0));
-    assert!(m("cmd++", "+", keymap::MENU_SHIFT));
+    // Zoom In as AX reports it: AXMenuItemCmdChar "+", AXMenuItemCmdModifiers 0
+    // (Command only); the "+" itself means shift+=.
+    assert!(m("cmd++", "+", 0));
+    assert!(m("cmd+shift+=", "+", 0));
+    assert!(!m("cmd+=", "+", 0));
+    // Zoom Out "-" with modifiers 0, and a plain "=".
+    assert!(m("cmd+-", "-", 0));
     assert!(m("cmd+=", "=", 0));
-    assert!(!m("cmd+=", "+", keymap::MENU_SHIFT));
+    assert!(!m("cmd+shift+=", "=", 0));
+    // Letters: AX reports "T"; Shift is the MENU_SHIFT bit.
+    assert!(m("cmd+t", "T", 0));
+    assert!(!m("cmd+t", "T", keymap::MENU_SHIFT));
+    assert!(m("cmd+shift+t", "T", keymap::MENU_SHIFT));
+    // "?" (Help) is shift+/.
+    assert!(m("cmd+?", "?", 0));
+    assert!(m("cmd+shift+/", "?", 0));
 }
 
 #[test]

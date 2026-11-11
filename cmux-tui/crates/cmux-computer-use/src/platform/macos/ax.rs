@@ -423,8 +423,12 @@ impl Walk {
         let mut described: Vec<Element> = Vec::new();
         let mut failure: Option<AXError> = None;
         let root = Node { ax: bar, top_index: None, menus: 0, siblings: std::rc::Rc::new(Vec::new()) };
+        let first = self.elements.len();
+        let mut kept = 0usize;
         let (slots, truncated) = roles::breadth_first(root, budget, MENU_DEPTH, |n, depth| {
-            let index = self.elements.len();
+            // The element id is its index in self.elements: kept nodes are
+            // pushed below, in this same order.
+            let index = first + kept;
             let (element, children) = match self.describe(&n.ax, index) {
                 Ok(v) => v,
                 Err(e) => {
@@ -447,7 +451,7 @@ impl Walk {
                     return None;
                 }
             }
-            self.elements.push(n.ax.clone());
+            kept += 1;
             described.push(element);
             let children: Vec<Ax> = children
                 .map(|c| c.items().into_iter().filter_map(Ax::from_cf).collect())
@@ -477,8 +481,12 @@ impl Walk {
         if truncated {
             self.truncated = true;
         }
+        let mut parents: Vec<Option<usize>> = Vec::with_capacity(slots.len());
+        for slot in slots {
+            self.elements.push(slot.node.ax);
+            parents.push(slot.parent);
+        }
         // Children come after their parents: attach from the end.
-        let parents: Vec<Option<usize>> = slots.iter().map(|s| s.parent).collect();
         while described.len() > 1 {
             let i = described.len() - 1;
             let Some(element) = described.pop() else { break };
