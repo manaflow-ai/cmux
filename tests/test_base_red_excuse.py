@@ -7,6 +7,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -6713,6 +6714,54 @@ class FailingStepLogOnly(unittest.TestCase):
                 github.jobs = {1: job(1, 10, HEAD), 2: job(2, 20, BASE_SHA)}
                 with self.assertRaisesRegex(excuse.Refused, "New.swift"):
                     excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+
+
+class IsolatedUnpackedRun(unittest.TestCase):
+    """merge_hold and the lane-gh broker's update_branch guard run this script as `python3 -I` from a `git archive` of
+    scripts/ci unpacked into a cache directory (leo-workspace tools/merge_hold.py classifier_script and
+    classifier_argv). -I leaves the script's own directory off sys.path, so every sibling module it reads must load by
+    file path or after its own SCRIPT_DIR insert (receipt_grammar). Pins that both halves load from such a copy."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory(prefix="base-red-isolated-")
+        cls.ci = Path(cls.tmp.name) / "scripts" / "ci"
+        shutil.copytree(ROOT / "scripts" / "ci", cls.ci, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        cls.env = {k: v for k, v in os.environ.items()
+                   if k not in ("BASE_RED_EXCUSE_FIXTURE_SHA", "PYTHONPATH", "PYTHONHOME")}
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def run_isolated(self, *args):
+        return subprocess.run([sys.executable, "-I", *args], capture_output=True, text=True, timeout=120,
+                              cwd=self.tmp.name, env=self.env, stdin=subprocess.DEVNULL)
+
+    def test_the_ws_check_verdict_cli_runs_from_an_unpacked_copy_under_dash_i(self):
+        proc = self.run_isolated(str(self.ci / "base_red_excuse.py"), "--repo", "x/y", "--base", "main",
+                                 "--sha", "0" * 40, "--ws-check-verdict")
+        said = proc.stdout + proc.stderr
+        self.assertNotIn("ImportError", said)
+        self.assertNotIn("ModuleNotFoundError", said)
+        self.assertNotIn("Traceback", said)
+        self.assertEqual(proc.returncode, 1, said)
+        self.assertIn(f"not excused: --sha {'0' * 40} is a placeholder, not a commit; nothing was read", proc.stderr)
+
+    def test_receipt_grammar_imports_risk_tier_from_the_copy_under_dash_i(self):
+        probe = ("import importlib.util, sys\n"
+                 "spec = importlib.util.spec_from_file_location('base_red_excuse', sys.argv[1])\n"
+                 "excuse = importlib.util.module_from_spec(spec)\n"
+                 "spec.loader.exec_module(excuse)\n"
+                 "risk_tier = excuse.receipt_grammar()\n"
+                 "print(risk_tier.__file__)\n"
+                 "print(callable(risk_tier.signed_off))\n")
+        proc = self.run_isolated("-c", probe, str(self.ci / "base_red_excuse.py"))
+        said = proc.stdout + proc.stderr
+        self.assertEqual(proc.returncode, 0, said)
+        self.assertNotIn("ModuleNotFoundError", said)
+        self.assertEqual(proc.stdout.splitlines(), [str((self.ci / "risk_tier.py").resolve()), "True"])
 
 
 if __name__ == "__main__":
