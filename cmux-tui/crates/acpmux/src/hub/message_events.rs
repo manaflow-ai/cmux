@@ -364,9 +364,10 @@ fn append_once_loaded(
     if tokio::runtime::Handle::try_current().is_err() {
         return;
     }
+    let owner = hub.clone();
     let (hub, id, message) = (hub.clone(), session_id.to_owned(), message.clone());
     let target_scope = target_scope.map(str::to_owned);
-    tokio::spawn(async move {
+    owner.scope.spawn_until_cancelled("message-projection", async move {
         hub.session_meta(&id).await;
         if resolve_exact(&hub, &id).is_some() {
             append_or_repair(&hub, &id, &message, target_scope.as_deref());
@@ -397,7 +398,8 @@ fn schedule_projection_repair(
     let hub = hub.clone();
     let target_scope = target_scope.map(str::to_owned);
     let guard = ProjectionRepairGuard { hub: hub.clone(), key: key.clone() };
-    tokio::spawn(async move {
+    let owner = hub.clone();
+    owner.scope.spawn_until_cancelled("message-projection-repair", async move {
         // Constructed before spawning so cancellation before the future is first polled still
         // removes the in-flight key.
         let _guard = guard;

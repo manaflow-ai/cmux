@@ -119,10 +119,16 @@ impl Watches {
                 for w in saved.watches.values_mut() {
                     if crate::hub::cap_match(&mut w.match_text) {
                         tracing::warn!(
-                            "watch {}: saved match past {} bytes, cut to that",
+                            "watch {}: saved match past {} bytes, cut to that; its cursors start the turn's match over",
                             w.id,
                             crate::hub::MAX_MATCH_BYTES
                         );
+                        // The tail and `matched` were kept for the old pattern: the cut one
+                        // searched across the old tail would wake on text already passed.
+                        for c in w.cursors.values_mut() {
+                            c.tail = String::new();
+                            c.matched = false;
+                        }
                     }
                 }
                 saved
@@ -548,6 +554,51 @@ mod tests {
         let stub = super::super::paging::stub_msg(&msg, text.len(), Some(&big));
         let size = serde_json::to_vec(&stub).unwrap().len();
         assert!(size <= super::super::paging::DEFAULT_PAGE_BYTES / 16, "stub is {size} bytes");
+    }
+
+    /// Codex review of #40885 at c18b2425, F1: capping a saved match left each cursor's tail and
+    /// `matched` from the old pattern. After a restart mid-turn the next chunk searched the old
+    /// 4 MiB tail with the cut pattern and woke on text the watch had already passed, and the old
+    /// tail stayed in memory. A capped watch's cursors start the turn's match over.
+    #[test]
+    fn a_capped_match_resets_its_cursors_so_the_old_tail_never_wakes() {
+        let dir = cmux_unix_socket::short_test_dir("watch-match-cursors");
+        let path = dir.path().join("watches.json");
+        let old = "q".repeat(4 << 20);
+        let cursor = watch_events::Cursor {
+            seq: 7,
+            // One short of the old pattern: it never matched, but holds the cut one many times.
+            tail: "q".repeat((4 << 20) - 1),
+            ..Default::default()
+        };
+        let mut saved = Saved::default();
+        saved.watches.insert(
+            "w".into(),
+            Watch {
+                id: "w".into(),
+                to: "sink".into(),
+                sessions: vec!["peer/s".into()],
+                until: vec!["ready".into()],
+                match_text: Some(old),
+                once: true,
+                caller: None,
+                active: true,
+                cursors: BTreeMap::from([("peer/s".to_string(), cursor)]),
+                offline: BTreeSet::new(),
+            },
+        );
+        std::fs::write(&path, serde_json::to_vec(&saved).unwrap()).unwrap();
+
+        let watches = Watches::default();
+        watches.open(&path);
+        let w = watches.inner.lock().unwrap().saved.watches["w"].clone();
+        let pattern = w.match_text.clone().unwrap();
+        let mut c = w.cursors["peer/s"].clone();
+        assert!(c.tail.len() <= crate::hub::MAX_MATCH_BYTES, "tail kept {} bytes", c.tail.len());
+        assert!(!c.matched);
+        assert_eq!(c.seq, 7, "the cursor's place in the log is kept");
+        c.text("z", Some(&pattern));
+        assert!(!c.matched, "the next chunk matched the old tail: a false wake");
     }
 
     #[tokio::test]

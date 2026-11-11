@@ -52,6 +52,8 @@ mod pending;
 #[cfg(test)]
 mod delivery_tests;
 #[cfg(test)]
+mod inbound_close_tests;
+#[cfg(test)]
 mod repo_sync_tests;
 #[cfg(test)]
 mod review_policy_tests;
@@ -59,12 +61,52 @@ mod review_policy_tests;
 impl Hub {
     // ------------------------------------------------------------- inbound
 
+    /// The chat's inbound loop, spawned once per start in the hub's scope (`spawn_inbound_loop`):
+    /// it ends when the hub closes, or once the chat is closed and its producers are done: nothing
+    /// queued, and no agent (or its reader) still holds a sender, so a late `Exited` and the last
+    /// updates of an agent a close killed are still handled (#41081 F1). Then it hands the
+    /// receiver back, so the start that reopens the chat starts it again; a chat reopened before
+    /// the hand-back keeps this loop.
     pub(super) async fn inbound_loop(
         self: Arc<Self>,
         session: Arc<Session>,
         mut rx: mpsc::Receiver<Inbound>,
     ) {
-        while let Some(item) = rx.recv().await {
+        let stop = self.scope.token();
+        // Its current value counts: a loop that first runs after the close sees it (#41081 F2).
+        let mut closed = session.closed.subscribe();
+        loop {
+            self.clone().inbound_items(session.clone(), &mut rx, &stop, &mut closed).await;
+            if stop.is_cancelled() {
+                return;
+            }
+            let mut slot = session.inbound_rx.lock().await;
+            if session.status() == SessionStatus::Closed
+                && rx.is_empty()
+                && !producers_live(&session.inbound_tx)
+            {
+                *slot = Some(rx);
+                return;
+            }
+        }
+    }
+
+    /// Start the chat's inbound loop when no loop holds its receiver.
+    pub(super) async fn spawn_inbound_loop(self: &Arc<Self>, session: &Arc<Session>) {
+        if let Some(rx) = session.inbound_rx.lock().await.take() {
+            let (hub, s) = (self.clone(), session.clone());
+            self.scope.spawn_named("inbound-loop", async move { hub.inbound_loop(s, rx).await });
+        }
+    }
+
+    async fn inbound_items(
+        self: Arc<Self>,
+        session: Arc<Session>,
+        rx: &mut mpsc::Receiver<Inbound>,
+        stop: &tokio_util::sync::CancellationToken,
+        closed: &mut tokio::sync::watch::Receiver<bool>,
+    ) {
+        while let Some(item) = next_inbound(rx, stop, closed, &session.inbound_tx).await {
             match item {
                 Inbound::Notification {
                     method: m,
@@ -362,6 +404,10 @@ impl Hub {
                 super::lineage::note_tool_call(session, update);
             }
             "usage_update" => m.usage = Some(update.clone()),
+            // History a load replays says nothing about what Claude Code holds now.
+            super::native_messaging::HOLD_UPDATE if !replayed => {
+                self.note_peer_message_hold(session, update);
+            }
             "available_commands_update" => m.available_commands = Some(update.clone()),
             "plan"
                 if m.family.as_deref().is_some_and(crate::goal::GoalProvider::is_claude_family) =>
@@ -1900,6 +1946,52 @@ mod probe_env_tests {
         // The real remote base carries HOME when the daemon has one.
         if std::env::var_os("HOME").is_some() {
             assert!(super::remote_base().contains_key("HOME"));
+        }
+    }
+}
+
+/// Whether an agent, its reader, or anything else but the chat itself still holds a sender of
+/// the chat's inbound channel (`tx` is the chat's own, `Session::inbound_tx`).
+fn producers_live(tx: &mpsc::Sender<Inbound>) -> bool {
+    tx.strong_count() > 1
+}
+
+/// How often a closed chat whose agent still holds a sender looks again whether it let go: no
+/// event says that the last other sender dropped. Only while a closed chat waits on its agent's
+/// last messages (an exit a kill already caused, normally a few milliseconds).
+const PRODUCERS_RECHECK: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// The inbound loop's next item, or None once it should stop: the hub is closing, or the chat is
+/// closed (its current value counts, not only a change) with nothing queued and no producer
+/// left besides the chat's own sender `own` (#41081 F1 F2).
+async fn next_inbound(
+    rx: &mut mpsc::Receiver<Inbound>,
+    stop: &tokio_util::sync::CancellationToken,
+    closed: &mut tokio::sync::watch::Receiver<bool>,
+    own: &mpsc::Sender<Inbound>,
+) -> Option<Inbound> {
+    loop {
+        let is_closed = *closed.borrow_and_update();
+        if is_closed && rx.is_empty() && !producers_live(own) {
+            return None;
+        }
+        let recheck = async {
+            if is_closed {
+                tokio::time::sleep(PRODUCERS_RECHECK).await;
+            } else {
+                std::future::pending::<()>().await;
+            }
+        };
+        tokio::select! {
+            biased;
+            item = rx.recv() => return item,
+            () = stop.cancelled() => return None,
+            changed = closed.changed() => {
+                if changed.is_err() {
+                    return None;
+                }
+            }
+            () = recheck => {}
         }
     }
 }

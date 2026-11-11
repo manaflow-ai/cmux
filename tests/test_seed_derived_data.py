@@ -13,7 +13,13 @@ from unittest import mock
 
 import yaml
 
-import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
@@ -1117,10 +1123,10 @@ class Wiring(unittest.TestCase):
         script = inputs["run"].replace("python3 scripts/ci/seed_decide.py", "printf '%s\\n'")
 
         def pools(trusted, roots):
-            env = {"PATH": "/usr/bin:/bin", "SEED_POOL_1": "a", "SEED_POOL_2": "a", "SEED_POOL_3": "c-vcpu-macos-15",
+            env = git_fixture_env.fixture_env({"PATH": "/usr/bin:/bin", "SEED_POOL_1": "a", "SEED_POOL_2": "a", "SEED_POOL_3": "c-vcpu-macos-15",
                    "SEED_TRUSTED_POOL": trusted, "SEED_TRUSTED_ROOTS": roots, "XCODE_APP": "X",
                    "XCODE_APP_MACOS_15": "Y", "EVENT_NAME": "push", "GITHUB_OUTPUT": "/dev/null",
-                   "GITHUB_REPOSITORY": "manaflow-ai/cmux"}
+                   "GITHUB_REPOSITORY": "manaflow-ai/cmux"})
             out = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True)
             args = out.stdout.split()
             # seed_decide.py drops an empty pool.
@@ -1140,9 +1146,9 @@ class Wiring(unittest.TestCase):
         def prepare_root(pool, root):
             with tempfile.TemporaryDirectory() as tmp:
                 env_file = Path(tmp, "env")
-                env = {"PATH": "/usr/bin:/bin", "GITHUB_ENV": str(env_file), "MATRIX_POOL": pool,
+                env = git_fixture_env.fixture_env({"PATH": "/usr/bin:/bin", "GITHUB_ENV": str(env_file), "MATRIX_POOL": pool,
                        "TRUSTED_POOL": label, "CMUX_SEED_ROOT": root,
-                       "CMUX_CI_CANONICAL_ROOT": str(Path(tmp, "root1"))}
+                       "CMUX_CI_CANONICAL_ROOT": str(Path(tmp, "root1"))})
                 # Keep the step off the real /private/tmp.
                 text = prepare["run"].replace('root="/private/tmp/cmux-ci-$CMUX_SEED_ROOT"',
                                               f'root="{tmp}/cmux-ci-$CMUX_SEED_ROOT"')
@@ -1207,9 +1213,9 @@ class Wiring(unittest.TestCase):
                 helper.chmod(0o755)
                 script = (text.replace("/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root", str(helper))
                           .replace("scripts/ci/clear-dirs.sh", "true"))
-                env = {"PATH": "/usr/bin:/bin", "GITHUB_ENV": str(Path(tmp, "env")), "MATRIX_POOL": "p",
+                env = git_fixture_env.fixture_env({"PATH": "/usr/bin:/bin", "GITHUB_ENV": str(Path(tmp, "env")), "MATRIX_POOL": "p",
                        "TRUSTED_POOL": "t", "CMUX_SEED_ROOT": "", "CMUX_CI_CANONICAL_ROOT": "/private/tmp/cmux-ci",
-                       "RUNNER_TEMP": tmp}
+                       "RUNNER_TEMP": tmp})
                 out = subprocess.run(["bash", "-ceu", script], env=env, capture_output=True, text=True)
                 calls = Path(tmp, "calls").read_text().split() if Path(tmp, "calls").exists() else []
                 return out.returncode, calls, "" if "::warning" not in out.stdout else out.stdout

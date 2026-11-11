@@ -23,6 +23,7 @@ import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
 import { PreviewChip } from "./PreviewChip";
 import { RunElsewhereBelow, RunElsewhereChip } from "./RunElsewhere";
+import { inBackground } from "./runElsewhereModel";
 import { ReactionMark } from "./ReactionMark";
 import { ApprovedMark } from "./ApprovedMark";
 import { RowShimmer } from "./ShimmerText";
@@ -200,6 +201,7 @@ export const ToolRow = memo(function ToolRow({
               command={tool.command}
               startedAt={tool.startedAt}
               running={running}
+              background={inBackground(tool)}
             />
           )}
           <ReactionMark reaction={tool.reaction} />
@@ -216,6 +218,7 @@ export const ToolRow = memo(function ToolRow({
             command={tool.command}
             startedAt={tool.startedAt}
             running={running}
+            background={inBackground(tool)}
           />
         </span>
       ) : (
@@ -228,6 +231,7 @@ export const ToolRow = memo(function ToolRow({
                 command={tool.command}
                 startedAt={tool.startedAt}
                 running={running}
+                background={inBackground(tool)}
               />
             )}
             <ReactionMark reaction={tool.reaction} />
