@@ -1,7 +1,8 @@
 //! A log append that fails partway (a full disk writes part of a line, then `ENOSPC`) leaves no
 //! torn line behind: the next record starts on a line of its own, so nothing the store said it
 //! kept is lost and a strict read still opens the log. A torn tail a crash left is cut when the
-//! log is next opened for writing.
+//! log is next opened for writing. Run on Windows too (`cmux-tui.yml` test-windows): there the
+//! writer's handle may only append, so the cut takes its own handle.
 //!
 //! Before the fix, the next append was glued onto the torn bytes: the merged line read as no
 //! record, so that record was gone from the log, and every strict read of the log failed.
@@ -127,6 +128,7 @@ fn a_whole_tail_is_kept_when_the_log_is_next_written() {
 /// A failed write whose cut back fails too closes the log rather than dropping it: the records
 /// appended before it are synced as at any close, so a checkpoint that takes the log as synced
 /// (`sync_log` with no open writer) and then an OS crash lose none of them. Review of #40884, F1.
+#[cfg(unix)]
 #[test]
 fn a_failed_cut_closes_the_log_so_earlier_records_survive_an_os_crash() {
     let home = tempfile::tempdir().unwrap();
