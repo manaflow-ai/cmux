@@ -301,6 +301,7 @@ pub mod person;
 pub mod presence;
 mod processes;
 mod pull_requests;
+mod try_it;
 pub(crate) mod purge_tombstones;
 pub(crate) mod questions;
 mod remote_cwd;

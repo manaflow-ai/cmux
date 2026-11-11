@@ -26,8 +26,8 @@ const EXEC: &str = "cmux_exec";
 /// One chat's wrap-up calls seen this turn and the answer its last completed one left.
 /// A watched call: a wrap-up with its arguments, or a `cmux_exec` script whose output says what
 /// it showed.
-#[derive(Debug)]
-enum Call {
+#[derive(Debug, Clone)]
+pub(crate) enum Call {
     Args(Value),
     Script,
 }
@@ -92,7 +92,7 @@ impl Watch {
 
 /// Whether an update names a wrap-up call with its arguments, or a `cmux_exec` script that calls
 /// it. An update that names a wrap-up without its input says nothing new.
-fn recognise(update: &Value) -> Option<Call> {
+pub(crate) fn recognise(update: &Value) -> Option<Call> {
     let input = update.get("rawInput");
     let title = update.get("title").and_then(Value::as_str).map(str::trim).unwrap_or("");
     // Claude Code: `mcp__<server>__<tool>` with the arguments as the input.
@@ -129,7 +129,7 @@ fn named(server: &str, tool: &str, args: Option<&Value>) -> Option<Call> {
 
 /// What the last successful wrap-up in a `cmux_exec` script showed, from its output's call_log
 /// (`code_mode.rs` keeps it as `shown`).
-fn shown_in_output(update: &Value) -> Option<Value> {
+pub(crate) fn shown_in_output(update: &Value) -> Option<Value> {
     let mut logs: Vec<Value> = Vec::new();
     if let Some(log) = update.pointer("/rawOutput/call_log") {
         logs.push(log.clone());

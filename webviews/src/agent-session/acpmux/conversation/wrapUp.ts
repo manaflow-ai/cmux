@@ -7,7 +7,7 @@
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { isCmuxExec, readAnswer } from "./cmuxExec";
 import { mcpCall } from "./mcpCalls";
-import type { NextStepAsk, NextStepOption } from "./nextStepAsk";
+import type { NextStepAsk, NextStepOption, WrapUpTry } from "./nextStepAsk";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -18,6 +18,13 @@ const FOLDED = "acpmux_wrap_up";
 /// The most answers a card draws; the tool asks for one or two.
 const MAX_ACTIONS = 4;
 const MAX_LABEL = 80;
+/// The Try launcher's bounds, as the tool checks them (acpmux `acpmux_mcp_wrap_up.rs`).
+const MAX_TRY_LABEL = 60;
+const MAX_TRY_URL = 2000;
+const MAX_TRY_COMMAND = 500;
+const MAX_VERIFY = 5;
+const MAX_VERIFY_STEP = 200;
+const MAX_REPORT = 2000;
 
 const record = (value: unknown): Record<string, unknown> | undefined =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
@@ -70,10 +77,62 @@ export function wrapUpAsk(tool: Tool): NextStepAsk | undefined {
   return args ? askOf(args) : undefined;
 }
 
+/// The wrap-up's Try: one http(s) page or one shell line, the steps to check, the report. A target
+/// the tool would refuse (another scheme, a second line) draws no button; the steps and report
+/// still draw. Undefined when it gave none of them.
+/// One line with no control (C0, DEL, C1), line or paragraph separator, or bidi formatting
+/// character (acpmux `acpmux_mcp_wrap_up::plain_line`): a command is typed into a terminal.
+export function plainLine(text: string): boolean {
+  for (const ch of text) {
+    const c = ch.codePointAt(0) ?? 0;
+    if (
+      c < 0x20 ||
+      (c >= 0x7f && c <= 0x9f) ||
+      c === 0x2028 ||
+      c === 0x2029 ||
+      c === 0x200e ||
+      c === 0x200f ||
+      c === 0x061c ||
+      (c >= 0x202a && c <= 0x202e) ||
+      (c >= 0x2066 && c <= 0x2069)
+    )
+      return false;
+  }
+  return true;
+}
+
+export function tryOf(args: Record<string, unknown>): WrapUpTry | undefined {
+  const target = record(args.try);
+  const url = words(target?.url);
+  const command = words(target?.command);
+  const safeUrl =
+    url && !command && /^https?:\/\//i.test(url) && url.length <= MAX_TRY_URL && !/\s/.test(url) ? url : undefined;
+  const safeCommand =
+    command && !url && command.length <= MAX_TRY_COMMAND && plainLine(command) ? command : undefined;
+  const label = safeUrl || safeCommand ? (words(target?.label)?.slice(0, MAX_TRY_LABEL) ?? "Try it") : undefined; // l10n-allow: the tool's own default label
+  const verify = Array.isArray(args.verify)
+    ? args.verify
+        .map((step) => words(step))
+        .filter((step): step is string => step !== undefined && step.length <= MAX_VERIFY_STEP && plainLine(step))
+        .slice(0, MAX_VERIFY)
+    : [];
+  const report = words(args.report);
+  const safeReport = report && report.length <= MAX_REPORT && plainLine(report) ? report : undefined;
+  if (!label && !verify.length && !safeReport) return undefined;
+  return {
+    ...(label && { label }),
+    ...(safeUrl && { url: safeUrl }),
+    ...(safeCommand && { command: safeCommand }),
+    verify,
+    ...(safeReport && { report: safeReport }),
+  };
+}
+
 function askOf(args: Record<string, unknown>): NextStepAsk | undefined {
   const recap = words(args.recap);
   const question = words(args.ask);
-  if (!recap && !question) return undefined;
+  const tryIt = tryOf(args);
+  if (!recap && !question && !tryIt) return undefined;
   let options: NextStepOption[] = [];
   if (question) {
     const labels = Array.isArray(args.actions)
@@ -89,7 +148,7 @@ function askOf(args: Record<string, unknown>): NextStepAsk | undefined {
           { label: "Not now", key: "recap.notNow" }, // l10n-allow: a prompt to the agent, not UI
         ];
   }
-  return { tag: WRAP_UP, question: question ?? "", options, rest: "", ...(recap && { recap }) };
+  return { tag: WRAP_UP, question: question ?? "", options, rest: "", ...(recap && { recap }), ...(tryIt && { tryIt }) };
 }
 
 /// The last wrap-up call among a turn's rows, read as its card.

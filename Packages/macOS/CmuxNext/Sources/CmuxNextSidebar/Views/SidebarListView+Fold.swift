@@ -18,6 +18,7 @@ extension SidebarListViewComponents {
         }
         var o = model.listOptions()
         o.pullRequests = SidebarSessionTree.shared.pullRequests
+        o.tries = SidebarSessionTree.shared.tries
         o.excludedWorkspaces.formUnion(leaving)
         // A collapse of the stuck group keeps its header where it draws: at its own place, now at the top.
         keepStuckHeaderForFold(of: id, collapsing: group.isCollapsed)

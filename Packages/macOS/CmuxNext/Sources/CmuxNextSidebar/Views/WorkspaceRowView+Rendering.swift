@@ -91,6 +91,7 @@ extension WorkspaceRowView {
             usageWarningMark.setTint(Palette.attention)
             prBadge.setColor(Palette.textSecondary)
             tintSessionTree()
+            tryPill.tint()
             let waits = if case .waiting = activityState { true } else { false }
             agentMark.setTint(waits ? Palette.statusAttention : agentMarkFallbackColor.map(SidebarStyle.color) ?? Palette.textSecondary)
             // Fills, no borders but the focus ring below: drop target, selection, multi-selection or on screen, hover.
@@ -191,6 +192,7 @@ extension WorkspaceRowView {
         trailing = layoutTreeFold(trailing: trailing, cy: cy, control: control, fades: fades)
         trailing = layoutRollUp(trailing: trailing, cy: cy)
         trailing = layoutPullRequests(trailing: trailing, cy: cy)
+        trailing = layoutTry(trailing: trailing, cy: cy)
         if trailing == reserved { trailing = restTrailing }
         // Lawrence 2026-10-11 ("Overlay with fade"): the title keeps its full
         // width at rest and on hover. The x and the more button draw over the

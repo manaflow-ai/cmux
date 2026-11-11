@@ -35,7 +35,7 @@ extension WorkspaceRowView {
     /// use it: neither may paint over a fold chevron whose hit target would then perform another action.
     func trailingActionFrame(rowWidth: CGFloat, cy: CGFloat, control: CGFloat, minimumSlot: Int) -> CGRect {
         let fold = treeFoldSlot.made
-        let contentStart = ([fold, rollUp, pullRequests] as [NSView?]).compactMap(\.self)
+        let contentStart = ([fold, rollUp, pullRequests, tryPill] as [NSView?]).compactMap(\.self)
             .filter { !$0.isHidden && ($0 !== fold || (treeFold != nil && $0.alphaValue > 0)) }.map { $0.frame.minX }.min()
         let center = SidebarStyle.trailingColumnCenterX(rowWidth: rowWidth)
         let slot = contentStart.map {

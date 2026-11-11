@@ -1605,6 +1605,12 @@ export type SessionDetail = {
    * Absent from a peer on an older acpmux.
    */
   transcriptSeq?: number;
+  /**
+   * How to try what the chat last finished (`hub/try_it.rs`): the Try button, Verify steps
+   * and report of its newest wrap-up that gave one; absent when none did, and from a peer
+   * on an older acpmux.
+   */
+  tryIt?: (TryIt | null);
   turn?: (TurnSummary | null);
   turnCount: number;
   unread: boolean;
@@ -1925,6 +1931,12 @@ export type SessionSummary = {
    * Absent from a peer on an older acpmux.
    */
   transcriptSeq?: number;
+  /**
+   * How to try what the chat last finished (`hub/try_it.rs`): the Try button, Verify steps
+   * and report of its newest wrap-up that gave one; absent when none did, and from a peer
+   * on an older acpmux.
+   */
+  tryIt?: (TryIt | null);
   turn?: (TurnSummary | null);
   turnCount: number;
   unread: boolean;
@@ -2116,6 +2128,26 @@ export interface TrustSetParams {
   peer?: unknown;
   sessionId?: unknown;
 }
+
+/**
+ * How to try a chat's finished work (`hub/try_it.rs`), from its wrap-up's `try`, `verify` and
+ * `report` (`acpmux_mcp_wrap_up.rs` checks them): a Try button that opens `url` in a browser
+ * tab or runs `command` in a new terminal, the steps to check, and the HTML report.
+ */
+export type TryIt = {
+  /** When the wrap-up that gave it completed (Unix ms). */
+  at: number;
+  /** One shell line to run in a new terminal in the chat's folder (never from a phone). */
+  command?: (string | null);
+  /** The Try button's words; absent when the wrap-up gave only steps or a report. */
+  label?: (string | null);
+  /** The task's HTML report, a file path or a web address. */
+  report?: (string | null);
+  /** An http or https page to open. */
+  url?: (string | null);
+  /** What to check once it runs, in order. */
+  verify?: string[];
+} & Record<string, unknown>;
 
 /** The running turn. */
 export type TurnSummary = {

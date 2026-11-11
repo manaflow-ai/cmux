@@ -986,7 +986,17 @@ report.
 - Decisions: pick the sensible default yourself, act on it and name it in
   your report (\"Default picked: ...\"); never stop to ask which one. Ask
   only before money, legal, destructive (deleting data, force pushes) or
-  credential steps, and finish everything else first."
+  credential steps, and finish everything else first.
+- Try it: a task that made something the user can run or see ends with a
+  way to try it. When the cmux tools list `acpmux_wrap_up`, give its last
+  call `try` ({{label, url}} for a tagged build's Tag Opener
+  `http://127.0.0.1:17320/<tag>`, a preview or TestFlight page; or {{label,
+  command}} for one shell line), `verify` (up to five steps: what to do and
+  what the user should see) and `report` (the HTML report's path or URL):
+  the user's sidebar row and your chat get a Try button. Your report to
+  Chief ends with the same three as lines `Try: <url or command>`,
+  `Verify: <step>; <step>` and `Report: <path or URL>`, or `Try: none
+  (<why>)` when there is nothing to run."
     )
 }
 

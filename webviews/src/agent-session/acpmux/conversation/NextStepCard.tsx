@@ -2,7 +2,7 @@ import React, { memo, useEffect, useRef, useState, useSyncExternalStore } from "
 import { Keycap } from "../Keycap";
 import { useT } from "../i18n";
 import { inlineText } from "../question/inlineText";
-import { answerPrompt, type NextStepAsk } from "./nextStepAsk";
+import { answerPrompt, type NextStepAsk, type WrapUpTry } from "./nextStepAsk";
 import { answerState, claimAnswer, setAnswerState, subscribeAnswers, type AnswerState } from "./waitingAskStore";
 import "./NextStepCard.css";
 
@@ -20,6 +20,10 @@ import "./NextStepCard.css";
 /// a draft keeps the key.
 /// The agent's own wrap-up call (wrapUp.ts) adds its recap, muted at the top of the same box
 /// (reference claude/web/october-recap-card); with no question the box holds the recap alone.
+/// A finished task's wrap-up adds how to try it (wrapUp.ts `tryOf`): the Try button, the Verify
+/// steps with a box each to tick, and the Report link, in the same box under the recap, in every
+/// state of the card (an answered question leaves the work there to try). Aziz, 2026-11-09:
+/// "theres a direct way for me to try out and verify its work in addition to the artifact."
 export const NextStepCard = memo(function NextStepCard({
   ask,
   answer,
@@ -28,6 +32,8 @@ export const NextStepCard = memo(function NextStepCard({
   registerKey,
   answerKey,
   asker,
+  onTry,
+  onReport,
 }: {
   ask: NextStepAsk;
   /// The answer a later prompt picked, or once `superseded`, what the person said after the card.
@@ -43,6 +49,11 @@ export const NextStepCard = memo(function NextStepCard({
   answerKey?: string;
   /// Who asked (the chat's agent, `agentName`): the sent answer quotes the ask under this name.
   asker?: string;
+  /// Opens the Try target (a page in a browser tab, a command in a new terminal); absent where
+  /// this pane cannot open tabs, which then shows the target as text.
+  onTry?: (tryIt: WrapUpTry) => void;
+  /// Opens the report.
+  onReport?: (report: string) => void;
 }) {
   const t = useT();
   // The answer on its way and whether the last one failed: the card says so and keeps its
@@ -63,9 +74,23 @@ export const NextStepCard = memo(function NextStepCard({
     if (!pending || !registerKey) return;
     return registerKey(() => primary.current?.click());
   }, [pending, registerKey]);
-  const recap = ask.recap ? <p className="acpmux-next-step__recap">{inlineText(ask.recap)}</p> : null;
+  const recapText = ask.recap ? <p className="acpmux-next-step__recap">{inlineText(ask.recap)}</p> : null;
+  const tryBlock = ask.tryIt ? <TryBlock tryIt={ask.tryIt} onTry={onTry} onReport={onReport} /> : null;
+  const recap = tryBlock ? (
+    <>
+      {recapText}
+      {tryBlock}
+    </>
+  ) : (
+    recapText
+  );
   // A wrap-up with nothing to decide (wrapUp.ts): the recap alone, in the same box.
-  if (!ask.question) return recap ? <div className="acpmux-next-step acpmux-next-step--recap">{recap}</div> : null;
+  if (!ask.question)
+    return recapText || tryBlock ? (
+      <div className="acpmux-next-step acpmux-next-step--recap" data-next-step-try={tryBlock ? "" : undefined}>
+        {recap}
+      </div>
+    ) : null;
   if (settled) {
     // An answer the card made up (Yes, Not now) reads in the pane's words.
     const made = ask.options.find((option) => option.key && option.label === answer)?.key;
@@ -120,3 +145,79 @@ export const NextStepCard = memo(function NextStepCard({
     </fieldset>
   );
 });
+
+/// The Try button, the Verify steps and the Report link of a finished wrap-up. The button names
+/// what it opens (the page's address or the command) under its label, so a click is never a
+/// surprise; ticks are the person's own and stay in this view.
+function TryBlock({
+  tryIt,
+  onTry,
+  onReport,
+}: {
+  tryIt: WrapUpTry;
+  onTry?: (tryIt: WrapUpTry) => void;
+  onReport?: (report: string) => void;
+}) {
+  const t = useT();
+  const [ticked, setTicked] = useState<ReadonlySet<number>>(new Set());
+  const target = tryIt.url ?? tryIt.command;
+  const tick = (index: number) =>
+    setTicked((was) => {
+      const next = new Set(was);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  return (
+    <div className="acpmux-next-step__try" data-try-kind={tryIt.url ? "url" : tryIt.command ? "command" : undefined}>
+      {(target || tryIt.report) && (
+        <div className="acpmux-next-step__try-row">
+          {target && (
+            <button
+              type="button"
+              className="acpmux-next-step__answer is-primary acpmux-next-step__try-button"
+              disabled={!onTry}
+              title={target}
+              onClick={() => onTry?.(tryIt)}
+            >
+              <span aria-hidden="true">▶</span>
+              {tryIt.label ?? t("wrapUp.try.default")}
+            </button>
+          )}
+          {tryIt.report && (
+            <button
+              type="button"
+              className="acpmux-next-step__answer acpmux-next-step__report"
+              disabled={!onReport}
+              title={tryIt.report}
+              onClick={() => onReport?.(tryIt.report!)}
+            >
+              {t("wrapUp.try.report")}
+            </button>
+          )}
+        </div>
+      )}
+      {target && <code className="acpmux-next-step__try-target">{target}</code>}
+      {tryIt.verify.length > 0 && (
+        <div className="acpmux-next-step__verify">
+          <p className="acpmux-next-step__verify-head">{t("wrapUp.try.verify")}</p>
+          <ul>
+            {tryIt.verify.map((step, index) => (
+              <li key={index}>
+                <label>
+                  <input
+                    type="checkbox"
+                    aria-label={step}
+                    checked={ticked.has(index)}
+                    onChange={() => tick(index)}
+                  />
+                  <span>{inlineText(step)}</span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}

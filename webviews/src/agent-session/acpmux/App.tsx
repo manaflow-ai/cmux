@@ -304,7 +304,8 @@ import { lingeringTrayItems, trayItemEnd, useTrayLinger } from "./subagents/tray
 import { useSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
 import { SelectionReplyChip } from "./conversation/SelectionReply";
 import { quoteInReply, setQuoteReplySink } from "./conversation/selectionReplyModel";
-import { answerPrompt, askQuote } from "./conversation/nextStepAsk";
+import { answerPrompt, askQuote, type WrapUpTry } from "./conversation/nextStepAsk";
+import { openTry } from "./rows/NextStepRow";
 import { AgentTonesContext, agentTone, agentTones } from "./subagents/agentTones";
 import { useSummaryCard, useSummaryColumn } from "./summary/cardState";
 import { chatHasSummaryContent } from "./summary/summaryContent";
@@ -3821,9 +3822,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (toolCallId: string, startedAt?: number) => showCallRef.current(toolCallId, startedAt),
     [],
   );
+  // A wrap-up's Try opens on this Mac only for this Mac's own chat: a peer's or a Cloud machine's
+  // command and loopback page are that machine's, and `tab.open` is not served there.
+  const triesHere =
+    snapshot.origin === "local" &&
+    !chatOnPeer(snapshot) &&
+    !(snapshot.summary?.hostKind && snapshot.summary.hostKind !== "local");
   const turnActions = useMemo<TurnActions>(
     () => ({
       showCall,
+      ...(triesHere && { openTry: (tryIt: WrapUpTry) => openTry(tryIt, snapshot.summary?.cwd) }),
       queuedMessages: () => queuedMessageActionsRef.current,
       ...(stableBranches.size > 0 && {
         branches: {
@@ -4124,6 +4132,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       queueRunsNext,
       nextStepKey,
       asker,
+      triesHere,
     ],
   );
   // Each turn's checkpoint pair, named by the row that starts the turn: the checkpoints acpmux

@@ -262,8 +262,11 @@ pub(super) const WRAP_UP_STEER: &str = " When you end a turn that did work, call
     in place of AskUserQuestion or a question in prose; their click comes back as their next \
     message. When the person corrected you this turn, or a command failed and a later one \
     worked, add learned: at most three one-line facts about this project for its instructions \
-    file (\"Use pnpm, not npm.\"); leave it out otherwise. Then end the turn without repeating the \
-    recap.";
+    file (\"Use pnpm, not npm.\"); leave it out otherwise. When the turn finished something the \
+    person can try, add try ({label, url} for a Tag Opener, preview or TestFlight page, or {label, \
+    command} for one shell line), verify (up to five steps: what to check and what they should \
+    see) and report (the HTML report's path or URL): the box draws a Try button, the steps and a \
+    Report link. Then end the turn without repeating the recap.";
 
 /// acpmux's `offer_session` behind this server (acpmux `offer_mcp.rs`, its upstream `cmux-sessions`
 /// folds as `sessions`): a new chat the agent suggests, which the agent pane draws as a card with

@@ -199,6 +199,11 @@ final class CaptureSceneRegistry {
         _ = DebugTunables.handle(["action": .string("set"), "key": .string("sidebar.sections.look"),
                                    "value": .string(name == "sidebar-tiles" ? "tray" : "quiet")], services: services)
         _ = await DebugAgentPane.handle(["action": .string("close_menus")], services)
+        // The Try scene's pills never leak into another scene (sidebar-try sets them again below).
+        if SidebarSessionTree.shared.captureTries != nil {
+            SidebarSessionTree.shared.captureTries = nil
+            SidebarSessionTree.shared.tries = [:]
+        }
         // A capture process reuses one app for multiple scenes. Clear the native override before
         // every scene so a native still cannot leak into legacy scenes; the native scene opts in
         // explicitly below, while a future shipped default remains authoritative after reset.
@@ -217,6 +222,28 @@ final class CaptureSceneRegistry {
         case "sidebar-tiles":
             services.windows.active?.sidebar.restore(width: 300, hidden: false)
             return .object(["sidebar": .string("shown"), "width": .number(300)])
+        case Self.sidebarTryScene:
+            // Two finished workspaces: one whose agent gave its build's Tag Opener page, one a command.
+            services.windows.active?.sidebar.restore(width: 300, hidden: false)
+            // The rows the window draws, by name: the window's own workspace ids, which the showcase's
+            // daemon ids are not (a scene keyed by those drew no pill).
+            let build = SidebarTry(label: "Open try-agent-work build", url: "http://127.0.0.1:17320/try-agent-work",
+                                   verify: ["The sidebar row shows Try.", "Click it: the build opens here."])
+            let demo = SidebarTry(label: "Run the demo", command: "make demo", verify: ["It prints 14 passing tests."])
+            var tries: [WorkspaceID: SidebarTry] = [:]
+            for row in services.windows.active?.sidebar.model.allWorkspaces ?? [] {
+                switch row.title {
+                case "cmux-next": tries[row.id] = build
+                case "infra": tries[row.id] = demo
+                default: break
+                }
+            }
+            if SidebarSessionTree.shared.onTry == nil { SidebarTryOpener.install(services) }
+            SidebarSessionTree.shared.captureTries = tries
+            SidebarSessionTree.shared.tries = tries
+            return .object(["sidebar": .string("shown"), "tries": .number(Double(tries.count)),
+                            "opener": .bool(SidebarSessionTree.shared.onTry != nil),
+                            "rows": .array(tries.keys.map(\.rawValue).sorted().map(CmuxNextSettings.JSONValue.string))])
         case "settings":
             return await DebugAgentPane.handle(["action": .string("open_menu"), "label": .string("Effort")], services)
         case "history-narrow":
@@ -264,10 +291,14 @@ final class CaptureSceneRegistry {
         await DebugAgentPane.handle(["action": .string("readiness"), "wait_animations": .bool(true)], services)
     }
 
+    static let sidebarTryScene = "sidebar-try"
+
     private static let definitions: [CaptureSceneDefinition] = [
         CaptureSceneDefinition(name: "main-showcase", description: "Main window with the real showcase fixture."),
         CaptureSceneDefinition(name: "composer", description: "Agent composer fixture with the real context controls."),
         CaptureSceneDefinition(name: "sidebar-tiles", description: "Showcase rail and workspace tiles."),
+        CaptureSceneDefinition(name: "sidebar-try", // literal: cmux-ci capture greps for it
+                               description: "Two finished workspaces' rows with their Try pill: a build page and a command."),
         CaptureSceneDefinition(name: "settings", description: "Showcase window with the settings destination available."),
         CaptureSceneDefinition(name: "history-narrow", description: "Narrow history destination fixture."),
         CaptureSceneDefinition(name: "session-info-native", // literal: cmux-ci capture greps for it

@@ -359,6 +359,7 @@ impl Hub {
                     self.ledger.note_pull_request(&session.id, &url);
                 }
                 super::touched::absorb(session, update, &mut m, replayed);
+                super::try_it::absorb(&session.id, update, &mut m, replayed, at);
                 super::lineage::note_tool_call(session, update);
             }
             "usage_update" => m.usage = Some(update.clone()),

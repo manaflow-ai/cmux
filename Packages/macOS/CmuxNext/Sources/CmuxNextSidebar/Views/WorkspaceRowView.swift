@@ -60,6 +60,8 @@ final class WorkspaceRowView: SidebarRowView {
     /// The session tree (`sidebar.sessionTree`, WorkspaceRowView+SessionTree): a started workspace's
     /// guide line, the pull request badge and the keycap.
     let treeLine = NSView(), pullRequests = SidebarPullRequestBadgeView(), keycap = SidebarKeycapView()
+    /// What the workspace's agent finished, one click to try (WorkspaceRowView+Try).
+    let tryPill = SidebarTryPillView()
     /// A tree parent's chevron (folds its subtree) and a folded parent's roll-up chips.
     let treeFoldSlot = RowControlSlot { (row: WorkspaceRowView) in row.makeTreeFoldButton() }
     let rollUp = SidebarTreeRollUpView()
@@ -161,7 +163,7 @@ final class WorkspaceRowView: SidebarRowView {
         usageWarningMark.isHidden = true
         usageWarningMark.setAccessibilityElement(false)
         [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, usageWarningMark, badge, rowBadge, presenceDots, driveIndicator, tabCount, prBadge, placeholderBar, statusBlock,
-         treeLine, pullRequests, keycap, rollUp].forEach(addSubview)
+         treeLine, pullRequests, keycap, rollUp, tryPill].forEach(addSubview)
         setUpSessionTree()
         tabCount.isHidden = true
         prBadge.isHidden = true
@@ -178,7 +180,7 @@ final class WorkspaceRowView: SidebarRowView {
     }
 
     override var interactiveSubviews: [NSView] {
-        ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made, audioSlot.made, driveIndicator] as [NSView?]).compactMap(\.self)
+        ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made, audioSlot.made, driveIndicator, tryPill] as [NSView?]).compactMap(\.self)
     }
     override var hoverPaintedControls: [NSView] {
         ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made] as [NSView?]).compactMap(\.self)
@@ -339,6 +341,7 @@ final class WorkspaceRowView: SidebarRowView {
         badgeText = shown.badge
         prBadge.setString(shown.badge ?? "")
         configureSessionTree(shown)
+        configureTry(isShowingPlaceholder ? nil : shown.tryIt, workspace: ws.id)
         progress = shown.progress
         statusBlock.isHidden = shown.status == nil || isShowingPlaceholder
         statusBlock.configure(shown.status ?? SidebarWorkspaceStatus(), reservesBar: shown.progress != nil)

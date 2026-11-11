@@ -36,6 +36,8 @@ extension SidebarViewComponents {
         var tree: SidebarSessionTreeState?
         /// Every row's pull request badge, tree or not.
         var pullRequests: [WorkspaceID: SidebarPullRequestBadge]
+        /// Every row's Try pill.
+        var tries: [WorkspaceID: SidebarTry]
         /// The session tree's chat history: Pinned and Earlier.
         var history: SidebarChatHistoryState?
         /// Workspaces as tabs (`SidebarTunables.workspacesAsTabs`): one-line rows.
@@ -95,6 +97,7 @@ extension SidebarViewComponents {
             cards = SidebarBottomCards(update: model.updateCard, nowPlaying: model.nowPlaying, updated: model.updatedCard, notice: model.noticeCard)
             tree = SidebarSessionTree.shared.drawn
             pullRequests = SidebarSessionTree.shared.pullRequests
+            tries = SidebarSessionTree.shared.tries
             history = SidebarChatHistory.shared.state
             workspacesAsTabs = SidebarTunables.workspacesAsTabsOn
             groupsByStatus = SidebarTunables.groupByStatus.value
@@ -215,8 +218,9 @@ extension SidebarViewComponents {
         }
         // A badge change (a pull request read landed) patches the rows whose badge changed, as a status does; the list
         // is laid out again only when one's height changes (it laid out all 500 rows per answer: sidebar-lag-DESIGN.md).
-        if let last = lastState, last.pullRequests != state.pullRequests, !listChanged {
+        if let last = lastState, last.pullRequests != state.pullRequests || last.tries != state.tries, !listChanged {
             let ids = Set(last.pullRequests.keys).union(state.pullRequests.keys).filter { last.pullRequests[$0] != state.pullRequests[$0] }
+                .union(Set(last.tries.keys).union(state.tries.keys).filter { last.tries[$0] != state.tries[$0] })
             let rows = ids.compactMap { list.workspaces[$0] }
             if !rows.isEmpty { list.patchRows(rows) }
         }
