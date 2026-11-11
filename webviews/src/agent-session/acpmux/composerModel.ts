@@ -49,10 +49,15 @@ export const COMPOSER_LABELS = {
 /// The `/` menu's line when no command matches: "Loading commands…" while the chat's own list is
 /// not read yet (`commandsPending`, or no list at all), "No commands" for a read list that is
 /// empty, else "No matching commands". An empty-state line shows only after the read.
+/// Only the agent's own commands count: the chat and New Tab lists also hold cmux's commands
+/// (cmuxCommands.ts `mergedCommands`, `source: "cmux"`), which are there before any read, so a
+/// list of those alone is the agent's empty list ("No commands"), not a list with no match.
 export function slashMenuEmptyLabel(
-  commands: readonly unknown[] | undefined,
+  commands: readonly { source?: string }[] | undefined,
   pending: boolean | undefined,
 ): (typeof COMPOSER_LABELS)["loadingCommands" | "noCommands" | "noMatchingCommands"] {
   if (pending || commands === undefined) return COMPOSER_LABELS.loadingCommands;
-  return commands.length === 0 ? COMPOSER_LABELS.noCommands : COMPOSER_LABELS.noMatchingCommands;
+  return commands.some((command) => command.source !== "cmux")
+    ? COMPOSER_LABELS.noMatchingCommands
+    : COMPOSER_LABELS.noCommands;
 }

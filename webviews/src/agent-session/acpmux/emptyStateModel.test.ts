@@ -5,6 +5,7 @@
 import { expect, test } from "bun:test";
 import { isNewChat, shownChatName } from "./emptyStateModel";
 import { slashMenuEmptyLabel } from "./composerModel";
+import { mergedCommands } from "./cmuxCommands";
 
 type Snapshot = Parameters<typeof isNewChat>[0];
 const existing = (extra: Record<string, unknown> = {}) =>
@@ -57,4 +58,13 @@ test("the / menu says it is loading until the chat's commands are read (M7)", ()
   expect(slashMenuEmptyLabel(undefined, undefined)).toBe("composer.loadingCommands");
   expect(slashMenuEmptyLabel([], undefined)).toBe("composer.noCommands");
   expect(slashMenuEmptyLabel([{}], undefined)).toBe("composer.noMatchingCommands");
+});
+
+test("the / menu says No commands when the agent listed none, though cmux's own are in the list (M7)", () => {
+  // The chat composer's list is mergedCommands: cmux's commands, then the agent's.
+  expect(slashMenuEmptyLabel(mergedCommands([]), undefined)).toBe("composer.noCommands");
+  expect(slashMenuEmptyLabel(mergedCommands([]), true)).toBe("composer.loadingCommands");
+  expect(slashMenuEmptyLabel(mergedCommands([{ name: "review", description: "" }]), undefined)).toBe(
+    "composer.noMatchingCommands",
+  );
 });

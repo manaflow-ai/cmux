@@ -15,7 +15,9 @@ import type { RunMode } from "../sandboxRun";
 import type { MarkdownFieldElement } from "../MarkdownField";
 import { proseMirrorGlobals } from "../promptFieldTesting";
 import { inlineToken, type ComposerAttachment } from "../attachments";
-import { translate } from "../i18n";
+import { translate, type StringKey } from "../i18n";
+import type { AcpmuxSnapshot } from "../model";
+import type { SlashCommand } from "../slashCommands";
 import { seedLastPicks } from "../lastPick";
 import { EMPTY_OMNIBAR } from "../omnibar";
 import { CloudTypingPrewarm, CLOUD_TYPING_PREWARM_REFRESH_MS, cloudTypingMachineID } from "../cloudTypingPrewarm";
@@ -661,6 +663,46 @@ test("the `/` menu opens mid-prompt with the skills and writes the pick in place
   expect([...container.querySelectorAll(".nt-field .acpmux-slash-token")].map((token) => token.textContent)).toEqual([
     "/review-pr",
   ]);
+});
+
+test("the `/` menu says Loading commands… before the list is read, then No commands or No matching commands (M7)", async () => {
+  // As the app draws New Tab: cmux's own commands are always in the list (cmuxCommands.ts mergedCommands);
+  // only the agent's decide the empty line.
+  const cmux = { name: "model", description: "", source: "cmux" as const };
+  const agent = { name: "review", description: "Review a pull request", source: "agent" as const };
+  const asks: unknown[][] = [];
+  const empty = () => container.querySelector("#acpmux-slash-menu .acpmux-slash-empty")?.textContent;
+  const cases: [Partial<AcpmuxSnapshot> & { commands: SlashCommand[] }, StringKey][] = [
+    [{ commands: [cmux], commandsPending: true }, "composer.loadingCommands"],
+    [{ commands: [cmux] }, "composer.noCommands"],
+    [{ commands: [] }, "composer.noCommands"],
+    [{ commands: [cmux, agent] }, "composer.noMatchingCommands"],
+  ];
+  for (const [fields, label] of cases) {
+    await act(async () => {
+      root!.render(
+        <NewTabScreen
+          key={label + fields.commands.length}
+          {...firstRunProps}
+          snapshot={noChat([], fields)}
+          onAsk={(...args) => asks.push(args)}
+        />,
+      );
+    });
+    const field = await typePrompt("/zzz");
+    expect(empty(), label).toBe(translate(label));
+    // The open empty list has no row to move to or pick: the arrows, Tab and Return change nothing.
+    for (const key of ["ArrowDown", "ArrowUp", "Tab"]) await press(field, key);
+    expect(promptValue()).toBe("/zzz");
+  }
+  // Mid-prompt a `/word` that names nothing stays the person's text: no list at all.
+  await typePrompt("look in /zzz");
+  expect(container.querySelector("#acpmux-slash-menu")).toBeNull();
+  // Return on the empty list picks nothing: the typed word is never rewritten into a command.
+  const field = await typePrompt("/zzz");
+  await press(field, "Enter");
+  expect(promptValue()).not.toMatch(/\/(model|review)/);
+  expect(asks.map((ask) => ask[1]).filter((text) => text !== "/zzz")).toEqual([]);
 });
 
 test("a Codex skill typed without its `$` goes to the agent as `/$name`, other text as typed", async () => {

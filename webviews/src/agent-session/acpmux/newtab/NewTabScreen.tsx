@@ -54,6 +54,7 @@ import {
   type LinkItem,
 } from "../attachments";
 import { composerCommand } from "../cmuxCommands";
+import { slashMenuEmptyLabel } from "../composerModel";
 import type { UploadResult } from "../cloudUploads";
 import { AttachmentStrip } from "../composer/attachmentIntake";
 import { backspacedAttachment, useAttachmentIntake, useSendWhenAttached } from "../composer/attachmentIntakeModel";
@@ -932,7 +933,11 @@ export function NewTabScreen(props: Props) {
   // list for the text it was pressed on only: any edit forgets it, a cleared draft too, so the same
   // word typed again opens the list again, as in the chat composer (Composer `edit`).
   if (commandDismissed !== undefined && commandDismissed !== text) setCommandDismissed(undefined);
-  const commandsOpen = commandAt !== undefined && commandDismissed !== text && commandMatches.length > 0;
+  // As in chat (Composer `open`): a `/word` at the start opens the list even with no match, to say
+  // why (slashMenuEmptyLabel: still loading, the agent has none, nothing matches); one further on
+  // opens only on a match, since `/tmp` mid-prompt is the person's text.
+  const commandsOpen =
+    commandAt !== undefined && commandDismissed !== text && (commandAt.leading || commandMatches.length > 0);
   // The row the arrows chose holds only while its word and its list stay: a new word, a cleared draft
   // or the list closing forgets it (adjusted while rendering, before any key reads it).
   if (commandArrowedAt !== undefined && (!commandsOpen || commandQuery !== commandArrowedAt))
@@ -1579,7 +1584,7 @@ export function NewTabScreen(props: Props) {
         setCommandDismissed(text);
         return;
       }
-      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if ((event.key === "ArrowDown" || event.key === "ArrowUp") && commandMatches.length) {
         event.preventDefault();
         setCommandActive(
           (commandIndex + (event.key === "ArrowDown" ? 1 : commandMatches.length - 1)) % commandMatches.length,
@@ -1594,11 +1599,12 @@ export function NewTabScreen(props: Props) {
       const match = commandMatches[commandIndex];
       if (
         plain &&
+        match &&
         (event.key === "Tab" ||
           (event.key === "Enter" && returnPicks(match, commandQuery ?? "", commandArrowedAt !== undefined)))
       ) {
         event.preventDefault();
-        pickCommand(match!.command);
+        pickCommand(match.command);
         return;
       }
     }
@@ -2228,7 +2234,7 @@ export function NewTabScreen(props: Props) {
                 <SlashMenu
                   matches={commandMatches}
                   active={commandIndex}
-                  empty={t("composer.noMatchingCommands")}
+                  empty={t(slashMenuEmptyLabel(snapshot.commands, snapshot.commandsPending))}
                   onHover={setCommandActive}
                   onPick={pickCommand}
                 />
@@ -2306,7 +2312,9 @@ export function NewTabScreen(props: Props) {
                   "data-dictation-listening": dictating && !shell ? "" : undefined,
                   "aria-controls": commandsOpen ? "acpmux-slash-menu" : "nt-rows",
                   "aria-activedescendant": commandsOpen
-                    ? `acpmux-slash-${commandIndex}`
+                    ? commandMatches.length
+                      ? `acpmux-slash-${commandIndex}`
+                      : undefined
                     : rows[current]
                       ? `nt-row-${current}`
                       : undefined,

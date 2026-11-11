@@ -102,7 +102,7 @@ import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from ".
 import { TaskGoalStrip } from "./TaskGoalStrip";
 import { goalHatPlace } from "./goalHat.experiment";
 import { PageDots } from "./newtab/PageDots";
-import { useSessionCommands } from "./newtab/useSessionCommands";
+import { newTabCommandSnapshot, useSessionCommands } from "./newtab/useSessionCommands";
 import { editNewTabWidgets, shownPageWidgets, withWidgetEdit } from "./newtab/pageWidgets";
 import { screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
@@ -10213,6 +10213,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [],
   );
   const pendingCommands = useSessionCommands(commandSession, commandRevision, readSessionCommands);
+  // The New Tab page that asked acpmux for a deferred chat's commands, until that chat is known
+  // (commandSession): its `/` menu says "Loading commands…" meanwhile (M7). A refused ask forgets it.
+  const [commandsAskedPage, setCommandsAskedPage] = useState<number>();
   const inspectorHiddenSurface = quick || showNewTab;
   inspectorHiddenSurfaceRef.current = inspectorHiddenSurface;
   useEffect(() => {
@@ -10459,6 +10462,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         ? composerSnapshot
         : { ...composerSnapshot, sessions: newTabSessions },
     [composerSnapshot, newTabSessions],
+  );
+  const newTabCommandsAsked = commandsAskedPage === newTabGeneration;
+  const newTabScreenSnapshot = useMemo(
+    () => newTabCommandSnapshot(newTabSnapshot, commandSession, pendingCommands, newTabCommandsAsked),
+    [newTabSnapshot, commandSession, pendingCommands, newTabCommandsAsked],
   );
   // The daemon has not listed the chats to this page yet and none are known (newtab/recentProject.ts).
   const newTabChatsPending =
@@ -12335,8 +12343,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   importError={importError}
                   importSandboxed={sandbox.mode === "sandboxed"}
                   onCommands={(harness, cwd) => {
-                    void callNative("chat.new", { harness, ...(cwd ? { cwd } : {}), deferred: true }).catch(
-                      () => undefined,
+                    const page = newTabGeneration;
+                    setCommandsAskedPage(page);
+                    void callNative("chat.new", { harness, ...(cwd ? { cwd } : {}), deferred: true }).catch(() =>
+                      setCommandsAskedPage((asked) => (asked === page ? undefined : asked)),
                     );
                   }}
                   key={newTabGeneration}
@@ -12440,7 +12450,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       show: (done) => setNewTab((current) => current && withWidgetEdit(current, done)),
                     })
                   }
-                  snapshot={commandSession ? { ...newTabSnapshot, commands: pendingCommands ?? [] } : newTabSnapshot}
+                  snapshot={newTabScreenSnapshot}
                   {...(newTabFixError ? { fixError: newTabFixError } : {})}
                   omnibar={newTab.omnibar}
                   location={newTab.location}

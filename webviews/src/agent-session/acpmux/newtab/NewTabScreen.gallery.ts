@@ -8,6 +8,7 @@ import { CATALOG, CWD, fleetPeers, manySessions, noChat, session } from "../../.
 import { minutesAgo } from "../../../gallery/clock";
 import { composerStatePlays } from "../composerStatePlays";
 import { paneLanguage, translateKey } from "../i18n";
+import type { AcpmuxSnapshot } from "../model";
 import { newTabComposerTrailingGap } from "./composerGap.experiment";
 import { createStripLabelsFit } from "./createStripFit";
 
@@ -436,6 +437,40 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".nt-cards[aria-busy=true]") !== null);
       },
     },
+    // M7: the `/` menu's empty line says why nothing is listed (composerModel.ts slashMenuEmptyLabel).
+    // The deferred chat New Tab asks for is refused here, so the page's own list is the one shown.
+    ...Object.fromEntries(
+      (
+        [
+          [
+            "slash-loading-commands",
+            "before the agent's commands are read",
+            { commandsPending: true },
+            "Loading commands…",
+          ],
+          ["slash-no-commands", "once the agent's list was read empty", { commands: [] }, "No commands"],
+          [
+            "slash-no-matching-commands",
+            "with a read list that has commands",
+            { commands: [{ name: "review", description: "Review a pull request", source: "agent" }] },
+            "No matching commands",
+          ],
+        ] satisfies [string, string, Partial<AcpmuxSnapshot>, string][]
+      ).map(([name, when, fields, line]) => [
+        name,
+        {
+          note: `/zzz typed ${when}: the list says ${line}.`,
+          ready: newTab({ template: "minimal", pageWidgets: [] }),
+          snapshot: noChat([], { listedSessions: true, ...fields }),
+          native: { "chat.new": { nativeError: { code: "agent.start_failed", userMessage: "not in the gallery" } } },
+          play: async (ctx: PlayContext) => {
+            await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+            await typePrompt(ctx, "/zzz");
+            await ctx.waitFor(() => ctx.document.querySelector(".acpmux-slash-empty")?.textContent === line);
+          },
+        },
+      ]),
+    ),
     // New Project (Leo, 2026-11-08): the folder menu's New project row makes a new folder with an
     // empty git repository for the chat; the strip names it, from the prompt until the person types one.
     "new-project-chosen": {
