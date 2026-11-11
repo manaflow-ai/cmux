@@ -111,8 +111,20 @@ def request(sock: Path, payload: dict, timeout: float = 10.0) -> dict:
     return json.loads(buf)
 
 
+# The slowest terminal open (`run`) of the setup, in seconds: a loaded host can take longer than the
+# 10 s request limit to spawn a host and its shell, which is setup, not the swap (reported, not failed).
+SETUP_SLOWEST_RUN = [0.0]
+# How long a setup `run` may take.
+SETUP_RUN_LIMIT_SECS = 60.0
+
+
 def data(sock: Path, payload: dict) -> dict:
-    response = request(sock, payload)
+    if payload.get("cmd") == "run":
+        asked = now()
+        response = request(sock, payload, timeout=SETUP_RUN_LIMIT_SECS)
+        SETUP_SLOWEST_RUN[0] = max(SETUP_SLOWEST_RUN[0], now() - asked)
+    else:
+        response = request(sock, payload)
     if response.get("ok") is not True:
         raise RuntimeError(f"{payload.get('cmd')}: {response}")
     return response.get("data") or {}
@@ -1358,6 +1370,7 @@ def main() -> int:
         else:
             subprocess.run(["rm", "-rf", str(work)], check=False)
     report["phases"] = phases
+    report["setup_slowest_run_secs"] = round(SETUP_SLOWEST_RUN[0], 3)
     shell = [p["typist_shell"] for p in phases if isinstance(p.get("typist_shell"), dict)]
     if shell:
         # Reported, not a failure: lines an interactive shell lost (its own typeahead limit or a cmux
