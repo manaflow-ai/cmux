@@ -97,14 +97,10 @@ function imageChip(id: string): ComposerAttachment {
   };
 }
 
-/// `chip` whose `key` cannot be read: what a host answer the page did not expect does to a draw.
-function poisoned<T extends object>(chip: T, key: string): T {
-  return new Proxy(chip, {
-    get(target, prop, receiver) {
-      if (prop === key) throw new Error(`unreadable ${key}`);
-      return Reflect.get(target, prop, receiver);
-    },
-  });
+/// `chip` whose video answer cannot be drawn: a length that is no number (a host answer the page did
+/// not expect) makes the tile's draw throw. React's dev diff still reads it fine, so only the draw fails.
+function unreadable(chip: ComposerAttachment): ComposerAttachment {
+  return { ...chip, video: { ...chip.video!, durationMs: 1n as unknown as number } };
 }
 
 let removed: string[] = [];
@@ -129,7 +125,7 @@ try {
 
   test("a video whose preview throws is its file chip; the strip and its other chips stay", async () => {
     const leo = VIDEOS[0]!;
-    const broken = poisoned(videoChip(leo, "leo"), "video");
+    const broken = unreadable(videoChip(leo, "leo"));
     const others = [videoChip(VIDEOS[1]!, "hevc"), imageChip("img")];
     await strip([broken, ...others]);
     const failed = failedChips();
@@ -149,33 +145,37 @@ try {
   });
 
   test("each kind made to throw falls back on its own, with any name", async () => {
-    const chips = [
-      ...VIDEOS.map((spec, index) => poisoned(videoChip(spec, `v${index}`), "video")),
-      poisoned(imageChip("img"), "data"),
-    ];
+    const chips = [...VIDEOS.map((spec, index) => unreadable(videoChip(spec, `v${index}`))), imageChip("img")];
     await strip(chips);
     const failed = failedChips();
-    expect(failed.length).toBe(chips.length);
+    expect(failed.length).toBe(VIDEOS.length);
+    expect(host.querySelector(".acpmux-attachment-image img")).not.toBeNull();
     for (const spec of VIDEOS) expect(failed.some((chip) => chip.getAttribute("title")?.endsWith(spec.name))).toBe(true);
   });
 
   test("a new attachment object tries the preview again", async () => {
     const chip = videoChip(VIDEOS[0]!, "leo");
-    await strip([poisoned(chip, "video")]);
+    await strip([unreadable(chip)]);
     expect(failedChips().length).toBe(1);
     await strip([{ ...chip }]);
     expect(failedChips()).toEqual([]);
     expect(host.querySelector(".acpmux-attachment-video img")).not.toBeNull();
   });
 
-  test("a sent video whose tile throws is its file chip, and the message stays", async () => {
+  test("a sent video tile draws inside the boundary: one that throws is its file chip, and the message stays", async () => {
+    const { AttachmentPreviewBoundary } = await import("../src/agent-session/acpmux/composer/AttachmentPreviewBoundary");
     const name = VIDEOS[0]!.name;
-    const sent = poisoned({ name, path: `/Users/leo/Desktop/${name}`, length: "0:09", width: 2112, height: 720 }, "poster");
+    function Throws(): never {
+      throw new Error("preview failed");
+    }
     await act(async () => {
       root.render(
         <div className="message">
           <p>look at this</p>
-          <SentVideoTile video={sent} width={240} height={82} />
+          <AttachmentPreviewBoundary attachment={{ name }} fallback={<span data-preview-failed="true">{name}</span>}>
+            <Throws />
+          </AttachmentPreviewBoundary>
+          <SentVideoTile video={{ name, path: `/Users/leo/Desktop/${name}`, length: "0:09", width: 2112, height: 720 }} width={240} height={82} />
         </div>,
       );
     });
