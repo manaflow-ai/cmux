@@ -208,6 +208,47 @@ test("a start the person sends with no folder never reuses an earlier start's fo
   expect(created).toEqual([{ harness: "claude", cwd: HOME }, ...AGENTS.map((harness) => ({ harness }))]);
 });
 
+test("a folder the pane refused is never started again: not by a later pick, not by Retry", async () => {
+  const { HarnessSwitch } = await import("../src/agent-session/acpmux/harnessSwitch");
+  const created: { harness: string; cwd?: string }[] = [];
+  const store = new HarnessSwitch();
+  store.setHandlers({ notice: () => undefined } as never);
+  store.connect({
+    turnRunning: () => false,
+    shown: () => undefined,
+    create: async (harness: string, cwd?: string) => {
+      created.push({ harness, ...(cwd ? { cwd } : {}) });
+      if (cwd === HOME)
+        throw Object.assign(new Error("This folder is outside the folders this pane may use."), {
+          code: "transport.path_outside_roots",
+        });
+      return `${harness}-session`;
+    },
+    leave: () => undefined,
+    open: async (sessionId: string) => sessionId,
+    send: async () => undefined,
+    discard: () => undefined,
+    prewarm: () => undefined,
+    prewarmSupported: () => false,
+  } as never);
+  // The refused start, then Retry on its "Couldn't start" card.
+  void store.switchTo("codex", HOME, { deferred: true });
+  await until(() => created.length === 1 && store.view().intent?.phase === "failed", "the start in ~ was refused");
+  store.retry();
+  await until(() => created.length === 2, "Retry started again");
+  // Refused again, then a pick that names no folder (an agent enabled from its card, a seeded agent).
+  void store.switchTo("claude", HOME, { deferred: true });
+  await until(() => created.length === 3 && store.view().intent?.phase === "failed", "the next start in ~ was refused");
+  void store.switchTo("opencode", undefined, { deferred: true });
+  await until(() => created.length === 4, "the folderless pick started");
+  expect(created).toEqual([
+    { harness: "codex", cwd: HOME },
+    { harness: "codex" },
+    { harness: "claude", cwd: HOME },
+    { harness: "opencode" },
+  ]);
+});
+
 test("once the person answered Use Home Folder, a new chat of any agent starts in ~", async () => {
   const { starts, refused } = await mountFreshWorkspaceTab({ homeAnswered: true });
   for (const harness of AGENTS) {
