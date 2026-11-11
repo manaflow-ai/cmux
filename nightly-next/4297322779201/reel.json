@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "build": "4297322779201",
+  "notes": "notes/4297322779201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 41115,
+      "title": "cmux-next: regenerate action-catalog.json; Rust swift_parity drops Swift's null run-time case subtitle/symbol",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41111,
+      "title": "ci: a release rate-limit wait never exceeds its budget (float cap)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40035,
+      "title": "Agent chat: a scroll closes a link's hover card, and a link sliding under a still pointer opens none",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40849,
+      "title": "test(cmux-tui output store): the idle redraw test leaves out the slow request log",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40822,
+      "title": "fix(cmux-next): a chat's held ground starts at the chat's own top (Split Right/Left, no strip); a 1-pixel part is ground; one new surface per frame also for a show inside a show",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40798,
+      "title": "perf(cmux-tui): server-stats counts every request by command name and client kind",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41045,
+      "title": "refactor(workspaces): the close-selection state is Rust's, Swift keeps the calls",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41065,
+      "title": "acpmux: a watch match cut at load starts its cursors' match over",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41010,
+      "title": "ci: the PyYAML install line installs on a writable PEP 668 prefix, by one rule pinned in both repos",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40351,
+      "title": "iOS: App Review gate before Apple (reviewer path, dead-control walk, guideline lint, asc strict)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40871,
+      "title": "test: temp git repos in every test turn off git's detached maintenance",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40703,
+      "title": "Cloud Claude with no sign-in uses the team's model plane, the inference gateway too",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41099,
+      "title": "Revert #41097: the chrome-layer colour file landed with placeholder values",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
