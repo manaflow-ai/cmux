@@ -11,7 +11,6 @@ host's frame and its content view's laid-out frame, each terminal surface and ea
   sidebar-hide / sidebar-show     toggleSidebar (Cmd-B)
   split-right / split-close       splitRight (Cmd-D) beside the chat, then closePane on the new pane
   b-then-d / b-then-d-undo        toggleSidebar then splitRight --gap ms later (Leo's Cmd-B, Cmd-D), then both undone
-  right-open / right-close        toggleRightSidebar
 
 Per motion and per mover (the sidebar, each pane's frame, each pane's laid-out content, each terminal surface, each
 page), the report gives when it first moved and when it last moved, in ms from the action and in display frames, so
@@ -182,7 +181,6 @@ def motions():
         time.sleep(opts.gap / 1000)
         return [first, close_new()]
 
-    right = lambda: action("toggleRightSidebar")  # noqa: E731
     return [
         ("sidebar-hide", lambda: (one_pane(), ensure_sidebar(True)), toggle),
         ("sidebar-show", None, toggle),
@@ -190,8 +188,6 @@ def motions():
         ("split-close", None, close_new),
         ("b-then-d", lambda: (one_pane(), ensure_sidebar(True)), b_then_d),
         ("b-then-d-undo", None, undo_b_then_d),
-        ("right-open", lambda: (one_pane(), ensure_sidebar(True)), right),
-        ("right-close", None, right),
     ]
 
 

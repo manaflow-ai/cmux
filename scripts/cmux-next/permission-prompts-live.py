@@ -14,9 +14,11 @@ page (a new port, so a new origin, every run). For each engine:
      grants it, and after a reload it is granted with no prompt. A notification the page
      makes before that shows no banner; after it, `new Notification(...)` shows a cmux
      banner on the page's tab (title, the site, the body), and a click on the banner runs
-     the page's `onclick`. Chromium has
-     no web notifications (`disable-notifications`: DesktopNotifier owns the app's one
-     macOS notification authorization), so the page sees no `Notification`.
+     the page's `onclick`. Chromium shows no web notifications (DesktopNotifier owns the
+     app's one macOS notification authorization), but its pages keep `Notification` and
+     `PushManager` with the permission `default`, as in Chrome: a page without them fails
+     bot checks (Akamai's challenge page reloaded godaddy.com forever). A request for the
+     permission ends at once as `default`, with no prompt, however often the page asks.
 
 Location is only ever denied: allowing it would raise the macOS location prompt on the
 host. GUI host only (a capture mini). The app is quit and the tag's daemons stopped at
@@ -205,7 +207,20 @@ def run_engine(engine):
 
     # 2. Notifications.
     if engine == "chromium":
-        check(page("typeof Notification") == "undefined", f"{engine}: the page has no web notifications (by design)")
+        got = page("typeof Notification + ' ' + ('PushManager' in window)")
+        check(got == "function true", f"{engine}: the page has Chrome's Notification and PushManager interfaces ({got})")
+        got = page("Notification.permission")
+        check(got == "default", f"{engine}: the notification permission reads as default ({got})")
+        check(run(engine, "notifyNow('cmux chromium early')"), f"{engine}: the page makes a notification without permission")
+        time.sleep(2)
+        check(banner("cmux chromium early") is None, f"{engine}: a notification without permission shows no banner ({banners()})")
+        for attempt in range(1, 7):
+            check(run(engine, "askNotify(); true"), f"{engine}: the page requests notifications ({attempt})")
+            got = settled("notify")
+            check(got == "default" and not permission_prompts("notifications"),
+                  f"{engine}: notification request {attempt} ends at once, unanswered, with no prompt ({got}, {prompts()})")
+        got = page("Notification.permission")
+        check(got == "default", f"{engine}: after six requests nothing is stored for the site ({got})")
     else:
         check(run(engine, "notifyNow('cmux early')"), f"{engine}: the page makes a notification before asking")
         time.sleep(2)

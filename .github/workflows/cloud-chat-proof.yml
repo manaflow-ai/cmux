@@ -1,17 +1,21 @@
 name: Cloud chat proof (staging and production, tagged DEV app)
-run-name: ${{ inputs.signin_pubkey != '' && format('DEV sign-in session {0}', inputs.request_id) || inputs.cleanup_machine != '' && format('Cloud machine cleanup ({0})', inputs.cleanup_machine) || format('Cloud chat proof ({0}, {1}{2}){3}', inputs.build, inputs.agent, inputs.from_folder && ', from a folder' || '', inputs.request_id != '' && format(' {0}', inputs.request_id) || '') }}
+run-name: ${{ inputs.signin_pubkey != '' && format('DEV sign-in session {0}', inputs.request_id) || inputs.cleanup_machine != '' && format('Cloud machine cleanup ({0})', inputs.cleanup_machine) || inputs.paused_capture && format('Cloud paused price capture (staging, {0}){1}', inputs.build, inputs.request_id != '' && format(' {0}', inputs.request_id) || '') || inputs.matrix && format('Cloud workspace matrix ({0}, {1}){2}', inputs.build, inputs.agent, inputs.request_id != '' && format(' {0}', inputs.request_id) || '') || format('Cloud chat proof ({0}, {1}{2}){3}', inputs.build, inputs.agent, inputs.from_folder && ', from a folder' || '', inputs.request_id != '' && format(' {0}', inputs.request_id) || '') }}
 
 # One manual trip through a Cloud chat from one tagged DEV build of the dispatched commit, signed in as
-# the agent test account on staging and production. The bundle is built once, then launched twice with
-# `--cloud-backend`; each launch reads its own Stack credentials file, runs `cmux vm token create` and
+# the agent test account on staging and production. The bundle is built (or downloaded) once per backend job,
+# launched with `--cloud-backend`; each launch reads its own Stack credentials file, runs `cmux vm token create` and
 # `cmux cloud start-chat --wait`, reads the reply back and kills the machine it made. Nothing gates on
 # this proof. The evidence (each step's exit code and message, the selected API origin and reply text;
 # never a key) is the run summary and the only artifact.
 #
-# Secrets: the cmux-next-cloud-journey environment supplies separate
-# CMUX_JOURNEY_DEV_STACK_* and CMUX_JOURNEY_PROD_STACK_* pairs. They are written to one 0600 file,
-# replaced atomically between backend launches, and removed by an always() step. Manual dispatch on
-# feat-cmux-next only.
+# Secrets: two jobs, one per account, each reading CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD from its own
+# environment (an environment's pair shadows the repository's, and a job has one environment):
+# proof-staging runs in cmux-next-vm-image-dev (the staging agent account) and proof-prod in
+# cmux-next-cloud-journey (the production agent account). Each writes its pair to a 0600 file that an
+# always() step removes; no secret passes between jobs. The verdict job passes only when both pass, so one
+# run still proves staging and production on the same build: build=published pins one release asset (id
+# and sha256, resolved in the first job, no secret) that both jobs download; build=tagged builds once in
+# proof-staging and proof-prod downloads that app bundle. Manual dispatch on feat-cmux-next only.
 #
 # build: published runs the same trip from the signed cmux NEXT DEV app of the cmux-next-dev release
 # instead (no build): scripts/cmux-next/dev-signin-token.py signs the agent account in and seeds the
@@ -21,6 +25,16 @@ run-name: ${{ inputs.signin_pubkey != '' && format('DEV sign-in session {0}', in
 # private key (leo-workspace tools/dev-build-try) to seed its NEXT DEV app with. No password leaves.
 # signin_account: guest mints the second staging account's session instead (cmux-cloud-capture-guest@manaflow.dev,
 # CMUX_DOGFOOD_GUEST_STACK_*, cloud-capture-provision.yml journey-guest), for the guest side of a two-account test.
+# paused_capture: no chat, staging only, build=tagged only (it reads the page through the debug build's
+# `debug.page`): cloud-chat-proof.py --paused-capture makes one machine named after the run, pauses it with
+# `cloud pause-machine`, opens the Cloud page, fails unless the machine's row says "a month while paused"
+# (cmux-platform#1150's paused_hourly_rate_usd, webviews/src/pages/cloud/cost.ts), uploads the page and window
+# images as cloud-paused-price-staging and kills the machine, as the chat proof kills its own.
+# Claude login: nobody answers the start's login question in CI (cmux-cloud-start-core harness_login.rs), so the
+# chat and matrix lines pass --grant-claude-login (the launched app's own scratch cmux.json says yes to the one-time
+# consent a Release-rules build, build=published, waits for) and --login none (no login copied: Claude runs on the
+# machine's team mode, the SR2/CodeRouter gateway; a DEV build, build=tagged, takes it where it would refuse with
+# needs-login-choice, and it decides before the consent too). Both reach a Claude chat only, never a Codex one.
 on:
   workflow_dispatch:
     inputs:
@@ -62,11 +76,21 @@ on:
         required: false
         default: false
         type: boolean
+      matrix:
+        description: "Instead of the one proof chat: the Cloud workspace matrix (scripts/cmux-next/cloud-chat-matrix.py), a chat from every kind of folder, each timed and its copy checked by hash"
+        required: false
+        default: false
+        type: boolean
       cleanup_machine:
         description: A leaked Cloud machine id (vm_<hex>) to inspect and kill from the published app, instead of a proof
         required: false
         default: ""
         type: string
+      paused_capture:
+        description: "Instead of the proof chat (staging, build=tagged): pause one new machine and capture the Cloud page's paused price ('a month while paused'), then kill it"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -127,15 +151,103 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  proof:
-    if: github.ref == 'refs/heads/feat-cmux-next' && inputs.signin_pubkey == ''
-    # The environment machine-join-e2e.yml and machine-vault-e2e.yml use: limited to feat-cmux-next
-    # by GitHub's branch policy. The job holds the stack pair, so an ephemeral Blacksmith macOS VM
-    # from the declared pool, never a variable that could name a persistent Mac.
+  resolve:
+    # The published DEV release is a moving tag. Resolve its zip once here, as a plain output (an asset
+    # id and its sha256, no secret), so both proof jobs download and verify the same bytes.
+    if: github.ref == 'refs/heads/feat-cmux-next' && inputs.signin_pubkey == '' && (inputs.build == 'published' || inputs.cleanup_machine != '')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
+    outputs:
+      asset_id: ${{ steps.asset.outputs.asset_id }}
+      asset_sha256: ${{ steps.asset.outputs.asset_sha256 }}
+    steps:
+      - name: Resolve the published NEXT DEV release asset
+        id: asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          row="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/cmux-next-dev" \
+            --jq '[.assets[] | select(.name == "cmux-NEXT-DEV.zip")][0] | "\(.id) \(.digest // "")"')"
+          id="${row%% *}"
+          digest="${row#* }"
+          case "$id" in ''|null|*[!0-9]*) echo "::error::the cmux-next-dev release has no cmux-NEXT-DEV.zip"; exit 1;; esac
+          sha="${digest#sha256:}"
+          case "$sha" in *[!0-9a-f]*|'') echo "::error::the release asset has no sha256 digest to pin"; exit 1;; esac
+          if [ "${#sha}" -ne 64 ]; then echo "::error::the release asset digest is not a sha256"; exit 1; fi
+          echo "asset_id=$id" >> "$GITHUB_OUTPUT"
+          echo "asset_sha256=$sha" >> "$GITHUB_OUTPUT"
+          echo "Pinned cmux-NEXT-DEV.zip asset $id sha256:$sha" >> "$GITHUB_STEP_SUMMARY"
+
+  # Places both proof jobs on the ephemeral Blacksmith macOS 26 label whose queue moves. Run 42759281426
+  # sat queued over an hour on blacksmith-6vcpu-macos-26, the one label the jobs named. This runs
+  # e2e_runner_pool.py, test-e2e.yml's picker, with owned pools off (--owned 0): it reads the queue
+  # janitor's pool snapshot and takes blacksmith-12vcpu-macos-26 or blacksmith-6vcpu-macos-26 by its own
+  # fixed order and per-label capacity, skipping a stalled label (--order and --max-queued are the
+  # shared call's; the auto path does not read them). Owned Macs stay out: the proof jobs hold a Stack account pair
+  # (.github/runners.json cloud-chat-proof.yml#proof), and an owned route needs the per-job exclusive
+  # claim the signing jobs get from glaeda. No secret is read here; a failed pick leaves the proof
+  # on the declared macos_26 pool.
+  pick-proof-runner:
+    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && inputs.signin_pubkey == ''
+    continue-on-error: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      # The queue janitor's pool snapshot (an artifact).
+      actions: read
+    outputs:
+      # A Blacksmith macOS 26 label, or empty.
+      label: ${{ steps.pool.outputs.label }}
+    steps:
+      - name: Checkout pool helper
+        if: github.run_attempt == 1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: |
+            scripts/ci/e2e_runner_pool.py
+            scripts/ci/pr_runner_pool.py
+            scripts/ci/github_spend.py
+            scripts/ci/deadline_http.py
+            scripts/ci/simple_pool_picker.py
+            scripts/ci/warm_distance.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Pick the Blacksmith macOS 26 pool
+        id: pool
+        if: github.run_attempt == 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
+          POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+        run: |
+          set -uo pipefail
+          label="$(python3 scripts/ci/e2e_runner_pool.py \
+            --requested auto \
+            --order "$POOL_ORDER" \
+            --max-queued "$POOL_MAX_QUEUED" \
+            --owned 0)" || label=""
+          case "$label" in
+            blacksmith-*-macos-26) ;;
+            *) echo "The picker said '${label:-nothing}'; the declared macos_26 pool takes the proof."; label="" ;;
+          esac
+          echo "label=$label" >> "$GITHUB_OUTPUT"
+          echo "Runner: ${label:-the declared macos_26 pool} (a re-run takes the declared macos_26 pool)" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  proof-staging:
+    if: ${{ !cancelled() && (needs.resolve.result == 'success' || needs.resolve.result == 'skipped') && github.ref == 'refs/heads/feat-cmux-next' && inputs.signin_pubkey == '' }}
+    # Staging half. cmux-next-vm-image-dev is limited to feat-cmux-next by GitHub's branch policy and holds the
+    # staging agent account. Always runs after resolve (skipped for build=tagged), so its result is a gate: `!cancelled()`.
     environment:
-      name: cmux-next-cloud-journey
+      name: cmux-next-vm-image-dev
       deployment: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    needs: [resolve, pick-proof-runner]
+    # Attempt 1 takes pick-proof-runner's ephemeral Blacksmith macOS 26 label; a re-run, or a failed
+    # pick, takes the declared macos_26 pool.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-proof-runner.outputs.label || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 120
     env:
       CMUX_PROOF_TAG: ccp-${{ github.run_id }}
@@ -147,6 +259,10 @@ jobs:
         env:
           REF: ${{ github.ref }}
           CLEANUP_MACHINE: ${{ inputs.cleanup_machine }}
+          PAUSED_CAPTURE: ${{ inputs.paused_capture }}
+          MATRIX: ${{ inputs.matrix }}
+          FROM_FOLDER: ${{ inputs.from_folder }}
+          BUILD: ${{ inputs.build }}
         run: |
           if [ "$REF" != refs/heads/feat-cmux-next ]; then
             echo "::error::cloud-chat-proof runs on feat-cmux-next only (got $REF)"
@@ -156,12 +272,20 @@ jobs:
             echo "::error::cleanup_machine must look like vm_<lowercase hex>"
             exit 1
           fi
+          if [ "$PAUSED_CAPTURE" = true ]; then
+            # It reads the page through debug.page, which only the tagged (Debug) build has.
+            if [ -n "$CLEANUP_MACHINE" ] || [ "$MATRIX" = true ] || [ "$FROM_FOLDER" = true ] || [ "$BUILD" != tagged ]; then
+              echo "::error::paused_capture takes build=tagged and no cleanup_machine, matrix or from_folder"
+              exit 1
+            fi
+          fi
 
       - name: Checkout cmux
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           submodules: recursive
+
 
       - name: Select Xcode
         if: env.CMUX_PROOF_BUILD != 'published'
@@ -248,28 +372,23 @@ jobs:
           PYVERIFY
           echo "CMUX_TUI_CLIENT_LOCAL=$client" >> "$GITHUB_ENV"
 
-      - name: Materialize staging and production agent profiles
+
+      - name: Materialize the staging agent profile
         env:
-          DEV_EMAIL: ${{ secrets.CMUX_JOURNEY_DEV_STACK_EMAIL }}
-          DEV_PASSWORD: ${{ secrets.CMUX_JOURNEY_DEV_STACK_PASSWORD }}
-          PROD_EMAIL: ${{ secrets.CMUX_JOURNEY_PROD_STACK_EMAIL }}
-          PROD_PASSWORD: ${{ secrets.CMUX_JOURNEY_PROD_STACK_PASSWORD }}
+          STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
         run: |
           set -euo pipefail
-          if [ -z "${DEV_EMAIL:-}" ] || [ -z "${DEV_PASSWORD:-}" ] || [ -z "${PROD_EMAIL:-}" ] || [ -z "${PROD_PASSWORD:-}" ]; then
-            echo "::error::the staging or production agent Stack pair is missing from cmux-next-cloud-journey"
+          if [ -z "${STACK_EMAIL:-}" ] || [ -z "${STACK_PASSWORD:-}" ]; then
+            echo "::error::the staging agent Stack pair is missing from this job's environment"
             exit 1
           fi
           out="$RUNNER_TEMP/cloud-chat-proof"
           mkdir -p "$out" "$HOME/.secrets"
           (
             umask 077
-            printf 'CMUX_UITEST_STACK_EMAIL=%s\nCMUX_UITEST_STACK_PASSWORD=%s\n' "$DEV_EMAIL" "$DEV_PASSWORD"
+            printf 'CMUX_UITEST_STACK_EMAIL=%s\nCMUX_UITEST_STACK_PASSWORD=%s\n' "$STACK_EMAIL" "$STACK_PASSWORD"
           ) > "$out/staging.env"
-          (
-            umask 077
-            printf 'CMUX_UITEST_STACK_EMAIL=%s\nCMUX_UITEST_STACK_PASSWORD=%s\n' "$PROD_EMAIL" "$PROD_PASSWORD"
-          ) > "$out/prod.env"
           cp "$out/staging.env" "$out/active.env"
           chmod 600 "$out"/*.env
           cp "$out/active.env" "$HOME/.secrets/cmuxterm-dev.env"
@@ -278,14 +397,20 @@ jobs:
       - name: Install, sign in and launch the published NEXT DEV app
         if: env.CMUX_PROOF_BUILD == 'published'
         env:
-          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_JOURNEY_DEV_STACK_EMAIL }}
-          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_JOURNEY_DEV_STACK_PASSWORD }}
+          GH_TOKEN: ${{ github.token }}
+          ASSET_ID: ${{ needs.resolve.outputs.asset_id }}
+          ASSET_SHA256: ${{ needs.resolve.outputs.asset_sha256 }}
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
         run: |
           set -euo pipefail
           dir="$RUNNER_TEMP/published"
           mkdir -p "$dir"
+          # The release asset pinned by the resolve job, by id, verified against its sha256.
           curl -fsSL --retry 3 -o "$dir/app.zip" \
-            https://github.com/manaflow-ai/cmux/releases/download/cmux-next-dev/cmux-NEXT-DEV.zip
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/octet-stream" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$ASSET_ID"
+          echo "$ASSET_SHA256  $dir/app.zip" | shasum -a 256 -c -
           ditto -x -k "$dir/app.zip" "$dir"
           app="$(find "$dir" -maxdepth 2 -name '*.app' -type d | head -n 1)"
           if [ -z "$app" ]; then echo "::error::the release zip holds no app"; exit 1; fi
@@ -299,20 +424,22 @@ jobs:
           team="$(codesign -dv "$app" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
           if [ "$team" != 7WLXT3NR37 ]; then echo "::error::the release app is signed by team '$team'"; exit 1; fi
           xattr -cr "$app"
-          cp "$RUNNER_TEMP/cloud-chat-proof/staging.env" "$CMUX_PROOF_CREDENTIALS"
           python3 -I scripts/cmux-next/dev-signin-token.py --seed
           # The proof script owns the app launch and supplies the tagged socket
           # to both the published bundle and its CLI. Do not pre-launch a
           # default-socket instance here; it could steal the CLI's connection.
           echo "CMUX_PROOF_APP=$app" >> "$GITHUB_ENV"
 
+
       - name: Build the tagged app once
         if: env.CMUX_PROOF_BUILD != 'published'
         run: |
           set -euo pipefail
+          # --keep-app: without it a --build-only build deletes the bundle it made and prints no App path
           ./scripts/reload.sh \
             --tag "$CMUX_PROOF_TAG" \
             --build-only \
+            --keep-app "$RUNNER_TEMP/cloud-chat-proof-app/cmux DEV $CMUX_PROOF_TAG.app" \
             --auth-profile agent \
             --credentials-file "$CMUX_PROOF_CREDENTIALS" \
             --swift-frontend-workaround | tee "$RUNNER_TEMP/reload.out"
@@ -323,8 +450,24 @@ jobs:
           fi
           echo "CMUX_PROOF_APP=$app" >> "$GITHUB_ENV"
 
-      - name: Staging and production Cloud chats and replies
-        if: inputs.cleanup_machine == ''
+
+      - name: Package the tagged app for the production job
+        if: env.CMUX_PROOF_BUILD != 'published' && !inputs.paused_capture
+        run: |
+          set -euo pipefail
+          ditto -c -k --sequesterRsrc --keepParent "$CMUX_PROOF_APP" "$RUNNER_TEMP/cloud-chat-proof-app.zip"
+
+      - name: Upload the tagged app
+        if: env.CMUX_PROOF_BUILD != 'published' && !inputs.paused_capture
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloud-chat-proof-app
+          path: ${{ runner.temp }}/cloud-chat-proof-app.zip
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Staging Cloud chat and reply
+        if: inputs.cleanup_machine == '' && !inputs.matrix && !inputs.paused_capture
         timeout-minutes: 30
         env:
           PROOF_PROMPT: ${{ inputs.prompt }}
@@ -333,16 +476,54 @@ jobs:
         run: |
           set -euo pipefail
           credentials="$CMUX_PROOF_CREDENTIALS"
-          cp "$RUNNER_TEMP/cloud-chat-proof/staging.env" "$credentials"
           python3 -I scripts/cmux-next/cloud-chat-proof.py --app "$CMUX_PROOF_APP" --tag "$CMUX_PROOF_TAG" \
             --prompt "$PROOF_PROMPT" --agent "$PROOF_AGENT" $PROOF_FROM_FOLDER --cloud-backend staging \
             --expected-api-origin https://cloud-api-staging.cmux.dev --credentials-file "$credentials" \
+            --grant-claude-login --login none \
             --evidence "$RUNNER_TEMP/cloud-chat-proof/staging-evidence.json"
-          cp "$RUNNER_TEMP/cloud-chat-proof/prod.env" "$credentials"
+
+      - name: Staging paused price capture
+        if: inputs.cleanup_machine == '' && !inputs.matrix && inputs.paused_capture
+        timeout-minutes: 50
+        run: |
+          set -euo pipefail
           python3 -I scripts/cmux-next/cloud-chat-proof.py --app "$CMUX_PROOF_APP" --tag "$CMUX_PROOF_TAG" \
-            --prompt "$PROOF_PROMPT" --agent "$PROOF_AGENT" $PROOF_FROM_FOLDER --cloud-backend prod \
-            --expected-api-origin https://cloud-api.cmux.dev --credentials-file "$credentials" \
-            --evidence "$RUNNER_TEMP/cloud-chat-proof/prod-evidence.json"
+            --paused-capture "$RUNNER_TEMP/cloud-chat-proof/paused-price" --cloud-backend staging \
+            --expected-api-origin https://cloud-api-staging.cmux.dev --credentials-file "$CMUX_PROOF_CREDENTIALS" \
+            --evidence "$RUNNER_TEMP/cloud-chat-proof/staging-evidence.json"
+
+      - name: Upload the paused price images
+        if: always() && inputs.paused_capture
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloud-paused-price-staging
+          path: ${{ runner.temp }}/cloud-chat-proof/paused-price/*.png
+          if-no-files-found: warn
+          retention-days: 3
+
+      - name: Staging Cloud workspace matrix
+        if: inputs.cleanup_machine == '' && inputs.matrix
+        timeout-minutes: 90
+        env:
+          PROOF_AGENT: ${{ inputs.agent }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/cloud-chat-proof/matrix-staging"
+          status=0
+          python3 -I scripts/cmux-next/cloud-chat-matrix.py --app "$CMUX_PROOF_APP" --tag "cwm-$GITHUB_RUN_ID-staging" \
+            --agents "$PROOF_AGENT" --cloud-backend staging --expected-api-origin https://cloud-api-staging.cmux.dev \
+            --credentials-file "$CMUX_PROOF_CREDENTIALS" --grant-claude-login --login none --out "$out" || status=$?
+          [ -s "$out/matrix.md" ] && cat "$out/matrix.md" >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Upload the staging matrix
+        if: always() && inputs.matrix
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloud-workspace-matrix-staging
+          path: ${{ runner.temp }}/cloud-chat-proof/matrix-staging/
+          if-no-files-found: warn
+          retention-days: 3
 
       - name: Machine status and kill
         if: inputs.cleanup_machine != ''
@@ -354,6 +535,7 @@ jobs:
             --cleanup-machine "$CLEANUP_MACHINE" --cloud-backend staging \
             --expected-api-origin https://cloud-api-staging.cmux.dev --evidence "$RUNNER_TEMP/cloud-chat-proof/evidence.json"
 
+
       - name: Summarize the evidence
         id: evidence
         if: always()
@@ -364,7 +546,7 @@ jobs:
           if [ -n "${CLEANUP_MACHINE:-}" ]; then
             files=("$RUNNER_TEMP/cloud-chat-proof/evidence.json")
           else
-            files=("$RUNNER_TEMP/cloud-chat-proof/staging-evidence.json" "$RUNNER_TEMP/cloud-chat-proof/prod-evidence.json")
+            files=("$RUNNER_TEMP/cloud-chat-proof/staging-evidence.json")
           fi
           for file in "${files[@]}"; do
             [ -s "$file" ] || { echo "::warning::no evidence was written: $file"; exit 0; }
@@ -375,21 +557,23 @@ jobs:
           done
           echo "clean=true" >> "$GITHUB_OUTPUT"
           {
-            echo '## Cloud chat proof (staging and production)'
+            echo '## Cloud chat proof (staging)'
             echo
             echo '```json'
             for file in "${files[@]}"; do cat "$file"; done
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+
       - name: Upload the evidence
         if: always() && steps.evidence.outputs.clean == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cloud-chat-proof-evidence
+          name: cloud-chat-proof-evidence-staging
           path: ${{ runner.temp }}/cloud-chat-proof/*evidence.json
           if-no-files-found: warn
           retention-days: 3
+
 
       - name: Remove the auth profile
         if: always()
@@ -398,3 +582,225 @@ jobs:
           rmdir "$HOME/.secrets" 2>/dev/null || true
           rm -f "$RUNNER_TEMP/cloud-chat-proof"/*.env
           rm -f "$HOME/Library/Application Support/cmux/com.cmuxterm.app.debug.next/454ecd03-1db2-4050-845e-4ce5b0cd9895/credentials.json"
+
+  proof-prod:
+    if: ${{ !cancelled() && (needs.resolve.result == 'success' || needs.resolve.result == 'skipped') && github.ref == 'refs/heads/feat-cmux-next' && inputs.signin_pubkey == '' && inputs.cleanup_machine == '' && !inputs.paused_capture }}
+    # Production half. cmux-next-cloud-journey is limited to feat-cmux-next by GitHub's branch policy and holds the
+    # production agent account. It runs after proof-staging even when that failed (the build=tagged app bundle comes
+    # from its upload), so one run reports both backends.
+    environment:
+      name: cmux-next-cloud-journey
+      deployment: false
+    needs: [resolve, pick-proof-runner, proof-staging]
+    # Attempt 1 takes pick-proof-runner's ephemeral Blacksmith macOS 26 label; a re-run, or a failed
+    # pick, takes the declared macos_26 pool.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-proof-runner.outputs.label || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    timeout-minutes: 120
+    env:
+      CMUX_PROOF_TAG: ccp-${{ github.run_id }}
+      CMUX_PROOF_BUILD: ${{ inputs.cleanup_machine != '' && 'published' || inputs.build }}
+      CMUX_SKIP_ZIG_BUILD: "1"
+      SWIFT_BACKTRACE: interactive=no,timeout=0s,symbolicate=off,color=no
+    steps:
+      - name: Refuse any ref but feat-cmux-next
+        env:
+          REF: ${{ github.ref }}
+          CLEANUP_MACHINE: ${{ inputs.cleanup_machine }}
+        run: |
+          if [ "$REF" != refs/heads/feat-cmux-next ]; then
+            echo "::error::cloud-chat-proof runs on feat-cmux-next only (got $REF)"
+            exit 1
+          fi
+          if [ -n "$CLEANUP_MACHINE" ] && ! printf '%s' "$CLEANUP_MACHINE" | grep -Eqx 'vm_[0-9a-f]{1,64}'; then
+            echo "::error::cleanup_machine must look like vm_<lowercase hex>"
+            exit 1
+          fi
+
+      - name: Checkout cmux
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts
+
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Materialize the production agent profile
+        env:
+          STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${STACK_EMAIL:-}" ] || [ -z "${STACK_PASSWORD:-}" ]; then
+            echo "::error::the production agent Stack pair is missing from this job's environment"
+            exit 1
+          fi
+          out="$RUNNER_TEMP/cloud-chat-proof"
+          mkdir -p "$out" "$HOME/.secrets"
+          (
+            umask 077
+            printf 'CMUX_UITEST_STACK_EMAIL=%s\nCMUX_UITEST_STACK_PASSWORD=%s\n' "$STACK_EMAIL" "$STACK_PASSWORD"
+          ) > "$out/prod.env"
+          cp "$out/prod.env" "$out/active.env"
+          chmod 600 "$out"/*.env
+          cp "$out/active.env" "$HOME/.secrets/cmuxterm-dev.env"
+          echo "CMUX_PROOF_CREDENTIALS=$out/active.env" >> "$GITHUB_ENV"
+
+      - name: Install, sign in and launch the published NEXT DEV app
+        if: env.CMUX_PROOF_BUILD == 'published'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASSET_ID: ${{ needs.resolve.outputs.asset_id }}
+          ASSET_SHA256: ${{ needs.resolve.outputs.asset_sha256 }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/published"
+          mkdir -p "$dir"
+          # The release asset pinned by the resolve job, by id, verified against its sha256.
+          curl -fsSL --retry 3 -o "$dir/app.zip" \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/octet-stream" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$ASSET_ID"
+          echo "$ASSET_SHA256  $dir/app.zip" | shasum -a 256 -c -
+          ditto -x -k "$dir/app.zip" "$dir"
+          app="$(find "$dir" -maxdepth 2 -name '*.app' -type d | head -n 1)"
+          if [ -z "$app" ]; then echo "::error::the release zip holds no app"; exit 1; fi
+          # Seed and launch only the real signed NEXT DEV app: its bundle id, a valid signature and our team
+          # (router-review F1 at 62482314: a replaced asset must never run with the seeded session).
+          bundle="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")"
+          if [ "$bundle" != com.cmuxterm.app.debug.next ]; then
+            echo "::error::the release app is $bundle, not com.cmuxterm.app.debug.next"; exit 1
+          fi
+          codesign --verify --deep --strict "$app"
+          team="$(codesign -dv "$app" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
+          if [ "$team" != 7WLXT3NR37 ]; then echo "::error::the release app is signed by team '$team'"; exit 1; fi
+          xattr -cr "$app"
+          # Production signs in from its credentials file at launch (CMUX_DEV_AUTH_REPLACE_SESSION);
+          # the staging session seed belongs to the staging job.
+          # The proof script owns the app launch and supplies the tagged socket
+          # to both the published bundle and its CLI. Do not pre-launch a
+          # default-socket instance here; it could steal the CLI's connection.
+          echo "CMUX_PROOF_APP=$app" >> "$GITHUB_ENV"
+
+
+      - name: Download the tagged app built by proof-staging
+        if: env.CMUX_PROOF_BUILD != 'published'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cloud-chat-proof-app
+          path: ${{ runner.temp }}/tagged-app
+
+      - name: Unpack the tagged app
+        if: env.CMUX_PROOF_BUILD != 'published'
+        run: |
+          set -euo pipefail
+          ditto -x -k "$RUNNER_TEMP/tagged-app/cloud-chat-proof-app.zip" "$RUNNER_TEMP/tagged-app/app"
+          app="$(find "$RUNNER_TEMP/tagged-app/app" -maxdepth 1 -name '*.app' -type d | head -n 1)"
+          if [ -z "$app" ]; then echo "::error::the tagged artifact holds no app"; exit 1; fi
+          echo "CMUX_PROOF_APP=$app" >> "$GITHUB_ENV"
+
+      - name: Prod Cloud chat and reply
+        if: inputs.cleanup_machine == '' && !inputs.matrix
+        timeout-minutes: 30
+        env:
+          PROOF_PROMPT: ${{ inputs.prompt }}
+          PROOF_AGENT: ${{ inputs.agent }}
+          PROOF_FROM_FOLDER: ${{ inputs.from_folder && '--from-folder' || '' }}
+        run: |
+          set -euo pipefail
+          credentials="$CMUX_PROOF_CREDENTIALS"
+          python3 -I scripts/cmux-next/cloud-chat-proof.py --app "$CMUX_PROOF_APP" --tag "$CMUX_PROOF_TAG" \
+            --prompt "$PROOF_PROMPT" --agent "$PROOF_AGENT" $PROOF_FROM_FOLDER --cloud-backend prod \
+            --expected-api-origin https://cloud-api.cmux.dev --credentials-file "$credentials" \
+            --grant-claude-login --login none \
+            --evidence "$RUNNER_TEMP/cloud-chat-proof/prod-evidence.json"
+
+      - name: Prod Cloud workspace matrix
+        if: inputs.cleanup_machine == '' && inputs.matrix
+        timeout-minutes: 90
+        env:
+          PROOF_AGENT: ${{ inputs.agent }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/cloud-chat-proof/matrix-prod"
+          status=0
+          python3 -I scripts/cmux-next/cloud-chat-matrix.py --app "$CMUX_PROOF_APP" --tag "cwm-$GITHUB_RUN_ID-prod" \
+            --agents "$PROOF_AGENT" --cloud-backend prod --expected-api-origin https://cloud-api.cmux.dev \
+            --credentials-file "$CMUX_PROOF_CREDENTIALS" --grant-claude-login --login none --out "$out" || status=$?
+          [ -s "$out/matrix.md" ] && cat "$out/matrix.md" >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Upload the prod matrix
+        if: always() && inputs.matrix
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloud-workspace-matrix-prod
+          path: ${{ runner.temp }}/cloud-chat-proof/matrix-prod/
+          if-no-files-found: warn
+          retention-days: 3
+
+      - name: Summarize the evidence
+        id: evidence
+        if: always()
+        env:
+          CLEANUP_MACHINE: ${{ inputs.cleanup_machine }}
+        run: |
+          set -euo pipefail
+          if [ -n "${CLEANUP_MACHINE:-}" ]; then
+            exit 0
+          else
+            files=("$RUNNER_TEMP/cloud-chat-proof/prod-evidence.json")
+          fi
+          for file in "${files[@]}"; do
+            [ -s "$file" ] || { echo "::warning::no evidence was written: $file"; exit 0; }
+            if grep -Eiq '(cmvm|cmk|crt|crk|cmm|cmj)_[A-Za-z0-9_-]{8,}|sk-(ant-)?[A-Za-z0-9_-]{10,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|bearer[[:space:]]+[A-Za-z0-9._~+/=-]+|((api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|token|password|secret|credential)[[:space:]]*[:=])' "$file"; then
+              echo "::error::the evidence holds a secret-shaped value; it is not uploaded"
+              exit 1
+            fi
+          done
+          echo "clean=true" >> "$GITHUB_OUTPUT"
+          {
+            echo '## Cloud chat proof (production)'
+            echo
+            echo '```json'
+            for file in "${files[@]}"; do cat "$file"; done
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+
+      - name: Upload the evidence
+        if: always() && steps.evidence.outputs.clean == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloud-chat-proof-evidence-prod
+          path: ${{ runner.temp }}/cloud-chat-proof/*evidence.json
+          if-no-files-found: warn
+          retention-days: 3
+
+
+      - name: Remove the auth profile
+        if: always()
+        run: |
+          rm -f "$HOME/.secrets/cmuxterm-dev.env"
+          rmdir "$HOME/.secrets" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/cloud-chat-proof"/*.env
+          rm -f "$HOME/Library/Application Support/cmux/com.cmuxterm.app.debug.next/454ecd03-1db2-4050-845e-4ce5b0cd9895/credentials.json"
+
+  verdict:
+    # The proof passes only when both backends did (or, for cleanup_machine and paused_capture, the staging job that does it).
+    if: ${{ always() && github.ref == 'refs/heads/feat-cmux-next' && inputs.signin_pubkey == '' }}
+    needs: [proof-staging, proof-prod]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    steps:
+      - name: Require every backend to pass
+        env:
+          STAGING: ${{ needs.proof-staging.result }}
+          PROD: ${{ needs.proof-prod.result }}
+          CLEANUP_MACHINE: ${{ inputs.cleanup_machine }}
+          PAUSED_CAPTURE: ${{ inputs.paused_capture }}
+        run: |
+          echo "proof-staging: $STAGING; proof-prod: $PROD"
+          if [ "$STAGING" != success ]; then echo "::error::the staging proof did not pass ($STAGING)"; exit 1; fi
+          if [ -n "$CLEANUP_MACHINE" ] || [ "$PAUSED_CAPTURE" = true ]; then exit 0; fi
+          if [ "$PROD" != success ]; then echo "::error::the production proof did not pass ($PROD)"; exit 1; fi

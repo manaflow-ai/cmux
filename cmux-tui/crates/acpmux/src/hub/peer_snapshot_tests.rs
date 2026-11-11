@@ -1254,9 +1254,9 @@ fn a_listing_under_way_when_a_peer_is_removed_never_lets_its_copies_back() {
     let home = snapshot_home(&hub);
     let path = disk::path(&disk::root(&home), &key("m1")).unwrap();
     let peer = add_idle_peer(&hub, PEER);
-    // A listing that found the peer current holds the rows lock; the removal waits for it, so its
+    // A listing that found the peer current holds the rows writer lock; the removal waits for it, so its
     // op comes before the removal's.
-    let rows = hub.remote_sessions.lock().unwrap();
+    let rows = hub.remote_sessions.fence();
     let remover = {
         let hub = hub.clone();
         std::thread::spawn(move || hub.forget_peer_cache(PEER))
@@ -1285,9 +1285,11 @@ fn a_capture_of_an_instance_replaced_while_it_was_sent_is_not_kept() {
     let path = disk::path(&disk::root(&home), &key("m1")).unwrap();
     let old = add_idle_peer(&hub, PEER);
     hub.peer_snapshots.listed(PEER, vec![("m1".into(), Some(42))], true);
-    // The replacing instance registers under the rows lock, as `spawn_peer` does, and lists the
-    // session; a capture of the old one checks and sends under that lock, so it goes first or not.
-    let rows = hub.remote_sessions.lock().unwrap();
+    // The replacing instance registers holding `peers` then the rows writer lock, as
+    // `spawn_peer` does (that lock order), and lists the session; a capture of the old one checks
+    // and sends under both, so it goes first or not at all.
+    let mut peers = hub.peers.lock().unwrap();
+    let rows = hub.remote_sessions.fence();
     let capture = {
         let hub = hub.clone();
         let on = (PEER, old.generation, old.link_epoch(), Some(42));
@@ -1299,9 +1301,10 @@ fn a_capture_of_an_instance_replaced_while_it_was_sent_is_not_kept() {
     std::thread::sleep(Duration::from_millis(50));
     let (tx, _rx) = tokio::sync::mpsc::channel(8);
     let new = crate::peer::Peer::new(PEER, "ws://127.0.0.1:9", None, None, tx);
-    hub.peers.lock().unwrap().insert(PEER.to_owned(), new);
+    peers.insert(PEER.to_owned(), new);
     hub.peer_snapshots.listed(PEER, vec![("m1".into(), Some(42))], true);
     drop(rows);
+    drop(peers);
     capture.join().unwrap();
     hub.peer_snapshots.flush_now();
     assert!(!path.exists(), "the replaced instance's page was kept");

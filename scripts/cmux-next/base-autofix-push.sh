@@ -105,6 +105,9 @@ output_areas() {
       Packages/*.swift | ios/cmux/*.swift) echo ratchets ;;
       clients/ts/cloud/* | cmux-tui/crates/cmux-cloud-wire/src/generated/*) echo cloud ;;
       webviews/*) echo webviews ;;
+      # The Cargo locks (base-autofix.sh --locks) follow every Cargo manifest (autofix-areas.sh locks); before
+      # cmux-tui/*, which would claim cmux-app-ffi's lock for formatting.
+      Cargo.lock | */Cargo.lock) echo locks ;;
       cmux-tui/* | Native/OptChat/*) echo fmt ;;
       *) echo unknown ;;
     esac

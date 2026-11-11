@@ -42,6 +42,10 @@ name: cmux NEXT Stable
 # (mode dry-run, or that branch) plans, runs every gate, re-signs ad hoc and smokes the result, and
 # publishes nothing; it needs no secret.
 #
+# Updates: Slack, never a GitHub issue. A publish run posts one message to vars.STABLE_NEXT_SLACK_CHANNEL,
+# answers in its thread as each gate ends (why it failed), and edits it to shipped or blocked
+# (scripts/ci/stable_next_slack.py; secret STABLE_NEXT_SLACK_BOT_TOKEN in release-next).
+#
 # Undo: stable-next-rollback.yml (bad_build / to_build), on nightly-next.
 # A schedule and a dispatch register only from the default branch, so this file is on main too;
 # there its only job is the tick.
@@ -76,7 +80,13 @@ permissions: {}
 # publish run at a time, and every feed write (publish, rollback) is a compare-and-swap on R2.
 
 env:
-  NEXT_FEED_BASE: https://files-next.cmux.com/nightly-next/next
+  # The nightly-next track's one feed (nightly.yml NIGHTLY_NEXT_FEED_BASE): since 2026-11-05 every
+  # build ships as cmux NIGHTLY there (hq#7156), with its notes in notes/. The retired cmux NEXT
+  # feed in next/ gets no builds; reading it re-tested its last build every night (11-06 to 11-10).
+  NEXT_FEED_BASE: https://files-next.cmux.com/nightly-next
+  # The canary verdicts and pulled.json stay in the retired feed's folder (nightly.yml
+  # NIGHTLY_NEXT_VERDICTS_BASE), where the app reads them.
+  NEXT_VERDICTS_BASE: https://files-next.cmux.com/nightly-next/next
   # The path keeps /nightly-next/: UpdateFeedResolver classifies the feed by it.
   STABLE_FEED_BASE: https://files-next.cmux.com/nightly-next/stable
   STABLE_APPCAST: appcast-arm64.xml
@@ -154,7 +164,7 @@ jobs:
           echo "tonight's runs since $NIGHT_START: $runs"
           if [ "$active" -gt 0 ]; then echo "a stable run is already queued or running"; exit 0; fi
           if [ "$failed" -ge 3 ]; then
-            echo "::warning title=cmux NEXT Stable::$failed runs failed tonight; no more attempts until tomorrow night (see the 'cmux NEXT Stable blocked' issue)"
+            echo "::warning title=cmux NEXT Stable::$failed runs failed tonight; no more attempts until tomorrow night (see tonight's runs in the Slack channel)"
             exit 0
           fi
           gh workflow run stable-next.yml -R "$GITHUB_REPOSITORY" --ref nightly-next -f mode=publish
@@ -185,7 +195,7 @@ jobs:
         run: |
           set -euo pipefail
           curl -fsS --retry 3 -A cmux-stable-next/1 -o "$RUNNER_TEMP/next.xml" "$NEXT_FEED_BASE/appcast-arm64.xml"
-          curl -fsS --retry 3 -A cmux-stable-next/1 -o "$RUNNER_TEMP/pulled.json" "$NEXT_FEED_BASE/pulled.json" \
+          curl -fsS --retry 3 -A cmux-stable-next/1 -o "$RUNNER_TEMP/pulled.json" "$NEXT_VERDICTS_BASE/pulled.json" \
             || echo '[]' > "$RUNNER_TEMP/pulled.json"
           curl -fsS --retry 3 -A cmux-stable-next/1 -o "$RUNNER_TEMP/stable.xml" "$STABLE_FEED_BASE/$STABLE_APPCAST" \
             || : > "$RUNNER_TEMP/stable.xml"
@@ -202,7 +212,7 @@ jobs:
           [ -z "$BUILD" ] || args=(--build "$BUILD")
           python3 -I scripts/ci/stable_next.py pick --feed "$RUNNER_TEMP/next.xml" --stable "$RUNNER_TEMP/stable.xml" \
             --pulled "$RUNNER_TEMP/pulled.json" --stable-pulled "$RUNNER_TEMP/stable-pulled.json" \
-            --verdicts "$NEXT_FEED_BASE/verdicts" ${args[@]+"${args[@]}"}
+            --verdicts "$NEXT_VERDICTS_BASE/verdicts" ${args[@]+"${args[@]}"}
 
       # The commit the build was compiled from: nightly.yml's build_sha (the resolved cmux-tui tree,
       # which can trail the run's head, or a recovered run's source), as its release notes record it
@@ -231,10 +241,21 @@ jobs:
           SKIP: ${{ steps.pick.outputs.skip }}
           SKIP_REASON: ${{ steps.pick.outputs.skip_reason }}
           FORCE: ${{ inputs.force || false }}
+          PUBLISHED_AT: ${{ steps.pick.outputs.published_at }}
         run: |
           go=true
           if [ "$SKIP" = true ] && [ "$FORCE" != true ] && [ "$MODE" = publish ]; then go=false; fi
           echo "go=$go" >> "$GITHUB_OUTPUT"
+          # The newest nightly is normally hours old. Days old means the track stopped publishing, or
+          # moved its feed again (NEXT_FEED_BASE), and every night re-tests the same build.
+          age_h=""
+          if [ -n "$PUBLISHED_AT" ]; then
+            published_s="$(date -u -d "$PUBLISHED_AT" +%s 2>/dev/null || true)"
+            [ -z "$published_s" ] || age_h=$(( ($(date -u +%s) - published_s) / 3600 ))
+            if [ -n "$age_h" ] && [ "$age_h" -ge 48 ]; then
+              echo "::warning title=cmux NEXT Stable::the newest nightly on $NEXT_FEED_BASE is ${age_h} h old (published $PUBLISHED_AT); check that nightly-next still publishes there"
+            fi
+          fi
           {
             echo "### cmux NEXT Stable ($MODE)"
             echo
@@ -242,6 +263,7 @@ jobs:
             echo "| --- | --- |"
             echo "| build | ${{ steps.pick.outputs.build }} (${{ steps.pick.outputs.short_version }}) |"
             echo "| commit | ${{ steps.commit.outputs.commit }} |"
+            echo "| published | ${PUBLISHED_AT:-unknown}${age_h:+ (${age_h} h ago)} |"
             echo "| canary verdict | ${{ steps.pick.outputs.verdict }} |"
             echo "| runs | $go${SKIP_REASON:+ ($SKIP_REASON)} |"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -296,8 +318,12 @@ jobs:
             echo "::notice title=cmux NEXT Stable::no stable build yet; the crash-class delta has no base"
             exit 0
           fi
-          base="$(curl -fsS --retry 3 -A cmux-stable-next/1 "$NEXT_FEED_BASE/notes/$served.json" \
-            | python3 -c 'import json,sys; print(json.load(sys.stdin)["head"])')"
+          # Notes of builds from before the feed move (2026-11-05) may sit only in the retired folder.
+          notes="$RUNNER_TEMP/served-notes.json"
+          curl -fsS --retry 3 -A cmux-stable-next/1 -o "$notes" "$NEXT_FEED_BASE/notes/$served.json" \
+            || curl -fsS --retry 3 -A cmux-stable-next/1 -o "$notes" "$NEXT_VERDICTS_BASE/notes/$served.json" \
+            || { echo "::error title=cmux NEXT Stable::no notes/$served.json in $NEXT_FEED_BASE or $NEXT_VERDICTS_BASE"; exit 1; }
+          base="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["head"])' "$notes")"
           [[ "$base" =~ ^[0-9a-f]{40}$ ]] || { echo "notes/$served.json names no commit" >&2; exit 1; }
           git fetch --no-tags --depth=1 origin "$base" "$COMMIT"
           mkdir -p "$RUNNER_TEMP/base-tree" "$RUNNER_TEMP/head-tree"
@@ -340,6 +366,12 @@ jobs:
             exit 1
           fi
           log="$RUNNER_TEMP/perf-step.log"
+          why="$RUNNER_TEMP/perf-why.txt"
+          # The verdict's rows as one error annotation: the reason the Slack thread shows.
+          annotate() {
+            [ -s "$why" ] || return 0
+            echo "::error title=cmux NEXT Stable: slower than the baseline::$(head -24 "$why" | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"}1')"
+          }
           # Attempt 1 may wait 3 h for an idle M4 Pro; a retry after a fault gets 1 h (fits the job's 600 min).
           for n in 1 2 3; do
             status=0
@@ -356,12 +388,40 @@ jobs:
               75) echo "::warning title=stable perf::step $KEY-$n still queued after $((queue / 3600)) h (kept); no perf verdict for this build"; exit 0 ;;
               124) echo "::warning title=stable perf::step $KEY-$n ran past its time limit; measuring again" ;;
               *)
-                # A gate verdict printed its PERF-BUDGETS lines; a step that never measured did not.
-                if grep -q -E 'cmux-ci: step [0-9a-f]+ (cancelled|failed)' "$log" && ! grep -q 'PERF-BUDGETS rows=' "$log"; then
-                  echo "::warning title=stable perf::step $KEY-$n ended without a verdict; measuring again"
-                else
+                # The verdict is the step's report: rows over the baseline are a regression and final. A
+                # step with no report or no regressed row (cancelled, a host fault) measured nothing. The
+                # report, not the log: a step re-attached after the controller dropped its log prints only
+                # "controller HTTP 404" (run 42832167718).
+                if grep -q 'PERF-BUDGETS rows=' "$log"; then  # the gate printed its verdict
+                  grep -E '^PERF-BUDGETS-(REGRESSION|INCOMPLETE) ' "$log" | sed 's/^PERF-BUDGETS-//' > "$why" || true
+                  annotate
                   exit "$status"
-                fi ;;
+                fi
+                id="$(grep -o -E 'cmux-ci: step [0-9a-f]{24}' "$log" | head -1 | awk '{print $3}')"
+                report="$RUNNER_TEMP/perf-report-$n.json"
+                regressed=0
+                if [ -n "$id" ] && { "$client" artifact "$id" "$report" --failed || "$client" artifact "$id" "$report"; } >/dev/null 2>&1; then
+                  regressed="$(python3 -I - "$report" "${GITHUB_STEP_SUMMARY:-/dev/null}" "$why" <<'PY'
+          import json, sys
+          try:
+              rows = json.load(open(sys.argv[1])).get("regressed") or []
+          except (OSError, ValueError, AttributeError):
+              rows = []
+          with open(sys.argv[2], "a") as summary, open(sys.argv[3], "w") as why:
+              if rows:
+                  summary.write("### Perf budgets: rows over the baseline p95\n\n| row | p95 | baseline | worse |\n| --- | --- | --- | --- |\n")
+              for row in rows:
+                  summary.write(f"| {row.get('name')} | {row.get('p95')} | {row.get('baseline')} | {row.get('worse_pct')}% |\n")
+                  why.write(f"REGRESSION {row.get('name')} p95 {row.get('p95')} vs baseline {row.get('baseline')} (+{row.get('worse_pct')} %)\n")
+          print(len(rows))
+          PY
+                  )"
+                fi
+                if [ "${regressed:-0}" -gt 0 ]; then
+                  annotate
+                  exit 1
+                fi
+                echo "::warning title=stable perf::step $KEY-$n (${id:-no step}) ended without a perf verdict; measuring again" ;;
             esac
           done
           echo "::warning title=stable perf::three perf steps for this build ended without a verdict; no perf verdict"
@@ -553,9 +613,15 @@ jobs:
           echo "runner $RUNNER_NAME: $chip, macOS $os"
           case "$chip" in *M6*) echo "::error::stable-next never uses an M6 mini ($RUNNER_NAME)"; exit 1 ;; esac
           [ "${os%%.*}" = 27 ] || { echo "::error::smoke-27 needs macOS 27, $RUNNER_NAME has $os"; exit 1; }
+      # An owned runner keeps one clone for every job of the repository. A sparse checkout there
+      # failed on another job's modified files ("not uptodate; will not remove", run 42832167718) and
+      # leaves the clone sparse for the next job, so these scripts get a clone of their own.
+      - name: Start a clean clone of the smoke scripts
+        run: rm -rf "$GITHUB_WORKSPACE/.stable-next-smoke"
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          path: .stable-next-smoke
           sparse-checkout: |
             scripts/ci/fresh_home_launch_smoke.py
             scripts/ci/stable_next_ui_journey.py
@@ -567,9 +633,10 @@ jobs:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: stable-next-signed
-          path: stable-signed
+          path: .stable-next-smoke/stable-signed
       - name: UI tests of cmux NEXT Stable (macOS 27)
         id: smoke
+        working-directory: .stable-next-smoke
         env:
           DMG: stable-signed/${{ needs.sign.outputs.dmg_name }}
           EXPECT_SHA256: ${{ needs.sign.outputs.dmg_sha256 }}
@@ -598,9 +665,13 @@ jobs:
         run: |
           os="$(sw_vers -productVersion)"; echo "runner $RUNNER_NAME: $(sysctl -n machdep.cpu.brand_string), macOS $os"
           [ "${os%%.*}" = 26 ] || { echo "::error::smoke-26 needs macOS 26, $RUNNER_NAME has $os"; exit 1; }
+      # MACOS_RUNNER_26 can name an owned runner: a clone of its own, as smoke-27.
+      - name: Start a clean clone of the smoke scripts
+        run: rm -rf "$GITHUB_WORKSPACE/.stable-next-smoke"
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          path: .stable-next-smoke
           sparse-checkout: |
             scripts/ci/fresh_home_launch_smoke.py
             scripts/ci/stable_next_ui_journey.py
@@ -612,9 +683,10 @@ jobs:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: stable-next-signed
-          path: stable-signed
+          path: .stable-next-smoke/stable-signed
       - name: UI tests of cmux NEXT Stable (macOS 26)
         id: smoke
+        working-directory: .stable-next-smoke
         env:
           DMG: stable-signed/${{ needs.sign.outputs.dmg_name }}
           EXPECT_SHA256: ${{ needs.sign.outputs.dmg_sha256 }}
@@ -652,9 +724,9 @@ jobs:
         run: |
           set -euo pipefail
           # Fail closed: with the feed check gone, an unreadable pulled.json must never read as "nothing pulled".
-          curl -fsS --retry 5 --retry-all-errors -A cmux-stable-next/1 -o "$RUNNER_TEMP/pulled.json" "$NEXT_FEED_BASE/pulled.json"
+          curl -fsS --retry 5 --retry-all-errors -A cmux-stable-next/1 -o "$RUNNER_TEMP/pulled.json" "$NEXT_VERDICTS_BASE/pulled.json"
           python3 -I scripts/ci/stable_next.py soak --build "$BUILD" --pulled "$RUNNER_TEMP/pulled.json" \
-            --verdicts "$NEXT_FEED_BASE/verdicts"
+            --verdicts "$NEXT_VERDICTS_BASE/verdicts"
       - name: No new unhandled Sentry issue first seen in this release
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
@@ -669,7 +741,7 @@ jobs:
           { echo "### Sentry: $RELEASE"; echo; cat "$RUNNER_TEMP/sentry.md"; } >> "$GITHUB_STEP_SUMMARY"
           case "$status" in
             0) exit 0 ;;
-            1) echo "::error title=cmux NEXT Stable::new unhandled Sentry issues in $RELEASE"; exit 1 ;;
+            1) echo "::error title=cmux NEXT Stable: new crashes in crash reports::$RELEASE%0A$(grep '^- ' "$RUNNER_TEMP/sentry.md" | head -10 | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"}1')"; exit 1 ;;
             *) if [ "$MODE" = dry-run ] || [ "$SENTRY_GATE" = warn ]; then
                  echo "::warning title=cmux NEXT Stable::Sentry could not be read for $RELEASE (gate: ${SENTRY_GATE}, mode: $MODE)"
                  exit 0
@@ -719,9 +791,9 @@ jobs:
       - name: The build is still not pulled and has no fail verdict
         run: |
           set -euo pipefail
-          curl -fsS --retry 5 --retry-all-errors -A cmux-stable-next/1 -o "$RUNNER_TEMP/pulled.json" "$NEXT_FEED_BASE/pulled.json"
+          curl -fsS --retry 5 --retry-all-errors -A cmux-stable-next/1 -o "$RUNNER_TEMP/pulled.json" "$NEXT_VERDICTS_BASE/pulled.json"
           python3 -I scripts/ci/stable_next.py soak --build "$BUILD" --pulled "$RUNNER_TEMP/pulled.json" \
-            --verdicts "$NEXT_FEED_BASE/verdicts"
+            --verdicts "$NEXT_VERDICTS_BASE/verdicts"
       - name: Dry run - compose the feed the publish would write
         if: env.PUBLISH != 'true'
         run: |
@@ -766,56 +838,182 @@ jobs:
             echo "- commit: ${{ needs.plan.outputs.commit }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # One rolling issue: opened or updated when a publish run fails, closed by the next publish.
-  report:
-    needs: [plan, crash-class, perf-budgets, sign, smoke-27, smoke-26, soak, publish]
-    if: always() && github.ref == 'refs/heads/nightly-next' && github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' && needs.plan.outputs.go != 'false'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_2 }}
-    timeout-minutes: 10
+  # Slack (scripts/ci/stable_next_slack.py), publish runs only: one message per run in the channel
+  # vars.STABLE_NEXT_SLACK_CHANNEL, posted when the gates start, answered in its thread as each gate
+  # ends (with the gate's error annotations: why it failed), and edited by report when the run ends.
+  # The bot token (secret STABLE_NEXT_SLACK_BOT_TOKEN in release-next) needs chat:write and the bot
+  # must be in the channel; without either the jobs warn and post nothing. Slack never fails a run.
+  slack-start:
+    needs: plan
+    if: needs.plan.outputs.go == 'true' && github.ref == 'refs/heads/nightly-next' && github.event_name == 'workflow_dispatch' && inputs.mode == 'publish'
+    environment: release-next
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
     permissions:
-      issues: write
+      contents: read
+    outputs:
+      ts: ${{ steps.post.outputs.ts }}
+      channel: ${{ steps.post.outputs.channel }}
     steps:
-      - name: Open, update or close the "cmux NEXT Stable blocked" issue
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci/stable_next_slack.py
+          sparse-checkout-cone-mode: false
+      - name: Post the run's Slack message
+        id: post
         env:
-          GH_TOKEN: ${{ github.token }}
-          RESULTS: >-
-            plan=${{ needs.plan.result }} crash-class=${{ needs.crash-class.result }}
-            perf-budgets=${{ needs.perf-budgets.result }} sign=${{ needs.sign.result }} smoke-27=${{ needs.smoke-27.result }}
-            smoke-26=${{ needs.smoke-26.result }} soak=${{ needs.soak.result }} publish=${{ needs.publish.result }}
+          SLACK_BOT_TOKEN: ${{ secrets.STABLE_NEXT_SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL: ${{ vars.STABLE_NEXT_SLACK_CHANNEL }}
           BUILD: ${{ needs.plan.outputs.build }}
           SHORT_VERSION: ${{ needs.plan.outputs.short_version }}
           COMMIT: ${{ needs.plan.outputs.commit }}
-          PUBLISHED: ${{ needs.publish.result == 'success' }}
-          ASSIGNEE: ${{ vars.STABLE_NEXT_OWNER || 'azooz2003-bit' }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 -I scripts/ci/stable_next_slack.py start
+
+  # One job per gate, so each answers as soon as its gate ends (perf can take hours).
+  slack-crash-class:
+    needs: [slack-start, crash-class]
+    if: always() && needs.slack-start.outputs.ts != '' && needs.crash-class.result != 'skipped'
+    environment: release-next
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+    env:
+      LANE: crash-class
+      RESULT: ${{ needs.crash-class.result }}
+    steps: &slack-lane-steps
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci/stable_next_slack.py
+          sparse-checkout-cone-mode: false
+      - name: Answer in the run's Slack thread
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.STABLE_NEXT_SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL: ${{ vars.STABLE_NEXT_SLACK_CHANNEL }}
+          TS: ${{ needs.slack-start.outputs.ts }}
+          CHANNEL_ID: ${{ needs.slack-start.outputs.channel }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 -I scripts/ci/stable_next_slack.py lane --lane "$LANE" --result "$RESULT"
+
+  slack-perf-budgets:
+    needs: [slack-start, perf-budgets]
+    if: always() && needs.slack-start.outputs.ts != '' && needs.perf-budgets.result != 'skipped'
+    environment: release-next
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+    env:
+      LANE: perf-budgets
+      RESULT: ${{ needs.perf-budgets.result }}
+    steps: *slack-lane-steps
+
+  slack-sign:
+    needs: [slack-start, sign]
+    if: always() && needs.slack-start.outputs.ts != '' && needs.sign.result != 'skipped'
+    environment: release-next
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+    env:
+      LANE: sign
+      RESULT: ${{ needs.sign.result }}
+    steps: *slack-lane-steps
+
+  slack-smoke-27:
+    needs: [slack-start, smoke-27]
+    if: always() && needs.slack-start.outputs.ts != '' && needs.smoke-27.result != 'skipped'
+    environment: release-next
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+    env:
+      LANE: smoke-27
+      RESULT: ${{ needs.smoke-27.result }}
+    steps: *slack-lane-steps
+
+  slack-smoke-26:
+    needs: [slack-start, smoke-26]
+    if: always() && needs.slack-start.outputs.ts != '' && needs.smoke-26.result != 'skipped'
+    environment: release-next
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+    env:
+      LANE: smoke-26
+      RESULT: ${{ needs.smoke-26.result }}
+    steps: *slack-lane-steps
+
+  slack-soak:
+    needs: [slack-start, soak]
+    if: always() && needs.slack-start.outputs.ts != '' && needs.soak.result != 'skipped'
+    environment: release-next
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+    env:
+      LANE: soak
+      RESULT: ${{ needs.soak.result }}
+    steps: *slack-lane-steps
+
+  report:
+    needs: [plan, slack-start, crash-class, perf-budgets, sign, smoke-27, smoke-26, soak, publish]
+    if: always() && github.ref == 'refs/heads/nightly-next' && github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' && needs.plan.outputs.go != 'false'
+    environment: release-next
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci/stable_next_slack.py
+          sparse-checkout-cone-mode: false
+      # Shipped or blocked, in the run's Slack message (a new one when plan failed before it was
+      # posted). No GitHub issue: the team follows stable in Slack.
+      - name: Edit the run's Slack message with the result
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.STABLE_NEXT_SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL: ${{ vars.STABLE_NEXT_SLACK_CHANNEL }}
+          MENTION: ${{ vars.STABLE_NEXT_SLACK_MENTION }}
+          TS: ${{ needs.slack-start.outputs.ts }}
+          CHANNEL_ID: ${{ needs.slack-start.outputs.channel }}
+          GITHUB_TOKEN: ${{ github.token }}
+          BUILD: ${{ needs.plan.outputs.build }}
+          SHORT_VERSION: ${{ needs.plan.outputs.short_version }}
+          COMMIT: ${{ needs.plan.outputs.commit }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RESULTS: >-
+            plan=${{ needs.plan.result }},crash-class=${{ needs.crash-class.result }},perf-budgets=${{ needs.perf-budgets.result }},sign=${{ needs.sign.result }},smoke-27=${{ needs.smoke-27.result }},smoke-26=${{ needs.smoke-26.result }},soak=${{ needs.soak.result }},publish=${{ needs.publish.result }}
         run: |
           set -euo pipefail
-          title="cmux NEXT Stable blocked"
-          number="$(gh issue list -R "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json number,title \
-            --jq "map(select(.title == \"$title\")) | .[0].number // empty")"
-          if [ "$PUBLISHED" = true ]; then
-            [ -z "$number" ] || gh issue close "$number" -R "$GITHUB_REPOSITORY" --comment "Published build $BUILD: $RUN_URL"
-            # Every published stable build is announced on one open issue; the owner is mentioned, so the
-            # first stable release (and every later one) reaches them as a GitHub notification.
-            log="cmux NEXT Stable releases"
-            releases="$(gh issue list -R "$GITHUB_REPOSITORY" --state open --search "\"$log\" in:title" --json number,title \
-              --jq "map(select(.title == \"$log\")) | .[0].number // empty")"
-            note="$(printf '@%s cmux NEXT Stable %s (build %s, commit %s) is live: https://files-next.cmux.com/nightly-next/stable/appcast-arm64.xml\n\nRun: %s' \
-              "$ASSIGNEE" "$SHORT_VERSION" "$BUILD" "$COMMIT" "$RUN_URL")"
-            if [ -z "$releases" ]; then
-              gh issue create -R "$GITHUB_REPOSITORY" --title "$log" --assignee "$ASSIGNEE" --body "$note"
-            else
-              gh issue comment "$releases" -R "$GITHUB_REPOSITORY" --body "$note"
-            fi
-            exit 0
-          fi
-          failed="$(tr ' ' '\n' <<<"$RESULTS" | grep -v -E '=(success|skipped)$' | grep . | paste -sd ' ' -)"
-          body="Build $BUILD (commit $COMMIT) did not ship: ${failed:-cancelled}. Run: $RUN_URL"
-          if [ -z "$number" ]; then
-            gh label create stable-next-blocked -R "$GITHUB_REPOSITORY" --color B60205 \
-              --description "cmux NEXT Stable could not publish" --force >/dev/null
-            gh issue create -R "$GITHUB_REPOSITORY" --title "$title" --label stable-next-blocked --assignee "$ASSIGNEE" \
-              --body "$(printf '%s\n\nThe nightly stable tick retries hourly until 07:00 Pacific, at most 3 failed runs a night. Undo a bad stable build with stable-next-rollback.yml.\n' "$body")"
-          else
-            gh issue comment "$number" -R "$GITHUB_REPOSITORY" --body "$body"
-          fi
+          python3 -I scripts/ci/stable_next_slack.py final --results "$RESULTS"
+          {
+            echo "### cmux NEXT Stable: build ${BUILD:-none}"
+            echo
+            tr ',' '\n' <<<"$RESULTS" | sed 's/^/- /'
+            echo
+            echo "Shipped: ${{ needs.publish.result == 'success' }}"
+          } >> "$GITHUB_STEP_SUMMARY"

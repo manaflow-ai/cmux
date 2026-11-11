@@ -842,6 +842,17 @@ jobs:
         if: ${{ !cancelled() }}
         run: python3 -I tests/test_ios_chief_benchmark_route.py
 
+      # cmux-next-ios replaces the classic app under the production App Store record. Its listing
+      # (cmux-next-ios/AppStoreReview/metadata) names only screens the release app shows, in every
+      # locale, and its review notes sync script fills or refuses every value (asc_review_package.py).
+      - name: The cmux-next-ios App Store listing names only screens the app has, in every locale
+        if: ${{ !cancelled() }}
+        run: python3 -I tests/test_ios_appstore_listing_text.py
+
+      - name: The cmux-next-ios App Review notes and Support URL sync (asc_review_package.py)
+        if: ${{ !cancelled() }}
+        run: python3 -I tests/test_asc_review_package.py
+
       # cmux-ci sends a package-test-lane suite step that names a display suite to a display
       # worker; the list it reads is derived from the suites' own display skip traits, so a
       # Swift change that adds or drops such a trait without the list fails here.

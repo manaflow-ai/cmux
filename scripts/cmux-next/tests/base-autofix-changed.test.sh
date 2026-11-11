@@ -6,6 +6,8 @@
 # as "not a commit between" (run 39617667536, 2026-10-21; #22740's settings export was lost). Found by
 # app-store-features-22.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 script="$here/../base-autofix-changed.sh"
 tmp="$(mktemp -d)"
@@ -16,7 +18,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 # A remote with the run's commit A, then B and C on top; the bot's checkout is depth 1 at A.
 setup() {
   rm -rf "$tmp/remote.git" "$tmp/lane" "$tmp/bot"
-  git init -q --bare -b feat "$tmp/remote.git"
+  git_fixture_init --bare -b feat "$tmp/remote.git"
   git clone -q "$tmp/remote.git" "$tmp/lane" 2>/dev/null
   (cd "$tmp/lane" && git checkout -q -b feat && echo a > a.txt \
     && git add -A && git commit -q -m A && git push -q origin feat)
@@ -57,4 +59,43 @@ changed "$a" > "$tmp/out" 2>"$tmp/err" || fail "an older since was not read: $(c
 changed "" > /dev/null 2>&1 && fail "an empty since did not fail"
 changed 0123456789abcdef0123456789abcdef01234567 > /dev/null 2>&1 && fail "an unknown since did not fail"
 
-echo "base-autofix-changed: PASS: since..HEAD is read without grafting since into the checkout"
+# 4. A re-pin of CCmuxAppFFI (pin-app-ffi-on-base.sh changes only its url and checksum in Package.swift)
+#    is an input of the action exports, which are written from the pinned Rust catalog: the diff names
+#    the pseudo path the actions area matches. d0745a8d re-pinned 4 Rust actions in, no run made the
+#    exports again, and action-surfaces.json kept 1447 of 1451 rows. Another Package.swift change is
+#    not a re-pin, and the actions area stays off for it.
+manifest=Packages/macOS/CmuxNext/Package.swift
+write_manifest() { # <release> [target]
+  mkdir -p "$tmp/lane/$(dirname "$manifest")"
+  cat > "$tmp/lane/$manifest" <<SWIFT
+let appFFI: Target = .binaryTarget(
+    name: "CCmuxAppFFI",
+    url: "https://example.invalid/cmux-app-ffi-$1/CCmuxAppFFI.xcframework.zip",
+    checksum: "$1$1"
+)
+let targets = ["${2:-CmuxNextActions}"]
+SWIFT
+}
+pinned() { # commit the lane's manifest as <message>, push, and check the bot out depth 1 at it
+  (cd "$tmp/lane" && git add -A && git commit -q -m "$1" && git push -q origin feat)
+  local sha; sha="$(git -C "$tmp/lane" rev-parse HEAD)"
+  git -C "$tmp/bot" fetch -q --depth=1 origin "+$sha:refs/remotes/origin/feat" && git -C "$tmp/bot" checkout -q -B feat refs/remotes/origin/feat
+  echo "$sha"
+}
+setup
+git -C "$tmp/remote.git" config uploadpack.allowAnySHA1InWant true
+write_manifest aaaa; p1="$(pinned "pin aaaa")"
+write_manifest bbbb; p2="$(pinned "re-pin bbbb")"
+changed "$p1" > "$tmp/out" 2>"$tmp/err" || fail "a re-pin was not read: $(cat "$tmp/err")"
+grep -qx "$manifest#CCmuxAppFFI" "$tmp/out" || fail "a re-pin does not name the CCmuxAppFFI pin: $(cat "$tmp/out")"
+[[ "$(bash "$here/../autofix-areas.sh" < "$tmp/out" | sed -n 's/^actions=//p')" == true ]] \
+  || fail "a re-pin alone does not regenerate the action exports"
+write_manifest bbbb CmuxNextOther; p3="$(pinned "a target, same pin")"
+changed "$p2" > "$tmp/out" 2>"$tmp/err" || fail "a Package.swift change was not read: $(cat "$tmp/err")"
+grep -qx "$manifest" "$tmp/out" || fail "the Package.swift change is not named: $(cat "$tmp/out")"
+grep -q '#CCmuxAppFFI' "$tmp/out" && fail "a Package.swift change that keeps the pin names the pin: $(cat "$tmp/out")"
+[[ "$(bash "$here/../autofix-areas.sh" < "$tmp/out" | sed -n 's/^actions=//p')" == false ]] \
+  || fail "a Package.swift change that keeps the pin starts the Mac action exports"
+: "$p3"
+
+echo "base-autofix-changed: PASS: since..HEAD is read without grafting since into the checkout, and a CCmuxAppFFI re-pin is named"

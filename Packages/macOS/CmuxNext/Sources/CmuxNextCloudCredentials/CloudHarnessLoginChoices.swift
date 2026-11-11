@@ -42,6 +42,16 @@ public nonisolated struct CloudHarnessLoginAsk: Sendable, Equatable {
         self.init(requested: try Self.choice(word), byPerson: !agent, headless: !prompts)
     }
 
+    /// Whether a run's machine may get the claim's early login copy (``CloudSpareWarm/start(claimed:)``): only a run whose
+    /// harness passes the Claude login by the start's own rule (Rust's, so `claude-sr2` counts; none named is Claude) and
+    /// whose `--login` asks for no other login (`none`, `machine`). The copy still reads the person's kept choice and the
+    /// gate itself, as the start would.
+    public func allowsEarlyCopy(harness: String?) -> Bool {
+        let named = harness.flatMap { $0.isEmpty ? nil : $0 }
+        return (requested.map { $0 == .pass } ?? true)
+            && CloudHarnessLoginDecision(dogfood: true, setting: nil, harness: named, signedIn: true).provider == .claude
+    }
+
     /// `--login`'s word: `pass`, `machine` or `none` (any case); nil for no word, and
     /// ``Invalid`` for any other.
     public static func choice(_ word: String?) throws(Invalid) -> CloudHarnessLoginDecision.Choice? {

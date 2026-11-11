@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "4092e18628956f6f0140e6c2a2f97a370ff80cf2f567a54c4d066c1240242b1d";
+inline constexpr std::string_view kProtocolIrSha256 = "3640c178ce74343f21a8b40eeb3852abc2b3b5c5b123d8099ccec04e8a7d14b5";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -165,6 +165,9 @@ struct Screen;
 struct SelectionPane;
 struct SelectionScreen;
 struct SendExpectAgent;
+struct ServerStatsCommandConnections;
+struct ServerStatsCommandRow;
+struct ServerStatsCommands;
 struct ServerStatsConnections;
 struct ServerStatsDisk;
 struct ServerStatsDiskFile;
@@ -175,6 +178,8 @@ struct ServerStatsDiskSegmentKind;
 struct ServerStatsDiskSegments;
 struct ServerStatsHistogram;
 struct ServerStatsHookQueue;
+struct ServerStatsJournalFollower;
+struct ServerStatsJournalFollowers;
 struct ServerStatsJournalWriter;
 struct ServerStatsLockDetail;
 struct ServerStatsLockHolder;
@@ -538,6 +543,7 @@ struct SetClientInfoRequest;
 struct SetClientSizingRequest;
 struct SetColumnDockRequest;
 struct SetDefaultColorsRequest;
+struct SetDividerVisibleRequest;
 struct SetFrontendBrowserHistoryRequest;
 struct SetHostSizePolicyRequest;
 struct SetLayoutSizesRequest;
@@ -642,6 +648,8 @@ struct ConversationTypingEvent;
 struct DaemonShutdownEvent;
 struct DetachedEvent;
 struct EmptyEvent;
+struct FeedReportsChangedEvent;
+struct FeedViewChangedEvent;
 struct FrameEvent;
 struct FrontendProjectionChangedEvent;
 struct GraphicsStatusEvent;
@@ -2552,6 +2560,7 @@ struct ConversationSnapshotResult {
 };
 
 struct ConversationTabSplit {
+    Field<Id> around{};
     std::string direction{};
     Field<std::string> pane_id{};
     Field<std::string> split_id{};
@@ -2945,6 +2954,17 @@ struct FeedLocalListRequest {
 struct FeedLocalReadRequest {
     std::vector<std::string> items{};
     friend bool operator==(const FeedLocalReadRequest&, const FeedLocalReadRequest&) = default;
+};
+
+struct FeedReportsChangedEvent {
+    std::uint64_t revision{};
+    friend bool operator==(const FeedReportsChangedEvent&, const FeedReportsChangedEvent&) = default;
+};
+
+struct FeedViewChangedEvent {
+    std::vector<std::string> changed{};
+    std::uint64_t revision{};
+    friend bool operator==(const FeedViewChangedEvent&, const FeedViewChangedEvent&) = default;
 };
 
 enum class PaneDirection {
@@ -3750,6 +3770,8 @@ struct Tab {
     Field<std::string> terminal_incarnation{};
     Field<std::string> terminal_resource_id{};
     std::string title{};
+    Field<std::string> title_activity{};
+    std::optional<std::string> title_text{};
     friend bool operator==(const Tab&, const Tab&) = default;
 };
 
@@ -5028,6 +5050,32 @@ struct SendResult {
     friend bool operator==(const SendResult&, const SendResult&) = default;
 };
 
+struct ServerStatsCommandConnections {
+    std::uint64_t accepted{};
+    std::string kind{};
+    std::uint64_t refused{};
+    friend bool operator==(const ServerStatsCommandConnections&, const ServerStatsCommandConnections&) = default;
+};
+
+struct ServerStatsCommandRow {
+    std::uint64_t count{};
+    std::vector<std::uint64_t> hist{};
+    std::string kind{};
+    std::uint64_t max_ns{};
+    std::string name{};
+    std::uint64_t total_ns{};
+    friend bool operator==(const ServerStatsCommandRow&, const ServerStatsCommandRow&) = default;
+};
+
+struct ServerStatsCommands {
+    std::vector<ServerStatsCommandConnections> connections{};
+    std::vector<std::uint64_t> hist_bounds_ns{};
+    std::uint64_t name_limit{};
+    std::uint64_t names{};
+    std::vector<ServerStatsCommandRow> rows{};
+    friend bool operator==(const ServerStatsCommands&, const ServerStatsCommands&) = default;
+};
+
 struct ServerStatsConnections {
     std::uint64_t accepted{};
     std::uint64_t active{};
@@ -5122,6 +5170,29 @@ struct ServerStatsHookQueue {
     std::uint64_t reset_dropped_events{};
     std::uint64_t undeliverable_events{};
     friend bool operator==(const ServerStatsHookQueue&, const ServerStatsHookQueue&) = default;
+};
+
+struct ServerStatsJournalFollower {
+    std::uint64_t client{};
+    std::uint64_t connected_ms{};
+    bool keeps_hook_rows{};
+    bool keeps_report_rows{};
+    std::vector<std::string> kinds{};
+    std::optional<std::uint64_t> left_ms{};
+    std::optional<std::string> max_sensitivity{};
+    bool remote{};
+    std::string stream_id{};
+    friend bool operator==(const ServerStatsJournalFollower&, const ServerStatsJournalFollower&) = default;
+};
+
+struct ServerStatsJournalFollowers {
+    std::vector<ServerStatsJournalFollower> followers{};
+    std::uint64_t grace_ms{};
+    bool hook_rows_kept{};
+    std::optional<bool> journal_hook_keeps_rows{};
+    std::uint64_t keep_all_ms{};
+    bool report_rows_kept{};
+    friend bool operator==(const ServerStatsJournalFollowers&, const ServerStatsJournalFollowers&) = default;
 };
 
 enum class ServerStatsWriterPhase {
@@ -5251,9 +5322,11 @@ struct ServerStatsWritePath {
 };
 
 struct ServerStatsResult {
+    std::optional<ServerStatsCommands> commands{};
     ServerStatsConnections connections{};
     std::optional<ServerStatsDisk> disk{};
     std::optional<ServerStatsHookQueue> hook_queue{};
+    std::optional<ServerStatsJournalFollowers> journal_followers{};
     std::optional<ServerStatsJournalWriter> journal_writer{};
     std::optional<ServerStatsLocks> locks{};
     ServerStatsRegistryLock registry_lock{};
@@ -5334,6 +5407,13 @@ struct SetDefaultColorsRequest {
     Field<ColorHex> selection_bg{};
     Field<ColorHex> selection_fg{};
     friend bool operator==(const SetDefaultColorsRequest&, const SetDefaultColorsRequest&) = default;
+};
+
+struct SetDividerVisibleRequest {
+    Id split{};
+    Field<std::uint64_t> transaction{};
+    bool visible{};
+    friend bool operator==(const SetDividerVisibleRequest&, const SetDividerVisibleRequest&) = default;
 };
 
 struct SetFrontendBrowserHistoryRequest {
@@ -5637,6 +5717,7 @@ struct SnapshotRequestResult {
 };
 
 struct SplitRequest {
+    Field<Id> around{};
     std::optional<bool> before{};
     Field<std::uint16_t> cols{};
     Field<std::string> cwd{};
@@ -6072,7 +6153,9 @@ struct TerminalResumeCommandResult {
 };
 
 struct TitleChangedEvent {
+    Field<std::string> activity{};
     Id surface{};
+    std::optional<std::string> text{};
     std::optional<std::string> title{};
     friend bool operator==(const TitleChangedEvent&, const TitleChangedEvent&) = default;
 };
@@ -7316,6 +7399,24 @@ struct Codec<SendExpectAgent> {
 };
 
 template <>
+struct Codec<ServerStatsCommandConnections> {
+    static Result<Json> encode(const ServerStatsCommandConnections& value);
+    static Result<ServerStatsCommandConnections> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsCommandRow> {
+    static Result<Json> encode(const ServerStatsCommandRow& value);
+    static Result<ServerStatsCommandRow> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsCommands> {
+    static Result<Json> encode(const ServerStatsCommands& value);
+    static Result<ServerStatsCommands> decode(const Json& value);
+};
+
+template <>
 struct Codec<ServerStatsConnections> {
     static Result<Json> encode(const ServerStatsConnections& value);
     static Result<ServerStatsConnections> decode(const Json& value);
@@ -7373,6 +7474,18 @@ template <>
 struct Codec<ServerStatsHookQueue> {
     static Result<Json> encode(const ServerStatsHookQueue& value);
     static Result<ServerStatsHookQueue> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsJournalFollower> {
+    static Result<Json> encode(const ServerStatsJournalFollower& value);
+    static Result<ServerStatsJournalFollower> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsJournalFollowers> {
+    static Result<Json> encode(const ServerStatsJournalFollowers& value);
+    static Result<ServerStatsJournalFollowers> decode(const Json& value);
 };
 
 template <>
@@ -9554,6 +9667,12 @@ struct Codec<SetDefaultColorsRequest> {
 };
 
 template <>
+struct Codec<SetDividerVisibleRequest> {
+    static Result<Json> encode(const SetDividerVisibleRequest& value);
+    static Result<SetDividerVisibleRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<SetFrontendBrowserHistoryRequest> {
     static Result<Json> encode(const SetFrontendBrowserHistoryRequest& value);
     static Result<SetFrontendBrowserHistoryRequest> decode(const Json& value);
@@ -10175,6 +10294,18 @@ template <>
 struct Codec<EmptyEvent> {
     static Result<Json> encode(const EmptyEvent& value);
     static Result<EmptyEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<FeedReportsChangedEvent> {
+    static Result<Json> encode(const FeedReportsChangedEvent& value);
+    static Result<FeedReportsChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<FeedViewChangedEvent> {
+    static Result<Json> encode(const FeedViewChangedEvent& value);
+    static Result<FeedViewChangedEvent> decode(const Json& value);
 };
 
 template <>

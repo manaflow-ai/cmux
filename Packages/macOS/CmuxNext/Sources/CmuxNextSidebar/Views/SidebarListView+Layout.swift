@@ -17,7 +17,11 @@ extension SidebarListViewComponents {
         if !holdsRowPatches { rowHold = SidebarRowHold() }
         // One loose row added (a create): spliced in, its row cached; nothing else is listed again (SIDEBAR INSERT 2).
         let spliced = spliceInsertion()
-        if spliced == nil { rebuildRowCaches() }
+        // One loose row closed or moved: taken out (and put back), the caches changed for it alone.
+        let removed = spliced == nil ? spliceRemoval() : nil
+        // A space shown again with the rows it was left with: its kept layout and row caches (`SidebarSpacePage`).
+        let page = spliced == nil && removed == nil ? takeSpacePage() : nil
+        if spliced == nil, removed == nil, page == nil { rebuildRowCaches() }
         refreshHoverTab()
         if let drag, !drag.isValid(in: model) { cancelDrag() }
         // The rows changed under a held drag (a batch, an adopt, a close): its hit geometry is rebuilt at the next move.
@@ -33,17 +37,21 @@ extension SidebarListViewComponents {
         // rows apply (its anchor is gone); a kept one updates in place.
         if let shown = hoverCard.shownID { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(shown)) }
         // Without a drag the full layout is the model's under `options` (`displayLayout`): a one-row insert splices onto it.
-        let plain = shownDrag == nil && external == nil ? spliced?.options ?? options(includeGap: true) : nil
-        let layout = spliced?.layout ?? plain.map { SidebarLayout.make(sections: listSections, metrics: metrics, options: $0) } ?? displayLayout()
+        let plain = shownDrag == nil && external == nil ? spliced?.options ?? removed?.options ?? page?.options ?? options(includeGap: true) : nil
+        let layout = spliced?.layout ?? removed?.layout ?? page?.layout
+            ?? plain.map { SidebarLayout.make(sections: listSections, metrics: metrics, options: $0) } ?? displayLayout()
         // Focus belongs to a displayed disclosure, so a structural reload clears it before
         // row reuse can configure the same view for a later fold.
         if let key = focusedFold, layout.row(for: key) == nil {
             SidebarGroupKeys(list: self).setFocus(nil)
         }
         splicedRow = spliced?.row
+        splicedOut = removed.map { (key: $0.row, moved: $0.moved) }
         SidebarPerfCounters.timed { applyKeepingViewport(layout, animated: animated) }
-        splicedRow = nil
+        (splicedRow, splicedOut) = (nil, nil)
         spliceBase = plain.map { (model.sectionsRevision, $0) } // after the apply, which forgets any other base
+        // The metrics and the model structure of that full layout, for the page kept from it.
+        spacePages.showsFullLayout(metrics: plain == nil ? nil : metrics, structure: model.structureRevision)
         if let settled { landSettled(settled) } else { followLanding() }
         inlineRename.follow()
         groupEditor.follow(groups)
@@ -81,6 +89,10 @@ extension SidebarListViewComponents {
                 }
             }
         }
+        setDrawnTints(ordered)
+    }
+    /// What the placed groups draw in (`drawnTints`), from the groups in the order the sections list them.
+    func setDrawnTints(_ ordered: [SidebarGroup]) {
         let sections = DesignSettings.shared.sidebarSections
         drawnTints = SidebarGroup.drawnTints(ordered, palette: sections.groupPalette, gradient: sections.groupGradient,
                                              wallpaper: DesignSettings.shared.groupWallpaperTint?.bands ?? [])
@@ -204,18 +216,24 @@ extension SidebarListViewComponents {
         displayed = layout
         spliceBase = nil // a reload sets it again for its own full layout
         let spliced = splicedRow.flatMap { key in layout.row(for: key).map { _ in key } }
+        // A spliced close or move: its one row left the list, or moved in it; no row is new to the list, none other went.
+        let splicedOut = self.splicedOut.flatMap { out in old.row(for: out.key) != nil && (layout.row(for: out.key) != nil) == out.moved ? out : nil }
         onApply?(layout)
         groupEditing.adoptReidentified(from: old, to: layout)
         selectedRowKey = layout.selectedRowKey(for: model.selectedItem, in: model.sections)
         updateDocumentHeight()
+        // The header that sticks over the new rows draws there (its target below); the one that let go moves home.
+        let wasStuck = stuckHeader
+        stuckHeader = findStuckHeader(in: layout)
+        defer { endStuckPass(from: wasStuck) }
         let realize = realizationRect()
         var targets: [(SidebarRowView, NSRect)] = []
         var appearing: [(SidebarRowView, NSRect)] = []
         var keep = Set<SidebarRowKey>()
         let adopting = springsRows && !old.rows.isEmpty
         // A new workspace row (Cmd-N, a script, another client) opens only with ui.animations.newWorkspace on (hq-1d).
-        let insertsWorkspace = spliced != nil || layout.rows.contains { if case .workspace = $0.key { old.row(for: $0.key) == nil } else { false } }
-        let animate = !adopting && animated && !old.rows.isEmpty && (!insertsWorkspace || Motion.sidebar.animates(.newWorkspace))
+        let insertsWorkspace = spliced != nil || splicedOut == nil && layout.rows.contains { if case .workspace = $0.key { old.row(for: $0.key) == nil } else { false } }
+        let animate = !adopting && animated && !old.rows.isEmpty && (!insertsWorkspace || Motion.sidebar.animates(.newWorkspace, in: window))
         // New rows open from their run's top, so only the rows below move. A row still opening that the next update
         // only pushes (Cmd-N held: each new workspace lands at the top and pushes the ones still opening down) keeps
         // its view, its content and its open: its frame retargets on the additive springs from what shows, its fade
@@ -235,7 +253,7 @@ extension SidebarListViewComponents {
         // A row is opening until the spring it opens on settles (`.move`, or the insert motion's shorter one): past that
         // a later move moves it, it does not open it again. A change that moves nothing settles every open now
         // (`settleOpenings`), and a row no longer listed has none.
-        let opensRows = animate && Motion.sidebar.animatesMovement && window != nil && Motion.canAnimate(in: self)
+        let opensRows = animate && Motion.sidebar.animatesMovement(in: window) && window != nil && Motion.canAnimate(in: self)
         if opensRows {
             openingRows = openingRows.filter { $0.value.until > now && layout.row(for: $0.key) != nil }
         } else {
@@ -244,7 +262,7 @@ extension SidebarListViewComponents {
         let reopened = animate ? Self.movedByThemselves(openingRows.keys, from: old, to: layout) : []
         // A spliced row is its own run (rows still opening that moved by themselves are found by the walk).
         let insertRuns = spliced.flatMap { key in reopened.isEmpty ? layout.row(for: key).map { [key: $0.y] } : nil }
-            ?? SidebarRowTransition.runTops(of: layout, missingFrom: old, reopened: reopened)
+            ?? (splicedOut != nil && reopened.isEmpty ? [SidebarRowKey: CGFloat]() : SidebarRowTransition.runTops(of: layout, missingFrom: old, reopened: reopened))
         // How far the rows travel: the nudge, never past the shortest run of new rows (a row below never starts above them).
         let insertTravel = insertMotion.flatMap { motion in
             SidebarInsertMotion.travel(motion.travel(nudge: SidebarInsertMotion.nudgeDistance.value),
@@ -257,7 +275,8 @@ extension SidebarListViewComponents {
                                             motion: insertMotion, travel: insertTravel)
             // A new row outside the rows drawn now before a reveal jump does not open (``apply(_:animated:newRowsInPlace:)``).
             // A splice's only new row is its own; any other change walks every row for the new ones.
-            let candidates = spliced.map { ([$0] + reopened).compactMap { layout.row(for: $0) } } ?? layout.rows
+            let candidates = spliced.map { ([$0] + reopened).compactMap { layout.row(for: $0) } }
+                ?? (splicedOut != nil ? reopened.compactMap { layout.row(for: $0) } : layout.rows)
             for row in candidates where (old.row(for: row.key) == nil && (!newRowsInPlace || frame(for: row).intersects(realize)))
                 || reopened.contains(row.key) { openingRows[row.key] = opening } // only animated applies open rows (hq-1d)
         } else {
@@ -269,7 +288,7 @@ extension SidebarListViewComponents {
         // come take their views: a space switch reuses the old space's views, it makes none (space-switch-fast).
         // RowMotion also snaps when sidebar movement is disabled (Reduce Motion or the sidebar switch),
         // even though `animate` is true. Park leaving views before that snap realizes replacements too.
-        if (!animate || !Motion.sidebar.animatesMovement), !adopting {
+        if (!animate || !Motion.sidebar.animatesMovement(in: window)), !adopting {
             // An animated apply removes a leaving row from `rowViews` but keeps it in the list until its
             // close finishes. A no-motion reload can arrive before that completion and otherwise leave the
             // old, still-visible row's spring running beside a newly realized row for the same key.
@@ -290,7 +309,7 @@ extension SidebarListViewComponents {
         defer { SidebarPerfCounters.add(.rowFrames, framesComputed) }
         for index in drawnRowIndices(of: layout, in: realize, reopened: reopened) {
             let row = layout.rows[index]
-            let target = frame(for: row)
+            let target = drawnFrame(for: row)
             framesComputed += 1
             if reopened.contains(row.key) { rowViews.removeValue(forKey: row.key)?.removeFromSuperview() }
             let existing = rowViews[row.key]
@@ -319,7 +338,9 @@ extension SidebarListViewComponents {
                         view.clipsToBounds = true
                         view.opens += 1
                     } else {
-                        view.frame = animate ? old.row(for: row.key).map { frame(for: $0) } ?? target : target
+                        // A header that sticks shows at its stuck place, not flying in from its own place far above.
+                        let stuck = row.key == stuckHeader?.key
+                        view.frame = animate && !stuck ? old.row(for: row.key).map { frame(for: $0) } ?? target : target
                     }
                 }
             }
@@ -339,18 +360,24 @@ extension SidebarListViewComponents {
         }
         // An empty section's placeholder and the section's rows hand off at
         // once, both ways, so neither fades out under the other.
-        let returning = spliced != nil ? [] : Set(layout.rows.compactMap { row -> SectionID? in
+        let returning = spliced != nil || splicedOut != nil ? [] : Set(layout.rows.compactMap { row -> SectionID? in
             guard case let .emptySection(section) = row.key, old.row(for: row.key) == nil else { return nil }
             return section
         })
         // So do an empty group's row and the group's last member.
-        let emptied = spliced != nil ? [] : Set(layout.rows.compactMap { row -> GroupID? in
+        let emptied = spliced != nil || splicedOut != nil ? [] : Set(layout.rows.compactMap { row -> GroupID? in
             guard case let .emptyGroup(group) = row.key, old.row(for: row.key) == nil else { return nil }
             return group
         })
         var leaving: [(SidebarRowView, NSRect)] = []
         var folding: [SidebarRowView] = []
-        let removeRuns = spliced != nil ? [:] : SidebarRowTransition.runTops(of: old, missingFrom: layout) // a splice removes none
+        // An insert's splice removes none; a close's removes its one row, a run of its own.
+        var removeRuns: [SidebarRowKey: CGFloat] = [:]
+        if let out = splicedOut {
+            if !out.moved, let was = old.row(for: out.key) { removeRuns[out.key] = was.y }
+        } else if spliced == nil {
+            removeRuns = SidebarRowTransition.runTops(of: old, missingFrom: layout)
+        }
         let cards = flyingCardFrames
         for (key, view) in rowViews where !keep.contains(key) {
             if key == hoveredKey {
@@ -404,11 +431,13 @@ extension SidebarListViewComponents {
         var indices = Set(realize.isNull ? 0..<0 : layout.rowIndices(from: realize.minY, to: realize.maxY))
         for key in rowViews.keys { if let index = layout.position(of: key) { indices.insert(index) } }
         for key in reopened { if let index = layout.position(of: key) { indices.insert(index) } }
+        // The stuck header draws in view though its own place is far above.
+        if let key = stuckHeader?.key, let index = layout.position(of: key) { indices.insert(index) }
         return indices.sorted()
     }
 
     /// The rows of `keys` (still opening) that `layout` moved by themselves, not with the rows around them: both
-    /// rows beside each, among the rows of both layouts, changed (as `ListViewport.movedByItself`). A row an insert or
+    /// rows beside each, among the rows of both layouts, changed (as `ListViewportChange.movedByItself`). A row an insert or
     /// a removal near it only pushes, or one whose neighbour moved away, keeps at least one of its neighbours.
     static func movedByThemselves(_ keys: some Collection<SidebarRowKey>, from old: SidebarLayout, to layout: SidebarLayout) -> Set<SidebarRowKey> {
         guard !keys.isEmpty else { return [] }
@@ -549,7 +578,7 @@ extension SidebarListViewComponents {
         hasViewport = true
         guard drag == nil, external == nil, !displayed.rows.isEmpty, let extent = selectionReveal(in: displayed, height: height) else { return }
         revealedActive = selectionRevealKey
-        let viewport = displayed.viewport(height: height)
+        let viewport = displayed.viewportFrame(height: height)
         // A row already wholly in view does not move (close-focus.md rule 7, as `revealSelectionNow`).
         guard !viewport.isFullyVisible(extent, at: clip.bounds.minY, padding: 0) else { return }
         let target = viewport.reveal(extent, from: clip.bounds.minY, padding: SidebarLayout.revealPadding)
@@ -581,6 +610,11 @@ extension SidebarListViewComponents {
             view.frame = target
         }
         decorations.frame = bounds
+        // The stuck header (set home above) takes the new width at its stuck place.
+        if stuckHeader != nil {
+            stuckHeader = nil
+            followStuckHeader()
+        }
     }
     /// Adds views for rows scrolled into range and drops far-away ones. Only
     /// the rows in range are visited (binary search by y), so a scroll costs
@@ -604,7 +638,10 @@ extension SidebarListViewComponents {
             RowMotion.place(view, at: target, opening: opening, hidden: suppressed.contains(row.key), in: self)
             rowViews[row.key] = view
         }
+        followStuckHeader()
         pruneOffscreen()
+        // A block's own items (a long Pinned or custom section) realize with the scroll too.
+        for view in rowViews.values { (view as? SidebarBlockRowView)?.region.realizeItems() }
         showLinesInView()
         // What responsive scrolling may count as drawn: the rows just realized, never more (`prepareContent(in:)`).
         if !realize.isNull, preparedContentRect != realize { preparedContentRect = realize }
@@ -617,7 +654,7 @@ extension SidebarListViewComponents {
         let keepRect = realizationRect().insetBy(dx: 0, dy: -SidebarStyle.pruneMargin)
         // Only realized rows can be pruned: visit those, not every row.
         for (key, view) in rowViews {
-            guard let row = displayed.row(for: key), !frame(for: row).intersects(keepRect),
+            guard let row = displayed.row(for: key), !frame(for: row).intersects(keepRect), key != stuckHeader?.key,
                   inlineRename.session?.key != key, key != groupEditor.shownGroup.map(SidebarRowKey.group) else { continue }
             recycle(view)
             rowViews[key] = nil

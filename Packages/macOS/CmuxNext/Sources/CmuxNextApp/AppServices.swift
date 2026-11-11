@@ -5,6 +5,7 @@ import CmuxNextAgentLanes
 import CmuxNextOnboarding
 import CmuxNextApps
 import CmuxNextAgentPane
+import CmuxNextAppHealth
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextBrowserHistory
@@ -22,7 +23,6 @@ import CmuxNextDaemonService
 import CmuxNextMacScreen
 import CmuxNextDaemonRecovery
 public import CmuxNextDictation
-import CmuxNextFeed
 import CmuxNextFloating
 import CmuxNextFavicons
 import CmuxNextHibernation
@@ -109,7 +109,7 @@ final class AppServices {
     var restartControlListener: (@MainActor () throws -> Void)?
     /// One Cloud environment apply at a time.
     let cloudEnvironmentSwitch = CloudEnvironmentSwitch()
-    /// This build's error journal (AppControl starts it): Help > Copy Logs reads it.
+    /// This build's error journal (nothing reads its logs at rest): Help > Copy Logs reads it.
     var errorJournal: ErrorJournalService?
     /// Agents' and scripts' Cloud machine creates waiting on the person in every window's sidebar card.
     let machineAsks = SidebarAsks()
@@ -123,16 +123,12 @@ final class AppServices {
     private(set) lazy var workspaceHibernation = WorkspaceHibernation(host: self, keepAwake: WorkspaceKeepAwakeStore(defaults: .standard),
                                                                   deadline: DemandTimer(owner: "workspace-hibernation"), memoryPressure: memoryPressure, terminals: LocalTerminalFreeing(DaemonParkableTerminals(store: machines.local.store, connection: { [machines] in machines.local.connection })))
     private(set) lazy var cloud: CloudService = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild, mainWork: mainWork, work: work, loginKeychain: loginKeychain, authCaptureFixture: environment.authCaptureFixture, configuration: environment.cloudConfiguration)  // first read in init (no IUO)
-    /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
+    /// The feed: the daemon's feed client (`feed.*`) and the app's presence, GitHub setting and API calls.
     private(set) lazy var feed: FeedService = FeedService(
-        auth: cloud.auth,
-        showcase: environment.showcase,
-        acpmuxEnvironment: QuitAgents.environment(self), approvalHolds: cloud.approvalHolds,
+        auth: cloud.auth, local: daemon, approvalHolds: cloud.approvalHolds,
         appActive: { [weak self] in self?.appActiveSource() ?? false }
     )  // first read in init (no IUO)
     var showcase = ShowcaseState()
-    /// The wide Inbox page, backed by `feed.model`.
-    private(set) lazy var feedPage = FeedPageService(services: self)
     /// SSH machines (Connect to Machine…); `serverReach`: paired servers' Chief sessions in the sidebar.
     private(set) lazy var ssh: SSHService = SSHService(machines: machines, bundleID: environment.launch.bundleID, mainWork: mainWork)  // first read in init (no IUO)
     private(set) lazy var serverReach = ServerReachService.app(services: self)
@@ -187,7 +183,7 @@ final class AppServices {
     let actionBudget: ActionBudgetMonitor
     /// Every action; timed by the always-on `action.*` signposts and `actionBudget`, in Debug and Release.
     let registry: ActionRegistry
-    /// The main-thread blocking detector's handle (threading-model.md): the Debug menu, `debug.blocking`, and its log sink (``BlockingLogSink``).
+    /// The main-thread blocking detector's handle (threading-model.md): the Debug: palette rows, `debug.blocking`, and its log sink (``BlockingLogSink``).
     let blocking = BlockingDetector.forProcess()
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater: UpdaterService
@@ -245,8 +241,6 @@ final class AppServices {
     private(set) lazy var emptyWorkspaces: EmptyWorkspaceRepair = EmptyWorkspaceRepair(daemon: daemon)  // first read in init (no IUO)
     /// The closed-tab signal and the undo toasts of user closes; set when the tab handlers bind. The daemon owns the closed history (`DaemonClosedHistory`).
     var closedTabs: ClosedTabsFeed?
-    /// Find Work's GitHub reads, with the user's `gh` login (``FindWorkPalettePage``); tests replace it.
-    lazy var findWorkGitHub: any GitHubFeedAPI = GitHubCLIClient(executable: AgentChatPullRequestReader.findGitHubCLI() ?? "/usr/bin/env")
     /// The app-wide "where was I" trail (plans/cmux-next/history.md 4.2).
     private(set) lazy var locationTrail = LocationTrailService(services: self)
     /// The terminals and agent chats focused last: what new ones copy (``WorkContextTrail``).
@@ -277,17 +271,8 @@ final class AppServices {
     lazy var vault: SessionVault = SessionVault(source: AgentHistorySource(services: self))
     /// `cmux://vault`: Open Vault as Pane.
     private(set) lazy var vaultPages: VaultPageService = VaultPageService(vault: vault, registry: registry)
-    /// Where each window's right sidebar remembers its state (tests set a suite of their own).
-    var rightSidebarDefaults: UserDefaults = .standard
-    /// Each window's file explorer (the right sidebar's Files section) and its actions' effects.
+    /// Each window's file explorer (the Files section) and its actions' effects.
     private(set) lazy var fileExplorers = FileExplorerService(services: self)
-    /// The right sidebar's sections by mode (the file explorer adds Files and Find).
-    private(set) lazy var rightSidebarSections: RightSidebarSections = {
-        let sections = RightSidebarSections()
-        sections.registerAppSections()
-        sections.prewarmIcons()
-        return sections
-    }()
     /// `cmux://agent-activity`: the computer use sessions page.
     private(set) lazy var agentActivityPage = AgentActivityPageService(services: self)
     /// The live preview card of computer use in agent chats (`computerUse.livePreview`); its live
@@ -440,7 +425,7 @@ final class AppServices {
     /// The chat the Chief pet (the floating mini) stands for: the Chief, or one Show in Mini picked.
     private(set) lazy var chiefPetMini = ChiefPetMini(uploads: chiefAvatarUploads, localHost: { [weak self] in self?.agentTabs.localHost },
                                                       settings: { [weak self] in self?.settings }, pet: { [weak self] in self?.notifications.chiefPet },
-                                                      acpmux: feed.acpmuxEnvironment)
+                                                      acpmux: QuitAgents.environment(self))
 
     /// The picture Chief `chief` (a participant id; nil: the default Chief) wears where it has no avatar
     /// of its own: its worn upload's first frame, else the character it picked, else nil (its monogram).
@@ -454,7 +439,7 @@ final class AppServices {
     }
     /// Debug Settings: tunable overrides and their window (DEV and NIGHTLY).
     private(set) lazy var debugSettings = DebugSettingsService(services: self)
-    /// Debug menu > Toggle Action Latency HUD (DEV and NIGHTLY): the newest runs of `actionBudget`.
+    /// Palette "Debug: Toggle Action Latency HUD" (DEV and NIGHTLY, Internal Developer Mode): the newest runs of `actionBudget`.
     private(set) lazy var actionLatencyHUD = ActionLatencyHUD(monitor: actionBudget)
     /// Quit: origin, the keep-or-end sheet and the end of the local sessions.
     private(set) lazy var quit = QuitCoordinator(services: self)
@@ -533,8 +518,6 @@ final class AppServices {
     let agentLanes = AgentLaneStore.shared
     /// The device-wide Chats index (nil without acpmux), watched once for every window.
     private(set) lazy var chatsFeed: ChatsFeed? = ChatsFeed.started(for: self)
-    /// Relays the Chats index and editor sources into the daemon's project list.
-    private(set) lazy var projectsImport = ProjectsImport(services: self)
     /// Shared Open Chat path for sidebar clicks and palette Return.
     private(set) lazy var chatsOpener = ChatsOpenCoordinator(services: self)
     /// `agentTabs` once made: a tab close releases its view without starting acpmux.
@@ -550,6 +533,7 @@ final class AppServices {
     /// (plans/cmux-next/hovercards.md).
     let hoverCards = HoverCardCoordinator()
     let overlayProcess = PageOverlayProcess() // the overlay pages' one web content process, handed to each page's owner
+    private(set) lazy var healthFeeds = AppHealthFeeds(daemon: daemon, stateDirectory: environment.daemonStateDirectory, work: work, overlayProcess: overlayProcess) // app health (CmuxNextAppHealth)
     let dialogs: OverlayDialogDrawing // the shared center's dialogs draw on the overlay page
     let toasts: CmuxToastWebHost // the shared center's toasts draw on the overlay page
     /// Refusal messages for keyboard and menu runs.
@@ -623,7 +607,6 @@ final class AppServices {
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }
         _ = cloud  // built here, as before
         _ = feed  // built here, as before
-        _ = rightSidebarSections  // built at launch: its icons are made off the main thread before the first show
         _ = ssh  // built here, as before
         BrowserLifecycleTrace.shared.configure { tab, event in
             InputJournal.shared.append(window: nil, .content(tab: tab, event: event))
@@ -748,10 +731,9 @@ final class AppServices {
         surfaceInvariant.services = self
         surfaceInvariant.observeWindowOcclusion()
         cache.presentationChanges.subscribe("surface-invariant") { [weak self] in self?.surfaceInvariant.noteChange() }
-        cache.presentationChanges.subscribe("browser-host") { [weak self] in // not for a change of only terminals and agent pages
-            guard let self else { return }
-            let onlyTerminalsAndAgents = self.cache.presentationChanges.changedKeys?.allSatisfy { self.cache.existingTerminal($0) != nil || self.madeAgentTabs?.existingView($0) != nil }
-            if onlyTerminalsAndAgents != true { self.browserHost?.provider.refreshTabs() }
+        cache.presentationChanges.subscribe("browser-host") { [weak self] in // the changed tabs only: a tab that is no listed page costs one lookup
+            guard let self, let provider = self.browserHost?.provider else { return }
+            if let changed = self.cache.presentationChanges.changedKeys { provider.refreshTabs(changed) } else { provider.refreshTabs() }
         }
         _ = resources  // built here, as before
         _ = windows  // built here, as before

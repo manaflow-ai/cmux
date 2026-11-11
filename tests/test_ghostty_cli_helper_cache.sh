@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../scripts/cmux-next/tests/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-ghostty-helper-cache-test.XXXXXX")"

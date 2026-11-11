@@ -20,38 +20,15 @@ public nonisolated enum ActionCategory: String, CaseIterable, Sendable, Hashable
     /// Actions registered at runtime without a catalog descriptor.
     case other
 
-    /// Localized section title.
-    public var title: String {
-        switch self {
-        case .window: String(localized: "category.window", defaultValue: "Window", bundle: .module)
-        case .workspace: String(localized: "category.workspace", defaultValue: "Workspace", bundle: .module)
-        case .pane: String(localized: "category.pane", defaultValue: "Panes", bundle: .module)
-        case .screen: String(localized: "category.screen", defaultValue: "Screens", table: "ScreenActions", bundle: .module)
-        case .tab: String(localized: "category.tab", defaultValue: "Tabs", bundle: .module)
-        case .terminal: String(localized: "category.terminal", defaultValue: "Terminal", bundle: .module)
-        case .browser: String(localized: "category.browser", defaultValue: "Browser and Viewers", bundle: .module)
-        case .sidebar: String(localized: "category.sidebar", defaultValue: "Sidebar", bundle: .module)
-        case .notifications: String(localized: "category.notifications", defaultValue: "Notifications", bundle: .module)
-        case .agents: String(localized: "category.agents", defaultValue: "Agents", bundle: .module)
-        case .cloud: String(localized: "category.cloud", defaultValue: "Cloud and Account", bundle: .module)
-        case .remote: String(localized: "category.remote", defaultValue: "Remote Machines", table: "RemoteActions", bundle: .module)
-        case .settings: String(localized: "category.settings", defaultValue: "Settings and Help", bundle: .module)
-        case .other: String(localized: "category.other", defaultValue: "Other", bundle: .module)
-        }
-    }
+    /// Localized section title, from the Rust catalog (cmux-action-catalog `CATEGORIES`).
+    public var title: String { RustActionCatalog.shared.categories[self]?.title ?? rawValue }
 
     /// The localization key of ``title`` (in ``titleTable``), for clients
     /// that read the exported catalog (`action-surfaces.json`).
-    public var titleKey: String { "category.\(rawValue)" }
+    public var titleKey: String { RustActionCatalog.shared.categories[self]?.titleKey ?? "category.\(rawValue)" }
 
     /// The string table ``title`` lives in.
-    public var titleTable: String {
-        switch self {
-        case .screen: "ScreenActions"
-        case .remote: "RemoteActions"
-        default: "Localizable"
-        }
-    }
+    public var titleTable: String { RustActionCatalog.shared.categories[self]?.titleTable ?? "Localizable" }
 
     /// The command palette section the category's actions list under.
     public var paletteSectionID: String { "category.\(rawValue)" }
@@ -76,6 +53,4 @@ public nonisolated enum ActionMainMenu: String, CaseIterable, Sendable, Hashable
     case server
     case window
     case help
-    /// DEV and NIGHTLY only (`DevTools`): debug-only actions.
-    case debug
 }

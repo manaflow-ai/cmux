@@ -160,6 +160,8 @@ mod input_qos;
 pub(crate) use input_qos::current_thread_qos as current_input_thread_qos;
 pub(crate) use input_qos::raise_this_thread as raise_input_thread_qos;
 mod line_connection;
+mod line_value;
+pub(crate) mod tree_reply_flight;
 use command_args::{
     parse_direction, parse_split_dir, parse_zoom_mode, present_nullable, workspace_mutation,
 };
@@ -200,7 +202,9 @@ mod api_revision_wire;
 mod conversation_tabs_wire;
 mod conversations;
 mod detached_terminals;
+mod feed_client_ops;
 mod feed_local;
+mod feed_places;
 mod frontend_browser_history;
 mod history_search;
 mod home;
@@ -600,6 +604,12 @@ pub const PROFILES_CAPABILITY: &str = "profiles-v1";
 /// `placement-shift-v1`: an echoing connection gets no `workspace_placement`
 /// restatement on `session.events` (state/placement_shift.rs).
 pub use crate::state::placement_shift::CAPABILITY as PLACEMENT_SHIFT_CAPABILITY;
+/// `session-live-cursor-v1`: a connection that sends it in `set-client-info`
+/// gets `live` in each `session.events` cursor, the position of the live
+/// terminal facts it has. A resume from such a cursor sends only the
+/// terminals whose live facts changed after it
+/// (server/session_event_stream.rs).
+pub const SESSION_LIVE_CURSOR_CAPABILITY: &str = "session-live-cursor-v1";
 /// Per-terminal themes in the home session's personal state:
 /// `set-personal-terminal` and `list-personal.terminals`.
 pub const PERSONAL_TERMINALS_CAPABILITY: &str = "personal-terminals-v1";
@@ -1616,6 +1626,15 @@ enum Command {
     SetSplitRatio {
         split: SplitId,
         ratio: f32,
+        #[serde(default)]
+        transaction: Option<u64>,
+    },
+    /// `split-divider-visibility-v1`: hide (`visible` false) or show the
+    /// divider of split `split`. The screen's layout lists hidden dividers
+    /// as `hidden_dividers`.
+    SetDividerVisible {
+        split: SplitId,
+        visible: bool,
         #[serde(default)]
         transaction: Option<u64>,
     },
@@ -2641,11 +2660,49 @@ struct Response {
     error_delivery: Option<ResponseErrorDelivery>,
 }
 
+impl Response {
+    /// The reply as a JSON value, the value `serde_json::to_value` makes,
+    /// with `data` moved in: `to_value` copies it, and `data` can be the
+    /// whole tree (`list-workspaces`).
+    fn into_value(self) -> Value {
+        let Self { id, ok, data, error, error_code, error_delivery } = self;
+        let mut object = serde_json::Map::new();
+        if let Some(id) = id {
+            object.insert("id".into(), id);
+        }
+        object.insert("ok".into(), Value::Bool(ok));
+        if let Some(data) = data {
+            object.insert("data".into(), data);
+        }
+        if let Some(error) = error {
+            object.insert("error".into(), Value::String(error));
+        }
+        if let Some(error_code) = error_code {
+            object.insert("error_code".into(), Value::String(error_code));
+        }
+        if let Some(error_delivery) = error_delivery {
+            object
+                .insert("error_delivery".into(), Value::String(error_delivery.wire_name().into()));
+        }
+        Value::Object(object)
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "kebab-case")]
 enum ResponseErrorDelivery {
     KnownNotDelivered,
     Ambiguous,
+}
+
+impl ResponseErrorDelivery {
+    /// Its wire spelling (the serde name).
+    fn wire_name(self) -> &'static str {
+        match self {
+            Self::KnownNotDelivered => "known-not-delivered",
+            Self::Ambiguous => "ambiguous",
+        }
+    }
 }
 
 impl From<ClearHistoryDelivery> for ResponseErrorDelivery {
@@ -2752,6 +2809,10 @@ const RESOURCE_STREAMS_PER_CLIENT_CAPACITY: usize = 64;
 const RESOURCE_STREAMS_SERVER_CAPACITY: usize = 256;
 const RESOURCE_WAITS_PER_CLIENT_CAPACITY: usize = 8;
 const RESOURCE_WAITS_SERVER_CAPACITY: usize = 64;
+/// v1 `subscribe` event streams: each is a `mux-events-out` thread and an
+/// event mailbox that live until the connection closes (server/cmd_subscribe.rs).
+const EVENT_SUBSCRIPTIONS_PER_CLIENT_CAPACITY: usize = 32;
+const EVENT_SUBSCRIPTIONS_SERVER_CAPACITY: usize = 1024;
 
 mod worker_admission;
 pub(crate) use worker_admission::ServerSurfaceOperationAdmission;
@@ -2900,7 +2961,7 @@ fn node_json(
 ) -> Value {
     match node {
         Node::Leaf(id) => json!({ "type": "leaf", "pane": id }),
-        Node::Split { id, dir, ratio, a, b } => {
+        Node::Split { id, dir, ratio, a, b, .. } => {
             let mut value = json!({
                 "type": "split",
                 "split": id,
@@ -2950,15 +3011,15 @@ fn layout_request_to_spec(layout: LayoutRequest) -> anyhow::Result<LayoutSpec> {
 }
 
 mod tree_json;
-#[cfg(test)]
-pub(crate) use tree_json::panes_built_for_test;
 pub(crate) use tree_json::selection_changed_json;
-#[cfg(test)]
-pub(crate) use tree_json::set_entity_check_hook_for_test;
+#[cfg(all(test, unix))]
+pub(crate) use tree_json::skip_entity_check_on_this_thread_for_bench as skip_tree_entity_check;
 pub(crate) use tree_json::tree_entity_json;
 pub(crate) use tree_json::workspace_presentation_changed_json;
 pub(crate) use tree_json::workspaces_json;
 use tree_json::{ShortIds, pane_json, tree_delta_json};
+#[cfg(test)]
+pub(crate) use tree_json::{panes_built_for_test, set_entity_check_hook_for_test};
 
 fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> {
     mux.surface(id)
@@ -3023,6 +3084,11 @@ use command_dispatch::handle_command_with_cancellation;
 /// The `list-workspaces` reply: the tree plus the registry identity it
 /// belongs to. The launch snapshot stores the same value.
 fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
+    // Concurrent readers share one build that starts after each arrived.
+    mux.tree_reply_flight.read(|| list_workspaces_tree(mux))
+}
+
+fn list_workspaces_tree(mux: &Mux) -> anyhow::Result<Value> {
     let notifications = mux.tree_decorations();
     let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
     let (registry_id, generation) = mux.registry_identity();
@@ -3122,6 +3188,10 @@ mod creation_burst_tests;
 #[cfg(test)]
 #[path = "server/run_public_ids_tests.rs"]
 mod run_public_ids_tests;
+
+#[cfg(test)]
+#[path = "server/open_persistent_bench_tests.rs"]
+mod open_persistent_bench_tests;
 
 #[cfg(test)]
 mod tests;
