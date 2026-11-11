@@ -1789,6 +1789,12 @@ variants["devices-failed"] = variant("devices", {
   steps: [{ selector: '[data-card-read="devices"][data-read="failed"]', action: "wait" }],
   note: "Settings > Devices when the device list read failed: an error line with Try Again, not a missing card.",
 });
+// ui-state-fixes round-2 capture: a host with no device hub answers the read as unsupported, so the
+// part is read and none: the card draws nothing (neither the placeholder nor the error).
+variants["devices-none"] = variant("devices", {
+  options: { failing: { "cmux.settings.devices.state": "cmux.operation.unsupported" } },
+  note: "Settings > Devices on a host with no device hub: the part is read and none, so no Devices card draws.",
+});
 variants["mobile-failed"] = variant("mobile", {
   options: { failing: { "cmux.settings.host.lists": "cmux.settings.host.failed" } },
   steps: [{ selector: '[data-card-read="mobile"][data-read="failed"]', action: "wait" }],

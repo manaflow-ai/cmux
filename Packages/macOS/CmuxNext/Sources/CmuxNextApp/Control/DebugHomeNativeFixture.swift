@@ -27,14 +27,34 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     func fixture(showing view: HomeNativeTranscriptView) -> HomeNativeFixture? { fixtures.values.first { $0.shows(view) } }
     /// The next page shows the attachment fixture (`{"attachments": true}`), under the chat column's compose button (`{"compose": true}`).
     var next = (attachments: false, compose: false)
+    /// The next page's Chief transcript reads are held or fail (`{"transcript": "loading" | "failed"}`): its load state.
+    var nextTranscriptLoad: HomeNativeFixture.TranscriptLoad?
+    /// The next page's store keeps its client cache in ``captureCacheURL`` (`{"cache": "reset" | "keep"}`).
+    var nextCache = false
+    /// The next page's Chief is new (`{"chief": "new"}`: no newest message, an empty first page) and its
+    /// reads are held until released (`{"hold": true}`), for ui-state-fixes M1 captures.
+    var nextNewChief = false
+    var nextHold = false
+    /// The capture fixture's client cache (ui-state-fixes M2): in this launch's temporary folder, which
+    /// a capture's quit and reopen keeps.
+    static var captureCacheURL: URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("cmux-ui-state-capture-home", isDirectory: true)
+            .appendingPathComponent("home.json")
+    }
 
     var page: InternalPageID { .homeNativeFixture }
     var title: String { HomeNativeFixture.title }
     var symbol: String { "bubble.left.and.bubble.right" }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        let fixture = HomeNativeFixture(attachments: next.attachments, openPanel: openPanel, compose: next.compose)
+        let fixture = HomeNativeFixture(attachments: next.attachments, openPanel: openPanel, compose: next.compose,
+                                        transcriptLoad: nextTranscriptLoad, cacheURL: nextCache ? Self.captureCacheURL : nil,
+                                        newChief: nextNewChief, holdReads: nextHold)
         next = (false, false)
+        nextNewChief = false
+        nextHold = false
+        nextTranscriptLoad = nil
+        nextCache = false
         fixture.onShow = { [weak homes = self.homes] in homes?.startsOwnAgents($0) }
         fixtures[key] = fixture
         return fixture.container
@@ -230,6 +250,43 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         let s: (String?) -> JSONValue = { $0.map { .string($0) } ?? .null }
         return .object(["ok": .bool(ok), "open_thread": s(view.openThreadRoot), "thread_path": .array(view.debugOpenThreadPath.map(s)), "thread_message": s(view.openThreadMessage)])
     }
+    /// `debug.home_native_fixture.capture {action: release | team | flush | state}` (captures of
+    /// ui-state-fixes M1 and M2), on every open fixture: `release` lets held transcript reads go (a
+    /// late first page), `team` shows the team chat so the Chief's closes, `flush` writes the client
+    /// cache and waits for the disk, `state` reports each one's load state and the cache's files.
+    static func capture(_ params: [String: JSONValue], services: AppServices) async -> JSONValue {
+        guard let provider = services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture else {
+            return .object(["error": .string("no fixture open")])
+        }
+        let shown = Array(provider.fixtures.values)
+        if shown.isEmpty { return .object(["error": .string("no fixture open")]) }
+        var answers: [JSONValue] = []
+        switch params["action"]?.stringValue ?? "state" {
+        case "release":
+            for fixture in shown { fixture.debugReleaseReads() }
+        case "team":
+            for fixture in shown {
+                let switched = await fixture.debugShowTeam()
+                if !switched { return .object(["error": .string("no team chat")]) }
+            }
+        case "flush":
+            for fixture in shown { await fixture.debugFlushCache() }
+        case "retry":
+            // Try Again on each fixture's load-state panel, its reads answering again.
+            for fixture in shown where !fixture.debugRetry() { return .object(["error": .string("no Try Again shown")]) }
+        case "state":
+            break
+        default:
+            return .object(["error": .string("action must be release, team, flush, retry or state")])
+        }
+        for fixture in shown { answers.append(JSONValue(foundation: fixture.debugLoadState()) ?? .null) }
+        let folder = captureCacheURL.deletingLastPathComponent()
+        let files = ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).sorted()
+        let windows = ((try? FileManager.default.contentsOfDirectory(atPath: folder.appendingPathComponent("home-windows").path)) ?? []).sorted()
+        return .object(["ok": .bool(true), "fixtures": .array(answers), "cache_files": .array(files.map { .string($0) }),
+                        "cache_windows": .array(windows.map { .string($0) })])
+    }
+
     /// `permalink {url}`: opens a message link as the docked Home's hand-off does.
     static func permalink(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         guard let link = HomeDockSelection(link: params["url"]?.stringValue ?? "") else { return .object(["error": .string("not a link")]) }
@@ -237,9 +294,20 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         return .object(["ok": .bool(true)])
     }
 
-    static func open(services: AppServices, attachments: Bool = false, compose: Bool = false, fresh: Bool = false) -> JSONValue {
+    static func open(services: AppServices, attachments: Bool = false, compose: Bool = false, fresh: Bool = false,
+                     transcriptLoad: String? = nil, cache: String? = nil, newChief: Bool = false, hold: Bool = false) -> JSONValue {
+        let load = transcriptLoad.flatMap(HomeNativeFixture.TranscriptLoad.init(rawValue:))
+        if let transcriptLoad, load == nil { return .object(["error": .string("transcript must be loading or failed")]) }
+        if let cache, cache != "reset", cache != "keep" { return .object(["error": .string("cache must be reset or keep")]) }
+        // `reset`: a capture's first launch starts from an empty cache folder; `keep` reads what it left.
+        if cache == "reset" { try? FileManager.default.removeItem(at: captureCacheURL.deletingLastPathComponent()) }
+        if cache != nil { try? FileManager.default.createDirectory(at: captureCacheURL.deletingLastPathComponent(), withIntermediateDirectories: true) }
         if services.pages.provider(.homeNativeFixture) == nil { services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel, homes: services.home.chiefHomes)) }
         (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.next = (attachments, compose)
+        (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.nextTranscriptLoad = load
+        (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.nextCache = cache != nil
+        (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.nextNewChief = newChief
+        (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.nextHold = hold
         let window = services.windows.active, view = fresh ? services.pages.openNew(.homeNativeFixture, in: window, focus: true) : services.pages.show(.homeNativeFixture, in: window, focus: true)
         return .object(["ok": .bool(view != nil), "page": .string(InternalPageID.homeNativeFixture.rawValue)])
     }

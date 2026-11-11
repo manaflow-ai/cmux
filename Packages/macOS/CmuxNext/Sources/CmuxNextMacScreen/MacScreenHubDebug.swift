@@ -31,6 +31,8 @@ import Foundation
 /// - `relay_delete` {id}; `relay_check` {id}.
 /// - `refresh`: devices, permissions, relays and the audit log again.
 /// - `audit` {limit?}: the newest entries as History shows them.
+/// - `capture_devices` {state}: Your Devices on the home page reads a capture hub
+///   (``MacScreenHubCapture``; captures only).
 extension MacScreenPages {
     public func registerDeviceHubDebug(on router: ControlRouter?, settings: MacScreenDevicesSettings?,
                                 openTab: @escaping @MainActor (MacScreenRecord, String?) -> String?) {
@@ -46,6 +48,7 @@ extension MacScreenPages {
                         openTab: @MainActor (MacScreenRecord, String?) -> String?) async -> JSONValue {
         let action = params["action"]?.stringValue ?? "state"
         if action == "state" { return hubState }
+        if action == "capture_devices" { return await captureDevices(params["state"]?.stringValue) }
         guard let hub else { return ["error": "not signed in to a device hub"] }
         func scope(_ key: String) -> SessionScope? { params[key]?.stringValue.flatMap(SessionScope.init(rawValue:)) }
         func fail(_ error: any Error) -> JSONValue { ["error": .string((error as? DeviceHubError)?.description ?? "\(error)")] }
@@ -131,6 +134,25 @@ extension MacScreenPages {
         } catch {
             return fail(error)
         }
+    }
+
+    /// `capture_devices` {state} (captures of ui-state-fixes M5): the home page's Your Devices reads
+    /// a capture hub of its own (``MacScreenHubCapture``): `loading`, `failed`, `failed_then_hang`,
+    /// `timeout` and `empty` make one; `deliver`, `retry` and `geometry` act on the shown one. Only
+    /// the page's box takes it, never ``hub``: no session, push or approval follows it, and its HTTP
+    /// calls are answered in this process.
+    private func captureDevices(_ state: String?) async -> JSONValue {
+        switch state {
+        case "deliver": return MacScreenHubCapture.deliver(hubBox.hub)
+        case "retry": return MacScreenHubCapture.clickRetry()
+        case "geometry": return MacScreenHubCapture.geometry()
+        default: break
+        }
+        guard let state, let captured = await MacScreenHubCapture.make(state) else {
+            return ["error": "state: loading, failed, failed_then_hang, timeout, empty, deliver, retry or geometry"]
+        }
+        hubBox.hub = captured
+        return ["status": .string("\(captured.status)"), "listed": .bool(captured.devicesListed)]
     }
 
     private func settingsRun(_ settings: MacScreenDevicesSettings?, _ params: [String: JSONValue]) async -> JSONValue {
