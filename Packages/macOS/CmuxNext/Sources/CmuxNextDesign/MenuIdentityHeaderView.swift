@@ -287,6 +287,12 @@ public final class MenuSwatchStrip: NSView {
         needsDisplay = true
     }
 
+    /// The strip takes the press itself. NSView's default hands it up the responder chain to the menu's own
+    /// tracking, which then keeps the release, so `mouseUp` never ran and a click on a swatch did nothing (#39953).
+    public override func mouseDown(with event: NSEvent) { setHovered(swatch(at: event)) }
+
+    public override func mouseDragged(with event: NSEvent) { setHovered(swatch(at: event)) }
+
     public override func mouseUp(with event: NSEvent) {
         guard let index = swatch(at: event) else { return }
         run(index)

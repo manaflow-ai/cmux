@@ -554,7 +554,8 @@ impl Mux {
                     projection.result,
                     projection.changes,
                     projected,
-                ))
+                )
+                .projected(projection.restates_all))
             },
         )?;
         if !commit.replayed

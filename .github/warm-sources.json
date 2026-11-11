@@ -164,6 +164,8 @@
     "ios-e2e.yml:mac-ios-e2e": {"class": "ios", "warm": [], "exempt": "cold: xcodebuild into a fresh DerivedData; a build script from a clean tree; no warm source wired yet"},
     "ios-internal-nightly.yml:archive": {"class": "ios", "warm": [], "exempt": "cold: a build script from a clean tree; no warm source wired yet"},
     "ios-internal-nightly.yml:upload": {"class": "mac-sign", "warm": [], "exempt": "signing and notarization only: consumes the app or DMG an earlier job built, compiles nothing"},
+    "ios-review-gate.yml:asc-validate": {"class": "ios", "warm": [], "exempt": "reads App Store Connect with asc; selects Xcode for its tools and compiles nothing"},
+    "ios-review-gate.yml:reviewer-path": {"class": "ios", "warm": ["actions-cache"]},
     "ios-reliability-matrix.yml:ios": {"class": "ios", "warm": ["actions-cache"]},
     "ios-reliability-matrix.yml:protocol": {"class": "linux-rust", "warm": ["actions-cache"]},
     "ios-screenshots.yml:screenshots": {"class": "ios", "warm": [], "exempt": "cold: xcodebuild into a fresh DerivedData; no warm source wired yet"},

@@ -153,3 +153,47 @@ async fn a_waiting_fyi_is_refused_while_a_continuation_may_fire() {
     held.abort();
     hub.set_ending_for_test(&s, None);
 }
+
+/// A prompt queued behind a turn starts when that turn ends: between the end and its start (the
+/// turn taken, the chat not running) a turn still comes, so a `wait` for the end does not answer
+/// with the turn before it (the `send --no-wait` then `wait` of a queued prompt printed the
+/// previous turn's reply). A held prompt (a failed turn holds the queue) brings no turn by itself.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_prompt_queued_behind_the_ending_turn_is_work_coming() {
+    let (hub, s) = chat().await;
+    let run = |prompt_id: &str, text: &str| {
+        let opts =
+            PromptOptions { prompt_id: Some(prompt_id.to_owned()), ..PromptOptions::default() };
+        let blocks = vec![json!({"type": "text", "text": text})];
+        let (hub, s) = (hub.clone(), s.clone());
+        tokio::spawn(async move { hub.prompt_with(&s, blocks, "test", false, opts).await })
+    };
+    let first = run("p-a", "until-cancel");
+    let running = async {
+        while s.turn().is_none() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    };
+    tokio::time::timeout(WAIT, running).await.expect("the first turn started");
+    let second = run("p-b", "hello");
+    let queued = async {
+        while s.queued() == 0 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    };
+    tokio::time::timeout(WAIT, queued).await.expect("the second prompt queued");
+    // Hold the first turn's end once it has taken the turn.
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (release, release_rx) = tokio::sync::oneshot::channel();
+    *hub.finish_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+    let turn_id = s.turn().unwrap().turn_id;
+    hub.cancel_turn(&s, &turn_id).await;
+    tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+    assert!(s.turn().is_none(), "the end took the turn");
+    assert!(hub.work_coming(&s.id), "the queued prompt's turn is still coming");
+    let _ = release.send(());
+    let _ = tokio::time::timeout(WAIT, first).await.unwrap().unwrap();
+    let done = tokio::time::timeout(WAIT, second).await.unwrap().unwrap().unwrap();
+    assert_eq!(done["stopReason"], "end_turn", "{done}");
+    assert!(!hub.work_coming(&s.id), "nothing more comes once it ran");
+}

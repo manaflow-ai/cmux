@@ -18,6 +18,9 @@ impl Mux {
         let mut projection =
             self.resource_effect_projection_locked(registry, state, serde_json::json!({}))?;
         persist_public_topology_result(operation, &mut projection.result, &projection.changes)?;
+        // After the result took its public value from the full changes: the
+        // journal gets only the upserts it does not already state.
+        let pruned = registry.prune_stated_projection_deltas(&projection.changes)?;
         let commit = registry.commit_resource_patch(
             &mutation,
             operation,
@@ -26,8 +29,11 @@ impl Mux {
             None,
             &projection.patch,
             &projection.result,
-            &projection.changes,
+            pruned.as_ref().unwrap_or(&projection.changes),
         )?;
+        if pruned.is_none() && projection.restates_all && !commit.replayed {
+            registry.record_full_projection_fold(commit.revision, &projection.changes);
+        }
         state.resource_revision = commit.revision;
         Ok(commit)
     }

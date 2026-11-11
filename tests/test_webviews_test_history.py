@@ -22,6 +22,13 @@ SCRIPT = ROOT / "scripts/ci/webviews_test_history.py"
 WORKFLOW = ROOT / ".github/workflows/ci-web.yml"
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import webviews_test_history as history  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 FILE = "test/agent-pane-suggested-tasks.test.ts"
 TEST = f"{FILE} > sends the image"
@@ -331,8 +338,8 @@ class Fetch(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "h" / "history.json"
             done = subprocess.run([sys.executable, str(SCRIPT), "fetch", str(out), "--repo", "o/r", "--branch", "b"],
-                                  capture_output=True, text=True, env={"PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin",
-                                                                      "GITHUB_API_URL": "http://127.0.0.1:9"})
+                                  capture_output=True, text=True, env=git_fixture_env.fixture_env({"PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin",
+                                                                      "GITHUB_API_URL": "http://127.0.0.1:9"}))
             self.assertEqual(done.returncode, 0, done.stderr)
             self.assertEqual(json.loads(out.read_text()), {"runs": []})
             self.assertIn("0 push runs", done.stdout)
@@ -343,7 +350,7 @@ class Fetch(unittest.TestCase):
             out = Path(tmp) / "history.json"
             done = subprocess.run([sys.executable, str(SCRIPT), "fetch", str(out), "--repo", "o/r", "--branch", "b",
                                    "--need-read"], capture_output=True, text=True,
-                                  env={"PATH": "/usr/bin:/bin", "GITHUB_API_URL": "http://127.0.0.1:9"})
+                                  env=git_fixture_env.fixture_env({"PATH": "/usr/bin:/bin", "GITHUB_API_URL": "http://127.0.0.1:9"}))
             self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
         upkeep = Workflow().job("webviews-test-history")
         restore = upkeep[upkeep.index("      - name: Restore the history"):]
@@ -437,9 +444,9 @@ class Workflow(unittest.TestCase):
                 head = Path(temp, "head-results/webviews-head-results.json")
                 if results is not None:
                     head.write_text(results, encoding="utf-8")
-                subprocess.run(["bash", "-c", script], check=True, capture_output=True, env={
+                subprocess.run(["bash", "-c", script], check=True, capture_output=True, env=git_fixture_env.fixture_env({
                     "PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin", "RUNNER_TEMP": temp, "HEAD_RESULTS": str(head),
-                    "GITHUB_REPOSITORY": "manaflow-ai/cmux", "BASE_REF": "feat-cmux-next"})
+                    "GITHUB_REPOSITORY": "manaflow-ai/cmux", "BASE_REF": "feat-cmux-next"}))
                 return (runner / "fetched").exists()
 
         self.assertFalse(fetched(json.dumps({f"{FILE} > a": True})))
@@ -476,9 +483,9 @@ class Workflow(unittest.TestCase):
             head = Path(temp, "head-results/webviews-head-results.json")
             head.write_text(json.dumps({TEST: False, f"{other} > x": False}), encoding="utf-8")
             output = Path(temp, "output")
-            subprocess.run(["bash", "-e", "-c", script], check=True, capture_output=True, cwd=temp, env={
+            subprocess.run(["bash", "-e", "-c", script], check=True, capture_output=True, cwd=temp, env=git_fixture_env.fixture_env({
                 "PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin", "RUNNER_TEMP": temp, "HEAD_RESULTS": str(head),
-                "GITHUB_REPOSITORY": "manaflow-ai/cmux", "BASE_REF": "feat-cmux-next", "GITHUB_OUTPUT": str(output)})
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux", "BASE_REF": "feat-cmux-next", "GITHUB_OUTPUT": str(output)}))
             self.assertEqual(output.read_text(encoding="utf-8"), "replay=1\n")
             self.assertEqual(Path(temp, "base-replay-files").read_text(encoding="utf-8"), f"{other}\n")
             self.assertEqual(json.loads(Path(temp, "base-known.json").read_text(encoding="utf-8")), {TEST: True})
@@ -527,9 +534,9 @@ class Workflow(unittest.TestCase):
                     (shard / "webviews-head-results.json").write_text(json.dumps({FILE: True}), encoding="utf-8")
                     if key is not None:
                         (shard / "webviews-inputs-key").write_text(key + "\n", encoding="utf-8")
-                done = subprocess.run(["bash", "-e", "-c", script], cwd=temp, capture_output=True, text=True, env={
+                done = subprocess.run(["bash", "-e", "-c", script], cwd=temp, capture_output=True, text=True, env=git_fixture_env.fixture_env({
                     "PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin", "RUNNER_TEMP": temp,
-                    "GITHUB_SHA": "a" * 40, "GITHUB_RUN_ATTEMPT": "1"})
+                    "GITHUB_SHA": "a" * 40, "GITHUB_RUN_ATTEMPT": "1"}))
                 saved = Path(temp, "webviews-test-history/history.json")
                 runs_ = json.loads(saved.read_text())["runs"] if saved.exists() else []
                 subprocess.run(["rm", "-rf", str(Path(temp, "history-results")), str(saved)], check=True)

@@ -29,6 +29,13 @@ const POPUP_PAGES: Record<string, string[]> = {
     "browser-chrome/cookie-import/cookieImport.css",
   ],
   "Packages/macOS/CmuxNext/Sources/CmuxNextApp/IconPicker/IconPickerService.swift": ["pages/icon-picker/styles.css"],
+  // Home's Set Up cmux card (SetupCardHost): the card floats on the chat's backdrop.
+  "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Page/SetupCardPage.swift": [
+    "ui/ui.css",
+    "pages/shared/pageBase.css",
+    "pages/setup-card/styles.css",
+    "pages/home-messages/cards/cards.css",
+  ],
   // The dialog route's sheets load with its module (dialog/index.tsx), into the same document.
   "Packages/macOS/CmuxNext/Sources/CmuxNextPages/OverlayPage.swift": [
     "ui/ui.css",

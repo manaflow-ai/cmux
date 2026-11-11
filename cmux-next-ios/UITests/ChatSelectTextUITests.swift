@@ -39,11 +39,15 @@ final class ChatSelectTextUITests: XCTestCase {
         let paragraph = app.descendants(matching: .any)
             .matching(NSPredicate(format: "label BEGINSWITH %@", "The transport switch holds up")).firstMatch
         let window = app.windows.firstMatch
-        for _ in 0..<4 where !(paragraph.exists && paragraph.isHittable) {
+        // Fully below the navigation bar: `isHittable` holds for a paragraph half under the bar,
+        // and a press at its center then lands on the bar.
+        let barBottom = app.navigationBars.firstMatch.frame.maxY
+        func clear() -> Bool { paragraph.exists && paragraph.frame.minY > barBottom + 8 && paragraph.frame.maxY < window.frame.maxY - 140 }
+        for _ in 0..<6 where !clear() {
             let start = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4))
-            start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 180)))
+            start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: paragraph.exists ? 120 : 180)))
         }
-        XCTAssertTrue(paragraph.exists && paragraph.isHittable, "the answer paragraph is on screen\n\(app.debugDescription)")
+        XCTAssertTrue(clear(), "the answer paragraph is fully on screen\n\(app.debugDescription)")
 
         paragraph.press(forDuration: 1.2)
         let selectText = app.buttons["Select Text"].firstMatch
