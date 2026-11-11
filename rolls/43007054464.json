@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43007054464",
+  "recorded_at": "2026-11-11T10:53:10Z",
+  "reason": "cmux-tui 2a92e592ef34 changes the image's cmux-tui (pinned 027024479e86)",
+  "dry_run": false,
+  "cmux_tui": "2a92e592ef345a93e62467d90dd4a99bf9e8d9ef",
+  "fixes": [
+    {
+      "sha": "2a92e592ef345a93e62467d90dd4a99bf9e8d9ef",
+      "mergedAt": "2026-11-11T02:38:11-08:00",
+      "subject": "cmux NEXT bookmarks: the bookmarks bar is native AppKit again; remove the React bar page (#41202)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-11T10:53:10Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
