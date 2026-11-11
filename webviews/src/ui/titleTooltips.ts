@@ -4,6 +4,8 @@
 // with the app's hover intent (ui/hoverIntent.ts): the first waits the hover delay, a neighbor's
 // then shows at once while the group is warm. The text moves to `data-tooltip`, so the native tooltip never also appears;
 // a control with no other name keeps it as its `aria-label`. Controls built on ./Tooltip keep theirs.
+// A `data-tooltip-instant` element shows its tooltip with no hover delay (a cut name in a menu row), and a
+// `data-tooltip-force` one shows it even when its text is in full view (a name a control draws over).
 // A `data-tooltip-shortcut` shows after the text in the secondary ink, like the native tooltip's;
 // a `data-tooltip-detail` on a line under it, also secondary (Fork from here, Claude's).
 // Above by default; `data-tooltip-side="bottom"` prefers below, "left" the side of its popup.
@@ -189,6 +191,7 @@ function anchorBox(element: Element): Box {
 /// Whether `element`'s own text already says `text` (a labeled control): no tooltip then, as
 /// #20375 rules (test/tooltip-rules.ts). Text the element cuts off still shows in full.
 function repeatsLabel(element: Element, text: string): boolean {
+  if (element.hasAttribute("data-tooltip-force")) return false;
   const own = element.textContent?.replace(/\s+/g, " ").trim().toLowerCase();
   return !!own && own === text.replace(/\s+/g, " ").trim().toLowerCase() && !clips(element);
 }
@@ -408,6 +411,15 @@ export function installTooltips(
     if (frame !== undefined) win.cancelAnimationFrame(frame);
     frame = undefined;
     target = element;
+    if (element.hasAttribute("data-tooltip-instant")) {
+      // No hover delay: it shows on the next frame. The intent's own timer, if any, finds another target and ends.
+      cancelHide();
+      frame = win.requestAnimationFrame(() => {
+        frame = undefined;
+        show(true);
+      });
+      return;
+    }
     intent.hover(element);
   };
   const onMove = (event: PointerEvent) => {
