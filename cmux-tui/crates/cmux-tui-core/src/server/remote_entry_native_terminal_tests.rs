@@ -205,7 +205,7 @@ fn native_terminal_keeps_foreign_leases_browser_and_other_client_controls_denied
 /// `cancel-creating-input` is a local command: a remote owner cannot send it (it is not on the
 /// allowlist) and is not told that the daemon has it.
 #[test]
-fn native_terminal_cannot_cancel_a_creations_input() {
+fn native_terminal_cannot_cancel_creating_input() {
     let entry = entry_with(true, Arc::new(FsGate), Some(true));
     entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
     let (mut stream, mut reader) = connect_as_link(&entry);
