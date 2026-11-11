@@ -192,7 +192,7 @@ struct CloseThenTypeKeysTests {
             }
             try #require(running == "cat", "cat never ran in the right terminal: \(String(describing: running))")
             let dialogs = CmuxDialogCenter.shared
-            let warning = { dialogs.records.first { $0.spec.identifier == "cmux.dialog.confirmation" } }
+            let warning = { PinnedPageTests.closeQuestion(of: p.services) }
             let hold = p.services.daemon.closeReadHold
             hold.arm()
             defer { hold.release() }
@@ -237,7 +237,7 @@ struct CloseThenTypeKeysTests {
             }
             try #require(running == "cat", "cat never ran in the right terminal: \(String(describing: running))")
             let dialogs = CmuxDialogCenter.shared
-            let warning = { dialogs.records.first { $0.spec.identifier == "cmux.dialog.confirmation" } }
+            let warning = { PinnedPageTests.closeQuestion(of: p.services) }
 
             #expect(try Self.cmdW(in: p), "the key router did not take Cmd-W")
             try #require(TabCloseGuard.reading.contains(p.right.tab), "Cmd-W closed at once: the test needs the close warning's read")

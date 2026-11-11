@@ -127,9 +127,10 @@ def touches(repo: Path, crate_dir: str, changed: list[str]) -> list[str]:
 
 
 def read_text(path: Path | None) -> str | None:
+    """The log at PATH, its colour codes stripped here, once, so no parser of it sees raw colour (#41329's review F2)."""
     if path is None or not path.exists():
         return None
-    return path.read_text(errors="replace")
+    return test_reds.plain(path.read_text(errors="replace"))
 
 
 def failed_names(log: str) -> list[str]:
@@ -149,18 +150,26 @@ RESULT_COUNTS = re.compile(r"test result: FAILED\. (\d+) passed; (\d+) failed;")
 def without_failures(log: str, names: set[str]) -> str:
     """The head's log with the FAILED lines of NAMES taken out: its crashes and cut-short binaries still count. Each
     binary's `test result:` line counts them as passed, so its total still matches the failures it names: test_reds
-    reads a total above its names as a failure no parser names (cmux#41244), which a flake that passed alone is not."""
+    reads a total above its names as a failure no parser names (cmux#41244), which a flake that passed alone is not.
+    Every line is matched as test_reds reads it (log_lines: no stamp, no colour), and a rewritten summary is written
+    in that form: matched on the raw line, colour around FAILED kept the count while its name went (#41329's review
+    F2)."""
     raw = log.splitlines()
+    texts = test_reds.log_lines(log)  # one per raw line
+    skip = test_reds.echoed(texts)
     kept, taken = [], 0
-    for line, text in zip(raw, test_reds.lines_of(log)):
+    for n, (line, text) in enumerate(zip(raw, texts)):
+        if n in skip:
+            kept.append(line)
+            continue
         if (match := FAILED_LINE.match(text)) and match.group(1) in names:
             taken += 1
             continue
         if text.startswith("test result: "):
-            if taken and (counts := RESULT_COUNTS.search(line)):
+            if taken and (counts := RESULT_COUNTS.search(text)):
                 passed, failed = int(counts.group(1)) + taken, max(int(counts.group(2)) - taken, 0)
                 state = "FAILED" if failed else "ok"
-                line = RESULT_COUNTS.sub(f"test result: {state}. {passed} passed; {failed} failed;", line, count=1)
+                line = RESULT_COUNTS.sub(f"test result: {state}. {passed} passed; {failed} failed;", text, count=1)
             taken = 0
         kept.append(line)
     return "\n".join(kept)
