@@ -96,21 +96,24 @@ function level(key: string): number {
 /// collapsed, when the parent expands again, all children should go back to being collapsed").
 /// `ids`: the calls and rows the fold holds (`namesOne`). `below`: the fold's own level (`level`);
 /// only lines under it are forgotten. `keep`: lines that take the fold's place, never its children.
-/// `views`: the chat's other views (`chat#view`) too.
+/// `views`: the chat's other views (`chat#view`) too. `from`: the lowest level forgotten.
+/// A forgotten line is written closed, not deleted: a line whose default is open (a steered turn's
+/// runs under `nested-open`) would open again with its parent (review of #41213).
 function forgetInside(
   sessionId: string,
   ids: ReadonlySet<string>,
   below: number,
   keep: ReadonlySet<string> = new Set(),
   views = false,
+  from = 0,
 ): void {
   if (ids.size === 0) return;
   let changed = false;
   for (const [id, session] of load()) {
     if (id !== sessionId && !(views && id.startsWith(`${sessionId}#`))) continue;
     for (const [key, value] of session) {
-      if (!value || keep.has(key) || level(key) >= below || !namesOne(key, ids)) continue;
-      session.delete(key);
+      if (!value || keep.has(key) || level(key) >= below || level(key) < from || !namesOne(key, ids)) continue;
+      session.set(key, false);
       changed = true;
     }
   }
@@ -124,9 +127,16 @@ function forgetInside(
 }
 
 /// A turn's "Worked for" closed (App.tsx): every line inside it closes, in every view of the chat,
-/// its thoughts too (`<row id>:thought:<n>`, thoughtChoices.ts).
-export function forgetInsideTurn(sessionId: string | undefined, ids: ReadonlySet<string>): void {
+/// its thoughts too (`<row id>:thought:<n>`, thoughtChoices.ts). `edits`: the turn's edit calls,
+/// whose own lines (`row:<id>`) the edited-files card under the answer shares: only the runs and
+/// groups they start are forgotten (`run:<edit id>`).
+export function forgetInsideTurn(
+  sessionId: string | undefined,
+  ids: ReadonlySet<string>,
+  edits?: ReadonlySet<string>,
+): void {
   forgetInside(sessionId || DEFAULT_SESSION, ids, Infinity, undefined, true);
+  if (edits?.size) forgetInside(sessionId || DEFAULT_SESSION, edits, Infinity, undefined, true, 1);
   if (ids.size > 0) forgetThoughtChoices((id) => namesOne(id, ids));
 }
 

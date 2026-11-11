@@ -3368,7 +3368,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (keys.length === 0) return;
     closedTurns.current = { keys: [] };
     // Every key names the same turn (its prompt's and each steer's): resolve it once.
-    forgetInsideTurn(session, turnInsideIds(snapshot.rows, keys.at(-1)!));
+    const edits = new Set<string>();
+    forgetInsideTurn(session, turnInsideIds(snapshot.rows, keys.at(-1)!, edits), edits);
   });
   const [workingSeen, setWorkingSeen] = useState<{ session?: string; working: boolean }>({ working: false });
   if (workingSeen.session !== shownSessionId || workingSeen.working !== snapshot.isWorking) {
@@ -10729,7 +10730,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const view = chatViewRef.current;
     // A turn's fold opens with every line in it closed, whatever the reader opened there before
     // (Lucas, 2026-11-11): its toggle forgets them. Closed, nothing in it draws, so open or close alike.
-    if (isWorkedFold(id)) forgetInsideTurn(shownSessionRef.current, turnInsideIds(turnRowsRef.current, id));
+    if (isWorkedFold(id)) {
+      const edits = new Set<string>();
+      forgetInsideTurn(shownSessionRef.current, turnInsideIds(turnRowsRef.current, id, edits), edits);
+    }
     // In Thinking and Verbose a turn's "Worked for" is open unless toggled there (viewFolds.ts):
     // the reader's open or close overrides the view, and Normal's own folds stay as they were.
     if (view !== "normal" && isWorkedFold(id))

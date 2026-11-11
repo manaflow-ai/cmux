@@ -138,3 +138,23 @@ test("a pending harness prompt keeps one thinking line in place", () => {
   expect(readyThinking[0]?.status).toBeUndefined();
   expect(ready.filter((entry) => entry.status !== undefined)).toHaveLength(0);
 });
+
+// Review of #41213 (codex, read-only): a short note joins an earlier run to the latest one while a
+// call of the earlier run still runs in the background; the merged run is the latest, whose calls in
+// flight are the live line's, but the line names only the latest call, so the earlier one keeps its row.
+test("a background call still running keeps its row when a short note joins its run to the latest", () => {
+  const rows = [
+    row("u2", "user"),
+    run("watch", [call("cargo watch", "execute", "in_progress"), call("git status", "execute")]),
+    row("note", "assistant", { text: "Now the tests." }),
+    run("tests", [call("bun test", "execute"), call("tsc", "execute", "in_progress")]),
+  ];
+  const shaped = turnView(rows, new Set(), { working: true });
+  const ids = shaped
+    .filter((entry) => entry.kind === "activity")
+    .flatMap((entry) => (entry.items ?? []).map((item) => item.tool?.id));
+  expect(ids).toContain("cargo watch");
+  expect(ids).toContain("bun test");
+  // The latest call in flight is the live line's alone.
+  expect(ids).not.toContain("tsc");
+});

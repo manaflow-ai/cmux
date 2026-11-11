@@ -2187,7 +2187,16 @@ function shapeLiveTurn(
   // A reply before a steer never joins a run (steerDialogueIn). Under `line` no note joins a run:
   // the run draws no row, and the note to the person must stay in sight (Leo, 2026-11-06).
   const lineOnly = experimentArm(liveTurnWork) === "line";
-  const rows = codexRuns(lineOnly ? drawn : mergeShortNotes(drawn, steerDialogueIn(drawn)), named?.tool.id, lineOnly);
+  // A call still running in a run before the last (a background `cargo watch`) keeps its row when a
+  // short note joins that run to the latest one: only the latest run's own calls in flight are the
+  // live line's (review of #41213).
+  const carried = lineOnly ? undefined : runningBeforeLastRun(drawn);
+  const rows = codexRuns(
+    lineOnly ? drawn : mergeShortNotes(drawn, steerDialogueIn(drawn)),
+    named?.tool.id,
+    lineOnly,
+    carried,
+  );
   // The status ticks on this computer's clock, from the live turn's start moved onto it. A resumed
   // turn can still open with an older prompt, so the prompt's time (`user.at`) is only the fallback.
   const start = turnStartedAtMs ?? user.at;
@@ -2539,7 +2548,19 @@ const OPEN_RUN_STATES = 2;
 /// With `lineOnly` a finished run of the stretch still running draws no row: the live line is its
 /// work (liveTurnWork). A stretch that already ended with its summary keeps its runs, as it draws
 /// once the chat stops working, so that end moves nothing (liveLineTakesFooterSlot.test.ts).
-function codexRuns(rows: AcpmuxRow[], named?: string, lineOnly = false): AcpmuxRow[] {
+/// The calls still running in every run but the last one (`shapeLiveTurn`): a merge that joins such
+/// a run to the latest must not hand them to the live line, which names only one call.
+function runningBeforeLastRun(rows: readonly AcpmuxRow[]): Set<string> | undefined {
+  let last = -1;
+  for (let at = rows.length - 1; at >= 0 && last < 0; at -= 1) if (rows[at]!.kind === "activity") last = at;
+  let running: Set<string> | undefined;
+  for (let at = 0; at < last; at += 1)
+    for (const item of rows[at]!.items ?? [])
+      if (item.tool && isRunning(item.tool)) (running ??= new Set()).add(item.tool.id);
+  return running;
+}
+
+function codexRuns(rows: AcpmuxRow[], named?: string, lineOnly = false, carried?: ReadonlySet<string>): AcpmuxRow[] {
   // A started chats' card after the run is not a step: the run before it is still in flight.
   let latest = rows.length - 1;
   while (latest > 0 && rows[latest]!.kind === STARTED_SESSIONS) latest -= 1;
@@ -2574,8 +2595,10 @@ function codexRuns(rows: AcpmuxRow[], named?: string, lineOnly = false): AcpmuxR
     // finished steps and never grows a stack of live rows (Leo 2026-10-20: "rows pile up instead
     // of replacing each other").
     const all = row.items ?? [];
-    const items = all.filter(
-      (item, at) => !(item.tool ? isRunning(item.tool) : at === all.length - 1 && item.kind !== "tool"),
+    const items = all.filter((item, at) =>
+      item.tool
+        ? !isRunning(item.tool) || (carried?.has(item.tool.id) === true && item.tool.id !== named)
+        : !(at === all.length - 1 && item.kind !== "tool"),
     );
     if (!items.length) return [];
     return [{ ...row, items, settled: true, foldRun: true, version: row.version * RUN_STATES + 1 }];
@@ -2634,21 +2657,36 @@ const isRun = (row: AcpmuxRow | undefined) => row?.kind === "activity" && !isEdi
 export function mergeShortNotes(rows: readonly AcpmuxRow[], keep?: ReadonlySet<string>, edits = false): AcpmuxRow[] {
   const run = (row: AcpmuxRow | undefined) => isRun(row) || (edits && row?.kind === "activity");
   const out: AcpmuxRow[] = [];
+  // The stretch being joined at `out`'s end: its calls and member ids grow in place and go on its
+  // row once it ends, so a live turn of many notes and runs copies each call once, not once per note.
+  let items: AcpmuxActivity[] | undefined;
+  let joined: string[] | undefined;
+  const close = () => {
+    if (items) out[out.length - 1] = { ...out.at(-1)!, items, joined };
+    items = joined = undefined;
+  };
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index]!;
     const previous = out.at(-1);
     if (run(previous) && isShortNote(row) && !keep?.has(row.id) && run(rows[index + 1])) {
       const next = rows[index + 1]!;
+      items ??= [...(previous!.items ?? [])];
+      joined ??= [...(previous!.joined ?? [previous!.id])];
+      items.push({ kind: "note", text: row.text!.trim() });
+      for (const item of next.items ?? []) items.push(item);
+      joined.push(row.id, next.id);
       out[out.length - 1] = {
         ...previous!,
-        items: [...(previous!.items ?? []), { kind: "note", text: row.text!.trim() }, ...(next.items ?? [])],
         toolCount: (previous!.toolCount ?? 0) + (next.toolCount ?? 0),
-        joined: [...(previous!.joined ?? [previous!.id]), row.id, next.id],
         version: mixVersion(mixVersion(previous!.version, row.version), next.version),
       };
       index += 1;
-    } else out.push(row);
+    } else {
+      close();
+      out.push(row);
+    }
   }
+  close();
   return out.length === rows.length ? (rows as AcpmuxRow[]) : out;
 }
 
@@ -2725,6 +2763,13 @@ export function toggleTurnFold(
   const open = keys.some((key) => expanded.has(key));
   for (const key of keys) next.delete(key);
   if (!open) next.add(key ?? id);
+  // A turn's fold opens with every line in it closed (Lucas, 2026-11-11): the runs of messages and
+  // of background work it holds are opened by key here, not in the disclosure store.
+  if (id.startsWith(`${WORKED}-`))
+    for (const inside of turnInsideIds(rows, id)) {
+      next.delete(messageRunRowId(inside));
+      next.delete(backgroundRunRowId(inside));
+    }
   return next;
 }
 
@@ -2732,8 +2777,9 @@ export function toggleTurnFold(
 /// fold draws, whose lines the reader may have opened (transcriptDisclosureModel.ts
 /// `forgetInsideTurn`). Empty when `id` is not a turn's fold. An edit call is left out: the turn's
 /// edited-files card under its answer, outside the fold, draws the same calls under the same keys,
-/// so forgetting them would close a diff the reader opened there.
-export function turnInsideIds(rows: readonly AcpmuxRow[], id: string): Set<string> {
+/// so forgetting them would close a diff the reader opened there; `edits` collects them, for the runs
+/// and groups they start (transcriptDisclosureModel.ts `forgetInsideTurn`).
+export function turnInsideIds(rows: readonly AcpmuxRow[], id: string, edits?: Set<string>): Set<string> {
   const ids = new Set<string>();
   if (!id.startsWith(`${WORKED}-`)) return ids;
   const edit = (kind: string | undefined) =>
@@ -2745,7 +2791,7 @@ export function turnInsideIds(rows: readonly AcpmuxRow[], id: string): Set<strin
     if (opensTurn(row) && !isUnsent(row)) break;
     if (row.kind === "user") continue;
     ids.add(row.id);
-    for (const item of row.items ?? []) if (item.tool?.id && !edit(item.tool.kind)) ids.add(item.tool.id);
+    for (const item of row.items ?? []) if (item.tool?.id) (edit(item.tool.kind) ? edits : ids)?.add(item.tool.id);
   }
   return ids;
 }

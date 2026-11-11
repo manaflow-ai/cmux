@@ -14,9 +14,15 @@ import { FindReveal } from "./chatFind";
 import { ToolRows } from "./TurnRows";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 import { WorkingFor } from "./WorkingFor";
-import { forgetInsideTurn, resetTranscriptDisclosure } from "./transcriptDisclosureModel";
+import {
+  DisclosureSession,
+  forgetInsideTurn,
+  resetTranscriptDisclosure,
+  useTranscriptDisclosure,
+} from "./transcriptDisclosureModel";
 import { turnFoldStyle } from "./turnFoldStyle";
-import { turnInsideIds, workedLabel } from "./turns";
+import { messageRunRowId } from "./messageRuns";
+import { mergeShortNotes, toggleTurnFold, turnInsideIds, workedLabel } from "./turns";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -521,4 +527,78 @@ test("a turn's fold leaves out its edit calls: the edited-files card under the a
   const user = (id: string): AcpmuxRow => ({ id, version: 1, at: 1, kind: "user", text: "Fix it" });
   const rows = [user("u1"), run("r1", [edit("e1", "/src/app.ts"), command("c1", "bun test")])];
   expect([...turnInsideIds(rows, "worked-u1")].sort()).toEqual(["c1", "r1"]);
+});
+
+// Review of #41213 (codex, read-only): a run whose first call is an edit is keyed `run:e1`, so the
+// edit's id must still reach the turn's reset for the runs and groups it starts; its own line
+// (`row:e1`) stays the edited-files card's.
+test("a turn's fold closes a run that starts with an edit, and keeps the edit's own line", async () => {
+  const user = (id: string): AcpmuxRow => ({ id, version: 1, at: 1, kind: "user", text: "Fix it" });
+  const row = run("r1", [edit("e1", "/src/app.ts"), command("c1", "bun test"), command("c2", "git status")]);
+  const rows = [user("u1"), row];
+  const edits = new Set<string>();
+  expect([...turnInsideIds(rows, "worked-u1", edits)].sort()).toEqual(["c1", "c2", "r1"]);
+  expect([...edits]).toEqual(["e1"]);
+  const container = await mount(<ToolRows row={row} sessionId="edit-led" />);
+  const line = () => container.querySelector<HTMLButtonElement>("button[data-tool-run]")!;
+  await act(async () => line().click());
+  expect(line().getAttribute("aria-expanded")).toBe("true");
+  await act(async () => forgetInsideTurn("edit-led", turnInsideIds(rows, "worked-u1", edits), edits));
+  expect(line().getAttribute("aria-expanded")).toBe("false");
+});
+
+/// A line whose default is open (a steered turn's run under `nested-open`), as a probe.
+function OpenByDefault({ id }: { id: string }) {
+  const [open, setOpen] = useTranscriptDisclosure(`run:${id}`, true);
+  return <button type="button" aria-label={id} data-probe={id} aria-expanded={open} onClick={() => setOpen(!open)} />;
+}
+
+test("a reset line whose default is open stays closed: the reset writes it closed", async () => {
+  const container = await mount(
+    <DisclosureSession.Provider value="open-default">
+      <OpenByDefault id="c1" />
+    </DisclosureSession.Provider>,
+  );
+  const probe = () => container.querySelector<HTMLButtonElement>('[data-probe="c1"]')!;
+  await act(async () => probe().click());
+  await act(async () => probe().click());
+  expect(probe().getAttribute("aria-expanded")).toBe("true");
+  await act(async () => forgetInsideTurn("open-default", new Set(["c1"])));
+  expect(probe().getAttribute("aria-expanded")).toBe("false");
+});
+
+test("closing a turn's fold closes the runs of messages inside it, opened by key", () => {
+  const user = (id: string): AcpmuxRow => ({ id, version: 1, at: 1, kind: "user", text: "Ask them" });
+  const note = (id: string): AcpmuxRow => ({ id, version: 1, at: 2, kind: "assistant", text: id });
+  const rows = [user("u1"), note("m1"), note("m2"), user("u2"), note("m3")];
+  const expanded = new Set(["worked-u1", messageRunRowId("m1"), messageRunRowId("m3")]);
+  const closed = toggleTurnFold(rows, expanded, "worked-u1");
+  expect(closed.has(messageRunRowId("m1"))).toBe(false);
+  // Another turn's run of messages keeps the reader's choice.
+  expect(closed.has(messageRunRowId("m3"))).toBe(true);
+});
+
+test("short notes join their runs in one pass, each call once and in order", () => {
+  const note = (id: string): AcpmuxRow => ({ id, version: 1, at: 2, kind: "assistant", text: `Next ${id}.` });
+  const rows = [
+    run("a", [command("a1", "ls")]),
+    note("n1"),
+    run("b", [command("b1", "pwd")]),
+    note("n2"),
+    run("c", [command("c1", "git status")]),
+  ];
+  const [merged, ...rest] = mergeShortNotes(rows);
+  expect(rest).toEqual([]);
+  expect(merged!.joined).toEqual(["a", "n1", "b", "n2", "c"]);
+  expect(merged!.items!.map((item) => item.tool?.id ?? item.kind)).toEqual(["a1", "note", "b1", "note", "c1"]);
+  // The rows it read are not changed.
+  expect(rows[0]!.items).toHaveLength(1);
+});
+
+test("every call in an opened run carries its id for the scroll box's reveal", async () => {
+  const row = run("r1", [edit("e1", "/src/app.ts"), command("c1", "bun test"), command("c2", "git status")]);
+  const container = await mount(<ToolRows row={row} sessionId="step-ids" />);
+  await act(async () => container.querySelector<HTMLButtonElement>("button[data-tool-run]")!.click());
+  const ids = [...container.querySelectorAll<HTMLElement>("[data-step-call]")].map((step) => step.dataset.stepCall);
+  expect(ids).toEqual(expect.arrayContaining(["c1", "c2"]));
 });

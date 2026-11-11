@@ -150,7 +150,10 @@ const Step = memo(
     stepProbe.render?.(probeKey);
     if (!item.tool && isQuietThought(item)) return null;
     return (
-      <div className={item.tool ? "cv-step" : lead ? "cv-step is-thought is-lead" : "cv-step is-thought"}>
+      <div
+        className={item.tool ? "cv-step" : lead ? "cv-step is-thought is-lead" : "cv-step is-thought"}
+        data-step-call={item.tool?.id}
+      >
         {item.tool ? (
           commands ? (
             <CommandRow item={item} />

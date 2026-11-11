@@ -35,7 +35,12 @@ function useScrollFades(follow: boolean) {
     observer.observe(inner);
     return () => observer.disconnect();
   }, [mark]);
-  return { box, content, mark };
+  // A click inside (a call or its output opened) is the reader at work there: the box stops following
+  // the end, so the line they opened stays in sight, until they scroll back to the end (`mark`).
+  const hold = useCallback(() => {
+    atEnd.current = false;
+  }, []);
+  return { box, content, mark, hold };
 }
 
 /// The running line's count names a call (FindReveal `toolId`, WorkingFor.tsx): the transcript
@@ -46,8 +51,10 @@ function useRevealCall(box: { current: HTMLDivElement | null }, mark: () => void
   useLayoutEffect(() => {
     const node = box.current;
     if (!node || toolId === undefined) return;
-    const call = [...node.querySelectorAll<HTMLElement>("[data-tool-id]")].find(
-      (element) => element.dataset.toolId === toolId,
+    // Every call's step carries its id (`data-step-call`, ToolRunSteps.tsx, ToolGroupRow.tsx), an MCP
+    // or edit call's too, whose own line has no `data-tool-id`.
+    const call = [...node.querySelectorAll<HTMLElement>("[data-step-call], [data-tool-id]")].find(
+      (element) => (element.dataset.stepCall ?? element.dataset.toolId) === toolId,
     );
     if (!call) return;
     const top = call.getBoundingClientRect().top - node.getBoundingClientRect().top + node.scrollTop;
@@ -57,11 +64,11 @@ function useRevealCall(box: { current: HTMLDivElement | null }, mark: () => void
 }
 
 export function RunScroll({ running = false, children }: { running?: boolean; children: ReactNode }) {
-  const { box, content, mark } = useScrollFades(running);
+  const { box, content, mark, hold } = useScrollFades(running);
   useRevealCall(box, mark);
   if (experimentArm(runScroll) !== "box") return children;
   return (
-    <div ref={box} className="cv-run-scroll" onScroll={mark}>
+    <div ref={box} className="cv-run-scroll" onScroll={mark} onClickCapture={hold}>
       <div ref={content}>{children}</div>
     </div>
   );
