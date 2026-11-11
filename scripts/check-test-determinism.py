@@ -5838,12 +5838,15 @@ def _attribution_self_test() -> list[str]:
     return failures
 
 
-# The regex-after-token table shared with manaflow-ai/cmux-platform#1271's JS tokenizer: each case is a source
-# and whether the text `echo` after its slash is code (a hit) or a comment. regex-after-token.json is a pinned
-# byte copy (its .pin sidecar names the commit and sha256). cmux-rows.json holds the rows cmux has sent to #1271's
-# table and that are not in the pinned copy yet; a row there with "unresolved": true is one a strict lexer cannot
-# decide, so its expected answer is "unresolved" (a tokenizer that scans both readings reads it as a hit).
+# The regex-after-token table shared with manaflow-ai/cmux-platform's JS tokenizer: each row is a source and whether
+# the text `echo` after its slash is code (a hit) or a comment. regex-after-token.json is a pinned byte copy (its .pin
+# sidecar names the commit and sha256). Its "ranges" (on each row, and on each "parsed" case) are where TypeScript's
+# parser puts each comment, string, regex, template and JSX text, read as a .tsx file: the parser is the lexer's
+# oracle, offline. cmux-rows.json holds the rows cmux has sent to the table and that the pinned copy does not hold yet;
+# a row there with "unresolved": true is one a strict lexer cannot decide, so its expected answer is "unresolved" (a
+# tokenizer that scans both readings reads it as a hit).
 REGEX_AFTER_TOKEN_DIR = pathlib.Path(__file__).resolve().parent / "fixtures" / "regex-after-token"
+_JAVASCRIPT_LINE_TERMINATORS = "\n\r\u2028\u2029"
 
 
 def _regex_after_token_cases(table: dict) -> list[tuple[str, bool, bool]]:
@@ -5873,9 +5876,34 @@ def _regex_after_token_cases(table: dict) -> list[tuple[str, bool, bool]]:
     return cases
 
 
-def _regex_after_token_self_test() -> tuple[list[str], int]:
+def _regex_after_token_parsed_verdict(source: str, ranges: list) -> tuple[str, int]:
+    """Compare the lexer's comments in SOURCE (read as .tsx) with the parser's comment RANGES, character by character
+    (a line terminator inside a block comment counts as neither). ("agree", -1); ("disagree", offset) for the first
+    character they read differently, when no unresolved token comes before it; or ("unresolved", offset) for the
+    first token the lexer could not decide (it fails closed: what follows may be read either way)."""
+    parser = bytearray(len(source))
+    for kind, start, end in ranges:
+        if kind == "comment":
+            parser[start:end] = b"\x01" * (end - start)
+    _, comments, unresolved = _lexical_positions_and_unresolved(source, ".tsx")
+    first_unresolved = min(unresolved, default=len(source))
+    for offset, character in enumerate(source):
+        if character in _JAVASCRIPT_LINE_TERMINATORS:
+            continue
+        if bool(comments[offset]) != bool(parser[offset]):
+            if offset < first_unresolved:
+                return "disagree", offset
+            break
+    if unresolved:
+        return "unresolved", first_unresolved
+    return "agree", -1
+
+
+def _regex_after_token_self_test(strict: bool = False) -> tuple[list[str], int, str]:
     """Run the lexer over the shared table and cmux's rows, strictly: each case the table decides gives its answer,
-    and each it cannot decide is unresolved (fails --strict), never a guess. Returns the failures and the count."""
+    and each it cannot decide is unresolved, never a guess. Every row with parser ranges and every "parsed" case must
+    also read its comments where the parser does, or come out unresolved: a disagreement always fails, an unresolved
+    one fails under STRICT. Returns the failures, the case count and a summary of the parser comparison."""
     import hashlib
 
     failures: list[str] = []
@@ -5892,9 +5920,13 @@ def _regex_after_token_self_test() -> tuple[list[str], int]:
             f"({pin.get('repo')}@{pin.get('commit')}:{pin.get('path')}); copy that file unchanged or re-pin it"
         )
     cases = 0
+    counts = {
+        group: {"agree": 0, "unresolved": 0, "disagree": 0, "skipped": 0} for group in ("rows", "parsed")
+    }
     # cmux-rows.json exists only while cmux has rows the pinned copy does not hold yet.
     for path in (path for path in (shared, REGEX_AFTER_TOKEN_DIR / "cmux-rows.json") if path.exists()):
-        for source, hit, forks in _regex_after_token_cases(json.loads(path.read_text(encoding="utf-8"))):
+        table = json.loads(path.read_text(encoding="utf-8"))
+        for source, hit, forks in _regex_after_token_cases(table):
             cases += 1
             target = source.index("echo")
             _, comments, unresolved = _lexical_positions_and_unresolved(source, ".tsx")
@@ -5909,7 +5941,32 @@ def _regex_after_token_self_test() -> tuple[list[str], int]:
                     f"REGEX-AFTER-TOKEN {path.name}: the text after the slash reads as "
                     f"{'a comment' if hit else 'code'}, the table says {'code' if hit else 'a comment'}: {source!r}"
                 )
-    return failures, cases
+        for group, entries in (("rows", table.get("rows", [])), ("parsed", table.get("parsed", []))):
+            for entry in entries:
+                if "ranges" not in entry:
+                    # A source the parser reports a syntax error in has no ranges (nor does a row of cmux-rows.json).
+                    counts[group]["skipped"] += bool(entry.get("syntax_error"))
+                    continue
+                cases += group == "parsed"
+                verdict, offset = _regex_after_token_parsed_verdict(entry["source"], entry["ranges"])
+                counts[group][verdict] += 1
+                label = f"REGEX-AFTER-TOKEN {path.name} {group}" + (
+                    f" ({entry['family']})" if "family" in entry else ""
+                )
+                if verdict == "disagree":
+                    failures.append(
+                        f"{label}: offset {offset} reads as "
+                        f"{'code' if any(k == 'comment' and s <= offset < e for k, s, e in entry['ranges']) else 'a comment'}"
+                        f", the parser says otherwise: {entry['source']!r}"
+                    )
+                elif verdict == "unresolved" and strict and group == "parsed":
+                    failures.append(f"{label}: unresolved at offset {offset} where the parser decides: {entry['source']!r}")
+    summary = "; ".join(
+        f"{group} {count['agree']} agree, {count['unresolved']} unresolved, {count['disagree']} disagree"
+        + (f", {count['skipped']} skipped (syntax error)" if count["skipped"] else "")
+        for group, count in counts.items()
+    )
+    return failures, cases, summary
 
 
 def _allowlist_self_test() -> list[str]:
@@ -6011,7 +6068,7 @@ def _allowlist_self_test() -> list[str]:
     return failures
 
 
-def _self_test() -> int:
+def _self_test(strict: bool = False) -> int:
     # (filename, source, expected rules present, rules that must NOT be present)
     positives: list[tuple[str, str, set[str]]] = [
         # A temp git repo with git's detached auto maintenance still on (the Errno 39 '.git' race).
@@ -8164,8 +8221,9 @@ def _self_test() -> int:
     failures += _isolated_import_self_test()
     failures += _allowlist_self_test()
     failures += _attribution_self_test()
-    regex_failures, regex_cases = _regex_after_token_self_test()
+    regex_failures, regex_cases, parser_summary = _regex_after_token_self_test(strict)
     failures += regex_failures
+    print(f"regex-after-token against the parser's ranges: {parser_summary}")
     isolated_fixtures = 6
 
     if failures:
@@ -8214,7 +8272,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument(
         "--strict",
         action="store_true",
-        help="exit non-zero if any non-allowlisted finding exists",
+        help="exit non-zero if any non-allowlisted finding exists (with --self-test: if any parsed case is unresolved)",
     )
     parser.add_argument(
         "--write-allowlist",
@@ -8234,7 +8292,7 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
 
     if args.self_test:
-        return _self_test()
+        return _self_test(args.strict)
 
     repo_root = args.repo_root.resolve(strict=False)
     allowlist_path = (
