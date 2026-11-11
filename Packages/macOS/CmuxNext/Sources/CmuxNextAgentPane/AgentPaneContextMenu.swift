@@ -189,6 +189,21 @@ enum AgentPaneContextMenu {
         return CGPoint(x: button.minX, y: top)
     }
 
+    /// The size `menu` draws at: `NSMenu.size` counts an Option alternate (Point at Element…'s Inspect
+    /// Element, ``inspectRows(picker:devTools:)``) as a row of its own, though it shares its primary's
+    /// row, so a menu opened above its More button stood a row and more above it (Lucas, 2026-11-11:
+    /// "the ... menu opens up too far away from the point anchor"). The alternates leave the menu for
+    /// the measure and come back at their places; the width keeps the widest row, an alternate's too.
+    static func drawnSize(of menu: NSMenu) -> CGSize {
+        let full = menu.size
+        let alternates = menu.items.enumerated().filter { $0.element.isAlternate }
+        guard !alternates.isEmpty else { return full }
+        for (index, _) in alternates.reversed() { menu.removeItem(at: index) }
+        let height = menu.size.height
+        for (index, item) in alternates { menu.insertItem(item, at: index) }
+        return CGSize(width: full.width, height: height)
+    }
+
     /// `text` as a Markdown quote, with a blank line after it for the reply.
     static func quote(_ text: String) -> String {
         text.split(separator: "\n", omittingEmptySubsequences: false).map { "> \($0)" }.joined(separator: "\n") + "\n\n"

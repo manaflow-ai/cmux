@@ -252,7 +252,7 @@ extension AgentPaneView {
         // The display holding the button, not the window's main one: a window across two displays
         // would clamp the menu onto the other display, away from its button.
         let origin = AgentPaneContextMenu.popUpOrigin(
-            button: button, size: menu.size, visible: PopupPlacement.screen(for: button, fallback: window)?.visibleFrame,
+            button: button, size: AgentPaneContextMenu.drawnSize(of: menu), visible: PopupPlacement.screen(for: button, fallback: window)?.visibleFrame,
             window: window.convertToScreen(window.contentLayoutRect))
         menu.popUp(positioning: nil, at: view.convert(window.convertPoint(fromScreen: origin), from: nil), in: view)
     }
