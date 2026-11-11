@@ -26,6 +26,10 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import next_batch as nb  # noqa: E402
+# next_batch.log prints fixture verdicts ("error error: y" at fake shas) into the job log, where
+# base_red_excuse.py's whole-log reading of an unplaced cmux-next checks log took them for a second red
+# beside a step-A PR's app FFI pin (cmux#41132). No test reads them: keep them out of the CI log.
+nb.log = lambda message: None
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
 from os import path as _git_fixture_path  # noqa: E402
