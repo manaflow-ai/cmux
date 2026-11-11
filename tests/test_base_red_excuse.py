@@ -3696,6 +3696,284 @@ class StackedChildIntoLaneParent(unittest.TestCase):
         self.assertFalse(any("/pulls?" in route for route in self.gh.routes))
 
 
+# cmux#41235's review (dep-fleet-6, 2026-11-11): the stacked-parent rule was applied only where judge() compares a job
+# by name. F1: the web replay and cut-short shard paths returned through got.per_test(...) and cut_short_web_verdict
+# before stacked_parent was picked, so a child's web red inherited from its lane parent was checked against the lane
+# branch's own runs (it has none) and refused. F2: base_verdicts() added the lane branch's workflow_dispatch runs after
+# stacked_parent_runs() had kept only the parent head's pull_request and push runs, so a dispatch at the parent's sha
+# could supply an excuse. One class: an early return skips the rule the rest of the function applies. So the evidence
+# source is chosen once at the top of judge and passed to every verdict path; StackedOnLaneParent records which
+# source each read went to.
+CMUX_LANE = "lane/base-red-excuse-stacked-parent"
+STATUS_CONTEXT = "preview deploy"
+
+
+class StackedOnLaneParent:
+    """Mixed into a feat-cmux-next fixture: the same head judged as a child PR into CMUX_LANE, the head of open PR
+    #41235 at PARENT_HEAD, whose completed runs at that head are the fixture's base runs there (of the workflow
+    PARENT_WORKFLOWS maps the asked one to). Every read of a run list or a commit list is recorded in SOURCES by where it
+    went: "parent" (the parent PR's head) or "branch" (CMUX_LANE's own runs or commits, which serve LANE_RUNS and
+    LANE_COMMITS, or another commit's statuses)."""
+
+    parent_head = BASE_SHA
+    parent_workflows: dict = {}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.sources: list[tuple[str, str]] = []
+        self.lane_runs: list[dict] = []
+        self.lane_commits: list[str] = []
+
+    def json(self, route, *, paginate=False):
+        if route.startswith(f"repos/{REPO}/pulls?"):
+            assert f"head=manaflow-ai:{CMUX_LANE}" in route and "state=open" in route, route
+            return [parent_pull(41235, self.parent_head, CMUX_LANE, REPO)]
+        if route == f"repos/{REPO}/branches/{CMUX_LANE}":
+            return {"name": CMUX_LANE, "commit": {"sha": self.parent_head}}
+        if route.startswith(f"repos/{REPO}/commits?sha={CMUX_LANE}&"):
+            self.sources.append(("branch", route))
+            return [{"sha": sha} for sha in self.lane_commits]
+        if (status := re.search(r"/commits/([0-9a-f]{40})/status(?:es)?\?", route)) and status[1] != HEAD:
+            self.sources.append(("parent" if status[1] == self.parent_head else "branch", route))
+        if "/actions/workflows/" in route and "/runs?" in route:
+            workflow, query = route.split("/actions/workflows/", 1)[1].split("/runs?", 1)
+            if f"branch={CMUX_LANE}" in query:
+                self.sources.append(("branch", route))
+                event = query.split("event=", 1)[1].split("&", 1)[0] if "event=" in query else None
+                return {"workflow_runs": [copy.deepcopy(run) for run in self.lane_runs
+                                          if event is None or run.get("event") == event]}
+            if query.startswith(f"head_sha={self.parent_head}&"):
+                self.sources.append(("parent", route))
+                mapped = self.parent_workflows.get(workflow, workflow)
+                found = super().json(f"repos/{REPO}/actions/workflows/{mapped}/runs?branch=feat-cmux-next&per_page=100")
+                return {"workflow_runs": [run for run in found["workflow_runs"]
+                                          if run.get("head_sha") == self.parent_head]}
+            raise AssertionError(f"a run list of neither the parent's head nor {CMUX_LANE}: {route}")
+        return super().json(route.replace(f"/compare/{CMUX_LANE}...", "/compare/feat-cmux-next..."), paginate=paginate)
+
+
+def on_lane_parent(fixture, parent_head=BASE_SHA, parent_workflows=None):
+    """FIXTURE (a feat-cmux-next fake) judged as a child of CMUX_LANE (StackedOnLaneParent)."""
+    stacked = type(f"Stacked{fixture.__name__}", (StackedOnLaneParent, fixture),
+                   {"parent_head": parent_head, "parent_workflows": parent_workflows or {}})
+    return stacked()
+
+
+def web_on_lane_parent():
+    """WebReplayGitHub as a child of CMUX_LANE: the parent's ci.yml run at its head is the fixture's web run 40."""
+    return on_lane_parent(WebReplayGitHub, PUSHED_BASE_SHA, {"7": "cmux-next-web.yml"})
+
+
+class StatusGitHub(FakeGitHub):
+    """A jobless red status STATUS_CONTEXT on HEAD (no run tested HEAD), compared with the base's statuses
+    (base_status). BASE_STATUSES: each base commit's statuses."""
+
+    def __init__(self):
+        super().__init__()
+        self.head_status = {"context": STATUS_CONTEXT, "state": "failure", "description": "Build failed",
+                            "target_url": ""}
+        self.base_statuses: dict[str, list[dict]] = {}
+
+    def json(self, route, *, paginate=False):
+        if route.endswith(f"commits/{HEAD}/check-runs?filter=all&per_page=100"):
+            return [{"check_runs": []}]
+        if route.endswith(f"commits/{HEAD}/status?per_page=100"):
+            return {"statuses": [copy.deepcopy(self.head_status)]}
+        if route.endswith(f"actions/runs?head_sha={HEAD}&per_page=100"):
+            return {"workflow_runs": []}
+        for sha, statuses in self.base_statuses.items():
+            if route.endswith(f"commits/{sha}/status?per_page=100"):
+                return {"statuses": copy.deepcopy(statuses)}
+        return super().json(route, paginate=paginate)
+
+
+class CompileStatusGitHub(StatusGitHub):
+    """A red cmux-next/compile status on HEAD (a real compile fail) and the same at BASE_SHA, judged by GitHub while the
+    receipts host is down (github_compile_red)."""
+    FAIL = "The app did not compile in SwiftPM Release (-Onone); see the log"
+
+    def __init__(self):
+        super().__init__()
+        self.head_status = {"context": excuse.COMPILE_PASS_STATUS, "state": "failure", "description": self.FAIL,
+                            "target_url": ""}
+
+    def json(self, route, *, paginate=False):
+        for sha in (HEAD, BASE_SHA, "c" * 40):
+            if f"commits/{sha}/statuses?per_page=100&page=" in route:
+                return status_answer(route, [dict(self.head_status)])
+        return super().json(route, paginate=paginate)
+
+
+def ws_check_stacked_github():
+    """WsCheckGitHub with main replaced by lane/ws-parent, the head of open PR #77 at TIP: its commit list
+    (BASE_COMMITS) is the lane branch's own; SOURCES records it as "branch", and the parent head's status as "parent".
+    A factory: WsCheckGitHub is defined further down."""
+    class WsCheckStackedGitHub(WsCheckGitHub):
+        WS_LANE = "lane/ws-parent"
+
+        def __init__(self):
+            super().__init__()
+            self.sources: list[tuple[str, str]] = []
+
+        def json(self, route, *, paginate=False, per_page=100):
+            if route.startswith(f"repos/{self.REPO}/pulls?"):
+                return [parent_pull(77, self.TIP, self.WS_LANE, self.REPO)]
+            if route == f"repos/{self.REPO}/branches/{self.WS_LANE}":
+                return {"name": self.WS_LANE, "commit": {"sha": self.TIP}}
+            if route.startswith(f"repos/{self.REPO}/commits?sha={self.WS_LANE}&"):
+                self.sources.append(("branch", route))
+                return [{"sha": sha} for sha in self.base_commits]
+            if route == f"repos/{self.REPO}/commits/{self.TIP}/status?per_page=100":
+                self.sources.append(("parent", route))
+            return super().json(route.replace(f"/compare/{self.WS_LANE}...", "/compare/main..."), paginate=paginate)
+    return WsCheckStackedGitHub()
+
+
+class StackedParentEvidenceOnEveryPath(unittest.TestCase):
+    """A child PR into a lane branch heading an open PR reads every base verdict from that PR's head, on every path:
+    the per-test web and gallery verdicts, the cut-short shard, the by-name comparison and its tip suite, the
+    per-step reading and a jobless status (cmux#41235's review, F1 and F2)."""
+
+    def judge(self, gh, **kwargs):
+        return "\n".join(excuse.judge(REPO, CMUX_LANE, HEAD, [10], gh, **kwargs))
+
+    def assert_parent_alone(self, gh):
+        self.assertTrue(gh.sources, "no base evidence was read")
+        self.assertEqual([route for source, route in gh.sources if source != "parent"], [],
+                         f"a verdict path read {CMUX_LANE}'s own runs or commits, not PR #41235's head")
+
+    def test_f1_a_web_replay_red_the_parents_head_has_too_is_excused(self):
+        gh = web_on_lane_parent()
+        text = self.judge(gh)
+        self.assertIn(f"excused '{REPLAY}'", text)
+        self.assertIn(f"{CAPSULES} > {CAPSULE_TEST} ({CMUX_LANE} run 40)", text)
+        self.assert_parent_alone(gh)
+
+    def test_f1_a_cut_short_shard_whose_red_files_fail_on_the_parents_head_is_excused(self):
+        gh = web_on_lane_parent()
+        del gh.jobs[1]
+        gh.jobs[3].update(conclusion="cancelled")
+        gh.jobs[3]["steps"][-1]["conclusion"] = "cancelled"
+        gh.logs[3] = cut_short_log((FOOTER, "PASS"), (CAPSULES, "FAIL"))
+        text = self.judge(gh)
+        self.assertIn(f"excused '{HEAD_SHARD}': cancelled mid-run", text)
+        self.assertIn(f"{CAPSULES} ({CMUX_LANE} run 40)", text)
+        self.assert_parent_alone(gh)
+
+    def test_f1_a_parent_web_run_where_every_test_passed_makes_the_replay_the_childs_own(self):
+        gh = web_on_lane_parent()
+        gh.add_base_run(50, "2026-11-07T12:00:00Z", {7: (1, None), 8: (2, None)})
+        with self.assertRaisesRegex(excuse.Refused, f"every webview test passed on {CMUX_LANE} run 50"):
+            self.judge(gh)
+        self.assert_parent_alone(gh)
+
+    def test_f2_a_dispatch_at_the_parents_head_supplies_no_verdict(self):
+        # The parent's push run 20 at its head has no verdict for the Swift job; a tip Swift suite dispatch of the lane
+        # branch at that same sha does, red the same way. It is not the parent PR's check: refused, not excused.
+        gh = on_lane_parent(FakeGitHub)
+        gh.jobs[2] = failed_job(2, 60, BASE_SHA)
+        gh.lane_runs = [{"id": 60, "event": "workflow_dispatch", "head_branch": CMUX_LANE, "head_sha": BASE_SHA,
+                         "status": "completed", "conclusion": "failure", "created_at": "2026-11-11T09:00:00Z",
+                         "display_title": f"cmux-next tip Swift suite · {BASE_SHA}"}]
+        with self.assertRaisesRegex(excuse.Refused, f"'{SWIFT}': {CMUX_LANE} is PR #41235's head; its head "
+                                                    f"{BASE_SHA[:12]} has no completed run"):
+            self.judge(gh)
+        self.assert_parent_alone(gh)
+
+    def test_a_jobless_status_is_compared_with_the_parents_head_alone(self):
+        # The lane branch's older commit (an earlier parent head) has the same red status; the parent's head has none.
+        gh = on_lane_parent(StatusGitHub)
+        older = "c" * 40
+        gh.lane_commits = [BASE_SHA, older]
+        gh.base_statuses = {BASE_SHA: [], older: [dict(gh.head_status)]}
+        with self.assertRaisesRegex(excuse.Refused, f"'{STATUS_CONTEXT}'.*PR #41235's head {BASE_SHA[:12]}"):
+            excuse.judge(REPO, CMUX_LANE, HEAD, [], gh, checks=[STATUS_CONTEXT])
+        self.assertFalse(any(f"commits/{older}/status" in route for route in gh.routes), gh.routes)
+        gh.base_statuses[BASE_SHA] = [dict(gh.head_status)]
+        self.assertIn(f"excused '{STATUS_CONTEXT}'",
+                      "\n".join(excuse.judge(REPO, CMUX_LANE, HEAD, [], gh, checks=[STATUS_CONTEXT])))
+
+    def test_every_verdict_path_reads_the_parents_head_alone(self):
+        # The class detector: each path that reads base evidence, judged on a child of a lane parent, reads runs
+        # (and commits) at the parent PR's head and never the lane branch's own, whatever its verdict.
+        def replay():
+            return web_on_lane_parent()
+
+        def head_shard():
+            gh = web_on_lane_parent()
+            del gh.jobs[1]
+            gh.jobs[3].update(conclusion="failure")
+            gh.jobs[3]["steps"][-1]["conclusion"] = "failure"
+            return gh
+
+        def cut_short():
+            gh = head_shard()
+            gh.jobs[3].update(conclusion="timed_out")
+            gh.jobs[3]["steps"][-1]["conclusion"] = "cancelled"
+            gh.logs[3] = cut_short_log((CAPSULES, "FAIL"))
+            return gh
+
+        def gallery():
+            return on_lane_parent(GalleryGitHub)
+
+        def by_name():
+            return on_lane_parent(FakeGitHub)
+
+        def tip_suite():
+            gh = on_lane_parent(FakeGitHub)
+            gh.jobs[2] = failed_job(2, 60, BASE_SHA)
+            gh.lane_runs = [{"id": 60, "event": "workflow_dispatch", "head_branch": CMUX_LANE, "head_sha": BASE_SHA,
+                             "status": "completed", "conclusion": "failure", "created_at": "2026-11-11T09:00:00Z",
+                             "display_title": f"cmux-next tip Swift suite · {BASE_SHA}"}]
+            return gh
+
+        def green_parent():
+            gh = on_lane_parent(FakeGitHub)
+            gh.jobs[2].update(conclusion="success")
+            gh.jobs[2]["steps"][-1]["conclusion"] = "success"
+            return gh
+
+        def status():
+            gh = on_lane_parent(StatusGitHub)
+            gh.lane_commits = [BASE_SHA, "c" * 40]
+            gh.base_statuses = {BASE_SHA: [dict(gh.head_status)]}
+            return gh
+
+        def compile_receipts_down():
+            gh = on_lane_parent(CompileStatusGitHub)
+            gh.lane_commits = [BASE_SHA, "c" * 40]
+            return gh
+
+        def ws_check():
+            gh = ws_check_stacked_github()
+            gh.verdict(HEAD, 1, {WsCheckPerTest.RELAY: WsCheckPerTest.relay_lint(WsCheckPerTest())})
+            gh.verdict(gh.TIP, 2, {WsCheckPerTest.RELAY: WsCheckPerTest.relay_lint(WsCheckPerTest())})
+            return gh
+
+        def down(repo, sha):
+            raise excuse.ReceiptUnreachable(f"the compile receipt of {sha[:12]}: HTTP 530")
+
+        paths = {"per-test web replay": (replay, {}), "per-test web head shard": (head_shard, {}),
+                 "cut-short shard": (cut_short, {}), "per-test gallery replay crash": (gallery, {}),
+                 "by-name comparison": (by_name, {}), "tip suite dispatches": (tip_suite, {}),
+                 "per-step reading (update-branch)": (green_parent, {"purpose": "update-branch"}),
+                 "jobless status": (status, {"runs": [], "checks": [STATUS_CONTEXT]}),
+                 "compile status, receipts down": (compile_receipts_down,
+                                                   {"runs": [], "checks": [excuse.COMPILE_PASS_STATUS]}),
+                 "ws-check status": (ws_check, {"runs": [], "repo": "teamleaderleo/leo-workspace",
+                                                "base": "lane/ws-parent"})}
+        for path, (make, kwargs) in paths.items():
+            with self.subTest(path), unittest.mock.patch.object(excuse, "compile_receipt", down):
+                gh = make()
+                runs = kwargs.pop("runs", [10])
+                repo, base = kwargs.pop("repo", REPO), kwargs.pop("base", CMUX_LANE)
+                try:
+                    excuse.judge(repo, base, HEAD, runs, gh, **kwargs)
+                except excuse.Refused:
+                    pass
+                self.assert_parent_alone(gh)
+
+
 SOURCE_FAKE_GH = """#!/usr/bin/env python3
 import json, os, sys
 args = sys.argv[1:]
