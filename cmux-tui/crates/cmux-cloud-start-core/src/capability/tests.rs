@@ -168,9 +168,17 @@ fn an_answer_with_float_times_is_kept() {
     assert_eq!(reply.state.held.unwrap().refresh_at_ms, T0 + 240_000);
 }
 
+/// The tests of the process-wide state take turns: it is one per process.
+static PROCESS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn process() -> std::sync::MutexGuard<'static, ()> {
+    PROCESS.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 #[test]
 fn the_process_holds_the_token_between_calls_and_a_drop_forgets_it() {
-    // The only test of the process-wide state: the others use the pure rules with their own state.
+    // A test of the process-wide state: it holds `process()`; the pure rules' tests keep their own.
+    let _turn = process();
     forget();
     let ask = |now: u64| header(&HeaderRequest { team: Some("team_a".to_owned()), now_ms: now });
     assert_eq!(ask(T0), HeaderReply { header: None, fetch: true });
@@ -186,5 +194,160 @@ fn the_process_holds_the_token_between_calls_and_a_drop_forgets_it() {
     assert_eq!(ask(T0 + 60), HeaderReply { header: Some(TOKEN.to_owned()), fetch: false });
     forget();
     assert_eq!(ask(T0 + 70), HeaderReply { header: None, fetch: true });
+    forget();
+}
+
+/// A team switch inside the in-flight window (B's call while A's fetch is out) fetches B at once:
+/// B never waits for A's answer, a later call or the refresh.
+#[test]
+fn a_team_switch_while_a_fetch_is_in_flight_fetches_the_new_team_at_once() {
+    let a = used(&State::default(), Some("team_a"), T0);
+    assert!(a.fetch);
+    let b = used(&a.state, Some("team_b"), T0 + 5);
+    assert_eq!((b.header, b.fetch), (None, true), "B's first call starts B's fetch");
+    // B asked again while its own fetch is out starts no second one.
+    let again = used(&b.state, Some("team_b"), T0 + 6);
+    assert!(!again.fetch, "B is fetched once");
+    // Nor does A, whose fetch is still out.
+    assert!(!used(&again.state, Some("team_a"), T0 + 7).fetch, "A is fetched once");
+}
+
+/// Codex's review of #41178: A held, B's fetch out, the person goes back to A, then B answers. A is
+/// still the one held: B's late answer is for a team the person left.
+#[test]
+fn a_late_answer_for_a_team_the_person_left_is_not_kept() {
+    let held = kept("team_a", T0, T0 + 10, 200, answer("team_a", T0)).state;
+    let b = used(&held, Some("team_b"), T0 + 20);
+    assert!(b.fetch);
+    let back = used(&b.state, Some("team_a"), T0 + 30);
+    assert_eq!((back.header.as_deref(), back.fetch), (Some(TOKEN), false));
+    let late = keep(&KeepRequest {
+        state: back.state,
+        team: "team_b".into(),
+        sent_ms: T0 + 20,
+        now_ms: T0 + 40,
+        status: 200,
+        body: answer("team_b", T0 + 20),
+    });
+    assert_eq!(late.state.held.map(|held| held.team), Some("team_a".to_owned()));
+    let a = used(&late.state, Some("team_a"), T0 + 50);
+    assert_eq!((a.header.as_deref(), a.fetch), (Some(TOKEN), false));
+}
+
+/// A refusal (no plan in A, say) holds off A's next fetch, never another team's.
+#[test]
+fn a_refusal_for_one_team_never_holds_off_another() {
+    let refused = json!({"ok": false, "error": {"code": "auth.forbidden", "message": "no"}});
+    let state = kept("team_a", T0, T0 + 10, 403, refused).state;
+    assert!(!used(&state, Some("team_a"), T0 + 20).fetch);
+    assert!(used(&state, Some("team_b"), T0 + 20).fetch, "a switch to B fetches B");
+}
+
+/// A sign-out (or an account switch) while a fetch is out: its answer, for the account that left,
+/// is never kept or sent, even for the same team.
+#[test]
+fn an_answer_to_a_fetch_sent_before_a_drop_is_not_kept() {
+    let _turn = process();
+    forget();
+    let ask = |now: u64| header(&HeaderRequest { team: Some("team_a".to_owned()), now_ms: now });
+    assert!(ask(T0).fetch);
+    forget();
+    let late = super::answer(AnswerRequest {
+        team: "team_a".to_owned(),
+        sent_ms: T0,
+        now_ms: T0 + 50,
+        status: 200,
+        body: answer("team_a", 1_000),
+    });
+    assert_eq!(late.outcome, "dropped");
+    assert_eq!(ask(T0 + 60).header, None, "the signed-out account's token is never sent");
+    forget();
+}
+
+/// A seeded xorshift: the model's schedule, the same on every run.
+struct Schedule(u64);
+
+impl Schedule {
+    fn below(&mut self, n: u64) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0 % n
+    }
+}
+
+/// The class: whatever team was asked for last is the one held once every fetch has answered, over
+/// 5,000 random orders of calls in three teams, answers in any order, drops (a team or account
+/// switch), and waits past the in-flight window. Through the process's own ops, as the app calls them.
+#[test]
+fn the_last_team_asked_for_is_held_once_every_fetch_has_answered() {
+    let _turn = process();
+    for seed in 1..=5_000_u64 {
+        let mut schedule = Schedule(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
+        forget();
+        let mut now = T0;
+        let mut last = None;
+        let mut out: Vec<(&str, u64)> = Vec::new();
+        let mut steps = Vec::new();
+        let reply = |team: &str, sent: u64, now: u64| {
+            super::answer(AnswerRequest {
+                team: team.to_owned(),
+                sent_ms: sent,
+                now_ms: now,
+                status: 200,
+                body: answer(team, 1_000),
+            })
+            .outcome
+        };
+        for _ in 0..2 + schedule.below(14) {
+            now += if schedule.below(8) == 0 && now < T0 + 150_000 {
+                IN_FLIGHT_MS
+            } else {
+                1 + schedule.below(1_000)
+            };
+            let team = match schedule.below(3) {
+                0 => "team_a",
+                1 => "team_b",
+                _ => "team_c",
+            };
+            match schedule.below(5) {
+                0 | 1 => {
+                    let call = header(&HeaderRequest { team: Some(team.to_owned()), now_ms: now });
+                    if call.fetch {
+                        out.push((team, now));
+                    }
+                    last = Some(team);
+                    steps.push(format!("call {team}{}", if call.fetch { " (fetch)" } else { "" }));
+                }
+                2 | 3 if !out.is_empty() => {
+                    let index = usize::try_from(schedule.below(out.len() as u64)).unwrap_or(0);
+                    let (team, sent) = out.swap_remove(index.min(out.len() - 1));
+                    let outcome = reply(team, sent, now);
+                    steps.push(format!("answer {team}@{sent}: {outcome}"));
+                }
+                4 => {
+                    // A team or account switch: nothing is asked for in the new one yet.
+                    forget();
+                    last = None;
+                    steps.push("drop".to_owned());
+                }
+                _ => {}
+            }
+        }
+        // Settle: every fetch still out answers.
+        for (team, sent) in std::mem::take(&mut out) {
+            now += 1;
+            let outcome = reply(team, sent, now);
+            steps.push(format!("answer {team}@{sent}: {outcome}"));
+        }
+        if let Some(team) = last {
+            let call = header(&HeaderRequest { team: Some(team.to_owned()), now_ms: now + 1 });
+            assert_eq!(
+                call.header.as_deref(),
+                Some(TOKEN),
+                "seed {seed}: {team} not held after {steps:?}"
+            );
+        }
+    }
     forget();
 }
