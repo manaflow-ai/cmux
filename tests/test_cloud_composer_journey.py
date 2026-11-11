@@ -77,6 +77,23 @@ class Report(unittest.TestCase):
         self.assertIn("**RED**: refused AFTER leasing a machine (vm_b)", text)
 
 
+
+class Options(unittest.TestCase):
+    def test_sweep_vm_ids_and_the_untrusted_cell_parse(self):
+        args = journey.parse_args(["--app", "/x.app", "--sweep-vm-ids", "vm_0123456789abcdef0123", "--untrusted-cell"])
+        self.assertEqual(args.sweep_vm_ids, "vm_0123456789abcdef0123")
+        self.assertTrue(args.untrusted_cell)
+
+    def test_the_untrusted_cell_must_be_refused_naming_this_mac(self):
+        problems: list[str] = []
+        journey.untrusted_rules(journey.UNTRUSTED, "started", "", problems)
+        self.assertEqual(len(problems), 1)
+        problems = []
+        journey.untrusted_rules(journey.UNTRUSTED, "refused", "Trust it on this Mac first.", problems)
+        self.assertEqual(problems, [])
+        journey.untrusted_rules("small-repo", "started", "", problems)
+        self.assertEqual(problems, [])
+
 if __name__ == "__main__":
     unittest.main()
 
