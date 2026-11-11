@@ -247,6 +247,40 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A child forked while the lock was held keeps the lock's descriptor until it execs or
+    /// exits, so the holder's drop does not free the lock at once. No record names a holder
+    /// then: the next taker waits for the descriptor to go and never reads `KeyHeld`. (A
+    /// process that spawns children, as acpmux does for every agent, forks at any moment:
+    /// `machine_tunnel`'s rekey tests read `key_held` with no pid for a lock this process had
+    /// dropped, cmux-tui spec inventory run 42960856401.)
+    #[cfg(unix)]
+    #[test]
+    fn a_descriptor_a_forked_child_still_holds_after_the_drop_is_waited_out() {
+        let dir = tempfile_dir("forked-child");
+        let first = KeyHolder::acquire(&dir).unwrap();
+        // SAFETY: the child calls only async-signal-safe functions (nanosleep, _exit).
+        let child = unsafe { libc::fork() };
+        assert!(child >= 0, "fork failed");
+        if child == 0 {
+            let wait = libc::timespec { tv_sec: 0, tv_nsec: 300_000_000 };
+            // SAFETY: as above; `wait` outlives the call and the child never returns.
+            unsafe {
+                libc::nanosleep(&wait, std::ptr::null_mut());
+                libc::_exit(0);
+            }
+        }
+        drop(first);
+        assert!(!dir.join(PID_FILE).exists(), "the record outlived its holder");
+        let free = holder(&dir);
+        let again = KeyHolder::acquire(&dir);
+        let mut status = 0;
+        // SAFETY: `child` is this test's own child and `status` outlives the call.
+        unsafe { libc::waitpid(child, &mut status, 0) };
+        assert_eq!(free.unwrap(), None, "a descriptor nobody claims read as a holder");
+        again.expect("the lock is free once its holder dropped it");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn key_files_resolve_in_their_directory() {
         let dir = Path::new("/state");
