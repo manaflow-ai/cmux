@@ -626,6 +626,13 @@ def main():
         env = {"HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
                "SHELL": "/bin/zsh", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
                "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_DEV_BACKEND_MODE": "local"}
+        if a.feed_latency_ms:
+            # The app's own feed reads (the install click's, the read ahead) go to the loopback feed
+            # too, not only Sparkle's: the pinned test feed (`UpdaterService.restorePinnedTestFeed`),
+            # removed in `finally`. Without it they read the baked public feed, which the slow feed
+            # never delays.
+            subprocess.run(["defaults", "write", i1["CFBundleIdentifier"], "cmux.next.updates.testFeedURL", feed_url], check=True)
+            result["pinned_test_feed"] = feed_url
         if a.surface_shots:
             # v1 opens as if it had just updated from an older build: its "cmux Updated!" card shows
             # at launch, so both appearances are captured with this config (the relaunched app
@@ -948,6 +955,9 @@ def main():
             server.terminate()
             server.wait(10)
         shutil.rmtree(keys, ignore_errors=True)
+        if result.get("pinned_test_feed"):
+            subprocess.run(["defaults", "delete", result["bundle_id"], "cmux.next.updates.testFeedURL"], check=False,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         # What's New's record for this tag (the old app writes it when the update stages).
         if result.get("bundle_id"):
             record = os.path.join(os.environ["HOME"], "Library/Application Support/cmux-next", result["bundle_id"], "last-update.json")
