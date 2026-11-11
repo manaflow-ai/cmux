@@ -71,9 +71,10 @@ func homeInitials(_ name: String) -> String {
 /// sidebar draws (`HomeInboxSource` → `HomeSidebarModel` in CmuxNext), field
 /// for field. The phone keeps no rules of its own for kind, name, order,
 /// pins, unread or the Chief's state, so its Home cannot drift from the Mac's.
-public struct MacHomeRow: Identifiable, Hashable, Sendable {
-    public enum Kind: String, Sendable { case chief, direct, channel, group }
-    public enum ChiefState: String, Sendable { case working, waiting, idle }
+/// Codable so the phone keeps the list it last read (``MacHomeRowsCache``).
+public struct MacHomeRow: Identifiable, Hashable, Sendable, Codable {
+    public enum Kind: String, Sendable, Codable { case chief, direct, channel, group }
+    public enum ChiefState: String, Sendable, Codable { case working, waiting, idle }
 
     public let id: String
     public let kind: Kind
@@ -196,6 +197,29 @@ public struct MacHomeList: Equatable, Sendable {
     }
 }
 
+/// What Home says under its rows while the Mac's own list is not in (the user, 2026-11-09:
+/// "never show an empty UI for data that exists but is still loading").
+public enum HomeListNote: Equatable, Sendable {
+    /// Nothing to say: the Mac's list shows, or a search or a failure note speaks instead.
+    case none
+    /// The rows kept from an earlier read show; the Mac's list is on its way.
+    case updating
+    /// A Mac is chosen and nothing is kept for it: its list is on its way.
+    case connecting
+    /// No Mac is chosen yet, while the account lists Macs (or they are still loading).
+    case loading
+
+    /// The note for Home's state. `macsMayExist`: the account lists a Mac, or its Macs are
+    /// not known yet. `failing`: the retry note shows (the list failed or the Mac is offline).
+    public static func make(rows: [MacHomeRow]?, showingKept: Bool, homeMacID: String?, macsMayExist: Bool,
+                            searching: Bool, failing: Bool) -> HomeListNote {
+        guard !searching, !failing else { return .none }
+        if rows != nil { return showingKept ? .updating : .none }
+        if homeMacID != nil { return .connecting }
+        return macsMayExist ? .loading : .none
+    }
+}
+
 /// The chosen Mac's Home list over its link: a `chief` channel of its own
 /// (cmux-mobile-host scopes it to the owner's conversations with agents and to
 /// the local owner's rows), read with `home-inbox` and read again (coalesced)
@@ -208,10 +232,15 @@ public final class MacHomeFeed {
     // The rows are re-read on conversation, typing and list-state events. A Chief run
     // that starts without a message or typing (`conversation-run-changed`) is not
     // forwarded over the link, so its typing shows with its next message or typing.
-    public static let shared = MacHomeFeed()
+    public static let shared = MacHomeFeed(rowsCache: .standard, transcripts: ChiefSession.transcripts,
+                                           accountID: { ChiefSources.shared.activeUserID })
 
-    /// The owner's rows in its order; nil until the first read of this Mac.
+    /// The owner's rows in its order; nil until the first read of this Mac. Before that read
+    /// they may be the rows this phone kept from an earlier one (``isShowingKeptRows``).
     public private(set) var rows: [MacHomeRow]?
+    /// ``rows`` are the ones this phone kept from an earlier read, not yet the Mac's answer:
+    /// Home shows them with an Updating note until the Mac's list replaces them.
+    public private(set) var isShowingKeptRows = false
     /// The Mac these rows are from.
     public private(set) var macID: String?
     /// Why the list could not be read (the Mac's own words), nil after a read.
@@ -232,7 +261,22 @@ public final class MacHomeFeed {
     // task-owner: the event reader of the current channel, cancelled with it
     @ObservationIgnored private var eventTask: Task<Void, Never>?
 
-    public init() {}
+    /// Each Mac's list as last read, per account (nil keeps nothing: tests).
+    @ObservationIgnored private let rowsCache: MacHomeRowsCache?
+    /// Each opened conversation's newest messages, per account, Mac and conversation (nil keeps nothing).
+    @ObservationIgnored private let transcripts: ConversationTranscriptCache?
+    /// The signed-in account, the first part of every kept key (nil: nothing is kept or shown).
+    @ObservationIgnored private let accountID: @MainActor () -> String?
+    /// Conversations shown from their kept messages while their channel opens, by id
+    /// (``keptSession(for:)``); ``session(for:)`` turns one live.
+    @ObservationIgnored private var keptSessions: [String: ChiefSession] = [:]
+
+    public init(rowsCache: MacHomeRowsCache? = nil, transcripts: ConversationTranscriptCache? = nil,
+                accountID: @escaping @MainActor () -> String? = { nil }) {
+        self.rowsCache = rowsCache
+        self.transcripts = transcripts
+        self.accountID = accountID
+    }
 
     #if DEBUG
     /// The list scroll rig (verify/listperf/): `count` rows shaped like a busy Mac's Home
@@ -271,11 +315,11 @@ public final class MacHomeFeed {
     /// opened on the last link close (their channels were on it).
     public func connect(link: any MacLink, macID: String?) async {
         if macID != self.macID {
-            rows = nil
             macChiefID = nil
             lastSeq = [:]
+            self.macID = macID
+            showKeptRows()
         }
-        self.macID = macID
         self.link = link
         // Conversations opened on the last link were on its channels.
         closeSessions()
@@ -352,7 +396,17 @@ public final class MacHomeFeed {
             let identity = ChiefIdentity(chiefID: agent ?? "agent_unknown", title: route.title,
                                          avatar: homeInitials(route.title))
             let backend = ChiefDaemonBackend(client: client, identity: identity, conversationID: route.conversationID)
-            let session = ChiefSession(backend: backend, identity: identity, outbox: ChiefOutbox(file: nil))
+            let session: ChiefSession
+            if let kept = keptSessions.removeValue(forKey: route.conversationID) {
+                // The screen already shows this session's kept messages: it goes live in place.
+                kept.use(backend, identity: identity)
+                kept.unavailableTitle = nil
+                kept.status = nil
+                session = kept
+            } else {
+                session = ChiefSession(backend: backend, identity: identity, outbox: ChiefOutbox(file: nil),
+                                       transcripts: transcripts, transcriptKey: transcriptKey(route.conversationID))
+            }
             session.macID = macID
             sessions[route.conversationID] = session
             return session
@@ -362,11 +416,42 @@ public final class MacHomeFeed {
         }
     }
 
+    /// The kept transcript's key of a conversation of this Mac's list: per account, Mac and
+    /// conversation, never the Mac Chief's own (`mac:<id>`).
+    func transcriptKey(_ conversationID: String) -> String? {
+        guard transcripts != nil, let macID, let account = accountID() else { return nil }
+        return "mac-home:\(account):\(macID):\(conversationID)"
+    }
+
+    /// The conversation as this phone last saw it, shown while its channel opens
+    /// (``session(for:)`` waits on the Mac's list): a session on no backend whose store shows
+    /// the kept messages (in this turn when read this run, else once read off the main thread).
+    /// The open session when there is one; nil when nothing can be kept (no account or Mac).
+    /// Its screen shows it only once it has a message (``ChiefSession/lastMessage``).
+    public func keptSession(for route: MacConversationRoute) -> ChiefSession? {
+        if let session = sessions[route.conversationID] ?? keptSessions[route.conversationID] { return session }
+        guard let transcripts, let key = transcriptKey(route.conversationID) else { return nil }
+        let identity = ChiefIdentity(chiefID: route.chief ?? "agent_unknown", title: route.title, avatar: homeInitials(route.title))
+        let session = ChiefSession(backend: ChiefOfflineBackend(reason: Self.keptReason), identity: identity,
+                                   outbox: ChiefOutbox(file: nil), transcripts: transcripts, transcriptKey: key)
+        session.unavailableTitle = Self.keptTitle
+        session.status = Self.keptReason
+        session.macID = macID
+        keptSessions[route.conversationID] = session
+        return session
+    }
+
+    /// The bar over a conversation shown from what the phone kept while its channel opens.
+    static var keptTitle: String { String(localized: "Connecting to your Mac…") }
+    static var keptReason: String { String(localized: "Showing the last messages. New ones load when it connects.") }
+
     /// Bumped each time the opened conversations close (a new link or another Mac):
     /// a conversation's screen asks for its session again.
     public private(set) var sessionEpoch = 0
 
     private func closeSessions() {
+        // Kept sessions were for the last link's Mac (they never had a channel).
+        keptSessions = [:]
         guard !sessions.isEmpty else { return }
         for session in sessions.values { session.backend.close() }
         sessions = [:]
@@ -379,16 +464,77 @@ public final class MacHomeFeed {
     public func forget(unless macID: String?) {
         guard macID != self.macID else { return }
         generation += 1
-        rows = nil
         problem = nil
         macChiefID = nil
         lastSeq = [:]
         closeSessions()
         self.macID = macID
+        // That Mac's list as this phone last read it, while it is away.
+        showKeptRows()
         link = nil
         readAnswered()
         let old = detach()
         Task { await old?.close() }
+    }
+
+    /// Home shows `macID`'s list before any channel to it opened (a launch, or the Mac
+    /// chosen while it is away): the rows this phone kept from that Mac, if no other Mac's
+    /// list shows now. Does nothing once rows show.
+    public func showKeptRows(of macID: String) {
+        guard rows == nil, self.macID == nil || self.macID == macID else { return }
+        self.macID = macID
+        showKeptRows()
+    }
+
+    /// The rows kept for this account and ``macID`` become ``rows`` (from memory in this turn,
+    /// else read off the main thread), until the Mac's own list replaces them. Nothing kept:
+    /// nil, so Home shows that the list is loading.
+    private func showKeptRows() {
+        rows = nil
+        isShowingKeptRows = false
+        guard let rowsCache, let key = rowsKey() else { return }
+        if let held = rowsCache.cached(key) {
+            rows = held
+            isShowingKeptRows = true
+            return
+        }
+        let macID = macID
+        // task-owner: one disk read of the kept rows; ends with it, and its rows land only if nothing newer did
+        Task { [weak self] in
+            guard let kept = await rowsCache.load(key), let self,
+                  self.macID == macID, self.rows == nil, self.rowsKey() == key else { return }
+            self.rows = kept
+            self.isShowingKeptRows = true
+        }
+    }
+
+    private func rowsKey() -> String? {
+        guard let macID, let account = accountID() else { return nil }
+        return MacHomeRowsCache.key(account: account, macID: macID)
+    }
+
+    /// The Mac answered with its list: it shows, and the phone keeps it for next time.
+    private func showServerRows(_ next: [MacHomeRow]) {
+        if rows != next { rows = next }
+        isShowingKeptRows = false
+        if let rowsCache, let key = rowsKey() { rowsCache.save(key, rows: next) }
+    }
+
+    /// Sign-out: no row, opened conversation or kept list of this account stays, in memory or on disk.
+    public func discardForSignOut() {
+        generation += 1
+        rows = nil
+        isShowingKeptRows = false
+        problem = nil
+        macChiefID = nil
+        lastSeq = [:]
+        closeSessions()
+        keptSessions = [:]
+        macID = nil
+        link = nil
+        let old = detach()
+        Task { await old?.close() }
+        rowsCache?.removeAll()
     }
 
     /// Ends the current channel's state now (a later connect never meets it) and hands back its client to close.
@@ -485,8 +631,7 @@ public final class MacHomeFeed {
                     let data = try await Self.call(client, "home-inbox", ["owners": ["local"]])
                     guard mine == self.generation else { return }
                     if self.pendingWrites == 0 {
-                        let next = MacHomeRow.rows(fromHomeInbox: data)
-                        if self.rows != next { self.rows = next }
+                        self.showServerRows(MacHomeRow.rows(fromHomeInbox: data))
                     }
                     self.problem = nil
                 } catch {

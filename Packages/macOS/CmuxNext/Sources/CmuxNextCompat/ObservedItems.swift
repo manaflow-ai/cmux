@@ -10,8 +10,8 @@
 /// list (and the first read), never for one item's change.
 @MainActor public final class ObservedItems<Model: AnyObject & Sendable, Item: Sendable> {
     /// One item's change: its place in the items ``items(for:id:refresh:)`` handed out last, the item handed out
-    /// before and the item now. The place is right only while each listed model has its own id (two models under
-    /// one id share one observation), as the workspaces of a store do.
+    /// before and the item now. The place is right only while each listed model has its own id, as the workspaces
+    /// of a store do: of two listed models under one id, the later one replaces the observation of the earlier one.
     public struct Change: Sendable {
         public let position: Int
         public let old: Item
@@ -41,9 +41,9 @@
     /// (`same` false: an item's equality may be main-actor isolated, so it is passed in). For an owner whose
     /// list does not grow with the session (one strip's tabs): it reads ``items(for:id:refresh:)`` again after a
     /// change. An owner that joins the items of every workspace takes ``init(item:same:changedItem:fileID:line:)``.
-    /// Four owners of a session-sized list still take this one and so still pass over their list after one
-    /// change (2026-11-10): `SidebarSessionTreeFeed`, `SidebarChatHistoryFeed`, `MobileHostWorkspaceFolders` and
-    /// `AgentPaneLinkPlaces`, and `ObservedItemsFeed` does it for its callers. Do not add one.
+    /// Two owners of a session-sized list still take this one and so still pass over their list after one
+    /// change (2026-11-10): `SidebarSessionTreeFeed` and `AgentPaneLinkPlaces`, and `ObservedItemsFeed` does it
+    /// for its callers. Do not add one.
     public convenience init(item: @escaping @MainActor @Sendable (Model) -> Item?, same: @escaping (Item, Item) -> Bool,
                             changed: @escaping () -> Void, fileID: StaticString = #fileID, line: UInt = #line) {
         self.init(item: item, same: same, changedItem: { _ in changed() }, fileID: fileID, line: line)

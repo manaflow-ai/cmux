@@ -932,14 +932,30 @@ pub(crate) mod test_clock {
     use std::cell::Cell;
 
     thread_local!(static AHEAD_MS: Cell<u64> = const { Cell::new(0) });
+    thread_local!(static FOLLOW: Cell<Option<tokio::time::Instant>> = const { Cell::new(None) });
 
     pub(crate) fn ahead_ms() -> u64 {
-        AHEAD_MS.with(Cell::get)
+        let followed = FOLLOW.with(Cell::get).map_or(0, |origin| origin.elapsed().as_millis());
+        AHEAD_MS.with(Cell::get) + followed as u64
     }
 
-    /// Moves this thread's clock `ms` ahead.
+    /// Moves this thread's clock `ms` ahead. With `follow_tokio` on, this is the computer
+    /// sleeping: the wall clock runs ahead of the monotonic one (`peer_link::SleepWatch`).
     pub(crate) fn advance(ms: u64) {
         AHEAD_MS.with(|a| a.set(a.get() + ms));
+    }
+
+    /// From now on this thread's wall clock moves with tokio's, so a test under
+    /// `start_paused` runs a day of wall-clock rules (a peer parked after a day down) in
+    /// milliseconds, with the wall and monotonic clocks in step as on an awake computer.
+    pub(crate) fn follow_tokio() {
+        FOLLOW.with(|f| f.set(Some(tokio::time::Instant::now())));
+    }
+
+    /// Back to the real wall clock.
+    pub(crate) fn reset() {
+        AHEAD_MS.with(|a| a.set(0));
+        FOLLOW.with(|f| f.set(None));
     }
 }
 
@@ -1271,6 +1287,7 @@ mod journal_store;
 #[cfg(test)]
 pub(crate) use journal_store::open_with_journal;
 mod log_sync;
+pub mod open_logs;
 #[cfg(test)]
 pub(crate) use journal_store::pause_next_log_write_on_this_thread;
 pub(crate) use log_sync::SyncFailed;
@@ -1286,6 +1303,8 @@ pub struct LocalStore {
     root: PathBuf,
     segment_bytes: u64,
     writers: Mutex<Writers>,
+    /// The most logs held open ([`open_logs`]).
+    open_logs: usize,
     /// Read-held by every write, true once `seal` ran: a write either lands before the seal
     /// returns or not at all.
     sealed: std::sync::RwLock<bool>,
@@ -1303,18 +1322,14 @@ pub struct LocalStore {
     parts: meta_parts::PartsMemo,
 }
 
-/// The logs held open, at most [`OPEN_LOGS`]: the least recently written one
-/// is closed for a new one. A daemon held one descriptor per session it wrote
-/// since it started, closed ones too, and ran out (cmux16, 2026-10-22: 193 of
-/// its 256, every agent start failing with "Too many open files").
+/// The logs held open, at most `LocalStore::open_logs` (`store/open_logs.rs`): the least
+/// recently written one is closed for a new one.
 #[derive(Default)]
 struct Writers {
     open: HashMap<String, SegmentWriter>,
     /// Counts appends; a writer's `used` is the count at its last one.
     clock: u64,
 }
-
-const OPEN_LOGS: usize = 64;
 
 struct SegmentWriter {
     index: u32,
@@ -1325,7 +1340,7 @@ struct SegmentWriter {
 
 impl SegmentWriter {
     /// Closes the log, durable first as `flush` would have made it. Called under the
-    /// writers' lock, so the cache never holds more than [`OPEN_LOGS`] and a session's
+    /// writers' lock, so the cache never holds more than `open_logs` and a session's
     /// records stay in order. A failed sync is logged and noted in `failed`: its records were
     /// written (an append is never synced on its own), so only a machine crash before the kernel
     /// writes them back loses them, as it would any append since the last `flush`.
@@ -1347,6 +1362,7 @@ impl LocalStore {
             root,
             segment_bytes: segment_bytes.max(64 * 1024),
             writers: Mutex::new(Writers::default()),
+            open_logs: open_logs::now(),
             sealed: Default::default(),
             sync_failed: Default::default(),
             unlisted: Default::default(),
@@ -1502,8 +1518,16 @@ impl LocalStore {
             Some((i, p)) => (*i, p.clone()),
             None => (1, dir.join("000001.ndjson")),
         };
-        let file = open_private_append(&path)?;
-        let written = file.metadata().map(|m| m.len()).unwrap_or(0);
+        let mut file = open_private_append(&path)?;
+        let mut written = file.metadata().map(|m| m.len()).unwrap_or(0);
+        // A last line with no newline (a write cut off by a crash or a failed write): the next
+        // record starts a line of its own. The torn bytes stay an unparsable line every reader
+        // skips; nothing is removed.
+        if written > 0 && !ends_with_newline(&path)? {
+            use std::io::Write as _;
+            file.write_all(b"\n")?;
+            written += 1;
+        }
         Ok(SegmentWriter { index, file, written, used: 0 })
     }
 }
@@ -1546,13 +1570,13 @@ impl LocalStore {
     /// (`store/journal_store.rs`). Refused once the store is sealed.
     pub(super) fn append_line(&self, id: &str, line: &[u8]) -> Result<()> {
         // One lock hold from the eviction to the write: the least recently written log is
-        // closed before this one opens, so no more than `OPEN_LOGS` are ever open, and no other
+        // closed before this one opens, so no more than `open_logs` are ever open, and no other
         // append comes between (a session's records stay in order). Its sync runs under the lock,
-        // once per eviction: only while more than `OPEN_LOGS` sessions are written.
+        // once per eviction: only while more than `open_logs` sessions are written.
         let _open = self.writable()?;
         let mut writers = self.writers.lock_or_recover();
         if !writers.open.contains_key(id)
-            && writers.open.len() >= OPEN_LOGS
+            && writers.open.len() >= self.open_logs
             && let Some(oldest) =
                 writers.open.iter().min_by_key(|(_, w)| w.used).map(|(k, _)| k.clone())
             && let Some(w) = writers.open.remove(&oldest)
@@ -1580,10 +1604,52 @@ impl LocalStore {
             anyhow::bail!("no segment writer for session {id}");
         };
         w.used = clock;
-        w.file.write_all(line)?;
+        if let Err(e) = write_line(&mut w.file, line) {
+            // What part of the line went out would start the next record's line: cut it off,
+            // and reopen at the next append (`open_writer` ends a tail the cut could not remove).
+            let _ = w.file.set_len(w.written);
+            writers.open.remove(id);
+            return Err(e.into());
+        }
         w.written += line.len() as u64;
         Ok(())
     }
+}
+
+/// Whether the file at `path` ends with a newline (an empty file counts as ending one).
+fn ends_with_newline(path: &Path) -> Result<bool> {
+    use std::io::{Read as _, Seek as _, SeekFrom};
+    let mut file = File::open(path)?;
+    if file.seek(SeekFrom::End(0))? == 0 {
+        return Ok(true);
+    }
+    file.seek(SeekFrom::End(-1))?;
+    let mut last = [0u8; 1];
+    file.read_exact(&mut last)?;
+    Ok(last == [b'\n'])
+}
+
+/// One record's line to its segment.
+fn write_line(file: &mut File, line: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    #[cfg(test)]
+    if let Some(cut) = cut_write_for_tests(line) {
+        file.write_all(cut)?;
+        return Err(std::io::Error::other("a write cut off (test seam)"));
+    }
+    file.write_all(line)
+}
+
+/// Tests only: the next log write writes this many bytes of its line, then fails, as a write cut
+/// off by a full disk or an I/O error does. 0: off.
+#[cfg(test)]
+pub(super) static CUT_NEXT_LOG_WRITE: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+#[cfg(test)]
+fn cut_write_for_tests(line: &[u8]) -> Option<&[u8]> {
+    let n = CUT_NEXT_LOG_WRITE.swap(0, std::sync::atomic::Ordering::SeqCst);
+    (n > 0).then(|| line.get(..n.min(line.len())).unwrap_or(line))
 }
 
 /// [`LocalStore::history_writer`]'s segment `000000`.
@@ -2069,6 +2135,9 @@ pub(crate) fn open_private_append(path: &Path) -> Result<File> {
 
 #[cfg(all(test, unix))]
 mod permission_tests;
+
+#[cfg(test)]
+mod torn_tail_tests;
 
 #[cfg(all(test, unix))]
 mod line_rev_tests;
