@@ -1209,9 +1209,11 @@ class WebviewsChecksGate(unittest.TestCase):
         self.repo = self.tmp / "repo"
         self.repo.mkdir()
         git(self.repo, "init", "-q", "-b", "feat-cmux-next")
-        spec = importlib.util.spec_from_file_location("fast_gate_webviews_checks", WEBVIEWS_CHECKS)
-        self.module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(self.module)
+        # Imported by name: the one module object every test reads (tests/test_script_module_loads.py).
+        if str(WEBVIEWS_CHECKS.parent) not in sys.path:
+            sys.path.insert(0, str(WEBVIEWS_CHECKS.parent))
+        import fast_gate_webviews_checks
+        self.module = fast_gate_webviews_checks
 
     def findings(self, by_check: dict[str, str], message: str) -> str:
         files = {"webviews/package.json": "{}\n", "webviews/marker.txt": message + "\n"}

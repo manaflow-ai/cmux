@@ -210,7 +210,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let client = connect(true).await?;
             let v = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
             let mut out = Vec::new();
-            for s in v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default() {
+            let sessions = v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
+            // Other sessions' messages a chat's Claude Code holds (`hub/native_messaging.rs`).
+            let held = held_messages(&sessions);
+            for s in sessions {
                 if s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) == 0 {
                     continue;
                 }
@@ -243,8 +246,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 }
             }
             if json_out {
-                print_json(&json!({"pending": out}));
-            } else if out.is_empty() {
+                print_json(&json!({"pending": out, "heldMessages": held}));
+            } else if out.is_empty() && held.is_empty() {
                 println!("no pending permissions");
             } else {
                 for p in &out {
@@ -256,6 +259,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         g("kind"),
                         g("answer")
                     );
+                }
+                for h in &held {
+                    println!("{}", held_message_line(h));
                 }
             }
             Ok(())
@@ -1466,6 +1472,42 @@ fn new_requires_tty(
     stdout_terminal: bool,
 ) -> bool {
     !json_out && new_without_prompt_requires_tty(no_prompt, detach, stdin_terminal, stdout_terminal)
+}
+
+/// The messages each listed session's Claude Code holds (`heldMessages` of its row), as
+/// `pending` lists them: each with its session's name and id, and what the person can do.
+fn held_messages(sessions: &[Value]) -> Vec<Value> {
+    let mut out = Vec::new();
+    for s in sessions {
+        let name = s.get("name").cloned().unwrap_or(Value::Null);
+        let id = s.get("sessionId").cloned().unwrap_or(Value::Null);
+        for h in s.get("heldMessages").and_then(Value::as_array).into_iter().flatten() {
+            let mut row = h.clone();
+            row.set("session", name.clone());
+            row.set("sessionId", id.clone());
+            row.set("answer", json!(HELD_ANSWER));
+            out.push(row);
+        }
+    }
+    out
+}
+
+/// What the person can do about a message Claude Code holds: Claude Code gives a host no way to
+/// release it, so it waits for that chat's approval or expires.
+const HELD_ANSWER: &str = "Claude Code holds it for approval (it expires); acpmux cannot release it. Have the sender send it again with acpmux send";
+
+/// One `pending` line for a held message.
+fn held_message_line(h: &Value) -> String {
+    let g = |k: &str| h.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+    let from = Some(g("fromName")).filter(|n| !n.is_empty()).unwrap_or_else(|| g("from"));
+    let from = if from.is_empty() { "another session".to_owned() } else { from };
+    let cause = g("cause");
+    let cause = if cause.is_empty() { String::new() } else { format!(" ({cause})") };
+    format!(
+        "{:<24} message from {from} held by Claude Code{cause}  answer: {}",
+        g("session"),
+        g("answer")
+    )
 }
 
 /// Parse the compact durations accepted by `ls --since` (`30m`, `24h`, `7d`, or combinations).
