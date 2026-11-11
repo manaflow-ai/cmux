@@ -24,13 +24,12 @@ bun="${1:-bun}"
 
 say() { [ "$quiet" = 1 ] || echo "$@" >&2; }
 
-# The declared version: devEngines.packageManager in webviews/package.json, read
-# without bun so a broken or missing bun still gets the install command.
-manager="$(sed -n '/"devEngines"/,/}/p' "$ROOT/webviews/package.json")"
-want="$(printf '%s\n' "$manager" | sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' | head -n 1)"
-name="$(printf '%s\n' "$manager" | sed -n 's/.*"name": *"\([^"]*\)".*/\1/p' | head -n 1)"
-if [ "$name" != bun ] || ! printf '%s\n' "$want" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-  say "error: webviews/package.json must declare devEngines.packageManager as bun with an exact version"
+# The declared version: the bun entry of devEngines.packageManager in
+# webviews/package.json, read by the one shared reader (scripts/webviews_bun_version.py,
+# which the pre-commit hook calls too) without bun, so a broken or missing bun
+# still gets the install command.
+if ! want="$(python3 -I "$ROOT/scripts/webviews_bun_version.py" "$ROOT/webviews/package.json" 2>&1)"; then
+  say "error: $want; webviews/package.json must declare devEngines.packageManager as bun with an exact version"
   exit 1
 fi
 install="curl -fsSL https://bun.sh/install | bash -s bun-v$want"
