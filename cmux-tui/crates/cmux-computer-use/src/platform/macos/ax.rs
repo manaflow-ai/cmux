@@ -75,7 +75,7 @@ impl Ax {
         Some(Ax(app))
     }
 
-    fn from_cf(cf: Cf) -> Option<Ax> {
+    pub(super) fn from_cf(cf: Cf) -> Option<Ax> {
         // SAFETY: plain type id read.
         (cf.type_id() == unsafe { AXUIElementGetTypeID() }).then_some(Ax(cf))
     }

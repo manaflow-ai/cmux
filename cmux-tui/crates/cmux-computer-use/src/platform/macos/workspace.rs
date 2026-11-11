@@ -482,9 +482,8 @@ fn launch_services_id(name: &str) -> Option<String> {
     })
 }
 
-/// The registered Services shortcuts as (key code, flags): those the
-/// services declare (`pbs -dump`, every NSKeyEquivalent value) and those the
-/// person assigned (pbs NSServicesStatus key_equivalent). Read on a
+/// The Services shortcuts the services declare (`pbs -dump`, every
+/// NSKeyEquivalent value; Command implied) as (key code, flags). Read on a
 /// background thread, refreshed every SERVICES_REFRESH; `None` until a read
 /// has succeeded (the caller refuses a chord then, fail-closed).
 pub fn service_shortcuts() -> Option<Vec<(u16, u64)>> {
@@ -526,7 +525,27 @@ pub fn service_shortcuts() -> Option<Vec<(u16, u64)>> {
             st.refreshing = false;
         }
     }
-    st.last.as_ref().map(|(_, list)| list.clone())
+    // A list older than SERVICES_STALE (reads kept failing) no longer counts.
+    st.last.as_ref().filter(|(at, _)| at.elapsed() < SERVICES_STALE).map(|(_, list)| list.clone())
+}
+
+/// The Services shortcuts the person assigned (System Settings > Keyboard >
+/// Keyboard Shortcuts > Services): pbs NSServicesStatus key_equivalent, read
+/// now through CFPreferences (no subprocess, synchronized first). Command
+/// only where the entry says "@". None when an entry cannot be placed.
+pub fn person_service_shortcuts() -> Option<Vec<(u16, u64)>> {
+    Cf::synchronize_preferences("pbs");
+    let mut out = Vec::new();
+    if let Some(status) = Cf::preference("NSServicesStatus", "pbs") {
+        for entry in status.dict_values() {
+            let Some(value) = entry.get("key_equivalent").and_then(|v| v.as_string()) else { continue };
+            if value.is_empty() {
+                continue;
+            }
+            out.push(super::keymap::service_shortcut(&value, false)?);
+        }
+    }
+    Some(out)
 }
 
 /// Whether the current keyboard layout is one the key codes here are written
@@ -547,6 +566,8 @@ pub fn ansi_layout() -> bool {
 
 /// How often the Services shortcuts are re-read.
 const SERVICES_REFRESH: Duration = Duration::from_secs(30);
+/// A list is dropped after this many refresh periods without a good read.
+const SERVICES_STALE: Duration = Duration::from_secs(120);
 /// How long to wait after a failed read before trying again.
 const SERVICES_RETRY: Duration = Duration::from_secs(15);
 /// How long `pbs -dump` may take.
@@ -616,18 +637,10 @@ fn read_service_shortcuts() -> Option<Vec<(u16, u64)>> {
     if !status.success() || !dump.contains("NSBundlePath") {
         return None;
     }
-    let mut equivalents = super::roles::service_equivalents(&dump);
-    // The person's own assignments (System Settings > Keyboard > Shortcuts > Services).
-    Cf::synchronize_preferences("pbs");
-    if let Some(status) = Cf::preference("NSServicesStatus", "pbs") {
-        for entry in status.dict_values() {
-            if let Some(value) = entry.get("key_equivalent").and_then(|v| v.as_string())
-                && super::roles::is_key_equivalent(&value)
-                && !equivalents.contains(&value)
-            {
-                equivalents.push(value);
-            }
-        }
-    }
-    Some(equivalents.iter().filter_map(|e| super::keymap::service_shortcut(e)).collect())
+    // The services' own key equivalents imply Command. One that cannot be
+    // placed fails the whole read (never a silent gap).
+    super::roles::service_equivalents(&dump)
+        .iter()
+        .map(|e| super::keymap::service_shortcut(e, true))
+        .collect()
 }

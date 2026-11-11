@@ -471,19 +471,19 @@ fn services_shortcuts_are_read_from_the_pasteboard_server_dump() {
     "#;
     assert_eq!(roles::service_equivalents(dump2), vec!["@$E".to_string(), "@\u{f704}".to_string()]);
     let (f1, _) = keymap::key_code(&Key::F(1)).unwrap();
-    assert_eq!(keymap::service_shortcut("@\u{f704}"), Some((f1, keymap::FLAG_COMMAND)));
+    assert_eq!(keymap::service_shortcut("@\u{f704}", true), Some((f1, keymap::FLAG_COMMAND)));
     assert!(roles::is_key_equivalent("$^@C"));
     assert!(!roles::is_key_equivalent("New Workspace"));
     let (b, _) = keymap::char_key('b').unwrap();
     let (c, _) = keymap::char_key('c').unwrap();
     // "B" is ⇧⌘B (a capital means Shift; Command is implied).
-    assert_eq!(keymap::service_shortcut("B"), Some((b, keymap::FLAG_COMMAND | keymap::FLAG_SHIFT)));
+    assert_eq!(keymap::service_shortcut("B", true), Some((b, keymap::FLAG_COMMAND | keymap::FLAG_SHIFT)));
     assert_eq!(
-        keymap::service_shortcut("$^@C"),
+        keymap::service_shortcut("$^@C", true),
         Some((c, keymap::FLAG_COMMAND | keymap::FLAG_SHIFT | keymap::FLAG_CONTROL))
     );
-    assert_eq!(keymap::service_shortcut("@"), None);
-    let services = vec![keymap::service_shortcut("B").unwrap()];
+    assert_eq!(keymap::service_shortcut("@", true), None);
+    let services = vec![keymap::service_shortcut("B", true).unwrap()];
     assert!(keymap::is_service_shortcut(b, keymap::FLAG_COMMAND | keymap::FLAG_SHIFT, &services));
     assert!(!keymap::is_service_shortcut(b, keymap::FLAG_COMMAND, &services));
     let (seven, _) = keymap::char_key('7').unwrap();
@@ -559,11 +559,11 @@ fn the_services_dump_parser_reads_quoted_values_whole() {
 #[test]
 fn chords_are_held_to_the_deny_list_in_both_deliveries() {
     use roles::{ChordAction as A, ChordFacts, ShortcutMatch as M};
-    let m = |enabled: bool, blocked: bool| M { title: "X".into(), enabled, blocked };
     let facts = |matches: &'static [M], background: bool| ChordFacts {
         matches,
         complete: true,
         background,
+        command: true,
         denies_any: true,
         ansi_layout: true,
         is_service: Some(false),
@@ -571,7 +571,6 @@ fn chords_are_held_to_the_deny_list_in_both_deliveries() {
     static ENABLED: std::sync::LazyLock<Vec<M>> = std::sync::LazyLock::new(|| vec![M { title: "Undo".into(), enabled: true, blocked: false }]);
     static DISABLED: std::sync::LazyLock<Vec<M>> = std::sync::LazyLock::new(|| vec![M { title: "Undo".into(), enabled: false, blocked: false }]);
     static NONE: std::sync::LazyLock<Vec<M>> = std::sync::LazyLock::new(Vec::new);
-    let _ = m;
     // Background: an enabled item is pressed through AX, whatever the layout.
     assert_eq!(roles::decide_chord(&ChordFacts { ansi_layout: false, ..facts(&ENABLED, true) }), A::PressItem(0));
     // H1: a foreground chord whose only match is disabled falls through to Services.
@@ -581,8 +580,15 @@ fn chords_are_held_to_the_deny_list_in_both_deliveries() {
     // H2: foreground keys need an ANSI layout and a complete search while something is denied.
     assert_eq!(roles::decide_chord(&ChordFacts { ansi_layout: false, ..facts(&ENABLED, false) }), A::Refuse(roles::REFUSE_LAYOUT));
     assert_eq!(roles::decide_chord(&ChordFacts { complete: false, ..facts(&ENABLED, false) }), A::Refuse(roles::REFUSE_TOO_DEEP));
-    // An enabled item takes the chord before Services.
-    assert_eq!(roles::decide_chord(&ChordFacts { is_service: Some(true), ..facts(&ENABLED, false) }), A::Post);
+    // Posted keys: an enabled match does not excuse a Services shortcut (the
+    // item can be disabled by key time), nor an unread list.
+    assert_eq!(roles::decide_chord(&ChordFacts { is_service: Some(true), ..facts(&ENABLED, false) }), A::Refuse(roles::REFUSE_SERVICE));
+    assert_eq!(roles::decide_chord(&ChordFacts { is_service: None, ..facts(&ENABLED, false) }), A::Refuse(roles::REFUSE_SERVICES_UNREAD));
+    // ...but pressed through AX in the background it is the item, not keys.
+    assert_eq!(roles::decide_chord(&ChordFacts { is_service: None, ..facts(&ENABLED, true) }), A::PressItem(0));
+    // A disabled-only match of a chord without Command (Xcode F6) is posted.
+    assert_eq!(roles::decide_chord(&ChordFacts { command: false, denies_any: false, ..facts(&DISABLED, true) }), A::Post);
+    assert_eq!(roles::decide_chord(&ChordFacts { command: true, denies_any: false, ..facts(&DISABLED, true) }), A::Refuse(roles::REFUSE_DISABLED));
     // Nothing denied: posted as before, in either delivery.
     assert_eq!(roles::decide_chord(&ChordFacts { denies_any: false, ansi_layout: false, complete: false, is_service: None, ..facts(&NONE, false) }), A::Post);
     // No match in the background is posted only after the same checks.
@@ -595,11 +601,32 @@ fn marker_only_and_escaped_services_keys_parse() {
     assert!(roles::is_key_equivalent("@$"));
     assert!(!roles::is_key_equivalent("@"));
     let (four, _) = keymap::char_key('4').unwrap();
-    assert_eq!(keymap::service_shortcut("@$"), Some((four, keymap::FLAG_COMMAND | keymap::FLAG_SHIFT)));
+    assert_eq!(keymap::service_shortcut("@$", true), Some((four, keymap::FLAG_COMMAND | keymap::FLAG_SHIFT)));
     // \U0041 decodes to "A"; "@\r" is a key (Return's character) and is kept.
     let got = roles::service_equivalents(r#"NSKeyEquivalent = { default = "@\U0041"; a = "@\r"; };"#);
     assert!(got.contains(&"@A".to_string()), "{got:?}");
     // \\U is decoded once: "\\\\U0041" is a backslash then "U0041".
     let got = roles::service_equivalents(r#"NSKeyEquivalent = { default = "\\U0041"; };"#);
     assert!(got.is_empty(), "{got:?}");
+}
+
+#[test]
+fn services_keys_on_non_character_keys_are_placed() {
+    let code = |k: Key| keymap::key_code(&k).unwrap().0;
+    let cmd = keymap::FLAG_COMMAND;
+    let alt = keymap::FLAG_ALTERNATE;
+    assert_eq!(keymap::service_shortcut("~\u{7f}", true), Some((code(Key::Backspace), cmd | alt)));
+    assert_eq!(keymap::service_shortcut("\u{1b}", true), Some((code(Key::Escape), cmd)));
+    assert_eq!(keymap::service_shortcut("\u{f702}", true), Some((code(Key::Left), cmd)));
+    assert_eq!(keymap::service_shortcut("\u{f72d}", true), Some((code(Key::PageDown), cmd)));
+    assert_eq!(keymap::service_shortcut("\u{f728}", true), Some((code(Key::Delete), cmd)));
+    assert_eq!(keymap::service_shortcut("\u{f717}", true), Some((code(Key::F(20)), cmd)));
+    // F21..F24 (no Mac key) are placed where no chord lands, not dropped.
+    assert_eq!(keymap::service_shortcut("\u{f71b}", true), Some((keymap::NO_KEY, cmd)));
+    // An unplaceable key fails (the caller then treats the list as unread).
+    assert_eq!(keymap::service_shortcut("\u{f7ff}", true), None);
+    // The person's assignments carry Command only where they say "@".
+    let (t, _) = keymap::char_key('t').unwrap();
+    assert_eq!(keymap::service_shortcut("^~t", false), Some((t, keymap::FLAG_CONTROL | alt)));
+    assert_eq!(keymap::service_shortcut("@t", false), Some((t, cmd)));
 }

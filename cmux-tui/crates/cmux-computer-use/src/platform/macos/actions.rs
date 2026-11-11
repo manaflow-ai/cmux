@@ -426,35 +426,50 @@ pub(super) fn press_keys(
     // The deny-list checks hold for both deliveries: a foreground chord goes
     // through the same AppKit menus and Services. Any chord a menu item or a
     // Service can own: with Command, Control or Option, or a function key.
+    // Not covered, as before: a plain key with no modifier (it can only be a
+    // menu item's equivalent in an app that registers bare keys), and menu
+    // items an app builds only when its menu opens or hides from AX.
     use crate::keys::{Key, Modifier};
     let menu_chord = combo.modifiers.iter().any(|m| matches!(m, Modifier::Meta | Modifier::Control | Modifier::Alt))
         || matches!(combo.key, Key::F(_));
-    if menu_chord {
+    let denies_any = d.denies_any();
+    // Foreground keys with nothing denied go straight to the app, as typed.
+    if menu_chord && (delivery == Delivery::Background || denies_any) {
         let (items, complete) = shortcut_matches(d, t.window.pid, combo);
         let matches: Vec<roles::ShortcutMatch> = items.iter().map(|(_, m)| m.clone()).collect();
-        let denies_any = d.denies_any();
         let background = delivery == Delivery::Background;
+        let command = combo.modifiers.contains(&Modifier::Meta);
         let posts = !(background && matches!(roles::pick_shortcut(&matches), roles::ShortcutPick::Press(_)));
         // The layout and Services shortcuts are read only when keys would be
         // posted while something is denied.
         let ansi_layout = !(denies_any && posts) || workspace::ansi_layout();
+        // The person's assignments (any modifiers) are read now; the
+        // services' own shortcuts (always with Command) come from the
+        // background read, needed only for a Command chord.
         let is_service = if denies_any && posts && ansi_layout {
-            workspace::service_shortcuts().map(|list| keymap::is_service_shortcut(code, flags, &list))
+            match workspace::person_service_shortcuts() {
+                None => None,
+                Some(mine) if keymap::is_service_shortcut(code, flags, &mine) => Some(true),
+                Some(_) if !command => Some(false),
+                Some(_) => workspace::service_shortcuts().map(|list| keymap::is_service_shortcut(code, flags, &list)),
+            }
         } else {
             Some(false)
         };
-        let facts = roles::ChordFacts { matches: &matches, complete, background, denies_any, ansi_layout, is_service };
+        let facts = roles::ChordFacts { matches: &matches, complete, background, command, denies_any, ansi_layout, is_service };
         match roles::decide_chord(&facts) {
             roles::ChordAction::PressItem(i) => {
                 items[i].0.perform("AXPress").map_err(|e| ax_error(e, "press the shortcut's menu item"))?;
                 return Ok(ActionOutcome::delivered("ax_menu_shortcut"));
             }
             roles::ChordAction::Refuse(why) => {
-                let title = match roles::pick_shortcut(&matches) {
-                    roles::ShortcutPick::Disabled(t) | roles::ShortcutPick::Blocked(t) => format!(" ({t:?})"),
+                let item = match roles::pick_shortcut(&matches) {
+                    roles::ShortcutPick::Disabled(t) | roles::ShortcutPick::Blocked(t) if !t.is_empty() => {
+                        format!(" (menu item {t:?})")
+                    }
                     _ => String::new(),
                 };
-                return Err(DesktopError::Unsupported(if title.is_empty() { why.into() } else { format!("{why}{title}") }));
+                return Err(DesktopError::Unsupported(format!("{why}{item}")));
             }
             roles::ChordAction::Post => {}
         }
@@ -695,7 +710,7 @@ fn shortcut_matches(d: &MacDesktop, pid: i32, combo: &KeyCombo) -> (Vec<(Ax, rol
     // No menu bar (an agent app, a helper) is an empty search; one that
     // cannot be read is an incomplete one.
     let bar = match app.attr("AXMenuBar") {
-        Ok(Some(_)) => match app.element("AXMenuBar") {
+        Ok(Some(v)) => match Ax::from_cf(v) {
             Some(bar) => bar,
             None => return (Vec::new(), false),
         },
@@ -705,56 +720,85 @@ fn shortcut_matches(d: &MacDesktop, pid: i32, combo: &KeyCombo) -> (Vec<(Ax, rol
     let mut found = Vec::new();
     let mut complete = true;
     let mut seen = 0usize;
+    // One AXChildren read per node; an error makes the search incomplete.
     let children = |node: &Ax, complete: &mut bool| -> Vec<Ax> {
         match node.attr("AXChildren") {
-            Ok(_) => node.elements("AXChildren"),
+            Ok(Some(list)) => list.items().into_iter().filter_map(Ax::from_cf).collect(),
+            Ok(None) => Vec::new(),
             Err(_) => {
                 *complete = false;
                 Vec::new()
             }
         }
     };
-    let mut stack: Vec<(Ax, usize)> = children(&bar, &mut complete).into_iter().rev().map(|c| (c, 0)).collect();
-    while let Some((node, depth)) = stack.pop() {
+    // Attributes through attr(): Ok(None) when absent or unsupported, Err when
+    // the read failed (which makes the search incomplete).
+    let text = |node: &Ax, name: &str| -> Result<Option<String>, ()> {
+        node.attr(name).map(|v| v.and_then(|v| v.as_string())).map_err(|_| ())
+    };
+    let number = |node: &Ax, name: &str| -> Result<Option<i64>, ()> {
+        node.attr(name).map(|v| v.and_then(|v| v.as_f64()).map(|v| v as i64)).map_err(|_| ())
+    };
+    let top: Vec<Ax> = children(&bar, &mut complete);
+    // (node, depth, under the app menu: its submenus are Services and the like)
+    let mut stack: Vec<(Ax, usize, bool)> =
+        top.into_iter().enumerate().rev().map(|(i, c)| (c, 0, i == 1)).collect();
+    while let Some((node, depth, in_app_menu)) = stack.pop() {
         seen += 1;
         if seen > 2000 {
             return (found, false);
         }
-        if node.string("AXRole").as_deref() == Some("AXMenuItem") {
-            let number = |name: &str| node.attr(name).ok().flatten().and_then(|v| v.as_f64()).map(|v| v as i64);
-            let cmd_char = node.string("AXMenuItemCmdChar");
-            let virtual_key = number("AXMenuItemCmdVirtualKey");
+        let Ok(role) = text(&node, "AXRole") else {
+            complete = false;
+            continue;
+        };
+        if role.as_deref() == Some("AXMenuItem") {
+            let (Ok(cmd_char), Ok(virtual_key), Ok(mods)) = (
+                text(&node, "AXMenuItemCmdChar"),
+                number(&node, "AXMenuItemCmdVirtualKey"),
+                number(&node, "AXMenuItemCmdModifiers"),
+            ) else {
+                complete = false;
+                continue;
+            };
             if (cmd_char.as_deref().is_some_and(|c| !c.is_empty()) || virtual_key.is_some())
-                && keymap::menu_item_matches(
-                    combo,
-                    cmd_char.as_deref(),
-                    virtual_key,
-                    number("AXMenuItemCmdModifiers").unwrap_or(0),
-                )
+                && keymap::menu_item_matches(combo, cmd_char.as_deref(), virtual_key, mods.unwrap_or(0))
             {
+                let enabled = match node.attr("AXEnabled") {
+                    Ok(v) => v.and_then(|v| v.as_bool()) != Some(false),
+                    Err(_) => {
+                        // Unknown: neither run it nor rule it out.
+                        complete = false;
+                        continue;
+                    }
+                };
                 let m = roles::ShortcutMatch {
-                    title: node.string("AXTitle").unwrap_or_default(),
-                    enabled: node.bool("AXEnabled") != Some(false),
+                    title: text(&node, "AXTitle").ok().flatten().unwrap_or_default(),
+                    enabled,
                     blocked: d.menu_item_blocked(&node),
                 };
-                let enabled = m.enabled;
                 found.push((node.clone(), m));
-                // AppKit runs the first enabled match: nothing after it
-                // matters, but a branch skipped before it might have held an
-                // earlier one, so the flag stands as it is.
+                // AppKit runs the first enabled match. A branch skipped
+                // before it might have held an earlier one, so the flag stands.
                 if enabled {
                     return (found, complete);
                 }
             }
         }
         let kids = children(&node, &mut complete);
+        // The Services submenu (in the app menu) is checked as Services, by
+        // their registered shortcuts, not as menu items: an enabled service
+        // item would end the search before the app's own menus.
+        if in_app_menu && depth >= 1 && role.as_deref() == Some("AXMenuItem") && !kids.is_empty() {
+            continue;
+        }
         if depth >= 6 {
             // Too deep (a bookmark folder): skip it, keep going, and say so.
             complete &= kids.is_empty();
             continue;
         }
         for child in kids.into_iter().rev() {
-            stack.push((child, depth + 1));
+            stack.push((child, depth + 1, in_app_menu));
         }
     }
     (found, complete)

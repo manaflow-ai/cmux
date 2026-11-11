@@ -10,6 +10,8 @@ pub const FLAG_COMMAND: u64 = 0x0010_0000;
 pub const FLAG_FN: u64 = 0x0080_0000;
 
 pub const KEY_RETURN: u16 = 36;
+/// A key code no chord produces (F21..F24 have no Mac key).
+pub const NO_KEY: u16 = 0xFFFF;
 pub const KEY_TAB: u16 = 48;
 
 /// The CGEventFlags for a set of modifiers.
@@ -233,10 +235,13 @@ pub fn menu_item_matches(
     }
 }
 
-/// A Services key equivalent ("@B", "$^@C", or a bare "M": Command is
-/// implied) as (key code, CGEvent modifier flags), on the ANSI layout.
-pub fn service_shortcut(equivalent: &str) -> Option<(u16, u64)> {
-    let mut flags = FLAG_COMMAND;
+/// A Services key equivalent as (key code, CGEvent flags), on the ANSI
+/// layout. Marks: "$" Shift, "^" Control, "~" Option, "@" Command. A
+/// service's own NSKeyEquivalent implies Command (`implied_command`); the
+/// person's assignments in System Settings spell it as "@". None for a key
+/// this table cannot place (the caller then treats the whole list as unread).
+pub fn service_shortcut(equivalent: &str, implied_command: bool) -> Option<(u16, u64)> {
+    let mut flags = if implied_command { FLAG_COMMAND } else { 0 };
     let mut key = None;
     // Every character a mark ("@$"): the last one is the key.
     let all_marks = equivalent.chars().all(|c| matches!(c, '$' | '^' | '~' | '@'));
@@ -262,9 +267,28 @@ pub fn service_shortcut(equivalent: &str) -> Option<(u16, u64)> {
         }
     }
     let key = key?;
-    // NSF1FunctionKey (U+F704) .. NSF24FunctionKey.
-    if let n @ 0xF704..=0xF71B = key as u32 {
-        let (code, _) = key_code(&Key::F((n - 0xF704 + 1) as u8))?;
+    // Non-character keys, by the characters AppKit uses for them.
+    let special = match key as u32 {
+        0x7F | 0x08 => Some(51),  // Delete (backspace)
+        0x1B => Some(53),         // Escape
+        0x03 => Some(76),         // Enter (keypad)
+        0x0D => Some(KEY_RETURN), // Return
+        0x09 => Some(KEY_TAB),
+        0xF700 => Some(126), // Up
+        0xF701 => Some(125), // Down
+        0xF702 => Some(123), // Left
+        0xF703 => Some(124), // Right
+        0xF728 => Some(117), // Forward Delete
+        0xF729 => Some(115), // Home
+        0xF72B => Some(119), // End
+        0xF72C => Some(116), // Page Up
+        0xF72D => Some(121), // Page Down
+        n @ 0xF704..=0xF717 => key_code(&Key::F((n - 0xF704 + 1) as u8)).map(|(c, _)| c), // F1..F20
+        // F21..F24 have no key on a Mac keyboard: no posted chord can be one.
+        0xF718..=0xF71B => return Some((NO_KEY, flags)),
+        _ => None,
+    };
+    if let Some(code) = special {
         return Some((code, flags));
     }
     let (code, shift) = char_key(key)?;

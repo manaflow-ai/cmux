@@ -660,6 +660,8 @@ pub struct ChordFacts<'a> {
     /// The menu search saw every item (no AX error, no branch cut).
     pub complete: bool,
     pub background: bool,
+    /// The chord has Command.
+    pub command: bool,
     pub denies_any: bool,
     /// The layout's keys are the ANSI codes posted (checked only when needed).
     pub ansi_layout: bool,
@@ -684,7 +686,9 @@ pub fn decide_chord(f: &ChordFacts) -> ChordAction {
     match pick_shortcut(f.matches) {
         ShortcutPick::Blocked(_) => return ChordAction::Refuse(REFUSE_BLOCKED),
         ShortcutPick::Press(i) if f.background => return ChordAction::PressItem(i),
-        ShortcutPick::Disabled(_) if f.background => return ChordAction::Refuse(REFUSE_DISABLED),
+        // A disabled Command item in the background: posting it would lose
+        // the Shift (the reason items are pressed), so say it is disabled.
+        ShortcutPick::Disabled(_) if f.background && f.command => return ChordAction::Refuse(REFUSE_DISABLED),
         // Foreground Press, foreground Disabled (AppKit falls through to
         // Services) and no match: keys are posted.
         _ => {}
@@ -698,10 +702,9 @@ pub fn decide_chord(f: &ChordFacts) -> ChordAction {
     if !f.ansi_layout {
         return ChordAction::Refuse(REFUSE_LAYOUT);
     }
-    // An enabled menu item takes the chord before Services do.
-    if matches!(pick_shortcut(f.matches), ShortcutPick::Press(_)) {
-        return ChordAction::Post;
-    }
+    // Posted keys are routed by AppKit at key time: a menu item that is
+    // disabled by then falls through to a Service on the same chord, so a
+    // Services shortcut is refused even when an enabled item matched.
     match f.is_service {
         None => ChordAction::Refuse(REFUSE_SERVICES_UNREAD),
         Some(true) => ChordAction::Refuse(REFUSE_SERVICE),
