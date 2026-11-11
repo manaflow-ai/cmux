@@ -44,6 +44,7 @@ TOOL_RESOLVER='
 import os
 import sys
 import tempfile
+import unicodedata
 
 # The names children of the hook may look up on PATH. Each gets a link in the
 # private PATH directory of the children when the resolver finds a checked one.
@@ -218,27 +219,30 @@ def child_path(search_path, dirs, found):
     for name in CHILD_TOOLS:
         tool = found[name] if name in found else find(name, search_path, dirs)
         if tool:
-            os.symlink(tool, os.path.join(shims, name))
+            link(tool, shims, name)
             linked.add(name)
     # Two stubs, after the links: one for a name CHILD_TOOLS does not list, one
     # for a listed name with no copy the resolver accepts (none on PATH, or each
     # one inside this checkout). Each runs nothing from PATH: /bin/sh, its own
     # name, a message, 127. It covers a child running the name by name, by exec
     # and by a #!/usr/bin/env shebang alike.
-    os.mkdir(os.path.join(shims, ".stub"))
     stubs = {}
-    for kind, message in (
-        ("not-listed", "${0##*/} isn\x27t in CHILD_TOOLS (scripts/git-hooks/pre-commit); a child of the hook"
-                       " ran it by name. Add it there, with the reason."),
-        ("unresolved", "${0##*/} is in CHILD_TOOLS (scripts/git-hooks/pre-commit), but PATH has no copy of it"
-                       " outside this checkout; a child of the hook ran it by name."),
-    ):
-        stubs[kind] = os.path.join(shims, ".stub", kind)
-        with open(stubs[kind], "w") as handle:
-            handle.write("#!/bin/sh\necho \"pre-commit: " + message + "\" >&2\nexit 127\n")
-        os.chmod(stubs[kind], 0o755)
-    not_listed = os.path.join(shims, NOT_LISTED)
-    os.mkdir(not_listed)
+    try:
+        os.mkdir(os.path.join(shims, ".stub"))
+        for kind, message in (
+            ("not-listed", "${0##*/} isn\x27t in CHILD_TOOLS (scripts/git-hooks/pre-commit); a child of the hook"
+                           " ran it by name. Add it there, with the reason."),
+            ("unresolved", "${0##*/} is in CHILD_TOOLS (scripts/git-hooks/pre-commit), but PATH has no copy of it"
+                           " outside this checkout; a child of the hook ran it by name."),
+        ):
+            stubs[kind] = os.path.join(shims, ".stub", kind)
+            with open(stubs[kind], "w") as handle:
+                handle.write("#!/bin/sh\necho \"pre-commit: " + message + "\" >&2\nexit 127\n")
+            os.chmod(stubs[kind], 0o755)
+        os.mkdir(os.path.join(shims, NOT_LISTED))
+    except OSError as error:
+        say(f"could not make the stubs in {shims}: {error}; not committing.")
+        sys.exit(1)
     names = set()
     for entry in search_path.split(":"):
         if entry.startswith("/"):
@@ -246,11 +250,43 @@ def child_path(search_path, dirs, found):
                 names.update(os.listdir(entry))
             except OSError:
                 pass
-    for name in names.union(CHILD_TOOLS).difference(linked):
-        if not name.startswith(".") and "/" not in name:
-            kind = "unresolved" if name in CHILD_TOOLS else "not-listed"
-            os.symlink(stubs[kind], os.path.join(not_listed, name))
+    # One stub per name as a case- and normalization-insensitive volume (the
+    # macOS default for the temporary directory) sees it: Probe and probe, or
+    # the same name in two PATH directories, are one file there. A listed name
+    # comes first, so NODE on PATH never takes the stub of a listed node.
+    taken = set()
+    for name in sorted(set(CHILD_TOOLS).difference(linked)) + sorted(names.difference(CHILD_TOOLS)):
+        if name.startswith(".") or "/" in name or folded(name) in taken:
+            continue
+        taken.add(folded(name))
+        link(stubs["unresolved" if name in CHILD_TOOLS else "not-listed"], shims, os.path.join(NOT_LISTED, name))
     return shims
+
+
+def folded(name):
+    """A file name as a case- and normalization-insensitive volume compares it."""
+    return unicodedata.normalize("NFD", name).casefold()
+
+
+def link(target, shims, name):
+    """shims/name -> target. One already there that points at target is fine (the same
+    name made twice); any other failure names the link and stops the hook."""
+    path = os.path.join(shims, name)
+    try:
+        os.symlink(target, path)
+        return
+    except FileExistsError as error:
+        try:
+            if os.readlink(path) == target:
+                return
+        except OSError:
+            pass
+        failure = error
+    except OSError as error:
+        failure = error
+    say(f"could not make {name} in the PATH of the hook\x27s children ({shims}):"
+        f" {failure.strerror or failure}; not committing.")
+    sys.exit(1)
 
 
 def plain(*fields):
