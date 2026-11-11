@@ -1077,6 +1077,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             usize::MAX
         }
     };
+    // The hub's own tasks after its agents: cancelled and joined, any left named (`hub/shutdown.rs`).
+    hub.close_owned_tasks().await;
     // After the agents: their model streams go through the router.
     // A lost home's router path may be another daemon's router now: let go of ours, never ask
     // that path to stop.
