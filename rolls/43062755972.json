@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43062755972",
+  "recorded_at": "2026-11-11T17:02:06Z",
+  "reason": "cmux-tui c92f88509a94 changes the image's cmux-tui (pinned d7d1fa53d71e)",
+  "dry_run": false,
+  "cmux_tui": "c92f88509a94b07df035000c033699a0c8bd7ca8",
+  "fixes": [
+    {
+      "sha": "c92f88509a94b07df035000c033699a0c8bd7ca8",
+      "mergedAt": "2026-11-11T08:38:36-08:00",
+      "subject": "Move to another machine: folders that started on a Cloud VM go as git, and a folder can move back (#41248)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T17:02:06Z",
+    "snapshot_id": "sh-4c19d719831b4f62bc746a60a6406df0",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43062755972): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9990cd0117bc6237d48936bf4502d450cae14c88",
+    "image": "cloud-native-auto-c92f8850-43062755972-1",
+    "revision": "ci-43062755972-1",
+    "at": "2026-11-11T17:02:06Z"
+  },
+  "rolled_back": false
+}
