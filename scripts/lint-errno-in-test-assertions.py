@@ -45,6 +45,12 @@ from typing import Dict, List, Optional, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
+# scripts/ci/guard_findings.py, imported by name (tests/test_script_module_loads.py): each finding is its own check
+# of the guard step, so a red on the base never masks a new one.
+if str(REPO_ROOT / "scripts" / "ci") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "scripts" / "ci"))
+import guard_findings  # noqa: E402
+
 # Where Swift tests live, as path prefixes (`**` spans directories). The
 # quality-determinism guard group runs this lint; the router reaches it for the
 # ios/ paths through its run-every-group fallback.
@@ -411,6 +417,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     if findings:
         for finding in findings:
             print(finding, file=sys.stderr)
+        guard_findings.report(str(finding) for finding in findings)
         print(f"\n{FIX_HINT}", file=sys.stderr)
         return 1
     print(f"errno is captured before every assertion in {len(paths)} Swift test files")
