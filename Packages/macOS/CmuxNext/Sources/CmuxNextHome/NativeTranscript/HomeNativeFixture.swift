@@ -3,6 +3,7 @@ public import AppKit
 import CmuxHomeCore
 import CmuxHomeRender
 import CmuxAgentQuestion
+import Observation
 #if DEBUG
 public import MessagesLabHome
 #endif
@@ -56,6 +57,9 @@ public final class HomeNativeFixture {
     private let attachments: Bool
     /// The app's made-ahead file picker for the fixture's "+"; nil opens none.
     private let openPanel: MadeAheadOpenPanel?
+    /// With `afterInbox` (captures of ui-state-fixes M1), the transcript opens only once the store has
+    /// read the inbox, as a chat the user picks from the inbox list does, so its newest message is known.
+    private let afterInbox: Bool
 
     #if DEBUG
     /// DEBUG Agent Messages Playground: the header style, folds open, and the team chat (nil: not a playground).
@@ -82,7 +86,8 @@ public final class HomeNativeFixture {
     /// With `cacheURL` (captures of ui-state-fixes M2), the store keeps a client cache there
     /// (`HomeCache`, its `home.json`), so a later fixture after a relaunch draws what it holds.
     public init(attachments: Bool = false, openPanel: MadeAheadOpenPanel? = nil, compose: Bool = false,
-                transcriptLoad: TranscriptLoad? = nil, cacheURL: URL? = nil, newChief: Bool = false, holdReads: Bool = false) {
+                transcriptLoad: TranscriptLoad? = nil, cacheURL: URL? = nil, newChief: Bool = false, holdReads: Bool = false, afterInbox: Bool = false) {
+        self.afterInbox = afterInbox
         source = MockHomeSource(options: .init(chiefHistory: newChief ? 1 : 300, latency: .zero, replyDelay: .milliseconds(1500)))
         column = compose ? HomeChatColumnView(content: NSView(), compose: HomeChatComposeButton(label: HomeConversationStrings.newMessage)) : nil
         self.attachments = attachments
@@ -119,6 +124,8 @@ public final class HomeNativeFixture {
         guard let inbox = try? await source.inbox(), !Task.isCancelled,
               let id = (inbox.conversations.first { $0.participants.contains { $0.id == chief } && $0.participants.count == 2 }
                   ?? inbox.conversations.first)?.id else { return }
+        if afterInbox { await storeReadTheInbox() }
+        guard !Task.isCancelled else { return }
         await show(id, chief: chief, me: inbox.me.id)
         if attachments { await addAttachments(in: id) }
         #if DEBUG
@@ -127,6 +134,17 @@ public final class HomeNativeFixture {
             _ = postAgentRun(Self.agentPlayground, notes: false, team: playground.team, step: 0, expanded: playground.expanded)
         }
         #endif
+    }
+
+    /// Returns once the store's inbox rows arrived (observed, not polled), or the load was cancelled.
+    private func storeReadTheInbox() async {
+        while store.rows.isEmpty, !Task.isCancelled {
+            let once = HomeFixtureOnce()
+            await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
+                let empty = withObservationTracking { store.rows.isEmpty } onChange: { once.run { resume.resume() } }
+                if !empty { once.run { resume.resume() } }
+            }
+        }
     }
 
     /// Shows conversation `id` in the container, in place of the one shown.
@@ -494,6 +512,16 @@ public final class HomeNativeFixture {
         return decision
     }
 }
+/// Runs its body once, from whichever caller comes first (an observation's change or the check after it).
+nonisolated final class HomeFixtureOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var done = false
+    func run(_ body: () -> Void) {
+        let first = lock.withLock { () -> Bool in defer { done = true }; return !done }
+        if first { body() }
+    }
+}
+
 /// DEBUG ONLY (captures of ui-state-fixes M1). A new Chief over the mock owner: the Chief's one seeded
 /// message is hidden, so the inbox names no newest message and its first page reads empty (as the
 /// tests' `EmptyChiefSource`).
