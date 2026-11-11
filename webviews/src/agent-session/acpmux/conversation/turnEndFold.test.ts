@@ -168,10 +168,8 @@ test("a copy of a row that went draws only outside the rows that come over it", 
   expect(under[0].clipPath).toBe("inset(0px -4096px 4px -4096px)");
   expect(under[1].clipPath).toBe("inset(0px -4096px 22px -4096px)");
   // A row over the copy that starts clipped at the copy's top (the reply over the live line when a
-  // lagging turn ends) draws nothing over it at first: the copy keeps its top lines there, and loses
-  // them only as the row's text comes down over them (it rests 12 px over the copy's top).
+  // lagging turn ends) draws nothing over it at first, and the fold moves the copy down to that row's
+  // bottom at rest (turnEndFold.ts `covers`): the copy keeps every line on every frame.
   const above = { from: 20, to: 0, height: 120, padTop: 0, padBottom: 8, clip: 40 };
-  const opened = coverClip(copy, [above], 0)!;
-  expect(opened[0].clipPath).toBe("inset(0px -4096px 0px -4096px)");
-  expect(opened[1].clipPath).toBe("inset(12px -4096px 0px -4096px)");
+  expect(coverClip({ ...copy, to: 120 }, [above], 0)).toBeUndefined();
 });

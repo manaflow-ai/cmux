@@ -152,6 +152,9 @@ export function ghostOf(row: HTMLElement): HTMLElement {
 /// where it lands, and the band its text draws in (its box less its paddings: a row's bottom padding
 /// is its gap to the next row). `clip`: what a clip hides of its bottom where the clock starts, opening
 /// on the same clock (turnEndFold.ts clips a row that drew over the row under it when the turn ended).
+/// Its opening is not linear in the clock past the row's padding, so it is read at the first frame only;
+/// the turn end's fold keeps such a row's copies below its bottom at rest (`covers`), where it hides
+/// nothing of them at the last frame either.
 export type CoverPath = { from: number; to: number; height: number; padTop: number; padBottom: number; clip?: number };
 
 /// The bottom a ghost's own clip hides (ghostOf keeps the clip its row had when the turn ended).
