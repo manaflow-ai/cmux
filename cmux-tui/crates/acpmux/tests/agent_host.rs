@@ -12,6 +12,8 @@ mod daemon_env;
 mod managed_suggestions;
 #[path = "agent_host/orphan_exit.rs"]
 mod orphan_exit;
+#[path = "agent_host/reattach_once.rs"]
+mod reattach_once;
 // Debug builds only, as the watch it tests (`daemon/owner_exit.rs`).
 #[cfg(debug_assertions)]
 #[path = "agent_host/test_owner.rs"]
