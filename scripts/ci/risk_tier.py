@@ -691,10 +691,19 @@ def missing_evidence(tier: str, human_ok: bool = False, body: str = "",
         missing.append(f"the newest review verdict on the head commit is a BLOCK, FIX or change request. "
                        f"Address it and push; a review of the new head clears it: {SIGN_OFF_HOW}")
     for number in unowned_takebacks(body, taken_back):
-        missing.append(
-            f"this takes back #{number}'s change from the last {RECENT_DAYS} days. If the base is stale, "
-            f"merge it and push; if it's on purpose, add a line `Takes back #{number}: <why>`")
+        missing.append(f"this takes back #{number}'s change from the last {RECENT_DAYS} days. "
+                       f"{takeback_fix([number])}")
     return missing
+
+
+def takeback_fix(numbers: list[int]) -> str:
+    """What clears an unowned takeback of NUMBERS, the lines to paste with their numbers filled in. The summary and
+    the check's error annotation (risk-tier.yml, through `takes_back_fix`) both say it: merge_hold and the lander
+    quote the annotation, so a refused revert names the line without anyone opening the job summary (a revert is
+    the fast route; on cmux#41154 the refusal said only "the job summary says how")."""
+    lines = " and ".join(f"`Takes back #{n}: <why>`" for n in numbers)
+    return (f"If the base is stale, merge it and push; if it's on purpose, add "
+            f"{'a line' if len(numbers) == 1 else 'the lines'} {lines}")
 
 
 def unowned_takebacks(body: str = "", taken_back: list[int] | None = None) -> list[int]:
@@ -1037,8 +1046,9 @@ def pr_mode(args: argparse.Namespace) -> int:
             out.write(f"ready={'false' if missing else 'true'}\n")
             # Only an unowned takeback keeps the check red (risk-tier.yml): it is a stale-base squash
             # quietly reverting a merged change. A BLOCK on the head is the lander's to refuse.
-            takes_back = bool(unowned_takebacks(pr.get("body") or "", list(undone)))
-            out.write(f"takes_back={'true' if takes_back else 'false'}\n")
+            unowned = unowned_takebacks(pr.get("body") or "", list(undone))
+            out.write(f"takes_back={'true' if unowned else 'false'}\n")
+            out.write(f"takes_back_fix={takeback_fix(unowned) if unowned else ''}\n")
     return 0
 
 
