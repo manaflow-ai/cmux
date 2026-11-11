@@ -122,6 +122,22 @@ export function partRead(
   return state?.status === "success" ? "read" : "pending";
 }
 
+/** How long a host part's read (the host lists, Devices) may go unanswered before its card shows
+ * its failed state with Try Again, never a placeholder forever. A reply that lands later still
+ * fills the card. */
+export const PART_READ_DEADLINE_MS = 10_000;
+
+/** Runs `fire` once after `ms`; the returned function cancels it. Tests pass their own. */
+export type PartSchedule = (fire: () => void, ms: number) => () => void;
+
+const scheduleTimeout: PartSchedule = (fire, ms) => {
+  const timer = setTimeout(fire, ms);
+  return () => clearTimeout(timer);
+};
+
+/** The code a part read past its deadline fails with (`partRead`: failed, not none). */
+export const PART_READ_TIMEOUT = "cmux.settings.part.timeout";
+
 /** A refused write: `message` is a page string; `detail` is the owner's own (English) text. */
 export type RowError = { code: string; message: string; detail?: string };
 
@@ -225,6 +241,10 @@ export type Reply<R> = { ok: true; value: R } | { ok: false; error: WireError };
 export class SettingsStore {
   readonly queryClient: QueryClient;
   readonly transport: SettingsTransport;
+  /** The host parts' read deadline and timer (`nativeWithin`). */
+  private readonly partDeadline: { ms?: number; schedule?: PartSchedule };
+  /** The part reads' deadlines still pending, which dispose() cancels. */
+  private readonly pendingDeadlines = new Set<() => void>();
   private ui: UiState = { connected: true, errors: new Map() };
   private readonly listeners = new Set<() => void>();
   private readonly unsubscribers: Array<() => void> = [];
@@ -244,8 +264,14 @@ export class SettingsStore {
 
   constructor(
     private readonly client: SettingsClient,
-    options: { transport?: SettingsTransport; queryClient?: QueryClient } = {},
+    options: {
+      transport?: SettingsTransport;
+      queryClient?: QueryClient;
+      /** The host parts' read deadline (`PART_READ_DEADLINE_MS`) and its timer; tests pass their own. */
+      partDeadline?: { ms?: number; schedule?: PartSchedule };
+    } = {},
   ) {
+    this.partDeadline = options.partDeadline ?? {};
     this.transport = options.transport ?? pageTransport(client);
     this.queryClient = options.queryClient ?? createSettingsQueryClient();
     // Each key's read, so a cache observer (useSettingsState) and a refetch know how to read it.
@@ -253,7 +279,7 @@ export class SettingsStore {
       queryFn: this.scopeQuery().queryFn,
     });
     this.queryClient.setQueryDefaults(settingsKeys.host, {
-      queryFn: () => this.native("cmux.settings.host.lists"),
+      queryFn: () => this.nativeWithin("cmux.settings.host.lists", settingsKeys.host),
     });
     this.queryClient.setQueryDefaults(settingsKeys.accounts, {
       queryFn: () => this.native("cmux.settings.accounts.state"),
@@ -262,7 +288,7 @@ export class SettingsStore {
       queryFn: () => this.native("cmux.settings.harnesses.state"),
     });
     this.queryClient.setQueryDefaults(settingsKeys.devices, {
-      queryFn: () => this.native("cmux.settings.devices.state"),
+      queryFn: () => this.nativeWithin("cmux.settings.devices.state", settingsKeys.devices),
     });
     this.queryClient.setQueryDefaults(settingsKeys.themeColors, {
       queryFn: async (): Promise<ThemeColorsData> =>
@@ -845,6 +871,8 @@ export class SettingsStore {
 
   dispose(): void {
     this.disposed = true;
+    for (const cancel of this.pendingDeadlines) cancel();
+    this.pendingDeadlines.clear();
     for (const unsubscribe of this.unsubscribers.splice(0)) unsubscribe();
     this.listeners.clear();
     this.commandListeners.clear();
@@ -1132,6 +1160,30 @@ export class SettingsStore {
   private async fetchNative(queryKey: readonly string[]): Promise<void> {
     if (this.disposed) return;
     await this.queryClient.fetchQuery({ queryKey, staleTime: 0 }).catch(() => undefined);
+  }
+
+  /** A host part's read under its deadline (`PART_READ_DEADLINE_MS`): past it the query fails
+   * (the card's failed state with Try Again, which reads again under a fresh deadline) instead of
+   * holding its placeholder forever. A reply that comes later still fills the card. */
+  private nativeWithin<K extends SettingsOpName>(op: K, queryKey: readonly string[]): Promise<SettingsOps[K][1]> {
+    const reply = this.request(op, {} as SettingsOps[K][0]);
+    return new Promise((resolve, reject) => {
+      let late = false;
+      const cancel = (this.partDeadline.schedule ?? scheduleTimeout)(() => {
+        this.pendingDeadlines.delete(cancel);
+        late = true;
+        reject(new TransportError({ code: PART_READ_TIMEOUT, message: "The read did not answer in time." }));
+      }, this.partDeadline.ms ?? PART_READ_DEADLINE_MS);
+      // dispose() cancels a deadline still pending.
+      this.pendingDeadlines.add(cancel);
+      void reply.then((answer) => {
+        this.pendingDeadlines.delete(cancel);
+        cancel();
+        if (!late) return answer.ok ? resolve(answer.value) : reject(new TransportError(answer.error));
+        // The late answer replaces the error: the card draws what it says.
+        if (answer.ok && !this.disposed) this.queryClient.setQueryData(queryKey, answer.value);
+      });
+    });
   }
 
   /** One of the host's own reads, for its query; rejects with the host's error. */
