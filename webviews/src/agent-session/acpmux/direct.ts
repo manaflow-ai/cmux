@@ -46,7 +46,14 @@ import type {
   StartSource,
   TurnTokenSplit,
 } from "./model";
-import { QUEUED_MESSAGE, SINCE_DIVIDER, TURN_RETRY, type AcpmuxSince, type AcpmuxTurnRetry } from "./model";
+import {
+  QUEUED_MESSAGE,
+  SINCE_DIVIDER,
+  TURN_RETRY,
+  rowFrameKey,
+  type AcpmuxSince,
+  type AcpmuxTurnRetry,
+} from "./model";
 import { addSplit, callTokenSplit, NO_TOKENS, resultTokenSplit } from "./tokenSplit";
 import { continuesTurn } from "./turnStart";
 import { HOST_ERROR_DEADLINE_MS, hostIsReconnecting } from "./hostRetry";
@@ -1856,6 +1863,20 @@ const MANY_SLOTS = Symbol("many");
 /// A row made without an event (a prompt sending or failed, a notice, the typing row) orders after
 /// the events seen when it was made, so later turns go below it; after a lag rebuild, which
 /// replays events older than it, it moves after them again.
+/// Whether two texts are one message at different completeness: the shorter is the longer with
+/// pieces missing (the chunks a repair read back), so its characters come in the longer in order.
+/// Linear in the longer; a text under 8 characters matches only itself.
+function sameWords(a: string | undefined, b: string | undefined): boolean {
+  const [x, y] = [a?.trim() ?? "", b?.trim() ?? ""];
+  if (!x || !y) return false;
+  if (x === y) return true;
+  const [short, long] = x.length <= y.length ? [x, y] : [y, x];
+  if (short.length < 8) return false;
+  let at = 0;
+  for (let index = 0; index < long.length && at < short.length; index++) if (long[index] === short[at]) at++;
+  return at === short.length;
+}
+
 export class OrderedRows extends Map<string, AcpmuxRow> {
   private readonly order = new Map<string, number>();
   /// The newest event that wrote each streamed reply (`assistant`), where it differs from the one
@@ -1994,8 +2015,45 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     }
   }
 
+  /// The frame each message a rebuild made under a new id keeps drawing in (``adoptFrames``).
+  private readonly frames = new Map<string, string>();
+
+  /// Keeps on screen, in the element it drew in, each prompt and reply a rebuild made again under a
+  /// new id. A reply's id is the first of its chunks the pane held, so a turn repaired from its
+  /// stored records after its first chunk was lost (`checkFinishedTurn`, a lag's reread), an older
+  /// page or a reconnect's replay names it anew; as a new frame it unmounted and faded in again
+  /// while the tool calls around it, keyed by their call ids, stayed (Leo, 2026-11-11: "it keeps
+  /// showing and then hiding, and then showing and then hiding your responses, or my responses").
+  /// A new message takes the frame of a message of its kind that went, whose words it holds or that
+  /// holds its words; its later updates keep that frame (``set``).
+  adoptFrames(previous: ReadonlyMap<string, AcpmuxRow>): void {
+    const isMessage = (row: AcpmuxRow) => row.kind === "user" || row.kind === "assistant";
+    const gone = [...previous.values()].filter((row) => isMessage(row) && !this.has(row.id));
+    for (const id of this.frames.keys()) if (!this.has(id)) this.frames.delete(id);
+    if (gone.length === 0) return;
+    const taken = new Set<string>();
+    // Written outside any event: the row keeps its place and its last write.
+    const current = this.current;
+    this.current = undefined;
+    for (const row of this.values()) {
+      if (!isMessage(row) || row.frame !== undefined || previous.has(row.id)) continue;
+      const old = gone.find((candidate) => {
+        const frame = rowFrameKey(candidate);
+        return candidate.kind === row.kind && !taken.has(frame) && sameWords(candidate.text, row.text);
+      });
+      if (!old) continue;
+      const frame = rowFrameKey(old);
+      taken.add(frame);
+      this.frames.set(row.id, frame);
+      this.set(row.id, row);
+    }
+    this.current = current;
+  }
+
   // Producers identify stream progress from the event, even when its row retains settled tools.
   override set(id: string, row: AcpmuxRow, summaryChanged = !row.streaming): this {
+    const adopted = this.frames.get(id);
+    if (adopted !== undefined && row.frame !== adopted) row = { ...row, frame: adopted };
     const known = this.order.has(id);
     const previous = this.get(id);
     const unchanged = known && previous === row;
@@ -2153,6 +2211,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.order.clear();
     this.local.clear();
     this.lastWrite.clear();
+    this.frames.clear();
     this.latest = 0;
     this.backgroundSpans = [];
     this.backgroundEnds.clear();
@@ -6955,6 +7014,7 @@ export class AcpmuxDirectClient {
     // Rows kept from before (a prompt that failed or still sends) are newer than every replayed event.
     this.rows.placeLocalLast();
     this.rows.keepSame(previous);
+    this.rows.adoptFrames(previous);
   }
 
   /// rebuild() replays a partial event window, so keep the live summary, queue and
