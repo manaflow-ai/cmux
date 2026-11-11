@@ -547,7 +547,7 @@ impl Upstream {
 pub(super) struct Proxied {
     pub prefix: String,
     pub name: String,
-    pub inner: std::sync::Arc<std::sync::Mutex<Upstream>>,
+    pub inner: Arc<Mutex<Upstream>>,
     pub listed: Vec<Value>,
     pub instructions: Option<String>,
 }
@@ -557,7 +557,7 @@ impl Proxied {
         Self {
             prefix: upstream.prefix.clone(),
             name: upstream.name().to_owned(),
-            inner: std::sync::Arc::new(std::sync::Mutex::new(upstream)),
+            inner: Arc::new(Mutex::new(upstream)),
             listed: Vec::new(),
             instructions: None,
         }
@@ -590,7 +590,7 @@ pub(super) fn passed_meta(params: &Value) -> Option<Value> {
 
 /// A proxied tool call, runnable on any thread.
 pub(super) struct ProxiedCall {
-    pub inner: std::sync::Arc<std::sync::Mutex<Upstream>>,
+    pub inner: Arc<Mutex<Upstream>>,
     pub name: String,
     pub arguments: Value,
     /// What it passes on of its caller's `_meta` ([`passed_meta`]).
@@ -608,7 +608,7 @@ impl ProxiedCall {
         {
             return result;
         }
-        let mut upstream = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut upstream = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         if let Err(message) = upstream.connect() {
             let error = json!({"code": "upstream.failed",
                 "message": format!("{}: {message}", upstream.name()),
