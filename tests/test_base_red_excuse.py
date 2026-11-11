@@ -4902,6 +4902,60 @@ class KitFixedOnBaseGitHub(FixedOnBaseGitHub):
         return self.files[path]
 
 
+class TrackedTree:
+    """This checkout's tree as the classifier reads a tree at a sha: every path git tracks, its text from the working
+    tree when it is checked out, else from the index. A sparse checkout leaves whole folders (cmux-next-ios among
+    them) out of the working tree, so a reader of the working tree alone sees a cargo root the code under test reaches
+    as missing. Nothing here names a root: whatever the code discovers, the tree serves."""
+
+    def __init__(self, root: Path):
+        self.root = root
+        out = subprocess.run(["git", "-C", str(root), "ls-files", "-s", "-z"], capture_output=True, check=True).stdout
+        self.blobs = {}
+        for entry in out.decode().split("\0"):
+            if entry:
+                meta, path = entry.split("\t", 1)
+                mode, blob, _stage = meta.split()
+                if mode != "160000":  # a submodule has no text here
+                    self.blobs[path] = blob
+        self.cache: dict[str, str] = {}
+
+    def __contains__(self, path: str) -> bool:
+        return path in self.blobs
+
+    def files(self, under: str, suffix: str = "") -> list[str]:
+        return sorted(p for p in self.blobs if p.startswith(f"{under}/") and p.endswith(suffix))
+
+    def texts(self, paths) -> dict[str, str]:
+        """{path: its text} of the tracked PATHS, the ones not checked out read in one `git cat-file --batch`."""
+        missing = [p for p in paths if p in self.blobs and p not in self.cache and not (self.root / p).is_file()]
+        for path in paths:
+            if path in self.blobs and path not in self.cache and path not in missing:
+                self.cache[path] = (self.root / path).read_text(errors="replace")
+        if missing:
+            out = subprocess.run(["git", "-C", str(self.root), "cat-file", "--batch"], check=True, capture_output=True,
+                                 input="".join(f"{self.blobs[p]}\n" for p in missing).encode()).stdout
+            at = 0
+            for path in missing:
+                end = out.index(b"\n", at)
+                size = int(out[at:end].split()[2])
+                self.cache[path] = out[end + 1:end + 1 + size].decode(errors="replace")
+                at = end + 1 + size + 1
+        return {p: self.cache[p] for p in paths if p in self.cache}
+
+    def text(self, path: str) -> str | None:
+        return self.texts([path]).get(path)
+
+    def write(self, dest: Path, under: list[str], suffixes: tuple[str, ...]) -> Path:
+        """DEST holding every tracked file below UNDER that ends in one of SUFFIXES: a tree a reader of files
+        (cargo_test_verdict.crate_inputs) walks as it walks a full checkout."""
+        paths = sorted({p for d in under for p in self.files(d) if p.endswith(suffixes)})
+        for path, text in self.texts(paths).items():
+            (dest / path).parent.mkdir(parents=True, exist_ok=True)
+            (dest / path).write_text(text)
+        return dest
+
+
 class PackageFixedOnBase(unittest.TestCase):
     """A package job red on a head whose diff cannot reach the package, fixed on the base after its merge-base."""
 
@@ -5095,17 +5149,23 @@ class PackageFixedOnBase(unittest.TestCase):
         spec.loader.exec_module(cargo)
         reads = package["reads"] + excuse.GUARD_READS_DEFAULT
         github = KitFixedOnBaseGitHub(files={})
+        # The fake serves this checkout's whole tree, read the way the classifier reads a sha's tree (TrackedTree):
+        # the cargo roots and crates are the ones cargo_crates discovers, so a new root needs no list here.
+        tree = TrackedTree(ROOT)
 
-        def checkout(repo, ref, path):
-            if not (ROOT / path).is_file():
+        def served(repo, ref, path):
+            text = tree.text(path)
+            if text is None:
                 raise excuse.Refused(f"{repo}@{ref}: {path} is not a text file GitHub served")
-            return (ROOT / path).read_text()
-        github.blob = checkout
+            return text
+        github.blob = served
         crates = sorted(excuse.cargo_crates(REPO, HEAD, package["cargo_lock"], github))
         self.assertIn("cmux-tui/crates/cmux-wg", crates)
         self.assertNotIn("cmux-tui/crates/cmux-agent-pane-policy", crates)
+        built = tree.write(Path(tempfile.mkdtemp()), crates + [cargo.WORKSPACE], (".rs", "Cargo.toml"))
+        self.addCleanup(shutil.rmtree, built)
         for crate in crates:
-            dirs, files = cargo.crate_inputs(ROOT, crate)
+            dirs, files = cargo.crate_inputs(built, crate)
             for path in [f"{d}/Cargo.toml" for d in dirs] + files:
                 with self.subTest(path=path):
                     self.assertTrue(any(excuse.touches(path, read) for read in reads), path)
@@ -5113,13 +5173,15 @@ class PackageFixedOnBase(unittest.TestCase):
         # time, which no manifest shows): every one that exists must be a declared read.
         literal = re.compile(r'"((?:[\w.-]+/)+[\w.-]+)"')
         for root in ("cmux-next-ios/CmuxMobileKit", "Packages/Shared", "Packages/iOS", "vendor"):
-            for source in sorted((ROOT / root).rglob("*.swift")):
-                if root != "cmux-next-ios/CmuxMobileKit" and "Tests" in source.relative_to(ROOT).parts:
-                    continue  # the job runs the kit's own tests; the packages it reaches build only their sources
-                for found in literal.finditer(source.read_text(errors="replace")):
+            sources = [source for source in tree.files(root, ".swift")
+                       if root == "cmux-next-ios/CmuxMobileKit" or "Tests" not in source.split("/")]
+            # the job runs the kit's own tests; the packages it reaches build only their sources
+            self.assertTrue(sources, f"{root} has no Swift in this tree")
+            for source, text in tree.texts(sources).items():
+                for found in literal.finditer(text):
                     path = found.group(1)
-                    if (ROOT / path).is_file():
-                        with self.subTest(path=path, source=source.relative_to(ROOT).as_posix()):
+                    if path in tree:
+                        with self.subTest(path=path, source=source):
                             self.assertTrue(any(excuse.touches(path, read) for read in reads), path)
         self.assertEqual(excuse.package_reads(REPO, HEAD, package, github), package["reads"])
 
