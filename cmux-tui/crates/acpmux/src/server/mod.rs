@@ -2244,6 +2244,9 @@ mod app_reply;
 #[cfg(test)]
 #[path = "cancel_classes_tests.rs"]
 mod cancel_classes_tests;
+#[cfg(test)]
+#[path = "cancel_prompt_tests.rs"]
+mod cancel_prompt_tests;
 mod client_request;
 mod clock_text;
 mod in_flight;
