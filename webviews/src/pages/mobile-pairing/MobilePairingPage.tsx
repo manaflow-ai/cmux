@@ -51,7 +51,7 @@ function Failed({ store, strings }: { store: MobilePairingStore; strings: String
   return (
     <div className="pairing-panel">
       <p className="pairing-message">{strings.t("mobilePairing.page.loadFailed")}</p>
-      <button type="button" className="pairing-button" onClick={() => void store.refresh()}>
+      <button type="button" className="pairing-button" onClick={() => void store.retry()}>
         {strings.t("mobilePairing.page.retry")}
       </button>
     </div>

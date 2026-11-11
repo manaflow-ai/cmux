@@ -48,14 +48,7 @@ export class MobilePairingStore {
   /** Follows the host's change events, then reads the status once. */
   async start(): Promise<void> {
     if (!this.client) return this.set({ loading: false, unavailable: true });
-    // A host that never answers the subscribe or the first read must not leave the page on
-    // "Loading…": past the deadline it says the status did not load, with Retry. A status that
-    // arrives later still replaces that.
-    this.cancelDeadline = (this.deadline.schedule ?? scheduleTimeout)(() => {
-      this.cancelDeadline = undefined;
-      if (this.stopped || this.snapshot.status) return;
-      this.set({ loading: false, failed: {} });
-    }, this.deadline.ms ?? MOBILE_PAIRING_DEADLINE_MS);
+    this.armDeadline();
     try {
       const stop = await this.client.subscribe(MobilePairingOps.changes, () => void this.refresh());
       if (this.stopped) stop();
@@ -64,6 +57,31 @@ export class MobilePairingStore {
       // Without change events the page still reads on open, on a click and on expiry.
     }
     await this.refresh();
+  }
+
+  /**
+   * Retry after the status did not load: the page shows "Loading…" again (the failure clears) and
+   * the read runs under a fresh deadline, so a read that hangs ends in the failure once more.
+   */
+  async retry(): Promise<void> {
+    if (!this.client || this.stopped) return;
+    this.set(this.snapshot.status ? { status: this.snapshot.status, loading: true } : { loading: true });
+    this.armDeadline();
+    await this.refresh();
+  }
+
+  /**
+   * A host that never answers the subscribe or a read must not leave the page on "Loading…":
+   * past the deadline it says the status did not load, with Retry. A status that arrives later
+   * still replaces that. Replaces a deadline already pending.
+   */
+  private armDeadline(): void {
+    this.cancelDeadline?.();
+    this.cancelDeadline = (this.deadline.schedule ?? scheduleTimeout)(() => {
+      this.cancelDeadline = undefined;
+      if (this.stopped || this.snapshot.status || !this.snapshot.loading) return;
+      this.set({ loading: false, failed: {} });
+    }, this.deadline.ms ?? MOBILE_PAIRING_DEADLINE_MS);
   }
 
   stop(): void {
