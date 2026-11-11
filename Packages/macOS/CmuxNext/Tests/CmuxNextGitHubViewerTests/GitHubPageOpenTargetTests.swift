@@ -44,6 +44,8 @@ import Testing
         off.browserEnabled = false
         var external = LinkRouting.fallback
         external.opensInCmuxBrowser = false
+        // The page setting on, so the default-browser rule is what keeps a click off the page.
+        external.pullRequestsInGitHubPage = true
         #expect(GitHubLink.page(for: Self.issue, routing: .fallback, explicit: true, native: true) == nil)
         #expect(GitHubLink.clickOpensPage(Self.issue, routing: .fallback, native: true) == nil)
         #expect(GitHubLink.page(for: Self.pull, routing: off, explicit: true, native: true) == nil)
