@@ -390,8 +390,10 @@ impl<'a> Poll<'a> {
     /// with no stream, reads the app every [`RECHECK`] until the deadline.
     fn stream<B: Backend>(&mut self, backend: &B, session: Option<&str>, deadline: Instant) {
         let stream_until = self.bound;
-        for _attempt in 0..2 {
+        // A try can end in each of the two refusals below, once each.
+        for _attempt in 0..3 {
             let from = self.cursor.daemon_param();
+            let has_live = from.as_ref().is_some_and(|cursor| cursor.get("live").is_some());
             let mut done = false;
             let mut wake = |item: Option<&Value>| {
                 done = self.wake(backend, session, item, deadline);
@@ -408,6 +410,15 @@ impl<'a> Poll<'a> {
                 {
                     self.cursor.daemon = None;
                     self.cursor.reset.get_or_insert_with(|| "cursor_invalid".into());
+                }
+                // A daemon before `session-live-cursor-v1` refuses the live
+                // position as an unknown cursor field: try once more without
+                // it, from the same revision. Nothing is lost: that daemon
+                // sends the live facts in its journal batches.
+                Err(failure) if failure.error["code"] == "validation.invalid" && has_live => {
+                    if let Some(daemon) = self.cursor.daemon.as_mut() {
+                        daemon.live = None;
+                    }
                 }
                 Err(_) => break,
             }
