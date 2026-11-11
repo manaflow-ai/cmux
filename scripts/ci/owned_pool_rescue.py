@@ -5004,7 +5004,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             light_rescue = None
         outcomes = sweep(client, repository, seconds=seconds, queue_rounds=env.get("QUEUE_ROUNDS"),
                          now=clock, log=light_log, side_seconds=side_seconds, light_rescue=light_rescue,
-                         stall_destination=stall_destination_label(env.get("STALL_RUNNER")))
+                         stall_destination=stall_destinations(env.get("STALL_RUNNER"), env.get("STALL_POOLS")))
         return finish("swept: " + (", ".join(f"{count} {outcome}" for outcome, count in sorted(outcomes.items()))
                                    or "no run needed a watch"))
     run_id = (env.get("WATCH_RUN_ID") or "").strip()
@@ -5287,7 +5287,7 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
 #   is never re-run), and no nightly, DEV or promote build (never_fails_over(), rescue()'s started_delivery_work());
 # - no job of the attempt failed on its own (decided_failures(): a re-run of failed jobs would repeat it), and no job
 #   but the stalled ones is running or held by a runner (a cancel would kill it);
-# - the Blacksmith label the move ends on (STALL_DESTINATION) is listed in the janitor's fresh snapshot, is not
+# - each Blacksmith label the move's jobs may end on (stall_destinations()) is listed in the janitor's fresh snapshot, is not
 #   stalled, and has a slot for every owned job the move sends there, counting the jobs this sweeper moved within
 #   STALL_ROOM_WINDOW_SECONDS, which the snapshot may not show yet (stall_room()). On 2026-11-10 that label had 27
 #   jobs queued against its 10 slots: nothing moves then;
@@ -5322,19 +5322,29 @@ STALL_CHECKOUT_STEP = re.compile(r"(?i)^(?:checkout\b|run actions/checkout@|retr
 STALL_SCAN_TICKS = 5  # as SIDE_FAILURE_TICKS: a few minutes late costs nothing against a 10-minute bound
 # No stall is shorter than the shortest bound above; an attempt younger than it is not read.
 STALL_MIN_AGE_SECONDS = min(SETUP_WAIT_SECONDS, STALL_CHECKOUT_SECONDS, STALL_QUEUE_SECONDS)
-# cmux-next.yml's macOS fallback past the bot's attempt 3: `vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26`.
-# The workflow passes vars.MACOS_RUNNER_26 as STALL_RUNNER (stall_destination_label()); unset, the pool is this one.
+# cmux-next.yml's macOS fallbacks past the bot's attempt 3 take one of two labels: swift-canary's and fast-tier's
+# read `vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26`, swift-test's and daemon-test's
+# `fromJSON(vars.RUNNER_POOLS).macos_26` alone. The workflow passes both variables (STALL_RUNNER, STALL_POOLS) and
+# stall_destinations() resolves them; with neither set, the pool is this one.
 STALL_DESTINATION = "blacksmith-6vcpu-macos-26"
 
 
-def stall_destination_label(value: str | None) -> str | None:
-    """The Blacksmith label the stall move's re-runs take, from vars.MACOS_RUNNER_26: unset, STALL_DESTINATION; a
-    picker Blacksmith label, that one; anything else (cloud_overflow_switch.py points it at an owned pool during a
-    failover) None, so nothing moves: the re-run would only rejoin an owned queue, and its room is not judged."""
-    label = (value or "").strip()
-    if not label:
-        return STALL_DESTINATION
-    return label if label in simple_pool_picker.CAPACITY else None
+def stall_destinations(runner: str | None, pools: str | None) -> tuple[str, ...] | None:
+    """The Blacksmith labels the stall move's re-runs may take, from vars.MACOS_RUNNER_26 (`runner`) and
+    vars.RUNNER_POOLS (`pools`, JSON; its macos_26, else STALL_DESTINATION). Every one must be a picker Blacksmith
+    label, else None and nothing moves: cloud_overflow_switch.py points MACOS_RUNNER_26 at an owned pool during a
+    failover, where a re-run would only rejoin an owned queue, and an unknown label's room cannot be judged."""
+    base = STALL_DESTINATION
+    if (pools or "").strip():
+        try:
+            parsed = json.loads(pools or "")
+        except ValueError:
+            return None
+        found = parsed.get("macos_26") if isinstance(parsed, Mapping) else None
+        if found:
+            base = str(found).strip()
+    labels = tuple(sorted({base, (runner or "").strip() or base}))
+    return labels if all(label in simple_pool_picker.CAPACITY for label in labels) else None
 # The janitor writes its snapshot every 10 minutes; a move made within two of them may not be counted in it yet.
 STALL_ROOM_WINDOW_SECONDS = 20 * 60
 STALL_MOVES_PER_SCAN = 1
@@ -5505,7 +5515,7 @@ def stall_destination(target: Target) -> str:
     """Where the stall move's re-run of failed jobs sends the owned jobs of `target`'s attempt."""
     following = target.attempt + 1
     if bot_rerun_leaves_owned(target.path, target.attempt):
-        return f"attempt {following} takes {STALL_DESTINATION} (cmux-next.yml's bot attempt past {REFUSAL_RESCUE_ATTEMPT})"
+        return f"attempt {following} takes Blacksmith (cmux-next.yml's bot attempt past {REFUSAL_RESCUE_ATTEMPT})"
     return (f"attempt {following} rejoins the owned label, and is passed through to Blacksmith unless a mini takes "
             f"it within {STALL_PASS_LOOK_SECONDS} s")
 
@@ -5599,11 +5609,13 @@ def stall_target(run: Mapping[str, Any], repository: str) -> Target | str:
 
 def stall_scan(client: GitHub, repository: str, *, now: Callable[[], dt.datetime], log: Callable[[str], None],
                moved: set[tuple[int, int]], moves: list[tuple[dt.datetime, int]],
-               start: Callable[[Target, list[Stall]], None], destination: str | None = STALL_DESTINATION) -> int:
+               start: Callable[[Target, list[Stall]], None],
+               destination: tuple[str, ...] | None = (STALL_DESTINATION,)) -> int:
     """One scan of the unfinished cmux-next pull request runs for a stall (see STALL_MOVE). Starts at most
     STALL_MOVES_PER_SCAN moves through `start`, never two for one attempt of a run nor more than STALL_MOVES_PER_RUN
     for one run (`moved`: the run id and attempt each move started on), none past
-    STALL_MOVES_PER_SWEEP, and none at all without a Blacksmith `destination` (stall_destination_label())
+    STALL_MOVES_PER_SWEEP, and none at all without Blacksmith `destination` labels (stall_destinations()), each of
+    which must have room for every job the move sends (a job may take either)
     (`moves`: when each move started and how many owned jobs it sends). Returns how many it started. Raises
     READ_ERRORS on a failed listing; a failed read of one run's jobs only skips that run."""
     if len(moves) >= STALL_MOVES_PER_SWEEP or destination is None:
@@ -5649,7 +5661,8 @@ def stall_scan(client: GitHub, repository: str, *, now: Callable[[], dt.datetime
         recent = sum(count for when, count in moves
                      if (at - when).total_seconds() < STALL_ROOM_WINDOW_SECONDS)
         wanted = max(1, moved_jobs(jobs))
-        full = stall_room(snapshot, at, wanted, recent, destination)
+        full = next((why for why in (stall_room(snapshot, at, wanted, recent, label) for label in destination)
+                     if why), "")
         if full:
             log(f"[run {run_id}] {STALL_MOVE} waits: {what}, but {full}")
             continue
@@ -5817,7 +5830,7 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
           wait: Callable[[float], None] = time.sleep, light_retry: bool = False,
           side_seconds: int | None = None, running_code: Mapping[str, str] | None = None,
           light_rescue: Callable[[], None] | None = None,
-          stall_destination: str | None = STALL_DESTINATION) -> dict[str, int]:
+          stall_destination: tuple[str, ...] | None = (STALL_DESTINATION,)) -> dict[str, int]:
     """Watch every marked run until `sweep_seconds` pass, or main's code changes (code_changed()).
     Returns outcome counts."""
     # The sweeper's own listings raise on a rate limit as before (a failed read is tried next
@@ -6065,7 +6078,8 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
             else:
                 try:
                     if stall_destination is None and looks == 1:
-                        log(f"{STALL_MOVE}: vars.MACOS_RUNNER_26 names no Blacksmith label, so nothing is moved")
+                        log(f"{STALL_MOVE}: vars.MACOS_RUNNER_26 or RUNNER_POOLS names no Blacksmith label, "
+                            "so nothing is moved")
                     stall_scan(client, repository, now=now, log=log, moved=stall_moved, moves=stall_moves,
                                start=start_move, destination=stall_destination)
                 except READ_ERRORS as error:

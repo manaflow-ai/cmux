@@ -8893,15 +8893,26 @@ class StallMove(unittest.TestCase):
         self.assertEqual(rescue.stall_scan(api, "manaflow-ai/cmux", now=clock.now, log=lambda text: None,
                                            moved=set(), moves=full, start=lambda *args: None), 0)
 
-    def test_the_destination_follows_vars_macos_runner_26(self):
-        self.assertEqual(rescue.stall_destination_label(""), rescue.STALL_DESTINATION)
-        self.assertEqual(rescue.stall_destination_label("blacksmith-12vcpu-macos-26"), "blacksmith-12vcpu-macos-26")
-        self.assertIsNone(rescue.stall_destination_label("glaeda-std-xcode-26.6"))
-        large = {"generated_at": stamp(0), "pools": {"blacksmith-12vcpu-macos-26": {"queued": 5, "running": 0}}}
-        self.assertIn("blacksmith-12vcpu-macos-26 has 0 running and 5 queued",
-                      rescue.stall_room(large, START, 1, 0, "blacksmith-12vcpu-macos-26"))
+    def test_the_destinations_follow_macos_runner_26_and_runner_pools(self):
+        six, twelve = rescue.STALL_DESTINATION, "blacksmith-12vcpu-macos-26"
+        self.assertEqual(rescue.stall_destinations("", ""), (six,))
+        self.assertEqual(rescue.stall_destinations(twelve, ""), (twelve, six))
+        self.assertEqual(rescue.stall_destinations("", json.dumps({"macos_26": twelve})), (twelve,))
+        self.assertIsNone(rescue.stall_destinations("glaeda-std-xcode-26.6", ""))
+        self.assertIsNone(rescue.stall_destinations("", "not json"))
+        # Every label a moved job may take needs room: 12 vCPU has room, 6 vCPU is full, so nothing moves.
+        clock = Clock()
+        api = StallAPI(clock, lambda attempt, seconds: [stall_job("cmux-next generated files", job_id=31)],
+                       snapshot=lambda seconds: {"generated_at": stamp(seconds), "pools": {
+                           twelve: {"queued": 0, "running": 0}, six: {"queued": 27, "running": 10}}})
+        clock.advance(rescue.STALL_QUEUE_SECONDS + 1)
+        logs = []
+        self.assertEqual(rescue.stall_scan(api, "manaflow-ai/cmux", now=clock.now, log=logs.append, moved=set(),
+                                           moves=[], start=lambda *args: None, destination=(twelve, six)), 0)
+        self.assertIn(f"{six} has 10 running and 27 queued", "\n".join(logs))
         workflow = (ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text()
         self.assertIn("STALL_RUNNER: ${{ vars.MACOS_RUNNER_26 }}", workflow)
+        self.assertIn("STALL_POOLS: ${{ vars.RUNNER_POOLS }}", workflow)
 
     def test_a_handover_ends_a_pass_through_between_rounds(self):
         clock = Clock()
