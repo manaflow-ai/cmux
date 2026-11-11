@@ -949,6 +949,7 @@ impl OutputStore {
         }
         if let Some(directory) = self.directory.as_deref() {
             segments::remove(directory, terminal_id);
+            self.full.forget(directory, terminal_id);
             tail::remove(directory, terminal_id);
             // The cleared lines leave the disk now, not when the next
             // snapshot is written (which a write backoff can delay).
@@ -1162,6 +1163,7 @@ impl OutputStore {
             let _pass = self.lock_pass();
             snapshot::remove(directory, terminal_id);
             segments::remove(directory, terminal_id);
+            self.full.forget(directory, terminal_id);
             tail::remove(directory, terminal_id);
         }
     }

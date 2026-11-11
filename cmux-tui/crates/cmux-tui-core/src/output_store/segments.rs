@@ -72,7 +72,18 @@ impl Segments {
 
     /// Forgets what this daemon knows of a terminal's segment files; call
     /// when they are removed.
-    pub(crate) fn forget(&self, _directory: &Path, _terminal_id: &TerminalPublicId) {}
+    pub(crate) fn forget(&self, directory: &Path, terminal_id: &TerminalPublicId) {
+        let terminal_directory = terminal_directory(directory, terminal_id);
+        self.verified
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|path, _| path.parent() != Some(terminal_directory.as_path()));
+    }
+
+    /// Forgets every terminal's segment files (all were removed).
+    pub(crate) fn forget_all(&self) {
+        self.verified.lock().unwrap_or_else(PoisonError::into_inner).clear();
+    }
 }
 
 fn generation_key(generation: &str) -> String {
