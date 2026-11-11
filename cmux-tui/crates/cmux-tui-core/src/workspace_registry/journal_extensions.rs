@@ -774,11 +774,16 @@ pub(crate) fn validate_journal_hook_manifest(manifest: &JournalHookManifest) -> 
             !regex.pattern.is_empty() && regex.pattern.len() <= 1024,
             "hook regex must contain 1 to 1024 UTF-8 bytes"
         );
+        // A new hook on terminal output would never fire: output is not in
+        // the session journal (output_store.rs). Hooks stored before keep
+        // matching the output records of older registries.
         anyhow::ensure!(
-            matches!(
-                regex.field.as_str(),
-                "kind" | "subjects" | "payload" | "record" | "terminal_output"
-            ),
+            regex.field != "terminal_output",
+            "hook regex field terminal_output is retired: terminal output is not in the session \
+             journal; wait with terminal.wait or read with terminal.output_read"
+        );
+        anyhow::ensure!(
+            matches!(regex.field.as_str(), "kind" | "subjects" | "payload" | "record"),
             "hook regex field is invalid"
         );
         regex::bytes::RegexBuilder::new(&regex.pattern)
@@ -2258,32 +2263,21 @@ impl WorkspaceRegistry {
 
     /// Store the exit snapshot for one terminal generation, best-effort and
     /// idempotent. The exit latch is first-writer-wins, so at most one row
-    /// exists per terminal; a replayed store is a no-op. Returns whether a
-    /// snapshot row was written.
+    /// exists per terminal; a replayed store is a no-op. `covered_through` is
+    /// the output-store offset the snapshot covers (output_store.rs). Returns
+    /// whether a snapshot row was written.
     pub(crate) fn put_terminal_exit_snapshot(
         &mut self,
         terminal_id: &str,
         generation: &str,
+        covered_through: u64,
         blob: &JournalContentBlob,
     ) -> anyhow::Result<bool> {
-        let tx = self.connection.transaction()?;
-        let covered_through = tx
-            .query_row(
-                "SELECT next_offset FROM journal_terminal_streams
-                 WHERE terminal_id = ?1 AND generation = ?2",
-                params![terminal_id, generation],
-                |row| row.get::<_, i64>(0),
-            )
-            .optional()?
-            .map(u64::try_from)
-            .transpose()
-            .context("terminal journal offset is negative")?
-            .unwrap_or(0);
         if covered_through == 0 {
-            // The generation journaled no output; there is nothing for the
-            // snapshot to cover and record reads stay exact without it.
+            // The generation printed nothing; there is nothing to cover.
             return Ok(false);
         }
+        let tx = self.connection.transaction()?;
         let now = unix_epoch_ms()?;
         insert_journal_content_blob(&tx, blob, now)?;
         let inserted = tx.execute(

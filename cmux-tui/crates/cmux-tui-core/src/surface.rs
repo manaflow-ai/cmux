@@ -1683,13 +1683,6 @@ pub struct PtyTerminalRuntime {
     journal_capture_gate: Mutex<()>,
     journal_capture_idle: Condvar,
     journal_capture_open: AtomicBool,
-    journal_capture_disabled: AtomicBool,
-    /// Why this terminal's journal lost output that no `terminal.output.gap`
-    /// record names yet. The record goes into the terminal lane before any
-    /// later output; after a full lane, only once the lane has drained to
-    /// half, so one record covers the whole dropped range. Lock it only under
-    /// `journal_capture_gate`.
-    journal_gap_pending: Mutex<Option<&'static str>>,
     journal_capture_reserved: AtomicBool,
     journal_capture_active: AtomicBool,
     /// Owned reader join fence. Shutdown gives this reader a bounded drain
@@ -2625,8 +2618,6 @@ impl Surface {
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
-                journal_capture_disabled: AtomicBool::new(false),
-                journal_gap_pending: Mutex::new(None),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
@@ -2816,7 +2807,7 @@ impl Surface {
                         if let (Some(journal_target), Some(journal_output)) =
                             (journal_target, journal_output)
                         {
-                            pty.journal_output_if_open(journal_target, journal_output.into_owned());
+                            pty.record_output(journal_target, &journal_output);
                         }
                         drop(journal_update);
                         surface.publish_pending_directory();
@@ -3164,8 +3155,6 @@ impl Surface {
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
-                journal_capture_disabled: AtomicBool::new(false),
-                journal_gap_pending: Mutex::new(None),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
@@ -3458,7 +3447,7 @@ impl Surface {
                                 if let (Some(journal_target), Some(journal_output)) =
                                     (journal_target, journal_output)
                                 {
-                                    pty.journal_output_if_open(journal_target, journal_output);
+                                    pty.record_output(journal_target, &journal_output);
                                 }
                                 drop(journal_update.take());
                                 surface.publish_pending_directory();
@@ -3962,10 +3951,10 @@ impl Surface {
                             }
                             continue;
                         }
-                        // Bytes the host wrote while no daemon tap existed are
-                        // not in the journal. Record that gap in the terminal
-                        // lane before any new output; the journal retention
-                        // worker coalesces one checkpoint for the whole wave
+                        // Bytes the host wrote while no daemon tap existed
+                        // never reached this daemon. Record that gap marker
+                        // in the terminal lane; the journal retention worker
+                        // coalesces one checkpoint for the whole wave
                         // (mux/journal_retention.rs). Capturing a session
                         // checkpoint here kept this reader from the new
                         // stream: under continuous output the host dropped
@@ -4252,8 +4241,6 @@ impl Surface {
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
-                journal_capture_disabled: AtomicBool::new(false),
-                journal_gap_pending: Mutex::new(None),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
@@ -4483,8 +4470,6 @@ impl Surface {
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
-                journal_capture_disabled: AtomicBool::new(false),
-                journal_gap_pending: Mutex::new(None),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
@@ -4560,14 +4545,6 @@ impl Surface {
         Ok(surface)
     }
 
-    /// Records this terminal's pending journal gap if the terminal lane takes
-    /// it: the retention worker calls this ahead of a coalesced checkpoint.
-    pub(crate) fn record_pending_journal_gap(&self) {
-        if let Some(pty) = self.as_pty() {
-            pty.record_pending_journal_gap();
-        }
-    }
-
     fn as_pty(&self) -> Option<&PtySurface> {
         match self {
             Surface::Pty(surface) => Some(surface),
@@ -4629,20 +4606,13 @@ impl Surface {
         // update crossed the reader deadline, wait through the active-update
         // grace. Report a gap if that update still did not complete.
         let output_gap = pty.close_terminal_journal_capture_when_idle(deadline);
-        // A gap that found the terminal lane full, with no later output to
-        // record it ahead of.
-        let pending_gap = {
-            let _gate = pty.journal_capture_gate.lock().unwrap_or_else(|error| error.into_inner());
-            pty.journal_gap_pending.lock().unwrap_or_else(|error| error.into_inner()).take()
-        };
-        if !pty.journal_capture_supported {
+        if !output_gap || !pty.journal_capture_supported {
             return None;
         }
-        let reason = if output_gap { "active_update_timeout" } else { pending_gap? };
         pty.terminal_public_id.clone().map(|terminal_id| TerminalJournalGap {
             terminal_id,
             generation: pty.journal_generation.clone(),
-            reason,
+            reason: "active_update_timeout",
         })
     }
 
@@ -5296,7 +5266,7 @@ impl Surface {
         pty.observe_terminal_output(&output);
         pty.broadcast_attach_output(&output);
         if let Some(journal_target) = pty.journal_target() {
-            pty.journal_output_if_open(journal_target, output);
+            pty.record_output(journal_target, &output);
         }
         pty.stream_progress.notify();
         Ok(Some(f(&mut terminal)))
@@ -5467,6 +5437,23 @@ impl Surface {
     }
 
     pub fn clear_history_or_encode_key_classified(
+        &self,
+        fallback_key: Option<&KeyInput>,
+    ) -> Result<(), ClearHistoryFailure> {
+        self.clear_history_in_terminal(fallback_key)?;
+        // What the person cleared must not come back from the output store:
+        // it drops this terminal's stored output and rewrites its snapshot
+        // at once.
+        if let Some(pty) = self.as_pty()
+            && let (Some(terminal_id), Some(mux)) =
+                (pty.terminal_public_id.as_ref(), pty.mux.upgrade())
+        {
+            mux.output_store.history_cleared(terminal_id);
+        }
+        Ok(())
+    }
+
+    fn clear_history_in_terminal(
         &self,
         fallback_key: Option<&KeyInput>,
     ) -> Result<(), ClearHistoryFailure> {
@@ -6863,144 +6850,37 @@ impl PtySurface {
             .then_some((mux, terminal_id))
     }
 
-    /// Hands output to the journal's terminal lane without waiting. The
-    /// journal is a replay record and must not hold this reader back: a
-    /// reader that waits for lane space stops reading its host stream, and
-    /// the host drops the daemon's tap once it is 8 MiB behind. When the lane
-    /// is full, the output is not journaled, the terminal is noted for the
-    /// coalesced checkpoint, and the terminal keeps dropping until the lane
-    /// has drained to half; then one `journal_queue_full` gap record goes
-    /// ahead of the next output.
-    fn journal_output_if_open(
-        &self,
-        (mux, terminal_id): (Arc<Mux>, Arc<TerminalPublicId>),
-        bytes: Vec<u8>,
-    ) {
-        let occurred_at_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
-        for chunk in bytes.chunks(crate::journal_ingress::TERMINAL_OUTPUT_INGRESS_BYTES) {
-            let sent = {
-                let _gate =
-                    self.journal_capture_gate.lock().unwrap_or_else(|error| error.into_inner());
-                if !self.journal_capture_open.load(Ordering::Acquire)
-                    || self.journal_capture_disabled.load(Ordering::Acquire)
-                {
-                    return;
-                }
-                let mut pending =
-                    self.journal_gap_pending.lock().unwrap_or_else(|error| error.into_inner());
-                if !self.record_journal_gap(&mux, &terminal_id, &mut pending, true) {
-                    return;
-                }
-                let sent = mux.try_journal_terminal_output(
-                    terminal_id.clone(),
-                    self.journal_generation.clone(),
-                    occurred_at_ms,
-                    chunk.to_vec(),
-                );
-                if matches!(sent, Ok(Some(_))) && pending.is_none() {
-                    *pending = Some("journal_queue_full");
-                    mux.note_journal_gap_for_retention(&terminal_id);
-                }
-                sent
-            };
-            match sent {
-                Ok(None) => {}
-                Ok(Some(_)) => return,
-                Err(error) => {
-                    self.journal_capture_disabled.store(true, Ordering::Release);
-                    if mux
-                        .try_journal_terminal_output_gap(
-                            terminal_id,
-                            self.journal_generation.clone(),
-                            "journal_output_write_failed",
-                        )
-                        .is_err()
-                    {
-                        eprintln!(
-                            "cmux-tui: terminal journal gap marker could not be recorded; terminal capture remains disabled"
-                        );
-                    }
-                    eprintln!(
-                        "cmux-tui: terminal journal capture disabled after a write failure; daemon remains available: {error}"
-                    );
-                    return;
-                }
-            }
-        }
+    /// Hands output the parser accepted to the output store
+    /// (output_store.rs). Output never enters the session journal, so a busy
+    /// journal writer can neither hold this reader back nor drop the output;
+    /// the store only copies the bytes into memory here.
+    fn record_output(&self, (mux, terminal_id): (Arc<Mux>, Arc<TerminalPublicId>), bytes: &[u8]) {
+        mux.output_store.append(&terminal_id, &self.journal_generation, bytes);
     }
 
-    /// Notes that this terminal's journal lost output (`reason`) and records
-    /// the gap now if the terminal lane has room; otherwise the next output
-    /// records it first.
+    /// Records a `terminal.output.gap` marker (`reason`) without waiting, and
+    /// notes the terminal for the next coalesced checkpoint
+    /// (mux/journal_retention.rs). A closed capture gate (shutdown) records
+    /// nothing: the final journal barrier may already be in.
     fn journal_gap(&self, reason: &'static str) {
-        self.journal_gap_now(Some(reason), true);
-    }
-
-    /// Records the pending gap, if any, without noting the terminal again:
-    /// the retention worker calls this for the terminals it checkpoints.
-    fn record_pending_journal_gap(&self) {
-        self.journal_gap_now(None, false);
-    }
-
-    fn journal_gap_now(&self, reason: Option<&'static str>, note_retention: bool) {
         let Some((mux, terminal_id)) = self.journal_target() else { return };
         let _gate = self.journal_capture_gate.lock().unwrap_or_else(|error| error.into_inner());
-        if !self.journal_capture_open.load(Ordering::Acquire)
-            || self.journal_capture_disabled.load(Ordering::Acquire)
-        {
+        if !self.journal_capture_open.load(Ordering::Acquire) {
             return;
         }
-        let mut pending =
-            self.journal_gap_pending.lock().unwrap_or_else(|error| error.into_inner());
-        if let Some(reason) = reason.filter(|_| pending.is_none()) {
-            *pending = Some(reason);
-            mux.note_journal_gap_for_retention(&terminal_id);
-        }
-        self.record_journal_gap(&mux, &terminal_id, &mut pending, note_retention);
+        mux.journal_terminal_output_gap(terminal_id, self.journal_generation.clone(), reason);
     }
 
-    /// Records the pending gap, if any. `false` while it cannot be recorded,
-    /// so no later output may enter the lane yet: the terminal lane has no
-    /// room, or (after a full lane) has not drained to half yet, so the
-    /// dropped range stays open under the one pending gap.
-    fn record_journal_gap(
-        &self,
-        mux: &Arc<Mux>,
-        terminal_id: &Arc<TerminalPublicId>,
-        pending: &mut Option<&'static str>,
-        note_retention: bool,
-    ) -> bool {
-        let Some(reason) = *pending else { return true };
-        if reason == "journal_queue_full" && !mux.terminal_journal_lane_can_resume() {
-            return false;
-        }
-        if !mux.journal_terminal_output_gap(
-            terminal_id.clone(),
-            self.journal_generation.clone(),
-            reason,
-            note_retention,
-        ) {
-            return false;
-        }
-        *pending = None;
-        true
-    }
-
-    /// Journals an accepted geometry change without waiting, in order with
-    /// this terminal's output: a pending gap goes first, and a full terminal
-    /// lane leaves a `journal_queue_full` gap in place of the change. Callers
-    /// hold the parser lock, so a wait here would stall the terminal.
+    /// Journals an accepted geometry change without waiting: callers hold
+    /// the parser lock, so a wait here would stall the terminal. Output no
+    /// longer fills the terminal lane, so it is full only behind a stalled
+    /// writer; then the change is not journaled and the terminal is noted
+    /// for the coalesced checkpoint, whose session snapshot has the size.
     fn journal_geometry(&self, geometry: PtyGeometry) {
         let (Some(terminal_id), Some(mux)) = (self.terminal_public_id.clone(), self.mux.upgrade())
         else {
             return;
         };
-        let _gate = self.journal_capture_gate.lock().unwrap_or_else(|error| error.into_inner());
-        let mut pending =
-            self.journal_gap_pending.lock().unwrap_or_else(|error| error.into_inner());
-        if !self.record_journal_gap(&mux, &terminal_id, &mut pending, true) {
-            return;
-        }
         if !mux.try_journal_terminal_resize(
             terminal_id.clone(),
             self.journal_generation.clone(),
@@ -7008,9 +6888,11 @@ impl PtySurface {
             geometry.rows,
             geometry.cell_width,
             geometry.cell_height,
-        ) && pending.is_none()
-        {
-            *pending = Some("journal_queue_full");
+        ) {
+            eprintln!(
+                "cmux-tui: terminal {terminal_id} resize was not journaled: the terminal journal \
+                 lane is full"
+            );
             mux.note_journal_gap_for_retention(&terminal_id);
         }
     }
@@ -8063,417 +7945,6 @@ mod tests {
         source.write_bytes(b"first").unwrap();
         projection.write_bytes(b"second").unwrap();
         assert_eq!(&*writer.0.lock().unwrap(), b"firstsecond");
-    }
-
-    #[test]
-    fn terminal_journal_write_failure_disables_capture_without_stopping_daemon() {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-terminal-journal-capture-failure-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        let mux = Mux::open_persistent(
-            "terminal-journal-capture-failure",
-            SurfaceOptions::default(),
-            &root,
-        )
-        .unwrap();
-        let database_path = std::fs::read_dir(&root)
-            .unwrap()
-            .filter_map(Result::ok)
-            .map(|entry| entry.path().join("workspace-registry.sqlite3"))
-            .find(|path| path.is_file())
-            .expect("persistent journal database");
-        let injector = rusqlite::Connection::open(database_path).unwrap();
-        injector
-            .execute_batch(
-                "CREATE TRIGGER reject_capture_failure_test_terminal_output
-                 BEFORE INSERT ON session_journal
-                 WHEN NEW.kind = 'terminal.output'
-                 BEGIN
-                   SELECT RAISE(ABORT, 'database or disk is full');
-                 END;",
-            )
-            .unwrap();
-        let surface =
-            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
-        let terminal_id = Arc::new(surface.terminal_public_id().unwrap().clone());
-        let pty = surface.as_pty().unwrap();
-
-        pty.journal_output_if_open(
-            (mux.clone(), terminal_id.clone()),
-            b"the first write enters the failing journal".to_vec(),
-        );
-        assert!(mux.flush_terminal_journal().is_err());
-        pty.journal_output_if_open(
-            (mux.clone(), terminal_id),
-            b"the next write reports the permanent failure".to_vec(),
-        );
-
-        assert!(pty.journal_capture_open.load(Ordering::Acquire));
-        assert!(pty.journal_capture_disabled.load(Ordering::Acquire));
-        let reader_gate = pty.begin_terminal_journal_update();
-        assert!(reader_gate.is_some(), "journal failure must not close the terminal reader gate");
-        drop(reader_gate);
-        assert!(
-            !mux.daemon_shutdown_requested(),
-            "journal storage failure must leave live terminal hosts available"
-        );
-        drop(surface);
-        drop(injector);
-        drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_full_terminal_journal_lane_drops_output_and_records_a_gap_before_later_output() {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-terminal-journal-lane-full-{}",
-            crate::workspace_registry::new_uuid_v4()
-        ));
-        let mux =
-            Mux::open_persistent("terminal-journal-lane-full", SurfaceOptions::default(), &root)
-                .unwrap();
-        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
-        let surface_id = mux
-            .seed_running_terminal_for_test(
-                "00000000000040008000000000000082",
-                "10000000000040008000000000000082",
-                &workspace.key,
-            )
-            .unwrap();
-        let surface = mux.surface(surface_id).unwrap();
-        let pty = surface.as_pty().unwrap();
-        let (entered, entered_receiver) = sync_channel(1);
-        let (release, release_receiver) = sync_channel(1);
-        mux.install_journal_before_commit_for_test(entered, release_receiver);
-        print_journaled_for_test(&surface, &mux, "held");
-        entered_receiver.recv_timeout(Duration::from_secs(5)).unwrap();
-
-        // More chunks than the terminal lane holds: none of these calls may
-        // wait for the held writer.
-        for _ in 0..2048 {
-            print_journaled_for_test(&surface, &mux, "flood");
-        }
-        assert_eq!(*pty.journal_gap_pending.lock().unwrap(), Some("journal_queue_full"));
-
-        release.send(()).unwrap();
-        mux.flush_terminal_journal().unwrap();
-        print_journaled_for_test(&surface, &mux, "after-the-gap");
-        mux.flush_terminal_journal().unwrap();
-
-        assert_eq!(*pty.journal_gap_pending.lock().unwrap(), None);
-        assert!(!pty.journal_capture_disabled.load(Ordering::Acquire));
-        let records = journal_records_after_for_test(&mux, 0);
-        let gap = records
-            .iter()
-            .position(|record| {
-                record.kind == "terminal.output.gap"
-                    && record.payload["reason"] == "journal_queue_full"
-            })
-            .expect("a journal_queue_full gap record");
-        let later = records
-            .iter()
-            .rposition(|record| record.kind == "terminal.output")
-            .expect("the later output record");
-        assert!(gap < later, "the gap record must precede the output after it");
-        drop(surface);
-        drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    /// Every journal record after `sequence`, read in pages of the largest
-    /// size the journal serves.
-    #[cfg(unix)]
-    fn journal_records_after_for_test(
-        mux: &Mux,
-        mut sequence: u64,
-    ) -> Vec<crate::workspace_registry::SessionJournalRecord> {
-        let mut records = Vec::new();
-        loop {
-            let page = mux.session_journal_after(sequence, 1024).unwrap();
-            let Some(last) = page.records.last() else {
-                return records;
-            };
-            sequence = last.sequence;
-            records.extend(page.records);
-        }
-    }
-
-    /// Prints `text` the way the hosted reader does: the parser and the
-    /// journal see it inside one journal update, so a checkpoint capture
-    /// never pairs a parser state with a journal that lacks its bytes.
-    #[cfg(unix)]
-    fn print_journaled_for_test(surface: &Surface, mux: &Arc<Mux>, text: &str) {
-        let pty = surface.as_pty().unwrap();
-        let terminal_id = Arc::new(surface.terminal_public_id().unwrap().clone());
-        let mut update = surface.begin_terminal_journal_update_for_test().unwrap();
-        assert!(update.activate());
-        surface.apply_local_pty_output_for_test(text.as_bytes()).unwrap();
-        pty.journal_output_if_open((mux.clone(), terminal_id), text.as_bytes().to_vec());
-        drop(update);
-    }
-
-    /// Output the journal dropped while its terminal lane was full is
-    /// covered by the coalesced checkpoint after the gap: that checkpoint plus
-    /// the journal after it replays the live screen and scrollback exactly,
-    /// and the gap record stays in the journal for diagnosis.
-    #[cfg(unix)]
-    #[test]
-    fn a_dropped_journal_range_is_covered_by_the_next_coalesced_checkpoint() {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-terminal-journal-gap-replay-{}",
-            crate::workspace_registry::new_uuid_v4()
-        ));
-        let mux =
-            Mux::open_persistent("terminal-journal-gap-replay", SurfaceOptions::default(), &root)
-                .unwrap();
-        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
-        let surface_id = mux
-            .seed_running_terminal_for_test(
-                "00000000000040008000000000000081",
-                "10000000000040008000000000000081",
-                &workspace.key,
-            )
-            .unwrap();
-        let surface = mux.surface(surface_id).unwrap();
-        let terminal_id = surface.terminal_public_id().unwrap().clone();
-        let pty = surface.as_pty().unwrap();
-        for line in 0..20 {
-            print_journaled_for_test(&surface, &mux, &format!("before-{line}\r\n"));
-        }
-        mux.flush_terminal_journal().unwrap();
-
-        let (entered, entered_receiver) = sync_channel(1);
-        let (release, release_receiver) = sync_channel(1);
-        mux.install_journal_before_commit_for_test(entered, release_receiver);
-        print_journaled_for_test(&surface, &mux, "held\r\n");
-        entered_receiver.recv_timeout(Duration::from_secs(5)).unwrap();
-        // More chunks than the terminal lane's 1024 slots.
-        for line in 0..1100 {
-            print_journaled_for_test(&surface, &mux, &format!("flood-{line}\r\n"));
-        }
-        assert_eq!(*pty.journal_gap_pending.lock().unwrap(), Some("journal_queue_full"));
-        release.send(()).unwrap();
-        mux.flush_terminal_journal().unwrap();
-        print_journaled_for_test(&surface, &mux, "after-the-gap\r\n");
-        mux.flush_terminal_journal().unwrap();
-
-        // One failed capture retries after the 30 s interval.
-        assert!(
-            mux.wait_for_coalesced_checkpoints_for_test(1, Duration::from_secs(40)),
-            "no coalesced checkpoint after the journal gap"
-        );
-        for line in 0..20 {
-            print_journaled_for_test(&surface, &mux, &format!("after-checkpoint-{line}\r\n"));
-        }
-        mux.flush_terminal_journal().unwrap();
-
-        let (checkpoint_id, replayed) =
-            replay_from_newest_checkpoint_for_test(&mux, &root, &terminal_id);
-        let live = surface.try_with_terminal(|terminal| terminal.plain_text()).unwrap().unwrap();
-        assert!(live.contains("flood-1099") && live.contains("after-checkpoint-19"));
-        assert_eq!(replayed, live);
-        let preview = mux.journal_restore_preview(&checkpoint_id).unwrap();
-        assert_eq!(preview["fully_reducible"], true);
-        assert!(journal_records_after_for_test(&mux, 0).iter().any(|record| {
-            record.kind == "terminal.output.gap" && record.payload["reason"] == "journal_queue_full"
-        }));
-        drop(surface);
-        drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    /// Rebuilds a terminal from the newest journal checkpoint plus the
-    /// `terminal.output` records after it. Returns the checkpoint id and the
-    /// rebuilt screen and scrollback.
-    #[cfg(unix)]
-    fn replay_from_newest_checkpoint_for_test(
-        mux: &Mux,
-        root: &std::path::Path,
-        terminal_id: &TerminalPublicId,
-    ) -> (String, String) {
-        let checkpoint = mux.journal_checkpoints().unwrap().into_iter().next().unwrap();
-        let content = checkpoint
-            .content_refs
-            .iter()
-            .find(|content| content.terminal_id == terminal_id.as_str())
-            .expect("the checkpoint holds the terminal's replay");
-        let database_path = std::fs::read_dir(root)
-            .unwrap()
-            .filter_map(Result::ok)
-            .map(|entry| entry.path().join("workspace-registry.sqlite3"))
-            .find(|path| path.is_file())
-            .expect("persistent journal database");
-        let compressed: Vec<u8> = rusqlite::Connection::open(database_path)
-            .unwrap()
-            .query_row(
-                "SELECT content FROM journal_content_blobs WHERE content_id = ?1",
-                [&content.content_id],
-                |row| row.get(0),
-            )
-            .unwrap();
-        let mut decoded = Vec::new();
-        flate2::read::GzDecoder::new(compressed.as_slice()).read_to_end(&mut decoded).unwrap();
-        let replay: serde_json::Value = serde_json::from_slice(&decoded).unwrap();
-        let replay_bytes = base64::engine::general_purpose::STANDARD
-            .decode(replay["bytes_base64"].as_str().unwrap())
-            .unwrap();
-        let mut replayed =
-            Terminal::new(content.cols, content.rows, 64 * 1024 * 1024, Callbacks::default())
-                .unwrap();
-        replayed.vt_write(&replay_bytes);
-        let after = journal_records_after_for_test(mux, checkpoint.source_sequence);
-        for record in after.iter().filter(|record| record.kind == "terminal.output") {
-            replayed.vt_write(record.terminal_output.as_deref().unwrap());
-        }
-
-        (checkpoint.checkpoint_id, replayed.plain_text().unwrap())
-    }
-
-    /// A terminal lane that stays more than half full keeps the terminal's
-    /// output out of the journal, so the many episodes in which the lane
-    /// fills while the writer drains one batch at a time give one gap
-    /// record for the whole dropped range, not one gap per batch with a
-    /// chunk of output between each.
-    #[cfg(unix)]
-    #[test]
-    fn dropped_output_stays_one_gap_until_the_terminal_lane_drains_to_half() {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-terminal-journal-gap-coalesce-{}",
-            crate::workspace_registry::new_uuid_v4()
-        ));
-        let mux =
-            Mux::open_persistent("terminal-journal-gap-coalesce", SurfaceOptions::default(), &root)
-                .unwrap();
-        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
-        let surface_id = mux
-            .seed_running_terminal_for_test(
-                "00000000000040008000000000000083",
-                "10000000000040008000000000000083",
-                &workspace.key,
-            )
-            .unwrap();
-        let surface = mux.surface(surface_id).unwrap();
-        let pty = surface.as_pty().unwrap();
-        let (entered, entered_receiver) = sync_channel(1);
-        let (step, step_receiver) = sync_channel(1);
-        mux.install_journal_writer_pacing_for_test(entered, step_receiver);
-        print_journaled_for_test(&surface, &mux, "held\r\n");
-        entered_receiver.recv_timeout(Duration::from_secs(5)).unwrap();
-        // More chunks than the terminal lane's 1024 slots.
-        for _ in 0..1100 {
-            print_journaled_for_test(&surface, &mux, "flood\r\n");
-        }
-        assert_eq!(*pty.journal_gap_pending.lock().unwrap(), Some("journal_queue_full"));
-        // Each step lets the writer commit one batch and take the next (at
-        // most 64 chunks): the lane stays more than half full, and the
-        // terminal fills it again each round.
-        for _ in 0..5 {
-            step.send(()).unwrap();
-            entered_receiver.recv_timeout(Duration::from_secs(5)).unwrap();
-            for _ in 0..100 {
-                print_journaled_for_test(&surface, &mux, "flood\r\n");
-            }
-        }
-        drop(step);
-        mux.flush_terminal_journal().unwrap();
-        print_journaled_for_test(&surface, &mux, "after-the-gap\r\n");
-        mux.flush_terminal_journal().unwrap();
-
-        let records = journal_records_after_for_test(&mux, 0);
-        let gaps: Vec<usize> = records
-            .iter()
-            .enumerate()
-            .filter(|(_, record)| {
-                record.kind == "terminal.output.gap"
-                    && record.payload["reason"] == "journal_queue_full"
-            })
-            .map(|(index, _)| index)
-            .collect();
-        assert_eq!(gaps.len(), 1, "one gap record for the whole dropped range: {gaps:?}");
-        let next_output = records[gaps[0]..]
-            .iter()
-            .find(|record| record.kind == "terminal.output")
-            .expect("the output after the gap");
-        assert_eq!(next_output.terminal_output.as_deref(), Some(&b"after-the-gap\r\n"[..]));
-        drop(surface);
-        drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    /// A burst whose tail the journal dropped, with no output after it, still
-    /// gets its gap record and a coalesced checkpoint after that record: the
-    /// marker and the repair must not wait for the terminal's next output.
-    #[cfg(unix)]
-    #[test]
-    fn a_dropped_tail_with_no_later_output_gets_its_gap_and_checkpoint() {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-terminal-journal-gap-tail-{}",
-            crate::workspace_registry::new_uuid_v4()
-        ));
-        let mux =
-            Mux::open_persistent("terminal-journal-gap-tail", SurfaceOptions::default(), &root)
-                .unwrap();
-        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
-        let surface_id = mux
-            .seed_running_terminal_for_test(
-                "00000000000040008000000000000084",
-                "10000000000040008000000000000084",
-                &workspace.key,
-            )
-            .unwrap();
-        let surface = mux.surface(surface_id).unwrap();
-        let terminal_id = surface.terminal_public_id().unwrap().clone();
-        let pty = surface.as_pty().unwrap();
-        for line in 0..20 {
-            print_journaled_for_test(&surface, &mux, &format!("before-{line}\r\n"));
-        }
-        mux.flush_terminal_journal().unwrap();
-
-        let (entered, entered_receiver) = sync_channel(1);
-        let (release, release_receiver) = sync_channel(1);
-        mux.install_journal_before_commit_for_test(entered, release_receiver);
-        print_journaled_for_test(&surface, &mux, "held\r\n");
-        entered_receiver.recv_timeout(Duration::from_secs(5)).unwrap();
-        // More chunks than the terminal lane's 1024 slots; the burst ends here.
-        for line in 0..1100 {
-            print_journaled_for_test(&surface, &mux, &format!("flood-{line}\r\n"));
-        }
-        assert_eq!(*pty.journal_gap_pending.lock().unwrap(), Some("journal_queue_full"));
-        release.send(()).unwrap();
-        mux.flush_terminal_journal().unwrap();
-
-        // One failed capture retries after the 30 s interval.
-        assert!(
-            mux.wait_for_coalesced_checkpoints_for_test(1, Duration::from_secs(40)),
-            "no coalesced checkpoint after a burst whose tail the journal dropped"
-        );
-        assert_eq!(*pty.journal_gap_pending.lock().unwrap(), None);
-        let records = journal_records_after_for_test(&mux, 0);
-        let gap = records
-            .iter()
-            .position(|record| {
-                record.kind == "terminal.output.gap"
-                    && record.payload["reason"] == "journal_queue_full"
-            })
-            .expect("a journal_queue_full gap record for the dropped tail");
-        let checkpoint = records
-            .iter()
-            .rposition(|record| record.kind == "journal.checkpoint.created")
-            .expect("the coalesced checkpoint record");
-        assert!(gap < checkpoint, "the checkpoint must follow the gap it covers");
-        let (checkpoint_id, replayed) =
-            replay_from_newest_checkpoint_for_test(&mux, &root, &terminal_id);
-        let live = surface.try_with_terminal(|terminal| terminal.plain_text()).unwrap().unwrap();
-        assert!(live.contains("flood-1099"));
-        assert_eq!(replayed, live);
-        let preview = mux.journal_restore_preview(&checkpoint_id).unwrap();
-        assert_eq!(preview["fully_reducible"], true);
-        drop(surface);
-        drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     fn append_disabled_kitty_replay_state(payload: &mut Vec<u8>) {
