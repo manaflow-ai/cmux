@@ -321,6 +321,9 @@ impl Inner {
                     ),
                 }
             }
+            // No host runs from the staged copy now: a new build moves into
+            // the one stable path here.
+            platform::promote(&staged)?;
             let config = lock(&this.config).clone();
             let secret = mint_secret()?;
             let pid = platform::spawn_host(

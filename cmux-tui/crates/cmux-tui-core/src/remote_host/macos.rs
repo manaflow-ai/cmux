@@ -26,6 +26,9 @@ pub(super) struct Staged {
     pub(super) executable: PathBuf,
     /// Content digest of the signed bundle (its executable and seal).
     pub(super) digest: String,
+    /// A verified copy of a new build waiting in `state/app/next` to replace
+    /// `current` ([`promote`]) once no host runs from it.
+    pub(super) next: Option<PathBuf>,
 }
 
 /// The app's embedded bundle: `CMUX_REMOTE_APP`, else `Contents/Library`
@@ -105,10 +108,14 @@ fn verify(app: &Path) -> Result<(), String> {
     }
 }
 
-/// A verified copy of the embedded bundle under `state/app/<digest>/`,
-/// reused while the embedded bundle is the same; never followed through a
-/// symlink. The two newest copies are kept (a host of the previous build may
-/// still run from one until it drains).
+/// The verified copy of the embedded bundle that runs, always at one path,
+/// `state/app/current/<bundle>`: macOS keys the person's screen-capture
+/// approvals (and other per-app records) by the app's path, so a path per
+/// build asked them again after every update. A new build is copied and
+/// verified into `state/app/next/` first; [`promote`] moves it to `current`
+/// only when no host runs from `current` (the caller drains or never adopted
+/// one), so a busy host of the previous build keeps its bundle until it
+/// stops. Never followed through a symlink.
 pub(super) fn stage(state: &Path) -> Result<Staged, String> {
     use std::os::unix::fs::PermissionsExt;
     let source = embedded()?;
@@ -123,12 +130,15 @@ pub(super) fn stage(state: &Path) -> Result<Staged, String> {
         let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
     }
     let name = source.file_name().ok_or("bad bundle name")?;
-    let slot = root.join(&digest[..16]);
-    let app = slot.join(name);
-    let marker = slot.join(".verified");
-    let ready = std::fs::read_to_string(&marker).is_ok_and(|text| text.trim() == digest)
-        && digest_of(&app).is_ok_and(|copy| copy == digest);
-    if !ready {
+    let current = root.join(CURRENT);
+    let app = current.join(name);
+    let executable = app.join("Contents/MacOS").join(EXECUTABLE);
+    if slot_holds(&current, name, &digest) {
+        let _ = std::fs::remove_dir_all(root.join(NEXT));
+        return Ok(Staged { app, executable, digest, next: None });
+    }
+    let next = root.join(NEXT);
+    if !slot_holds(&next, name, &digest) {
         let temporary = root.join(format!(".staging-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&temporary);
         std::fs::create_dir_all(&temporary).map_err(|error| format!("{error}"))?;
@@ -153,30 +163,65 @@ pub(super) fn stage(state: &Path) -> Result<Staged, String> {
             return Err(error);
         }
         std::fs::write(temporary.join(".verified"), &digest).map_err(|error| format!("{error}"))?;
-        let _ = std::fs::remove_dir_all(&slot);
-        std::fs::rename(&temporary, &slot).map_err(|error| format!("{error}"))?;
+        let _ = std::fs::remove_dir_all(&next);
+        std::fs::rename(&temporary, &next).map_err(|error| format!("{error}"))?;
     }
-    prune(&root, &slot);
-    let executable = app.join("Contents/MacOS").join(EXECUTABLE);
-    Ok(Staged { app, executable, digest })
+    Ok(Staged { app, executable, digest, next: Some(next) })
 }
 
-/// Keeps `current` and the newest other copy; removes the rest.
-fn prune(root: &Path, current: &Path) {
+/// The slot that runs, and the one a new build waits in.
+const CURRENT: &str = "current";
+const NEXT: &str = "next";
+
+/// Whether `slot` holds a verified copy of the build with `digest`.
+fn slot_holds(slot: &Path, name: &std::ffi::OsStr, digest: &str) -> bool {
+    std::fs::read_to_string(slot.join(".verified")).is_ok_and(|text| text.trim() == digest)
+        && digest_of(&slot.join(name)).is_ok_and(|copy| copy == digest)
+}
+
+/// Moves a waiting new build into `current` and removes copies of earlier
+/// layouts. Call it only when no host runs from any staged copy: right
+/// before starting one.
+pub(super) fn promote(staged: &Staged) -> Result<(), String> {
+    let Some(next) = &staged.next else {
+        if let Some(root) = staged.app.parent().and_then(Path::parent) {
+            prune(root);
+        }
+        return Ok(());
+    };
+    let root = next.parent().ok_or("bad staging path")?;
+    let current = root.join(CURRENT);
+    let previous = root.join(format!(".previous-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&previous);
+    if current.exists() {
+        std::fs::rename(&current, &previous).map_err(|error| format!("{error}"))?;
+    }
+    if let Err(error) = std::fs::rename(next, &current) {
+        let _ = std::fs::rename(&previous, &current);
+        return Err(format!("{error}"));
+    }
+    let _ = std::fs::remove_dir_all(&previous);
+    prune(root);
+    Ok(())
+}
+
+/// Removes copies an earlier layout made (one folder per build digest) and
+/// any interrupted staging; keeps `current` and `next`.
+fn prune(root: &Path) {
     let Ok(entries) = std::fs::read_dir(root) else { return };
-    let mut others: Vec<(std::time::SystemTime, PathBuf)> = entries
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path != current
-                && !path.file_name().is_some_and(|name| name.to_string_lossy().starts_with('.'))
-        })
-        .filter_map(|path| Some((std::fs::metadata(&path).ok()?.modified().ok()?, path)))
-        .collect();
-    others.sort();
-    others.pop();
-    for (_, path) in others {
-        let _ = std::fs::remove_dir_all(path);
+    for path in entries.filter_map(Result::ok).map(|entry| entry.path()) {
+        let keep = path.file_name().is_some_and(|name| name == CURRENT || name == NEXT);
+        // A staging folder of a live daemon is its own; only dead ones go.
+        let live_staging = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .and_then(|name| name.strip_prefix(".staging-"))
+            .and_then(|pid| pid.parse::<i32>().ok())
+            // SAFETY: kill with signal 0 only checks that the process exists.
+            .is_some_and(|pid| unsafe { libc::kill(pid, 0) } == 0);
+        if !keep && !live_staging {
+            let _ = std::fs::remove_dir_all(path);
+        }
     }
 }
 
@@ -281,4 +326,62 @@ pub(super) fn peer_pid(stream: &std::os::unix::net::UnixStream) -> Option<u32> {
         libc::getsockopt(stream.as_raw_fd(), 0, LOCAL_PEERPID, (&raw mut pid).cast(), &mut length)
     } == 0;
     ok.then_some(pid as u32)
+}
+
+#[cfg(test)]
+mod staging_tests {
+    use super::*;
+
+    fn dir(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("cu-stage-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    fn slot(root: &Path, name: &str, marker: &str) {
+        let s = root.join(name);
+        std::fs::create_dir_all(s.join("cmux Remote (dev).app")).unwrap();
+        std::fs::write(s.join(".verified"), marker).unwrap();
+    }
+
+    #[test]
+    fn a_new_build_moves_into_the_one_stable_path_and_old_layouts_go() {
+        let root = dir("promote");
+        slot(&root, CURRENT, "old");
+        slot(&root, NEXT, "new");
+        slot(&root, "0123456789abcdef", "older layout");
+        let app = root.join(CURRENT).join("cmux Remote (dev).app");
+        let staged = Staged {
+            executable: app.join("Contents/MacOS/cmux-remote"),
+            app: app.clone(),
+            digest: "new".into(),
+            next: Some(root.join(NEXT)),
+        };
+        promote(&staged).unwrap();
+        assert_eq!(std::fs::read_to_string(root.join(CURRENT).join(".verified")).unwrap(), "new");
+        assert!(!root.join(NEXT).exists());
+        assert!(!root.join("0123456789abcdef").exists());
+        assert!(app.exists(), "the app keeps its path across builds");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn nothing_waiting_keeps_current_and_a_live_staging_folder() {
+        let root = dir("keep");
+        slot(&root, CURRENT, "same");
+        let live = root.join(format!(".staging-{}", std::process::id()));
+        std::fs::create_dir_all(&live).unwrap();
+        let app = root.join(CURRENT).join("cmux Remote (dev).app");
+        let staged = Staged {
+            executable: app.join("Contents/MacOS/cmux-remote"),
+            app,
+            digest: "same".into(),
+            next: None,
+        };
+        promote(&staged).unwrap();
+        assert_eq!(std::fs::read_to_string(root.join(CURRENT).join(".verified")).unwrap(), "same");
+        assert!(live.exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
