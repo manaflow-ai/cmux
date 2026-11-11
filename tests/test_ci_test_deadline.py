@@ -109,6 +109,25 @@ class TrackerTests(unittest.TestCase):
                      "test other ... ", now=600.0)
         self.assertEqual(tracker.overdue(now=781.0), ("other", 180))
 
+    def test_a_doc_tests_line_clears_the_tests_of_a_binary_that_crashed(self):
+        """deadline-rev item 1 on #40523: cargo runs doctests after the last test binary, so when that binary
+        crashed under --no-fail-fast its test stayed "running" through rustdoc and ended the run at a false deadline.
+        cargo's `Doc-tests` line, like `Running`, means the binary has exited."""
+        tracker = deadline.Tracker(default_seconds=180)
+        tracker.feed("test crashes has been running for over 60 seconds\n", now=0.0)
+        tracker.feed("error: test failed, to rerun pass `-p a --lib`\n\nCaused by:\n"
+                     "  process didn't exit successfully: `a-0123abcd` (signal: 11, SIGSEGV)\n"
+                     "   Doc-tests a\n\nrunning 3 tests\n", now=1.0)
+        self.assertIsNone(tracker.overdue(now=500.0))
+
+    def test_test_output_that_starts_with_running_does_not_clear_open_tests(self):
+        """deadline-rev item 2 on #40523: only cargo's own `Running <target> (<path>)` line ends a binary. A test
+        that prints `Running ...` itself must not clear the tests still open, or a hang there is never timed."""
+        tracker = deadline.Tracker(default_seconds=180)
+        tracker.feed("test hangs has been running for over 60 seconds\n", now=0.0)
+        tracker.feed("Running the migration step\n  Running worker 2 of 4\n", now=1.0)
+        self.assertEqual(tracker.overdue(now=121.0), ("hangs", 180))
+
     def test_a_test_result_line_clears_every_open_test(self):
         tracker = deadline.Tracker(default_seconds=5)
         tracker.feed("test a has been running for over 60 seconds\n", now=0.0)
