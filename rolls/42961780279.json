@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42961780279",
+  "recorded_at": "2026-11-11T04:57:20Z",
+  "reason": "cmux-tui e87165280ac8 changes the image's cmux-tui (pinned 6c65fcbe3aa4)",
+  "dry_run": false,
+  "cmux_tui": "e87165280ac8fbb3a6153876efdc784fc33c3577",
+  "fixes": [
+    {
+      "sha": "e87165280ac8fbb3a6153876efdc784fc33c3577",
+      "mergedAt": "2026-11-10T20:35:01-08:00",
+      "subject": "acpmux: test that a login read with no end marker takes no variable and the daemon still serves"
+    },
+    {
+      "sha": "cd7ad98c293b6bcfd8aad2e2031745a799e87c00",
+      "mergedAt": "2026-11-10T20:34:59-08:00",
+      "subject": "acpmux: the daemon_lifecycle login shells run their -c script, as a real shell does"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T04:57:20Z",
+    "snapshot_id": "sh-49fbce8d8c7f4bfc8b91793033708d3b",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42961780279): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a9bb9ea59612923904357b0603826df73bc47e1c",
+    "image": "cloud-native-auto-e8716528-42961780279-1",
+    "revision": "ci-42961780279-1",
+    "at": "2026-11-11T04:57:20Z"
+  },
+  "rolled_back": false
+}
