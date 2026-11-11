@@ -3701,7 +3701,7 @@ class EchoedStepScriptIsNoEvidence(unittest.TestCase):
              "started_at": "2026-10-30T23:16:38Z", "completed_at": "2026-10-30T23:29:27Z"},
             {"number": 4, "name": "Complete job", "status": "completed", "conclusion": "success",
              "started_at": "2026-10-30T23:29:27Z", "completed_at": "2026-10-30T23:29:27Z"}])
-        _, tests, errors = excuse.signature(excuse.failed_view(job, self.gh.logs[2], **UNKNOWN))
+        _, tests, errors = excuse.signature(excuse.failed_view(job, self.gh.logs[2], base=True, **UNKNOWN))
         self.assertEqual(tests, {"TerminalSurfaceFramePacingTests.busyOutputDrawsAtMostOneFramePerDisplayRefresh()"})
         self.assertEqual(errors, set(), "every `::error::` in this log is the step script's echo")
 
@@ -7791,11 +7791,11 @@ class StepOwnershipCallers(unittest.TestCase):
                 job, log_text, package = callers_case(case, columns)
                 with self.subTest(case=case, columns=columns):
                     if case in PACKAGE_EXCUSED:
-                        self.assertEqual(excuse.package_tests(package, excuse.failed_view(job, log_text, **UNKNOWN)),
+                        self.assertEqual(excuse.package_tests(package, excuse.failed_view(job, log_text, base=False, **UNKNOWN)),
                                          ["own()"])
                     else:
                         with self.assertRaises(excuse.Refused):
-                            excuse.package_tests(package, excuse.failed_view(job, log_text, **UNKNOWN))
+                            excuse.package_tests(package, excuse.failed_view(job, log_text, base=False, **UNKNOWN))
 
     def test_every_step_ownership_case_through_quarantined_only(self):
         # The passing steps' quarantined failure never explains the failed step, whose own lines name no test.
@@ -7803,13 +7803,13 @@ class StepOwnershipCallers(unittest.TestCase):
             for columns in (False, True):
                 job, log_text, _ = callers_case(case, columns, own=False)
                 with self.subTest(case=case, columns=columns):
-                    self.assertFalse(excuse.quarantined_only(excuse.failed_view(job, log_text, **UNKNOWN),
+                    self.assertFalse(excuse.quarantined_only(excuse.failed_view(job, log_text, base=False, **UNKNOWN),
                                                              {"sometimes()": "hq#1"}))
 
     def test_section_lines_gives_a_failed_section_its_own_lines_only(self):
         for case, (_, _, _, _, ambiguous, *_) in STEP_OWNERSHIP.items():
             job, log_text, _ = callers_case(case)
-            view = excuse.failed_view(job, log_text, **UNKNOWN)
+            view = excuse.failed_view(job, log_text, base=False, **UNKNOWN)
             with self.subTest(case=case):
                 if ambiguous:
                     self.assertIs(view, excuse.UNPLACED)
@@ -7827,7 +7827,7 @@ class StepOwnershipCallers(unittest.TestCase):
             with self.subTest(columns=columns):
                 self.assertTrue(excuse.quarantined_only(
                     excuse.failed_view({"name": "swift", "steps": framed_steps(steps)},
-                                       framed_log(lines, columns=columns), **UNKNOWN), {"sometimes()": "hq#1"}))
+                                       framed_log(lines, columns=columns), base=False, **UNKNOWN), {"sometimes()": "hq#1"}))
 
 
 class UnplacedSignature(unittest.TestCase):
@@ -7869,11 +7869,12 @@ class UnplacedSignature(unittest.TestCase):
         lines = [(("swift test (macOS)" if step == "Unit tests" else step), at, text)
                  for step, at, text in self.lines(OWN)]
         with self.assertRaises(excuse.Refused):
-            excuse.package_tests(package, excuse.failed_view(self.job(steps), framed_log(lines, SWIFT), **UNKNOWN))
+            excuse.package_tests(package, excuse.failed_view(self.job(steps), framed_log(lines, SWIFT), base=False,
+                                                             **UNKNOWN))
 
     def test_quarantined_only_never_explains_an_unplaced_log(self):
         self.assertFalse(excuse.quarantined_only(excuse.failed_view(self.job(), framed_log(self.lines(FLAKE), SWIFT),
-                                                                    **UNKNOWN), {"sometimes()": "hq#1"}))
+                                                                    base=False, **UNKNOWN), {"sometimes()": "hq#1"}))
 
     def test_judge_refuses_an_unplaced_head_whatever_the_base(self):
         for columns in (False, True):
@@ -7901,7 +7902,8 @@ class StepNamesAreRequired(unittest.TestCase):
                     reader(job, text)
                 with self.assertRaises(TypeError):
                     reader(job, text, step_names=None)
-                reader(job, text, step_names=excuse.STEP_NAMES_UNKNOWN)
+                role = {"base": False} if reader is excuse.failed_view else {}
+                reader(job, text, step_names=excuse.STEP_NAMES_UNKNOWN, **role)
         # Every comparator reads a failed_view alone: a raw log handed to one is a TypeError, never read.
         for comparator in (excuse.signature, excuse.step_errors, excuse.crash_signals, excuse.ratchet_red,
                            excuse.section_lines, excuse.guard_tests, excuse.view_text):
@@ -8407,6 +8409,91 @@ def raw_log_reads(source, next_batch_source=None):
     return found
 
 
+# Every call that reads a log through failed_view names its role, `base=`, which has no default anywhere on the way:
+# failed_view itself, and next_batch's expand_job and failed_jobs, which hand theirs on (ROLE_PASSERS). Each other
+# caller is listed with the role of each of its calls, in source order, by where that call's log comes from: a base
+# run's log is evidence (True: its FAILED sections alone), a head's or a stack's is its red (False: FAILED and
+# ERRORED). The follow-up to #40542's Codex F1 at 8dc7e0dc: next_batch read every base run with failed_view's default
+# head role, so a base's ERRORED continue-on-error section was base evidence and next-batch said "no new failures" for
+# a red judge() refuses. A missing role, a default, a role that is not a literal, or a caller not listed fails the scan.
+ROLE_READERS = {"failed_view", "expand_job", "failed_jobs"}
+ROLE_PASSERS = {("next_batch", "failed_jobs"): "hands its run's role to expand_job",
+                ("next_batch", "expand_job"): "hands its job's role to failed_view"}
+ROLES = {
+    ("base_red_excuse", "read_head"): (False,),  # the head's red job
+    ("base_red_excuse", "guard_routes_view"): (False,),  # validate_guard_routes: the head's routed rollup guard
+    ("base_red_excuse", "base_evidence"): (True,),  # a compared base run's job
+    ("next_batch", "probe_base"): (True, True),  # the base probe's run, then its rerun
+    ("next_batch", "failing_on_base"): (True,),  # the base's newest push run
+    ("next_batch", "base_tier_failures"): (True,),  # the base tier's runs
+    ("next_batch", "validate"): (False, False),  # the stack's heavy tier run, then its rerun
+    ("next_batch", "judge_web"): (False, True),  # the stack's web run, then the base's
+}
+
+
+def role_reads(sources):
+    """Each failed_view role that does not follow its log in SOURCES ({module: source}), as `module.function: why`:
+    a ROLE_READERS function whose `base` is not keyword-only with no default, a call to one with no `base=`, with a
+    role that is not a literal True or False (except a ROLE_PASSERS function handing on its own `base`), with a role
+    ROLES does not list for its caller in that order, or from a caller ROLES does not list."""
+    import ast
+    found, seen = [], set()
+    for module, source in sources.items():
+        tree = ast.parse(source)
+        for fn in ast.walk(tree):
+            if not isinstance(fn, ast.FunctionDef):
+                continue
+            where = f"{module}.{fn.name}"
+            if fn.name in ROLE_READERS:
+                kwonly = {arg.arg: default for arg, default in zip(fn.args.kwonlyargs, fn.args.kw_defaults)}
+                if "base" not in kwonly:
+                    found.append(f"{where}: its role `base` is not a keyword-only parameter")
+                elif kwonly["base"] is not None:
+                    found.append(f"{where}: its role `base` has a default ({ast.unparse(kwonly['base'])}); every "
+                                 "caller must choose head or base")
+            calls = [node for node in ast.walk(fn) if isinstance(node, ast.Call)
+                     and (node.func.id if isinstance(node.func, ast.Name) else
+                          node.func.attr if isinstance(node.func, ast.Attribute) else "") in ROLE_READERS]
+            # Nested functions are walked on their own: a call belongs to its innermost function.
+            inner = {id(node) for sub in ast.walk(fn) if sub is not fn and isinstance(sub, ast.FunctionDef)
+                     for node in ast.walk(sub)}
+            calls = sorted((call for call in calls if id(call) not in inner),
+                           key=lambda call: (call.lineno, call.col_offset))
+            if not calls:
+                continue
+            roles = []
+            for call in calls:
+                role = next((kw.value for kw in call.keywords if kw.arg == "base"), None)
+                if role is None:
+                    found.append(f"{where}: calls a failed_view reader with no role (line {call.lineno}); pass "
+                                 "base=True for a base run's log, base=False for a head's or a stack's")
+                    roles.append(None)
+                elif isinstance(role, ast.Constant) and isinstance(role.value, bool):
+                    roles.append(role.value)
+                elif (module, fn.name) in ROLE_PASSERS and isinstance(role, ast.Name) and role.id == "base":
+                    roles.append("passed")
+                else:
+                    found.append(f"{where}: a role that is not a literal True or False (line {call.lineno}: "
+                                 f"base={ast.unparse(role)})")
+                    roles.append(None)
+            if (module, fn.name) in ROLE_PASSERS:
+                if any(role != "passed" for role in roles):
+                    found.append(f"{where}: hands on a role that is not its own `base` ({roles})")
+                seen.add((module, fn.name))
+                continue
+            if (module, fn.name) not in ROLES:
+                found.append(f"{where}: reads a log through failed_view but is no listed caller (ROLES): name the "
+                             "role of each of its calls by where its log comes from")
+                continue
+            seen.add((module, fn.name))
+            if tuple(roles) != ROLES[(module, fn.name)]:
+                found.append(f"{where}: roles {tuple(roles)} where its logs' sources give "
+                             f"{ROLES[(module, fn.name)]} (True: a base run's, False: a head's or a stack's)")
+    for module, name in sorted((ROLES.keys() | ROLE_PASSERS.keys()) - seen):
+        found.append(f"{module}.{name}: listed in ROLES, but it makes no such call")
+    return found
+
+
 class FailedViewIsTheOnlyReader(unittest.TestCase):
     """failed_view is the one reader of a job log for every comparator, head and base alike, and the Codex repro of
     #40542's seventh BLOCK is refused."""
@@ -8445,6 +8532,70 @@ class FailedViewIsTheOnlyReader(unittest.TestCase):
 
     def test_no_comparator_reads_a_raw_log_or_places_a_line_itself(self):
         self.assertEqual(raw_log_reads(self.SOURCE, self.NEXT_BATCH), [])
+
+    def test_every_failed_view_caller_names_the_role_its_log_has(self):
+        self.assertEqual(role_reads({"base_red_excuse": self.SOURCE, "next_batch": self.NEXT_BATCH}), [])
+
+    def test_a_reader_called_without_a_role_raises(self):
+        job, text = view_case(*HEAD_FAKE_IN_PASSING)
+        with self.assertRaises(TypeError):
+            excuse.failed_view(job, text, **UNKNOWN)
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        import next_batch
+        controller = next_batch.Controller.__new__(next_batch.Controller)
+        controller.job_log = lambda job_id: text
+        with self.assertRaises(TypeError):
+            controller.expand_job(job["name"], job["id"], job)
+        with self.assertRaises(TypeError):
+            controller.failed_jobs(1, detail=True)
+
+    def test_the_role_scan_catches_a_wrong_or_missing_role(self):
+        # Each fixture puts back a way a log is read with the wrong role: 8dc7e0dc's default head role on next_batch's
+        # base reads, a base run read as a head's, a stack's read as a base's, a role that is not a literal, and a new
+        # caller no list names.
+        def mutated(source, old, new):
+            self.assertEqual(source.count(old), 1, old)
+            return source.replace(old, new)
+        excuse_source, batch = self.SOURCE, self.NEXT_BATCH
+        fixtures = {
+            "failed_view's default role is back (8dc7e0dc)": (
+                mutated(excuse_source, "*, step_names, base: bool) ->", "*, step_names, base: bool = False) ->"),
+                batch, "base_red_excuse.failed_view: its role `base` has a default"),
+            "expand_job's role has a default": (
+                excuse_source, mutated(batch, "job: dict | None = None, *, base: bool)",
+                                       "job: dict | None = None, *, base: bool = False)"),
+                "next_batch.expand_job: its role `base` has a default"),
+            "a base run read with no role": (
+                excuse_source, mutated(batch, 'OUTRIGHT_RED, detail=True, base=True)', "OUTRIGHT_RED, detail=True)"),
+                "next_batch.failing_on_base: calls a failed_view reader with no role"),
+            "the base's web run read as the stack's": (
+                excuse_source, mutated(batch, 'failed_jobs(base[0]["id"], detail=True, base=True)',
+                                       'failed_jobs(base[0]["id"], detail=True, base=False)'),
+                "next_batch.judge_web: roles (False, False)"),
+            "the base tier read as the stack's": (
+                excuse_source, mutated(batch, 'expand_job(name, job["id"], job, base=True)',
+                                       'expand_job(name, job["id"], job, base=False)'),
+                "next_batch.base_tier_failures: roles (False,)"),
+            "a base job read as the head's": (
+                mutated(excuse_source, 'path=run.get("path")),\n                       base=True)',
+                        'path=run.get("path")),\n                       base=False)'),
+                batch, "base_red_excuse.base_evidence: roles (False,)"),
+            "the head read as a base": (
+                mutated(excuse_source, "step_names=names, base=False)", "step_names=names, base=True)"),
+                batch, "base_red_excuse.read_head: roles (True,)"),
+            "a role that is not a literal": (
+                excuse_source, mutated(batch, 'failed_jobs(run["id"], detail=True, base=False)',
+                                       'failed_jobs(run["id"], detail=True, base=bool(run))'),
+                "next_batch.judge_web: a role that is not a literal"),
+            "a new unlisted caller": (
+                excuse_source + "\n\ndef new_reader(job, text):\n"
+                "    return failed_view(job, text, step_names=None, base=True)\n",
+                batch, "base_red_excuse.new_reader: reads a log through failed_view but is no listed caller"),
+        }
+        for label, (source, next_batch, want) in fixtures.items():
+            with self.subTest(fixture=label):
+                said = role_reads({"base_red_excuse": source, "next_batch": next_batch})
+                self.assertTrue(any(line.startswith(want) for line in said), said)
 
     def test_the_scan_catches_the_bug_reintroduced(self):
         # Each fixture puts back a way a comparator read a raw log: 35f63387's signature() reading a head's tests from
@@ -8486,7 +8637,7 @@ class FailedViewIsTheOnlyReader(unittest.TestCase):
         """What COMPARATOR finds on HEAD (passing, failing) that BASE (passing, failing) lacks, each side read through
         its own failed_view."""
         (head_job, head_log), (base_job, base_log) = view_case(*head), view_case(*base)
-        head_view = excuse.failed_view(head_job, head_log, **UNKNOWN)
+        head_view = excuse.failed_view(head_job, head_log, base=False, **UNKNOWN)
         base_view = excuse.failed_view(base_job, base_log, base=True, **UNKNOWN)
         if comparator == "signature":
             mine, theirs = excuse.signature(head_view), excuse.signature(base_view)
@@ -8512,9 +8663,9 @@ class FailedViewIsTheOnlyReader(unittest.TestCase):
             import next_batch
             controller = next_batch.Controller.__new__(next_batch.Controller)
             keys = []
-            for job, text in ((head_job, head_log), (base_job, base_log)):
+            for job, text, base in ((head_job, head_log, False), (base_job, base_log, True)):
                 controller.job_log = lambda job_id, text=text: text
-                keys.append(controller.expand_job(job["name"], job["id"], job))
+                keys.append(controller.expand_job(job["name"], job["id"], job, base=base))
             return keys[0] - keys[1]
         raise AssertionError(comparator)
 
