@@ -92,8 +92,9 @@ mutation carries an `idempotency_key`. Shapes follow settings-surfaces.md:
 - `settings.list {section?}` (read) -> rows with `value`, `default`, `customized`,
   `managed {source, reason}`.
 - `settings.get {key | path}` (read); `settings.snapshot {}` (read) -> `{revision, effective, file,
-  managed, policy, diagnostics, schema_hash, domains}`; `domains` holds the published
-  `themes`, `font_families`, `sounds` (`null` each when never published).
+  managed, policy, diagnostics, schema_hash, domains, path}`; `domains` holds the published
+  `themes`, `font_families`, `sounds` (`null` each when never published); `path` is the absolute
+  path of the settings file the owner reads and writes (the configured path, not a symlink's target).
 - `settings.set {key | path, value, if_revision?}`, `settings.reset {key | path}`,
   `settings.reset_all {}` (mutations).
 - `settings.domains.publish {themes, font_families, sounds}` and `settings.team_policy.set {layer}`
@@ -273,9 +274,29 @@ these from the daemon first:
    `CMUX_NEXT_CONFIG_FILE` when it started) and outlives the app, so the app cannot tell today that
    both use one file. A write sent to an owner of another file changes the wrong file, and the app
    never sees it.
-   Decided (2026-11-10), for the next PR: the app passes its config path to the daemon at launch,
-   and the daemon reports its owner's path in `settings.snapshot`, so an app that joins a daemon
-   that already runs sees a mismatch and does not send its writes to the wrong file.
+   Decided (2026-11-10): the app passes its config path to the daemon at launch, and the daemon
+   reports its owner's path in `settings.snapshot`, so an app that joins a daemon that already
+   runs sees a mismatch and does not send its writes to the wrong file.
+   Daemon half, done: the launch input is `CMUX_NEXT_CONFIG_FILE` in the environment of
+   `server ensure` (the detached owner inherits it; no new flag, so the settings owner, the
+   keybindings owner and the daemon's other readers of the file stay on one path). A
+   `server restart` gives the next owner the old owner's value unless the restarting client sets
+   its own. `settings.snapshot` answers `path`. Test: `cmux-tui/crates/cmux-tui/tests/ensure_settings_file.rs`.
+   Swift half, to do (no Swift changed yet):
+   - Launch: `DaemonLauncher.forApp` gets `CMUX_NEXT_CONFIG_FILE = CmuxConfigFile.launchURL().path`
+     in `daemonEnvironment`, always, also for the default file. As read in
+     `TerminalEnvironment.terminal` (not run): the app's `CMUX_NEXT_*` keys are not forwarded
+     when the login environment was captured, so a tagged app with an override can start a
+     daemon on the user's file. Check that on a tagged build first.
+     With the variable set the owner does not read classic `cmux.json` as a seed; the app has
+     made the file before (`prepareLaunchFile`), so call that first.
+   - Join: after connect, read `settings.snapshot` and compare `path` with the app's own URL
+     (both absolute, symlinks not resolved; compare standardized paths). An answer without
+     `path` is an older daemon: treat it as a mismatch.
+   - Match: `SettingsController` setters send `settings.set` / `settings.reset`; delete the Swift
+     writer (`CmuxConfigFile` writes, `SettingsFileLock`) when items 2 to 5 below are also done.
+   - Mismatch: keep the Swift writer with the lock for this launch, send no settings write to
+     the daemon, and log both paths. Do not restart a daemon that has terminals only to move it.
 2. Several edits in one publish (Swift `CmuxConfigFile.apply`), or the rules that need them in the
    owner's `settings.set`: a renamed row's old key goes with the write, the window background's
    opacity and material change together, a built-in density ends the custom one.

@@ -168,6 +168,7 @@ async fn a_folder_swapped_while_its_start_waits_gets_no_harness() {
         record: root.join("home/trust.json"),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     }));
     let mut app = Client::new(&hub);
     let new = json!({"cwd": root.join("parent"), "mcpServers": [], "_meta": {"acpmux": {"harness": "fake"}}});
