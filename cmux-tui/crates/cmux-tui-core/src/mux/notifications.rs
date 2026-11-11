@@ -1033,3 +1033,11 @@ impl Mux {
         })
     }
 }
+
+#[cfg(test)]
+impl Mux {
+    /// Moves the clock of the agent desktop notification dedupe forward by
+    /// `by`, then posts the held desktop notifications that are due. Nothing
+    /// is held yet: the dedupe window comes with the W6-D fix.
+    pub(crate) fn advance_agent_notification_clock_for_test(&self, _by: Duration) {}
+}

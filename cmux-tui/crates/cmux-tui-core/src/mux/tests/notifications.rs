@@ -1006,12 +1006,32 @@ const W6D_OTHER_APP_OUTPUT: &str = concat!(
     "printf '\\033]7501;state=blocked:kind=auth:app=make\\033\\\\'; sleep 30",
 );
 
+/// What a background job (`make`) prints in a terminal where an agent runs:
+/// its own desktop notification (OSC 9), then, as the run's last
+/// notification, Claude's OSC 7501 sign-in wait.
+const W6D_JOB_OUTPUT: &str = concat!(
+    "stty -echo; printf 'w6d-ready\\r\\n'; read step; ",
+    "printf '\\033]9;build finished\\007'; read step; ",
+    "printf '\\033]7501;state=blocked:kind=auth:app=claude-code\\033\\\\'; sleep 30",
+);
+
+/// What Claude Code prints for one permission request: its own desktop
+/// notification (OSC 777), then, as the run's last notification, its OSC
+/// 7501 sign-in wait.
+const W6D_CLAUDE_PERMISSION_OUTPUT: &str = concat!(
+    "stty -echo; printf 'w6d-ready\\r\\n'; read step; ",
+    "printf '\\033]777;notify;Claude Code;Claude needs your permission to use Bash\\007'; read step; ",
+    "printf '\\033]7501;state=blocked:kind=auth:app=claude-code\\033\\\\'; sleep 30",
+);
+
 /// One step of a W6-D stand-in run.
 enum W6dStep {
     /// The agent's hooks report this native event with this payload.
     Hook(&'static str, Value),
     /// The script prints its next line.
     Print,
+    /// The notification clock moves forward (no real waiting).
+    Advance(Duration),
 }
 
 /// The Claude hook events and output of one permission request, one
@@ -1033,7 +1053,9 @@ fn w6d_claude_steps() -> Vec<W6dStep> {
 /// the native event from the hook source `hooks` (nothing when `None`), a
 /// print step lets the script print its next line. Returns the titles of
 /// the terminal's notifications, sorted, once `last_title` (posted last,
-/// and posted under every rule) arrived.
+/// and posted under every rule) arrived and the notification clock then
+/// passed the dedupe window, so a desktop notification still held for it
+/// either posted or was dropped.
 fn w6d_notification_titles(
     name: &str,
     script: &str,
@@ -1084,6 +1106,7 @@ fn w6d_notification_titles(
                 printed = true;
                 surface.write_bytes(b"\n").unwrap();
             }
+            W6dStep::Advance(by) => mux.advance_agent_notification_clock_for_test(by),
         }
     }
     let titles = || {
@@ -1100,6 +1123,9 @@ fn w6d_notification_titles(
     while !titles().iter().any(|title| title == last_title) && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(5));
     }
+    // Notifications post in output order: every desktop notification before
+    // `last_title` is posted, dropped or held by now.
+    mux.advance_agent_notification_clock_for_test(Duration::from_secs(10));
     let titles = titles();
     let _ = mux.close_surface(surface.id);
     titles
@@ -1195,5 +1221,73 @@ fn w6d_b_claude_hooks_keep_another_programs_status_notifications() {
             "make needs sign-in",
         ),
         ["make is done", "make needs approval", "make needs sign-in"],
+    );
+}
+
+/// W6-D lead decision: Claude's hook posts its permission request, and
+/// Claude's own desktop notification for it (OSC 777) inside the dedupe
+/// window posts nothing. One permission request is one notification.
+#[test]
+fn w6d_c_claude_permission_hook_and_its_desktop_notification_post_once() {
+    assert_eq!(
+        w6d_notification_titles(
+            "w6d-notify-window-once",
+            W6D_CLAUDE_PERMISSION_OUTPUT,
+            Some("claude"),
+            vec![
+                W6dStep::Hook("SessionStart", serde_json::json!({})),
+                W6dStep::Hook("UserPromptSubmit", serde_json::json!({})),
+                W6dStep::Hook("PermissionRequest", serde_json::json!({"tool_name": "Bash"})),
+                W6dStep::Print,
+                W6dStep::Print,
+            ],
+            "claude-code needs sign-in",
+        ),
+        ["Claude needs approval", "claude-code needs sign-in"],
+    );
+}
+
+/// W6-D lead decision: a desktop notification is dropped only as the copy
+/// of a hook notification. A background job's OSC 9 in a terminal with a
+/// live Claude hook session, and no Claude hook event near it, posts.
+#[test]
+fn w6d_c_background_job_desktop_notification_in_a_claude_terminal_posts() {
+    assert_eq!(
+        w6d_notification_titles(
+            "w6d-notify-window-job",
+            W6D_JOB_OUTPUT,
+            Some("claude"),
+            vec![
+                W6dStep::Hook("SessionStart", serde_json::json!({})),
+                W6dStep::Hook("UserPromptSubmit", serde_json::json!({})),
+                W6dStep::Print,
+                W6dStep::Print,
+            ],
+            "claude-code needs sign-in",
+        ),
+        ["build finished", "claude-code needs sign-in"],
+    );
+}
+
+/// W6-D lead decision: a desktop notification after the dedupe window of a
+/// Claude hook notification is no copy of it, and posts.
+#[test]
+fn w6d_c_desktop_notification_outside_the_window_posts() {
+    assert_eq!(
+        w6d_notification_titles(
+            "w6d-notify-window-late",
+            W6D_JOB_OUTPUT,
+            Some("claude"),
+            vec![
+                W6dStep::Hook("SessionStart", serde_json::json!({})),
+                W6dStep::Hook("UserPromptSubmit", serde_json::json!({})),
+                W6dStep::Hook("PermissionRequest", serde_json::json!({"tool_name": "Bash"})),
+                W6dStep::Advance(Duration::from_secs(3)),
+                W6dStep::Print,
+                W6dStep::Print,
+            ],
+            "claude-code needs sign-in",
+        ),
+        ["Claude needs approval", "build finished", "claude-code needs sign-in"],
     );
 }
