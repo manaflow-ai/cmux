@@ -713,11 +713,13 @@ fn tabless_terminal_close_tombstones_every_resource_row_and_restarts() {
     let tab = second["value"]["tab_id"].as_str().unwrap().to_string();
     let closing_terminal = second["value"]["terminal_id"].as_str().unwrap().to_string();
 
+    // Keep the terminal at the close (a plain close ends it), so the
+    // explicit close below has a tabless terminal to tombstone.
     resource_request(
         &harness.socket,
         "tabless-tab-close",
         "tab.close",
-        serde_json::json!({"machine":"current","session":"current","tab":tab}),
+        serde_json::json!({"machine":"current","session":"current","tab":tab,"terminals":"keep"}),
         Some("tabless-tab-close"),
     );
     let terminals = resource_request(

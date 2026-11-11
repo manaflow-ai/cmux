@@ -449,7 +449,7 @@ impl Mux {
             if still_placed {
                 continue;
             }
-            let CloseTerminals::End { spare } = terminals else {
+            let CloseTerminals::End { spare, keep_exited } = terminals else {
                 outcome.running.push(public_id);
                 continue;
             };
@@ -458,10 +458,13 @@ impl Mux {
                 outcome.running.push(public_id);
                 continue;
             }
-            let incarnation = registry
+            let record = registry
                 .terminal_record(&host.terminal_id)?
-                .with_context(|| format!("terminal {public_id} has no durable receipt"))?
-                .incarnation;
+                .with_context(|| format!("terminal {public_id} has no durable receipt"))?;
+            if *keep_exited && record.lifecycle == TerminalLifecycle::Exited {
+                continue;
+            }
+            let incarnation = record.incarnation;
             let (removed_runtime, views, _) =
                 remove_terminal_content_from_state(self, &mut plan.state, &public_id);
             anyhow::ensure!(views.is_empty(), "ended terminal {public_id} kept a view");

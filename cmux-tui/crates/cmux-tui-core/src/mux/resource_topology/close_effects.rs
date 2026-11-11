@@ -28,7 +28,7 @@ impl Mux {
         // closes and the in-process callers send no field and detach, as
         // before. The field is in the fingerprint, so a retry decides alike.
         let terminals = match fingerprint.pointer("/fields/terminals").and_then(Value::as_str) {
-            Some("end") => Some(CloseTerminals::end_for(actor)),
+            Some("end") => Some(CloseTerminals::end_running_for(actor)),
             Some(_) => Some(CloseTerminals::Keep),
             None => None,
         };

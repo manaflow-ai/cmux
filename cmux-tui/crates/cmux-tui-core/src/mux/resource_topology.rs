@@ -240,18 +240,32 @@ pub(super) enum CloseTerminals {
     /// Leave them running, with no tab (the reaper's grace still applies).
     Keep,
     /// End each one that is not marked `keep` and is not `spare` (the
-    /// caller's own terminal: ending it would cut off the reply).
-    End { spare: Option<TerminalPublicId> },
+    /// caller's own terminal: ending it would cut off the reply). With
+    /// `keep_exited`, a terminal whose process already exited keeps its
+    /// record, so `terminal.wait_exit` still answers its exit.
+    End { spare: Option<TerminalPublicId>, keep_exited: bool },
 }
 
 impl CloseTerminals {
-    /// ``CloseTerminals::End`` that spares the actor's own terminal.
+    /// ``CloseTerminals::End`` that spares the actor's own terminal and, as
+    /// the batch closes always did, also ends exited terminals' records.
     pub(super) fn end_for(actor: &Actor) -> Self {
-        let spare = match actor {
-            Actor::Terminal { id } => TerminalPublicId::parse(id.clone()).ok(),
-            _ => None,
-        };
-        Self::End { spare }
+        Self::End { spare: actor_terminal(actor), keep_exited: false }
+    }
+
+    /// ``CloseTerminals::End`` for a public tab, pane, screen or workspace
+    /// close: it spares the actor's own terminal and leaves an exited
+    /// terminal's record (nothing runs there to end; its exit stays readable).
+    pub(super) fn end_running_for(actor: &Actor) -> Self {
+        Self::End { spare: actor_terminal(actor), keep_exited: true }
+    }
+}
+
+/// The actor's own terminal, when the actor is a terminal.
+fn actor_terminal(actor: &Actor) -> Option<TerminalPublicId> {
+    match actor {
+        Actor::Terminal { id } => TerminalPublicId::parse(id.clone()).ok(),
+        _ => None,
     }
 }
 
