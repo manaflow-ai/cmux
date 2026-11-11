@@ -5,7 +5,10 @@
 // harness entry rather than a Profile submenu. Leo 2026-11-06: "Everybody wants to see the models"
 // ... "it should only need to necessarily fork when you enter a message on that new model": every
 // harness the chat can fork to lists its models; a pick of one is held (forkHold.ts) and the next
-// message forks. The real composer, catalog and menu, in JSDOM.
+// message forks. Leo 2026-11-11: "if i switch to a different model in a chat, it should just be able
+// to seamlesly within the same pane do stuff and stop asking so much bullshit ... across any and all
+// conditions of workspaces/folders/models/provides/harnesses": that fork happens in the same pane,
+// with no review or question (App.tsx `chat.switchModel`). The real composer, catalog and menu, in JSDOM.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -400,8 +403,9 @@ test("a held pick goes with the composer: none comes back when the chat shows ag
   expect(await heldHarness()).toBeUndefined();
 });
 
-test("a harness Continue In… can't take is listed nowhere and never held", async () => {
-  // A Claude-family profile is no target of a Claude chat (the daemon refuses same_harness).
+test("another profile of the chat's own family is a switch target too, and a pick of it is held", async () => {
+  // Leo 2026-11-11: "across any and all conditions of workspaces/folders/models/provides/harnesses":
+  // a switch forks the chat in place, so another account or launch profile of its own family takes it.
   const catalog = [
     { id: "claude", name: "Claude Code", family: "claude", models: [{ id: "opus", name: "Opus" }] },
     { id: "claude-sr", name: "Claude (sr)", family: "claude", models: [{ id: "sonnet-sr", name: "Sonnet SR" }] },
@@ -409,11 +413,9 @@ test("a harness Continue In… can't take is listed nowhere and never held", asy
   ] as Snapshot["catalog"];
   await mount(1, true, "claude", catalog);
   await open();
-  expect(await routeNames()).not.toContain("Claude (sr)");
-  await closeCard();
-  await search("Sonnet SR");
-  expect(modelNames()).toEqual([]);
-  expect(await heldHarness()).toBeUndefined();
+  await showTab("Claude (sr)");
+  if (!(await heldHarness())) await click(models().find((row) => nameOf(row) === "Sonnet SR")!);
+  expect(await heldHarness()).toBe("claude-sr");
 });
 
 test("launch configurations are named rail entries and never a Profile submenu", async () => {
@@ -462,8 +464,7 @@ for (const [id, name, family] of [
 test("a running turn still lets the chat browse and hold another harness's model", async () => {
   const calls = await mountChat(
     chat(await acpmuxCatalog(), 1, {
-      canHandoff: true,
-      handoff: { ready: true },
+      canFork: true,
       isWorking: true,
     } as Partial<Snapshot>),
   );
@@ -499,9 +500,7 @@ test("a new chat still launches a named harness entry that lists no models from 
 });
 
 test("the chat composer's pick of another harness's model sends nothing until a message", async () => {
-  const calls = await mountChat(
-    chat(await acpmuxCatalog(), 1, { canHandoff: true, handoff: { ready: true } } as Partial<Snapshot>),
-  );
+  const calls = await mountChat(chat(await acpmuxCatalog(), 1, { canFork: true } as Partial<Snapshot>));
   await open();
   await showTab("Codex");
   await click(models()[0]!);
@@ -509,150 +508,45 @@ test("the chat composer's pick of another harness's model sends nothing until a 
   expect(calls.filter((call) => call.method.startsWith("chat."))).toEqual([]);
 });
 
-test("a send with a held pick forks through Continue In…'s chat.handoff.prepare, carrying the message", async () => {
+test("a send with a held pick forks the chat in place onto it, and the fork takes the message", async () => {
   const { holdFork, heldFork, sendHeldFork } = await import("../src/agent-session/acpmux/forkHold");
   const calls: Record<string, unknown>[] = [];
   const cleared: string[] = [];
-  const prepare = async (params: Record<string, unknown>) => {
+  const fork = async (params: Record<string, unknown>) => {
     calls.push(params);
     return "s2";
   };
   // Nothing held: the send goes on as usual.
-  expect(sendHeldFork("s1", "hi", { images: 0, ready: true, prepare })).toBeUndefined();
-  holdFork({ sessionId: "s1", harness: "codex", model: "gpt-6.1-sol", effort: "high" });
-  // The chat can't fork now (a turn running, a review open), or the message has images: kept.
-  expect(sendHeldFork("s1", "hi", { images: 0, ready: false, prepare })).toBe(false);
-  expect(sendHeldFork("s1", "hi", { images: 1, ready: true, prepare })).toBe(false);
-  expect(calls).toEqual([]);
-  await expect(
-    sendHeldFork("s1", "fix the build", { images: 0, ready: true, prepare, sent: (id) => cleared.push(id) }),
-  ).resolves.toBe("s2");
-  expect(calls).toEqual([{ harness: "codex", model: "gpt-6.1-sol", effort: "high", message: "fix the build" }]);
+  expect(sendHeldFork("s1", { fork })).toBeUndefined();
+  holdFork({ sessionId: "s1", harness: "codex", model: "gpt-6.1-sol", effort: "high", fast: true });
+  // No review, no "ready" gate, no images rule: the send forks at once.
+  await expect(sendHeldFork("s1", { fork, sent: (id) => cleared.push(id) })).resolves.toBe("s2");
+  expect(calls).toEqual([{ harness: "codex", model: "gpt-6.1-sol", effort: "high", fast: true }]);
   expect(heldFork("s1")).toBeUndefined();
   expect(cleared).toEqual(["s1"]);
-  // A prepare that made no review rejects, so the composer keeps the message; the pick stays.
-  holdFork({ sessionId: "s1", harness: "codex" });
-  await expect(
-    sendHeldFork("s1", "again", { images: 0, ready: true, prepare: async () => undefined }),
-  ).rejects.toThrow();
-  expect(heldFork("s1")?.harness).toBe("codex");
+  // Switching back: a pick of the first harness in the fork forks it again, the same way.
+  holdFork({ sessionId: "s2", harness: "claude", model: "claude-opus-5-5" });
+  await expect(sendHeldFork("s2", { fork })).resolves.toBe("s2");
+  expect(calls[1]).toEqual({ harness: "claude", model: "claude-opus-5-5" });
 });
 
-type HandoffRecord = import("../src/agent-session/acpmux/handoff/protocol").Handoff;
-/// The review's record Continue In… drew for the new chat `s2`.
-const review = (text: string, checkpoint?: string) =>
-  ({
-    revision: 3,
-    target: { sessionId: "s2" },
-    capsule: {
-      text,
-      memoryRefs: ["m1"],
-      checkpoint: checkpoint ? { ref: checkpoint, attestedBy: "user", attestedAt: "" } : null,
-    },
-  }) as unknown as HandoffRecord;
-
-test("chat.handoff.prepare lands the held model, then adds the message to the review", async () => {
-  const { prepareHeldFork } = await import("../src/agent-session/acpmux/forkHold");
-  const steps: string[] = [];
-  const saves: unknown[] = [];
-  const target = await prepareHeldFork(
-    { harness: "codex", model: "gpt-6", effort: "high", message: "fix the build" },
-    {
-      continueIn: async (harness) => (steps.push(`continue ${harness}`), "s2"),
-      pickModel: async (model, on) => (steps.push(`model ${model} on ${on}`), true),
-      options: async (on, picked) => void steps.push(`options ${on} ${picked.effort}`),
-      record: () => review("context so far"),
-      save: async (input) => (saves.push(input), review("saved")),
-      saved: () => void steps.push("redraw"),
-    },
-  );
-  expect(target).toBe("s2");
-  expect(steps).toEqual(["continue codex", "model gpt-6 on s2", "options s2 high", "redraw"]);
-  // The checkpoint stays as the record has it: unconfirmed, for the person to confirm.
-  expect(saves).toEqual([
-    {
-      capsule: "context so far\n\nfix the build",
-      checkpoint: { reference: "", confirmed: false },
-      approvedMemoryReferences: ["m1"],
-      revision: 3,
-    },
-  ]);
-});
-
-test("a fork that fails after the new chat showed keeps the held pick", async () => {
+test("a fork that fails keeps the message and the held pick", async () => {
   // Review of #37196: the new chat's selection closed this chat's composer, whose cleanup dropped
-  // the pick; a model or save that then failed left the message with no pick.
+  // the pick; a fork that then failed left the message with no pick.
   const { holdFork, heldFork, clearHeldFork, sendHeldFork } = await import("../src/agent-session/acpmux/forkHold");
   holdFork({ sessionId: "s1", harness: "codex", model: "gpt-6" });
-  const sent = sendHeldFork("s1", "fix the build", {
-    images: 0,
-    ready: true,
-    prepare: async () => {
+  const cleared: string[] = [];
+  const sent = sendHeldFork("s1", {
+    fork: async () => {
       clearHeldFork("s1");
-      throw new Error("model not set");
+      throw new Error("refused");
     },
+    sent: (id) => cleared.push(id),
   });
   await expect(sent as Promise<string>).rejects.toThrow();
   expect(heldFork("s1")).toEqual({ sessionId: "s1", harness: "codex", model: "gpt-6" });
+  expect(cleared).toEqual([]);
 });
-
-test("a review still loading when the new chat shows is read again, and the message joins it", async () => {
-  // Review of #37196: the new chat's selection starts its review's read; the record was read
-  // before it came in, so the message failed to join the review.
-  const { prepareHeldFork } = await import("../src/agent-session/acpmux/forkHold");
-  let loaded = false;
-  const saves: unknown[] = [];
-  const target = await prepareHeldFork(
-    { harness: "codex", message: "fix the build" },
-    {
-      continueIn: async () => "s2",
-      pickModel: async () => true,
-      record: () => (loaded ? review("context so far") : undefined),
-      refresh: async () => void (loaded = true),
-      save: async (input) => (saves.push(input), review("saved")),
-    },
-  );
-  expect(target).toBe("s2");
-  expect(saves).toHaveLength(1);
-});
-
-for (const [why, deps] of [
-  ["the model did not land", { pickModel: async () => false }],
-  ["the review takes no save (a refresh failure, a conflict, another chat shown)", { save: async () => undefined }],
-  [
-    "the save throws",
-    {
-      save: async () => {
-        throw new Error("conflict");
-      },
-    },
-  ],
-  ["the review no longer shows the new chat", { record: () => undefined }],
-] as const)
-  test(`a send with a held pick keeps the message and the pick when ${why}`, async () => {
-    // Review of #37196 (F1): an unaccepted save still resolved the target, so the composer cleared
-    // the message and the hold while the review never got the message.
-    const { holdFork, heldFork, prepareHeldFork, sendHeldFork } = await import("../src/agent-session/acpmux/forkHold");
-    holdFork({ sessionId: "s1", harness: "codex", model: "gpt-6" });
-    // Every step takes the fork, but the one `deps` replaces.
-    const accepting = {
-      continueIn: async () => "s2",
-      pickModel: async () => true,
-      record: () => review("context"),
-      save: async () => review("saved"),
-    };
-    const cleared: string[] = [];
-    const sent = sendHeldFork("s1", "fix the build", {
-      images: 0,
-      ready: true,
-      prepare: (params) => prepareHeldFork(params as { harness: string; message: string }, { ...accepting, ...deps }),
-      sent: (id) => cleared.push(id),
-    });
-    expect(sent).toBeInstanceOf(Promise);
-    await expect(sent as Promise<string>).rejects.toThrow();
-    expect(heldFork("s1")?.harness).toBe("codex");
-    expect(cleared).toEqual([]);
-  });
 
 test("holding a folded launch route names it on the chip and its fork tooltip", async () => {
   // Review of #37196 (F2): a launch profile folded into its family's tab has no catalog entry that
@@ -769,13 +663,10 @@ async function mountChat(snapshot: Snapshot) {
   return calls;
 }
 
-test("while the chat's handoff review is open, a pick only holds and the send can't fork", async () => {
-  const { canContinueIn } = await import("../src/agent-session/acpmux/handoff/continueIn");
-  const { sendHeldFork } = await import("../src/agent-session/acpmux/forkHold");
+test("a pick in a chat that can fork asks nothing: no Fork to row and no chat call until a message", async () => {
   const snapshot = chat(await acpmuxCatalog(), 1, {
     sessionId: "s1",
-    canHandoff: true,
-    handoff: { ready: true, record: { target: { sessionId: "s1" }, state: "draft" } },
+    canFork: true,
   } as unknown as Partial<Snapshot>);
   const calls = await mountChat(snapshot);
   await open();
@@ -786,10 +677,6 @@ test("while the chat's handoff review is open, a pick only holds and the send ca
   await press("Enter");
   expect(await heldHarness()).toBe("codex");
   expect(calls.filter((call) => call.method.startsWith("chat."))).toEqual([]);
-  expect(canContinueIn(snapshot)).toBe(false);
-  expect(sendHeldFork("s1", "hi", { images: 0, ready: canContinueIn(snapshot), prepare: async () => "s2" })).toBe(
-    false,
-  );
 });
 
 test("when no other harness can take the chat, the composer offers no Fork to and sends nothing", async () => {
@@ -798,7 +685,7 @@ test("when no other harness can take the chat, the composer offers no Fork to an
   const catalog = (await acpmuxCatalog()).map((harness) =>
     harness.id === "claude" ? harness : { ...harness, unavailable: "probe failed", probeFailed: true },
   ) as Snapshot["catalog"];
-  const snapshot = chat(catalog, 1, { canHandoff: true, handoff: { ready: true } } as Partial<Snapshot>);
+  const snapshot = chat(catalog, 1, { canFork: true } as Partial<Snapshot>);
   const calls = await mountChat(snapshot);
   await open();
   expect(railTabs().map((tab) => tab.getAttribute("aria-label"))).toEqual([STARRED, "Claude Code"]);
@@ -822,17 +709,16 @@ for (const [source, catalogFamily] of [
   ["claude", "claude"],
   ["work", "codex"],
 ])
-  test(`the composer excludes same-family forks while another family can take the chat (${source})`, async () => {
+  test(`the composer holds another family's model without asking (${source})`, async () => {
     const catalog = [
       { id: source!, name: "Claude Code", family: catalogFamily!, models: [{ id: "opus", name: "Opus" }] },
       { id: "claude-sr", name: "Claude (sr)", family: "claude", models: [{ id: "opus", name: "Opus" }] },
       { id: "codex", name: "Codex", family: "codex", models: [{ id: "gpt-6", name: "GPT-6" }] },
     ] as Snapshot["catalog"];
-    const snapshot = chat(catalog, 1, { canHandoff: true, handoff: { ready: true } });
+    const snapshot = chat(catalog, 1, { canFork: true } as Partial<Snapshot>);
     snapshot.summary = { ...snapshot.summary!, harness: source!, family: "claude" };
     const calls = await mountChat(snapshot);
     await open();
-    expect(railTabs().map((tab) => tab.getAttribute("aria-label"))).not.toContain("Claude (sr)");
     expect(models().length).toBeGreaterThan(0);
     expect(calls.filter((call) => call.method.startsWith("chat."))).toEqual([]);
     await showTab("Codex");

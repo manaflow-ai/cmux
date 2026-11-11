@@ -59,7 +59,7 @@ import {
 } from "./startMode";
 import type { PickerCatalog } from "./modelCatalogData";
 import { catalogProfiles } from "./pickerProfiles";
-import { continueTargets } from "./cmuxCommands";
+import { switchTargets } from "./cmuxCommands";
 import { clearHeldFork, holdFork, useHeldFork } from "./forkHold";
 import { useModelCatalogState } from "./modelCatalogHost";
 import { AnchoredCard } from "../../ui/Tooltip";
@@ -141,10 +141,10 @@ type Props = {
   /// combo's effort and Fast, held under their kind's id (heldOptions.ts); the switch applies them
   /// to the new session before its first prompt.
   onHarness?(harness: string, model?: string, options?: Readonly<Record<string, string>>): void;
-  /// A started chat can fork into a new chat on another harness (see ModelPickerProps.fork): with
-  /// it, its model menus list the models of every harness Continue In… can take (continueTargets),
-  /// and a pick of another harness's model is held as the next message's target (forkHold.ts),
-  /// which the composer's send forks to.
+  /// A started chat can switch to another harness's model (see ModelPickerProps.fork): with it, its
+  /// model menus list the models of every other harness that runs here (switchTargets), and a pick
+  /// of another harness's model is held as the next message's target (forkHold.ts), which the
+  /// composer's send forks the chat onto in the same pane, asking nothing (App.tsx `chat.switchModel`).
   fork?: boolean;
   /// The folder a pick is remembered for (lastPick.ts), when the chat has none yet (a New Tab's).
   folder?: string;
@@ -495,7 +495,7 @@ export function ComposerPickers({
   // fork drops its held pick, so none comes back when the chat shows again (review of #37196, F2).
   const sessionId = summary?.sessionId;
   const forks = locked && fork === true && !!sessionId;
-  const forkTargets = forks ? continueTargets(snapshot.catalog, summary?.harness, summary?.family) : [];
+  const forkTargets = forks ? switchTargets(snapshot.catalog, summary?.harness) : [];
   // One set per list of targets, so the menus' lists are not rebuilt on every render.
   const targetsKey = forkTargets.map((target) => target.id).join("\u0000");
   const targetSet = useMemo(() => new Set(targetsKey ? targetsKey.split("\u0000") : []), [targetsKey]);
@@ -504,7 +504,7 @@ export function ComposerPickers({
     if (!forks || !sessionId) return;
     return () => clearHeldFork(sessionId);
   }, [forks, sessionId]);
-  // A harness Continue In… can't take is never held.
+  // A harness that can't run here is never held.
   const hold = (picked: { harness: string; model?: string; effort?: string; fast?: boolean; name?: string }) => {
     if (!forks || !sessionId || !forkTargets.some((target) => target.id === picked.harness)) return;
     holdFork({
