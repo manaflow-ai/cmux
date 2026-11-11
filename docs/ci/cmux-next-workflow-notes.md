@@ -465,6 +465,19 @@ for its own commands, prints their output and keeps its name, id and outcome. A 
 line names the step the commands under it belong to; the longest commands start first.
 Not here: "Pushed commits add no violations" deepens the clone and writes its step summary.
 
+## note-27b
+
+Above `checks: Prepare check Python (PyYAML) and timeout` in `.github/workflows/cmux-next.yml`.
+
+portable-placement may put this job on a free mini, whose Homebrew python3 has no
+PyYAML and whose PATH has no GNU `timeout`. On 2026-11-11 the job went red there
+with `ModuleNotFoundError: No module named 'yaml'` (56 times) and `timeout: command
+not found` (cmux13s-mac-mini-glaeda-5 job 130627140300, cmuxs-mac-mini-6-glaeda-3
+job 130624833630), and passed on Blacksmith Linux at the same tree. The job brings
+its own venv first on PATH wherever it lands, as cmux-next-guards.yml's tooling
+tests do; tests/test_portable_jobs_bring_their_python.py keeps every mini-eligible
+job that runs Python tests doing so.
+
 ## note-28
 
 Above `checks: UI font (the system font)` in `.github/workflows/cmux-next.yml`.

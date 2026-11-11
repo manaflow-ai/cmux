@@ -38,6 +38,10 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
     "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
+# tests/process_gone.py, loaded by path the same way.
+_process_gone_spec = _git_fixture_importlib.spec_from_file_location("process_gone", ROOT / "tests" / "process_gone.py")
+process_gone = _git_fixture_importlib.module_from_spec(_process_gone_spec)
+_process_gone_spec.loader.exec_module(process_gone)
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 ARTIFACTS_WORKFLOW = WORKFLOW.parent / "cmux-tui-artifacts.yml"
 TREE_JOBS = ("daemon-test", "cmux-scheme-compile")
@@ -53,10 +57,12 @@ def steps() -> list[dict]:
 
 def is_setup(step: dict) -> bool:
     """Checkout and toolchain steps: an action, not a check script; the reset of a reused
-    workspace's submodule checkouts that follows checkout on a mini; and the start of the slow
-    checks in the background, whose own steps wait for their results."""
+    workspace's submodule checkouts that follows checkout on a mini; the check Python (PyYAML)
+    a mini lacks; and the start of the slow checks in the background, whose own steps wait for
+    their results."""
     run = str(step.get("run", ""))
     return ("uses" in step or "scripts/ci/reset-stale-submodules.sh" in run
+            or step.get("name") == "Prepare check Python (PyYAML) and timeout"
             or "scripts/ci/run-checks-concurrently.sh --start" in run)
 
 
@@ -1247,14 +1253,9 @@ class StepRunnerLeavesNoChild(unittest.TestCase):
             with self.assertRaises(subprocess.TimeoutExpired):
                 run_step(f"sleep 60 & echo $! > {pid_file}; wait", dict(os.environ), timeout=1)
             child = int(pid_file.read_text())
-        # A killed child is gone once its new parent reaps it, well within a second.
-        deadline = time.monotonic() + 2
-        while time.monotonic() < deadline:
-            try:
-                os.kill(child, 0)
-            except ProcessLookupError:
-                return
-            time.sleep(0.05)
+        # A killed child is gone once it has exited (a zombie its new parent has not reaped yet counts).
+        if process_gone.died(child, within=2):
+            return
         os.kill(child, signal.SIGKILL)
         self.fail(f"step child {child} outlived the timed-out step")
 

@@ -3,8 +3,26 @@
 //! paths. The front counts every WebSocket message each peer sends, so the
 //! test reports keystroke echo latency and relay message counts, the two costs
 //! batch framing trades against each other.
+//!
+//! Both of those numbers are set by the scheduler as much as by the code: the
+//! batched sender's burst detector and the echo's round trip run on the wall
+//! clock, so with every core taken a typed keystroke's median echo read 3 to 8 ms
+//! against its 2 ms bound, and a flood shared fewer frames per message than the
+//! floor (cmux-ci run 43062975996: 12 of 15 runs red beside 48 busy loops on 8
+//! CPUs). The default run keeps what holds under any load: every keystroke and
+//! every flood frame arrives, once, in order, over `relay+do`, and the front
+//! counts them. The sender's own properties (a lone keystroke leaves without
+//! waiting on the burst timer, queued and flooded frames share messages) are
+//! checked on tokio's paused clock by the batched sender tests in
+//! `src/provider/relay_tests.rs`, also in the default run.
+//!
+//! The wall-clock bounds stay as an ignored measurement of the whole stack
+//! (TLS, the front, the relay's hops, Nagle), which a fake socket cannot see:
+//! `cargo test -p cmux-remote --test relay_do_batch_e2e -- --ignored --exact relay_do_echo_and_batch_bounds_on_a_quiet_host --nocapture`.
+//! Whoever changes the batched sender (`run_batched_relay_sender`) or the relay
+//! path runs it on a quiet host, before and after. Each test trusts its own CA
+//! through [`RelayTls`], so the two can run at once.
 
-use std::ffi::OsString;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -16,8 +34,8 @@ use cmux_remote::connection::{ClientConnection, ClientConnectionConfig, Reconnec
 use cmux_remote::crypto::{ClientAuthMode, StaticIdentity};
 use cmux_remote::identity::AuthDatabase;
 use cmux_remote::provider::{
-    ConnectRequest, RelayClientConfig, RelayDaemonConfig, RelayProvider, TransportProvider,
-    register_relay_daemon,
+    ConnectRequest, RelayClientConfig, RelayDaemonConfig, RelayProvider, RelayTls,
+    TransportProvider, register_relay_daemon_with_tls,
 };
 use cmux_remote::session::SessionLimits;
 use cmux_remote_protocol::{FrameFlags, Lane, LanePolicy, RelayControl, RelayRole, SessionId};
@@ -26,7 +44,7 @@ use rcgen::{
     BasicConstraints, CertificateParams, CertifiedIssuer, DistinguishedName, DnType,
     ExtendedKeyUsagePurpose, IsCa, KeyPair, KeyUsagePurpose,
 };
-use tempfile::{TempDir, tempdir};
+use tempfile::tempdir;
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 use tokio_rustls::rustls::ServerConfig;
@@ -219,47 +237,6 @@ fn distinguished_name(common_name: &str) -> DistinguishedName {
     name
 }
 
-struct TrustedCertificate {
-    previous_file: Option<OsString>,
-    previous_dir: Option<OsString>,
-    _directory: TempDir,
-}
-
-impl TrustedCertificate {
-    /// Must run before the runtime starts any thread.
-    fn install(pem: &str) -> Self {
-        let directory = tempdir().unwrap();
-        let path = directory.path().join("trusted-ca.pem");
-        std::fs::write(&path, pem).unwrap();
-        let previous_file = std::env::var_os("SSL_CERT_FILE");
-        let previous_dir = std::env::var_os("SSL_CERT_DIR");
-        // SAFETY: this test binary has one test, which sets the trust store before it builds
-        // the runtime and restores it after the runtime has shut down.
-        unsafe {
-            std::env::set_var("SSL_CERT_FILE", &path);
-            std::env::remove_var("SSL_CERT_DIR");
-        }
-        Self { previous_file, previous_dir, _directory: directory }
-    }
-}
-
-impl Drop for TrustedCertificate {
-    fn drop(&mut self) {
-        for (name, value) in [
-            ("SSL_CERT_FILE", self.previous_file.take()),
-            ("SSL_CERT_DIR", self.previous_dir.take()),
-        ] {
-            // SAFETY: the runtime has shut down; no other thread reads the environment.
-            unsafe {
-                match value {
-                    Some(value) => std::env::set_var(name, value),
-                    None => std::env::remove_var(name),
-                }
-            }
-        }
-    }
-}
-
 fn percentile(sorted: &[Duration], percentile: usize) -> Duration {
     sorted[(sorted.len() * percentile / 100).min(sorted.len() - 1)]
 }
@@ -320,22 +297,45 @@ async fn measure_echoes(
     percentile(&round_trips, 50)
 }
 
+/// What the run asserts beyond delivery and order.
+#[derive(Clone, Copy, PartialEq)]
+enum Bounds {
+    /// Every keystroke echoes and every flood frame arrives, in order; no timing or batching bound.
+    Delivery,
+    /// Also the typed-echo median and the flood's frames per message: wall-clock bounds, for a quiet
+    /// host and their own run.
+    Timing,
+}
+
+/// The default run: every keystroke and flood frame crosses `relay+do` once, in order. No wall-clock
+/// or batching bound, so the load beside it in the parallel run cannot fail it.
 #[test]
-fn relay_do_batches_only_queued_frames_and_echoes_keystrokes_without_delay() {
+fn relay_do_delivers_every_keystroke_and_flood_frame_once_in_order() {
+    measure(Bounds::Delivery);
+}
+
+/// The timing bounds, on a quiet host (the module doc has the command): a typed
+/// keystroke's median echo stays under [`TYPING_ECHO_BOUND`], and a flood shares at least
+/// [`MINIMUM_FLOOD_FRAMES_PER_MESSAGE`] frames per relay message.
+#[test]
+#[ignore = "quiet host: wall-clock and batching bounds of the whole relay+do stack"]
+fn relay_do_echo_and_batch_bounds_on_a_quiet_host() {
+    measure(Bounds::Timing);
+}
+
+fn measure(bounds: Bounds) {
     let issuer = certificate_authority();
-    let trust = TrustedCertificate::install(&issuer.pem());
+    let trust = RelayTls::with_root_certificates([issuer.der().to_vec()]).unwrap();
     let runtime =
         tokio::runtime::Builder::new_multi_thread().worker_threads(4).enable_all().build().unwrap();
     runtime.block_on(async {
-        tokio::time::timeout(TEST_TIMEOUT, run(server_config(&issuer)))
+        tokio::time::timeout(TEST_TIMEOUT, run(server_config(&issuer), trust, bounds))
             .await
             .expect("relay+do measurement timed out");
     });
-    drop(runtime);
-    drop(trust);
 }
 
-async fn run(tls: Arc<ServerConfig>) {
+async fn run(tls: Arc<ServerConfig>, trust: RelayTls, bounds: Bounds) {
     let relay_listener = TcpListener::bind(SocketAddr::new(LOOPBACK, 0)).await.unwrap();
     let relay_address = relay_listener.local_addr().unwrap();
     let relay = Relay::new(RelayConfig {
@@ -357,7 +357,7 @@ async fn run(tls: Arc<ServerConfig>) {
     let auth = AuthDatabase::load_or_create(state.path(), "relay-do-test", false).unwrap();
     let (daemon, mut accepted) =
         cmux_remote::daemon::RemoteDaemon::new(auth.clone(), SessionLimits::default());
-    let registration = register_relay_daemon(
+    let registration = register_relay_daemon_with_tls(
         daemon,
         RelayDaemonConfig {
             endpoint: endpoint.clone(),
@@ -366,6 +366,7 @@ async fn run(tls: Arc<ServerConfig>) {
             maximum_frame_bytes: MAXIMUM_FRAME_BYTES,
             control_timeout: Duration::from_secs(5),
         },
+        trust.clone(),
     )
     .await
     .unwrap();
@@ -383,7 +384,8 @@ async fn run(tls: Arc<ServerConfig>) {
         maximum_frame_bytes: MAXIMUM_FRAME_BYTES,
         control_timeout: Duration::from_secs(5),
     })
-    .unwrap();
+    .unwrap()
+    .with_tls(trust);
     let invitation_secret = invitation.secret_bytes().unwrap();
     let session = SessionId([43; 16]);
     let group = provider
@@ -445,10 +447,12 @@ async fn run(tls: Arc<ServerConfig>) {
         measure_echoes(&client, &counters, "typing pace", Some(TYPING_INTERVAL)).await;
     // Two relay hops that each wait on a timer cost at least 2 ms; an
     // immediate send costs a small fraction of that on loopback.
-    assert!(
-        typing_echo < TYPING_ECHO_BOUND,
-        "a typed keystroke's median echo took {typing_echo:?}; relay+do must send it at once"
-    );
+    if bounds == Bounds::Timing {
+        assert!(
+            typing_echo < TYPING_ECHO_BOUND,
+            "a typed keystroke's median echo took {typing_echo:?}; relay+do must send it at once"
+        );
+    }
 
     // A burst: the client writes frames back to back while the daemon drains.
     echo.abort();
@@ -493,11 +497,13 @@ async fn run(tls: Arc<ServerConfig>) {
         flood_frames as f64 / flood_messages.max(1) as f64,
     );
     assert!(flood_frames >= FLOOD_FRAMES as u64);
-    assert!(
-        flood_frames >= MINIMUM_FLOOD_FRAMES_PER_MESSAGE * flood_messages,
-        "a burst must still share relay messages: {flood_messages} messages for {flood_frames} \
-         frames"
-    );
+    if bounds == Bounds::Timing {
+        assert!(
+            flood_frames >= MINIMUM_FLOOD_FRAMES_PER_MESSAGE * flood_messages,
+            "a burst must still share relay messages: {flood_messages} messages for {flood_frames} \
+             frames"
+        );
+    }
 
     client.close().await.unwrap();
     registration.shutdown().await;

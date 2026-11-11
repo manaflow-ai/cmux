@@ -538,14 +538,15 @@ fn write_session_json(
     lsn: Lsn,
     journal: u64,
 ) -> Result<()> {
-    use std::os::unix::fs::OpenOptionsExt;
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let path = dir.join("session.json");
+    // Through the folder this daemon holds (`home_fs`): a home replaced after the check never
+    // gets the file.
     crate::config::refuse_lost_home(&path)?;
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
     let written = (|| -> Result<()> {
-        let mut file = OpenOptions::new()
+        let mut file = crate::home_fs::OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
@@ -559,11 +560,12 @@ fn write_session_json(
             .map_err(SyncFailed)
             .with_context(|| format!("sync {}", tmp.display()))?;
         drop(file);
-        std::fs::rename(&tmp, &path).with_context(|| format!("rename to {}", path.display()))?;
+        crate::home_fs::rename(&tmp, &path)
+            .with_context(|| format!("rename to {}", path.display()))?;
         log_sync::sync_directory_ordered(dir).with_context(|| format!("sync {}", dir.display()))
     })();
     if written.is_err() {
-        let _ = std::fs::remove_file(&tmp);
+        let _ = crate::home_fs::remove_file(&tmp);
     }
     written
 }
