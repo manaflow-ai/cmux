@@ -50,11 +50,17 @@ public struct CloudMachineRoute: Sendable {
     /// when it does, ``afterUpdate(within:_:)``) and its agents reach models through its edge. A refusal is the
     /// start's failure, its reason as the start card shows it, with a retry on the same machine.
     public func prepare(_ update: @escaping @Sendable () async -> Void) async throws {
-        Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
-            .info("cloud start chat: bringing \(machineID ?? "", privacy: .public) to this app's machine software")
+        let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
+        logger.info("cloud start chat: bringing \(machineID ?? "", privacy: .public) to this app's machine software")
         do {
             try await afterUpdate(update)
         } catch let refused as Refused {
+            // A machine whose image software has no model-route report (it prints nothing) and that the app's
+            // update does not change is not a refusal: the start goes on with the image's software.
+            if refused.verdict == .unsupported {
+                logger.info("cloud start chat: \(machineID ?? "", privacy: .public) has no model-route report after its update; starting on its image's software")
+                return
+            }
             throw CloudMoveFailure(message: refused.message, retry: machineID.map { .move(machineID: $0) })
         }
     }
