@@ -39,6 +39,7 @@ pub(super) const TAIL_STEP: Duration = Duration::from_millis(100);
 
 /// One guarded call's starting point.
 pub(super) struct FocusGuard {
+    session: String,
     before: FocusSnapshot,
     /// The person's input count before the call (`None`: nothing watches).
     inputs: Option<u64>,
@@ -62,6 +63,24 @@ pub(super) enum FocusReport {
     PersonMoved { to: String },
     /// It moved and stayed: why it was not put back.
     NotRestored { to: String, reason: String },
+    /// Another window of the app this session brought to the front itself
+    /// (foreground delivery, allowed by the person) came forward: the
+    /// agent's work in its own front app, left there.
+    AgentForeground { to: String },
+}
+
+/// The app a session's foreground call brought to the front, and what was
+/// true right after: its key window and the person's input count. A later
+/// background call of that session may bring another window of that app
+/// forward without it being put back, only while the person has given no
+/// input since, that app is still in front with the window the agent left
+/// (or brought) there, the call acts on that app, and foreground input is
+/// still allowed. Any of those failing ends it.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct AgentFront {
+    pid: u32,
+    window: Option<String>,
+    inputs: u64,
 }
 
 impl FocusReport {
@@ -74,6 +93,9 @@ impl FocusReport {
             }
             FocusReport::NotRestored { to, reason } => {
                 json!({"kept": false, "moved_to": to, "not_restored": reason})
+            }
+            FocusReport::AgentForeground { to } => {
+                json!({"kept": false, "moved_by": "agent_foreground", "moved_to": to})
             }
         }
     }
@@ -112,7 +134,12 @@ fn moved(before: &FocusSnapshot, now: &FocusSnapshot, targets: &[u32]) -> bool {
 impl Engine {
     /// The guard for an acting call in background delivery, or `None`
     /// (nothing acts, foreground delivery, or the desktop cannot tell).
-    pub(super) fn focus_begin(&self, tool: &tools::Tool, args: &Value) -> Option<FocusGuard> {
+    pub(super) fn focus_begin(
+        &self,
+        session: &str,
+        tool: &tools::Tool,
+        args: &Value,
+    ) -> Option<FocusGuard> {
         if !tool.acts() || asks_foreground(tool.name, args) {
             return None;
         }
@@ -124,6 +151,7 @@ impl Engine {
             .map(|w| vec![w.pid])
             .unwrap_or_default();
         Some(FocusGuard {
+            session: session.to_string(),
             before,
             inputs,
             targets,
@@ -177,7 +205,11 @@ impl Engine {
             _ => !self.takeover.wait_idle(Duration::ZERO),
         };
         if person {
+            lock(&self.agent_front).remove(&g.session);
             return FocusReport::PersonMoved { to: now.app_id };
+        }
+        if self.agent_front_holds(g, &now, after) {
+            return FocusReport::AgentForeground { to: now.app_id };
         }
         let own = std::process::id();
         let attributable = g.targets.contains(&now.pid)
@@ -199,6 +231,81 @@ impl Engine {
             },
             Err(e) => FocusReport::NotRestored { to: now.app_id, reason: e.to_string() },
         }
+    }
+
+    /// Before a call that raises its window on purpose (foreground): what
+    /// was in front, to tell afterwards whether the call brought its target
+    /// forward. `None` for every other call.
+    pub(super) fn foreground_begin(
+        &self,
+        tool: &tools::Tool,
+        args: &Value,
+    ) -> Option<FocusSnapshot> {
+        if !tool.acts() || !asks_foreground(tool.name, args) {
+            return None;
+        }
+        self.desktop.focus_snapshot()
+    }
+
+    /// After that call: when it acted and brought its target app to the
+    /// front (it was not there before), remember that for the session, with
+    /// the window it left in front and the person's input count. Nothing is
+    /// remembered without an input counter, or when the person already had
+    /// the target in front.
+    pub(super) fn foreground_end(
+        &self,
+        session: &str,
+        before: &FocusSnapshot,
+        args: &Value,
+        out: &ToolOutput,
+    ) {
+        if out.is_error {
+            return;
+        }
+        let Some(target) = args_str(args, "window_id")
+            .and_then(|id| self.desktop.window(id).ok().flatten())
+            .map(|w| w.pid)
+        else {
+            return;
+        };
+        let (Some(now), Some(inputs)) =
+            (self.desktop.focus_snapshot(), self.takeover.input_count())
+        else {
+            return;
+        };
+        if before.pid != target && now.pid == target {
+            lock(&self.agent_front).insert(
+                session.to_string(),
+                AgentFront { pid: target, window: now.window_id, inputs },
+            );
+        }
+    }
+
+    /// Whether this change is another window of the session's own front
+    /// app coming forward (see AgentFront). On a match the record follows
+    /// the new key window; a record that no longer holds is dropped.
+    fn agent_front_holds(&self, g: &FocusGuard, now: &FocusSnapshot, after: Option<u64>) -> bool {
+        let config = self.config();
+        let mut fronts = lock(&self.agent_front);
+        let Some(front) = fronts.get_mut(&g.session) else { return false };
+        let allowed = config.allow_foreground && config.mode != policy::Mode::Off;
+        let quiet = g.inputs == Some(front.inputs) && after == Some(front.inputs);
+        // The window the agent left in front, or (a later reading of this
+        // same call) the one this call already brought forward.
+        let same_place = g.before.pid == front.pid
+            && (g.before.window_id == front.window || now.window_id == front.window);
+        let own_window = now.pid == front.pid
+            && now.top_pid.is_none_or(|p| p == front.pid)
+            && g.targets.contains(&front.pid);
+        if !(allowed && quiet && same_place) {
+            fronts.remove(&g.session);
+            return false;
+        }
+        if !own_window {
+            return false;
+        }
+        front.window.clone_from(&now.window_id);
+        true
     }
 
     /// The app that took focus (or raised a window over the person's).

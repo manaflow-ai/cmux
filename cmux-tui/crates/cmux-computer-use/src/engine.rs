@@ -288,6 +288,9 @@ pub struct Engine {
     seen: Mutex<HashMap<(String, String), (Geometry, u64)>>,
     /// session -> its latest display screenshot key.
     last_display: Mutex<HashMap<String, String>>,
+    /// session -> the app its foreground call brought to the front (see
+    /// engine_focus: AgentFront).
+    agent_front: Mutex<HashMap<String, focus::AgentFront>>,
     audit: Option<PathBuf>,
     machine_name: String,
     settle: Settle,
@@ -358,6 +361,7 @@ impl Engine {
             takeover: parts.takeover,
             seen: Mutex::new(HashMap::new()),
             last_display: Mutex::new(HashMap::new()),
+            agent_front: Mutex::new(HashMap::new()),
             audit,
             machine_name: parts.machine_name,
             settle: parts.settle,
@@ -373,6 +377,9 @@ impl Engine {
     /// Applies new settings at once; calls already past the policy check finish.
     pub fn set_config(&self, config: PolicyConfig) {
         let off = config.mode == policy::Mode::Off;
+        if off || !config.allow_foreground {
+            lock(&self.agent_front).clear();
+        }
         *self.config.write().unwrap_or_else(std::sync::PoisonError::into_inner) = config;
         if off {
             self.sessions.revoke_all(None);
@@ -388,6 +395,7 @@ impl Engine {
         self.cursor.show(CursorEvent::Hide { session: session.to_string() });
         lock(&self.seen).retain(|(s, _), _| s != session);
         lock(&self.last_display).remove(session);
+        lock(&self.agent_front).remove(session);
     }
 
     pub fn call(&self, ctx: &CallContext, name: &str, args: &Value) -> ToolOutput {
@@ -437,11 +445,15 @@ impl Engine {
             self.sessions.begin(&ctx.session, call_id);
         }
         let args = if args.is_object() { args.clone() } else { json!({}) };
-        let mut guard = self.focus_begin(tool, &args);
+        let raising = self.foreground_begin(tool, &args);
+        let mut guard = self.focus_begin(&ctx.session, tool, &args);
         let (mut out, app) = match self.dispatch(tool, ctx, &args) {
             Ok((out, app)) => (out, app),
             Err(out) => (out, None),
         };
+        if let Some(before) = raising {
+            self.foreground_end(&ctx.session, &before, &args, &out);
+        }
         let mut focus = guard.as_mut().map(|g| self.focus_after_action(g, &out));
         if let Some(call_id) = acting_id {
             self.sessions.remember(&ctx.session, call_id, out.to_json().to_string());

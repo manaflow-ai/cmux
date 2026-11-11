@@ -307,3 +307,139 @@ fn a_batch_is_unguarded_only_when_every_step_asks_for_foreground() {
     assert!(out.body.get("focus").is_none(), "{:?}", out.body);
     assert_eq!(r.desktop.restores().len(), restores);
 }
+
+/// Safari (pid 10) in front with another of its windows (an About or
+/// Settings window) as the key window.
+fn safari_other_window() -> FocusSnapshot {
+    FocusSnapshot { window_id: Some("9".into()), ..safari_front() }
+}
+
+fn ctx_in(session: &str, call: &str) -> CallContext {
+    CallContext { session: session.into(), ..ctx(call) }
+}
+
+/// The agent (session s1) brings Safari forward on purpose: a foreground
+/// click with foreground input allowed.
+fn agent_raises_safari(r: &Rig) {
+    r.engine.set_config(PolicyConfig { allow_foreground: true, ..PolicyConfig::default() });
+    *r.desktop.steal_on_input.lock().unwrap() = Some(safari_front());
+    let out = r.engine.call(
+        &ctx("raise"),
+        "click",
+        &json!({"window_id": "1", "element_id": "e1", "delivery": "foreground"}),
+    );
+    assert!(!out.is_error, "{:?}", out.body);
+}
+
+/// A background click on Safari that brings `then` forward.
+fn background_click(r: &Rig, session: &str, call: &str, then: FocusSnapshot) -> ToolOutput {
+    *r.desktop.steal_on_input.lock().unwrap() = Some(then);
+    r.engine.call(&ctx_in(session, call), "click", &json!({"window_id": "1", "element_id": "e1"}))
+}
+
+#[test]
+fn a_window_of_the_app_the_agent_brought_forward_stays() {
+    let r = rig();
+    agent_raises_safari(&r);
+    // A background press opens Safari's About window as the key window: the
+    // agent's work in the app it put in front (a task graded on the front
+    // window failed when it was put back behind the main window).
+    let out = background_click(&r, "s1", "c2", safari_other_window());
+    assert_eq!(
+        out.body["focus"],
+        json!({"kept": false, "moved_by": "agent_foreground", "moved_to": "com.apple.Safari"}),
+        "{:?}",
+        out.body
+    );
+    assert!(r.desktop.restores().is_empty());
+    // The record follows: another of its windows next is still the agent's.
+    let back = FocusSnapshot { window_id: Some("1".into()), ..safari_front() };
+    let out = background_click(&r, "s1", "c3", back);
+    assert_eq!(out.body["focus"]["moved_by"], "agent_foreground", "{:?}", out.body);
+}
+
+#[test]
+fn the_person_using_the_app_ends_the_agents_front_app() {
+    let r = rig();
+    agent_raises_safari(&r);
+    // The person clicks in Safari (their input count moves): from then on a
+    // Safari window coming forward is put back, as before.
+    r.person.0.fetch_add(1, Ordering::SeqCst);
+    let out = background_click(&r, "s1", "c2", safari_other_window());
+    assert_eq!(out.body["focus"]["restored_from"], "com.apple.Safari", "{:?}", out.body);
+}
+
+#[test]
+fn another_apps_window_over_the_agents_front_app_is_put_back() {
+    // A desktop with TextEdit (pid 30, window 30) besides Safari.
+    let mut desktop = FakeDesktop::standard();
+    desktop.apps.push(crate::desktop::App {
+        id: "com.apple.TextEdit".into(),
+        name: "TextEdit".into(),
+        pid: 30,
+        ..desktop.apps[0].clone()
+    });
+    let mut textedit = desktop.windows.iter().find(|w| w.id == "1").unwrap().clone();
+    textedit.id = "30".into();
+    textedit.app_id = "com.apple.TextEdit".into();
+    textedit.pid = 30;
+    desktop.windows.push(textedit);
+    let r = rig_with(desktop, true);
+    agent_raises_safari(&r);
+    // A background click on TextEdit orders a TextEdit window above Safari
+    // without activating it: not the agent's front app's own window, so the
+    // window-above rule holds and it is put back.
+    let over = FocusSnapshot { top_pid: Some(30), ..safari_front() };
+    *r.desktop.steal_on_input.lock().unwrap() = Some(over);
+    let out = r.engine.call(&ctx("c2"), "click", &json!({"window_id": "30", "element_id": "e1"}));
+    assert!(out.body["focus"].get("restored_from").is_some(), "{:?}", out.body);
+}
+
+#[test]
+fn a_foreground_call_on_the_persons_own_front_app_records_nothing() {
+    let r = rig();
+    r.engine.set_config(PolicyConfig { allow_foreground: true, ..PolicyConfig::default() });
+    // Safari is already the person's front app when the agent types into it
+    // with foreground delivery: it did not bring Safari forward.
+    *r.desktop.focus.lock().unwrap() = Some(safari_front());
+    let out = r.engine.call(
+        &ctx("t"),
+        "type_text",
+        &json!({"window_id": "1", "text": "x", "delivery": "foreground"}),
+    );
+    assert!(!out.is_error, "{:?}", out.body);
+    let out = background_click(&r, "s1", "c2", safari_other_window());
+    assert_eq!(out.body["focus"]["restored_from"], "com.apple.Safari", "{:?}", out.body);
+}
+
+#[test]
+fn the_agents_front_app_is_its_own_session_only() {
+    let r = rig();
+    agent_raises_safari(&r);
+    let out = background_click(&r, "s2", "c2", safari_other_window());
+    assert_eq!(out.body["focus"]["restored_from"], "com.apple.Safari", "{:?}", out.body);
+}
+
+#[test]
+fn turning_foreground_off_or_ending_the_session_ends_the_agents_front_app() {
+    let r = rig();
+    agent_raises_safari(&r);
+    r.engine.set_config(PolicyConfig { allow_foreground: false, ..PolicyConfig::default() });
+    let out = background_click(&r, "s1", "c2", safari_other_window());
+    assert_eq!(out.body["focus"]["restored_from"], "com.apple.Safari", "{:?}", out.body);
+
+    let r = rig();
+    agent_raises_safari(&r);
+    r.engine.end_session("s1");
+    *r.desktop.focus.lock().unwrap() = Some(safari_front());
+    let out = background_click(&r, "s1", "c2", safari_other_window());
+    assert_eq!(out.body["focus"]["restored_from"], "com.apple.Safari", "{:?}", out.body);
+}
+
+#[test]
+fn with_no_input_counter_nothing_is_exempt() {
+    let r = rig_with(FakeDesktop::standard(), false);
+    agent_raises_safari(&r);
+    let out = background_click(&r, "s1", "c2", safari_other_window());
+    assert_ne!(out.body["focus"]["moved_by"], "agent_foreground", "{:?}", out.body);
+}
