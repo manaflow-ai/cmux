@@ -149,7 +149,11 @@ function deadline(anchor: FoldAnchor): number {
 }
 
 /// `node` if it is still drawn, else what `find` finds in the hold's transcript now.
-function drawnAgain(node: HTMLElement, find: string | undefined, root: ParentNode | undefined): HTMLElement | undefined {
+function drawnAgain(
+  node: HTMLElement,
+  find: string | undefined,
+  root: ParentNode | undefined,
+): HTMLElement | undefined {
   if (node.isConnected) return node;
   return (find && root?.querySelector<HTMLElement>(find)) || undefined;
 }

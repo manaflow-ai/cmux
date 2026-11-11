@@ -3389,7 +3389,8 @@ function TranscriptView({
     // browser lays out what opened, and no pass may run in between): the hold waits for it, then runs
     // its span (foldAnchor.ts `notePlacement`), so a slow render never finds it over and follows the
     // latest row.
-    if (old && node && foldAnchor.current) notePlacement(foldAnchor.current, heldRowUnplaced(foldAnchor.current.toggle));
+    if (old && node && foldAnchor.current)
+      notePlacement(foldAnchor.current, heldRowUnplaced(foldAnchor.current.toggle));
     const folding = Boolean(!bottomStacking && old && node && foldAnchor.current && keepFold(foldAnchor.current, node));
     if (!folding && !bottomStacking) foldAnchor.current = undefined;
     if (folding && node) holdTop.current = node.scrollTop;

@@ -223,7 +223,8 @@ await requireBrowserLane("transcript-toggle-under-load-browser.test.ts", async (
           text += ` Line ${tick} of the reply streams in while the page is slow.`;
           const next = rows.map((each) => {
             if (each.id === "prose-c") return { ...each, text, version: 1 + tick };
-            if (each.id === "run-b" && tick >= 12) return { ...each, items: [...(each.items as unknown[]), extra], version: 2 };
+            if (each.id === "run-b" && tick >= 12)
+              return { ...each, items: [...(each.items as unknown[]), extra], version: 2 };
             return each;
           });
           w.__showLiveRows(next);
@@ -265,6 +266,7 @@ await requireBrowserLane("transcript-toggle-under-load-browser.test.ts", async (
     const height = await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollHeight);
     const before = { ...pressed, height };
     // The stream runs on for 1.5 s after the click's render.
+    // fixed-wait: the test reads the view while the turn keeps streaming; the window is the test
     await page.waitForTimeout(1_500);
     const during = await read();
     await page.evaluate(() => (window as unknown as { __stream: { stop(): void } }).__stream.stop());
