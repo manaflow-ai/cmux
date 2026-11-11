@@ -49,7 +49,7 @@ import Testing
         (nil, "stack-auth-refresh-9790718f"),
     ]
 
-    static let classicDefaults: [String: Any] = [
+    static var classicDefaults: [String: Any] { [
         "auth_has_tokens": true,
         "auth_cached_user": Data("{\"id\":\"classic-user\"}".utf8),
         "auth_stack_project_id": "9790718f",
@@ -57,7 +57,7 @@ import Testing
         "cmux.notifications.deviceTokenHex": "ab",
         "presenceServiceURL": "https://presence.example",
         "sendAnonymousTelemetry": true,
-    ]
+    ] }
 
     func suite() throws -> (UserDefaults, String) {
         let name = "ClassicLeftoversTests.\(UUID().uuidString)"
