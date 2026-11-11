@@ -1,4 +1,3 @@
-import { pageKeyStore, type CloudStartKeyStore } from "./cloudRun";
 import type { SwitchClock } from "./harnessSwitch";
 import { RELEASE_AFTER_MS } from "./newChatPrewarm";
 
@@ -7,12 +6,6 @@ import { RELEASE_AFTER_MS } from "./newChatPrewarm";
 /// process), and a Send that waited that long showed nothing but the start, with the composer locked
 /// (Leo, 2026-11-09: "it seems like it's not actually properly starting").
 export const RESERVATION_SEND_WAIT_MS = 3000;
-
-/// Which compose each Send named, kept like the Send keys themselves (`cloudStartKeys`, which a
-/// retry on a later page reuses) and for as long.
-const CLOUD_SEND_RESERVATIONS = "cmux.cloudStart.reservations";
-const CLOUD_SEND_RESERVATION_TTL_MS = 24 * 60 * 60 * 1000;
-type SendReservations = Record<string, { compose: string; at: number }>;
 
 type Native = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 type Attempt = {
@@ -59,7 +52,6 @@ export class CloudComposeReservation {
     private readonly call: Native,
     private readonly clock: SwitchClock,
     private readonly newKey: () => string = () => crypto.randomUUID(),
-    private readonly store: CloudStartKeyStore | undefined = pageKeyStore(),
   ) {}
 
   selected(): void {
@@ -176,51 +168,14 @@ export class CloudComposeReservation {
     return false;
   }
 
-  /// Whether Send `sendKey` may name compose `key`. The platform binds a compose to one Send and a
-  /// Send to one compose, and refuses anything else (409 reservation.bound), so a new prompt after
-  /// a failed start, whose compose an earlier Send holds, goes as an ordinary Send. So does a Send
-  /// kept from another page, which reaches its machine by its key; its new compose goes back.
+  /// Whether Send `sendKey` may name compose `key`. The platform binds a compose to one Send and
+  /// refuses another (409 reservation.bound), so a new prompt after a failed start, whose compose
+  /// an earlier Send holds, goes as an ordinary Send. A retry of that Send keeps it.
   claimForSend(key: string, sendKey: string): boolean {
     const attempt = this.attempt;
     if (attempt?.key !== key) return false;
-    if (attempt.sendKey !== undefined) return attempt.sendKey === sendKey;
-    const at = this.clock.now();
-    const kept = this.readSends(at);
-    const earlier = kept[sendKey];
-    if (earlier && earlier.compose !== key) {
-      attempt.transferred = false;
-      this.abandon();
-      return false;
-    }
-    attempt.sendKey = sendKey;
-    kept[sendKey] = { compose: key, at: earlier?.at ?? at };
-    this.writeSends(kept);
-    return true;
-  }
-
-  private readSends(at: number): SendReservations {
-    try {
-      const value = JSON.parse(this.store?.getItem(CLOUD_SEND_RESERVATIONS) ?? "{}") as unknown;
-      if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-      return Object.fromEntries(
-        Object.entries(value as SendReservations).filter(
-          ([, entry]) =>
-            typeof entry?.compose === "string" &&
-            typeof entry.at === "number" &&
-            at - entry.at < CLOUD_SEND_RESERVATION_TTL_MS,
-        ),
-      );
-    } catch {
-      return {};
-    }
-  }
-
-  private writeSends(kept: SendReservations): void {
-    try {
-      this.store?.setItem(CLOUD_SEND_RESERVATIONS, JSON.stringify(kept));
-    } catch {
-      // A full or refused store keeps nothing: this page's own attempt still holds its Send.
-    }
+    attempt.sendKey ??= sendKey;
+    return attempt.sendKey === sendKey;
   }
 
   abandon(): void {

@@ -83,7 +83,8 @@ pub struct Planned {
     pub skipped: Vec<Skipped>,
     pub submodules: Vec<Submodule>,
     /// Bases to try, best first: the merge-base with the upstream, the
-    /// merge-base with the remote's default branch, that branch's tip.
+    /// merge-base with the remote's default branch, that branch's tip; with
+    /// neither, the merge-bases with the remote's tracking branches, nearest first.
     /// When the machine answers `seed.base_missing`, re-plan with the
     /// next one through [`plan_with_base`].
     pub bases: Vec<String>,

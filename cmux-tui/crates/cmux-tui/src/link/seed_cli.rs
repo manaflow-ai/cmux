@@ -9,7 +9,7 @@
 //! when the machine does not serve `git-seed-v1`, and when the machine
 //! answers `seed.needs_github` (with the App's `install_url`, so the app can
 //! offer the install while the chat goes on), `seed.base_missing` (after one
-//! more try from the remote default branch's tip) or `seed.clone_failed`. A
+//! more try from the last of the plan's bases) or `seed.clone_failed`. A
 //! folder the failed seed made on the machine is removed before the copy.
 //!
 //! `--since-last` sends only what changed since this Mac's last push of the
@@ -590,7 +590,7 @@ fn seed_full(
         .is_some();
     let mut result = run_seed(machine.socket, remote, &planned, &bundle, head_first);
     // The remote lacks the base (a force-push, a branch never pushed): once
-    // more from the remote default branch's tip.
+    // more from the last of the plan's bases.
     if let Err(error) = &result
         && error.code == "seed.base_missing"
         && let Some(tip) = planned.bases.last().filter(|tip| **tip != planned.params.base).cloned()

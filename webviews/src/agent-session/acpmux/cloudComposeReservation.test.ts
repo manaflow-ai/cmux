@@ -7,10 +7,10 @@ import {
   RESERVATION_SEND_WAIT_MS,
   reservedCloudCall,
 } from "./cloudComposeReservation";
-import { cloudStartKeys, oneCloudStart, type CloudStartKeyStore } from "./cloudRun";
+import { cloudStartKeys, oneCloudStart } from "./cloudRun";
 import { RELEASE_AFTER_MS } from "./newChatPrewarm";
 
-function harness(reserve: () => Promise<unknown> = async () => ({}), store?: CloudStartKeyStore, prefix = "compose") {
+function harness(reserve: () => Promise<unknown> = async () => ({}), prefix = "compose") {
   const calls: [string, Record<string, unknown>][] = [];
   const timers: { run: () => void; live: boolean; at: number; ms: number }[] = [];
   let sequence = 0;
@@ -35,7 +35,6 @@ function harness(reserve: () => Promise<unknown> = async () => ({}), store?: Clo
       },
     },
     () => `${prefix}-${++sequence}`,
-    store,
   );
   return {
     reservation,
@@ -253,10 +252,6 @@ test("the reservation is transport detail: an uncertain Send keeps its original 
   expect(keys.keyFor({ task: "hello", reservationKey: "compose-2" })).toBe("send-1");
 });
 
-const memoryStore = (): CloudStartKeyStore => {
-  const items = new Map<string, string>();
-  return { getItem: (name) => items.get(name) ?? null, setItem: (name, value) => void items.set(name, value) };
-};
 const startChats = (calls: [string, Record<string, unknown>][]) =>
   calls.filter(([method]) => method === "cloud.startChat").map(([, params]) => params);
 
@@ -282,17 +277,19 @@ test("a retry of the same Send keeps its reservation, so it reaches the machine 
   expect(startChats(h.calls).map((params) => params.reservationKey)).toEqual(["compose-1", "compose-1"]);
 });
 
-test("a Send kept across pages does not bind a second compose, and that compose goes back", async () => {
-  const store = memoryStore();
-  const before = harness(undefined, store, "before");
+// A retry from another page may find the machine only through the platform: its first bind's
+// answer may have been lost, so the host's ledger has no pin. Going without the reservation would
+// cold-create a second paid machine, so it still names its compose and the platform decides.
+test("a Send kept from an earlier page still names its compose, so a lost bind fails closed", async () => {
+  const before = harness(undefined, "before");
   before.reservation.selected();
   await before.start({ task: "1+1", reservationKey: before.reservation.handoff() }, "send-1");
-  const after = harness(undefined, store, "after");
+  const after = harness(undefined, "after");
   after.reservation.selected();
   await after.start({ task: "1+1", reservationKey: after.reservation.handoff() }, "send-1");
   await settle();
-  expect(startChats(after.calls)[0]).not.toHaveProperty("reservationKey");
-  expect(after.calls).toContainEqual(["cloud.releaseReservation", { composeKey: "after-1" }]);
+  expect(startChats(after.calls)[0]?.reservationKey).toBe("after-1");
+  expect(after.calls.map(([method]) => method)).not.toContain("cloud.releaseReservation");
 });
 
 test("a later environment pick releases the default-image reservation", async () => {
