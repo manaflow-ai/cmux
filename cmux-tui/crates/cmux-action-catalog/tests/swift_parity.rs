@@ -58,6 +58,108 @@ fn first_difference(path: &str, a: &Value, b: &Value) -> Option<String> {
     }
 }
 
+/// The keys of one object, or none for anything else.
+fn keys(value: &Value) -> std::collections::BTreeSet<&str> {
+    value.as_object().map(|o| o.keys().map(String::as_str).collect()).unwrap_or_default()
+}
+
+/// The commit that first wrote `"key" :` (the Swift encoder's spacing) into the dump, the way to
+/// find the pull request that put a key on every action; or the command that finds it when git
+/// can't (a shallow or no clone).
+fn commit_that_added(key: &str) -> String {
+    let pattern = format!("\"{key}\" :");
+    let command = format!(
+        "git log -S'{pattern}' --reverse --format='%h %s' -- plans/cmux-next/action-catalog.json"
+    );
+    let found = std::process::Command::new("git")
+        .current_dir(repo())
+        .args(["log", "-S", &pattern, "--reverse", "--format=%h %s", "--"])
+        .arg("plans/cmux-next/action-catalog.json")
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .and_then(|out| String::from_utf8(out.stdout).ok())
+        .and_then(|text| text.lines().next().map(str::to_owned));
+    found.map_or_else(|| format!("find it with `{command}`"), |line| format!("first in {line}"))
+}
+
+/// Every action and argument whose key set differs between the Rust catalog and the dump, all at
+/// once and grouped by key, so a hand-added action that misses a key every other action has
+/// (`hint` from #38223, `isAskedInPalette` from #39727: #39108 and #41055 fixed it twice) names
+/// the key, every action that misses it and the commit that put it on the others.
+fn key_shape_differences(rust: &Value, swift: &Value) -> Vec<String> {
+    use std::collections::BTreeMap;
+    let by_id = |catalog: &Value| -> BTreeMap<String, Value> {
+        catalog["actions"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|a| Some((a.get("id")?.as_str()?.to_owned(), a.clone())))
+            .collect()
+    };
+    let (rust_actions, swift_actions) = (by_id(rust), by_id(swift));
+    let mut lines = Vec::new();
+    let only = |from: &BTreeMap<String, Value>, other: &BTreeMap<String, Value>| -> Vec<String> {
+        from.keys().filter(|id| !other.contains_key(*id)).cloned().collect()
+    };
+    for (side, ids) in [
+        ("in the Rust catalog only", only(&rust_actions, &swift_actions)),
+        ("in the dump only", only(&swift_actions, &rust_actions)),
+    ] {
+        if !ids.is_empty() {
+            lines.push(format!("{} actions {side}: {}", ids.len(), ids.join(", ")));
+        }
+    }
+    // (scope, key, side the key is on) -> the actions (or action.argument) without it on the other.
+    let mut missing: BTreeMap<(&str, String, &str), Vec<String>> = BTreeMap::new();
+    let mut compare = |scope: &'static str, label: String, r: &Value, s: &Value| {
+        let (rk, sk) = (keys(r), keys(s));
+        for key in rk.difference(&sk) {
+            missing.entry((scope, (*key).to_owned(), "rust")).or_default().push(label.clone());
+        }
+        for key in sk.difference(&rk) {
+            missing.entry((scope, (*key).to_owned(), "dump")).or_default().push(label.clone());
+        }
+    };
+    for (id, r) in &rust_actions {
+        let Some(s) = swift_actions.get(id) else { continue };
+        compare("action", id.clone(), r, s);
+        let arguments = |a: &Value| -> BTreeMap<String, Value> {
+            a["arguments"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|g| Some((g.get("name")?.as_str()?.to_owned(), g.clone())))
+                .collect()
+        };
+        let swift_arguments = arguments(s);
+        for (name, ra) in arguments(r) {
+            if let Some(sa) = swift_arguments.get(&name) {
+                compare("argument", format!("{id}.{name}"), &ra, sa);
+            }
+        }
+    }
+    for ((scope, key, side), labels) in missing {
+        let what = if side == "rust" {
+            format!(
+                "the Rust catalog writes `{key}` on every {scope}; the dump lacks it on {}: {}. \
+                 Add it with the Rust value ({})",
+                labels.len(),
+                labels.join(", "),
+                commit_that_added(&key),
+            )
+        } else {
+            format!(
+                "the dump has `{key}` on {} {scope}s the Rust catalog writes without it: {}",
+                labels.len(),
+                labels.join(", "),
+            )
+        };
+        lines.push(what);
+    }
+    lines
+}
+
 #[test]
 fn english_catalog_equals_the_swift_dump() {
     let mut swift = read_json(&repo().join("plans/cmux-next/action-catalog.json"));
@@ -86,6 +188,12 @@ fn english_catalog_equals_the_swift_dump() {
     object.remove("locale");
     // The dump is a Debug build's, which has every Debug-only entry; the list of them is new.
     object.remove("debug_build_only");
+    let shape = key_shape_differences(&rust, &swift);
+    assert!(
+        shape.is_empty(),
+        "the Rust catalog and the Swift dump disagree on which keys an action or argument has:\n- {}",
+        shape.join("\n- ")
+    );
     if let Some(difference) = first_difference("$", &rust, &swift) {
         panic!("the Rust catalog differs from the Swift dump: {difference}");
     }
