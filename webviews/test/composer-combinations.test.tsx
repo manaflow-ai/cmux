@@ -158,8 +158,7 @@ async function renderPage(cell: Cell, calls: Call[]) {
     await import("../src/agent-session/acpmux/cloudRun");
   const { setCloudTeamForTest } =
     await import("../src/agent-session/acpmux/cloudMachines");
-  const { seedLastPicks } =
-    await import("../src/agent-session/acpmux/lastPick");
+  await import("../src/agent-session/acpmux/lastPick");
   const { noChat } = await import("../src/gallery/fixtures/acpmux");
   const { callNative } = await import("../src/agent-session/acpmux/callNative");
 
@@ -182,7 +181,6 @@ async function renderPage(cell: Cell, calls: Call[]) {
       },
     );
   setCloudTeamForTest(TEAMS[cell.team]);
-  seedLastPicks({ harness: cell.harness });
 
   const actions = newTabScreenActions({
     callNative,
@@ -343,6 +341,7 @@ for (const cell of CELLS) {
   if (cell.where === "cloud" && cell.mode === "widest") {
     test.todo(
       `${cellName(cell)}: the Cloud start carries the mode picked (#40956)`,
+      () => {},
     );
     continue;
   }
