@@ -23,6 +23,8 @@ measure() {
     done
   done
 }
+# A shallow checkout (CI) may lack BASE: fetch that one commit.
+git cat-file -e "$base^{commit}" 2>/dev/null || git fetch -q --depth=1 origin "$base"
 after=$(build); cp "$after" /tmp/attach-after
 git show "$base:cmux-tui/$file" > "$file.base" && cp "$file" "$file.head" && mv "$file.base" "$file"
 before=$(build); cp "$before" /tmp/attach-before; mv "$file.head" "$file"
