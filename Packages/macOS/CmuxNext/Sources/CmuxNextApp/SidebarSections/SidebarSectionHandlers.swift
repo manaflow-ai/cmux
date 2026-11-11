@@ -13,25 +13,6 @@ import CmuxNextSidebar
 /// names it (`sidebar-section:sec_…`, `sidebar-item:itm_…` or a built-in
 /// name such as `sidebar-item:home`).
 enum SidebarSectionHandlers {
-    /// App Store Features' Sidebar cards (edit mode's Add Items): the built-in items beside the
-    /// Chief's own card. Get is Add to Sidebar, Remove takes every such item out.
-    static func storeItems(chief: SettingsAppFeatures.SidebarItems?, document: @escaping @MainActor () -> SidebarLayoutDocument,
-                           registry: ActionRegistry) -> SettingsAppFeatures.SidebarItems {
-        // Every sidebar item the Features tab lists but the Chief's, so a new card needs no change here.
-        let items = Set(AppFeature.catalog.compactMap(\.sidebarItem)).subtracting([SidebarBuiltIn.chief.rawValue])
-        return .init(names: items.union(chief?.names ?? []), isShown: { name in
-            guard items.contains(name) else { return chief?.isShown(name) == true }
-            // Home is an app now (R63), as Add to Sidebar adds it.
-            guard let builtIn = SidebarBuiltIn(rawValue: name) else { return false }
-            return document().firstItem(with: SidebarLayoutDocument.firstPartyApps[builtIn].map(LayoutItemRef.app) ?? .builtIn(builtIn)) != nil
-        }, set: { [weak registry] name, on in
-            guard items.contains(name) else { return chief?.set(name, on) == true }
-            let invocation = on ? ActionInvocation(arguments: ["item": .string(name)], origin: .user)
-                : ActionInvocation(target: ActionTargetRef(kind: .sidebarItem, id: name), origin: .user)
-            return registry?.perform(on ? "sidebar.item.add" : "sidebar.item.removeEverywhere", invocation: invocation) == true
-        })
-    }
-
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let layout = context.services.sidebarLayout
         let services = context.services
@@ -41,7 +22,6 @@ enum SidebarSectionHandlers {
             openWorkspace: { session, host in try services.chatsOpener.pending.work(services.registry) { try AgentSessionWorkspace.open(session: session, name: nil, cwd: nil, host: host, focus: true, services: services) } }, openRight: { services.agentTabs.openRight?($0, $1, $2) ?? false }, keeps: { [weak services] in await services?.agentTabs.chiefHomes?.keeps(session: $0, host: $1) ?? false }))
         // Agent chats on other machines are not sidebar rows (the top band holds what the person put there,
         // Lawrence 2026-10-26): `RemoteMachinesSidebar` is not bound, so it reads no peers and follows no lanes.
-        SettingsAppFeatures.sidebarItems = storeItems(chief: SettingsAppFeatures.sidebarItems, document: { layout.document }, registry: registry)
         // Item adds and removes are undo steps (P4) through the one pin path,
         // named as the menu showed them.
         func bind(_ id: ActionID, undoable: Bool = false, unavailable: @escaping @MainActor () -> String? = { nil },

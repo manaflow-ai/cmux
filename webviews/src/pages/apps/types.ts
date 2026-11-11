@@ -111,6 +111,8 @@ export interface InstalledApp {
   tier?: AppTier;
   /** The owner's word on Hide versus Remove; wins over `tier`. */
   hide_only?: boolean;
+  /** The owner's word on whether the store shows the app (apps/store_listing.rs); false for cmux itself. */
+  listed?: boolean;
   icon?: AppIconRef;
   update?: { version: string };
   /** The host's last failure for this app, when it has one. */
@@ -179,12 +181,6 @@ export interface ConfirmedResult {
   status: "done" | "cancelled";
 }
 
-/** The App Store's own app id: the store never lists itself (FIRST-PARTY-APPS). */
-export const APP_STORE_ID = "cmux/app-store";
-
-/** Home's app id: a place in cmux, not a listing (extensibility-DESIGN.md). */
-export const HOME_ID = "cmux/home";
-
 export const AppsOps = {
   catalogList: "cmux.apps.catalog.list",
   catalogGet: "cmux.apps.catalog.get",
@@ -206,3 +202,9 @@ export const AppsOps = {
 
 /** Open is a host verb: the page runs the host action `app.open` (cx-hnmbt.13). */
 export const OPEN_ACTION = { op: "cmux.app.action.run", action: "app.open" } as const;
+
+/** The Settings card's button: the host action `openSettings` (cmux's own features live in Settings). */
+export const SETTINGS_ACTION = { op: "cmux.app.action.run", action: "openSettings" } as const;
+
+/** The Cloud banner's button: the Cloud page's own action, on its storefront (`#/get`). */
+export const CLOUD_ACTION = { op: "cmux.app.action.run", action: "palette.openCloudPane", route: "/get" } as const;

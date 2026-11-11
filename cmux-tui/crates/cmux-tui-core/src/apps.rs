@@ -71,6 +71,8 @@ mod storage;
 #[cfg(unix)]
 mod store;
 #[cfg(unix)]
+mod store_listing;
+#[cfg(unix)]
 mod store_panels;
 #[cfg(unix)]
 mod subscriptions;

@@ -326,7 +326,7 @@ of switches.
 | 4 | Batch-rate budget and the Slowed/Paused ladder in the app host | app platform | next |
 | 5 | `render: web` panes on the shared page host (`cmux-app://`, WebKit), with the bridge limits | pages owner | next |
 | 6 | Right sidebar: open panel list, `rightSidebar.panel.*` ops, CLI, palette; the `cmux-customization` skill recipe | right sidebar owner | after 2 |
-| 7 | Store trim (section 7) | app platform | can start now |
+| 7 | Store trim (section 7) | app platform | in review (#41562, HOLD for Leo) |
 | 8 | Perf-gate scenarios (section 8) | a436 owner | with 4 to 6 |
 
 ## 10. First example: Priority View

@@ -6,6 +6,7 @@ import type { Strings } from "../shared/i18n";
 import { AppDetailView } from "./AppDetailView";
 import { CloudFeature } from "./CloudFeature";
 import { InstalledView } from "./InstalledView";
+import { SettingsCard } from "./SettingsCard";
 import { CategoryBar, ItemCard, ItemRow } from "./items";
 import type { StoreTab } from "./model";
 import type { AppsSnapshot, AppsStore } from "./store";
@@ -181,6 +182,9 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
             </section>
           )}
         </>
+      )}
+      {!snap.category && !(snap.loading && snap.visible.length === 0) && (
+        <SettingsCard store={store} strings={strings} />
       )}
     </div>
   );

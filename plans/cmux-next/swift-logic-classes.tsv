@@ -3276,16 +3276,11 @@ CmuxNextApps	struct	AppIconView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/C
 CmuxNextApps	struct	AppSectionFrame	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Section/AppSectionFrame.swift	SwiftUI section frame
 CmuxNextApps	class	AppSectionHostingView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Section/AppSectionProvider.swift	from class AppSectionProvider:12: mounts sections into AppKit views (view wiring)
 CmuxNextApps	class	AppSectionProvider	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Section/AppSectionProvider.swift	from class AppSectionProvider:12: mounts sections into AppKit views (view wiring)
-CmuxNextApps	extension	AppFeature	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Store/AppFeature+Catalog.swift	catalog of App Store feature toggles: setting keys, categories, previews
-CmuxNextApps	protocol	AppFeatureSettings	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Store/AppFeature.swift	from struct AppFeature:11: feature model: switch kinds, categories, setting key mapping
-CmuxNextApps	struct	AppFeature	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Store/AppFeature.swift	feature model: switch kinds, categories, setting key mapping
 CmuxNextApps	enum	AppStoreTier	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Store/AppStoreListing.swift	store listing/version/tier types mirroring daemon catalog
 CmuxNextApps	struct	AppStoreListing	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Store/AppStoreListing.swift	from enum AppStoreTier:8: store listing/version/tier types mirroring daemon catalog
 CmuxNextApps	struct	AppStoreVersion	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Store/AppStoreListing.swift	from enum AppStoreTier:8: store listing/version/tier types mirroring daemon catalog
 CmuxNextApps	enum	AppStoreTab	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Store/AppStoreTab.swift	tab enum for store UI
 CmuxNextApps	extension	AppStoreTab	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Store/AppStoreTab.swift	tab enum for store UI
-CmuxNextApps	class	SettingsAppFeatures	0	MIXED	64	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Store/SettingsAppFeatures.swift	from class SettingsAppFeatures:7: toggle/choice value rules (explicitValue/onValue) LOGIC ~72; settings controller wiring PLATFORM ~40
-CmuxNextApps	struct	AppFeatureKeptOn	0	MIXED	64	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Store/SettingsAppFeatures.swift	from class SettingsAppFeatures:7: toggle/choice value rules (explicitValue/onValue) LOGIC ~72; settings controller wiring PLATFORM ~40
 CmuxNextBookmarks	enum	BookmarkStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/BookmarkStrings.swift	localized string tables
 CmuxNextBookmarks	enum	NetscapeBookmarkReader	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/Codec/NetscapeBookmarkReader.swift	from struct NetscapeBookmarkDocument:5: Netscape bookmark HTML parser (import)
 CmuxNextBookmarks	struct	NetscapeBookmarkDocument	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/Codec/NetscapeBookmarkReader.swift	Netscape bookmark HTML parser (import)

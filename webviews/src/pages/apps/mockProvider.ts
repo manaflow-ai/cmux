@@ -28,6 +28,12 @@ const ICON =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#6b6b6b"/><path d="M20 22h24v4H20zm0 8h24v4H20zm0 8h16v4H20z" fill="#fff"/></svg>',
   );
 
+/**
+ * The owner's listing rule (cmux-tui-core apps/store_listing.rs), mirrored for the dev loop and the
+ * tests: Home and the App Store are cmux itself, never a listing.
+ */
+export const OWNER_UNLISTED: ReadonlySet<string> = new Set(["cmux/app-store", "cmux/home"]);
+
 export class MockAppsProvider implements PageClient {
   readonly calls: MockCall[] = [];
   details: Record<string, AppDetail>;
@@ -63,12 +69,14 @@ export class MockAppsProvider implements PageClient {
     switch (op) {
       case AppsOps.catalogList:
         return {
-          listings: Object.values(this.details).map((detail) => this.listing(detail)),
+          listings: Object.values(this.details)
+            .filter((detail) => !OWNER_UNLISTED.has(detail.id))
+            .map((detail) => this.listing(detail)),
           next_cursor: null,
           revision: this.revision,
         } as R;
       case AppsOps.catalogGet: {
-        const detail = this.details[app];
+        const detail = OWNER_UNLISTED.has(app) ? undefined : this.details[app];
         if (!detail) throw pageError("cmux.apps.not_found", app);
         const wire: WireDetail = {
           ...this.listing(detail),
@@ -89,6 +97,7 @@ export class MockAppsProvider implements PageClient {
             name: row.name,
             tier: row.tier ?? "verified",
             hide_only: row.tier === "first-party",
+            listed: !OWNER_UNLISTED.has(row.id),
             state: {
               installed: true,
               enabled: row.enabled,

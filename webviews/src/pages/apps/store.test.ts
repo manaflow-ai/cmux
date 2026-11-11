@@ -118,3 +118,33 @@ describe("AppsStore deep link after a catalog failure", () => {
     expect(store.getSnapshot().detailStatus).toBe("idle");
   });
 });
+
+describe("AppsStore host actions", () => {
+  test("Open Settings runs the host's openSettings action, with no idempotency key and no reread", async () => {
+    const provider = new MockAppsProvider();
+    const store = new AppsStore(provider);
+    await store.start();
+    const before = provider.calls.length;
+
+    await store.openSettings();
+
+    expect(provider.calls.slice(before)).toEqual([
+      { op: "cmux.app.action.run", params: { action: "openSettings", args: {} } },
+    ]);
+    store.stop();
+  });
+
+  test("the Cloud banner opens the Cloud page's storefront through its own action", async () => {
+    const provider = new MockAppsProvider();
+    const store = new AppsStore(provider);
+    await store.start();
+    const before = provider.calls.length;
+
+    await store.openCloud();
+
+    expect(provider.calls.slice(before)).toEqual([
+      { op: "cmux.app.action.run", params: { action: "palette.openCloudPane", args: { route: "/get" } } },
+    ]);
+    store.stop();
+  });
+});

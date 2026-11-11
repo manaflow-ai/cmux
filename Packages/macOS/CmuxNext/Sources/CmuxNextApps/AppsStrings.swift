@@ -40,34 +40,7 @@ nonisolated enum AppsStrings {
     static func toastSource(_ app: String) -> String { String(format: t("apps.toast.source", "From %@"), app) }
     static var discover: String { t("store.tab.discover", "Discover") }
     static var installed: String { t("store.tab.installed", "Installed") }
-    static var features: String { t("store.tab.features", "Features") }
-    static var noFeatureMatches: String { t("store.empty.noFeatureMatches", "No features match") }
-    static var get: String { t("store.feature.action.get", "Get") }
-    static var featureOn: String { t("store.feature.badge.on", "On") }
-    static var featureNotChanged: String { t("store.feature.notChanged", "Not changed") }
-    static var featureManaged: String { t("store.feature.managed", "Managed by your organization") }
-    static var featureKeptOn: String { t("store.feature.keptOn", "Your organization recommends this, so it stays on") }
-    static func featureSetting(_ key: String) -> String { String(format: t("store.feature.setting", "Setting: %@"), key) }
-    static var featureSettingsLink: String { t("store.feature.settingsLink", "Settings…") }
-    static func featureSettingsHelp(_ name: String) -> String { String(format: t("store.feature.settingsLink.help", "Open %@ in Settings"), name) }
-
-    /// A Features tab category chip.
-    static func featureCategory(_ category: AppFeature.Category) -> String {
-        switch category {
-        case .backgrounds: t("store.feature.category.backgrounds", "Backgrounds")
-        case .appearance: t("store.feature.category.appearance", "Appearance")
-        case .chief: t("store.feature.category.chief", "Chief")
-        case .newTab: t("store.feature.category.newTab", "New Tab")
-        case .sidebar: t("store.feature.category.sidebar", "Sidebar")
-        case .media: t("store.feature.category.media", "Media")
-        case .editor: t("store.feature.category.editor", "Editor")
-        case .devices: t("store.feature.category.devices", "Mac & Phone")
-        case .browser: t("store.feature.category.browser", "Browser")
-        case .layout: t("store.feature.category.layout", "Layout")
-        }
-    }
     static var search: String { t("store.search", "Search apps") }
-    static var searchFeatures: String { t("store.search.features", "Search features") }
     static var allCategories: String { t("store.category.all", "All") }
     static var noMatches: String { t("store.empty.noMatches", "No apps match") }
     static var noneInstalled: String { t("store.empty.noneInstalled", "No apps installed") }
@@ -101,6 +74,13 @@ nonisolated enum AppsStrings {
         t("store.cloud.body", "Run agents, builds and tests on your own machine in the cloud. Your Mac stays quick, and the work goes on while it sleeps.")
     }
     static var cloudFeatureOpen: String { t("store.cloud.open", "Explore Cloud") }
+    /// The Discover card that sends a person looking for one of cmux's own switches to Settings
+    /// (extensibility-DESIGN.md section 7: the store lists apps, Settings holds cmux's features).
+    static var settingsCardTitle: String { t("store.settings.title", "Looking for a cmux feature?") }
+    static var settingsCardBody: String {
+        t("store.settings.body", "Backgrounds, sidebar views, New Tab widgets and the rest of cmux's own features are in Settings. Edit Sidebar adds and removes sidebar items.")
+    }
+    static var settingsCardOpen: String { t("store.settings.open", "Open Settings") }
     static var installedBadge: String { t("store.badge.installed", "Installed") }
     static var disabledBadge: String { t("store.badge.disabled", "Disabled") }
     static var localBadge: String { t("store.badge.local", "Local") }

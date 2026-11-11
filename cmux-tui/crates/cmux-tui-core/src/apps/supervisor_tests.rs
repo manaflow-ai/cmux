@@ -1071,6 +1071,8 @@ mod provider_channel;
 mod safe_mode;
 #[path = "supervisor_server_tests.rs"]
 mod servers;
+#[path = "supervisor_store_listing_tests.rs"]
+mod store_listing;
 #[path = "supervisor_subscription_tests.rs"]
 mod subscriptions;
 

@@ -9,7 +9,7 @@ import Testing
 
 /// The Automations page is reachable (docs/automations-platonic-ideal.md section 8, option A): one
 /// "Automations" sidebar item that opens the page on top (off by default like the Chief item; Add
-/// to Sidebar adds it), `automations.show` in Cmd+Shift+P and the CLI, Automations offered to Add to Sidebar and the App Store's sidebar features, and a
+/// to Sidebar adds it), `automations.show` in Cmd+Shift+P and the CLI, Automations offered to Add to Sidebar, and a
 /// page provider that loads this Mac's automations from the bundled CLI and Cloud ones through
 /// `cloud.automation`, with failures counted on the item's badge.
 @MainActor
@@ -21,7 +21,6 @@ struct AutomationsEntryTests {
         #expect(SidebarLayoutDocument.defaults.firstItem(with: .builtIn(.automations)) == nil)
         #expect(!SidebarBuiltIn.automations.title.isEmpty)
         #expect(TopPageRoute(rawValue: TopPageRoute.page(.automations).rawValue) == .page(.automations))
-        #expect(AppFeature.catalog.contains { $0.on == .sidebarItem("automations") })
         let add = ActionCatalog.all.first { $0.id == "sidebar.item.add" }
         #expect(add?.arguments.first?.suggestions?.pinned.map(\.value).contains("automations") == true)
     }
