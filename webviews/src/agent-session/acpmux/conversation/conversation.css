@@ -2097,6 +2097,35 @@ pre.cv-math-source {
   left: var(--cv-inset);
   right: var(--cv-inset-end, var(--cv-inset));
 }
+/* A live drag (a pane divider or window edge) flows the mounted rows (VirtualTranscript FLOW_CLASS):
+   they leave their placed tops and sit in normal flow, each with the gap under it as a margin, so
+   the browser rewraps them at each width in its own layout pass, as it does a web page. Anchored at
+   the latest row's bottom (--acpmux-flow-end) while the view follows it, else at the first mounted
+   row's top (--acpmux-flow-start). The rows are placed again once the width holds. */
+.acpmux-thread.acpmux-thread--flow {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  box-sizing: border-box;
+  padding-top: var(--acpmux-flow-start, 0px);
+  padding-bottom: 0;
+}
+.acpmux-thread.acpmux-thread--flow-end {
+  justify-content: flex-end;
+  height: var(--acpmux-flow-end);
+}
+.acpmux-thread--flow > .acpmux-row {
+  position: relative;
+  flex: none;
+  top: auto !important;
+  right: auto;
+  left: auto;
+  margin-top: 0 !important;
+  margin-bottom: var(--acpmux-row-gap, 0px);
+}
+.acpmux-thread--flow > .acpmux-row:last-child {
+  margin-bottom: 0;
+}
 .acpmux-row__gap {
   position: absolute;
   z-index: 0;
