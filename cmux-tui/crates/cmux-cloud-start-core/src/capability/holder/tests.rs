@@ -1,6 +1,7 @@
 //! The holder's flows, ported from the app's CloudCapabilityRelayTests (cmux#40172): sign-in mints
-//! once and every call carries it, a call never waits, a team switch, a refusal, a sign-out during
-//! intent's token wait, a failed refresh that retries, and sign-out.
+//! once and every call carries it, a call never waits, a team switch, a team switch while a mint is
+//! in flight, a refusal, a sign-out during intent's token wait, a failed refresh that retries, and
+//! sign-out.
 
 use super::*;
 
@@ -102,6 +103,67 @@ fn after_a_team_switch_the_old_teams_capability_is_never_sent() {
     assert_eq!(app.run(Event::Call { team: team(B) }, 20), None);
     // The call for the new team starts its own mint.
     assert_eq!(app.mints.last(), Some(&(B.to_owned(), 0)));
+}
+
+#[test]
+fn a_team_switch_while_a_mint_is_in_flight_mints_the_new_team_as_soon_as_it_answers() {
+    let mut app = App::default();
+    app.intent(A, 0);
+    // The person switches to team B while A's mint is still in flight: one mint at a time.
+    app.intent(B, 5);
+    assert_eq!(app.mints, vec![(A.to_owned(), 0)]);
+    // A's answer is held, and B's mint goes in the same step: no wait for the refresh timer.
+    app.answer(Some(200), 10);
+    assert_eq!(app.mints, vec![(A.to_owned(), 0), (B.to_owned(), 0)]);
+    app.answer(Some(200), 20);
+    assert_eq!(app.state.held.as_ref().map(|held| held.team.as_str()), Some(B));
+    assert_eq!(app.run(Event::Call { team: team(B) }, 30).as_deref(), Some(TOKEN));
+    assert_eq!(app.mints.len(), 2);
+}
+
+#[test]
+fn a_team_asked_twice_during_another_teams_mint_is_minted_once() {
+    let mut app = App::default();
+    app.intent(A, 0);
+    app.intent(B, 3);
+    app.run(Event::Call { team: team(B) }, 4);
+    app.intent(B, 5);
+    app.answer(Some(200), 10);
+    assert_eq!(app.mints, vec![(A.to_owned(), 0), (B.to_owned(), 0)]);
+    app.answer(Some(200), 20);
+    app.intent(B, 25);
+    assert_eq!(app.mints.len(), 2, "B minted once");
+}
+
+#[test]
+fn a_switch_back_during_a_mint_keeps_only_the_newest_team() {
+    let mut app = App::default();
+    app.intent(A, 0);
+    app.intent(B, 3);
+    // Back to A before A's mint answers: the newest intent is the one in flight.
+    app.intent(A, 5);
+    app.answer(Some(200), 10);
+    assert_eq!(app.mints, vec![(A.to_owned(), 0)], "no mint for the team left behind");
+}
+
+#[test]
+fn a_switch_whose_mint_waits_behind_a_failed_one_still_goes() {
+    let mut app = App::default();
+    app.intent(A, 0);
+    app.intent(B, 5);
+    // A's mint is refused: A backs off, B is another team and goes at once.
+    app.answer(Some(403), 10);
+    assert_eq!(app.mints.last(), Some(&(B.to_owned(), 0)));
+}
+
+#[test]
+fn a_sign_out_drops_a_team_waiting_behind_the_mint_in_flight() {
+    let mut app = App::default();
+    app.intent(A, 0);
+    app.intent(B, 5);
+    app.run(Event::Clear, 6);
+    app.answer(Some(200), 10);
+    assert_eq!(app.mints.len(), 1, "no mint for the signed-out account");
 }
 
 #[test]
