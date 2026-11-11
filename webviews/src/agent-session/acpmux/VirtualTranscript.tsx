@@ -2094,7 +2094,8 @@ function TranscriptView({
     // suspends a hidden page's animations, so its entrance would play on return (shared/pageReveal.ts).
     // The rows a "Worked for" the reader opened reveals fade in with its fold (turnFold.ts) instead.
     if (entranceAllowed() && !turnFold.current?.opening) {
-      if (arrived.length <= LIVE_ROWS_PER_UPDATE) for (const row of arrived) enteringRows.current.add(rowFrameKey(row));
+      // A live update's rows all enter.
+      const live = arrived.length <= LIVE_ROWS_PER_UPDATE;
       // A turn that ends and the next that starts in one update (other agents' messages run as the
       // next turn: "Received 2 messages", then "Thinking") bring more rows than a live update, the
       // turn's regrouped work among them, and none entered: the new lines at the chat's end popped in
@@ -2102,7 +2103,8 @@ function TranscriptView({
       // borked and unintegrated"). The lines at the end that open nothing of the turn's work (a
       // received message's line, the live line) still enter, on the same fade as any live row; the
       // regrouped work stays the turn end's fold's (turnEndFold.ts). O(arrived).
-      else for (const row of arrived) if (row.below || isLineRow(row)) enteringRows.current.add(rowFrameKey(row));
+      const entering = enteringRows.current;
+      for (const row of arrived) if (live || row.below || isLineRow(row)) entering.add(rowFrameKey(row));
     }
   }
   knownFor.current = rows;
@@ -3036,15 +3038,13 @@ function TranscriptView({
   // card shrinking (a send clearing it) gives back only what it held: a send is one move. Push (the
   // before): the rows are drawn up with the card (`lift`), on the field growth's curve.
   const overlayDock = experimentArm(composerDockMotion) === "overlay";
+  // What the last pass left (its layout effect writes them), read once for this pass.
+  const openedAtLatest = didOpenAtLatest.current;
+  const cardAtRest = cardRest.current;
+  const cardHeldAt = cardBase.current;
   const lifting =
-    !overlayDock &&
-    following &&
-    !sessionSwitched &&
-    didOpenAtLatest.current &&
-    dockSpace > 0 &&
-    dockCard > 0 &&
-    cardRest.current > 0;
-  const grown = lifting ? Math.min(dockSpace, dockCard - cardRest.current) : 0;
+    !overlayDock && following && !sessionSwitched && openedAtLatest && dockSpace > 0 && dockCard > 0 && cardAtRest > 0;
+  const grown = lifting ? Math.min(dockSpace, dockCard - cardAtRest) : 0;
   // The content's end with all the stack's height as room, as the view would hold it unlifted.
   // The last row's turn gap and the rest gap's share (`dockRoom`) make the rest gap over the
   // floating stack, which the room keeps however tall the stack grows. The old permanent TRANSCRIPT_RUNWAY (removed after #23094) kept an extra blank
@@ -3073,12 +3073,9 @@ function TranscriptView({
   const lineLast = rows.length > 0 && isLiveLine(rows[rows.length - 1]!);
   const trayBase = lineLast ? Math.max(heldBase, dockTray - restExtra / 2) : heldBase;
   const trayHold = Math.min(dockSpace, dockTray - trayBase);
-  const cardHolds =
-    overlayDock && following && !sessionSwitched && didOpenAtLatest.current && dockSpace > 0 && cardBase.current > 0;
+  const cardHolds = overlayDock && following && !sessionSwitched && openedAtLatest && dockSpace > 0 && cardHeldAt > 0;
   const cardHold =
-    cardHolds && rowsGrew <= 0.5
-      ? Math.max(0, Math.min(dockSpace - Math.max(0, trayHold), dockCard - cardBase.current))
-      : 0;
+    cardHolds && rowsGrew <= 0.5 ? Math.max(0, Math.min(dockSpace - Math.max(0, trayHold), dockCard - cardHeldAt)) : 0;
   // Over a floating stack the newest line rests the rest gap over it (`dockRoom`, model.ts `restRoom`);
   // a turn footer's action row lies in the band under its reply, so that band comes first
   // (transcriptGrid.ts `restBand`). Docked in flow, the composer gap is the rows' own (`tailGap`).
