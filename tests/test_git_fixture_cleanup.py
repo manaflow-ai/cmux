@@ -248,5 +248,45 @@ class FailedTestCleanup(unittest.TestCase):
         self.assertEqual(sorted(os.listdir(self.scratch)), [])
 
 
+class ExitStatusAndDoubleSource(unittest.TestCase):
+    """The cmux#41021 review: the EXIT chain must hand the script's status to the caller's action (F1), and a second
+    source after GIT_CONFIG_GLOBAL is unset must not lose the first private folder (F2)."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="git-fixture-status-"))
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(self.tmp)], check=False)
+        self.env = Env.clean(self.tmp)
+        self.tmpdir = Path(self.env["TMPDIR"])
+
+    def bash(self, script: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(["bash", "-c", script, "_", str(LIB)], env=self.env, capture_output=True, text=True,
+                              timeout=120, stdin=subprocess.DEVNULL, cwd=self.tmp)
+
+    def assertNoFolder(self, done: subprocess.CompletedProcess[str]) -> None:
+        self.assertEqual(sorted(os.listdir(self.tmpdir)), [], f"a fixture folder was left: {done.stderr}")
+
+    def test_a_caller_trap_that_exits_with_its_status_keeps_the_failure(self):
+        """`trap 'exit "$?"' EXIT` after sourcing, then a failure with 7: the script exits 7, not 0."""
+        for errexit in ("", "set -euo pipefail; "):
+            for set_trap in ("trap 'exit \"$?\"' EXIT", "git_fixture_trap_exit 'exit \"$?\"'"):
+                for failure in ("exit 7", "sh -c 'exit 7'; exit 7"):
+                    with self.subTest(errexit=bool(errexit), trap=set_trap, failure=failure):
+                        done = self.bash(errexit + 'source "$1"\n' + set_trap + "\n" + failure + "\n")
+                        self.assertEqual(done.returncode, 7, done.stderr)
+                        self.assertNoFolder(done)
+
+    def test_a_second_source_after_unset_leaves_no_folder(self):
+        for errexit in ("", "set -euo pipefail; "):
+            with self.subTest(errexit=bool(errexit)):
+                done = self.bash(
+                    errexit + 'source "$1"\nfirst=$GIT_CONFIG_GLOBAL\nunset GIT_CONFIG_GLOBAL\nsource "$1"\n'
+                    '[[ "$GIT_CONFIG_GLOBAL" != "$first" && -f "$first" && -f "$GIT_CONFIG_GLOBAL" ]] || exit 9\n'
+                    'git_fixture_trap_exit \'echo chained >"$PWD/chained"\'\nexit 7\n')
+                self.assertEqual(done.returncode, 7, done.stderr)
+                self.assertEqual((self.tmp / "chained").read_text().strip(), "chained")
+                (self.tmp / "chained").unlink()
+                self.assertNoFolder(done)
+
+
 if __name__ == "__main__":
     unittest.main()
