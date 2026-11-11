@@ -38,15 +38,13 @@ IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
 PRIVATE_COPIES = {"git_fixture_env"}
 
 # Path loads this check found when it was widened to scripts' imports and to files more than one test loads, left
-# to convert (the five that made a second object at runtime are converted). Shrink-only: an entry that is no longer
+# to convert (the nine that made a second object at runtime are converted). Shrink-only: an entry that is no longer
 # a finding fails the check, so remove it with the conversion; never add one.
 LEFT = "no test in the shared set patches it through the other object yet; convert it to `import` when touched"
 ALLOWED: dict[tuple[str, str], str] = {
     ("scripts/cmux-next/tests/test_bench_startup_daemon_build.py", "bench_ab"): LEFT,
     ("scripts/cmux-next/tests/test_perf_completeness.py", "xbench"): LEFT,
     ("scripts/cmux-next/tests/test_tag_teardown.py", "tag_teardown"): LEFT,
-    ("scripts/cmux-next/tests/test_teardown_clone_cleanup.py", "bench_memory"): LEFT,
-    ("scripts/cmux-next/tests/test_teardown_clone_cleanup.py", "procs"): LEFT,
     ("scripts/measure/tests/bench-ab.test.py", "bench_ab"): LEFT,
     ("scripts/measure/tests/cu-arena.test.py", "arena"): LEFT,
     ("tests/test_app_crate_licenses.py", "check_app_crate_licenses"): LEFT,
@@ -66,9 +64,6 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("tests/test_ci_rescue_actors.py", "classify_failures"): LEFT,
     ("tests/test_ci_rescue_actors.py", "next_macos_cascade"): LEFT,
     ("tests/test_ci_rescue_actors.py", "pr_runner_pool"): LEFT,
-    ("tests/test_ci_route_refusal_detail.py", "next_macos_cascade"): LEFT,
-    ("tests/test_ci_route_refusal_detail.py", "pr_runner_pool"): LEFT,
-    ("tests/test_ci_route_refusal_detail.py", "side_lane_placement"): LEFT,
     ("tests/test_ci_runs_on_fallback.py", "nightly_next_launch_smoke"): LEFT,
     ("tests/test_ci_starved_labels.py", "starved_labels"): LEFT,
     ("tests/test_ci_test_touches_diff.py", "test_touches_diff"): LEFT,
@@ -81,8 +76,6 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("tests/test_cmux_tui_tree_handoff.py", "cmux_tui_tree_handoff"): LEFT,
     ("tests/test_fresh_home_launch_smoke.py", "fresh_home_launch_smoke"): LEFT,
     ("tests/test_gh_app_token.py", "prune_nightly_release_assets"): LEFT,
-    ("tests/test_gh_call_log.py", "job_reuse"): LEFT,
-    ("tests/test_gh_call_log.py", "pr_status"): LEFT,
     ("tests/test_gh_pages.py", "gh_pages"): LEFT,
     ("tests/test_hosted_queue_wait.py", "hosted_queue_wait"): LEFT,
     ("tests/test_lan_product_source.py", "node_product_cache"): LEFT,
