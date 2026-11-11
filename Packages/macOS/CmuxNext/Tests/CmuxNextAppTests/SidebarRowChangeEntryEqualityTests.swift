@@ -12,6 +12,7 @@ import Testing
 /// the twin gets the entry (the full set after a refusal). Rows, revisions, the list's splice records, group lookups,
 /// row places and the selection must be equal after each step, for several steps in a row (the entry keeps the
 /// model's indexes itself). A world that no refusal rule names ("plain") must take the entry at every step.
+/// The same holds while a sidebar document arranges the list and keeps the machine list's order (the real app).
 ///
 ///     swift test --filter SidebarRowChangeEntryEqualityTests
 @MainActor @Suite struct SidebarRowChangeEntryEqualityTests {
@@ -264,20 +265,24 @@ import Testing
         refuses(gone, "the hidden items changed since the last set") { $0.hiddenItemRefs = [Self.hiddenRef] }
     }
 
-    /// The document arrangement (`SidebarDocProjection.arrange`) places rows by the sidebar document: the entry does
-    /// not know where it puts a row, so it refuses while a document arranges the list, and the full set shows the change.
-    @Test func anActiveDocumentArrangementRefusesTheEntry() {
-        typealias Doc = SidebarDocArrangeIdempotenceTests
-        func model() -> SidebarModel {
-            let store = SidebarDocStore(remote: nil)
-            store.shown = Doc.projection()
-            let model = SidebarModel(sections: [])
-            model.docDrag = SidebarDocDrag(document: store, item: { Doc.drag.item($0) }, section: { id in id == .machine(.local) ? Doc.machine : nil },
-                                           begin: { _ in [:] }, drop: { _, _ in })
-            model.setSections(Doc.raw())
-            return model
-        }
-        let (full, entry) = (model(), model())
+    typealias Doc = SidebarDocArrangeIdempotenceTests
+
+    /// A model whose list the sidebar document `projection` arranges, and the document's store.
+    static func arranged(_ projection: SidebarDocProjection, _ rows: [SidebarSection]) -> (model: SidebarModel, store: SidebarDocStore) {
+        let store = SidebarDocStore(remote: nil)
+        store.shown = projection
+        let model = SidebarModel(sections: [])
+        model.docDrag = SidebarDocDrag(document: store, item: { Doc.drag.item($0) }, section: { id in id == .machine(.local) ? Doc.machine : nil },
+                                       begin: { _ in [:] }, drop: { _, _ in })
+        model.setSections(rows)
+        return (model, store)
+    }
+
+    /// The document arrangement (`SidebarDocProjection.arrange`) places a machine list's rows by the document's order
+    /// when that order has a link row: the entry does not know where it puts a row then, so it refuses, and the full
+    /// set shows the change.
+    @Test func aDocumentThatOrdersTheMachineListRefusesTheEntry() {
+        let (full, entry) = (Self.arranged(Doc.projection(), Doc.raw()).model, Self.arranged(Doc.projection(), Doc.raw()).model)
         var next = Doc.raw()
         guard case let .workspace(first) = next[0].nodes[0] else {
             Issue.record("the fixture's first node is no loose row")
@@ -285,9 +290,140 @@ import Testing
         }
         next[0].nodes.remove(at: 0)
         #expect(!entry.takesRowChanges)
-        #expect(!entry.apply(.removed(first.id, section: .machine(.local), node: 0)), "the entry took a change under a document arrangement")
+        #expect(!entry.apply(.removed(first.id, section: .machine(.local), node: 0)), "the entry took a change in a list the document orders")
         full.setSections(next)
         entry.setSections(next)
         #expect(Self.faults(full, entry, rows: next).isEmpty)
+    }
+
+    /// A document that keeps the machine list's order (no link row in it), as the real app's document does for a list
+    /// of workspaces and groups: Pinned band group `itm_gp` (member `ws-0`) above This Mac; This Mac: `ws-1`, `ws-4`,
+    /// group `itm_gm` (member `ws-2`), `ws-5`; a section after the lists with group `itm_ga` (member `ws-3`).
+    static func keptOrderProjection() -> SidebarDocProjection {
+        let records = SidebarDocRecords(sections: [
+            Doc.pinned: SidebarDocSection(id: Doc.pinned, kind: .pinned, region: .top),
+            Doc.machine: SidebarDocSection(id: Doc.machine, kind: .machine(session: Doc.session)),
+            Doc.after: SidebarDocSection(id: Doc.after, kind: .custom, title: "Later"),
+        ], items: [
+            "itm_gp": SidebarDocItem(id: "itm_gp", section: Doc.pinned, body: .group(name: "Pinned one", color: nil, icon: nil, collapsed: false)),
+            "itm_0": SidebarDocItem(id: "itm_0", section: Doc.pinned, parent: "itm_gp", body: .workspace(Doc.ref("ws-0"))),
+            "itm_1": SidebarDocItem(id: "itm_1", section: Doc.machine, body: .workspace(Doc.ref("ws-1"))),
+            "itm_4": SidebarDocItem(id: "itm_4", section: Doc.machine, body: .workspace(Doc.ref("ws-4"))),
+            "itm_gm": SidebarDocItem(id: "itm_gm", section: Doc.machine, body: .group(name: "Loose one", color: nil, icon: nil, collapsed: false)),
+            "itm_2": SidebarDocItem(id: "itm_2", section: Doc.machine, parent: "itm_gm", body: .workspace(Doc.ref("ws-2"))),
+            "itm_5": SidebarDocItem(id: "itm_5", section: Doc.machine, body: .workspace(Doc.ref("ws-5"))),
+            "itm_ga": SidebarDocItem(id: "itm_ga", section: Doc.after, body: .group(name: "Later one", color: nil, icon: nil, collapsed: false)),
+            "itm_3": SidebarDocItem(id: "itm_3", section: Doc.after, parent: "itm_ga", body: .workspace(Doc.ref("ws-3"))),
+        ])
+        let rows = [
+            SidebarDocRow(key: "itm_gp", kind: "group", section: Doc.pinned, item: "itm_gp"),
+            SidebarDocRow(key: "itm_0", kind: "item", section: Doc.pinned, parent: "itm_gp", depth: 1, item: "itm_0", ref: Doc.ref("ws-0")),
+            SidebarDocRow(key: "itm_1", kind: "item", section: Doc.machine, item: "itm_1", ref: Doc.ref("ws-1")),
+            SidebarDocRow(key: "itm_4", kind: "item", section: Doc.machine, item: "itm_4", ref: Doc.ref("ws-4")),
+            SidebarDocRow(key: "itm_gm", kind: "group", section: Doc.machine, item: "itm_gm"),
+            SidebarDocRow(key: "itm_2", kind: "item", section: Doc.machine, parent: "itm_gm", depth: 1, item: "itm_2", ref: Doc.ref("ws-2")),
+            SidebarDocRow(key: "itm_5", kind: "item", section: Doc.machine, item: "itm_5", ref: Doc.ref("ws-5")),
+            SidebarDocRow(key: "itm_ga", kind: "group", section: Doc.after, item: "itm_ga"),
+            SidebarDocRow(key: "itm_3", kind: "item", section: Doc.after, parent: "itm_ga", depth: 1, item: "itm_3", ref: Doc.ref("ws-3")),
+        ]
+        return SidebarDocProjection(rows: rows, records: records, revision: 1)
+    }
+
+    /// The bridge's mapping for `keptOrderProjection`: each group in This Mac's section, the band groups between its rows.
+    static func keptOrderRows() -> [SidebarSection] {
+        [SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [
+            .workspace(Doc.ws("ws-1")), Doc.group("itm_gp", "ws-0"), .workspace(Doc.ws("ws-4")), Doc.group("itm_gm", "ws-2"),
+            Doc.group("itm_ga", "ws-3"), .workspace(Doc.ws("ws-5")),
+        ])]
+    }
+
+    /// The real app's case (SIDEBAR ROW CHANGE 2, part C, the model half): a sidebar document arranges the list. It
+    /// takes the band groups out of the machine list, so the caller's node is not the model's node. The entry takes
+    /// the change at the mapped node, marks a new row as the document does, and refuses after the document changed.
+    @Test func theEntryTakesALooseRowUnderADocumentThatKeepsTheListOrder() {
+        var rows = Self.keptOrderRows()
+        let full = Self.arranged(Self.keptOrderProjection(), rows).model
+        let (entry, store) = Self.arranged(Self.keptOrderProjection(), rows)
+        let machine = SectionID.machine(.local)
+        #expect(entry.sections.first(where: { $0.id == machine })?.nodes.count == 4, "the document did not take the 2 band groups out of the machine list")
+        #expect(entry.takesRowChanges, "a document that keeps the list order: the entry takes no change")
+        func node(_ id: String) -> Int { rows[0].nodes.firstIndex { $0.id == .workspace(WorkspaceID(id)) } ?? -1 }
+        func step(_ change: SidebarLooseRowChange, _ next: [SidebarSection], takes: Bool = true, _ why: String) {
+            full.setSections(next)
+            let took = entry.apply(change)
+            #expect(took == takes, "\(why): took=\(took)")
+            if !took { entry.setSections(next) }
+            rows = next
+            let faults = Self.faults(full, entry, rows: rows)
+            #expect(faults.isEmpty, "\(why): the entry and the full set differ: \(faults)")
+        }
+        var next = rows
+        next[0].nodes.remove(at: node("ws-4"))
+        step(.removed(WorkspaceID("ws-4"), section: machine, node: node("ws-4")), next, "a loose row after a band group goes out")
+        var new = SidebarWorkspace(id: WorkspaceID("ws-9"), title: "new", rowState: .creating)
+        new.isArchived = true // the document does not archive it: the arrangement clears the mark
+        next = rows
+        next[0].nodes.insert(.workspace(new), at: 1)
+        step(.added(new, section: machine, node: 1), next, "a new row right before a band group")
+        let last = SidebarWorkspace(id: WorkspaceID("ws-8"), title: "last")
+        next = rows
+        next[0].nodes.append(.workspace(last))
+        step(.added(last, section: machine, node: rows[0].nodes.count), next, "a new row at the end, after 2 band groups")
+        next = rows
+        next[0].nodes.remove(at: node("ws-5"))
+        step(.removed(WorkspaceID("ws-5"), section: machine, node: node("ws-5")), next, "a loose row after 2 band groups goes out")
+        next = rows
+        next[0].nodes.remove(at: 0)
+        step(.removed(WorkspaceID("ws-1"), section: machine, node: 0), next, "the first row goes out")
+        // A band group's member is no loose row of the machine list, and the group's node is not in the model's list.
+        let pinned = rows[0].nodes.firstIndex { $0.id == .group(GroupID("itm_gp")) } ?? -1
+        let before = (entry.sections, entry.sectionsRevision)
+        #expect(!entry.apply(.removed(WorkspaceID("ws-0"), section: machine, node: pinned)), "the entry took a band group's node")
+        #expect(entry.sections == before.0 && entry.sectionsRevision == before.1, "a refused entry changed the model")
+        // The document changed since the last full set: the entry can not know what it arranges now.
+        store.shown = Self.keptOrderProjection()
+        #expect(!entry.takesRowChanges, "the document changed: the entry still takes changes")
+        next = rows
+        next[0].nodes.remove(at: node("ws-8"))
+        step(.removed(WorkspaceID("ws-8"), section: machine, node: node("ws-8")), next, takes: false, "the document changed since the last full set")
+        // The full set after the refusal arranged by the document as it is now.
+        #expect(entry.takesRowChanges, "a full set by the document as it is now: the entry takes no change")
+    }
+
+    /// The property of `theOneRowEntryShowsWhatTheFullSetShows` under the document of `keptOrderProjection`: random
+    /// loose rows go out and come in at each place between the band groups; some steps come after a document change.
+    @Test func theOneRowEntryShowsWhatTheFullSetShowsUnderADocument() {
+        let seeds = 200
+        var steps = 0, taken = 0, documentChanges = 0
+        var broken: [String] = []
+        for seed in 0 ..< seeds {
+            var r = Random(seed: 0x51DE_BA20_2611_2000 &+ UInt64(seed))
+            var rows = Self.keptOrderRows()
+            let full = Self.arranged(Self.keptOrderProjection(), rows).model
+            let (entry, store) = Self.arranged(Self.keptOrderProjection(), rows)
+            var serial = 100 // "rc-101" and later: no item of the document
+            for step in 0 ..< 6 {
+                guard let (change, next) = Self.change(rows, serial: &serial, &r) else { break }
+                let changed = r.chance(0.2)
+                if changed { store.shown = Self.keptOrderProjection() }
+                full.setSections(next)
+                let took = entry.apply(change)
+                if !took { entry.setSections(next) }
+                rows = next
+                steps += 1
+                if changed {
+                    documentChanges += 1
+                    if took { broken.append("seed \(seed) step \(step): the entry took \(change) after the document changed") }
+                } else {
+                    taken += took ? 1 : 0
+                    if !took { broken.append("seed \(seed) step \(step): the entry refused \(change)") }
+                }
+                let faults = Self.faults(full, entry, rows: rows)
+                if !faults.isEmpty { broken.append("seed \(seed) step \(step), \(took ? "entry" : "full set after a refusal"), \(change): \(faults)") }
+            }
+        }
+        print("SIDEBAR-ROW-CHANGE-ENTRY document seeds=\(seeds) steps=\(steps) taken=\(taken) document_changes=\(documentChanges) faults=\(broken.count)")
+        #expect(broken.isEmpty, "under a document the entry and the full set differ, or the entry refused, in \(broken.count) steps; the first: \(broken.prefix(5))")
+        #expect(taken == steps - documentChanges && taken >= seeds * 3, "the entry took \(taken) of the \(steps - documentChanges) steps with an unchanged document")
     }
 }
