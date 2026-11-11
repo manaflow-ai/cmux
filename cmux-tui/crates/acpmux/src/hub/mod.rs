@@ -66,6 +66,8 @@ mod agent_messaging_tests;
 mod first_work_tests;
 mod fork;
 #[cfg(test)]
+mod forum_held_turn_tests;
+#[cfg(test)]
 mod host_notice_tests;
 #[cfg(test)]
 mod ledger_hub_tests;
@@ -486,6 +488,15 @@ fn message_key(id: &str, target: Option<&str>, peer: Option<&str>) -> String {
 pub struct RemoteRef {
     pub peer: String,
     pub summary: Value,
+}
+
+impl RemoteRef {
+    /// The id this daemon's list row names the peer's session `mux_id` by (its
+    /// `qualifiedSessionId`, `Hub::remote_summary`): the one key a client matches the
+    /// peer's notices of that session to its row and to what it found by that row.
+    pub fn qualified_id(&self, mux_id: &str) -> String {
+        SessionReceipt::new(self.peer.as_str(), mux_id, None, 0).qualified_id()
+    }
 }
 
 /// A session that lives on a peer daemon.
@@ -1415,7 +1426,7 @@ impl Hub {
             hub.rehydrate_worker();
             if !loading {
                 hub.watch_orphans();
-                hub.bg_notify_resume();
+                hub.bg_notify_resume_in_background();
             }
             hub.watch_titles();
             hub.watch_recaps();

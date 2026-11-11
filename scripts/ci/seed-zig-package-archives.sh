@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
 # Pre-downloads the hashed packages a Zig source's build.zig.zon files name,
 # with curl, into Zig's global cache as p/<hash>.tar.gz, so `zig build
-# --fetch=all` unpacks them with no network. Zig's own HTTP read has no retry,
+# --fetch=all` unpacks them with no network.
+#
+# First, from our mirror: every package scripts/ci/zig-packages.lock tags with
+# the source's name (ghostty-next, ghostty, or CMUX_ZIG_LOCK_TAG), transitive
+# ones included, each checked against the sha256 the lock pins. No build
+# fetches from a third-party host (scripts/ci/zig_package_mirror.py). With
+# CMUX_ZIG_MIRROR_ONLY=1 (the default when CI=true; 0 turns it off) the seed
+# stops there, and Zig, given no route out by its caller, fails by name on a
+# package the mirror lacks. Otherwise the upstream rounds below fill the rest.
+# Zig's own HTTP read has no retry,
 # resume or speed floor: a mid-stream "ReadFailed" from deps.files.ghostty.org
 # failed every attempt of a job (cmux-tui publisher run 40651931144, freetype).
 # Zig 0.16 unpacks a cached p/<hash>.tar.gz before it fetches the URL and checks
@@ -36,7 +45,8 @@ if [[ "${1:-}" == --one ]]; then
   # suffix, checked, then renamed into place, so a cut-short download never
   # takes the final name.
   # URLS is one URL or several joined by |, tried in order (a mirror after its origin).
-  cache="$2" hash="$3" urls="$4"
+  # SHA256, when given (a copy from our mirror), must match the downloaded bytes.
+  cache="$2" hash="$3" urls="$4" want="${5:-}"
   final="$cache/p/$hash.tar.gz"
   [[ -e "$final" ]] && exit 0
   part="$cache/p/.seed-$hash-$$"
@@ -60,6 +70,11 @@ if [[ "${1:-}" == --one ]]; then
     # Counted, not kept: a listing can be long. pipefail keeps tar's own status.
     entries="$(tar -tzf "$part" 2>/dev/null | wc -l)" && (( entries > 0 )) \
       || { echo "seed: $url is not a whole tar archive" >&2; continue; }
+    if [[ -n "$want" ]]; then
+      if command -v sha256sum >/dev/null 2>&1; then got="$(sha256sum "$part" | cut -d' ' -f1)"
+      else got="$(shasum -a 256 "$part" | cut -d' ' -f1)"; fi
+      [[ "$got" == "$want" ]] || { echo "seed: $url has sha256 $got, the lock pins $want" >&2; continue; }
+    fi
     mv -f "$part" "$final"
     exit 0
   done
@@ -68,6 +83,10 @@ fi
 
 cache="${1:?usage: seed-zig-package-archives.sh CACHE_DIR [SOURCE_DIR]}"
 source_dir="${2:-.}"
+lock="${CMUX_ZIG_LOCK:-$(cd "$(dirname "$0")" && pwd)/zig-packages.lock}"
+lock_tag="${CMUX_ZIG_LOCK_TAG:-$(basename "$(cd "$source_dir" && pwd)")}"
+mirror_only="${CMUX_ZIG_MIRROR_ONLY:-}"
+[[ -n "$mirror_only" ]] || { [[ "${CI:-}" == true ]] && mirror_only=1 || mirror_only=0; }
 parallel="${CMUX_ZIG_SEED_PARALLEL:-16}"
 seed_timeout="${CMUX_ZIG_SEED_TIMEOUT:-300}"
 depth="${CMUX_ZIG_SEED_DEPTH:-4}"
@@ -212,7 +231,8 @@ run_round() {
   list="$(mktemp "${TMPDIR:-/tmp}/zig-seed.XXXXXX")"
   printf '%s' "$todo" > "$list"
   # One process (not a pipeline), so its pid is the group's id.
-  xargs -n 2 -P "$parallel" "$0" --one "$cache" < "$list" &
+  # One package per line: -L 1 keeps a mirror copy's sha256 with its package.
+  xargs -L 1 -P "$parallel" "$0" --one "$cache" < "$list" &
   pool=$!
   set +m
   ( while kill -0 "$pool" 2>/dev/null; do
@@ -232,9 +252,37 @@ run_round() {
   rm -f "$list"; list=""
 }
 
+deadline=$((SECONDS + seed_timeout))
+
+# Our mirror first: the lock's packages tagged with this source.
+todo="" mirror_wanted=0 mirror_total=0 mirror_seeded=0
+if [[ -f "$lock" ]]; then
+  mirror="$(awk '$1 == "mirror" { print $2; exit }' "$lock")"
+  while read -r hash sha tags _upstream _deps; do
+    # A line that starts with # is a comment (a git+ URL's #commit is not).
+    [[ -n "$hash" && "$hash" != mirror && "$hash" != \#* ]] || continue
+    [[ ",$tags," == *",$lock_tag,"* ]] || continue
+    mirror_total=$((mirror_total + 1))
+    [[ -e "$source_dir/zig-pkg/$hash" || -e "$cache/p/$hash.tar.gz" || -e "$cache/p/$hash" ]] && continue
+    todo="$todo$hash $mirror$hash.tar.gz $sha"$'\n'
+    mirror_wanted=$((mirror_wanted + 1))
+  done < "$lock"
+fi
+(( mirror_wanted > 0 )) && run_round
+while read -r hash _url _sha; do
+  [[ -n "$hash" && -e "$cache/p/$hash.tar.gz" ]] && mirror_seeded=$((mirror_seeded + 1))
+done <<<"$todo"
+echo "Seeded $mirror_seeded of $mirror_wanted Zig package archives from the mirror ($((mirror_total - mirror_wanted)) of $mirror_total tagged $lock_tag already here)."
+if (( mirror_seeded < mirror_wanted )); then
+  echo "seed: $((mirror_wanted - mirror_seeded)) mirrored package(s) could not be downloaded from $mirror" >&2
+fi
+if [[ "$mirror_only" == 1 ]]; then
+  echo "Mirror only (CMUX_ZIG_MIRROR_ONLY): no package is fetched from its upstream host."
+  exit 0
+fi
+
 todo="" total=0 present=0 wanted=0 seeded=0 deep_wanted=0 deep_seeded=0
 seen="$(printf '%s\n' "$pairs" | awk 'NF { print $1 }')"
-deadline=$((SECONDS + seed_timeout))
 plan_round <<<"$pairs"
 round=1 top_total=$total top_present=$present round_set="$seen"
 while :; do
