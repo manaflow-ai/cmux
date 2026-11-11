@@ -10,6 +10,8 @@ extension ChatsFeed {
     /// (WORKING-AND-LOADING-INDICATORS), whether or not a window shows Chats.
     /// Nil without a local acpmux environment.
     static func started(for services: AppServices) -> ChatsFeed? {
+        // The sidebar's Try pills open through the app's own tabs, with or without acpmux here.
+        SidebarTryOpener.install(services)
         guard let environment = QuitAgents.environment(services) else {
             // The showcase has no acpmux daemon, but the DEBUG pull-request fixture
             // still needs the real sidebar feed to publish its sample badges. With a
@@ -30,7 +32,6 @@ extension ChatsFeed {
         turns.start(localHost: localHost)
         startChiefTurnStates(tag: services.environment.tag)
         SidebarSessionTreeFeed.shared.start(workspaces: { services.machines.allWorkspaces.map { $0.0 } }, localHost: localHost)
-        SidebarTryOpener.install(services)
         let feed = ChatsFeed(socketPath: environment.socketPath, drained: { DebugTimings.chatsFeedApplied(lines: $0, $1) })
         // The session tree's chat history: two windows acpmux keeps (never the whole index); rows
         // open through the shared Open Chat path.

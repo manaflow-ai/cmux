@@ -214,14 +214,13 @@ final class CaptureSceneRegistry {
         case Self.sidebarTryScene:
             // Two finished workspaces: one whose agent gave its build's Tag Opener page, one a command.
             services.windows.active?.sidebar.restore(width: 300, hidden: false)
-            let ids = services.windows.active.map { services.windows.registry.members(of: $0.state.id) } ?? []
             var tries: [WorkspaceID: SidebarTry] = [:]
-            if let first = ids.first {
-                tries[WorkspaceID(first)] = SidebarTry(label: "Open try-agent-work build", url: "http://127.0.0.1:17320/try-agent-work",
-                                                       verify: ["The sidebar row shows Try.", "Click it: the build opens here."])
+            if let id = services.showcase.workspaces["cmux-next"] {
+                tries[WorkspaceID(id)] = SidebarTry(label: "Open try-agent-work build", url: "http://127.0.0.1:17320/try-agent-work",
+                                                    verify: ["The sidebar row shows Try.", "Click it: the build opens here."])
             }
-            if ids.count > 2 {
-                tries[WorkspaceID(ids[2])] = SidebarTry(label: "Run the demo", command: "make demo", verify: ["It prints 14 passing tests."])
+            if let id = services.showcase.workspaces["infra"] {
+                tries[WorkspaceID(id)] = SidebarTry(label: "Run the demo", command: "make demo", verify: ["It prints 14 passing tests."])
             }
             SidebarSessionTree.shared.captureTries = tries
             SidebarSessionTree.shared.tries = tries
