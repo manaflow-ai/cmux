@@ -14,9 +14,9 @@ import { FindReveal } from "./chatFind";
 import { ToolRows } from "./TurnRows";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 import { WorkingFor } from "./WorkingFor";
-import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
+import { forgetInsideTurn, resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { turnFoldStyle } from "./turnFoldStyle";
-import { workedLabel } from "./turns";
+import { turnInsideIds, workedLabel } from "./turns";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -457,4 +457,43 @@ test("the running line names the call when the reader closed the run line its gr
   // The reader opens the group: its own row names the call, and the line no longer does.
   await click(container, 'button[data-tool-group="group:commands:c1"]');
   expect(named(container)).toBe("");
+});
+
+test("closing a run line closes the calls the reader opened in it: it opens again with each one closed", async () => {
+  const items = [command("c1", "git pull"), command("c2", "git status"), read("c3", "notes.md")];
+  const container = await mount(<ToolRows row={run("r1", items)} sessionId="reset" />);
+  await open(container, /^Ran 2 commands and read a file$/);
+  const call = 'button[data-tool-id="c1"]';
+  await click(container, call);
+  expect(container.querySelector(call)!.getAttribute("aria-expanded")).toBe("true");
+  // The run's key names the same first call (`run:c1`): opening the call never closed the run.
+  const runLine = lineNamed(container, /^Ran 2 commands and read a file$/)!;
+  expect(runLine.getAttribute("aria-expanded")).toBe("true");
+  await act(async () => runLine.click());
+  await act(async () => runLine.click());
+  expect(runLine.getAttribute("aria-expanded")).toBe("true");
+  expect(container.querySelector(call)!.getAttribute("aria-expanded")).toBe("false");
+});
+
+test("a turn's Worked for, closed or opened, closes the lines the reader opened in that turn only", async () => {
+  const user = (id: string, text: string): AcpmuxRow => ({ id, version: 1, at: 1, kind: "user", text });
+  const earlier = run("r0", [command("c0", "ls"), command("c00", "pwd")]);
+  const row = run("r1", [command("c1", "git pull"), command("c2", "git status"), read("c3", "notes.md")]);
+  const rows = [user("u0", "Look"), earlier, user("u1", "Pull"), row, user("u2", "Next")];
+  expect([...turnInsideIds(rows, "worked-u1")].sort()).toEqual(["c1", "c2", "c3", "r1"]);
+  const container = await mount(
+    <>
+      <ToolRows row={earlier} sessionId="turn" />
+      <ToolRows row={row} sessionId="turn" />
+    </>,
+  );
+  await open(container, /^Ran 2 commands and read a file$/);
+  await open(container, /^Ran 2 commands$/);
+  await click(container, 'button[data-tool-id="c1"]');
+  await click(container, 'button[data-tool-id="c0"]');
+  await act(async () => forgetInsideTurn("turn", turnInsideIds(rows, "worked-u1")));
+  expect(lineNamed(container, /^Ran 2 commands and read a file$/)!.getAttribute("aria-expanded")).toBe("false");
+  // The earlier turn keeps what the reader opened.
+  expect(lineNamed(container, /^Ran 2 commands$/)!.getAttribute("aria-expanded")).toBe("true");
+  expect(container.querySelector('button[data-tool-id="c0"]')!.getAttribute("aria-expanded")).toBe("true");
 });

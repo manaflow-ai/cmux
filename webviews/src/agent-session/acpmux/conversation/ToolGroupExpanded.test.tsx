@@ -104,7 +104,8 @@ test("opening a command group shows all 13 calls and the intervening thought wit
   expect(container.querySelectorAll(".cv-command")).toHaveLength(0);
   await act(async () => group.click());
   expect(container.querySelectorAll(".cv-command")).toHaveLength(13);
-  expect(container.querySelectorAll(".cv-command[aria-expanded=true]")).toHaveLength(1);
+  // Closing the group closed the call the reader opened in it (Lucas, 2026-11-11).
+  expect(container.querySelectorAll(".cv-command[aria-expanded=true]")).toHaveLength(0);
 });
 
 for (const [kind, toolKind] of GROUP_KINDS.slice(1))
@@ -381,9 +382,7 @@ test("one mixed run exposes individual steps and drills into an MCP call's field
 
 for (const agentFamily of ["claude", "codex"])
   for (const working of [false, true])
-    test(`${agentFamily} ${
-      working ? "live turn keeps mixed calls in sight" : "finished turn projects mixed calls into one folded run"
-    }`, async () => {
+    test(`${agentFamily} ${working ? "live" : "finished"} turn projects mixed calls into one folded run`, async () => {
       const { mixedToolTurnFixture } = await import("./mixedToolRunFixture");
       const { turnView } = await import("./turns");
       const projected = turnView(mixedToolTurnFixture(working), new Set(["worked-mixed-prompt"]), {
@@ -392,21 +391,15 @@ for (const agentFamily of ["claude", "codex"])
       });
       const work = projected.find((row) => row.kind === "activity")!;
       expect(work).toBeDefined();
-      if (working) {
-        // While the turn runs nothing folds: the run's finished calls are in sight with no click,
-        // and only the turn's end folds them (Leo, 2026-11-08: "you only do the overarching fold
-        // at the very end").
-        expect(work.foldRun).toBe(false);
-        const live = await render(<ToolRows row={work} sessionId={`${agentFamily}-${working}`} />);
-        expect(live.textContent).toContain("Find the retry handler");
-        expect(projected.some((row) => row.doing?.includes("Capture the repaired screen"))).toBe(false);
-        return;
-      }
+      // A live turn folds its finished runs as the ended turn does, as the Codex app (Lucas, 2026-11-11:
+      // "we should not auto expand commands etc when the turn is live").
       expect(work.foldRun).toBe(true);
       const container = await render(<ToolRows row={work} sessionId={`${agentFamily}-${working}`} />);
       const header = container.querySelector<HTMLButtonElement>("button.cv-tool")!;
       expect(header.getAttribute("aria-expanded")).toBe("false");
       await act(async () => header.click());
+      // A finished call stays in its run while the live line reads Thinking (#37635), so a live
+      // turn of finished calls lists every step, as the ended turn does.
       expect(container.querySelectorAll("[data-mixed-tool-steps] > .cv-step")).toHaveLength(5);
       expect(projected.some((row) => row.doing?.includes("Capture the repaired screen"))).toBe(false);
     });

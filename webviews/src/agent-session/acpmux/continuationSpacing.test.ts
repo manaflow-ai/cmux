@@ -235,7 +235,7 @@ test("the live line keeps the scaled run gap after activity while activity rows 
 // (design/transcript-spacing.md rule 4; Leo, 2026-11-02: "now there's sometimes too much spacing
 // between tool calls"); a prompt keeps its turn gap and the run's own rows stay flush.
 test("a run and the reply's prose sit the run gap apart, either way", () => {
-  expect(TRANSCRIPT_RUN_GAP).toBe(16);
+  expect(TRANSCRIPT_RUN_GAP).toBe(12);
   expect(transcriptGap(MARK_STEP, MARK_MESSAGE)).toBe(TRANSCRIPT_RUN_GAP);
   expect(transcriptGap(MARK_MESSAGE, MARK_STEP)).toBe(TRANSCRIPT_RUN_GAP);
   expect(transcriptGap(MARK_STATUS, MARK_MESSAGE)).toBe(TRANSCRIPT_RUN_GAP);

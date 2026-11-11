@@ -68,14 +68,15 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
   {
     id: "step-to-prose",
     between: "a run's last row and the reply's first line, centre to centre",
-    value: 38.375,
+    value: 34.375,
     tolerance: 1,
-    source: "11 + 16 + 11.375; chatgpt.com 16 box gap, ChatGPT desktop and Claude Code desktop ~40 centre",
+    source:
+      "11 + 12 + 11.375 (Lucas, 2026-11-11: 16 read as too much); chatgpt.com 16 box gap, ChatGPT desktop and Claude Code desktop ~40 centre",
   },
   {
     id: "prose-to-step",
     between: "a reply's last line and the run under it, centre to centre",
-    value: 38.375,
+    value: 34.375,
     tolerance: 1,
     source: "as step-to-prose (claude.ai 10 and 10, chatgpt.com 16 and 16: symmetric)",
   },

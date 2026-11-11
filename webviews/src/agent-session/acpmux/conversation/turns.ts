@@ -1420,8 +1420,7 @@ function shapeTurn(
   // action row once the fold opens. A reply whose question another agent's message cut off stays
   // out: its card waits on the person, under it (`cutOff`).
   const repliesArm = experimentArm(turnFoldReplies);
-  const keptOut: ReadonlySet<string> =
-    repliesArm === "answer" ? new Set(cutOff ? [cutOff.reply.id] : []) : replies;
+  const keptOut: ReadonlySet<string> = repliesArm === "answer" ? new Set(cutOff ? [cutOff.reply.id] : []) : replies;
   const steerDialogue = steerDialogueIn(body);
   // A turn the person steered still has one fold (Leo, 2026-11-07, on a closed "Worked for 5m 15s"
   // with "Finished 2 background tasks and ran 8 commands" beside it: "this could have been, like,
@@ -2176,12 +2175,11 @@ function shapeLiveTurn(
   // The Codex-style live line names the call in flight; a command still running in an earlier run
   // (a parallel `cp` while the agent messages others) leaves its run for the line too.
   const named = last ? lineCall(drawn, last) : undefined;
-  // While the turn streams nothing folds or regroups: each run keeps its calls in sight and a short
-  // note between two runs stays its own row, so no row leaves while the turn is live. The turn's end
-  // shapes it once, as its family's finished turn (turnEndFold.ts plays that), as Leo asked (2026-11-08:
-  // "while you're working on stuff, you expose it. You show it ... and you only do the overarching
-  // fold at the very end").
-  const rows = codexRuns(drawn, named?.tool.id);
+  // As the Codex app draws a running turn, each finished run folds into its summary line and a short
+  // note between two runs joins them (Lucas, 2026-11-11: "we should not auto expand commands etc when
+  // the turn is live"); a click opens a run. The turn's end still folds the whole turn under Worked
+  // for in one motion (turnEndFold.ts). A reply before a steer never joins a run (steerDialogueIn).
+  const rows = codexRuns(mergeShortNotes(drawn, steerDialogueIn(drawn)), named?.tool.id);
   // The status ticks on this computer's clock, from the live turn's start moved onto it. A resumed
   // turn can still open with an older prompt, so the prompt's time (`user.at`) is only the fallback.
   const start = turnStartedAtMs ?? user.at;
@@ -2506,10 +2504,9 @@ const RUN_STATES = 5;
 /// closed. (Not a sixth `RUN_STATES`: the minimap's edit-card versions are pinned to five.)
 const OPEN_RUN_STATES = 2;
 
-/// A running turn's runs: each keeps its calls in sight, in their groups (`foldRun: false`, open),
-/// the latest one too as its calls finish; nothing folds into a summary line until the turn ends,
-/// when its family's finished turn takes the work in one fold (Leo, 2026-11-08: "you only do the overarching
-/// fold at the very end ... you know what the target line height will be"). The call in flight and
+/// A running turn's runs as the Codex desktop app draws them (cx-ncc.108; Lucas, 2026-11-11): each
+/// run folds into its summary line between the paragraphs ("Read 6 files, ran 4 commands", or one
+/// group's "Ran 3 commands"), the latest one too as its calls finish, and opens on a click. The call in flight and
 /// a thought still coming are not in the run: the turn's live line names them (WorkingFor.tsx
 /// `doing`, "Thinking") and each step replaces it in place. A call still running in an earlier run
 /// (a background shell) stays in its run, except the command the live line names (`named`,
@@ -2538,7 +2535,7 @@ function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
         // differs from every other state of the run (`RUN_STATES`).
         const lined = shown.length !== items.length;
         return [
-          { ...kept, items: shown, settled: true, foldRun: false, version: row.version * RUN_STATES + (lined ? 4 : 2) },
+          { ...kept, items: shown, settled: true, foldRun: true, version: row.version * RUN_STATES + (lined ? 4 : 2) },
         ];
       });
     // The latest run: what is happening now leaves it for the live line, so the run holds only
@@ -2549,7 +2546,7 @@ function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
       (item, at) => !(item.tool ? isRunning(item.tool) : at === all.length - 1 && item.kind !== "tool"),
     );
     if (!items.length) return [];
-    return [{ ...row, items, settled: true, foldRun: false, version: row.version * RUN_STATES + 1 }];
+    return [{ ...row, items, settled: true, foldRun: true, version: row.version * RUN_STATES + 1 }];
   });
 }
 
@@ -2697,6 +2694,24 @@ export function toggleTurnFold(
   for (const key of keys) next.delete(key);
   if (!open) next.add(key ?? id);
   return next;
+}
+
+/// The rows and calls inside the turn of "Worked for" `id`, its prompt and steers left out: what the
+/// fold draws, whose lines the reader may have opened (transcriptDisclosureModel.ts
+/// `forgetInsideTurn`). Empty when `id` is not a turn's fold.
+export function turnInsideIds(rows: readonly AcpmuxRow[], id: string): Set<string> {
+  const ids = new Set<string>();
+  if (!id.startsWith(`${WORKED}-`)) return ids;
+  const { key } = turnFoldKeys(rows, id);
+  const start = rows.findIndex((row) => `${WORKED}-${row.id}` === (key ?? id));
+  for (let at = start + 1; start >= 0 && at < rows.length; at += 1) {
+    const row = rows[at]!;
+    if (opensTurn(row) && !isUnsent(row)) break;
+    if (row.kind === "user") continue;
+    ids.add(row.id);
+    for (const item of row.items ?? []) if (item.tool?.id) ids.add(item.tool.id);
+  }
+  return ids;
 }
 
 /// The same click in Thinking or Verbose, where a turn's "Worked for" is open unless the reader

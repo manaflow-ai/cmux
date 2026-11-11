@@ -10,6 +10,8 @@ const STORAGE_KEY = "cmux.acpmux.transcriptDisclosure";
 const SESSION_LIMIT = 40;
 const DISCLOSURE_LIMIT = 600;
 export const DEFAULT_SESSION = "__transcript__";
+/// The prefix of a call's own key (`callDisclosureKey`).
+const CALL_PREFIX = "row:";
 
 type SessionChoices = Map<string, boolean>;
 type Choices = Map<string, SessionChoices>;
@@ -64,6 +66,65 @@ function save(sessionId: string, key: string, value: boolean): void {
     // The in-memory choice still lasts for this page when storage is unavailable.
   }
   notify();
+}
+
+/// Whether disclosure key `key` names one of `ids`: a call's (`row:<id>`), a group's or run's line
+/// (`group:<kind>:<id>`, `run:<id>`, with `<row id>:<n>` when no call names it), a thought
+/// (`<row id>:thought:<n>`). Every stretch between two colons, or from one to the end, is tried.
+function namesOne(key: string, ids: ReadonlySet<string>): boolean {
+  const marks = [-1];
+  for (let at = key.indexOf(":"); at >= 0; at = key.indexOf(":", at + 1)) marks.push(at);
+  for (let from = 0; from < marks.length; from += 1) {
+    if (ids.has(key.slice(marks[from]! + 1))) return true;
+    for (let to = from + 1; to < marks.length; to += 1)
+      if (ids.has(key.slice(marks[from]! + 1, marks[to]))) return true;
+  }
+  return false;
+}
+
+/// How deep a line nests: a call or thought (0) in a group (1) in a run (2). A run's or group's key
+/// names its first call, as the calls in it do, so a fold forgets only lines below its own level and
+/// never the run around it (`run:e1` over `group:edits:e1`).
+function level(key: string): number {
+  if (key.startsWith(CALL_PREFIX) || key.includes(":thought:")) return 0;
+  return key.startsWith("run:") ? 2 : 1;
+}
+
+/// Forget the reader's choices on every line inside a fold they closed, so the fold opens again with
+/// each of them closed (Lucas, 2026-11-11: "if a tool call gets expanded, and its parent gets
+/// collapsed, when the parent expands again, all children should go back to being collapsed").
+/// `ids`: the calls and rows the fold holds (`namesOne`). `below`: the fold's own level (`level`);
+/// only lines under it are forgotten. `keep`: lines that take the fold's place, never its children.
+/// `views`: the chat's other views (`chat#view`) too.
+function forgetInside(
+  sessionId: string,
+  ids: ReadonlySet<string>,
+  below: number,
+  keep: ReadonlySet<string> = new Set(),
+  views = false,
+): void {
+  if (ids.size === 0) return;
+  let changed = false;
+  for (const [id, session] of load()) {
+    if (id !== sessionId && !(views && id.startsWith(`${sessionId}#`))) continue;
+    for (const [key, value] of session) {
+      if (!value || keep.has(key) || level(key) >= below || !namesOne(key, ids)) continue;
+      session.delete(key);
+      changed = true;
+    }
+  }
+  if (!changed) return;
+  try {
+    globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(storageValue()));
+  } catch {
+    // The in-memory change still lasts for this page when storage is unavailable.
+  }
+  notify();
+}
+
+/// A turn's "Worked for" closed (App.tsx): every line inside it closes, in every view of the chat.
+export function forgetInsideTurn(sessionId: string | undefined, ids: ReadonlySet<string>): void {
+  forgetInside(sessionId || DEFAULT_SESSION, ids, Infinity, undefined, true);
 }
 
 function read(sessionId: string, key: string): boolean | undefined {
@@ -150,8 +211,8 @@ export type DisclosureLinks = {
   /// the group lines it splits back into, so a line they closed never reopens as one of those.
   passesDown?: readonly string[];
   /// The calls a fold holds (`callDisclosureKey`). One the reader opened keeps the fold open until
-  /// the reader sets the fold itself, as `inherits` does, but the fold's own choice never passes down
-  /// to them: closing a run's line keeps the calls in it as the reader left them.
+  /// the reader sets the fold itself, as `inherits` does. Closing the fold forgets the reader's choice
+  /// on each of them, so it opens again with every call closed (`forgetInside`).
   members?: readonly string[];
   /// Lines that close this one once the reader closed every one of them, after any choice they made
   /// on this one (`closedOver`): a run's line whose groups they closed one by one while the turn ran,
@@ -193,6 +254,20 @@ export function useTranscriptDisclosure(
   const setOpen = useCallback<DisclosureSetter>(
     (value) => {
       const next = typeof value === "function" ? value(current()) : value;
+      // Closed, the fold forgets what the reader opened inside it: its calls and the lines among them
+      // (an edits group in a run), never itself, the run around it or the lines that take its place.
+      if (!next && held !== "")
+        forgetInside(
+          sessionId,
+          new Set(held.split("\n").map((member) => member.slice(CALL_PREFIX.length))),
+          level(key),
+          new Set([
+            key,
+            ...(from ? from.split("\n") : []),
+            ...(down ? down.split("\n") : []),
+            ...(by ? by.split("\n") : []),
+          ]),
+        );
       // A run's line the reader set takes the place of the group lines it hands down to: one they had
       // set takes the same choice, so a run line they closed never reopens as its group's line when the
       // run splits back into groups. A line they never set keeps its own default, and a group's line
@@ -201,7 +276,7 @@ export function useTranscriptDisclosure(
         for (const other of down.split("\n")) if (read(sessionId, other) !== undefined) save(sessionId, other, next);
       save(sessionId, key, next);
     },
-    [sessionId, key, current, down],
+    [sessionId, key, current, down, from, held, by],
   );
   return [open, setOpen];
 }
@@ -215,7 +290,7 @@ function useDisclosureSessionId(): string {
 
 /// The key of a tool call's own line (a lone call, a command, an MCP call), the same wherever the call
 /// draws: on its own, in a group, in a run (TurnRows.tsx). A fold that holds the call opens for it.
-export const callDisclosureKey = (id: string) => `row:${id}`;
+export const callDisclosureKey = (id: string) => `${CALL_PREFIX}${id}`;
 
 /// The keys of the calls among `items` (`callDisclosureKey`), for the fold that holds them (`members`).
 export function callDisclosureKeys(items: readonly { tool?: { id: string } }[]): string[] {

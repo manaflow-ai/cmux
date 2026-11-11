@@ -212,7 +212,8 @@ export const MessageRow = memo(
         messageAt={row.at}
         artifactIdentity={row.id}
         artifactRevision={row.version}
-        claims={row.claims}
+        // No claim marks (#39244's green or red underline on "tests pass"): Codex draws a reply as
+        // written (Lucas, 2026-11-11: "we want to remove this red line thing").
       />
     );
     // A finished reply its turn's footer does not serve keeps its own action row, whatever follows
