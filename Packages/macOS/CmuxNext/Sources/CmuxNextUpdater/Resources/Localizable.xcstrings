@@ -2894,8 +2894,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Try It"
+            "state": "translated",
+            "value": "جرّبه"
           }
         },
         "bs": {
@@ -2912,20 +2912,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Try It"
+            "state": "translated",
+            "value": "Ausprobieren"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Try It"
+            "state": "translated",
+            "value": "Probar"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Try It"
+            "state": "translated",
+            "value": "Essayer"
           }
         },
         "it": {
@@ -2948,8 +2948,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Try It"
+            "state": "translated",
+            "value": "사용해 보기"
           }
         },
         "nb": {
@@ -3002,14 +3002,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Try It"
+            "state": "translated",
+            "value": "试一试"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Try It"
+            "state": "translated",
+            "value": "試試看"
           }
         }
       }
@@ -3156,8 +3156,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+            "state": "translated",
+            "value": "لا يستطيع cmux-tui قيد التشغيل الإبلاغ عن تنسيقات بياناته، لذا لا يستطيع cmux التحقق من الرجوع."
           }
         },
         "bs": {
@@ -3174,20 +3174,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+            "state": "translated",
+            "value": "Das laufende cmux-tui kann seine Datenformate nicht melden, daher kann cmux ein Zurücksetzen nicht prüfen."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+            "state": "translated",
+            "value": "El cmux-tui en ejecución no puede informar de sus formatos de datos, así que cmux no puede comprobar una vuelta atrás."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+            "state": "translated",
+            "value": "Le cmux-tui en cours ne peut pas indiquer ses formats de données : cmux ne peut donc pas vérifier un retour en arrière."
           }
         },
         "it": {
@@ -3210,8 +3210,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+            "state": "translated",
+            "value": "실행 중인 cmux-tui가 데이터 형식을 알려 주지 못해 cmux가 되돌리기를 확인할 수 없습니다."
           }
         },
         "nb": {
@@ -3264,14 +3264,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+            "state": "translated",
+            "value": "正在运行的 cmux-tui 无法报告其数据格式，所以 cmux 无法检查回退。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+            "state": "translated",
+            "value": "正在執行的 cmux-tui 無法回報其資料格式，所以 cmux 無法檢查回復。"
           }
         }
       }
@@ -3549,8 +3549,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "No previous version is kept on this Mac."
+            "state": "translated",
+            "value": "لا يحتفظ هذا الـ Mac بأي إصدار سابق."
           }
         },
         "bs": {
@@ -3567,20 +3567,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "No previous version is kept on this Mac."
+            "state": "translated",
+            "value": "Auf diesem Mac ist keine frühere Version behalten."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "No previous version is kept on this Mac."
+            "state": "translated",
+            "value": "Este Mac no guarda ninguna versión anterior."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "No previous version is kept on this Mac."
+            "state": "translated",
+            "value": "Aucune version précédente n’est conservée sur ce Mac."
           }
         },
         "it": {
@@ -3603,8 +3603,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "No previous version is kept on this Mac."
+            "state": "translated",
+            "value": "이 Mac에 보관된 이전 버전이 없습니다."
           }
         },
         "nb": {
@@ -3657,14 +3657,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "No previous version is kept on this Mac."
+            "state": "translated",
+            "value": "这台 Mac 没有保留以前的版本。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "No previous version is kept on this Mac."
+            "state": "translated",
+            "value": "這台 Mac 沒有保留先前的版本。"
           }
         }
       }
@@ -3680,8 +3680,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+            "state": "translated",
+            "value": "يسبق cmux %@ دعم الرجوع، لذا لا يستطيع cmux التحقق من أنه يقرأ بياناتك."
           }
         },
         "bs": {
@@ -3698,20 +3698,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+            "state": "translated",
+            "value": "cmux %@ stammt aus der Zeit vor der Rücksetz-Unterstützung, daher kann cmux nicht prüfen, ob es deine Daten lesen kann."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+            "state": "translated",
+            "value": "cmux %@ es anterior a la función para volver atrás, así que cmux no puede comprobar que lea tus datos."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+            "state": "translated",
+            "value": "cmux %@ est antérieur à la prise en charge du retour en arrière : cmux ne peut donc pas vérifier qu’il lit vos données."
           }
         },
         "it": {
@@ -3734,8 +3734,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+            "state": "translated",
+            "value": "cmux %@은(는) 되돌리기 지원 이전 버전이라 cmux가 데이터를 읽을 수 있는지 확인할 수 없습니다."
           }
         },
         "nb": {
@@ -3788,14 +3788,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+            "state": "translated",
+            "value": "cmux %@ 早于回退功能，所以 cmux 无法确认它能读取你的数据。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+            "state": "translated",
+            "value": "cmux %@ 早於回復功能，所以 cmux 無法確認它能讀取你的資料。"
           }
         }
       }
@@ -3811,8 +3811,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+            "state": "translated",
+            "value": "لا يستطيع cmux %1$@ قراءة بيانات %2$@ الخاصة بك: فهي بالتنسيق %3$ld وذلك الإصدار يقرأ حتى %4$ld. سيؤدي الرجوع إلى فقدانها."
           }
         },
         "bs": {
@@ -3829,20 +3829,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+            "state": "translated",
+            "value": "cmux %1$@ kann deine %2$@-Daten nicht lesen: Sie liegen im Format %3$ld vor, und diese Version liest höchstens %4$ld. Beim Zurücksetzen gingen sie verloren."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+            "state": "translated",
+            "value": "cmux %1$@ no puede leer tus datos de %2$@: están en el formato %3$ld y esa versión lee hasta el %4$ld. Volver atrás los perdería."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+            "state": "translated",
+            "value": "cmux %1$@ ne peut pas lire vos données %2$@ : elles sont au format %3$ld et cette version lit au plus le format %4$ld. Revenir en arrière les ferait perdre."
           }
         },
         "it": {
@@ -3865,8 +3865,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+            "state": "translated",
+            "value": "cmux %1$@은(는) %2$@ 데이터를 읽을 수 없습니다. 데이터 형식은 %3$ld이고 해당 버전은 %4$ld까지만 읽습니다. 되돌리면 데이터를 잃게 됩니다."
           }
         },
         "nb": {
@@ -3919,14 +3919,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+            "state": "translated",
+            "value": "cmux %1$@ 无法读取你的 %2$@ 数据：其格式为 %3$ld，而该版本最多只能读取 %4$ld。回退会丢失这些数据。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+            "state": "translated",
+            "value": "cmux %1$@ 無法讀取你的 %2$@ 資料：其格式為 %3$ld，而該版本最多只能讀取 %4$ld。回復會遺失這些資料。"
           }
         }
       }
@@ -3942,8 +3942,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux %1$@ does not know your %2$@ data. Rolling back would hide it."
+            "state": "translated",
+            "value": "لا يعرف cmux %1$@ بيانات %2$@ الخاصة بك. سيؤدي الرجوع إلى إخفائها."
           }
         },
         "bs": {
@@ -3960,20 +3960,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux %1$@ does not know your %2$@ data. Rolling back would hide it."
+            "state": "translated",
+            "value": "cmux %1$@ kennt deine %2$@-Daten nicht. Beim Zurücksetzen wären sie ausgeblendet."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux %1$@ does not know your %2$@ data. Rolling back would hide it."
+            "state": "translated",
+            "value": "cmux %1$@ no conoce tus datos de %2$@. Volver atrás los ocultaría."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux %1$@ does not know your %2$@ data. Rolling back would hide it."
+            "state": "translated",
+            "value": "cmux %1$@ ne connaît pas vos données %2$@. Revenir en arrière les masquerait."
           }
         },
         "it": {
@@ -3996,8 +3996,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux %1$@ does not know your %2$@ data. Rolling back would hide it."
+            "state": "translated",
+            "value": "cmux %1$@은(는) %2$@ 데이터를 알지 못합니다. 되돌리면 데이터가 숨겨집니다."
           }
         },
         "nb": {
@@ -4050,14 +4050,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux %1$@ does not know your %2$@ data. Rolling back would hide it."
+            "state": "translated",
+            "value": "cmux %1$@ 不认识你的 %2$@ 数据。回退会隐藏这些数据。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux %1$@ does not know your %2$@ data. Rolling back would hide it."
+            "state": "translated",
+            "value": "cmux %1$@ 不認得你的 %2$@ 資料。回復會隱藏這些資料。"
           }
         }
       }
@@ -4073,8 +4073,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "The kept cmux %@ is not signed by the cmux team, so it will not run."
+            "state": "translated",
+            "value": "إصدار cmux %@ المحفوظ غير موقّع من فريق cmux، لذا لن يعمل."
           }
         },
         "bs": {
@@ -4091,20 +4091,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "The kept cmux %@ is not signed by the cmux team, so it will not run."
+            "state": "translated",
+            "value": "Das behaltene cmux %@ ist nicht vom cmux-Team signiert und wird daher nicht ausgeführt."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "The kept cmux %@ is not signed by the cmux team, so it will not run."
+            "state": "translated",
+            "value": "El cmux %@ guardado no está firmado por el equipo de cmux, así que no se ejecutará."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "The kept cmux %@ is not signed by the cmux team, so it will not run."
+            "state": "translated",
+            "value": "Le cmux %@ conservé n’est pas signé par l’équipe cmux : il ne sera pas lancé."
           }
         },
         "it": {
@@ -4127,8 +4127,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "The kept cmux %@ is not signed by the cmux team, so it will not run."
+            "state": "translated",
+            "value": "보관된 cmux %@은(는) cmux 팀이 서명하지 않아 실행되지 않습니다."
           }
         },
         "nb": {
@@ -4181,14 +4181,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "The kept cmux %@ is not signed by the cmux team, so it will not run."
+            "state": "translated",
+            "value": "保留的 cmux %@ 未由 cmux 团队签名，因此不会运行。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "The kept cmux %@ is not signed by the cmux team, so it will not run."
+            "state": "translated",
+            "value": "保留的 cmux %@ 未由 cmux 團隊簽署，因此不會執行。"
           }
         }
       }
@@ -4204,8 +4204,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "A test update feed needs a DEV or NIGHTLY build and an https address (http only on this Mac)."
+            "state": "translated",
+            "value": "تتطلب قناة التحديث التجريبية إصدار DEV أو NIGHTLY وعنوان https (‏http على هذا الـ Mac فقط)."
           }
         },
         "bs": {
@@ -4222,20 +4222,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "A test update feed needs a DEV or NIGHTLY build and an https address (http only on this Mac)."
+            "state": "translated",
+            "value": "Ein Test-Update-Feed braucht einen DEV- oder NIGHTLY-Build und eine https-Adresse (http nur auf diesem Mac)."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "A test update feed needs a DEV or NIGHTLY build and an https address (http only on this Mac)."
+            "state": "translated",
+            "value": "Un feed de actualizaciones de prueba necesita una compilación DEV o NIGHTLY y una dirección https (http solo en este Mac)."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "A test update feed needs a DEV or NIGHTLY build and an https address (http only on this Mac)."
+            "state": "translated",
+            "value": "Un flux de mise à jour de test nécessite un build DEV ou NIGHTLY et une adresse https (http uniquement sur ce Mac)."
           }
         },
         "it": {
@@ -4258,8 +4258,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "A test update feed needs a DEV or NIGHTLY build and an https address (http only on this Mac)."
+            "state": "translated",
+            "value": "테스트 업데이트 피드에는 DEV 또는 NIGHTLY 빌드와 https 주소가 필요합니다(http는 이 Mac에서만 가능)."
           }
         },
         "nb": {
@@ -4312,14 +4312,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "A test update feed needs a DEV or NIGHTLY build and an https address (http only on this Mac)."
+            "state": "translated",
+            "value": "测试更新源需要 DEV 或 NIGHTLY 版本以及 https 地址（http 仅限本机）。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "A test update feed needs a DEV or NIGHTLY build and an https address (http only on this Mac)."
+            "state": "translated",
+            "value": "測試更新來源需要 DEV 或 NIGHTLY 版本以及 https 位址（http 僅限本機）。"
           }
         }
       }
@@ -4335,8 +4335,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Test Update Feed"
+            "state": "translated",
+            "value": "قناة التحديث التجريبية"
           }
         },
         "bs": {
@@ -4353,20 +4353,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Test Update Feed"
+            "state": "translated",
+            "value": "Test-Update-Feed"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Test Update Feed"
+            "state": "translated",
+            "value": "Feed de actualizaciones de prueba"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Test Update Feed"
+            "state": "translated",
+            "value": "Flux de mise à jour de test"
           }
         },
         "it": {
@@ -4389,8 +4389,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Test Update Feed"
+            "state": "translated",
+            "value": "테스트 업데이트 피드"
           }
         },
         "nb": {
@@ -4443,14 +4443,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Test Update Feed"
+            "state": "translated",
+            "value": "测试更新源"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Test Update Feed"
+            "state": "translated",
+            "value": "測試更新來源"
           }
         }
       }
@@ -4466,8 +4466,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Use Real Feed"
+            "state": "translated",
+            "value": "استخدام القناة الحقيقية"
           }
         },
         "bs": {
@@ -4484,20 +4484,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Use Real Feed"
+            "state": "translated",
+            "value": "Echten Feed verwenden"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Use Real Feed"
+            "state": "translated",
+            "value": "Usar el feed real"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Use Real Feed"
+            "state": "translated",
+            "value": "Utiliser le vrai flux"
           }
         },
         "it": {
@@ -4520,8 +4520,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Use Real Feed"
+            "state": "translated",
+            "value": "실제 피드 사용"
           }
         },
         "nb": {
@@ -4574,14 +4574,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Use Real Feed"
+            "state": "translated",
+            "value": "使用正式更新源"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Use Real Feed"
+            "state": "translated",
+            "value": "使用正式更新來源"
           }
         }
       }
@@ -6068,8 +6068,8 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "release candidate"
+            "state": "translated",
+            "value": "versión candidata"
           }
         },
         "fr": {
@@ -13767,8 +13767,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux Updated!"
+            "state": "translated",
+            "value": "تم تحديث cmux!"
           }
         },
         "bs": {
@@ -13785,20 +13785,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux Updated!"
+            "state": "translated",
+            "value": "cmux aktualisiert!"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux Updated!"
+            "state": "translated",
+            "value": "¡cmux se ha actualizado!"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux Updated!"
+            "state": "translated",
+            "value": "cmux a été mis à jour !"
           }
         },
         "it": {
@@ -13821,8 +13821,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux Updated!"
+            "state": "translated",
+            "value": "cmux가 업데이트되었습니다!"
           }
         },
         "nb": {
@@ -13875,14 +13875,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux Updated!"
+            "state": "translated",
+            "value": "cmux 已更新！"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux Updated!"
+            "state": "translated",
+            "value": "cmux 已更新！"
           }
         }
       }
@@ -13898,8 +13898,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "See What's New"
+            "state": "translated",
+            "value": "عرض الجديد"
           }
         },
         "bs": {
@@ -13916,20 +13916,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "See What's New"
+            "state": "translated",
+            "value": "Neuigkeiten ansehen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "See What's New"
+            "state": "translated",
+            "value": "Ver novedades"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "See What's New"
+            "state": "translated",
+            "value": "Voir les nouveautés"
           }
         },
         "it": {
@@ -13952,8 +13952,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "See What's New"
+            "state": "translated",
+            "value": "새로운 기능 보기"
           }
         },
         "nb": {
@@ -14006,14 +14006,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "See What's New"
+            "state": "translated",
+            "value": "查看新功能"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "See What's New"
+            "state": "translated",
+            "value": "查看新功能"
           }
         }
       }
@@ -14029,8 +14029,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hide Until the Next Update"
+            "state": "translated",
+            "value": "إخفاء حتى التحديث التالي"
           }
         },
         "bs": {
@@ -14047,20 +14047,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hide Until the Next Update"
+            "state": "translated",
+            "value": "Bis zum nächsten Update ausblenden"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hide Until the Next Update"
+            "state": "translated",
+            "value": "Ocultar hasta la próxima actualización"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hide Until the Next Update"
+            "state": "translated",
+            "value": "Masquer jusqu’à la prochaine mise à jour"
           }
         },
         "it": {
@@ -14083,8 +14083,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hide Until the Next Update"
+            "state": "translated",
+            "value": "다음 업데이트까지 숨기기"
           }
         },
         "nb": {
@@ -14137,14 +14137,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hide Until the Next Update"
+            "state": "translated",
+            "value": "隐藏至下次更新"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hide Until the Next Update"
+            "state": "translated",
+            "value": "隱藏至下次更新"
           }
         }
       }
@@ -14160,8 +14160,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Share cmux with a Friend"
+            "state": "translated",
+            "value": "شارك cmux مع صديق"
           }
         },
         "bs": {
@@ -14178,20 +14178,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Share cmux with a Friend"
+            "state": "translated",
+            "value": "cmux mit Freunden teilen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Share cmux with a Friend"
+            "state": "translated",
+            "value": "Compartir cmux con un amigo"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Share cmux with a Friend"
+            "state": "translated",
+            "value": "Partager cmux avec un ami"
           }
         },
         "it": {
@@ -14214,8 +14214,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Share cmux with a Friend"
+            "state": "translated",
+            "value": "친구에게 cmux 공유하기"
           }
         },
         "nb": {
@@ -14268,14 +14268,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Share cmux with a Friend"
+            "state": "translated",
+            "value": "与朋友分享 cmux"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Share cmux with a Friend"
+            "state": "translated",
+            "value": "與朋友分享 cmux"
           }
         }
       }
@@ -14291,8 +14291,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Send this message with the download link to a friend."
+            "state": "translated",
+            "value": "أرسل هذه الرسالة مع رابط التنزيل إلى صديق."
           }
         },
         "bs": {
@@ -14309,20 +14309,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Send this message with the download link to a friend."
+            "state": "translated",
+            "value": "Schick diese Nachricht mit dem Download-Link an eine Freundin oder einen Freund."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Send this message with the download link to a friend."
+            "state": "translated",
+            "value": "Envía este mensaje con el enlace de descarga a un amigo."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Send this message with the download link to a friend."
+            "state": "translated",
+            "value": "Envoyez ce message avec le lien de téléchargement à un ami."
           }
         },
         "it": {
@@ -14345,8 +14345,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Send this message with the download link to a friend."
+            "state": "translated",
+            "value": "다운로드 링크가 담긴 이 메시지를 친구에게 보내세요."
           }
         },
         "nb": {
@@ -14399,14 +14399,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Send this message with the download link to a friend."
+            "state": "translated",
+            "value": "把这条附带下载链接的消息发给朋友。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Send this message with the download link to a friend."
+            "state": "translated",
+            "value": "把這則附帶下載連結的訊息傳給朋友。"
           }
         }
       }
@@ -14422,8 +14422,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Here's a link to download cmux, the terminal I was telling you about:"
+            "state": "translated",
+            "value": "إليك رابطًا لتنزيل cmux، الطرفية التي حدثتك عنها:"
           }
         },
         "bs": {
@@ -14440,20 +14440,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Here's a link to download cmux, the terminal I was telling you about:"
+            "state": "translated",
+            "value": "Hier ist ein Link zum Download von cmux, dem Terminal, von dem ich dir erzählt habe:"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Here's a link to download cmux, the terminal I was telling you about:"
+            "state": "translated",
+            "value": "Aquí tienes un enlace para descargar cmux, el terminal del que te hablé:"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Here's a link to download cmux, the terminal I was telling you about:"
+            "state": "translated",
+            "value": "Voici un lien pour télécharger cmux, le terminal dont je t’ai parlé :"
           }
         },
         "it": {
@@ -14476,8 +14476,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Here's a link to download cmux, the terminal I was telling you about:"
+            "state": "translated",
+            "value": "내가 말했던 터미널 cmux의 다운로드 링크야:"
           }
         },
         "nb": {
@@ -14530,14 +14530,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Here's a link to download cmux, the terminal I was telling you about:"
+            "state": "translated",
+            "value": "这是 cmux 的下载链接，就是我跟你说过的那个终端："
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Here's a link to download cmux, the terminal I was telling you about:"
+            "state": "translated",
+            "value": "這是 cmux 的下載連結，就是我跟你說過的那個終端機："
           }
         }
       }
@@ -14553,8 +14553,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message"
+            "state": "translated",
+            "value": "الرسالة"
           }
         },
         "bs": {
@@ -14571,19 +14571,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message"
+            "state": "translated",
+            "value": "Nachricht"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message"
+            "state": "translated",
+            "value": "Mensaje"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Message"
           }
         },
@@ -14607,8 +14607,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message"
+            "state": "translated",
+            "value": "메시지"
           }
         },
         "nb": {
@@ -14661,14 +14661,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message"
+            "state": "translated",
+            "value": "消息"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message"
+            "state": "translated",
+            "value": "訊息"
           }
         }
       }
@@ -14684,8 +14684,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Copy Link"
+            "state": "translated",
+            "value": "نسخ الرابط"
           }
         },
         "bs": {
@@ -14702,20 +14702,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Copy Link"
+            "state": "translated",
+            "value": "Link kopieren"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Copy Link"
+            "state": "translated",
+            "value": "Copiar enlace"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Copy Link"
+            "state": "translated",
+            "value": "Copier le lien"
           }
         },
         "it": {
@@ -14738,8 +14738,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Copy Link"
+            "state": "translated",
+            "value": "링크 복사"
           }
         },
         "nb": {
@@ -14792,14 +14792,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Copy Link"
+            "state": "translated",
+            "value": "拷贝链接"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Copy Link"
+            "state": "translated",
+            "value": "拷貝連結"
           }
         }
       }
@@ -14815,8 +14815,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Copied"
+            "state": "translated",
+            "value": "تم النسخ"
           }
         },
         "bs": {
@@ -14833,20 +14833,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Copied"
+            "state": "translated",
+            "value": "Kopiert"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Copied"
+            "state": "translated",
+            "value": "Copiado"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Copied"
+            "state": "translated",
+            "value": "Copié"
           }
         },
         "it": {
@@ -14869,8 +14869,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Copied"
+            "state": "translated",
+            "value": "복사됨"
           }
         },
         "nb": {
@@ -14923,14 +14923,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Copied"
+            "state": "translated",
+            "value": "已拷贝"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Copied"
+            "state": "translated",
+            "value": "已拷貝"
           }
         }
       }
@@ -14946,8 +14946,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Close"
+            "state": "translated",
+            "value": "إغلاق"
           }
         },
         "bs": {
@@ -14964,20 +14964,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Close"
+            "state": "translated",
+            "value": "Schließen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Close"
+            "state": "translated",
+            "value": "Cerrar"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Close"
+            "state": "translated",
+            "value": "Fermer"
           }
         },
         "it": {
@@ -15000,8 +15000,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Close"
+            "state": "translated",
+            "value": "닫기"
           }
         },
         "nb": {
@@ -15054,14 +15054,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Close"
+            "state": "translated",
+            "value": "关闭"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Close"
+            "state": "translated",
+            "value": "關閉"
           }
         }
       }
@@ -15756,8 +15756,8 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Details"
+            "state": "translated",
+            "value": "Einzelheiten"
           }
         },
         "es": {
@@ -31970,8 +31970,8 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go Back"
+            "state": "translated",
+            "value": "الرجوع"
           }
         },
         "bs": {
@@ -31988,8 +31988,8 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go Back"
+            "state": "translated",
+            "value": "Zurückgehen"
           }
         },
         "en": {
@@ -32000,14 +32000,14 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go Back"
+            "state": "translated",
+            "value": "Volver"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go Back"
+            "state": "translated",
+            "value": "Revenir"
           }
         },
         "it": {
@@ -32030,8 +32030,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go Back"
+            "state": "translated",
+            "value": "되돌리기"
           }
         },
         "nb": {
@@ -32084,14 +32084,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go Back"
+            "state": "translated",
+            "value": "返回"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go Back"
+            "state": "translated",
+            "value": "返回"
           }
         }
       }
@@ -32101,8 +32101,8 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Checking the kept build…"
+            "state": "translated",
+            "value": "جارٍ فحص الإصدار المحفوظ…"
           }
         },
         "bs": {
@@ -32119,8 +32119,8 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Checking the kept build…"
+            "state": "translated",
+            "value": "Behaltenen Build wird geprüft …"
           }
         },
         "en": {
@@ -32131,14 +32131,14 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Checking the kept build…"
+            "state": "translated",
+            "value": "Comprobando la compilación guardada…"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Checking the kept build…"
+            "state": "translated",
+            "value": "Vérification du build conservé…"
           }
         },
         "it": {
@@ -32161,8 +32161,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Checking the kept build…"
+            "state": "translated",
+            "value": "보관된 빌드 확인 중…"
           }
         },
         "nb": {
@@ -32215,14 +32215,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Checking the kept build…"
+            "state": "translated",
+            "value": "正在检查保留的版本…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Checking the kept build…"
+            "state": "translated",
+            "value": "正在檢查保留的版本…"
           }
         }
       }
@@ -32232,8 +32232,8 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go Back to %@?"
+            "state": "translated",
+            "value": "هل تريد الرجوع إلى %@؟"
           }
         },
         "bs": {
@@ -32250,8 +32250,8 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go Back to %@?"
+            "state": "translated",
+            "value": "Zu %@ zurückgehen?"
           }
         },
         "en": {
@@ -32262,14 +32262,14 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go Back to %@?"
+            "state": "translated",
+            "value": "¿Volver a %@?"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go Back to %@?"
+            "state": "translated",
+            "value": "Revenir à %@ ?"
           }
         },
         "it": {
@@ -32292,8 +32292,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go Back to %@?"
+            "state": "translated",
+            "value": "%@(으)로 되돌릴까요?"
           }
         },
         "nb": {
@@ -32346,14 +32346,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go Back to %@?"
+            "state": "translated",
+            "value": "要返回 %@ 吗？"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go Back to %@?"
+            "state": "translated",
+            "value": "要返回 %@ 嗎？"
           }
         }
       }
@@ -32363,8 +32363,8 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "This Mac did not keep that build, so cmux downloads and checks it first, then quits and reopens into it. Your terminals and agents keep running."
+            "state": "translated",
+            "value": "لم يحتفظ هذا الـ Mac بذلك الإصدار، لذا ينزّله cmux ويفحصه أولًا، ثم يُغلق ويُعيد الفتح عليه. تبقى طرفياتك ووكلاؤك قيد التشغيل."
           }
         },
         "bs": {
@@ -32381,8 +32381,8 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "This Mac did not keep that build, so cmux downloads and checks it first, then quits and reopens into it. Your terminals and agents keep running."
+            "state": "translated",
+            "value": "Dieser Mac hat diesen Build nicht behalten. cmux lädt ihn deshalb zuerst und prüft ihn, beendet sich dann und öffnet sich darin neu. Deine Terminals und Agenten laufen weiter."
           }
         },
         "en": {
@@ -32393,14 +32393,14 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "This Mac did not keep that build, so cmux downloads and checks it first, then quits and reopens into it. Your terminals and agents keep running."
+            "state": "translated",
+            "value": "Este Mac no guardó esa compilación, así que cmux primero la descarga y la comprueba, y luego se cierra y se vuelve a abrir en ella. Tus terminales y agentes siguen funcionando."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "This Mac did not keep that build, so cmux downloads and checks it first, then quits and reopens into it. Your terminals and agents keep running."
+            "state": "translated",
+            "value": "Ce Mac n’a pas conservé ce build : cmux le télécharge et le vérifie d’abord, puis quitte et se rouvre dessus. Vos terminaux et agents continuent de tourner."
           }
         },
         "it": {
@@ -32423,8 +32423,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "This Mac did not keep that build, so cmux downloads and checks it first, then quits and reopens into it. Your terminals and agents keep running."
+            "state": "translated",
+            "value": "이 Mac에는 해당 빌드가 보관되어 있지 않아 cmux가 먼저 다운로드하고 확인한 다음, 종료 후 그 빌드로 다시 엽니다. 터미널과 에이전트는 계속 실행됩니다."
           }
         },
         "nb": {
@@ -32477,14 +32477,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "This Mac did not keep that build, so cmux downloads and checks it first, then quits and reopens into it. Your terminals and agents keep running."
+            "state": "translated",
+            "value": "这台 Mac 没有保留那个版本，所以 cmux 会先下载并检查它，然后退出并以它重新打开。你的终端和智能体会继续运行。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "This Mac did not keep that build, so cmux downloads and checks it first, then quits and reopens into it. Your terminals and agents keep running."
+            "state": "translated",
+            "value": "這台 Mac 沒有保留那個版本，所以 cmux 會先下載並檢查它，然後結束並以它重新開啟。你的終端機和代理程式會繼續執行。"
           }
         }
       }
@@ -32494,8 +32494,8 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Downloading…"
+            "state": "translated",
+            "value": "جارٍ التنزيل…"
           }
         },
         "bs": {
@@ -32512,8 +32512,8 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Downloading…"
+            "state": "translated",
+            "value": "Wird geladen …"
           }
         },
         "en": {
@@ -32524,14 +32524,14 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Downloading…"
+            "state": "translated",
+            "value": "Descargando…"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Downloading…"
+            "state": "translated",
+            "value": "Téléchargement…"
           }
         },
         "it": {
@@ -32554,8 +32554,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Downloading…"
+            "state": "translated",
+            "value": "다운로드 중…"
           }
         },
         "nb": {
@@ -32608,14 +32608,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Downloading…"
+            "state": "translated",
+            "value": "正在下载…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Downloading…"
+            "state": "translated",
+            "value": "正在下載…"
           }
         }
       }
@@ -32625,8 +32625,8 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Could Not Go Back"
+            "state": "translated",
+            "value": "تعذّر الرجوع"
           }
         },
         "bs": {
@@ -32643,8 +32643,8 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Could Not Go Back"
+            "state": "translated",
+            "value": "Zurückgehen nicht möglich"
           }
         },
         "en": {
@@ -32655,14 +32655,14 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Could Not Go Back"
+            "state": "translated",
+            "value": "No se pudo volver"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Could Not Go Back"
+            "state": "translated",
+            "value": "Impossible de revenir"
           }
         },
         "it": {
@@ -32685,8 +32685,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Could Not Go Back"
+            "state": "translated",
+            "value": "되돌릴 수 없음"
           }
         },
         "nb": {
@@ -32739,14 +32739,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Could Not Go Back"
+            "state": "translated",
+            "value": "无法返回"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Could Not Go Back"
+            "state": "translated",
+            "value": "無法返回"
           }
         }
       }
@@ -32756,8 +32756,8 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Finding the previous build…"
+            "state": "translated",
+            "value": "جارٍ البحث عن الإصدار السابق…"
           }
         },
         "bs": {
@@ -32774,8 +32774,8 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Finding the previous build…"
+            "state": "translated",
+            "value": "Vorheriger Build wird gesucht …"
           }
         },
         "en": {
@@ -32786,14 +32786,14 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Finding the previous build…"
+            "state": "translated",
+            "value": "Buscando la compilación anterior…"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Finding the previous build…"
+            "state": "translated",
+            "value": "Recherche du build précédent…"
           }
         },
         "it": {
@@ -32816,8 +32816,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Finding the previous build…"
+            "state": "translated",
+            "value": "이전 빌드를 찾는 중…"
           }
         },
         "nb": {
@@ -32870,14 +32870,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Finding the previous build…"
+            "state": "translated",
+            "value": "正在查找上一个版本…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Finding the previous build…"
+            "state": "translated",
+            "value": "正在尋找上一個版本…"
           }
         }
       }
@@ -32887,8 +32887,8 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Going Back to %@"
+            "state": "translated",
+            "value": "جارٍ الرجوع إلى %@"
           }
         },
         "bs": {
@@ -32905,8 +32905,8 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Going Back to %@"
+            "state": "translated",
+            "value": "Zurück zu %@"
           }
         },
         "en": {
@@ -32917,14 +32917,14 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Going Back to %@"
+            "state": "translated",
+            "value": "Volviendo a %@"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Going Back to %@"
+            "state": "translated",
+            "value": "Retour à %@"
           }
         },
         "it": {
@@ -32947,8 +32947,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Going Back to %@"
+            "state": "translated",
+            "value": "%@(으)로 되돌리는 중"
           }
         },
         "nb": {
@@ -33001,14 +33001,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Going Back to %@"
+            "state": "translated",
+            "value": "正在返回 %@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Going Back to %@"
+            "state": "translated",
+            "value": "正在返回 %@"
           }
         }
       }
@@ -33018,8 +33018,8 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Going Back to the Previous Build"
+            "state": "translated",
+            "value": "جارٍ الرجوع إلى الإصدار السابق"
           }
         },
         "bs": {
@@ -33036,8 +33036,8 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Going Back to the Previous Build"
+            "state": "translated",
+            "value": "Zurück zum vorherigen Build"
           }
         },
         "en": {
@@ -33048,14 +33048,14 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Going Back to the Previous Build"
+            "state": "translated",
+            "value": "Volviendo a la compilación anterior"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Going Back to the Previous Build"
+            "state": "translated",
+            "value": "Retour au build précédent"
           }
         },
         "it": {
@@ -33078,8 +33078,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Going Back to the Previous Build"
+            "state": "translated",
+            "value": "이전 빌드로 되돌리는 중"
           }
         },
         "nb": {
@@ -33132,14 +33132,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Going Back to the Previous Build"
+            "state": "translated",
+            "value": "正在返回上一个版本"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Going Back to the Previous Build"
+            "state": "translated",
+            "value": "正在返回上一個版本"
           }
         }
       }
@@ -33149,8 +33149,8 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Other Builds…"
+            "state": "translated",
+            "value": "إصدارات أخرى…"
           }
         },
         "bs": {
@@ -33167,8 +33167,8 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Other Builds…"
+            "state": "translated",
+            "value": "Andere Builds …"
           }
         },
         "en": {
@@ -33179,14 +33179,14 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Other Builds…"
+            "state": "translated",
+            "value": "Otras compilaciones…"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Other Builds…"
+            "state": "translated",
+            "value": "Autres builds…"
           }
         },
         "it": {
@@ -33209,8 +33209,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Other Builds…"
+            "state": "translated",
+            "value": "다른 빌드…"
           }
         },
         "nb": {
@@ -33263,14 +33263,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Other Builds…"
+            "state": "translated",
+            "value": "其他版本…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Other Builds…"
+            "state": "translated",
+            "value": "其他版本…"
           }
         }
       }
@@ -33280,8 +33280,8 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Restarting…"
+            "state": "translated",
+            "value": "جارٍ إعادة التشغيل…"
           }
         },
         "bs": {
@@ -33298,8 +33298,8 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Restarting…"
+            "state": "translated",
+            "value": "Neustart …"
           }
         },
         "en": {
@@ -33310,14 +33310,14 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Restarting…"
+            "state": "translated",
+            "value": "Reiniciando…"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Restarting…"
+            "state": "translated",
+            "value": "Redémarrage…"
           }
         },
         "it": {
@@ -33340,8 +33340,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Restarting…"
+            "state": "translated",
+            "value": "다시 시작하는 중…"
           }
         },
         "nb": {
@@ -33394,14 +33394,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Restarting…"
+            "state": "translated",
+            "value": "正在重新启动…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Restarting…"
+            "state": "translated",
+            "value": "正在重新啟動…"
           }
         }
       }
@@ -33411,8 +33411,8 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Putting it in place…"
+            "state": "translated",
+            "value": "جارٍ وضعه مكانه…"
           }
         },
         "bs": {
@@ -33429,8 +33429,8 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Putting it in place…"
+            "state": "translated",
+            "value": "Wird eingesetzt …"
           }
         },
         "en": {
@@ -33441,14 +33441,14 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Putting it in place…"
+            "state": "translated",
+            "value": "Colocándola…"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Putting it in place…"
+            "state": "translated",
+            "value": "Mise en place…"
           }
         },
         "it": {
@@ -33471,8 +33471,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Putting it in place…"
+            "state": "translated",
+            "value": "교체하는 중…"
           }
         },
         "nb": {
@@ -33525,14 +33525,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Putting it in place…"
+            "state": "translated",
+            "value": "正在替换…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Putting it in place…"
+            "state": "translated",
+            "value": "正在替換…"
           }
         }
       }
@@ -33542,8 +33542,8 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go Back to %@"
+            "state": "translated",
+            "value": "الرجوع إلى %@"
           }
         },
         "bs": {
@@ -33560,8 +33560,8 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go Back to %@"
+            "state": "translated",
+            "value": "Zurück zu %@"
           }
         },
         "en": {
@@ -33572,14 +33572,14 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go Back to %@"
+            "state": "translated",
+            "value": "Volver a %@"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go Back to %@"
+            "state": "translated",
+            "value": "Revenir à %@"
           }
         },
         "it": {
@@ -33602,8 +33602,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go Back to %@"
+            "state": "translated",
+            "value": "%@(으)로 되돌리기"
           }
         },
         "nb": {
@@ -33656,14 +33656,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go Back to %@"
+            "state": "translated",
+            "value": "返回 %@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Go Back to %@"
+            "state": "translated",
+            "value": "返回 %@"
           }
         }
       }
@@ -33673,8 +33673,8 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Checking the signature…"
+            "state": "translated",
+            "value": "جارٍ فحص التوقيع…"
           }
         },
         "bs": {
@@ -33691,8 +33691,8 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Checking the signature…"
+            "state": "translated",
+            "value": "Signatur wird geprüft …"
           }
         },
         "en": {
@@ -33703,14 +33703,14 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Checking the signature…"
+            "state": "translated",
+            "value": "Comprobando la firma…"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Checking the signature…"
+            "state": "translated",
+            "value": "Vérification de la signature…"
           }
         },
         "it": {
@@ -33733,8 +33733,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Checking the signature…"
+            "state": "translated",
+            "value": "서명 확인 중…"
           }
         },
         "nb": {
@@ -33787,14 +33787,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Checking the signature…"
+            "state": "translated",
+            "value": "正在检查签名…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Checking the signature…"
+            "state": "translated",
+            "value": "正在檢查簽名…"
           }
         }
       }
@@ -33804,8 +33804,8 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ from %2$@"
+            "state": "translated",
+            "value": "%1$@ بتاريخ %2$@"
           }
         },
         "bs": {
@@ -33822,8 +33822,8 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ from %2$@"
+            "state": "translated",
+            "value": "%1$@ vom %2$@"
           }
         },
         "en": {
@@ -33834,14 +33834,14 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ from %2$@"
+            "state": "translated",
+            "value": "%1$@ del %2$@"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ from %2$@"
+            "state": "translated",
+            "value": "%1$@ du %2$@"
           }
         },
         "it": {
@@ -33864,8 +33864,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ from %2$@"
+            "state": "translated",
+            "value": "%2$@의 %1$@"
           }
         },
         "nb": {
@@ -33918,14 +33918,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ from %2$@"
+            "state": "translated",
+            "value": "%2$@ 的 %1$@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ from %2$@"
+            "state": "translated",
+            "value": "%2$@ 的 %1$@"
           }
         }
       }
@@ -33935,8 +33935,8 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "This Mac keeps no build older than the one running."
+            "state": "translated",
+            "value": "لا يحتفظ هذا الـ Mac بأي إصدار أقدم من الإصدار قيد التشغيل."
           }
         },
         "bs": {
@@ -33953,8 +33953,8 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "This Mac keeps no build older than the one running."
+            "state": "translated",
+            "value": "Dieser Mac behält keinen Build, der älter ist als der laufende."
           }
         },
         "en": {
@@ -33965,14 +33965,14 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "This Mac keeps no build older than the one running."
+            "state": "translated",
+            "value": "Este Mac no guarda ninguna compilación más antigua que la que está en uso."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "This Mac keeps no build older than the one running."
+            "state": "translated",
+            "value": "Ce Mac ne conserve aucun build plus ancien que celui en cours."
           }
         },
         "it": {
@@ -33995,8 +33995,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "This Mac keeps no build older than the one running."
+            "state": "translated",
+            "value": "이 Mac에는 실행 중인 빌드보다 오래된 빌드가 보관되어 있지 않습니다."
           }
         },
         "nb": {
@@ -34049,14 +34049,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "This Mac keeps no build older than the one running."
+            "state": "translated",
+            "value": "这台 Mac 没有保留比当前运行版本更旧的版本。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "This Mac keeps no build older than the one running."
+            "state": "translated",
+            "value": "這台 Mac 沒有保留比目前執行版本更舊的版本。"
           }
         }
       }
@@ -34066,8 +34066,8 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux %@ is in place, but cmux could not reopen itself. Quit cmux and open it again to finish."
+            "state": "translated",
+            "value": "أصبح cmux %@ في مكانه، لكن cmux لم يتمكن من إعادة فتح نفسه. أغلق cmux وافتحه مجددًا للإنهاء."
           }
         },
         "bs": {
@@ -34084,8 +34084,8 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux %@ is in place, but cmux could not reopen itself. Quit cmux and open it again to finish."
+            "state": "translated",
+            "value": "cmux %@ ist eingesetzt, aber cmux konnte sich nicht neu öffnen. Beende cmux und öffne es erneut, um den Vorgang abzuschließen."
           }
         },
         "en": {
@@ -34096,14 +34096,14 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux %@ is in place, but cmux could not reopen itself. Quit cmux and open it again to finish."
+            "state": "translated",
+            "value": "cmux %@ ya está colocado, pero cmux no pudo volver a abrirse. Cierra cmux y ábrelo de nuevo para terminar."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux %@ is in place, but cmux could not reopen itself. Quit cmux and open it again to finish."
+            "state": "translated",
+            "value": "cmux %@ est en place, mais cmux n’a pas pu se rouvrir. Quittez cmux et rouvrez-le pour terminer."
           }
         },
         "it": {
@@ -34126,8 +34126,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux %@ is in place, but cmux could not reopen itself. Quit cmux and open it again to finish."
+            "state": "translated",
+            "value": "cmux %@이(가) 설치되었지만 cmux가 다시 열리지 못했습니다. 완료하려면 cmux를 종료한 후 다시 여세요."
           }
         },
         "nb": {
@@ -34180,14 +34180,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux %@ is in place, but cmux could not reopen itself. Quit cmux and open it again to finish."
+            "state": "translated",
+            "value": "cmux %@ 已就位，但 cmux 无法自行重新打开。请退出 cmux 后再打开以完成。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux %@ is in place, but cmux could not reopen itself. Quit cmux and open it again to finish."
+            "state": "translated",
+            "value": "cmux %@ 已就位，但 cmux 無法自行重新開啟。請結束 cmux 後再開啟以完成。"
           }
         }
       }
@@ -34197,8 +34197,8 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Could not go back: %@. Nothing changed; cmux keeps running this build."
+            "state": "translated",
+            "value": "تعذّر الرجوع: %@. لم يتغير شيء؛ يواصل cmux العمل بهذا الإصدار."
           }
         },
         "bs": {
@@ -34215,8 +34215,8 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Could not go back: %@. Nothing changed; cmux keeps running this build."
+            "state": "translated",
+            "value": "Zurückgehen nicht möglich: %@. Nichts wurde geändert; cmux läuft mit diesem Build weiter."
           }
         },
         "en": {
@@ -34227,14 +34227,14 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Could not go back: %@. Nothing changed; cmux keeps running this build."
+            "state": "translated",
+            "value": "No se pudo volver: %@. No cambió nada; cmux sigue con esta compilación."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Could not go back: %@. Nothing changed; cmux keeps running this build."
+            "state": "translated",
+            "value": "Impossible de revenir : %@. Rien n’a changé ; cmux continue avec ce build."
           }
         },
         "it": {
@@ -34257,8 +34257,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Could not go back: %@. Nothing changed; cmux keeps running this build."
+            "state": "translated",
+            "value": "되돌릴 수 없음: %@. 변경된 것은 없으며 cmux는 이 빌드로 계속 실행됩니다."
           }
         },
         "nb": {
@@ -34311,14 +34311,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Could not go back: %@. Nothing changed; cmux keeps running this build."
+            "state": "translated",
+            "value": "无法返回：%@。没有任何更改；cmux 继续运行此版本。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Could not go back: %@. Nothing changed; cmux keeps running this build."
+            "state": "translated",
+            "value": "無法返回：%@。沒有任何變更；cmux 繼續執行此版本。"
           }
         }
       }

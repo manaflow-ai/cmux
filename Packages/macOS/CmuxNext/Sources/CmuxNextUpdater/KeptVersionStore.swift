@@ -1,4 +1,5 @@
 import CmuxNextCompat
+public import CryptoKit
 public import Foundation
 import Darwin
 
@@ -20,13 +21,18 @@ nonisolated public struct KeptVersionStore: Sendable {
     /// The signing team of a bundle with the quick check a rollback makes at the click: the main
     /// executable and its Info.plist. Its resources are covered by the seal of the full check.
     public let quickTeamID: @Sendable (URL) -> String?
+    /// The key that authenticates each record's sealed team (``KeptRecordKey``, a Keychain item only
+    /// this app's signature reads); nil: no record is trusted, and every rollback checks every file.
+    public let recordKey: @Sendable () -> SymmetricKey?
     /// The clock a keep records (tests set one).
     public var now: @Sendable () -> Date = { Date() }
 
-    public init(root: URL, teamID: @escaping @Sendable (URL) -> String?, quickTeamID: (@Sendable (URL) -> String?)? = nil) {
+    public init(root: URL, teamID: @escaping @Sendable (URL) -> String?, quickTeamID: (@Sendable (URL) -> String?)? = nil,
+                recordKey: @escaping @Sendable () -> SymmetricKey? = { nil }) {
         self.root = root
         self.teamID = teamID
         self.quickTeamID = quickTeamID ?? teamID
+        self.recordKey = recordKey
     }
 
     /// The name of the record beside a kept bundle.
@@ -68,7 +74,7 @@ nonisolated public struct KeptVersionStore: Sendable {
         var written = record ?? KeptRecord(build: build)
         written.build = build
         written.keptAt = now()
-        written.seal(target, check: check, fullCheck: teamID)
+        written.seal(target, check: check, fullCheck: teamID, key: recordKey())
         // Best effort: without a record the next list checks the signature in full, as before.
         try? written.save(to: folder.appending(path: Self.recordName))
         if let limit { prune(limit: limit, keeping: build) }
@@ -98,14 +104,15 @@ nonisolated public struct KeptVersionStore: Sendable {
     }
 
     /// The team `kept` is signed by, checked for a rollback to it: the record's while the bundle's
-    /// seal is the one taken around its full check (and the quick check of its executable agrees),
-    /// else a full check of every file, as before records.
+    /// seal is the one taken around its full check, the record is one this app wrote (its MAC, by
+    /// ``recordKey``) and the quick check of its executable agrees; else a full check of every file.
     public func checkedTeam(of kept: KeptVersion) -> String? {
         checkedTeam(bundle: kept.bundle, record: KeptRecord.read(from: kept.bundle.deletingLastPathComponent().appending(path: Self.recordName)))
     }
 
     private func checkedTeam(bundle: URL, record: KeptRecord?) -> String? {
-        if let record, let recorded = record.teamID, let seal = record.seal, seal == KeptSeal(bundle: bundle) {
+        if let record, let recorded = record.teamID, let seal = record.seal, record.isAuthentic(key: recordKey()),
+           seal == KeptSeal(bundle: bundle) {
             return quickTeamID(bundle) == recorded ? recorded : nil
         }
         return teamID(bundle)
@@ -113,16 +120,28 @@ nonisolated public struct KeptVersionStore: Sendable {
 
     /// Checks every file of each kept build kept without a sealed team (``Check/later``) and seals
     /// it, so going back to it later is quick. Run at launch, off the main thread; the builds it
-    /// sealed.
-    public func sealPending() -> [String] {
+    /// sealed. A build whose check fails is recorded as failed by `runningBuild` and not checked
+    /// again until another build runs (a full check of a bundle that keeps failing would cost
+    /// seconds at every launch); going back to it still checks every file at the click.
+    public func sealPending(runningBuild: String) -> [String] {
         list(teams: false).compactMap { kept -> String? in
             let file = kept.bundle.deletingLastPathComponent().appending(path: Self.recordName)
             var record = KeptRecord.read(from: file) ?? KeptRecord(build: kept.build)
-            guard record.seal == nil else { return nil }
-            record.seal(kept.bundle, check: .full, fullCheck: teamID)
-            guard record.seal != nil, (try? record.save(to: file)) != nil else { return nil }
+            guard record.seal == nil, record.sealFailedBy != runningBuild else { return nil }
+            record.seal(kept.bundle, check: .full, fullCheck: teamID, key: recordKey())
+            if record.seal == nil { record.sealFailedBy = runningBuild }
+            guard (try? record.save(to: file)) != nil, record.seal != nil else { return nil }
             return kept.build
         }
+    }
+
+    /// Whether `kept` is still the bundle its record sealed: taken again right before the swap moves
+    /// it into place, so nothing changed between the click's check and the rename goes in. True for a
+    /// bundle with no seal (the click checked every file of it).
+    public func stillSealed(_ kept: KeptVersion) -> Bool {
+        let record = KeptRecord.read(from: kept.bundle.deletingLastPathComponent().appending(path: Self.recordName))
+        guard let seal = record?.seal, record?.isAuthentic(key: recordKey()) == true else { return true }
+        return seal == KeptSeal(bundle: kept.bundle)
     }
 
     /// Keeps the `limit` builds kept most recently (the one just kept always among them), so the
@@ -160,59 +179,5 @@ nonisolated public struct KeptVersionStore: Sendable {
     /// Numeric build order (CFBundleVersion is monotonic, R78).
     static func isNewer(_ a: String, than b: String) -> Bool {
         a.compare(b, options: .numeric) == .orderedDescending
-    }
-}
-
-/// What is known about a kept build (`kept.json` beside it).
-nonisolated public struct KeptRecord: Codable, Equatable, Sendable {
-    public var build: String
-    /// When it was kept (the update that left it, or the download that kept it).
-    public var keptAt: Date?
-    /// When the build was made, `YYYY-MM-DD` (the feed's notes); nil when not known.
-    public var date: String?
-    /// The team a full check of every file found (sealed by ``seal``); nil until checked.
-    public var teamID: String?
-    /// The store schemas it reads (its Info.plist, else its CLI), read when it was kept.
-    public var storeSchemas: [String: Int]?
-    /// The bundle as the full check read it; nil: not checked yet (``KeptVersionStore/sealPending()``).
-    var seal: KeptSeal?
-    /// Whether its code has run once since it was kept (``KeptWarmup``); nil: not yet.
-    var warmed: Bool?
-
-    public init(build: String, date: String? = nil, teamID: String? = nil, storeSchemas: [String: Int]? = nil) {
-        self.build = build
-        self.date = date
-        self.teamID = teamID
-        self.storeSchemas = storeSchemas
-    }
-
-    /// Seals the kept copy `bundle` by `check`: a full check now, the caller's check of a source
-    /// nothing can change, or nothing yet (no team: a team without a seal is never trusted).
-    mutating func seal(_ bundle: URL, check: KeptVersionStore.Check, fullCheck: (URL) -> String?) {
-        switch check {
-        case .full:
-            let verified = KeptSeal.verified(bundle, fullCheck: fullCheck)
-            teamID = verified?.team
-            seal = verified?.seal
-        case .checkedSource:
-            seal = teamID == nil ? nil : KeptSeal(bundle: bundle)
-        case .later:
-            teamID = nil
-            seal = nil
-        }
-    }
-
-    static func read(from file: URL) -> KeptRecord? {
-        guard let data = try? Data(blockingContentsOf: file) else { return nil }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return try? decoder.decode(KeptRecord.self, from: data)
-    }
-
-    func save(to file: URL) throws {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.sortedKeys]
-        try encoder.encode(self).blockingWrite(to: file, options: .atomic)
     }
 }

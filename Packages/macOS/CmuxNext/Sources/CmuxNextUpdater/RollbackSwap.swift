@@ -11,6 +11,9 @@ nonisolated public struct RollbackSwap {
     public static func perform(current: URL, currentBuild: String, target: KeptVersion, store: KeptVersionStore, limit: Int,
                                record: KeptRecord? = nil) throws -> URL {
         let files = FileManager.default
+        // 0. Still the bundle the click checked: its seal again, right before the rename (a change
+        // between the check and the swap would otherwise run).
+        guard store.stillSealed(target) else { throw Changed(build: target.build) }
         // 1. Take the kept bundle out of the store, next to the running one.
         let staged = current.deletingLastPathComponent()
             .appending(path: "\(stagedPrefix)\(target.build)-\(UUID().uuidString)-\(current.lastPathComponent)", directoryHint: .isDirectory)
@@ -41,6 +44,12 @@ nonisolated public struct RollbackSwap {
         // 4. The kept build's folder is empty now; it goes only after the swap succeeded.
         try? files.removeItem(at: target.bundle.deletingLastPathComponent())
         return current
+    }
+
+    /// The kept bundle changed after the click checked it; nothing was swapped.
+    struct Changed: Error, CustomStringConvertible {
+        let build: String
+        var description: String { "kept build \(build) changed since it was checked" }
     }
 
     /// The name a kept bundle has while it stands beside the running one, mid-swap:

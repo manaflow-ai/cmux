@@ -7435,5 +7435,209 @@
   "liveWeb.failed": {
     "class": "brand",
     "source": "cmux Live: %@"
+  },
+  "server.list.separator": {
+    "class": "syntax",
+    "source": ", "
+  },
+  "updater.changelog.versionDate": {
+    "class": "format",
+    "source": "%1$@ · %2$@"
+  },
+  "updates.popover.span": {
+    "class": "format",
+    "source": "%1$@ → %2$@"
+  },
+  "updates.card.phraseJoiner": {
+    "class": "syntax",
+    "source": "; "
+  },
+  "updates.card.areaLabel": {
+    "class": "syntax",
+    "source": "%@:"
+  },
+  "updater.channel.nightly": {
+    "source": "nightly",
+    "identityLocales": {
+      "es": {
+        "reason": "nightly is the release channel's name, kept in English as in the Spanish Channels card.",
+        "values": [
+          "nightly"
+        ]
+      },
+      "fr": {
+        "reason": "nightly is the release channel's name, kept in English as in the French Channels card.",
+        "values": [
+          "nightly"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "nightly is the release channel's name, kept in English as in the Traditional Chinese Channels card.",
+        "values": [
+          "nightly"
+        ]
+      }
+    }
+  },
+  "updater.channel.stable": {
+    "source": "stable",
+    "identityLocales": {
+      "fr": {
+        "reason": "stable is the standard French adjective for a stable release.",
+        "values": [
+          "stable"
+        ]
+      }
+    }
+  },
+  "updates.card.nightly": {
+    "source": "Nightly",
+    "identityLocales": {
+      "de": {
+        "reason": "Nightly is the release channel's name, as the German Channels card writes it.",
+        "values": [
+          "Nightly"
+        ]
+      },
+      "es": {
+        "reason": "Nightly is the release channel's name, kept in English as in the Spanish Channels card.",
+        "values": [
+          "Nightly"
+        ]
+      },
+      "fr": {
+        "reason": "Nightly is the release channel's name, kept in English as in the French Channels card.",
+        "values": [
+          "Nightly"
+        ]
+      }
+    }
+  },
+  "updater.notice.foundVersion": {
+    "source": "Version %@",
+    "identityLocales": {
+      "de": {
+        "reason": "Version is the standard German noun.",
+        "values": [
+          "Version %@"
+        ]
+      },
+      "fr": {
+        "reason": "Version is the standard French noun.",
+        "values": [
+          "Version %@"
+        ]
+      }
+    }
+  },
+  "changelog.build.versions": {
+    "source": "Versions",
+    "identityLocales": {
+      "fr": {
+        "reason": "Versions is the standard French plural noun.",
+        "values": [
+          "Versions"
+        ]
+      }
+    }
+  },
+  "updates.area.browser": {
+    "source": "Browser",
+    "identityLocales": {
+      "de": {
+        "reason": "Browser is the standard German noun.",
+        "values": [
+          "Browser"
+        ]
+      }
+    }
+  },
+  "updates.area.cloud": {
+    "class": "brand",
+    "source": "Cloud"
+  },
+  "updates.area.tabs": {
+    "source": "Tabs",
+    "identityLocales": {
+      "de": {
+        "reason": "Tabs is the standard German noun for browser and terminal tabs.",
+        "values": [
+          "Tabs"
+        ]
+      }
+    }
+  },
+  "updates.area.terminal": {
+    "source": "Terminal",
+    "identityLocales": {
+      "de": {
+        "reason": "Terminal is the standard German noun.",
+        "values": [
+          "Terminal"
+        ]
+      },
+      "es": {
+        "reason": "Terminal is the standard Spanish noun.",
+        "values": [
+          "Terminal"
+        ]
+      },
+      "fr": {
+        "reason": "Terminal is the standard French noun.",
+        "values": [
+          "Terminal"
+        ]
+      }
+    }
+  },
+  "updates.area.updates": {
+    "source": "Updates",
+    "identityLocales": {
+      "de": {
+        "reason": "Updates is the standard German noun for software updates.",
+        "values": [
+          "Updates"
+        ]
+      }
+    }
+  },
+  "updates.card.build": {
+    "source": "Build %@",
+    "identityLocales": {
+      "de": {
+        "reason": "Build is the standard German developer term for a software build.",
+        "values": [
+          "Build %@"
+        ]
+      },
+      "fr": {
+        "reason": "Build is the standard French developer term for a software build.",
+        "values": [
+          "Build %@"
+        ]
+      }
+    }
+  },
+  "share.messageLabel": {
+    "source": "Message",
+    "identityLocales": {
+      "fr": {
+        "reason": "Message is the standard French noun.",
+        "values": [
+          "Message"
+        ]
+      }
+    }
+  },
+  "changelog.page.versions": {
+    "source": "Versions",
+    "identityLocales": {
+      "fr": {
+        "reason": "Versions is the standard French plural noun.",
+        "values": [
+          "Versions"
+        ]
+      }
+    }
   }
 }
