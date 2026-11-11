@@ -205,7 +205,7 @@ class PushFromHostTests(unittest.TestCase):
 
     def test_a_host_with_no_room_for_the_checkout_pushes_nothing_and_says_why(self):
         self.with_free_kb(1 * 1048576)
-        self.commit(self.work, "a.txt", "a\n", "a change")
+        sha = self.commit(self.work, "a.txt", "a\n", "a change")
 
         done = self.push("topic")
 
@@ -213,6 +213,9 @@ class PushFromHostTests(unittest.TestCase):
         self.assertEqual(self.remote_head("topic"), "")
         self.assertIn("1 GB of disk free", done.stderr)
         self.assertFalse((self.host_home / "hook.log").exists())
+        # The refusal exits before the push; it still removes the bundle and script it was sent (they leaked, and the
+        # next test's commit, the same sha within a second, found them).
+        self.assertEqual(self.leftovers(sha), [])
 
     def test_a_host_with_room_says_nothing_about_disk(self):
         self.with_free_kb(200 * 1048576)
