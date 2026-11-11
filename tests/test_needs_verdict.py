@@ -390,6 +390,8 @@ SUPERSEDED_STEPS = {
         {"HOST": "swift-test", "HOST_RESULT": "cancelled", "VERDICT": ""}, 1),
 }
 OLD, NEW = "a" * 40, "b" * 40
+# The rule's definition or a call of it, not other tools that share the word (cmux_tui_superseded_push.py).
+SUPERSEDED_CALL = re.compile(r"(?<![\w./-])superseded_push(?:\(\)| )")
 
 
 def fake_git(tmp: str, head: str | None) -> str:
@@ -410,7 +412,7 @@ class Superseded(unittest.TestCase):
             for job_id, job in (yaml.safe_load(path.read_text(encoding="utf-8")).get("jobs") or {}).items():
                 for st in job.get("steps") or []:
                     body = st.get("run") or ""
-                    if "superseded_push" in body:
+                    if SUPERSEDED_CALL.search(body):
                         carrying.add((path.name, job_id, st.get("name")))
                         with self.subTest(job=job_id):
                             self.assertIn(first, body, "call superseded_push only beside its verbatim copy")
