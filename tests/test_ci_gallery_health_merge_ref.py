@@ -572,7 +572,14 @@ class GalleryHealthTime(unittest.TestCase):
         self.assertIn("matrix.shard == 0", cap["if"])
         self.assertIn("!cancelled()", cap["if"])
         names = [entry.get("name") for entry in steps()]
-        self.assertLess(names.index("Render the gallery and judge it"), names.index("Hold each shard within its time budget"))
+        # It counts before the base replay restores the base's webviews/ (review of #41296), goes on so the
+        # render still gives its verdict, and a later step fails the job.
+        self.assertLess(names.index("Hold each shard within its time budget"), names.index("Render the gallery and judge it"))
+        self.assertIs(cap["continue-on-error"], True)
+        fail = step("Fail past the case budget")
+        self.assertIn("steps.cap.outcome == 'failure'", fail["if"])
+        self.assertLess(names.index("Judge the red states against the base"), names.index("Fail past the case budget"))
+        self.assertIn("exit 1", fail["run"])
         with tempfile.TemporaryDirectory(prefix="gallery-cap-") as tmp:
             root = Path(tmp)
             (root / "webviews/scripts/gallery").mkdir(parents=True)
