@@ -785,6 +785,9 @@ def script_made_fixture_failures(documents: dict[str, dict]) -> list[str]:
             ("comment", [{**CERTIFICATE_STEP, "run": f"# later: ./{script}\n./sign.sh"}]),
             ("env value", [{**CERTIFICATE_STEP, "env": {**CERTIFICATE_STEP["env"], "NEXT": script}, "run": "./sign.sh"}]),
             ("echoed", [{**CERTIFICATE_STEP, "run": f"echo ./{script}\n./sign.sh"}]),
+            ("printf", [{**CERTIFICATE_STEP, "run": f"printf '%s\\n' ./{script}\n./sign.sh"}]),
+            ("heredoc body", [{**CERTIFICATE_STEP, "run": f"cat <<'EOF' > next.txt\n./{script}\nEOF\n./sign.sh"}]),
+            ("trailing comment", [{**CERTIFICATE_STEP, "run": f"./sign.sh # then ./{script}"}]),
             ("another step", [{**CERTIFICATE_STEP, "run": "./sign.sh"}, {"name": "Notarize", "run": f"./{script}"}])):
         mentioned = {"runs-on": "blacksmith-6vcpu-macos-26", "steps": steps}
         found = [why for why in tree_job_failures(with_job(documents, "release.yml", "script-keychain-fixture",
@@ -810,6 +813,58 @@ def release_pool_signer_fixture_failures(documents: dict[str, dict]) -> list[str
              if "release-pool signer" in why]
     if found != [f"{label}: a release-pool signer runs on a literal ubuntu label, calls {signer} and makes no keychain"]:
         problems.append(f"release-pool signers: a signer job that makes a keychain is not named: {found}")
+    # A real invocation behind a condition, an env assignment and a shell's options is still read as one.
+    for form, run in (("if ! VAR=1", f"if ! CMUX_X=1 ./{signer} app; then exit 1; fi"),
+                      ("bash -e", f"bash -e {signer} app"),
+                      ("after &&", f"test -n \"$CERT\" && ./{signer} app")):
+        prefixed = {**good, "steps": [{**CERTIFICATE_STEP, "run": run}]}
+        found = [why for why in tree_job_failures(with_job(documents, "nightly.yml", "signer-fixture", prefixed), label)
+                 if "release-pool signer" in why or "Developer ID certificate" in why]
+        if release_pool_signer(prefixed) != signer or found:
+            problems.append(f"release-pool signers: a real invocation ({form}) is not read as one or fails: {found}")
+    return problems
+
+
+def release_pool_signer_mention_fixture_failures(documents: dict[str, dict]) -> list[str]:
+    """Codex (#40846 F2): the certificate step only names a release-signer script as text (a comment, an echo, a
+    printf, a heredoc body) and runs ./sign.sh, so it signs with no managed keychain; rule 3 must name it."""
+    problems = []
+    signer = "scripts/ci/release-signer/sign-app.sh"
+    label = "nightly.yml signer-fixture"
+    for form, run in (("comment", f"# {signer}\n./sign.sh"),
+                      ("trailing comment", f"./sign.sh # {signer}"),
+                      ("echo", f"echo ./{signer} app\n./sign.sh"),
+                      ("printf", f"printf '%s\\n' ./{signer}\n./sign.sh"),
+                      ("quoted string", f"./sign.sh --note \"./{signer}\""),
+                      ("heredoc body", f"cat <<'EOF' > plan.txt\n./{signer} app\nEOF\n./sign.sh")):
+        job = {"runs-on": "ubuntu-24.04", "steps": [{**CERTIFICATE_STEP, "run": run}]}
+        found = [why for why in tree_job_failures(with_job(documents, "nightly.yml", "signer-fixture", job), label)
+                 if "Developer ID certificate" in why or "release-pool signer" in why]
+        if release_pool_signer(job) is not None or found != [
+                f"{label}: imports the Developer ID certificate without scripts/ci/signing-keychain.sh create"]:
+            problems.append(f"release-pool signers: a job that only mentions {signer} ({form}) is read as a signer "
+                            f"or not named: {found}")
+    return problems
+
+
+def managed_keychain_mention_fixture_failures(documents: dict[str, dict]) -> list[str]:
+    """Rule 3's managed keychain: `signing-keychain.sh create` only named as text (a comment, an echo, a heredoc body)
+    makes no keychain, so a job that reads the certificate and runs ./sign.sh is named; a real create is not."""
+    problems = []
+    label = "release.yml managed-keychain-fixture"
+    create = "./scripts/ci/signing-keychain.sh create"
+    delete = {"if": "always()", "run": "./scripts/ci/signing-keychain.sh delete"}
+    for form, run, named in (("real create", create, False),
+                             ("comment", f"# {create}", True),
+                             ("echo", f"echo {create}", True),
+                             ("heredoc body", f"cat <<EOF > plan.txt\n{create}\nEOF", True)):
+        job = {"runs-on": "blacksmith-6vcpu-macos-26",
+               "steps": [{"name": "Keychain", "run": run}, {**CERTIFICATE_STEP, "run": "./sign.sh"}, delete]}
+        found = [why for why in tree_job_failures(with_job(documents, "release.yml", "managed-keychain-fixture", job),
+                                                  label) if "Developer ID certificate" in why]
+        expected = [f"{label}: imports the Developer ID certificate without scripts/ci/signing-keychain.sh create"]
+        if found != (expected if named else []):
+            problems.append(f"managed keychain: signing-keychain.sh create as {form} is misread: {found}")
     return problems
 
 
@@ -819,7 +874,9 @@ def keychain_list_fixture_failures(documents: dict[str, dict]) -> list[str]:
     environment, so only a secret reader that knows that form sees it; the guard must name it. Each green fixture
     adds a correctly listed (or, for a derived list, correctly shaped) job, and the guard must stay quiet."""
     return [*step_level_fixture_failures(documents), *inline_keychain_fixture_failures(documents),
-            *script_made_fixture_failures(documents), *release_pool_signer_fixture_failures(documents)]
+            *script_made_fixture_failures(documents), *release_pool_signer_fixture_failures(documents),
+            *release_pool_signer_mention_fixture_failures(documents),
+            *managed_keychain_mention_fixture_failures(documents)]
 
 
 def check_keychain_lists(documents: dict[str, dict], failures: list[str]) -> None:
