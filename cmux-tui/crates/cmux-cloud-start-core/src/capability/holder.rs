@@ -27,6 +27,10 @@ pub struct Holder {
     pub last_use: Option<i64>,
     /// A mint is in flight: one at a time.
     pub minting: bool,
+    /// The team the newest call or intent asked for while a mint was in flight (a team switch
+    /// mid-mint). Its mint goes as soon as the one in flight answers, when it is still due then;
+    /// a later ask replaces it, so only the newest team waits and it is minted once.
+    pub queued: Option<String>,
     /// Bumped by a sign-out: a mint, an intent or a wake begun before it keeps nothing.
     pub generation: u64,
 }
@@ -98,15 +102,21 @@ pub fn step(mut state: Holder, event: Event, now: i64) -> Step {
             let plan = ask(&state, Reason::Call, team.clone(), now);
             if plan.fetch {
                 start_mint(&mut state, team, &mut effects);
+            } else if state.minting {
+                // This call's team is held and fresh: nothing else waits behind the mint in flight.
+                state.queued = None;
             }
             send = plan.send;
         }
         Event::Use => state.last_use = Some(now),
         Event::Intent { team, generation } => {
-            if generation == state.generation
-                && ask(&state, Reason::Intent, team.clone(), now).fetch
-            {
-                start_mint(&mut state, team, &mut effects);
+            if generation == state.generation {
+                if ask(&state, Reason::Intent, team.clone(), now).fetch {
+                    start_mint(&mut state, team, &mut effects);
+                } else if state.minting {
+                    // The newest intent's team is held and fresh: drop an older team waiting.
+                    state.queued = None;
+                }
             }
         }
         Event::Minted { team, generation, status, body } => {
@@ -128,6 +138,12 @@ pub fn step(mut state: Holder, event: Event, now: i64) -> Step {
                 }
                 // A held one's refresh, or its retry when the backoff ends, while Cloud is in use.
                 schedule(&state, now, &mut effects);
+                // The team asked for while that mint was in flight goes now, not at the next timer.
+                if let Some(queued) = state.queued.take()
+                    && ask(&state, Reason::Intent, Some(queued.clone()), now).fetch
+                {
+                    start_mint(&mut state, Some(queued), &mut effects);
+                }
             }
         }
         Event::Wake { team, generation } => {
@@ -159,9 +175,12 @@ fn ask(state: &Holder, reason: Reason, team: Option<String>, now: i64) -> Plan {
     )
 }
 
+/// Starts a mint for `team`, or, while one is in flight, keeps `team` as the one to mint when it
+/// answers (the newest ask wins; a later ask for the same team adds nothing).
 fn start_mint(state: &mut Holder, team: Option<String>, effects: &mut Vec<Effect>) {
     let Some(team) = team.filter(|team| !team.is_empty()) else { return };
     if state.minting {
+        state.queued = Some(team);
         return;
     }
     state.minting = true;
