@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42979669158",
+  "recorded_at": "2026-11-11T07:35:37Z",
+  "reason": "cmux-tui 5da5e5e702a1 changes the image's cmux-tui (pinned fa2e12babf13)",
+  "dry_run": false,
+  "cmux_tui": "5da5e5e702a1a424f6c597a51b83cf6b5af04ebe",
+  "fixes": [
+    {
+      "sha": "5da5e5e702a1a424f6c597a51b83cf6b5af04ebe",
+      "mergedAt": "2026-11-11T07:14:20Z",
+      "subject": "tab.list with no scope reads each tab state table one time, not one time for each tab (#41101)"
+    },
+    {
+      "sha": "33784972b1f8290e532dd4ac5bcadb716008789c",
+      "mergedAt": "2026-11-11T07:10:53Z",
+      "subject": "perf(cmux-tui): a create states only the workspaces it changes; a focus move states its screen and pane (#40888)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T07:35:37Z",
+    "snapshot_id": "sh-daa91e9388954dfe877880872caa4d71",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42979669158): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "21d0754e9137124e4de527572131c8dcec5f64fe",
+    "image": "cloud-native-auto-5da5e5e7-42979669158-1",
+    "revision": "ci-42979669158-1",
+    "at": "2026-11-11T07:35:37Z"
+  },
+  "rolled_back": false
+}
