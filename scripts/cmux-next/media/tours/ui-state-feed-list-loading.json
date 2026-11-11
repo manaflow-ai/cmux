@@ -1,0 +1,21 @@
+{
+  "title": "Feed list: Loading\u2026 before the owner's first snapshot (ui-state-fixes M4)",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "The Feed list over an owner that has not answered",
+      "rpc": {
+        "method": "debug.feed_loading_fixture.open",
+        "params": {
+          "view": "list"
+        }
+      },
+      "wait": 3,
+      "record": true
+    }
+  ]
+}

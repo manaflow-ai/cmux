@@ -1,6 +1,7 @@
 public import CmuxNextControl
 #if DEBUG
 import CmuxNextDevices
+import CryptoKit
 import CmuxNextSettings
 import Foundation
 
@@ -31,6 +32,8 @@ import Foundation
 /// - `relay_delete` {id}; `relay_check` {id}.
 /// - `refresh`: devices, permissions, relays and the audit log again.
 /// - `audit` {limit?}: the newest entries as History shows them.
+/// - `capture_devices` {state: loading | failed}: Your Devices on the home page reads a hub that is
+///   not started, or whose start failed (captures only).
 extension MacScreenPages {
     public func registerDeviceHubDebug(on router: ControlRouter?, settings: MacScreenDevicesSettings?,
                                 openTab: @escaping @MainActor (MacScreenRecord, String?) -> String?) {
@@ -46,6 +49,7 @@ extension MacScreenPages {
                         openTab: @MainActor (MacScreenRecord, String?) -> String?) async -> JSONValue {
         let action = params["action"]?.stringValue ?? "state"
         if action == "state" { return hubState }
+        if action == "capture_devices" { return await captureDevices(params["state"]?.stringValue) }
         guard let hub else { return ["error": "not signed in to a device hub"] }
         func scope(_ key: String) -> SessionScope? { params[key]?.stringValue.flatMap(SessionScope.init(rawValue:)) }
         func fail(_ error: any Error) -> JSONValue { ["error": .string((error as? DeviceHubError)?.description ?? "\(error)")] }
@@ -133,6 +137,23 @@ extension MacScreenPages {
         }
     }
 
+    /// `capture_devices` {state: loading | failed} (captures of ui-state-fixes M5): the home page's
+    /// Your Devices reads a hub of its own that is not started (`idle`: "Loading your devices…") or
+    /// whose start failed (no account: "Couldn't reach the device hub…" with Try Again). Only the
+    /// page's box takes it, never ``hub``: no session, push or approval follows it. A software key
+    /// and an unreachable address: nothing leaves this Mac.
+    private func captureDevices(_ state: String?) async -> JSONValue {
+        guard state == "loading" || state == "failed" else { return ["error": "state: loading or failed"] }
+        guard let unreachable = URL(string: "http://127.0.0.1:9") else { return ["error": "no address"] }
+        let identity = DeviceIdentity(deviceID: UUID(), keys: CaptureDeviceKeys())
+        let client = DeviceHubClient(baseURL: unreachable, identity: identity,
+                                     tokens: DeviceHubAccountToken { throw DeviceHubError.notSignedIn })
+        let captured = DeviceHub(client: client, secrets: MemoryRelaySecretStore(), deviceName: "Capture")
+        if state == "failed" { await captured.start() }
+        hubBox.hub = captured
+        return ["status": .string("\(captured.status)"), "listed": .bool(captured.devicesListed)]
+    }
+
     private func settingsRun(_ settings: MacScreenDevicesSettings?, _ params: [String: JSONValue]) async -> JSONValue {
         guard let settings else { return ["error": "no Settings > Devices"] }
         do {
@@ -193,6 +214,20 @@ extension MacScreenPages {
             "last_error": hub.lastError.map { .string($0.description) } ?? .null,
             "tabs": .array(tabsRows),
         ]
+    }
+}
+/// Software P-256 keys for ``MacScreenPages/captureDevices(_:)``'s hub, which never registers.
+private struct CaptureDeviceKeys: DeviceKeyMaterial {
+    let signing = P256.Signing.PrivateKey()
+    let agreement = P256.KeyAgreement.PrivateKey()
+
+    var signingPublicKey: P256.Signing.PublicKey { signing.publicKey }
+    var agreementPublicKey: P256.KeyAgreement.PublicKey { agreement.publicKey }
+
+    func signature(for message: Data) throws -> P256.Signing.ECDSASignature { try signing.signature(for: message) }
+
+    func open(_ ciphertext: Data, encapsulatedKey: Data, info: Data) throws -> Data {
+        throw DeviceHubError.identity("capture keys open nothing")
     }
 }
 #else

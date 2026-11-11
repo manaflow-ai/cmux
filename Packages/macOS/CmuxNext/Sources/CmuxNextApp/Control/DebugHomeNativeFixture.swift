@@ -27,14 +27,18 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     func fixture(showing view: HomeNativeTranscriptView) -> HomeNativeFixture? { fixtures.values.first { $0.shows(view) } }
     /// The next page shows the attachment fixture (`{"attachments": true}`), under the chat column's compose button (`{"compose": true}`).
     var next = (attachments: false, compose: false)
+    /// The next page's Chief transcript reads are held or fail (`{"transcript": "loading" | "failed"}`): its load state.
+    var nextTranscriptLoad: HomeNativeFixture.TranscriptLoad?
 
     var page: InternalPageID { .homeNativeFixture }
     var title: String { HomeNativeFixture.title }
     var symbol: String { "bubble.left.and.bubble.right" }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        let fixture = HomeNativeFixture(attachments: next.attachments, openPanel: openPanel, compose: next.compose)
+        let fixture = HomeNativeFixture(attachments: next.attachments, openPanel: openPanel, compose: next.compose,
+                                        transcriptLoad: nextTranscriptLoad)
         next = (false, false)
+        nextTranscriptLoad = nil
         fixture.onShow = { [weak homes = self.homes] in homes?.startsOwnAgents($0) }
         fixtures[key] = fixture
         return fixture.container
@@ -237,9 +241,13 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         return .object(["ok": .bool(true)])
     }
 
-    static func open(services: AppServices, attachments: Bool = false, compose: Bool = false, fresh: Bool = false) -> JSONValue {
+    static func open(services: AppServices, attachments: Bool = false, compose: Bool = false, fresh: Bool = false,
+                     transcriptLoad: String? = nil) -> JSONValue {
+        let load = transcriptLoad.flatMap(HomeNativeFixture.TranscriptLoad.init(rawValue:))
+        if let transcriptLoad, load == nil { return .object(["error": .string("transcript must be loading or failed")]) }
         if services.pages.provider(.homeNativeFixture) == nil { services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel, homes: services.home.chiefHomes)) }
         (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.next = (attachments, compose)
+        (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.nextTranscriptLoad = load
         let window = services.windows.active, view = fresh ? services.pages.openNew(.homeNativeFixture, in: window, focus: true) : services.pages.show(.homeNativeFixture, in: window, focus: true)
         return .object(["ok": .bool(view != nil), "page": .string(InternalPageID.homeNativeFixture.rawValue)])
     }
