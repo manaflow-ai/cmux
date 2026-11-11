@@ -82,7 +82,7 @@ class Plan(unittest.TestCase):
         # A `nonisolated struct` suite went uncounted: CmuxNextAgentPaneTests read as 737 tests of its 803.
         for target in shards.test_targets(PACKAGE / "Package.swift"):
             sources = (PACKAGE / "Tests" / target).rglob("*.swift")
-            raw = sum(len(shards.TEST.findall(p.read_text(encoding="utf-8", errors="replace"))) for p in sources)
+            raw = sum(len(shards.TEST.findall(shards.source_code(p))) for p in sources)
             with self.subTest(target=target):
                 self.assertEqual(sum(shards.suite_counts(PACKAGE / "Tests" / target).values()), raw)
 
@@ -95,6 +95,7 @@ class Plan(unittest.TestCase):
             (target / "Size.swift").write_text("/// A `@Test(arguments:)` list reads it.\nenum Size { case large }\n")
             (target / "A.swift").write_text("struct ASuite {\n    // @Test func old() {}\n    @Test func a() {}\n}\n")
             self.assertEqual(shards.suite_counts(target), {"ASuite": 1})
+            self.assertEqual(shards.TEST.findall(shards.source_code(target / "Size.swift")), [])
 
     def test_a_free_test_function_runs_in_exactly_one_shard(self) -> None:
         # AgentPageOpsBtwTests.swift declares its @Test at file scope: Swift Testing names it Target.function().
