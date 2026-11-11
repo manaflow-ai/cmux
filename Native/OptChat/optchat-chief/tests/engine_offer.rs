@@ -929,14 +929,31 @@ fn the_engine_answer_offers_the_skills_slash_lists() {
         )
         .unwrap();
     };
-    skill(&base.path().join("home/skills"), "cmux-views", "Own: build a view.");
-    skill(&base.path().join("skills"), "cmux-views", "Shared: build a view.");
+    skill(
+        &base.path().join("home/skills"),
+        "cmux-views",
+        "Own: build a view.",
+    );
+    skill(
+        &base.path().join("skills"),
+        "cmux-views",
+        "Shared: build a view.",
+    );
     skill(&base.path().join("skills"), "triage", "Sort the inbox.");
 
     let mut brain = brain(&dir, &[]);
     let answer = engine(&mut brain, EngineRequest::Show);
-    let skills = answer["offered"]["skills"].as_array().cloned().unwrap_or_default();
-    let named = |name: &str| skills.iter().filter(|s| s["name"] == name).cloned().collect::<Vec<_>>();
+    let skills = answer["offered"]["skills"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let named = |name: &str| {
+        skills
+            .iter()
+            .filter(|s| s["name"] == name)
+            .cloned()
+            .collect::<Vec<_>>()
+    };
     assert_eq!(
         named("cmux-views"),
         vec![json!({"name": "cmux-views", "description": "Own: build a view.", "source": "chief"})],
