@@ -996,18 +996,26 @@ the steps before it `made`.
 Workspace creation starts with one terminal unless `--empty` is present.
 `terminal <selector> project` requires destination `--workspace`, `--screen`,
 `--pane`, and `--index` values and creates an unfocused tab placement. Tab,
-pane, screen, and workspace closes end what they close: each terminal the
-close leaves with no tab ends in the same commit (`terminals: "end"`), except
-one marked `keep` and the caller's own terminal, which keep running with no
-tab. `--keep-terminals` (`terminals: "keep"`) leaves them all running; the
-reaper ends an unkept one after its grace. The `--json` value names
-`ended_terminal_ids` and `running_terminal_ids`; the text output adds
-`terminals ended: <n>` and, for the running ones, their ids with `cmux
-terminal list` to see them and `cmux terminal <id> close` to end one. A daemon
-without `close-ends-terminals-v1` gets the close without `terminals` and only
-detaches. `terminal close` ends one terminal and removes all of its
-placements. `agent list` shows an agent of an ended terminal as `ended` (left
-out unless `--state ended`).
+pane, screen, and workspace closes follow one model for each terminal the
+close leaves with no tab (`terminals: "grace"`). A terminal marked `keep` or
+with an attached viewer (`terminal attach`) keeps running. With the reaper
+running (a local owner's grace is 30 s), every other one keeps running with no
+tab until the grace ends it, and `cmux closed reopen` in that window shows the
+same process again; with no reaper it ends at once. `--now` (`terminals:
+"end"`) ends them at once; `--keep-terminals` (`terminals: "keep"`) leaves
+them with no tab. The caller's own terminal (found by its launch credential,
+its process session, or the CLI's process ancestors) is never ended at once.
+The `--json` value names `ended_terminal_ids`, `ending_terminal_ids` (with
+`ends_at_ms`) and `running_terminal_ids`; the text output adds
+`terminals ended: <n>`, `terminals end in <s> s: <n> (<ids>); cmux closed
+reopen keeps them`, and for the running ones their ids with `cmux terminal
+list` to see them and `cmux terminal <id> close` to end one. A daemon without
+`close-grace-v1` gets `terminals: "end"` instead of `grace`; one without
+`close-ends-terminals-v1` gets the close without `terminals` and only
+detaches. The TUI's close keys detach, so the same grace applies. `terminal
+close` ends one terminal and removes all of its placements. `agent list`
+shows an agent of an ended terminal as `ended` (left out unless `--state
+ended`).
 `terminal <selector> close --if-unplaced` sends `if_unplaced: true`: it ends
 the terminal only when it has no tab, no `keep` mark and no attach stream, and
 otherwise fails and changes nothing.
@@ -1016,10 +1024,11 @@ otherwise fails and changes nothing.
 `layout.bulk` close: the selected object's siblings in its pane, screen,
 workspace or session close in one commit as one closed-history group, which
 `closed reopen` restores whole. Pinned tabs, screens and workspaces stay unless
-`--include-pinned`; the home workspace never closes. The bulk close also
-ends the terminals it leaves without a view (except a kept one and the
-caller's own); `--keep-terminals` leaves them running (`--end-terminals`, now
-the default, stays accepted).
+`--include-pinned`; the home workspace never closes. The bulk close follows
+the same terminal model and names the terminals as a plain close does (the
+same fields and text lines); `--now` (or `--end-terminals`) sends
+`end_terminals: true`, `--keep-terminals` sends `false`, and neither leaves
+the field out (the grace).
 `client <selector> metadata set` leaves an omitted field unchanged and clears
 one passed as null. A non-null name or kind preserves its exact value, contains
 at most 64 Unicode scalars, and contains no Unicode `Cc` control scalar.

@@ -6,9 +6,9 @@ USAGE
   cmux screen create [--workspace <selector>] [--name <value>] [--focus]
     [--correlation-key <value>] [--shell <script> | -- <argv...>]
   cmux screen <selector> show|focus|close
-  cmux screen <selector> close [--keep-terminals]
+  cmux screen <selector> close [--now|--keep-terminals]
   cmux screen <selector> close --others|--to-right|--to-left|--all [--include-pinned]
-    [--keep-terminals]
+    [--now|--keep-terminals]
   cmux screen <selector> rename <name>|--name <name>
   cmux screen <selector> pin|unpin
   cmux screen <selector> update [--pinned <bool>] [--color <value>|--clear-color]
@@ -34,9 +34,10 @@ the focus where it is unless --focus is given.
 A bulk close (--others, --to-right, --to-left, --all) is one closed group
 that `cmux closed reopen` restores whole; it keeps pinned screens unless
 --include-pinned.
-close ends the terminals it leaves with no tab, except one marked keep and the
-caller's own, and names the ones still running; --keep-terminals leaves them
-all running.
+close keeps each terminal it leaves with no tab until the reaper's grace
+(30 s) ends it (`cmux closed reopen` keeps it), and a kept one or one a
+viewer is attached to keeps running; --now ends them at once,
+--keep-terminals leaves them with no tab.
 column update --pinned true makes a docked column the pinned dock (Home's):
 its first tab stays and it is never undocked; it takes no other tab unless
 --allow-tabs true. Pinning is one way.

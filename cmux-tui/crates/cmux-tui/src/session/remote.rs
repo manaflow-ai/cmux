@@ -1447,19 +1447,6 @@ impl RemoteSession {
         self.capabilities.lock().unwrap().contains(capability)
     }
 
-    /// A raw `close-pane`, `close-screen` or `close-workspace` that also ends
-    /// the terminals it leaves with no tab (W7-C: the TUI's close keys end
-    /// what they close, as the CLI's closes do), on a daemon with
-    /// `batch-close-v1`; an older one gets the plain close.
-    pub(super) fn closing_terminals(&self, mut close: Value) -> Value {
-        if self.supports_capability(cmux_tui_core::server::BATCH_CLOSE_CAPABILITY)
-            && let Some(fields) = close.as_object_mut()
-        {
-            fields.insert("end_terminals".into(), Value::Bool(true));
-        }
-        close
-    }
-
     pub fn supports_surface_subscription_filter(&self) -> bool {
         self.supports_capability(cmux_tui_core::server::SURFACE_SUBSCRIBE_FILTER_CAPABILITY)
     }

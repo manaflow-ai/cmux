@@ -37,7 +37,10 @@ pub(super) fn handle_resource_line(
     // The launch credential leaves the envelope here; it is verified after
     // the clients lock is released and before any owner takes its locks.
     let credential = envelope.credential.take();
-    let admitted = check(mux, client, &envelope)
+    let checked = check(mux, client, &envelope);
+    let peer = checked.as_ref().ok().and_then(|(_, peer)| *peer);
+    let admitted = checked
+        .map(|(actor, _)| actor)
         .and_then(|actor| {
             check_credential_owner(mux, client, operation, &actor, credential.is_some())?;
             if credential.is_some() && derived_origin(mux, client) == RequestOrigin::Page {
@@ -48,7 +51,11 @@ pub(super) fn handle_resource_line(
             mux.request_actor(actor, credential.as_ref().map(|c| c.as_str()))
         })
         .and_then(|actor| check_pairing_accept(mux, client, &envelope, &actor).map(|()| actor))
-        .and_then(|actor| crate::resource_router::validate_resource_envelope(envelope, actor));
+        .and_then(|actor| crate::resource_router::validate_resource_envelope(envelope, actor))
+        .map(|mut request| {
+            request.peer_pid = peer;
+            request
+        });
     crate::debug_spans::mark("origin.admitted");
     match admitted {
         Ok(request) => handle_resource_connection_message(mux, client, request, writer),
@@ -63,11 +70,15 @@ pub(super) fn handle_resource_line(
     }
 }
 
-/// The actor of `envelope` on `client` once its origin passes, or why it is
-/// refused. A client
+/// The actor of `envelope` on `client` once its origin passes, with the
+/// process id of a local socket peer, or why it is refused. A client
 /// with no registry record (a connection detached while its reader still
 /// held a line) has no known role, so it is refused (fail closed).
-fn check(mux: &Mux, client: u64, envelope: &RequestEnvelope) -> Result<Actor, ResourceError> {
+fn check(
+    mux: &Mux,
+    client: u64,
+    envelope: &RequestEnvelope,
+) -> Result<(Actor, Option<u32>), ResourceError> {
     let now_ms = mux.control_clients.origin_clock.monotonic_ms();
     let mut state = mux.control_clients.state.lock().recover_poison();
     let Some(record) = state.clients.get_mut(&client) else {
@@ -88,31 +99,66 @@ fn check(mux: &Mux, client: u64, envelope: &RequestEnvelope) -> Result<Actor, Re
         now_ms,
     )?;
     let (transport, local) = (record.transport, record.origin.actor());
+    let peer_pid = match transport {
+        ClientTransport::Unix => record.origin.peer_key.as_deref().and_then(peer_pid),
+        ClientTransport::WebSocket | ClientTransport::Remote => None,
+    };
     drop(state);
-    Ok(peer_or_local(mux, client, transport, local))
+    Ok((peer_or_local(mux, client, transport, local), peer_pid))
 }
 
-/// Classifies one accepted local peer while its kernel PID evidence is live.
+/// Classifies one accepted local peer while its kernel PID evidence is live:
+/// the terminal whose process leads the peer's process session, else (W7-C)
+/// the terminal whose process is the nearest of the peer's ancestors (a
+/// `cmux` run under `setsid`, or by a tool that starts its own session, in a
+/// terminal's shell).
 fn classify_local_peer(
     mux: &Mux,
     peer_key: Option<&str>,
     session_for_pid: impl FnOnce(u32) -> Option<u32>,
+    ancestors_of: impl FnOnce(u32) -> Vec<u32>,
 ) -> LocalPeer {
     let Some(process) = peer_key.and_then(peer_pid) else { return LocalPeer::Unknown };
     let Some(session) = session_for_pid(process) else { return LocalPeer::Unknown };
-    let terminal = mux.with_state(|state| {
-        state
-            .surfaces
-            .values()
-            .chain(state.terminal_catalog.values())
-            .find(|surface| surface.process_id() == Some(session))
-            .and_then(|surface| surface.terminal_public_id())
-            .map(|terminal| terminal.as_str().to_string())
-    });
-    if let Some(terminal) = terminal {
+    let terminal_of = |pid: u32| {
+        mux.with_state(|state| {
+            state
+                .surfaces
+                .values()
+                .chain(state.terminal_catalog.values())
+                .find(|surface| surface.process_id() == Some(pid))
+                .and_then(|surface| surface.terminal_public_id())
+                .map(|terminal| terminal.as_str().to_string())
+        })
+    };
+    if let Some(terminal) = terminal_of(session) {
+        return LocalPeer::Terminal(terminal);
+    }
+    if let Some(terminal) = ancestors_of(process).into_iter().find_map(terminal_of) {
         return LocalPeer::Terminal(terminal);
     }
     LocalPeer::Other
+}
+
+/// The ancestors of a peer process, nearest first, at most 64 of them.
+#[cfg(unix)]
+pub(crate) fn peer_ancestors(pid: u32) -> Vec<u32> {
+    cmux_tui_platform::process_identity::ancestors(pid, 64)
+}
+
+#[cfg(not(unix))]
+pub(crate) fn peer_ancestors(_pid: u32) -> Vec<u32> {
+    Vec::new()
+}
+
+/// The processes of a request's socket peer `pid` (W7-C): the peer, its
+/// ancestors and its process session's leader. A close never ends a
+/// terminal whose process is one of them: the request runs in it.
+pub(crate) fn peer_processes(pid: u32) -> Vec<u32> {
+    let mut processes = vec![pid];
+    processes.extend(peer_ancestors(pid));
+    processes.extend(peer_session_id(pid));
+    processes
 }
 
 pub(super) fn peer_pid(key: &str) -> Option<u32> {
@@ -408,7 +454,7 @@ pub(super) fn set_peer_identity_at_accept(
     peer_key: Option<String>,
     peer_token: Option<cmux_link::app_caller::PeerToken>,
 ) {
-    let local_peer = classify_local_peer(mux, peer_key.as_deref(), peer_session_id);
+    let local_peer = classify_local_peer(mux, peer_key.as_deref(), peer_session_id, peer_ancestors);
     let mobile_host = peer_executable(peer_key.as_deref(), peer_token.as_ref())
         .is_some_and(|path| is_bundled_mobile_host_path(&path));
     let mut state = mux.control_clients.state.lock().recover_poison();

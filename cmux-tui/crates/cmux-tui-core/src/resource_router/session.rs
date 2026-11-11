@@ -257,6 +257,7 @@ mod tests {
             },
             fields: fields.as_object().unwrap().clone(),
             actor: crate::Actor::local_user(),
+            peer_pid: None,
         }
     }
 

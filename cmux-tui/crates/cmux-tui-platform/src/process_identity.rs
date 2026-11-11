@@ -94,3 +94,54 @@ pub(crate) fn identity(pid: u32) -> Option<ProcessIdentity> {
 pub(crate) fn identity(_pid: u32) -> Option<ProcessIdentity> {
     None
 }
+
+/// The parent of `pid` while it lives; `None` once it is gone (or
+/// unreadable). macOS falls back to the process table for a process
+/// `proc_pidinfo` does not answer for (a setuid login(1) PTY child).
+pub fn parent_pid(pid: u32) -> Option<u32> {
+    let parent = identity(pid).map(|process| process.ppid);
+    #[cfg(target_os = "macos")]
+    let parent =
+        parent.or_else(|| crate::kinfo_proc::KinfoProc::read(pid).map(|process| process.parent()));
+    parent
+}
+
+/// The ancestors of `pid`, nearest first (its parent, that one's parent,
+/// ...), at most `limit` of them; the walk stops before pid 1 (launchd or
+/// init, the parent of every orphan) and at a process it cannot read.
+pub fn ancestors(pid: u32, limit: usize) -> Vec<u32> {
+    let mut found = Vec::new();
+    let mut current = pid;
+    while found.len() < limit {
+        let Some(parent) = parent_pid(current).filter(|parent| *parent > 1 && *parent != current)
+        else {
+            break;
+        };
+        if found.contains(&parent) {
+            break;
+        }
+        found.push(parent);
+        current = parent;
+    }
+    found
+}
+
+#[cfg(test)]
+mod ancestry_tests {
+    /// This test process's ancestors start at its parent and hold no pid twice.
+    #[test]
+    fn ancestors_start_at_the_parent() {
+        let own = std::process::id();
+        // SAFETY: getppid has no preconditions.
+        let parent = u32::try_from(unsafe { libc::getppid() }).unwrap();
+        let found = super::ancestors(own, 64);
+        if parent > 1 {
+            assert_eq!(found.first(), Some(&parent), "{found:?}");
+        }
+        let mut unique = found.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), found.len(), "{found:?}");
+        assert!(!found.contains(&own) && !found.contains(&1), "{found:?}");
+    }
+}

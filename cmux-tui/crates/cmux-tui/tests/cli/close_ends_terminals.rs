@@ -369,7 +369,7 @@ fn w7c_a_bulk_close_names_the_terminals_it_leaves_running() {
     assert_eq!(listed(&closed, "running_terminal_ids"), [kept.as_str()], "{closed}");
     let mut ended = listed(&closed, "ended_terminal_ids");
     ended.sort();
-    let mut expected = vec![first.clone(), ends.clone()];
+    let mut expected = vec![first, ends.clone()];
     expected.sort();
     assert_eq!(ended, expected, "{closed}");
     assert_ended(&server, &ends, "tab close --others");

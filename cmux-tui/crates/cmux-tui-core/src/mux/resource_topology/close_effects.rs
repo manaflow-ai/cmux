@@ -11,7 +11,7 @@ impl Mux {
         idempotency_key: &str,
         operation_name: &str,
         fingerprint: &Value,
-        actor: &Actor,
+        mutation: &WorkspaceMutation,
     ) -> anyhow::Result<CommittedResourceClose> {
         debug_assert!(is_resource_close_operation(operation));
         #[cfg(test)]
@@ -24,14 +24,17 @@ impl Mux {
             .effect_slots(&path)?
             .workspace
             .context("topology close target has no workspace")?;
-        // The public router sets `terminals` (default `end`); the legacy raw
+        // The public router sets `terminals` (default `grace`); the legacy raw
         // closes and the in-process callers send no field and detach, as
         // before. The field is in the fingerprint, so a retry decides alike.
-        let terminals = match fingerprint.pointer("/fields/terminals").and_then(Value::as_str) {
-            Some("end") => Some(CloseTerminals::end_running_for(actor)),
-            Some(_) => Some(CloseTerminals::Keep),
+        let mode = match fingerprint.pointer("/fields/terminals").and_then(Value::as_str) {
+            Some("end") => Some(CloseMode::Now),
+            Some("grace") => Some(CloseMode::Grace),
+            Some(_) => Some(CloseMode::Keep),
             None => None,
         };
+        // Before the locks: it reads the peer's process tree.
+        let terminals = mode.map(|mode| CloseTerminals::public(self, mode, mutation));
         self.commit_resource_close_with(
             operation,
             Some(workspace),
@@ -607,11 +610,8 @@ impl Mux {
             )?,
             _ => self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?,
         };
-        if terminals.is_some()
-            && let Some(result) = projection.result.as_object_mut()
-        {
-            result.insert("ended_terminal_ids".into(), json!(ended.public_ids));
-            result.insert("running_terminal_ids".into(), json!(ended.running));
+        if terminals.is_some() {
+            ended.name_in(&mut projection.result);
         }
         // Full projection derives terminal tombstones from detached tabs, but
         // an exited terminal receipt has zero tabs. Explicit close must still

@@ -647,7 +647,7 @@ fn workspace_notes_task_lane_unread_mark_and_closed_ids() {
         sent(&["workspace", WS, "close", "--report-closed-ids"]),
         (
             "workspace.close".into(),
-            json!({"workspace": WS, "report_closed_ids": true, "terminals": "end"})
+            json!({"workspace": WS, "report_closed_ids": true, "terminals": "grace"})
         )
     );
 }

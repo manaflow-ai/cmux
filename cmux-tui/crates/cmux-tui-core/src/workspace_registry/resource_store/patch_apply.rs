@@ -28,6 +28,8 @@ pub(crate) fn apply_resource_patch_timed(
     crate::state::ephemeral_moves::carry_ephemeral(transaction, &patch)?;
     // Closes by any path land in the closed history before their rows go.
     crate::state::closed_history_store::capture_closed(transaction, &patch)?;
+    // Ends by any path tell subscribers their agents ended (W7-C).
+    ended_agents::queue_ended_agents(transaction, &patch)?;
     let closing = closing_browsers(transaction, &patch)?;
     // Creations by any path get their personal row (personal-mixed-order-v1).
     let created = crate::state::personal_order::created_workspaces(transaction, &patch)?;
@@ -83,6 +85,7 @@ pub(crate) fn apply_resource_patch_unrecorded(
     revision: i64,
 ) -> anyhow::Result<ResourcePatch> {
     let patch = prune_unchanged_resource_changes(transaction, patch)?;
+    ended_agents::queue_ended_agents(transaction, &patch)?;
     let closing = closing_browsers(transaction, &patch)?;
     apply_effective_resource_patch(transaction, &patch, revision)?;
     delete_closed_browser_rows(transaction, &closing)?;

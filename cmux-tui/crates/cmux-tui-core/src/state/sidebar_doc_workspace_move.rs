@@ -141,6 +141,7 @@ impl Mux {
             id: derived_key(&mutation.id),
             origin: mutation.origin.clone(),
             actor: mutation.actor.clone(),
+            peer_pid: mutation.peer_pid,
         };
         let operation = "workspace.move.sidebar";
         let fingerprint = json!({"operation": operation, "workspace": workspace, "index": index});

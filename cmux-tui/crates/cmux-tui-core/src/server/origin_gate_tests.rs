@@ -42,8 +42,21 @@ fn a_terminal_peer_that_omits_its_credential_cannot_become_the_owner() {
     let process = surface.process_id().expect("the terminal child pid");
     let terminal = surface.terminal_public_id().expect("the terminal id").as_str().to_string();
 
-    let peer = super::classify_local_peer(&mux, Some("token:4242.1"), |_| Some(process));
-    assert_eq!(peer, crate::request_origin::LocalPeer::Terminal(terminal));
+    let peer =
+        super::classify_local_peer(&mux, Some("token:4242.1"), |_| Some(process), |_| Vec::new());
+    assert_eq!(peer, crate::request_origin::LocalPeer::Terminal(terminal.clone()));
+    // W7-C: a peer in its own process session is the terminal of its nearest
+    // ancestor that is a terminal's process.
+    let nested = super::classify_local_peer(
+        &mux,
+        Some("token:4242.1"),
+        |_| Some(4242),
+        |_| vec![4241, process, 1],
+    );
+    assert_eq!(nested, crate::request_origin::LocalPeer::Terminal(terminal));
+    let unrelated =
+        super::classify_local_peer(&mux, Some("token:4242.1"), |_| Some(4242), |_| vec![4241]);
+    assert_eq!(unrelated, crate::request_origin::LocalPeer::Other);
 
     let conn = connect(&mux);
     set_local_peer_for_test(&mux, conn.client, peer);

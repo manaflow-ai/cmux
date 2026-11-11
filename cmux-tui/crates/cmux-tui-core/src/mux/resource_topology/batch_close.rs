@@ -31,7 +31,8 @@ pub(crate) enum BatchCloseTarget {
 
 pub(crate) struct BatchCloseRequest<'a> {
     pub target: BatchCloseTarget,
-    pub end_terminals: bool,
+    /// What the close does with the terminals it leaves with no view.
+    pub terminals: CloseMode,
     pub operation: &'a str,
     /// The single close whose permanent and pinned column rule a tab set
     /// keeps (`pinned-dock-v1`): `TabClose` for `close-tabs`, a tab group
@@ -136,6 +137,8 @@ impl Mux {
         &self,
         request: BatchCloseRequest<'_>,
     ) -> anyhow::Result<BatchCloseOutcome> {
+        // Before the locks: it reads the peer's process tree (W7-C).
+        let terminals = CloseTerminals::batch(self, request.terminals, request.mutation);
         let _creation_handoff = self.resource_creation_handoff.write().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
         let _authority = request
@@ -260,12 +263,7 @@ impl Mux {
             )?,
         };
         let closed = plan.removed.iter().map(|surface| surface.id).collect::<Vec<_>>();
-        let ended = if request.end_terminals {
-            let terminals = CloseTerminals::end_for(&request.mutation.actor);
-            self.end_unplaced_terminals_locked(&mut plan, &registry, &terminals)?
-        } else {
-            EndedTerminals::default()
-        };
+        let ended = self.end_unplaced_terminals_locked(&mut plan, &registry, &terminals)?;
         let mut result = json!({
             "closed": closed,
             "terminals": ended.ended.iter().map(|terminal| json!({
@@ -278,6 +276,9 @@ impl Mux {
         }
         if let Some(own) = request.result.as_ref() {
             result = own.clone();
+            // `layout.bulk` names the terminals it ended, left for the grace
+            // and left running, as a single close does (W7-C).
+            ended.name_in(&mut result);
         }
         // A cascaded close (an emptied workspace) keeps the request's result shape.
         if let Some(close) = plan.workspace_close.as_ref()
@@ -421,10 +422,11 @@ impl Mux {
     }
 
     /// The one close rule for the terminals a close leaves with no view
-    /// (W7-C): with ``CloseTerminals::End`` each one that is not kept and is
-    /// not the caller's own ends (its catalog runtime leaves the planned
-    /// state and its host joins the plan's terminal batch); the rest, and
-    /// every one with ``CloseTerminals::Keep``, are listed as still running.
+    /// (W7-C, ``CloseTerminals``): a kept one or one with an attached viewer
+    /// is listed as running; one the close ends now leaves the planned state
+    /// (its catalog runtime goes and its host joins the plan's terminal
+    /// batch); the rest are listed as ending when the reaper's grace runs
+    /// out, or as running when no reaper runs.
     pub(super) fn end_unplaced_terminals_locked(
         &self,
         plan: &mut ResourceClosePlan,
@@ -449,21 +451,38 @@ impl Mux {
             if still_placed {
                 continue;
             }
-            let CloseTerminals::End { spare, keep_exited } = terminals else {
-                outcome.running.push(public_id);
-                continue;
-            };
             let Some(host) = self.resource_terminal_host_identity(&runtime) else { continue };
-            if spare.as_ref() == Some(&public_id) || registry.terminal_keep(&host.terminal_id)? {
+            // A viewer attached to it (`terminal attach`) keeps it, as it
+            // keeps it from the reaper.
+            if registry.terminal_keep(&host.terminal_id)? || self.terminal_view_attached(runtime.id)
+            {
                 outcome.running.push(public_id);
                 continue;
             }
-            let record = registry
-                .terminal_record(&host.terminal_id)?
-                .with_context(|| format!("terminal {public_id} has no durable receipt"))?;
-            if *keep_exited && record.lifecycle == TerminalLifecycle::Exited {
+            let record = registry.terminal_record(&host.terminal_id)?;
+            if terminals.keep_exited
+                && record
+                    .as_ref()
+                    .is_some_and(|record| record.lifecycle == TerminalLifecycle::Exited)
+            {
                 continue;
             }
+            // A close that leaves it (a raw detach close, the grace) needs no
+            // durable receipt; only ending it now does.
+            if !terminals.ends_now(&public_id, &runtime) {
+                match terminals.reap_grace {
+                    Some(grace) => {
+                        let grace = u64::try_from(grace.as_millis()).unwrap_or(u64::MAX);
+                        outcome.ends_at_ms =
+                            Some(crate::workspace_registry::unix_epoch_ms()?.saturating_add(grace));
+                        outcome.ending.push(public_id);
+                    }
+                    None => outcome.running.push(public_id),
+                }
+                continue;
+            }
+            let record =
+                record.with_context(|| format!("terminal {public_id} has no durable receipt"))?;
             let incarnation = record.incarnation;
             let (removed_runtime, views, _) =
                 remove_terminal_content_from_state(self, &mut plan.state, &public_id);
@@ -514,7 +533,7 @@ impl Mux {
         }
         self.commit_batch_close(BatchCloseRequest {
             target: BatchCloseTarget::Tabs(surfaces),
-            end_terminals,
+            terminals: CloseMode::ending(end_terminals),
             operation: "tabs.close",
             rule: ResourceOperation::TabClose,
             fingerprint: &fingerprint,
@@ -548,7 +567,7 @@ impl Mux {
     ) -> anyhow::Result<BatchCloseOutcome> {
         self.commit_batch_close(BatchCloseRequest {
             target: BatchCloseTarget::Tabs(surfaces),
-            end_terminals: true,
+            terminals: CloseMode::Now,
             operation,
             rule,
             fingerprint,
@@ -586,7 +605,7 @@ impl Mux {
         self.close_tabs_and_bare_for_bulk(
             surfaces,
             Vec::new(),
-            end_terminals,
+            CloseMode::ending(end_terminals),
             operation,
             rule,
             fingerprint,
@@ -604,7 +623,7 @@ impl Mux {
         &self,
         surfaces: Vec<SurfaceId>,
         bare: Vec<WorkspaceId>,
-        end_terminals: bool,
+        terminals: CloseMode,
         operation: &str,
         rule: ResourceOperation,
         fingerprint: &Value,
@@ -614,7 +633,7 @@ impl Mux {
     ) -> anyhow::Result<BatchCloseOutcome> {
         self.commit_batch_close(BatchCloseRequest {
             target: BatchCloseTarget::Tabs(surfaces),
-            end_terminals,
+            terminals,
             operation,
             rule,
             fingerprint,
@@ -660,7 +679,7 @@ impl Mux {
         let mutation = WorkspaceMutation::local("cmux-tui", actor.clone());
         self.commit_batch_close(BatchCloseRequest {
             target,
-            end_terminals: true,
+            terminals: CloseMode::Now,
             operation,
             rule,
             fingerprint: &fingerprint,
@@ -749,7 +768,7 @@ impl Mux {
         };
         let outcome = self.commit_batch_close(BatchCloseRequest {
             target: BatchCloseTarget::Workspace(resolved),
-            end_terminals: true,
+            terminals: CloseMode::Now,
             operation: "workspace.close",
             rule: ResourceOperation::WorkspaceClose,
             fingerprint: &fingerprint,

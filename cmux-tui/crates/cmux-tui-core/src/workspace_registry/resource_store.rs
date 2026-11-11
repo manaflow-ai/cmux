@@ -1,3 +1,4 @@
+mod ended_agents;
 mod events_page;
 use super::*;
 use crate::JournalIngress;

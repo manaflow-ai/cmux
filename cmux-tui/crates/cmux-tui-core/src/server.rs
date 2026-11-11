@@ -164,6 +164,7 @@ use command_args::{
     parse_direction, parse_split_dir, parse_zoom_mode, present_nullable, workspace_mutation,
 };
 mod origin_gate;
+pub(crate) use origin_gate::peer_processes;
 mod orphan_shutdown;
 mod owner_keepers;
 mod page_router;
@@ -493,6 +494,15 @@ pub const TERMINAL_CLOSE_IF_UNPLACED_CAPABILITY: &str = "terminal-close-if-unpla
 /// `running_terminal_ids`. An older daemon refuses the field as an unknown
 /// parameter and only detaches the terminals.
 pub const CLOSE_ENDS_TERMINALS_CAPABILITY: &str = "close-ends-terminals-v1";
+/// Advertises `terminals: "grace"` on those closes, their default (one close
+/// model, W7-C): with the unplaced-terminal reaper running, each terminal a
+/// close leaves with no tab keeps running until the reaper's grace ends it
+/// (`ending_terminal_ids`, `ends_at_ms`), and `closed.reopen` in that window
+/// shows the same process again; with no reaper it ends at once. `end` ends
+/// them at once. `layout.bulk` without `end_terminals` follows the same rule.
+/// No close ends a terminal whose process tree holds the request's socket
+/// peer. An older daemon refuses the value.
+pub const CLOSE_GRACE_CAPABILITY: &str = "close-grace-v1";
 /// Advertises `keep_layout` on `shutdown-daemon`: with `end_terminals`,
 /// every terminal ends but the placed ones keep their tabs, so the next
 /// owner shows the same screens, splits and tabs, each dead until a

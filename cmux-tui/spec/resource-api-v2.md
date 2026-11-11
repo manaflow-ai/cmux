@@ -26,17 +26,31 @@ A terminal is session-owned content with zero or more tab views. Every view
 has its own tab ID and placement-local name; all views share one process,
 ordered input stream, output history, and canonical grid. Closing a frontend
 projection or client connection detaches views without closing the terminal.
-`tab.close`, `pane.close`, `screen.close` and `workspace.close` end, in the
-same commit, every terminal they leave with no view, except one marked `keep`
-and the caller's own terminal (the actor's `term_` id; ending it would cut off
-the reply): "close ends what it closed". `terminals: "keep"` leaves every such
-terminal running with no view (the reaper ends an unkept one after its grace);
-`terminals: "end"` is the default. A close that names `terminals` answers
-`ended_terminal_ids` and `running_terminal_ids`; without it the value keeps its
-old shape, which older SDKs decode strictly. `identify` advertises
-`close-ends-terminals-v1`; an older daemon refuses the field as an unknown
-parameter and only detaches. An agent whose terminal ended lists as `done`
-(`agent.list`, `session.snapshot`); a hook-reported one is left out.
+`tab.close`, `pane.close`, `screen.close` and `workspace.close` follow one
+model for every terminal they leave with no view (`terminals`, capabilities
+`close-ends-terminals-v1` and `close-grace-v1`). A terminal marked `keep` or
+with an attached viewer (`terminal.attach`) keeps running. With
+`terminals: "grace"` (the default) and the unplaced-terminal reaper running,
+every other one keeps running with no view until the reaper's grace (30 s for
+a local owner) ends it, and `closed.reopen` in that window shows the same
+process again (`ending_terminal_ids`, `ends_at_ms`); with no reaper it ends in
+the close's commit. `terminals: "end"` ends them in the close's commit;
+`terminals: "keep"` leaves them with no view (a running reaper ends them after
+its grace). No close ends at once the caller's own terminal: the actor's
+`term_` id, or a terminal whose process is the request's socket peer, one of
+its ancestors or its process session's leader (ending it would cut off the
+reply). A close that names `terminals` answers `ended_terminal_ids`,
+`ending_terminal_ids` (with `ends_at_ms`) and `running_terminal_ids`; without
+it the value keeps its old shape, which older SDKs decode strictly. A daemon
+without `close-grace-v1` refuses `grace`; one without
+`close-ends-terminals-v1` refuses the field and only detaches.
+`layout.bulk` follows the same rule: without `end_terminals` it is `grace`,
+`true` is `end` and `false` is `keep`, and its result names the same lists.
+An agent whose terminal ended lists as `done` (`agent.list`,
+`session.snapshot`); a hook-reported one is left out. `session.events` sends
+that change in the commit that ends the terminal (a close, `terminal.close`,
+the reaper): an `agent` upsert with state `done`, or a delete for a
+hook-reported one.
 `terminal.project` adds another view, and `terminal.close`
 terminates and tombstones one terminal. With `if_unplaced:
 true` it does so only for a terminal with no view, no `keep` mark and no

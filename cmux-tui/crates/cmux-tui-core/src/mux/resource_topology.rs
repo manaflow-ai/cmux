@@ -234,30 +234,84 @@ struct CommittedResourceClose {
     ended: EndedTerminals,
 }
 
-/// What a close does with each terminal it leaves with no view (W7-C:
-/// "close ends what it closed").
-pub(super) enum CloseTerminals {
-    /// Leave them running, with no tab (the reaper's grace still applies).
+/// When a close ends the terminals it leaves with no view (W7-C: one close
+/// model for every close).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CloseMode {
+    /// Leave them with no tab; a running reaper ends an unkept one after its
+    /// grace (the raw and `--keep-terminals` closes).
     Keep,
-    /// End each one that is not marked `keep` and is not `spare` (the
-    /// caller's own terminal: ending it would cut off the reply). With
-    /// `keep_exited`, a terminal whose process already exited keeps its
-    /// record, so `terminal.wait_exit` still answers its exit.
-    End { spare: Option<TerminalPublicId>, keep_exited: bool },
+    /// Leave them with no tab until the reaper's grace ends them, so
+    /// `closed.reopen` in that window shows the same process again; with no
+    /// reaper running, end them now. The default of every public close.
+    Grace,
+    /// End them now (`--now`).
+    Now,
+}
+
+impl CloseMode {
+    /// The mode of a batch close's `end_terminals` flag: `true` ends now.
+    pub(crate) fn ending(end_terminals: bool) -> Self {
+        if end_terminals { Self::Now } else { Self::Keep }
+    }
+}
+
+/// What a close does with each terminal it leaves with no view (W7-C:
+/// "close ends what it closed", one model with a grace window).
+///
+/// A terminal marked `keep` or with an attached viewer (`terminal attach`)
+/// is left running. A terminal whose process is the caller's (the actor's
+/// own terminal, or one whose process is the request's socket peer, an
+/// ancestor of it or its process session's leader) is never ended now. Any
+/// other one ends now in ``CloseMode::Now``, and in ``CloseMode::Grace``
+/// when no reaper runs. The rest stay with no tab: while a reaper runs they
+/// end at the close time plus its grace (`ending`), else they keep running.
+pub(super) struct CloseTerminals {
+    mode: CloseMode,
+    /// The actor's own terminal.
+    spare: Option<TerminalPublicId>,
+    /// The socket peer's processes (`crate::server::peer_processes`).
+    peer: Vec<u32>,
+    /// Leave an exited terminal's record, so `terminal.wait_exit` still
+    /// answers its exit (the public closes; the batch closes end it).
+    keep_exited: bool,
+    /// The reaper's grace while it runs; None: no reaper.
+    reap_grace: Option<Duration>,
 }
 
 impl CloseTerminals {
-    /// ``CloseTerminals::End`` that spares the actor's own terminal and, as
-    /// the batch closes always did, also ends exited terminals' records.
-    pub(super) fn end_for(actor: &Actor) -> Self {
-        Self::End { spare: actor_terminal(actor), keep_exited: false }
+    /// A batch close (`close-tabs`, the container closes with
+    /// `end_terminals`, `layout.bulk`) of `mutation` in `mode`.
+    pub(super) fn batch(mux: &Mux, mode: CloseMode, mutation: &WorkspaceMutation) -> Self {
+        Self::new(mux, mode, mutation, false)
     }
 
-    /// ``CloseTerminals::End`` for a public tab, pane, screen or workspace
-    /// close: it spares the actor's own terminal and leaves an exited
-    /// terminal's record (nothing runs there to end; its exit stays readable).
-    pub(super) fn end_running_for(actor: &Actor) -> Self {
-        Self::End { spare: actor_terminal(actor), keep_exited: true }
+    /// A public tab, pane, screen or workspace close of `mutation` in `mode`.
+    pub(super) fn public(mux: &Mux, mode: CloseMode, mutation: &WorkspaceMutation) -> Self {
+        Self::new(mux, mode, mutation, true)
+    }
+
+    fn new(mux: &Mux, mode: CloseMode, mutation: &WorkspaceMutation, keep_exited: bool) -> Self {
+        Self {
+            mode,
+            spare: actor_terminal(&mutation.actor),
+            peer: mutation.peer_pid.map(crate::server::peer_processes).unwrap_or_default(),
+            keep_exited,
+            reap_grace: mux.terminal_reaper_running().then(|| mux.terminal_reap_grace()),
+        }
+    }
+
+    /// Whether the close may end `runtime` now: not the caller's own terminal
+    /// nor one the request's socket peer runs in, and the mode ends now.
+    fn ends_now(&self, public_id: &TerminalPublicId, runtime: &Surface) -> bool {
+        let callers = self.spare.as_ref() == Some(public_id)
+            || runtime.process_id().is_some_and(|process| self.peer.contains(&process));
+        !callers
+            && match self.mode {
+                CloseMode::Now => true,
+                CloseMode::Grace => self.reap_grace.is_none(),
+                CloseMode::Keep => false,
+            }
     }
 }
 
@@ -269,13 +323,32 @@ fn actor_terminal(actor: &Actor) -> Option<TerminalPublicId> {
     }
 }
 
-/// The terminals one close ended, and the ones it left running with no view.
+/// The terminals one close ended, the ones it left with no view until the
+/// reaper's grace ends them, and the ones it left running with no view.
 #[derive(Default)]
 pub(super) struct EndedTerminals {
     runtimes: Vec<Arc<Surface>>,
     public_ids: Vec<TerminalPublicId>,
     ended: Vec<batch_close::EndedTerminal>,
+    ending: Vec<TerminalPublicId>,
+    /// When the reaper ends `ending` (milliseconds since the epoch).
+    ends_at_ms: Option<u64>,
     running: Vec<TerminalPublicId>,
+}
+
+impl EndedTerminals {
+    /// Names the sets in a close's result object: `ended_terminal_ids`,
+    /// `ending_terminal_ids` (with `ends_at_ms`, a decimal string, when any)
+    /// and `running_terminal_ids`.
+    pub(super) fn name_in(&self, result: &mut Value) {
+        let Some(fields) = result.as_object_mut() else { return };
+        fields.insert("ended_terminal_ids".into(), json!(self.public_ids));
+        fields.insert("ending_terminal_ids".into(), json!(self.ending));
+        if let Some(ends_at_ms) = self.ends_at_ms.filter(|_| !self.ending.is_empty()) {
+            fields.insert("ends_at_ms".into(), json!(ends_at_ms.to_string()));
+        }
+        fields.insert("running_terminal_ids".into(), json!(self.running));
+    }
 }
 
 impl ResourceClosePlan {

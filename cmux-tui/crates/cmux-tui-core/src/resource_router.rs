@@ -101,6 +101,10 @@ pub(crate) struct ParsedResourceRequest {
     pub fields: Map<String, Value>,
     /// Who sends it, set by the daemon (never from the envelope).
     pub actor: crate::workspace_registry::Actor,
+    /// The process id of the socket peer that sent it, set by the daemon
+    /// from the connection's kernel credentials (Unix); None for any other
+    /// transport and for in-process requests.
+    pub peer_pid: Option<u32>,
 }
 
 /// The one parse of a connection line (decisions: the origin gate). `None`
@@ -206,7 +210,8 @@ impl ParsedResourceRequest {
     pub(crate) fn mutation(&self) -> anyhow::Result<crate::WorkspaceMutation> {
         let key = self.envelope.idempotency_key.clone();
         let key = key.expect("catalog-validated mutations have an idempotency key");
-        crate::WorkspaceMutation::new(key, "resource-api", self.actor.clone())
+        Ok(crate::WorkspaceMutation::new(key, "resource-api", self.actor.clone())?
+            .with_peer_pid(self.peer_pid))
     }
 }
 
@@ -249,7 +254,7 @@ pub(crate) fn validate_resource_envelope(
 ) -> Result<ParsedResourceRequest, ResourceError> {
     envelope.validate()?;
     let (selectors, fields) = validate_catalog_params(envelope.operation, &envelope.params)?;
-    Ok(ParsedResourceRequest { envelope, selectors, fields, actor })
+    Ok(ParsedResourceRequest { envelope, selectors, fields, actor, peer_pid: None })
 }
 
 fn dispatch_resource_request(

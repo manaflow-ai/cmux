@@ -5,11 +5,13 @@
 //! group, which `cmux closed reopen` restores whole. Pinned tabs and screens
 //! stay unless `--include-pinned`. Without a bulk flag, the plain close.
 //!
-//! Either close ends the terminals it leaves with no tab (W7-C: close ends
-//! what it closed), except a kept one and the caller's own; the plain close
-//! names the ended and the still-running ones. `--keep-terminals` leaves
-//! them all running with no tab (`--end-terminals`, the default now, stays
-//! accepted).
+//! Either close follows one model for the terminals it leaves with no tab
+//! (W7-C): with a reaper they stay until its grace (30 s) ends them, and
+//! `closed reopen` in that window shows them again; with no reaper they end
+//! at once. A kept one and one with an attached viewer stay running, and the
+//! caller's own is never ended at once. `--now` (or `--end-terminals`) ends
+//! them at once; `--keep-terminals` leaves them with no tab. Both closes name
+//! the ended, ending and still-running ones.
 
 use super::*;
 
@@ -38,8 +40,10 @@ pub(super) fn close(
         .collect::<Vec<_>>();
     let include_pinned = flags.boolean("include-pinned");
     let keep_terminals = flags.boolean("keep-terminals");
-    if flags.boolean("end-terminals") && keep_terminals {
-        return Err(UsageError::new("use one of --end-terminals and --keep-terminals"));
+    // `--end-terminals` (the bulk close's older flag) is `--now`.
+    let now = flags.boolean("now") | flags.boolean("end-terminals");
+    if now && keep_terminals {
+        return Err(UsageError::new("use one of --now and --keep-terminals"));
     }
     let Some(&bulk) = chosen.first() else {
         if include_pinned {
@@ -52,7 +56,11 @@ pub(super) fn close(
         if level == "workspace" && flags.boolean("report-closed-ids") {
             params.insert("report_closed_ids".into(), Value::Bool(true));
         }
-        let terminals = if keep_terminals { "keep" } else { "end" };
+        let terminals = match (now, keep_terminals) {
+            (true, _) => "end",
+            (false, true) => "keep",
+            (false, false) => "grace",
+        };
         params.insert("terminals".into(), Value::String(terminals.into()));
         return request(plain, selectors, flags, params);
     };
@@ -69,6 +77,9 @@ pub(super) fn close(
     if include_pinned {
         params.insert("include_pinned".into(), Value::Bool(true));
     }
-    params.insert("end_terminals".into(), Value::Bool(!keep_terminals));
+    // Without either flag the daemon's default: the grace, as a plain close.
+    if now || keep_terminals {
+        params.insert("end_terminals".into(), Value::Bool(now));
+    }
     request(ResourceOperation::LayoutBulk, selectors, flags, params)
 }

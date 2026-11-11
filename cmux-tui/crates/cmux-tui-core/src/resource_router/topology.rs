@@ -355,12 +355,13 @@ fn dispatch_exact_topology_mutation(
     let report = super::close_value::Report::of(operation, &request.fields);
     let mut fields = request.fields;
     if report.is_close {
-        // W7-C: a public close ends the terminals it leaves with no tab
-        // unless the caller asks `terminals: keep`. The legacy raw closes
-        // and the in-process ones never pass here and still detach.
+        // W7-C: a public close leaves the terminals it leaves with no tab for
+        // the reaper's grace (ends them now with no reaper) unless the caller
+        // asks `terminals: end` or `keep`. The legacy raw closes and the
+        // in-process ones never pass here and still detach.
         fields
             .entry(super::close_value::TERMINALS_FIELD)
-            .or_insert(Value::String(super::close_value::END_TERMINALS.into()));
+            .or_insert(Value::String(super::close_value::GRACE_TERMINALS.into()));
     }
     if operation == ResourceOperation::PaneSplit {
         // A programmatic split (CLI, MCP, SDK, socket) keeps the user's focus
@@ -502,6 +503,7 @@ mod tests {
             selectors,
             fields: fields.as_object().unwrap().clone(),
             actor: crate::Actor::local_user(),
+            peer_pid: None,
         }
     }
 

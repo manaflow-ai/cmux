@@ -89,9 +89,13 @@ pub(crate) struct BulkRequest {
     pub(crate) ids: Option<Vec<String>>,
     #[serde(default)]
     pub(crate) include_pinned: bool,
-    /// End the terminals whose every view closes (as a workspace close does).
-    #[serde(default)]
-    pub(crate) end_terminals: bool,
+    /// What the close does with the terminals whose every view closes (W7-C,
+    /// one close model): absent, the grace of every public close
+    /// (``CloseMode::Grace``, the CLI's default); `true` ends them now
+    /// (`--now`); `false` leaves them with no tab (the Mac app's close, which
+    /// Reopen Closed Tab needs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) end_terminals: Option<bool>,
 }
 
 impl BulkRequest {
@@ -388,7 +392,10 @@ impl Mux {
         let outcome = match self.close_tabs_and_bare_for_bulk(
             surfaces,
             bare,
-            request.end_terminals,
+            match request.end_terminals {
+                None => CloseMode::Grace,
+                Some(end) => CloseMode::ending(end),
+            },
             OPERATION,
             match request.level {
                 BulkLevel::Tab => crate::resource::ResourceOperation::TabClose,

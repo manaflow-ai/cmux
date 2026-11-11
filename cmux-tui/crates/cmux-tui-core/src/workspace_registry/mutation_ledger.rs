@@ -89,6 +89,10 @@ pub struct WorkspaceMutation {
     /// caller's actor, [`WorkspaceMutation::daemon`] and
     /// [`WorkspaceMutation::daemon_local`] are the daemon's own work.
     pub actor: Actor,
+    /// The process id of the request's socket peer, set by the daemon from
+    /// the connection's kernel credentials; never stored. A close spares the
+    /// terminal whose process tree holds it (W7-C).
+    pub peer_pid: Option<u32>,
 }
 
 impl WorkspaceMutation {
@@ -97,14 +101,20 @@ impl WorkspaceMutation {
         origin: impl Into<String>,
         actor: Actor,
     ) -> anyhow::Result<Self> {
-        let mutation = Self { id: id.into(), origin: origin.into(), actor };
+        let mutation = Self { id: id.into(), origin: origin.into(), actor, peer_pid: None };
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
         Ok(mutation)
     }
 
     pub fn local(origin: &str, actor: Actor) -> Self {
-        Self { id: new_uuid_v4(), origin: origin.to_string(), actor }
+        Self { id: new_uuid_v4(), origin: origin.to_string(), actor, peer_pid: None }
+    }
+
+    /// This mutation, sent by the socket peer with process id `peer_pid`.
+    pub(crate) fn with_peer_pid(mut self, peer_pid: Option<u32>) -> Self {
+        self.peer_pid = peer_pid;
+        self
     }
 
     /// The local user in the in-process TUI (their own frontend, no socket).

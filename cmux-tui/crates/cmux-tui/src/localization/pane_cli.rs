@@ -53,6 +53,9 @@ pub(crate) struct PaneCliMessages {
     /// The same close: `{count}` terminals left running with no tab, `{ids}`
     /// their ids, and how to see and end them.
     pub close_running_terminals: &'static str,
+    /// The same close: `{count}` terminals that end in `{seconds}` s when the
+    /// reaper's grace runs out, `{ids}` their ids, and how to keep them.
+    pub close_ending_terminals: &'static str,
 }
 
 pub(super) const ENGLISH: PaneCliMessages = PaneCliMessages {
@@ -81,6 +84,7 @@ pub(super) const ENGLISH: PaneCliMessages = PaneCliMessages {
     agent_list_hidden_ended: "ended agents of closed terminals not shown: {count} (--state ended shows them)",
     close_ended_terminals: "terminals ended: {count}",
     close_running_terminals: "terminals still running with no tab: {count} ({ids}); see them with cmux terminal list, end one with cmux terminal <id> close",
+    close_ending_terminals: "terminals end in {seconds} s: {count} ({ids}); cmux closed reopen keeps them",
 };
 
 pub(super) const JAPANESE: PaneCliMessages = PaneCliMessages {
@@ -109,4 +113,5 @@ pub(super) const JAPANESE: PaneCliMessages = PaneCliMessages {
     agent_list_hidden_ended: "表示していない、閉じたターミナルの終了したエージェント: {count} 件 (--state ended で表示します)",
     close_ended_terminals: "終了したターミナル: {count} 件",
     close_running_terminals: "タブがないまま実行中のターミナル: {count} 件 ({ids})。cmux terminal list で確認し、cmux terminal <id> close で終了できます",
+    close_ending_terminals: "{seconds} 秒後に終了するターミナル: {count} 件 ({ids})。cmux closed reopen で残せます",
 };

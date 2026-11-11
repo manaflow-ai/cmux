@@ -2,11 +2,13 @@
 //! `pane.close`, `tab.close`). `workspace.close` with `report_closed_ids`
 //! names the closed groups the close stored (`closed_ids`; absent on a replay
 //! of a close committed before they were recorded). A close that names its
-//! `terminals` choice (`end`, the default, or `keep`) gets the terminals it
-//! ended (`ended_terminal_ids`) and the ones it left running with no tab
-//! (`running_terminal_ids`; absent on a replay of a close committed before
-//! they were recorded). Without those fields the value stays empty: older
-//! SDKs decode it as an empty object.
+//! `terminals` choice (`grace`, the default, `end` or `keep`) gets the
+//! terminals it ended (`ended_terminal_ids`), the ones it left with no tab
+//! until the reaper's grace ends them (`ending_terminal_ids`, `ends_at_ms`)
+//! and the ones it left running with no tab (`running_terminal_ids`; each
+//! absent on a replay of a close committed before it was recorded). Without
+//! those fields the value stays empty: older SDKs decode it as an empty
+//! object.
 
 use serde_json::{Map, Value};
 
@@ -16,10 +18,10 @@ use crate::resource::{ResourceError, ResourceOperation};
 use crate::workspace_registry::ResourcePatchCommit;
 
 /// The close field that says what happens to the terminals the close leaves
-/// with no tab: `end` (the default) or `keep`.
+/// with no tab: `grace` (the default), `end` or `keep`.
 pub(super) const TERMINALS_FIELD: &str = "terminals";
-/// The default of ``TERMINALS_FIELD``.
-pub(super) const END_TERMINALS: &str = "end";
+/// The default of ``TERMINALS_FIELD`` (one close model, W7-C).
+pub(super) const GRACE_TERMINALS: &str = "grace";
 
 /// What a topology close's value reports, read from the request before the
 /// router fills its defaults.
@@ -65,7 +67,9 @@ pub(super) fn of(
         value.insert("closed_ids".into(), ids.clone());
     }
     if report.terminals {
-        for field in ["ended_terminal_ids", "running_terminal_ids"] {
+        for field in
+            ["ended_terminal_ids", "ending_terminal_ids", "ends_at_ms", "running_terminal_ids"]
+        {
             if let Some(ids) = commit.result.get(field) {
                 value.insert(field.into(), ids.clone());
             }

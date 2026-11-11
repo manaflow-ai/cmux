@@ -24,11 +24,10 @@ use std::sync::atomic::Ordering;
 use crate::local_actor::me;
 use cmux_tui_core::resource::ResourceOperation;
 use cmux_tui_core::server::{
-    BATCH_CLOSE_CAPABILITY, CLIENT_FOCUS_CAPABILITY, CREATION_RECEIPTS_CAPABILITY,
-    CREATION_SELECTOR_FALLBACKS_CAPABILITY, FRONTEND_JOURNAL_CAPABILITY, LAYOUT_UNDO_CAPABILITY,
-    MACHINE_USAGE_CAPABILITY, MAX_CREATION_SELECTOR_FALLBACKS,
-    PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY, SHARED_SIZING_CAPABILITY,
-    VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY,
+    CLIENT_FOCUS_CAPABILITY, CREATION_RECEIPTS_CAPABILITY, CREATION_SELECTOR_FALLBACKS_CAPABILITY,
+    FRONTEND_JOURNAL_CAPABILITY, LAYOUT_UNDO_CAPABILITY, MACHINE_USAGE_CAPABILITY,
+    MAX_CREATION_SELECTOR_FALLBACKS, PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
+    SHARED_SIZING_CAPABILITY, VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY,
 };
 use cmux_tui_core::sizing_policy::{TerminalSizingPolicy, TerminalSizingState};
 use cmux_tui_core::{
@@ -1241,9 +1240,12 @@ impl Session {
                     anyhow::bail!("unknown screen {screen}")
                 }
             }
-            Session::Remote(remote) => remote
-                .request(remote.closing_terminals(json!({"cmd": "close-screen", "screen": screen})))
-                .map(|_| ()),
+            // A close key detaches: the terminals stay for the reaper's grace,
+            // and `cmux closed reopen` in that window shows them again (W7-C,
+            // one close model).
+            Session::Remote(remote) => {
+                remote.request(json!({"cmd": "close-screen", "screen": screen})).map(|_| ())
+            }
         }
     }
 
@@ -1414,15 +1416,10 @@ impl Session {
                     anyhow::bail!("unknown surface {surface}")
                 }
             }
+            // W7-C: the close-tab key leaves the tab's terminal for the
+            // reaper's grace, as `cmux tab <t> close` does with a reaper.
             Session::Remote(remote) => {
-                // W7-C: the close-tab key ends the tab's terminal (unless it
-                // is kept or shown elsewhere), as `cmux tab <t> close` does.
-                let close = if remote.supports_capability(BATCH_CLOSE_CAPABILITY) {
-                    json!({"cmd": "close-tabs", "surfaces": [surface], "end_terminals": true})
-                } else {
-                    json!({"cmd": "close-surface", "surface": surface})
-                };
-                remote.request(close).map(|_| ())
+                remote.request(json!({"cmd": "close-surface", "surface": surface})).map(|_| ())
             }
         }
     }
@@ -1479,9 +1476,9 @@ impl Session {
                     anyhow::bail!("unknown pane {pane}")
                 }
             }
-            Session::Remote(remote) => remote
-                .request(remote.closing_terminals(json!({"cmd": "close-pane", "pane": pane})))
-                .map(|_| ()),
+            Session::Remote(remote) => {
+                remote.request(json!({"cmd": "close-pane", "pane": pane})).map(|_| ())
+            }
         }
     }
 
@@ -1503,13 +1500,9 @@ impl Session {
                 .close_workspace_at_revision_as(me(), workspace, None)?
                 .map(|_| ())
                 .ok_or_else(|| anyhow::anyhow!("unknown workspace {workspace}")),
-            Session::Remote(remote) => {
-                remote
-                    .request(remote.closing_terminals(
-                        json!({"cmd": "close-workspace", "workspace": workspace}),
-                    ))
-                    .map(|_| ())
-            }
+            Session::Remote(remote) => remote
+                .request(json!({"cmd": "close-workspace", "workspace": workspace}))
+                .map(|_| ()),
         }
     }
 
