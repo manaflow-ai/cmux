@@ -1355,14 +1355,6 @@ def signature(view: "FailedView | Unplaced") -> tuple[set[str], set[str], set[st
     return steps, tests, {error for _, error in step_errors(view)}
 
 
-def unnamed_tests(view: FailedView) -> list[str]:
-    """The runner lines of VIEW (failed_view) that report more failing tests than its lines name
-    (test_reds.unnamed_failures): with any, no comparison can tell its failures from a base's (#41166's review F2)."""
-    unnamed: list = []
-    test_reds.failed_tests(test_reds.lines_of(view_text(view)), unnamed)
-    return unnamed
-
-
 def step_errors(view: FailedView) -> set[tuple[str, str]]:
     """(the name of the step that printed it, the error line with numbers masked) for each error line of VIEW
     (failed_view) signature() reads. judge() excuses a head error only when a base printed it from a failed step of
@@ -3561,15 +3553,6 @@ def step_evidence(view: "FailedView | Unplaced", step_name: str) -> tuple[set[st
     return set(test_reds.failed_tests(texts)), errors
 
 
-def step_unnamed(view: FailedView, step_name: str) -> list[str]:
-    """test_reds.unnamed_failures of the section of VIEW's step STEP_NAME (step_evidence's lines): a failure no parser
-    names is never matched by the ones it does (#41166's review F2)."""
-    lines = [line for k, _, section in view.sections
-             if str(view.steps[k].get("name") or "") == step_name  # step-name: classify
-             for line in section]
-    return test_reds.unnamed_failures(test_reds.lines_of("\n".join(lines)))
-
-
 def one_step(job: dict, step_name: str, side: str) -> dict:
     """JOB's one step named STEP_NAME; Refused (unknown) when it names none or more than one."""
     found = [step for step in job.get("steps") or []
@@ -3786,9 +3769,6 @@ def fixed_on_base_by_step(repo: str, base: str, sha: str, name: str, job: dict, 
         if mine is None or not (mine[0] or mine[1]):
             new.append(f"'{step_name}': no failing test id or file:line error of its own to match")
             continue
-        if said := step_unnamed(view, step_name):
-            new.append(f"'{step_name}': it reports more failing tests than it names ({said[0][:200]})")
-            continue
         if not prior_view:
             prior_view.append(base_evidence(repo, base, name, prior_run, prior_job, github, run_reads)[1])
         theirs = step_evidence(prior_view[0], step_name) or (set(), set())
@@ -3902,10 +3882,8 @@ def compare_window(repo: str, base: str, name: str, head: tuple, head_view: Fail
     runs = f"run {base_run['id']}" if len(window) == 1 else "any of runs " + ", ".join(str(w[0]["id"]) for w in window)
     head_steps, head_tests, head_errors = head
     head_crash = crash_signals(head_view)
-    # A failure no parser names cannot be told from any base failure (#41166's review F2): refused whatever the base.
-    if said := unnamed_tests(head_view):
-        raise Refused(f"'{name}': its log reports more failing tests than it names ({said[0][:200]}), so no failure "
-                      "can be told from another")
+    # A failure no parser names (#41166's review F2) is refused by the reading every consumer shares: read_head's
+    # test_reds.read of the raw log, and classify_any's of HEAD_VIEW below (its per-test results are not whole).
     base_steps, base_tests, base_errors, on = set(), set(), set(), {}
     for run, _, (steps, tests, errors), *_ in window:
         base_steps, base_tests, base_errors = base_steps | steps, base_tests | tests, base_errors | errors
@@ -4037,8 +4015,8 @@ def quarantined_only(view: "FailedView | Unplaced", known: dict) -> bool:
     found = test_reds.read(text)
     steps, _, errors = sig
     if (not found.failed or found.crashes or found.truncated or found.failed - known.keys()
-            or not steps or any(not re.search(r"\btests?\b", step, re.I) for step in steps)
-            or unnamed_tests(view)):  # a failure no parser names is no quarantine's (#41166's review F2)
+            or not steps or any(not re.search(r"\btests?\b", step, re.I) for step in steps)):
+        # found.truncated holds a failure no parser names (test_reds.read): no quarantine's (#41166's review F2).
         return False
     # A generic failed test-named step must not borrow a quarantined test from another step: each failed section's own
     # lines name its quarantined tests.
@@ -5033,7 +5011,7 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
     own = test_reds.read(test_reds.web_head_part(head_log) if WEB_TEST_JOB.fullmatch(name) else head_log)
     if own.crashes or (own.truncated and not chromium_without_diagnostics):
         raise Refused(f"'{name}': " + "; ".join(own.crashes + own.truncated[:1])[:800]
-                      + " (a crash or a cut-short run is never a base red)")
+                      + " (a crash, a cut-short run or a failure no parser names is never a base red)")
 
     def per_test(workflow_info: dict) -> str | None:
         return (gallery_crash_verdict(repo, base, name, job, head_log, workflow_info, github, base_runs)

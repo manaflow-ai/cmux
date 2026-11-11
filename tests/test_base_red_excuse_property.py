@@ -5,9 +5,10 @@ excuse key that dropped part of a failure's identity, so a head red matched a ba
 test finds that class by itself. Each seed builds, with random.Random(seed), one head job and a window of one to three
 base verdicts for it (newest first; a green one ends the window): steps with conclusions (failure, cancelled,
 timed_out, success), and in each failed step runner blocks (Swift Testing, XCTest, xcresult `FAILED:` lines,
-xcodebuild's `Failing tests:` list, cargo, unittest, pytest, bun with its file header and the wrapper's retry), each
-with named failures, deliberately unparseable ones, and the runner's counted summary. The head's log is placed onto its
-steps or not (a composite action's inner `Run` line: the whole-log comparison). judge() is asked about the head, and
+xcodebuild's `Failing tests:` list, cargo, unittest, pytest, bun with its file header, its closing recap (a title
+failing twice in it too) and the wrapper's retry), each with named failures, deliberately unparseable ones, and the
+runner's counted summary. The head's log is placed onto its steps or not (a composite action's inner `Run` line: the
+whole-log comparison). judge() is asked about the head, and
 whenever it excuses, an oracle computed from the generator's own ground truth (never from the code under test) checks:
 
 1. Identity: some ONE base verdict of the window judge() can read has every failed step of the head, by (name,
@@ -61,9 +62,10 @@ def setUpModule():
 
 
 # --- the generator's ground truth -----------------------------------------------------------------------------------
-# A failure: (runner, name, named). A block: {"runner", "failures": [failure], "passes", "retry": [failure] | None}
-# (bun alone: the wrapper ran the file again, alone, and only that run counts). A step: {"name", "conclusion",
-# "blocks"}; only a failed step has blocks.
+# A failure: (runner, name, named). A block: {"runner", "failures": [failure], "passes", "retry": [failure] | None,
+# "recap": None | "both" | "only"} (bun alone: the wrapper ran the file again, alone, and only that run counts; bun's
+# closing recap `N tests failed:` repeats the results' titles, or is all that names them). A step: {"name",
+# "conclusion", "blocks"}; only a failed step has blocks.
 
 def key(runner: str, name: str) -> str:
     """The identity a runner's parser gives NAME: one namespace per runner, xcresult's and xcodebuild's list shared."""
@@ -77,6 +79,22 @@ def final_failures(block: dict) -> list:
     return block["retry"] if block.get("retry") is not None else block["failures"]
 
 
+def final_identities(block: dict) -> list:
+    """(runner, identity, named) of each of BLOCK's final failures, as its log can tell them. A bun recap that alone
+    names its failures prints `(fail) pane > NAME`, no file: two failures of one title there are one identity, so each
+    after the first is a failure no line tells apart (#41222's review F1)."""
+    found, seen = [], set()
+    for runner, name, ok in final_failures(block):
+        if runner == "bun" and block.get("recap") == "only":
+            ident = f"pane > {name}"
+            found.append((runner, ident, ok and ident not in seen))
+            if ok:
+                seen.add(ident)
+        else:
+            found.append((runner, key(runner, name), ok))
+    return found
+
+
 def truth(steps: list) -> tuple[Counter, Counter, list]:
     """(failed step keys, named failure identities, unparseable failures) of a job, as generated."""
     keys = Counter((step["name"], step["conclusion"]) for step in steps if step["conclusion"] != "success")
@@ -87,9 +105,9 @@ def truth(steps: list) -> tuple[Counter, Counter, list]:
                 # run-webviews-tests.sh's contract: a file run again, alone, is judged by that run only, so every
                 # earlier failure of the file in the log (every bun block here runs one file) is superseded.
                 found = [failure for failure in found if failure[0] != "bun"]
-            found += final_failures(block)
-    named = Counter(key(runner, name) for runner, name, ok in found if ok)
-    return keys, named, [(runner, name) for runner, name, ok in found if not ok]
+            found += final_identities(block)
+    named = Counter(ident for runner, ident, ok in found if ok)
+    return keys, named, [(runner, ident) for runner, ident, ok in found if not ok]
 
 
 def unreported(steps: list) -> list:
@@ -153,19 +171,26 @@ def block_lines(block: dict) -> list[str]:
         out.append(f"========================= {len(failures)} failed, {passes} passed in 0.12s "
                    "=========================")
     elif runner == "bun":
-        out += bun_run(failures, passes)
+        recap = block.get("recap")
+        out += bun_run(failures, passes, recap)
         if block.get("retry") is not None:
-            out += ["--- retry, alone ---"] + bun_run(sorted(block["retry"], key=lambda f: not f[2]), 0)
+            out += ["--- retry, alone ---"] + bun_run(sorted(block["retry"], key=lambda f: not f[2]), 0, recap)
     return out
 
 
-def bun_run(failures: list, passes: int) -> list[str]:
+def bun_run(failures: list, passes: int, recap: str | None = None) -> list[str]:
+    """One bun invocation of FAILURES (named ones first). RECAP "both": the closing `N tests failed:` recap repeats
+    each named result's title; "only": no result line names a failure, the recap alone does."""
     out = ["bun test v1.3.0", "test/pane.test.ts:"]
     out += [f"(pass) pane > ok {n} [0.10ms]" for n in range(passes)]
     for _, name, ok in failures:
         out += ["error: expect(received).toBe(expected)", "", f"Expected: \"{name}\"", "Received: \"other\"", ""]
-        if ok:
+        if ok and recap != "only":
             out.append(f"(fail) pane > {name} [1.00ms]")
+    if recap:
+        titles = [name for _, name, ok in failures if ok]
+        out += [f"{len(titles)} test{'s' if len(titles) != 1 else ''} failed:"] + [f"(fail) pane > {name} [1.00ms]"
+                                                                                for name in titles]
     return out + [f" {passes} pass", f" {len(failures)} fail"]
 
 
@@ -210,9 +235,17 @@ def gen_failure(rng: random.Random, runner: str, unnamed_rate: float) -> tuple:
 def gen_block(rng: random.Random, unnamed_rate: float) -> dict:
     runner = rng.choice(RUNNERS)
     failures = [gen_failure(rng, runner, unnamed_rate) for _ in range(rng.randint(1, 3))]
-    block = {"runner": runner, "failures": failures, "passes": rng.randint(0, 2), "retry": None}
+    block = {"runner": runner, "failures": failures, "passes": rng.randint(0, 2), "retry": None, "recap": None}
     if runner == "bun" and rng.random() < 0.25:
         block["retry"] = [failure for failure in failures if rng.random() < 0.6]
+    if runner == "bun" and rng.random() < 0.4:
+        # bun's closing recap, and in it a title that failed twice (#41222's review F1: two recap lines of one title
+        # beside `2 fail` are one identity). A recap-only block is never retried here: its titles name no file, so
+        # the wrapper's retry cannot drop them (read_bun keeps them: stricter, never an excuse).
+        block["recap"] = "both" if block["retry"] is not None else rng.choice(("both", "only"))
+        named = [failure for failure in failures if failure[2]]
+        if named and rng.random() < 0.5:
+            failures.append(rng.choice(named))
     return block
 
 

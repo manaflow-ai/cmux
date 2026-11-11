@@ -958,6 +958,26 @@ class BaseReds(unittest.TestCase):
             {"id": 9, "name": "cmux-next swift test", "conclusion": "failure", "steps": steps}]}
         self.assertEqual(stack - set(controller.failed_jobs(4, detail=True, base=True)), stack)
 
+    def test_a_failure_no_parser_names_is_keyed_by_its_own_job(self):
+        """#41222's review, earlier F1: the unnamed-failure refusal is in test_reds.read(), the reading expand_job
+        shares with judge(), so a cargo log that reports two failures and names one is never subtracted as the
+        base's, even when the base printed the same lines."""
+        controller = self.controller()
+        cargo = ("test tests::reconnects ... FAILED", "test src/lib.rs - parse (line 3) ... FAILED",
+                 "test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s")
+        steps, text = framed(*cargo)
+        controller.gh.api.return_value = {"jobs": [
+            {"id": 8, "name": "cmux-next rust tests", "conclusion": "failure", "steps": steps}]}
+        controller.gh.gh.return_value = log_of(text)
+        base = set(controller.failed_jobs(1, detail=True, base=True))
+        controller.gh.api.return_value = {"jobs": [
+            {"id": 9, "name": "cmux-next rust tests", "conclusion": "failure", "steps": steps}]}
+        stack = set(controller.failed_jobs(2, detail=True, base=False))
+        self.assertTrue(stack, stack)
+        self.assertTrue(all("never a base red" in key and "more failing tests than it names" in key for key in stack),
+                        stack)
+        self.assertEqual(stack - base, stack)
+
     def test_a_non_test_jobs_crash_signal_still_keys_its_failure(self):
         controller = self.controller()
         steps = [{"name": "Build", "conclusion": "failure"}]

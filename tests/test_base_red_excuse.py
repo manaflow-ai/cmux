@@ -2935,7 +2935,7 @@ class WebviewTestReplayPerTest(unittest.TestCase):
         gh.logs[1] = gh.logs[1].replace("re-running alone on the head:", "re-running alone on the head:\n"
                                         "2026-11-08T09:30:06Z ##[group]TIMEOUT test/x.test.ts\n2026-11-08T09:30:06Z "
                                         "##[endgroup]\n2026-11-08T09:30:06Z TIMEOUT test/x.test.ts (limit 120s)")
-        with self.assertRaisesRegex(excuse.Refused, "a crash or a cut-short run is never a base red"):
+        with self.assertRaisesRegex(excuse.Refused, "a cut-short run or a failure no parser names is never a base red"):
             self.judge(gh)
 
     def test_a_test_that_passed_again_alone_on_the_head_is_no_longer_charged(self):
@@ -8409,8 +8409,7 @@ COMPARATORS = ("signature", "step_errors", "compare_window", "crash_signals", "r
 VIEW_COMPARATORS = frozenset({
     "signature", "step_errors", "section_lines", "compare_window", "crash_signals", "ratchet_red",
     "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "quarantined_only",
-    "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text", "fixed_on_base_by_step", "step_evidence",
-    "unnamed_tests", "step_unnamed"})
+    "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text", "fixed_on_base_by_step", "step_evidence"})
 # The only readers of step_owners: failed_view (every comparator's) and failed_steps_log (what a comment shows, never
 # compared).
 STEP_OWNERS_READERS = frozenset({"failed_view", "failed_steps_log"})
@@ -8785,7 +8784,7 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
                        "FAILED (failures=1)", "Executed 4 tests, with 1 failure (0 unexpected) in 0.2 (0.3) seconds"):
             with self.subTest(marker=marker):
                 said = ["error: expect(received).toBe(expected)", marker]
-                with self.assertRaisesRegex(excuse.Refused, "reports more failed tests than it names"):
+                with self.assertRaisesRegex(excuse.Refused, "reports more failing tests than it names"):
                     self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, said, said))
 
     def test_a_base_that_fails_more_is_not_enough_either(self):
@@ -9309,9 +9308,86 @@ class EveryReportedFailureIsNamed(unittest.TestCase):
         self.assertTrue(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)[0].startswith("excused "))
 
     def test_whole_log(self):
-        with self.assertRaisesRegex(excuse.Refused, "reports more failed tests than it names .*test result: FAILED"):
+        with self.assertRaisesRegex(excuse.Refused, "reports more failing tests than it names .*test result: FAILED"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10],
                          UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, self.CARGO, self.CARGO))
+
+
+def bun_lines(results=(), recap=(), fail=None):
+    """One bun invocation of test/a.test.ts: RESULTS printed in the run, a recap of RECAP titles, ` N fail`."""
+    out = ["bun test v1.3.0", "test/a.test.ts:"]
+    for title in results:
+        out += ["error: expect(received).toBe(expected)", f"(fail) {title} [1.00ms]"]
+    if recap:
+        out += [f"{len(recap)} test{'s' if len(recap) != 1 else ''} failed:", *(f"(fail) {t}" for t in recap)]
+    return out + [" 0 pass", f" {len(results) if fail is None else fail} fail"]
+
+
+class UnnamedFailureRefusedInTheSharedReading(unittest.TestCase):
+    """#41222's review, earlier F1: "Move the refusal into the shared path every consumer goes through ... Cover each
+    entry point (classify, read, expand_job)". test_reds.read() records a failure no parser names as results that are
+    not whole, so read_head refuses it for every judge() path (placed, whole-log, fixed on base, per step, quarantine,
+    per-test), and the command line with it; next_batch's expand_job keys it as the job's own
+    (tests/test_next_batch.py)."""
+
+    UNNAMED = ["test src/lib.rs - parse (line 3) ... FAILED",
+               "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s"]
+
+    def test_the_fixed_on_base_path(self):
+        github = KitFixedOnBaseGitHub()
+        self.assertIn("fixed on base", excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)[0])
+        github.logs[1] = framed_log(kit_lines(*((KIT_STEP, 19, line) for line in self.UNNAMED)), KIT)
+        with self.assertRaisesRegex(excuse.Refused, "reports more failing tests than it names .*test result: FAILED"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_the_command_line(self):
+        github = KitFixedOnBaseGitHub()
+        github.logs[1] = framed_log(kit_lines(*((KIT_STEP, 19, line) for line in self.UNNAMED)), KIT)
+        err = io.StringIO()
+        with unittest.mock.patch.object(excuse, "GitHub", lambda: github), \
+                unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None), \
+                contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            code = excuse.main(["--repo", REPO, "--base", "feat-cmux-next", "--sha", HEAD, "--run", "10"])
+        self.assertEqual(code, 1, err.getvalue())
+        self.assertIn("reports more failing tests than it names", err.getvalue())
+
+
+class BunRecapAndRetryCounts(unittest.TestCase):
+    """#41222's review F1 (test_reds.py:508): "Two identical `(fail)` recap entries followed by `2 fail` produce one
+    identity because `read_bun` deduplicates them, but `recap == 2` prevents an unnamed marker. I reproduced `judge()`
+    excusing this against a one-failure base in both comparison paths." And F2 (test_reds.py:493): "A first attempt
+    reporting two failures while naming one remains refused after a fully named retry matching the base"."""
+
+    HEAD_RECAP = bun_lines(recap=["a > one", "a > one"], fail=2)
+    BASE_RECAP = bun_lines(recap=["a > one"], fail=1)
+    RETRIED = bun_lines(results=["a > one"], fail=2) + ["--- retry, alone ---"] + bun_lines(results=["a > one"])
+    # The base's file failed twice too, named both times: the whole-log comparison counts both attempts' error lines.
+    BASE_ONE = bun_lines(results=["a > one"]) + ["--- retry, alone ---"] + bun_lines(results=["a > one"])
+
+    def placed(self, head, base):
+        github = FakeGitHub()
+        github.logs[1], github.logs[2] = log(SWIFT, TEST_STEP, *head), log(SWIFT, TEST_STEP, *base)
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def whole(self, head, base):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10],
+                            UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, head, base))
+
+    def test_f1_duplicate_recap_titles_are_one_identity_placed_and_whole(self):
+        for path in (self.placed, self.whole):
+            with self.subTest(path=path.__name__):
+                with self.assertRaisesRegex(excuse.Refused, r"more failing tests than it names \(\s*2 fail\)"):
+                    path(self.HEAD_RECAP, self.BASE_RECAP)
+                self.assertTrue(path(self.BASE_RECAP, self.BASE_RECAP)[0].startswith("excused "))
+
+    def test_f2_a_fully_named_retry_is_judged_alone_placed_and_whole(self):
+        for path in (self.placed, self.whole):
+            with self.subTest(path=path.__name__):
+                self.assertTrue(path(self.RETRIED, self.BASE_ONE)[0].startswith("excused "))
+                unnamed_retry = bun_lines(results=["a > one"]) + ["--- retry, alone ---"] + bun_lines(
+                    results=["a > one"], fail=2)
+                with self.assertRaisesRegex(excuse.Refused, "more failing tests than it names"):
+                    path(unnamed_retry, self.BASE_ONE)
 
 
 class GuardCrashIsNotItsFinding(unittest.TestCase):
