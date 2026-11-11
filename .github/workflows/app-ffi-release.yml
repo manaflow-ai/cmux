@@ -519,11 +519,12 @@ jobs:
       # A failed read is asked again before it counts: run 42919934207 created
       # the release and downloaded it anonymously, then one read here failed
       # (GitHub was returning 502s) and the job said "does not exist", which
-      # skipped the re-pin and left base red on "Check the app FFI pin".
+      # skipped the re-pin and left base red on "Check the app FFI pin". It
+      # reads the public download URL, as the anonymous check does, so its
+      # retries spend no API token.
       - name: The release exists with this run's archive
         if: ${{ !cancelled() }}
         env:
-          GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.build.outputs.tag }}
           CHECKSUM: ${{ needs.build.outputs.checksum }}
@@ -531,15 +532,15 @@ jobs:
         run: |
           set -euo pipefail
           check="$(mktemp -d)"
+          url="https://github.com/$GH_REPO/releases/download/$TAG/CCmuxAppFFI.xcframework.zip"
           found=""
           for attempt in 1 2 3 4 5 6; do
-            rm -f "$check/CCmuxAppFFI.xcframework.zip" "$check/view.err" "$check/download.err"
-            if gh release view "$TAG" >/dev/null 2>"$check/view.err" \
-                && gh release download "$TAG" --pattern "CCmuxAppFFI.xcframework.zip" --dir "$check" 2>"$check/download.err"; then
+            rm -f "$check/CCmuxAppFFI.xcframework.zip"
+            if curl -fsSL -o "$check/CCmuxAppFFI.xcframework.zip" "$url" 2>"$check/read.err"; then
               found=1
               break
             fi
-            echo "read $attempt of release $TAG failed: $(cat "$check/view.err" "$check/download.err" 2>/dev/null | tr '\n' ' ')"
+            echo "read $attempt of release $TAG failed: $(tr '\n' ' ' < "$check/read.err")"
             [[ "$attempt" == 6 ]] || sleep 10
           done
           if [[ -z "$found" ]]; then

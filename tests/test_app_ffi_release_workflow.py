@@ -87,6 +87,10 @@ exit 2
 
 FAKE_CURL = r"""#!/usr/bin/env bash
 set -u
+# FAKE_CURL_FAILS: the downloads (counted from 1) that fail with a 502.
+calls=$(( $(cat "$STATE/curls" 2>/dev/null || echo 0) + 1 ))
+echo "$calls" > "$STATE/curls"
+if [[ " ${FAKE_CURL_FAILS:-} " == *" $calls "* ]]; then echo "curl: (22) The requested URL returned error: 502" >&2; exit 22; fi
 out=""
 while [[ $# -gt 0 ]]; do [[ "$1" == -o ]] && out="$2"; shift; done
 [[ -f "$STATE/release/CCmuxAppFFI.xcframework.zip" ]] || { echo "curl: (22) 404" >&2; exit 22; }
@@ -119,7 +123,7 @@ def condition(expression: str | None, context: dict, failed: bool) -> bool:
 
 class PublishJob(unittest.TestCase):
     def run_publish(self, *, workflow_changed: bool, create: str = "ok", existing: bool = False,
-                    read_fails: str = "") -> tuple[bool, str]:
+                    read_fails: str = "", curl_fails: str = "") -> tuple[bool, str]:
         job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["publish"]
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
@@ -149,7 +153,7 @@ class PublishJob(unittest.TestCase):
                 "vars": {}, "runner": {"temp": str(temp_path)},
             }
             base_env = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "HOME": temp, "STATE": str(state),
-                        "FAKE_CREATE": create, "FAKE_READ_FAILS": read_fails, "GITHUB_SHA": SHA, "GITHUB_REPOSITORY": REPO,
+                        "FAKE_CREATE": create, "FAKE_READ_FAILS": read_fails, "FAKE_CURL_FAILS": curl_fails, "GITHUB_SHA": SHA, "GITHUB_REPOSITORY": REPO,
                         "GITHUB_RUN_ID": RUN_ID, "GITHUB_SERVER_URL": "https://github.com",
                         "RUNNER_TEMP": temp, "GITHUB_OUTPUT": str(temp_path / "output"),
                         "GITHUB_STEP_SUMMARY": str(temp_path / "summary")}
@@ -201,10 +205,9 @@ class PublishJob(unittest.TestCase):
     def test_a_failed_read_of_a_published_release_is_asked_again(self):
         # Run 42919934207 published the release, then one read in the last
         # check failed (GitHub 502s) and the job said the release did not
-        # exist, which skipped the re-pin and left base red. Read 1 is the
-        # create step's probe ("release not found"); reads 2 and 3 are the
-        # last check's first two tries.
-        passed, log = self.run_publish(workflow_changed=False, read_fails="2 3")
+        # exist, which skipped the re-pin and left base red. Download 1 is the
+        # anonymous check; downloads 2 and 3 are the last check's first two tries.
+        passed, log = self.run_publish(workflow_changed=False, curl_fails="2 3")
         self.assertTrue(passed, log)
         self.assertIn("read 2 of release", log, log)
         self.assertIn("exists with checksum", log, log)
