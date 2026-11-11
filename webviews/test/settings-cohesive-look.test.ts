@@ -2,8 +2,9 @@
 // Settings reads as one surface, laid out like a desktop app's settings (user, 2026-10-30: "make
 // settings better, make it look like this" with ChatGPT's Settings; and "we need everything to be
 // cohesive with same bg color"). In real engines, on the settings dev server with the mock:
-// - one background: the sidebar and the content pane paint no fill of their own and no divider
-//   between them, so the page's one background shows everywhere;
+// - one background under the content: the content pane paints no fill of its own. The sidebar
+//   (settings overhaul, Lucas 2026-11-11, after Aside) adds only a faint fill of the page's ink and a
+//   1 px hairline on its right, so the page's one background still shows through it;
 // - the sidebar opens with the page's title ("Settings") above the search field;
 // - the content is one centered column of at most 680 px;
 // - a row's description wraps at about 60% of the card, leaving the right side to the control.
@@ -114,12 +115,11 @@ await requireBrowserLane("settings-cohesive-look.test.ts", async () => {
           for (const section of ["general", "appearance", "notifications"]) {
             await open(page, section);
             const look = await measure(page);
-            expect({ section, sidebarFill: look.sidebarFill, contentFill: look.contentFill }).toEqual({
-              section,
-              sidebarFill: 0,
-              contentFill: 0,
-            });
-            expect(look.sidebarDivider).toBe(0);
+            expect({ section, contentFill: look.contentFill }).toEqual({ section, contentFill: 0 });
+            // Faint: the page's background still shows through the sidebar.
+            expect(look.sidebarFill).toBeGreaterThan(0);
+            expect(look.sidebarFill).toBeLessThanOrEqual(0.05);
+            expect(look.sidebarDivider).toBe(1);
             expect(look.title).toBe("Settings");
             expect(look.titleAboveSearch).toBe(true);
             expect(look.columnWidth).toBeLessThanOrEqual(680);

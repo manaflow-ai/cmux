@@ -84,7 +84,14 @@ await requireBrowserLane("settings-header-edge.test.ts", async () => {
         if (box.width === 0 || box.height === 0) continue;
         const glass = title.closest<HTMLElement>(".group.ui-glass");
         let expected = page;
-        if (glass) {
+        // The refined look (the settings overhaul, Lucas 2026-11-11, after Aside) puts a group's
+        // title on its rows' text edge, the row inset in from the card's edge. This takes back the
+        // 2026-10-30 flush-left titles for that look only.
+        const refined = document.documentElement.dataset.settingsLook === "refined";
+        if (refined && title.classList.contains("group-title")) {
+          const settings = title.closest<HTMLElement>(".settings") ?? document.documentElement;
+          expected = page + parseFloat(getComputedStyle(settings).getPropertyValue("--look-row-pad-x") || "0");
+        } else if (glass) {
           // On a glass card the header shares the rows' text edge: the card edge plus a row's
           // left padding.
           const row = glass.querySelector<HTMLElement>(".row");

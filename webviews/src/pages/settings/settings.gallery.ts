@@ -11,6 +11,7 @@ import type {
 } from "./ops";
 import { minutesAgo } from "../../gallery/clock";
 import { categories } from "./categories";
+import { PERSONALIZATION_KEYS } from "./personalizationParts";
 import { MockTeams } from "./mockTeams";
 import { mockThemeColors } from "./mockThemes";
 import { schema } from "./schema";
@@ -265,12 +266,12 @@ const showEndpoint =
     form.scrollIntoView({ block: "center" });
   };
 const variants: Record<string, SettingsPageVariant> = {
-  "model-picker-placement-inherited": variant("agents", {
+  "model-picker-placement-inherited": variant("chat", {
     focus: "agentPane.display.harnessPlacement",
     host: { ...host, harness_placement: "left" },
     note: "The normal placement row shows the existing left rail preference before a new choice is saved.",
   }),
-  "model-picker-placement-symbols": variant("agents", {
+  "model-picker-placement-symbols": variant("chat", {
     focus: "agentPane.display.harnessPlacement",
     host: { ...host, harness_placement: "left" },
     options: { values: { "agentPane.display.harnessPlacement": "symbols" } },
@@ -278,13 +279,20 @@ const variants: Record<string, SettingsPageVariant> = {
   }),
 };
 for (const category of categories) {
-  const allThemes = category.id === "theme";
-  variants[category.id] = variant(category.id, { allThemes });
-  variants[`${category.id}-customized`] = variant(category.id, { allThemes, options: { values: customValues } });
+  // The theme studio (every bundled theme) is Personalization's since the Theme page moved there.
+  const allThemes = category.id === "personalization";
+  // Variant names are lower kebab case: the New Tab category's id is newTab.
+  const name = category.id.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+  variants[name] = variant(category.id, { allThemes });
+  variants[`${name}-customized`] = variant(category.id, { allThemes, options: { values: customValues } });
   // Every group gets a scroll/focus target, including controls below the initial viewport.
   for (const [index, group] of category.groups.entries())
-    variants[`${category.id}-group-${index + 1}`] = variant(category.id, {
-      focus: group.rows[0]!.key,
+    variants[`${name}-group-${index + 1}`] = variant(category.id, {
+      // A key Personalization draws opens Personalization (routeSection), so another page's group
+      // focuses its first row that page draws itself.
+      focus: (category.id === "personalization"
+        ? group.rows[0]
+        : (group.rows.find((row) => !PERSONALIZATION_KEYS.includes(row.key)) ?? group.rows[0]))!.key,
       options: { values: customValues },
       note: `${group.title.text}: customized controls, focused and scrolled into view.`,
     });
@@ -510,8 +518,9 @@ Object.assign(variants, {
     note: "Harnesses while the first look has found nothing yet: it says it is checking.",
     harnesses: { loading: true, problem: null, harnesses: [] },
   }),
-  // Change Background… (cx-t2x.4): the picker on Appearance, with its Opacity slider.
-  backdrops: variant("appearance", {
+  // Change Background… (cx-t2x.4): the picker on Personalization, with its Opacity slider.
+  backdrops: variant("personalization", {
+    focus: "personalization.background",
     options: { values: { "appearance.background": "starryNight", "appearance.backgroundOpacity": 0.6 } },
     host: {
       ...host,
@@ -560,7 +569,8 @@ Object.assign(variants, {
     note: "Personalization on Sounds: the notification sound, its volume and when it plays.",
   }),
   // Leo, 10-19: Appearance's floating Undo, Redo and Reset, after a background pick (Undo names it).
-  "appearance-undo-bar": variant("appearance", {
+  "appearance-undo-bar": variant("personalization", {
+    focus: "personalization.background",
     host: {
       ...host,
       derived: { "appearance.backgroundOpacity": 1 },
@@ -581,7 +591,7 @@ Object.assign(variants, {
     note: "Presets at the bottom right beside Undo, Redo and Reset: one pick sets the window's Opacity and Material and every surface's opacity, as one undoable step; Frosted is checked.",
   }),
   // The terminal font list open: recent fonts first under a Recent tag, every family in its own face.
-  "font-picker-open": variant("appearance", {
+  "font-picker-open": variant("terminal", {
     focus: "terminal.fontFamily",
     options: { values: { "terminal.fontFamily": "JetBrains Mono" } },
     steps: [click(`${row("terminal.fontFamily")} [data-font-picker]`), wait("[data-font-option]")],
@@ -595,7 +605,8 @@ Object.assign(variants, {
     steps: [wait(row("appearance.surfaces.sidebar.opacity"))],
     note: "Surfaces: each unset opacity shows the window's 80% as its value and each unset color the window's color under an Inherits window badge; no row reads a truncated default label.",
   }),
-  "backdrops-pending": variant("appearance", {
+  "backdrops-pending": variant("personalization", {
+    focus: "personalization.background",
     options: { values: { "appearance.background": "system:/S/Sonoma.heic" } },
     host: {
       ...host,
@@ -642,7 +653,8 @@ Object.assign(variants, {
     steps: [wait('[data-card="backdrop"]'), { selector: '[data-card="backdrop"] .backdrop-pending', action: "focus" }],
     note: "Backgrounds while macOS is still downloading one wallpaper: the selected tile is ready and the pending tile stays visibly dimmed with its download affordance.",
   }),
-  "backdrops-empty": variant("appearance", {
+  "backdrops-empty": variant("personalization", {
+    focus: "personalization.background",
     options: { values: { "appearance.background": "none" } },
     host: { ...host, backdrops: [] },
     // With no artwork the picker hides (useBackdropsShown) and the setting draws as its plain row.
@@ -650,7 +662,8 @@ Object.assign(variants, {
     note: "No artwork returned yet: the picker stays hidden and Background is its plain row, so the setting stays usable while the host list loads or is unavailable.",
   }),
   // Add from a Link (backgrounds plan phase 3): the link form open under the picker, a link typed.
-  "backdrops-link": variant("appearance", {
+  "backdrops-link": variant("personalization", {
+    focus: "personalization.background",
     host: {
       ...host,
       backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
@@ -663,7 +676,7 @@ Object.assign(variants, {
     note: "Add from a Link: an https image or movie downloads into the backgrounds folder and becomes the background.",
   }),
   // Change Background… on a workspace (cx-t2x.5): This Workspace, following All Workspaces.
-  "backdrops-workspace": variant("appearance", {
+  "backdrops-workspace": variant("personalization", {
     focus: "appearance.background",
     workspace: "ws-1",
     options: {
@@ -682,7 +695,8 @@ Object.assign(variants, {
   }),
   // The curated backdrop art (cx-t2x.7): the real thumbnails of three works from each picker
   // collection, labelled "Title — Artist" with the credit lines the app sends, one picked.
-  "curated-art": variant("appearance", {
+  "curated-art": variant("personalization", {
+    focus: "personalization.background",
     options: {
       values: { "appearance.background": "van-gogh-starry-night" },
     },
@@ -794,7 +808,8 @@ Object.assign(variants, {
     note: "The background picker grouped into Dark Art, Museum Icons, Calm and Doré, credited, one picked.",
   }),
   // Browse More Art (cx-t2x.8): a search across the open museum collections, sample answers.
-  "art-browser": variant("appearance", {
+  "art-browser": variant("personalization", {
+    focus: "personalization.background",
     options: {
       values: { "appearance.background": "starryNight" },
       museumArt: [
@@ -1061,7 +1076,7 @@ Object.assign(variants, {
     ],
     note: "A name a shipped theme uses is refused inline; the name prompt stays open.",
   }),
-  "font-picker": variant("appearance", {
+  "font-picker": variant("terminal", {
     steps: [click(`${row("terminal.fontFamily")} .domain-button`), wait(".domain-panel")],
   }),
   "domains-unavailable": variant("appearance", { options: { domains: null } }),
@@ -1070,7 +1085,7 @@ Object.assign(variants, {
     focus: "browser.customSearchEngine.search",
     options: { values: { "browser.customSearchEngine.search": "https://search.example.test/" } },
   }),
-  "invalid-color": variant("appearance", {
+  "invalid-color": variant("tabs", {
     focus: "focusRing.color",
     steps: [
       input(`${row("focusRing.color")} .hex`, "not-a-color"),
@@ -1358,13 +1373,13 @@ Object.assign(variants, {
     steps: [click('[data-chief="agent_release"]'), wait('[data-card="chiefs"] section.chief-editor')],
     note: "A Chief row opens its editor in the card: backend, lock and history, never a dialog.",
   }),
-  // Settings > Chief > Chief Pet with the pet off (the default): the Chief's character stays checked.
-  "chief-pet-off": variant("chief", {
+  // Settings > Personalization > Chief with the pet off (the default): the Chief's character stays checked.
+  "chief-pet-off": variant("personalization", {
     focus: "home.chiefPetMascot",
     note: "Chief Pet, pet off: the chosen character (Orb) is checked; Show Pet floats it.",
   }),
-  // Settings > Chief > Chief Pet with Mochi, the first animated set, picked and the pet shown.
-  "chief-pet-mochi": variant("chief", {
+  // Settings > Personalization > Chief with Mochi, the first animated set, picked and the pet shown.
+  "chief-pet-mochi": variant("personalization", {
     focus: "home.chiefPetMascot",
     options: { values: { "home.chiefPetMascot": "mochi", "home.chiefPetEnabled": true } },
     note: "Chief Pet with Mochi picked: the preview and the checked card show its static frame.",
@@ -1642,7 +1657,9 @@ Object.assign(variants, {
 // One scroller (cx-jh7kq): a select opened near the bottom edge, then the content scrolled under
 // it. The pop-up stays at its row (or waits hidden while the row is out of view); the document
 // never scrolls, so the column never slides up under the window.
-variants["play-select-scroll"] = variant("appearance", {
+// sidebar.sectionLook is a More Options row on Sidebar: the focus opens its card's More Options.
+variants["play-select-scroll"] = variant("sidebar", {
+  focus: "sidebar.sectionLook",
   note: "A select opened near the bottom, then the content scrolled: one scroller, the pop-up stays at its row.",
   play: async (ctx) => {
     const content = ctx.find({ selector: ".content" });
@@ -1777,9 +1794,9 @@ export default settingsPageEntry({
     "pages/settings/components/Highlight.tsx",
     "pages/settings/components/HostCards.tsx",
     "pages/settings/components/HostSections.tsx",
+    "pages/settings/components/MoreOptions.tsx",
     "pages/settings/components/PlaceholderSection.tsx",
     "pages/settings/components/ReadOnlyBanner.tsx",
-    "pages/settings/components/ResetButton.tsx",
     "pages/settings/components/RowNotice.tsx",
     "pages/settings/components/SearchField.tsx",
     "pages/settings/components/SearchResults.tsx",
@@ -1801,6 +1818,7 @@ export default settingsPageEntry({
     "pages/settings/editors/ChoiceOrNumberEditor.tsx",
     "pages/settings/editors/ColorEditor.tsx",
     "pages/settings/editors/DomainListEditor.tsx",
+    "pages/settings/editors/DurationEditor.tsx",
     "pages/settings/editors/Editor.tsx",
     "pages/settings/editors/FolderListEditor.tsx",
     "pages/settings/editors/HostListEditor.tsx",
