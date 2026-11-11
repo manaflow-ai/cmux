@@ -6,8 +6,8 @@ import Testing
 
 /// ui-state-fixes M1: a Chief with history whose first transcript read failed showed the first-run
 /// panel (an empty window looked like a new Chief); it shows "Couldn't load messages." with Try
-/// Again instead, and "Loading messages…" while the read is out. A truly new Chief still shows the
-/// first-run panel.
+/// Again instead, and "Loading messages…" while the read is out with nothing to draw. A truly new
+/// Chief still shows the first-run panel.
 @MainActor @Suite(.serialized) struct HomeTranscriptLoadStateTests {
     let id = ConversationID("conv_chief")
 
@@ -17,13 +17,16 @@ import Testing
         while !done(), ContinuousClock.now < deadline { await Task.yield() }
     }
 
+    /// A Chief whose first read fails shows the error, never the first-run panel: the store cannot
+    /// tell a Chief with history from a new one until a read answers. With nothing to draw meanwhile
+    /// (an inbox that names no newest message) the panel says loading, then failed with Try Again.
     @Test func aFailedFirstReadShowsRetryNotTheFirstRunPanel() async throws {
-        let source = GatedHomeSource(MockHomeSource(options: .immediate))
+        let source = GatedHomeSource(EmptyChiefSource())
         let store = HomeStore(source: source)
+        let me = try await source.inbox().me.id
         store.start()
         defer { store.stop() }
-        await settle { store.me != nil && store.isOnline && !store.rows.isEmpty }
-        let me = try #require(store.me?.id)
+        await settle { store.isOnline && !store.rows.isEmpty }
         source.failReads(true)
         source.hold()
         let view = HomeNativeTranscriptView(store: store, conversation: id, me: me)
@@ -34,14 +37,40 @@ import Testing
         await view.binding.opened()
         await settle { view.debugTranscriptLoadState == "failed" }
         #expect(view.debugTranscriptLoadState == "failed")
-        #expect(view.firstRun.isHidden, "a Chief with history whose read failed showed the first-run panel")
+        #expect(view.firstRun.isHidden, "a Chief whose read failed showed the first-run panel")
         #expect(!view.loadState.retry.isHidden)
 
         source.failReads(false)
         view.loadState.retry.performClick(nil)
-        await settle { view.debugTranscriptLoadState == nil && !store.transcript(for: id).isEmpty }
+        await settle { store.transcriptFirstPage(id) == .loaded && view.debugTranscriptLoadState == nil }
         #expect(view.debugTranscriptLoadState == nil)
-        #expect(!store.transcript(for: id).isEmpty)
+        #expect(!view.firstRun.isHidden, "a Chief that is truly new shows the first-run panel once read")
+    }
+
+    /// A Chief with history: the inbox's newest message draws at once while the first page loads
+    /// (HomeMirror.beginLoadingWithNewest), so the transcript is never blank, and a failed first
+    /// read still never shows the first-run panel; Try Again brings the rest.
+    @Test func aChiefWithHistoryDrawsItsNewestAndNeverTheFirstRunPanel() async throws {
+        let source = GatedHomeSource(MockHomeSource(options: .immediate))
+        let store = HomeStore(source: source)
+        store.start()
+        defer { store.stop() }
+        await settle { store.me != nil && store.isOnline && !store.rows.isEmpty }
+        let me = try #require(store.me?.id)
+        source.failReads(true)
+        let view = HomeNativeTranscriptView(store: store, conversation: id, me: me)
+        defer { view.stop() }
+        await settle { !store.transcript(for: id).isEmpty }
+        #expect(store.transcript(for: id).count == 1, "the inbox's newest message did not draw at once")
+        await view.binding.opened()
+        await settle { store.transcriptFirstPage(id) == .failed }
+        #expect(store.transcriptFirstPage(id) == .failed)
+        #expect(view.firstRun.isHidden, "a Chief with history whose read failed showed the first-run panel")
+
+        source.failReads(false)
+        await store.retryTranscript(id).value
+        #expect(store.transcriptFirstPage(id) == .loaded)
+        #expect(store.transcript(for: id).count > 1)
         #expect(view.firstRun.isHidden, "a Chief with history never shows the first-run panel")
     }
 

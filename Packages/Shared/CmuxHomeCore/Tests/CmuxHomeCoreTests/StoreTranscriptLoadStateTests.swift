@@ -37,11 +37,12 @@ import CmuxHomeCoreTestSupport
         source.failReads(true)
         await store.open(chief)
         #expect(store.transcriptFirstPage(chief) == .failed, "a failed first read looked like an empty conversation")
-        #expect(store.transcript(for: chief).isEmpty)
+        // Only the inbox's newest message, drawn at once on open (HomeMirror.beginLoadingWithNewest).
+        #expect(store.transcript(for: chief).count == 1)
         source.failReads(false)
         await store.retryTranscript(chief).value
         #expect(store.transcriptFirstPage(chief) == .loaded)
-        #expect(!store.transcript(for: chief).isEmpty)
+        #expect(store.transcript(for: chief).count > 1)
         store.stop()
     }
 
@@ -65,7 +66,7 @@ import CmuxHomeCoreTestSupport
         #expect(store.transcriptFirstPage(chief) == .loading)
         clock.advance(by: HomeStore.firstPageDeadline)
         await waitUntil { store.transcriptFirstPage(chief) == .failed }
-        #expect(store.transcript(for: chief).isEmpty)
+        #expect(store.transcript(for: chief).count == 1, "only the inbox's newest message draws before the first page")
 
         // Try Again while the read is still out: loading again, under a fresh deadline.
         _ = store.retryTranscript(chief)
@@ -78,7 +79,7 @@ import CmuxHomeCoreTestSupport
         source.release()
         await opening.value
         #expect(store.transcriptFirstPage(chief) == .loaded)
-        #expect(!store.transcript(for: chief).isEmpty)
+        #expect(store.transcript(for: chief).count > 1)
         store.stop()
     }
 
