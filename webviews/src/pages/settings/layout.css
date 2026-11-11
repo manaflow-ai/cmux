@@ -214,26 +214,26 @@
   }
 
   .scroll-edge > span:nth-child(1) {
-    backdrop-filter: blur(1px);
-    -webkit-backdrop-filter: blur(1px);
+    backdrop-filter: blur(1px); /* glass-raw-blur-allow: a scroll edge's progressive fade, not a glass surface */
+    -webkit-backdrop-filter: blur(1px); /* glass-raw-blur-allow: a scroll edge's progressive fade, not a glass surface */
     mask-image: linear-gradient(to bottom, black 75%, transparent);
   }
 
   .scroll-edge > span:nth-child(2) {
-    backdrop-filter: blur(2px);
-    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px); /* glass-raw-blur-allow: a scroll edge's progressive fade, not a glass surface */
+    -webkit-backdrop-filter: blur(2px); /* glass-raw-blur-allow: a scroll edge's progressive fade, not a glass surface */
     mask-image: linear-gradient(to bottom, black 60%, transparent 85%);
   }
 
   .scroll-edge > span:nth-child(3) {
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px); /* glass-raw-blur-allow: a scroll edge's progressive fade, not a glass surface */
+    -webkit-backdrop-filter: blur(4px); /* glass-raw-blur-allow: a scroll edge's progressive fade, not a glass surface */
     mask-image: linear-gradient(to bottom, black 45%, transparent 70%);
   }
 
   .scroll-edge > span:nth-child(4) {
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px); /* glass-raw-blur-allow: a scroll edge's progressive fade, not a glass surface */
+    -webkit-backdrop-filter: blur(8px); /* glass-raw-blur-allow: a scroll edge's progressive fade, not a glass surface */
     mask-image: linear-gradient(to bottom, black 30%, transparent 55%);
   }
 }

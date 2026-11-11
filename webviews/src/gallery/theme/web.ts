@@ -83,6 +83,9 @@ export function webThemePayload(
       "--cmux-text-secondary": css(tokens.textSecondary),
       "--cmux-text-tertiary": css(tokens.textTertiary),
       "--cmux-separator": lines ? css(tokens.separator) : "transparent",
+      // The window sidebar's edge line: the app's split divider color override, else the separator.
+      // The gallery has no divider override, so it is the separator.
+      "--cmux-sidebar-line": lines ? css(tokens.separator) : "transparent",
       "--cmux-hover": css(tokens.hoverFill),
       "--cmux-selection": css(tokens.selectionFill),
       // The gallery has no Ghostty cursor color: the text color. Selected text is the app's one

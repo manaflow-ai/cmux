@@ -523,6 +523,16 @@ mark {
   gap: var(--ds-space-2);
 }
 
+/* The address field sits left of its menu. Top-aligned, so a refusal that opens under the field
+   (the field grows taller) never moves the menu beside it. */
+.choice-or-url {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: var(--ds-space-2);
+}
+
 .unit {
   color: var(--muted-text);
 }
