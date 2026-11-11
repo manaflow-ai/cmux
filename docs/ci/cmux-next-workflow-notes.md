@@ -1789,6 +1789,15 @@ Above `same-tree-cmux-tui: if` in `.github/workflows/cmux-next.yml`.
 A superseded push reports nothing (its newer head is tested); a pull
 request's cold tree is named in path_route's summary, skipped here.
 
+A same-tree run dispatched with `same_tree_state=failed` reads the tree's
+publish record (its `completion.json` on R2, keyed by the tree key its
+reason names) before it reports red: a tree published since dispatches the
+ready tree jobs and marks the stale statuses pending. A re-run keeps the
+dispatch inputs, so before this a re-run repeated the old verdict forever
+(cmux#40449, run 43009515785). A red it does report leaves a `reported`
+tree wait marker, so the key's next publication re-dispatches every tier it
+reported (`scripts/ci/cmux_next_same_tree_failed.py`).
+
 ## note-178
 
 Above `swift-canary-fleet: if` in `.github/workflows/cmux-next.yml`.
@@ -2819,6 +2828,9 @@ Above `crash-ends-app` in `.github/workflows/cmux-next.yml`.
 
 The crash gate runs in cmux-scheme-compile on the app that job built. This
 job is its check: red when a crash froze the app instead of ending it.
+A push's compile that a newer push replaced while it waited for its
+concurrency group is no red here: the newer push's run carries the verdict
+(scripts/ci/needs_verdict.py SUPERSEDED_RULE).
 
 ## note-327
 
