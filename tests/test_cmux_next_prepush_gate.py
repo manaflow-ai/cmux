@@ -1687,7 +1687,7 @@ let package = Package(
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     CHROME_VECTORS = "schemas/theme/chrome-layer-colors.json"
-    CHROME_PALETTE = f"{PKG}/Sources/CmuxNextDesign/Palette.swift"
+    CHROME_PALETTE = f"{PKG}/Sources/CmuxNextDesign/MainPane.swift"
 
     def test_a_chrome_colour_change_without_a_chrome_look_trailer_is_refused_even_with_a_skip_reason(self):
         # #39984 dimmed the sidebar for a non-Leo issue (Leo 2026-11-11: "bro why is the sidebar now a different
