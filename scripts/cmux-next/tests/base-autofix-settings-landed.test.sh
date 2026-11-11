@@ -20,7 +20,7 @@ mdm=docs/mdm/com.manaflow.cmux.json
 # exports dir) and found the MDM file unchanged (not in the dir).
 setup() {
   rm -rf "$tmp/remote.git" "$tmp/lane" "$tmp/bot" "$tmp/exports"
-  git init -q --bare -b feat "$tmp/remote.git"
+  git_fixture_init --bare -b feat "$tmp/remote.git"
   git clone -q "$tmp/remote.git" "$tmp/lane" 2>/dev/null
   (cd "$tmp/lane" && git checkout -q -b feat && mkdir -p scripts/ci schemas/settings docs/mdm \
     && cat > scripts/ci/defaults_guard.py <<'PY'

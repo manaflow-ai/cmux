@@ -17,7 +17,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 # A remote with the run's commit A, then B and C on top; the bot's checkout is depth 1 at A.
 setup() {
   rm -rf "$tmp/remote.git" "$tmp/lane" "$tmp/bot"
-  git init -q --bare -b feat "$tmp/remote.git"
+  git_fixture_init --bare -b feat "$tmp/remote.git"
   git clone -q "$tmp/remote.git" "$tmp/lane" 2>/dev/null
   (cd "$tmp/lane" && git checkout -q -b feat && echo a > a.txt \
     && git add -A && git commit -q -m A && git push -q origin feat)

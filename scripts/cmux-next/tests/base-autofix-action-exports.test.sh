@@ -25,7 +25,7 @@ links=plans/cmux-next/links.json
 # a lane clone that pushes other people's commits.
 setup() {
   rm -rf "$tmp/remote.git" "$tmp/bot" "$tmp/lane"
-  git init -q --bare -b feat "$tmp/remote.git"
+  git_fixture_init --bare -b feat "$tmp/remote.git"
   git clone -q "$tmp/remote.git" "$tmp/lane" 2>/dev/null
   (cd "$tmp/lane" && git checkout -q -b feat \
     && mkdir -p "$(dirname "$actions_src")" plans/cmux-next web/scripts \

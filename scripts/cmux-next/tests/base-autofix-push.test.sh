@@ -22,7 +22,7 @@ cap=plans/cmux-next/daemon-capabilities.json
 setup() {
   with_cap="${1:-}"
   rm -rf "$tmp/remote.git" "$tmp/bot" "$tmp/lane"
-  git init -q --bare -b feat "$tmp/remote.git"
+  git_fixture_init --bare -b feat "$tmp/remote.git"
   git clone -q "$tmp/remote.git" "$tmp/lane" 2>/dev/null
   (cd "$tmp/lane" && git checkout -q -b feat && mkdir -p web/data \
     && echo src > source.txt && echo old > "$gen" \
@@ -114,7 +114,7 @@ grep -q "cmux-tui/bindings/page/generated.txt" "$tmp/out" || fail "the refusal d
 # sources; the fake flag file sits outside every input area so a flag edit moves nothing else.
 setup_next() {
   rm -rf "$tmp/remote.git" "$tmp/bot" "$tmp/lane"
-  git init -q --bare -b feat "$tmp/remote.git"
+  git_fixture_init --bare -b feat "$tmp/remote.git"
   git clone -q "$tmp/remote.git" "$tmp/lane" 2>/dev/null
   (cd "$tmp/lane" && git checkout -q -b feat \
     && mkdir -p Packages/macOS/CmuxNext/Sources/CmuxNextSettings schemas/settings \

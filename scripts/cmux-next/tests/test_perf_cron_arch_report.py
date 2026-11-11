@@ -26,7 +26,8 @@ _git_fixture_env = importlib.util.spec_from_file_location(
     "git_fixture_env",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "tests", "git_fixture_env.py"),
 )
-_git_fixture_env.loader.exec_module(importlib.util.module_from_spec(_git_fixture_env))
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_env)
+_git_fixture_env.loader.exec_module(git_fixture_env)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location("perf_cron_arch_report", os.path.join(HERE, "..", "perf-cron-arch-report.py"))

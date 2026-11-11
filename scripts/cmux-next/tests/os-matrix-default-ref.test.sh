@@ -24,7 +24,7 @@ cp "$ROOT/scripts/fuzz/macos-matrix/images.json" "$TMP/src/scripts/fuzz/macos-ma
 git_q -C "$TMP/src" add -A
 git_q -C "$TMP/src" commit -m base
 git_q -C "$TMP/src" branch -M feat-cmux-next
-git_q clone --bare "$TMP/src" "$TMP/origin.git"
+git_fixture_clone --bare "$TMP/src" "$TMP/origin.git"
 git_q clone -b feat-cmux-next "$TMP/origin.git" "$TMP/work"
 
 # The stub: `run` records its arguments and gives a verdict; `artifact` writes an empty results tarball.
@@ -92,7 +92,7 @@ echo one >"$TMP/subsrc/f"
 git_q -C "$TMP/subsrc" add -A
 git_q -C "$TMP/subsrc" commit -m one
 git_q -C "$TMP/subsrc" branch -M main
-git_q clone --bare "$TMP/subsrc" "$TMP/sub.git"
+git_fixture_clone --bare "$TMP/subsrc" "$TMP/sub.git"
 git_q -C "$TMP/src" submodule add "$TMP/sub.git" mod
 git_q -C "$TMP/src" commit -m "add mod"
 git_q -C "$TMP/src" push "$TMP/origin.git" feat-cmux-next

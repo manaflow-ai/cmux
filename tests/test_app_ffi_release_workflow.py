@@ -43,7 +43,13 @@ WORKFLOW = ROOT / ".github/workflows/app-ffi-release.yml"
 REPIN_WORKFLOW = ROOT / ".github/workflows/app-ffi-repin.yml"
 sys.path.insert(0, str(ROOT / "tests"))
 from test_seed_derived_data import evaluate  # noqa: E402
-import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 SHA = "45845b2d13d794c435d31f72ea74dc0f4a5739d0"
 TAG = f"cmux-app-ffi-{SHA}"
@@ -138,11 +144,11 @@ class PublishJob(unittest.TestCase):
                                                 "workflow_changed": "true" if workflow_changed else "false"}}},
                 "vars": {}, "runner": {"temp": str(temp_path)},
             }
-            base_env = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "HOME": temp, "STATE": str(state),
+            base_env = git_fixture_env.fixture_env({"PATH": f"{bin_dir}:{os.environ['PATH']}", "HOME": temp, "STATE": str(state),
                         "FAKE_CREATE": create, "GITHUB_SHA": SHA, "GITHUB_REPOSITORY": REPO,
                         "GITHUB_RUN_ID": RUN_ID, "GITHUB_SERVER_URL": "https://github.com",
                         "RUNNER_TEMP": temp, "GITHUB_OUTPUT": str(temp_path / "output"),
-                        "GITHUB_STEP_SUMMARY": str(temp_path / "summary")}
+                        "GITHUB_STEP_SUMMARY": str(temp_path / "summary")})
             base_env.update({key: render(value, context) for key, value in (job.get("env") or {}).items()})
             failed, log = False, []
             for step in job["steps"]:
@@ -606,7 +612,7 @@ class NewestPublishedRelease(unittest.TestCase):
         self.addCleanup(subprocess.run, ["rm", "-rf", str(self.temp)])
         self.origin, self.work, self.releases = self.temp / "origin.git", self.temp / "work", self.temp / "releases"
         self.releases.mkdir()
-        subprocess.run(["git", "init", "-q", "--bare", str(self.origin)], check=True)
+        git_fixture_env.init_repo(self.origin, "--bare")
         subprocess.run(["git", "init", "-q", str(self.work)], check=True)
         self.git("remote", "add", "origin", str(self.origin))
         self.commits = [self.commit(f"c{i}") for i in range(6)]

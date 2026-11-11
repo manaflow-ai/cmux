@@ -85,7 +85,7 @@ first="$(git -C "$seed" rev-parse HEAD)"
 pin_manifest "$first"
 git -C "$seed" add -A
 git -C "$seed" commit -qm pin
-git clone -q --bare "$seed" "$tmp/remote.git"
+git_fixture_clone --bare "$seed" "$tmp/remote.git"
 export PIN_BASE_REMOTE="$tmp/remote.git"
 
 work="$tmp/work"

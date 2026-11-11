@@ -19,7 +19,8 @@ _git_fixture_env = importlib.util.spec_from_file_location(
     "git_fixture_env",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "tests", "git_fixture_env.py"),
 )
-_git_fixture_env.loader.exec_module(importlib.util.module_from_spec(_git_fixture_env))
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_env)
+_git_fixture_env.loader.exec_module(git_fixture_env)
 
 HERE = Path(__file__).resolve().parent
 SCRIPT = HERE.parent / "check-package-dependency-lists.py"
@@ -571,11 +572,10 @@ class HealTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.repo = self.root / "repo"
         self.origin = self.root / "origin.git"
-        self.env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        self.env = git_fixture_env.fixture_env({k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
         self.env.update(GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@e", GIT_COMMITTER_NAME="t",
                         GIT_COMMITTER_EMAIL="t@e", GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
-        subprocess.run(["git", "init", "-q", "--bare", "-b", "feat-cmux-next", str(self.origin)], check=True,
-                       env=self.env)
+        git_fixture_env.init_repo(self.origin, "--bare", "-b", "feat-cmux-next", env=self.env)
         self.git("init", "-q", "-b", "feat-cmux-next", cwd=self.root, target=str(self.repo))
         self.git("remote", "add", "origin", str(self.origin))
         package = self.repo / heal.MANIFEST

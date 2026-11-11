@@ -25,7 +25,7 @@ echo base > "$TMP/src/cmux-tui/a"
 git_q -C "$TMP/src" add -A
 git_q -C "$TMP/src" commit -m base
 git_q -C "$TMP/src" branch -M feat-cmux-next
-git_q clone --bare "$TMP/src" "$TMP/origin.git"
+git_fixture_clone --bare "$TMP/src" "$TMP/origin.git"
 git -C "$TMP/origin.git" config uploadpack.allowFilter true
 
 # Lane branches, each with its own cmux-tui tree, and one commit on another
