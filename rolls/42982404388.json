@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42982404388",
+  "recorded_at": "2026-11-11T07:57:32Z",
+  "reason": "cmux-tui 47ae544a3e16 changes the image's cmux-tui (pinned a258c7920313)",
+  "dry_run": false,
+  "cmux_tui": "47ae544a3e16cc34b7ea3cc9729be2c1fdd3f451",
+  "fixes": [
+    {
+      "sha": "47ae544a3e16cc34b7ea3cc9729be2c1fdd3f451",
+      "mergedAt": "2026-11-10T23:36:22-08:00",
+      "subject": "test(cmux-tui): the initial route budget tests require the stalled route to fail on its 20 ms timer (#40662)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T07:57:32Z",
+    "snapshot_id": "sh-5032a3f096b74134b78f8618ee65a8df",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42982404388): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a5c8aad2465ab19d84b4e4dc67c915ea564d174c",
+    "image": "cloud-native-auto-47ae544a-42982404388-1",
+    "revision": "ci-42982404388-1",
+    "at": "2026-11-11T07:57:32Z"
+  },
+  "rolled_back": false
+}
