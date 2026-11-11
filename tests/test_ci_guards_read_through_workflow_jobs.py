@@ -73,6 +73,20 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("test_test_reds.py", "dict(self.job, steps=[dict(s, status='completed', conclusion='success') for s in self.job['steps']])"):
         "a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job (LOST_JOB)",
     ("test_test_reds.py", "dict(self.job, conclusion='cancelled')"): "a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job (LOST_JOB)",
+    ('test_base_red_excuse.py', "dict(self.gh.jobs[2], steps=[{'number': 1, 'name': 'Set up job', 'status': 'completed', 'conclusion': 'success', 'started_at': '2026-10-30T23:15:20Z', 'completed_at': '2026-10-30T23:15:30Z'}, {'number': 2, 'name': 'swift test (macOS)', 'status': 'completed', 'conclusion': 'success', 'started_at': '2026-10-30T23:15:31Z', 'completed_at': '2026-10-30T23:16:37Z'}, {'number': 3, 'name': self.STEP, 'status': 'completed', 'conclusion': 'failure', 'started_at': '2026-10-30T23:16:38Z', 'completed_at': '2026-10-30T23:29:27Z'}, {'number': 4, 'name': 'Complete job', 'status': 'completed', 'conclusion': 'success', 'started_at': '2026-10-30T23:29:27Z', 'completed_at': '2026-10-30T23:29:27Z'}])"):
+        'a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job',
+    ('test_base_red_excuse.py', "dict(github.jobs[2], conclusion='success', steps=[dict(step, conclusion='success' if step['name'] == PrOnlyStepGitHub.LIVE else step['conclusion']) for step in github.jobs[2]['steps']])"):
+        'a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job',
+    ('test_base_red_excuse.py', "dict(job, conclusion='success')"):
+        'a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job',
+    ('test_base_red_excuse.py', 'dict(base_job, id=2, run_id=20, head_sha=BASE_SHA)'):
+        'a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job',
+    ('test_base_red_excuse.py', 'dict(job, id=1, run_id=10, head_sha=HEAD)'):
+        'a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job',
+    ('test_base_red_excuse.py', "dict(job, id=2, run_id=20, head_sha=BASE_SHA, conclusion='success', steps=green)"):
+        'a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job',
+    ('test_base_red_excuse.py', 'dict(job, name=name)'):
+        'a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job',
     ("test_nightly_linux_admission.py", "{**receipt('fleet'), **mutation}"):
         "an admission receipt merged with a mutation; the loop that binds `mutation` builds a runner map per job",
 }

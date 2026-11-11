@@ -2041,7 +2041,7 @@ class AppFfiBuildPlacement(unittest.TestCase):
                    for key, value in workflow["jobs"]["placement"]["outputs"].items()}
         build = {**context, "needs": {"placement": {"outputs": {key: "" if value is None else str(value)
                                                                 for key, value in outputs.items()}}}}
-        return evaluate(workflow["jobs"]["build"]["runs-on"], build), lines
+        return evaluate(workflow_jobs.single_runs_on(workflow["jobs"]["build"]), build), lines
 
     def test_an_idle_promote_runner_takes_the_build(self):
         idle = runner("cmux14", labels=(self.PROMOTE,))
@@ -2092,7 +2092,7 @@ class AppFfiBuildPlacement(unittest.TestCase):
         context["needs"] = {"placement": {"outputs": {"promote_runner": self.PROMOTE, "placed_attempt": "1",
                                                       "blacksmith_12_jobs": " app-ffi-build ",
                                                       "blacksmith_6_jobs": ""}}}
-        self.assertEqual(evaluate(workflow["jobs"]["build"]["runs-on"], context), FALLBACK)
+        self.assertEqual(evaluate(workflow_jobs.single_runs_on(workflow["jobs"]["build"]), context), FALLBACK)
 
     def test_a_placement_that_did_not_run_keeps_the_earlier_route(self):
         label, _ = self.route([], promote=self.PROMOTE, ran=False)

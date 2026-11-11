@@ -24,6 +24,7 @@ import nightly_runner_preflight as preflight  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "tests"))
 from nightly_workflow_text import expand  # noqa: E402
+import workflow_jobs  # noqa: E402
 
 NOW = dt.datetime(2026, 11, 11, 1, 40, tzinfo=dt.timezone.utc)
 
@@ -129,8 +130,9 @@ class Wiring(unittest.TestCase):
         job = self.JOBS["runner-preflight"]
         self.assertEqual(self.JOBS["decide"]["needs"], "runner-preflight")
         self.assertEqual(job["if"], self.JOBS["decide"]["if"], "the preflight runs exactly when decide would")
-        self.assertEqual(job["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}")
-        self.assertNotIn("vars.", job["runs-on"])
+        runs_on = workflow_jobs.single_runs_on(job)
+        self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}")
+        self.assertNotIn("vars.", runs_on)
         self.assertEqual(job["permissions"], {})
         self.assertLessEqual(job["timeout-minutes"], 5)
         text = json.dumps(job)
@@ -143,8 +145,8 @@ class Wiring(unittest.TestCase):
 
     def test_the_judged_labels_match_decides_route(self) -> None:
         self.assertIn("vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || "
-                      f"'{preflight.DEDICATED}'", self.JOBS["decide"]["runs-on"])
-        self.assertIn("vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI_BUILDER", self.JOBS["build-nightly-app"]["runs-on"])
+                      f"'{preflight.DEDICATED}'", workflow_jobs.single_runs_on(self.JOBS["decide"]))
+        self.assertIn("vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI_BUILDER", workflow_jobs.single_runs_on(self.JOBS["build-nightly-app"]))
 
 
 if __name__ == "__main__":
