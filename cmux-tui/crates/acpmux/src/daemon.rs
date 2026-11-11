@@ -550,7 +550,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         }
         hub.watches.open(&home().join("watches.json"));
     }
-    crate::hub::watches::Watches::start(&hub);
+    hub.start_watches();
     // The team hub's relay, when config.json names one (`server/mesh_relay.rs`).
     let mesh_relay = crate::server::mesh_relay::start_configured(&hub).await;
     // The hub carrier on the same hub and credential (`hub_carrier.rs`): this machine serves its
