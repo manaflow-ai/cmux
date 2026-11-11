@@ -39,8 +39,9 @@ flag, never read from the environment:
 - --json: the findings as JSON (key, message, file, line, status), exit 0; the pre-push gate's input.
 
 Every finding has a status. "found": the scan ran and found it. "incomplete": the scan (or a part of it) did not run,
-so what it would have found is unknown: a declaration that is missing, unreadable or of the wrong shape, or a
-workflow whose YAML does not load. The gate never subtracts an incomplete finding as old debt and refuses any push
+so what it would have found is unknown: a declaration that is missing, unreadable or of the wrong shape, a
+workflow whose YAML does not load, or a runs-on trace the resolver refused to finish (Resolved.unverifiable: a loop
+or a chain past MAX_TRACE_DEPTH). The gate never subtracts an incomplete finding as old debt and refuses any push
 whose head has one (Codex on #40840: a schema fault the base already had was subtracted, so a new vars.NAME at the
 head passed with no scan at all).
 """
@@ -210,7 +211,8 @@ class Reads:
         self.variables: dict[str, list[tuple[str, str, int]]] = {}
         self.lines: list[tuple[str, int, str]] = []  # (file, line, a resolved runs-on label)
         self.dynamic: list[tuple[str, str, int]] = []  # (where, file, line) of a variable read with no literal name
-        self.unverifiable: list[tuple[str, str, int]] = []  # (where, file, line) of a trace the resolver refused
+        # (where, file, line, a loop or else too deep) of a trace the resolver refused
+        self.unverifiable: list[tuple[str, str, int, bool]] = []
         self.unreadable: list[str] = []
 
 
@@ -259,7 +261,7 @@ def references(workflow_dirs: Iterable[Path]) -> Reads:
                     source = paths.get(loop.workflow, paths[name])
                     _, line = first_line([source], re.compile(rf"^\s*{re.escape(loop.name)}\s*:", re.IGNORECASE))
                     reads.unverifiable.append((f"{where}: inputs.{loop.name} of {loop.workflow} ({loop.reason})",
-                                               f"{WORKFLOWS}/{source.name}", line))
+                                               f"{WORKFLOWS}/{source.name}", line, loop.reason.startswith("a loop")))
                 for value in sorted(resolved.runs_on):
                     for label in LABEL.findall(value):
                         _, line = first_line([paths[name]], re.compile(rf"(?<![A-Za-z0-9_.-]){re.escape(label)}(?![A-Za-z0-9_.-])"))
@@ -280,10 +282,15 @@ def findings(workflow_dirs: Iterable[Path], policy: dict) -> list[dict]:
                       "line": line, "status": FOUND,
                       "message": f"{where}: a runs-on reads a repository variable whose name is an expression, so "
                                  f"{DECLARATION} cannot declare its fallback; name the variable"})
-    for where, rel, line in reads.unverifiable:
-        found.append({"key": f"unverifiable:{where}", "file": rel, "line": line, "status": FOUND,
-                      "message": f"{where}: a runs-on takes its value through this input, whose trace never ends, so "
-                                 f"the variables it reads cannot be verified; break the loop"})
+    # INCOMPLETE: what such a trace reads past where it stopped is unknown, so the gate never subtracts the base's copy
+    # (Codex on #41015: a head that read a new variable past the same cut had only the base's finding, which was
+    # subtracted as debt).
+    for where, rel, line, loop in reads.unverifiable:
+        found.append({"key": f"unverifiable:{where}", "file": rel, "line": line, "status": INCOMPLETE,
+                      "message": f"{where}: a runs-on takes its value through this input, whose trace "
+                                 + ("never ends, so the variables it reads cannot be verified; break the loop" if loop
+                                    else "passes more inputs than the resolver follows, so the variables it reads "
+                                         "cannot be verified; shorten the chain")})
     declared = {name.upper() for name in policy.get("variables", {})}
     for name in sorted(reads.variables):
         if name in declared:

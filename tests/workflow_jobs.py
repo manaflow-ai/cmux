@@ -362,16 +362,91 @@ class Unverifiable(NamedTuple):
 MAX_TRACE_DEPTH = 32
 
 
+Result = tuple[set[str], set[str]]
+
+
 class _Trace:
-    """One field's trace through Workflows: each input's values once per trace, memoised on (workflow, input) for
-    the values every caller gives it and on (workflow, caller, caller job, input) for one caller's, so a chain of
-    inputs costs O(callers x inputs), never 2^inputs. `open` holds what is being traced now: meeting one again is a
-    loop. `depth` counts the inputs on the way down."""
+    """One field's trace through Workflows, memoised so a chain of inputs costs O(callers x inputs), never 2^inputs.
+    Keys are ("in", workflow, input) for the values every caller gives an input and ("call", workflow, caller file,
+    caller job, input) for one caller's. A result is reused only where it is the same answer (Codex on #41015 F1: a
+    result cut short by MAX_TRACE_DEPTH, cached at depth 31, was reused at depth 1, so a variable two inputs further
+    on was never read):
+    - `done`: nothing cut it short, so it holds anywhere;
+    - `at_depth`: MAX_TRACE_DEPTH cut it, so it holds only at the depth it was traced at (keyed on (key, depth), so
+      at most MAX_TRACE_DEPTH copies of a key);
+    - `provisional`: a loop back to an input still open above it cut it, so it holds only until that input's trace
+      ends (its `low`, an index into `stack`); the input that closes the loop holds every value of the loop.
+    `stack` is what is being traced now (meeting one again is a loop) and `frames` each open one's lowest dependency
+    and whether MAX_TRACE_DEPTH cut it; `depth` counts the inputs on the way down."""
 
     def __init__(self) -> None:
-        self.done: dict[tuple, tuple[set[str], set[str]]] = {}
-        self.open: set[tuple] = set()
+        self.done: dict[tuple, Result] = {}
+        self.at_depth: dict[tuple, Result] = {}
+        self.provisional: dict[tuple, tuple[Result, int, bool]] = {}
+        self.by_low: dict[int, list[tuple]] = {}
+        self.stack: list[tuple] = []
+        self.frames: list[list] = []  # [low, cut by depth]
         self.depth = 0
+
+    def _depends(self, low: int | None = None, cut: bool = False) -> None:
+        if self.frames:
+            frame = self.frames[-1]
+            if low is not None:
+                frame[0] = min(frame[0], low)
+            frame[1] = frame[1] or cut
+
+    def lookup(self, key: tuple) -> Result | None:
+        """A result for KEY that holds here, or None; reusing a cut one makes the open input depend on its cut."""
+        if key in self.done:
+            return self.done[key]
+        if (key, self.depth) in self.at_depth:
+            self._depends(cut=True)
+            return self.at_depth[(key, self.depth)]
+        for slot in ((key, None), (key, self.depth)):
+            if slot in self.provisional:
+                result, low, cut = self.provisional[slot]
+                self._depends(low, cut)
+                return result
+        return None
+
+    def looped(self, key: tuple) -> bool:
+        """KEY is open above: the loop makes every open input from it down depend on it."""
+        if key not in self.stack:
+            return False
+        self._depends(low=self.stack.index(key))
+        return True
+
+    def too_deep(self) -> bool:
+        if self.depth < MAX_TRACE_DEPTH:
+            return False
+        self._depends(cut=True)
+        return True
+
+    def run(self, key: tuple, compute: Callable[[], Result], deeper: bool) -> Result:
+        """compute() with KEY open, its result stored where it holds (see the class doc)."""
+        index = len(self.stack)
+        self.stack.append(key)
+        self.frames.append([index, False])
+        self.depth += deeper
+        try:
+            result = compute()
+        finally:
+            self.stack.pop()
+            low, cut = self.frames.pop()
+            self.depth -= deeper
+            for slot in self.by_low.pop(index, ()):  # results that held only while KEY was open
+                self.provisional.pop(slot, None)
+        if low < index:
+            slot = (key, self.depth if cut else None)
+            self.provisional[slot] = (result, low, cut)
+            self.by_low.setdefault(low, []).append(slot)
+            self._depends(low, cut)
+        elif cut:
+            self.at_depth[(key, self.depth)] = result
+            self._depends(cut=True)
+        else:
+            self.done[key] = result
+        return result
 
 
 class VarReads:
@@ -495,31 +570,31 @@ class Workflows:
         reads, with the caller's file, job and `with.<name>` path. Each caller is read on its own (_call_value).
 
         A call cycle (an input whose callers' values come back to it through other workflows) stays unresolved and,
-        with `reads`, is recorded as Unverifiable. Within one trace each input is read once (memoised), so a
-        workflow called twice by each of a chain of workflows costs O(workflows), never 2^workflows."""
+        with `reads`, is recorded as Unverifiable. Within one trace each input is read once where its answer is the
+        same (_Trace), so a workflow called twice by each of a chain of workflows costs O(workflows), never
+        2^workflows."""
         trace = _trace or _Trace()
-        key = (workflow, name.lower())
-        if key in trace.done:
-            return trace.done[key]
-        if key in trace.open:
+        key = ("in", workflow, name.lower())
+        known = trace.lookup(key)
+        if known is not None:
+            return known
+        if trace.looped(key):
             if reads is not None:
                 reads.refuse(workflow, name, "a loop")
             return set(), {f"inputs.{name}"}
         callers = list(self.callers(workflow))
         if not callers:
             return set(), {f"inputs.{name}"}
-        values: set[str] = set()
-        unresolved: set[str] = set()
-        trace.open.add(key)
-        try:
+
+        def every_caller() -> Result:
+            values: set[str] = set()
+            unresolved: set[str] = set()
             for call in callers:
                 found, open_terms = self._call_value(workflow, call, name, reads, trace)
                 values |= found
                 unresolved |= open_terms
-        finally:
-            trace.open.discard(key)
-        trace.done[key] = (values, unresolved)
-        return values, unresolved
+            return values, unresolved
+        return trace.run(key, every_caller, deeper=False)
 
     def _call_value(self, workflow: str, call: tuple[str, str, Mapping[str, Any]], name: str,
                     reads: VarReads | None, trace: _Trace) -> tuple[set[str], set[str]]:
@@ -531,37 +606,35 @@ class Workflows:
         and two finite chains made a loop). A chain that comes back to an input of the same caller, or passes
         MAX_TRACE_DEPTH inputs, stays unresolved and, with `reads`, is recorded as Unverifiable."""
         caller, caller_job, job = call
-        key = (workflow, caller, caller_job, name.lower())
-        if key in trace.done:
-            return trace.done[key]
-        if key in trace.open or trace.depth >= MAX_TRACE_DEPTH:
+        key = ("call", workflow, caller, caller_job, name.lower())
+        known = trace.lookup(key)
+        if known is not None:
+            return known
+        if trace.looped(key):
             if reads is not None:
-                reads.refuse(workflow, name, f"a loop for the call in {caller} job {caller_job}"
-                             if key in trace.open else f"more than {MAX_TRACE_DEPTH} inputs")
+                reads.refuse(workflow, name, f"a loop for the call in {caller} job {caller_job}")
+            return set(), {f"inputs.{name}"}
+        if trace.too_deep():
+            if reads is not None:
+                reads.refuse(workflow, name, f"more than {MAX_TRACE_DEPTH} inputs")
             return set(), {f"inputs.{name}"}
         passed_key = next((k for k in (job.get("with") or {}) if str(k).lower() == name.lower()), None)
-        trace.open.add(key)
-        trace.depth += 1
-        try:
+
+        def one_call() -> Result:
             if passed_key is not None:
                 here = reads.at(caller, caller_job) if reads is not None else None
-                result = _resolve(job, _scalar_text(job["with"][passed_key]), self.tracer(caller, reads, trace),
-                                  here, f"with.{passed_key}")
-            else:
-                default = self._declared_default(workflow, name)
-                if not isinstance(default, str):
-                    result = ({"" if default is None else _scalar_text(default)}, set())
-                else:
-                    def same_call(term: str) -> tuple[set[str], set[str]] | None:
-                        match = _INPUT_TERM.fullmatch(term)
-                        return self._call_value(workflow, call, match.group(1), reads, trace) if match else None
-                    here = reads.at(workflow, "") if reads is not None else None
-                    result = _resolve({}, default, same_call, here, f"on.workflow_call.inputs.{name}.default")
-        finally:
-            trace.open.discard(key)
-            trace.depth -= 1
-        trace.done[key] = result
-        return result
+                return _resolve(job, _scalar_text(job["with"][passed_key]), self.tracer(caller, reads, trace),
+                                here, f"with.{passed_key}")
+            default = self._declared_default(workflow, name)
+            if not isinstance(default, str):
+                return {"" if default is None else _scalar_text(default)}, set()
+
+            def same_call(term: str) -> tuple[set[str], set[str]] | None:
+                match = _INPUT_TERM.fullmatch(term)
+                return self._call_value(workflow, call, match.group(1), reads, trace) if match else None
+            here = reads.at(workflow, "") if reads is not None else None
+            return _resolve({}, default, same_call, here, f"on.workflow_call.inputs.{name}.default")
+        return trace.run(key, one_call, deeper=True)
 
     def tracer(self, workflow: str, reads: VarReads | None = None, _trace: _Trace | None = None) -> Tracer:
         """The tracer for jobs of `workflow`: an `inputs.X` term is input_values(workflow, X); others are None.
