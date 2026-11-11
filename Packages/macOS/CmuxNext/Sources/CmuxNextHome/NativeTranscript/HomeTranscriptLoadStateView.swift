@@ -5,8 +5,9 @@ import CmuxNextDesign
 /// What an empty transcript shows before its first page is read (ui-state-fixes M1): "Loading
 /// messages…" while the read is out, and "Couldn't load messages." with Try Again when it failed.
 /// Never the empty conversation (a Chief's first-run panel): a Chief with history whose read failed
-/// must not look new. Centered in the space between the header and the field; only the button
-/// takes clicks.
+/// must not look new. Centered in the space between the header and the field; over rows already
+/// drawn (the inbox's newest message, drawn before the first page) it sits at the top of that space,
+/// above them, and leaves them shown. Only the button takes clicks.
 final class HomeTranscriptLoadStateView: NSView {
     let label = ChromeLabel(wrappingLabelWithString: "")
     let retry = NSButton(title: "", target: nil, action: nil)
@@ -14,6 +15,8 @@ final class HomeTranscriptLoadStateView: NSView {
     var onRetry: () -> Void = {}
     /// What it shows now; nil hides it.
     private(set) var state: TranscriptWindow.FirstPage?
+    /// Rows are drawn under it: it sits at the top, above them, instead of centered.
+    private(set) var overRows = false
     private var accent = NSColor.labelColor
 
     override init(frame: NSRect) {
@@ -37,9 +40,14 @@ final class HomeTranscriptLoadStateView: NSView {
 
     nonisolated override var isFlipped: Bool { true }
 
-    /// Shows the first page's state: `.loading` or `.failed`; nil or `.loaded` hides it.
-    func show(_ next: TranscriptWindow.FirstPage?) {
+    /// Shows the first page's state: `.loading` or `.failed`; nil or `.loaded` hides it. `overRows`
+    /// puts it at the top, above messages already drawn, instead of centered in an empty transcript.
+    func show(_ next: TranscriptWindow.FirstPage?, overRows: Bool = false) {
         let shown = next == .loaded ? nil : next
+        if overRows != self.overRows {
+            self.overRows = overRows
+            needsLayout = true
+        }
         guard shown != state else { return }
         state = shown
         isHidden = shown == nil
@@ -82,7 +90,7 @@ final class HomeTranscriptLoadStateView: NSView {
         let retrySize = retry.isHidden ? .zero : retry.intrinsicContentSize
         let gap: CGFloat = retry.isHidden ? 0 : 6
         let total = labelHeight + gap + ceil(retrySize.height)
-        let top = max(0, (bounds.height - total) / 2)
+        let top = overRows ? min(12, max(0, bounds.height - total)) : max(0, (bounds.height - total) / 2)
         label.frame = CGRect(x: inset, y: top, width: width, height: labelHeight)
         if !retry.isHidden {
             let w = min(width, ceil(retrySize.width))

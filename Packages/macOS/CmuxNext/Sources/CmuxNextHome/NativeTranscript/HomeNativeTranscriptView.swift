@@ -583,10 +583,11 @@ public final class HomeNativeTranscriptView: NSView {
         firstRun.isHidden = holdsFirstRun || welcomesInChat || firstPage != .loaded
             || !(transcript.isEmpty && transcript.conversationSummary?.kind(me: me) == .chief)
         // The store's rows, not `transcript.isEmpty`: a window without its first page counts as
-        // having older history, so the transcript never calls it empty. Events buffered meanwhile
-        // draw as rows, and the mark goes.
-        let unread = firstPage != .loaded && binding.store.transcript(for: conversationID).isEmpty
-        loadState.show(unread ? firstPage : nil)
+        // having older history, so the transcript never calls it empty. Rows drawn before the first
+        // page (the inbox's newest message, events buffered meanwhile) stay shown, and the load
+        // state sits above them: still loading, or failed with Try Again, until the page lands.
+        let drawn = !binding.store.transcript(for: conversationID).isEmpty
+        loadState.show(firstPage, overRows: drawn)
     }
 
     /// The typing hold gives back what it holds while the views are still in the old window.
