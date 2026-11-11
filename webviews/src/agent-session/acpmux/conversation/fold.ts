@@ -96,6 +96,11 @@ export function heightFoldInFlight(row: Element): boolean {
   return false;
 }
 
+/// When `row`'s height fold in flight ends (with its settle), if one is: each fold has its own.
+export function heightFoldUntil(row: Element): number | undefined {
+  return heightFoldInFlight(row) ? heightFolds.get(row) : undefined;
+}
+
 /// Marks the transcript row holding `node` as resizing for `ms` (and a short settle after), so the
 /// rows below it are placed before paint while the height animation plays (`heightFoldInFlight`).
 export function markHeightFold(node: Element, ms: number): void {

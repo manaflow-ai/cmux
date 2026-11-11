@@ -233,7 +233,7 @@ def _determinism_scan(path: str) -> bool:
         return False
     if path.startswith(("tests/", "tests_v2/", "web/tests/", "webviews/test/")):
         return True
-    return path.startswith("Packages/") and "/Tests/" in path
+    return path.startswith(("Packages/", "cmux-next-ios/")) and "/Tests/" in path
 
 
 class GuardWorkflowError(ValueError):
