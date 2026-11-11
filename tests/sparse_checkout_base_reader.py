@@ -146,12 +146,14 @@ class _RepoPaths:
         return None
 
 
-def base_read_paths(script: str, source: str, is_file) -> set[str]:
-    """33852f74's read_paths, verbatim but for its inputs: the source text and an is_file predicate."""
-    try:
-        tree = ast.parse(source)
-    except (SyntaxError, ValueError):
-        return set()
+def base_read_paths(script: str, source: str, is_file, tree: ast.Module | None = None) -> set[str]:
+    """33852f74's read_paths, verbatim but for its inputs: the source text (or its already parsed
+    tree, shared with the current reader; this function does not change it) and an is_file predicate."""
+    if tree is None:
+        try:
+            tree = ast.parse(source)
+        except (SyntaxError, ValueError):
+            return set()
     paths = _RepoPaths(script, tree)
     found: set[str] = set()
     for node in ast.walk(tree):

@@ -56,6 +56,7 @@ Run: python3 tests/test_ci_sparse_checkout_imports.py
 from __future__ import annotations
 
 import ast
+import multiprocessing
 import os
 import posixpath
 import re
@@ -144,6 +145,23 @@ def repo_workflows(root: Path) -> list[str]:
         names |= {rel.rsplit("/", 1)[1] for rel in index
                   if rel.startswith(".github/workflows/") and rel.count("/") == 2 and rel.endswith((".yml", ".yaml"))}
     return sorted(names)
+
+
+@lru_cache(maxsize=128)
+def parse_python(source: str) -> ast.Module | None:
+    """One parse per source, shared by the import check and both read detectors (never mutated).
+    Bounded: the differential test asks for each file's tree twice in a row, and hundreds of kept
+    trees cost seconds to free at exit."""
+    try:
+        return ast.parse(source)
+    except (SyntaxError, ValueError):
+        return None
+
+
+@lru_cache(maxsize=None)
+def _parse_yaml(text: str):
+    """One parse per distinct workflow text: every job and test re-read the same workflows."""
+    return yaml.safe_load(text) or {}
 
 
 # --- sparse-checkout entries -------------------------------------------------------------------
@@ -254,7 +272,9 @@ def imported_names(source: str) -> set[tuple[int, str]]:
     Level 0 is an absolute name. Level n > 0 is relative to the importing module's package, n - 1
     folders up; the name "" is that package itself (its __init__.py).
     """
-    tree = ast.parse(source)
+    tree = parse_python(source)
+    if tree is None:
+        raise SyntaxError("unparsable")
     optional: set[int] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Try) and any(_catches_import_error(h) for h in node.handlers):
@@ -349,7 +369,7 @@ def non_cone_sparse_steps(root: Path):
     """(workflow, job, step name, entries) for each actions/checkout step with a non-cone sparse list."""
     for name in repo_workflows(root):
         path = root / ".github" / "workflows" / name
-        doc = yaml.safe_load(repo_source(root, f".github/workflows/{name}") or "") or {}
+        doc = _parse_yaml(repo_source(root, f".github/workflows/{name}") or "")
         jobs = doc.get("jobs") if isinstance(doc, dict) else None
         for job_id, job in (jobs or {}).items():
             for index, step in enumerate((job or {}).get("steps") or []):
@@ -590,13 +610,32 @@ class _ReadFinder:
         self.tree = tree
         self.funcs: dict[str, ast.AST] = {}
         defined: dict[str, int] = {}
-        for node in ast.walk(tree):
+        self.param_reads: dict[str, dict[str, set[str]]] = {}  # function -> parameter -> suffixes read
+        # One walk of the tree: functions defined once, loaded names, and each statement's walrus
+        # targets (the statement that holds the `:=` and every statement around it, as the
+        # per-statement walk it replaces found them).
+        self.loaded: set[str] = set()
+        self.walrus: dict[int, set[str]] = {}
+        self._local_cache: dict[int, set[str]] = {}
+        stack: list[tuple[ast.AST, tuple[int, ...]]] = [(tree, ())]
+        while stack:
+            node, holders = stack.pop()
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+                self.loaded.add(node.id)
+            if isinstance(node, ast.NamedExpr):
+                for holder in holders:
+                    self.walrus.setdefault(holder, set()).add(node.target.id)
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 defined[node.name] = defined.get(node.name, 0) + 1
                 self.funcs[node.name] = node
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                inner = holders  # a def holds no walrus of its own; the statements around it still do
+            elif isinstance(node, ast.stmt):
+                inner = holders + (id(node),)
+            else:
+                inner = holders
+            stack.extend((child, inner) for child in ast.iter_child_nodes(node))
         self.funcs = {n: f for n, f in self.funcs.items() if defined[n] == 1}
-        self.param_reads: dict[str, dict[str, set[str]]] = {}  # function -> parameter -> suffixes read
-        self.loaded = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
         self.module_env: dict[str, frozenset[str]] = {}
         self.skip_functions = False
         self.in_class = 0
@@ -755,7 +794,10 @@ class _ReadFinder:
         if shadow:
             env = {k: v for k, v in env.items() if k not in shadow}
         if isinstance(expr, ast.Lambda):
-            self.record(expr.body, env, frozenset(_local_names(expr)))
+            local = self._local_cache.get(id(expr))
+            if local is None:
+                local = self._local_cache[id(expr)] = _local_names(expr)
+            self.record(expr.body, env, frozenset(local))
             return
         if isinstance(expr, (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)):
             names = frozenset().union(*(_bound_names(g.target) for g in expr.generators))
@@ -791,7 +833,9 @@ class _ReadFinder:
     def function(self, func: ast.AST, outer_locals: frozenset[str], def_env) -> None:
         if self.skip_functions:
             return
-        local = _local_names(func)
+        local = self._local_cache.get(id(func))
+        if local is None:
+            local = self._local_cache[id(func)] = _local_names(func)
         hidden = outer_locals | local
         env = {k: v for k, v in self.module_env.items() if k not in hidden}
         for name in outer_locals - local:  # a closure sees its enclosing function's bindings
@@ -843,8 +887,7 @@ class _ReadFinder:
         return self.block(stmt.orelse, state, locals_)
 
     def stmt(self, stmt: ast.stmt, env, locals_: frozenset[str]):
-        walrus = {n.target.id for n in ast.walk(stmt) if isinstance(n, ast.NamedExpr)
-                  } if not isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) else set()
+        walrus = self.walrus.get(id(stmt), set())
         if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
             for expr in [*stmt.decorator_list, *stmt.args.defaults, *stmt.args.kw_defaults]:
                 self.record(expr, env)
@@ -913,13 +956,17 @@ class _ReadFinder:
         return self._kill(env, _binds(stmt) | walrus)
 
 
+@lru_cache(maxsize=None)
+def _reads_unfiltered(script: str, source: str) -> frozenset[str]:
+    """Every path the reader finds in one (script, source), before the existence filter: memoized, as
+    the real-tree check, the allowlist check and the differential test ask for the same scripts."""
+    tree = parse_python(source)
+    return frozenset() if tree is None else frozenset(_ReadFinder(script, tree).run())
+
+
 def reads_in_source(script: str, source: str, is_file) -> set[str]:
     """The paths `script` (with this source) reads or runs that `is_file` says are repo files."""
-    try:
-        tree = ast.parse(source)
-    except (SyntaxError, ValueError):
-        return set()
-    return {rel for rel in _ReadFinder(script, tree).run() if rel and rel != script and is_file(rel)}
+    return {rel for rel in _reads_unfiltered(script, source) if rel and rel != script and is_file(rel)}
 
 
 def read_paths(script: str, root: Path) -> set[str]:
@@ -933,13 +980,13 @@ def read_paths(script: str, root: Path) -> set[str]:
 
 
 def _job_run_text(root: Path, workflow: str, job: str) -> str:
-    doc = yaml.safe_load(repo_source(root, f".github/workflows/{workflow}") or "") or {}
+    doc = _parse_yaml(repo_source(root, f".github/workflows/{workflow}") or "")
     steps = ((doc.get("jobs") or {}).get(job) or {}).get("steps") or []
     return "\n".join(str(step.get("run") or "") for step in steps if isinstance(step, dict))
 
 
 def _job_run_blocks(root: Path, workflow: str, job: str) -> list[str]:
-    doc = yaml.safe_load(repo_source(root, f".github/workflows/{workflow}") or "") or {}
+    doc = _parse_yaml(repo_source(root, f".github/workflows/{workflow}") or "")
     steps = ((doc.get("jobs") or {}).get(job) or {}).get("steps") or []
     return [str(step.get("run") or "") for step in steps if isinstance(step, dict)]
 
@@ -1919,6 +1966,67 @@ def differential_corpus(root: Path, tracked: set[str]) -> list[tuple[str, str, s
     return corpus
 
 
+# The corpus a forked worker compares; set by base_minus_current before the pool forks.
+_DIFF_CORPUS: list[tuple[str, str, str, object]] = []
+
+
+def _base_minus_current(index: int) -> tuple[str, list[str]]:
+    """(corpus name, paths the base reader finds in that file and the current one does not)."""
+    name, script, source, is_file = _DIFF_CORPUS[index]
+    tree = parse_python(source)
+    if tree is None:
+        return name, []  # neither reader reads an unparsable file
+    base = sparse_checkout_base_reader.base_read_paths(script, source, is_file, tree)
+    return name, sorted(base - reads_in_source(script, source, is_file))
+
+
+def base_minus_current(corpus: list[tuple[str, str, str, object]]) -> list[tuple[str, list[str]]]:
+    """_base_minus_current over the corpus, in corpus order. Each file is independent, so the files
+    are split over forked workers: they inherit the loaded module and the corpus, and only their
+    results come back through a pipe (no function is pickled, so this works however the module was
+    loaded). Serially where fork is not available."""
+    global _DIFF_CORPUS
+    _DIFF_CORPUS = corpus
+    workers = min(8, os.cpu_count() or 1, len(corpus))
+    try:
+        context = multiprocessing.get_context("fork")
+    except ValueError:
+        context = None
+    if context is None or workers < 2:
+        return [_base_minus_current(i) for i in range(len(corpus))]
+
+    def work(indices: list[int], conn) -> None:
+        try:
+            conn.send([(i, _base_minus_current(i)) for i in indices])
+        except BaseException as error:  # noqa: BLE001 - surfaced in the parent
+            conn.send(error)
+        finally:
+            conn.close()
+
+    jobs = []
+    for worker in range(workers):
+        receive, send = context.Pipe(duplex=False)
+        process = context.Process(target=work, args=(list(range(worker, len(corpus), workers)), send))
+        process.start()
+        send.close()
+        jobs.append((process, receive))
+    results: dict[int, tuple[str, list[str]]] = {}
+    failure = None
+    for process, receive in jobs:
+        try:
+            got = receive.recv()
+        except EOFError:
+            got = RuntimeError(f"differential worker {process.pid} died (exit {process.exitcode})")
+        process.join()
+        if isinstance(got, BaseException):
+            failure = failure or got
+        else:
+            results.update(got)
+    if failure is not None:
+        raise failure
+    return [results[i] for i in range(len(corpus))]
+
+
 class SparseReadDifferentialTests(unittest.TestCase):
     """The current reader finds everything the base reader (33852f74, #41221's base) found, less READ_REMOVALS.
 
@@ -1933,10 +2041,8 @@ class SparseReadDifferentialTests(unittest.TestCase):
             self.skipTest("not a git checkout")
         allowed = {(name, rel) for name, rel, _why in READ_REMOVALS}
         lost, removed = [], set()
-        for name, script, source, is_file in differential_corpus(ROOT, tracked):
-            base = sparse_checkout_base_reader.base_read_paths(script, source, is_file)
-            now = reads_in_source(script, source, is_file)
-            for rel in sorted(base - now):
+        for name, missing in base_minus_current(differential_corpus(ROOT, tracked)):
+            for rel in missing:
                 if (name, rel) in allowed:
                     removed.add((name, rel))
                 else:
