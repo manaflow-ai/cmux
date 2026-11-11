@@ -98,6 +98,10 @@ FIXTURES = [
     # Found by the grammar below: arithmetic reads its body as double-quoted text, so a ${ }'s single quote is literal.
     ("a backtick in a single-quoted default in an arithmetic command runs", "(( \"\"${x:-'`a`'}\"\"0 ))", {"a"}, set()),
     ("a backtick in a single-quoted default in $(( )) runs", "echo $(( ${x:-'`a`'}0 )) >/dev/null", {"a"}, set()),
+    ("a single-quoted default in $(( )) in a heredoc body runs", "cat <<EOF >/dev/null\n$(( \"\"${x:-'$(a)'}\"\"0 ))\nEOF",
+     {"a"}, set()),
+    ("a single-quoted default in $(( )) in ${:?} runs", "echo ${y:-$(( ${x:-\"\"${z:-'$(a)'}\"\"}0 + 1 ))} >/dev/null",
+     {"a"}, set()),
 ]
 
 
@@ -348,7 +352,7 @@ class AgainstBash(unittest.TestCase):
 # release), each sample run in real bash with a fake gh on PATH that logs each call. The estimate must cover what ran:
 # a sample whose gh bash ran must have gh in may_run_program() and `gh release create` (or [], content it cannot
 # read) in may_run_nested(). Seeded and deterministic: NEST_SEEDS samples, no time budget.
-NEST_SEEDS = 4000
+NEST_SEEDS = 20000
 NEST_LEAF = "gh release create v1 dist/x"
 NEST_PRELUDE = "unset x0 x1 x2 x3 x4 x5\ny=abc\narr=(0 1)\n"
 

@@ -216,14 +216,21 @@ def _tree_subs(source: str, words: list) -> list[str] | None:
     for word in words:
         if word is None:
             continue
-        for part in _expansions(word.parts):
-            if isinstance(part, shell_tree.Param) and re.search(r"@P\}$", source[part.start:part.end]):
-                return None
         for sub in shell_tree.subs(word.parts):
             if sub.form == "`":
                 found.append(_backtick_script(source[sub.start + 1:sub.end - 1]))
             else:
                 found.append(source[sub.start + 2:sub.end - 1])
+        for part in _expansions(word.parts):
+            if isinstance(part, shell_tree.Param) and re.search(r"@P\}$", source[part.start:part.end]):
+                return None
+            # bash reads an arithmetic body as double-quoted text, wherever the $(( )) is; shell_tree reads a ${ }
+            # inside one unquoted, so `$(( ${x:-'$(a)'} ))` is read again as bash does (a shorter text each time).
+            if isinstance(part, shell_tree.Arith) and source.startswith("$((", part.start):
+                inner = _body_subs(source[part.start + 3:part.end - 2])
+                if inner is None:
+                    return None
+                found.extend(script for script in inner if script not in found)
     return found
 
 
