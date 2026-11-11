@@ -306,6 +306,9 @@ final class NewTabInputCoordinator {
     /// The New Tab page `tab` this hold opened closed before the daemon made it: its held keys go with it.
     func drop(tab: String, in window: NSWindow?) { if let window, let entry = entry(for: window), entry.pane?.currentTabKey == tab { entry.buffer.discard(); release(entry, why: "closed before created") } }
 
+    /// The actions that close the page a hold was opened for, with its tab, pane, screen, workspace or window.
+    static let closesThePage: Set<ActionID> = ["closeTab", "closePane", "screen.close", "closeWorkspace", "closeWindow"]
+
     /// The opening failed: its keys go on to whatever has focus.
     func cancel(in window: NSWindow?) { if let window { release(in: window, why: "open failed") } }
 
@@ -316,6 +319,8 @@ final class NewTabInputCoordinator {
         // and they go on first.
         if let window, let entry = entry(for: window), !entry.buffer.replaying,
            KeyRouter.isChord(event.modifierFlags), entry.buffer.hasPending {
+            // A chord that closes the page takes the keys typed for it with it, as `drop(tab:in:)`: sent on, a typed line ran in the terminal that had the keyboard before Cmd-T.
+            if entry.incoming == nil, entry.owns, let id = router?.registry.resolveShortcut(for: event)?.id, Self.closesThePage.contains(id) { entry.buffer.discard() }
             release(entry, why: "chord")
             return false
         }
