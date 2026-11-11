@@ -124,6 +124,7 @@ export const L = {
   archiveRestore: "archives.restore",
   capDeleteAndCreate: "cap.deleteAndCreate",
   capArchiveAndCreate: "cap.archiveAndCreate",
+  capPauseAndCreate: "cap.pauseAndCreate",
   capWaiting: "cap.waiting",
   cleanupTitle: "cleanup.title",
   cleanupPolicyKept: "cleanup.policyKept",

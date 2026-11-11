@@ -69,7 +69,7 @@ graph there costs frames. "Cold" means a page or window opened on demand.
 | `CmuxNextBookmarks/UI` | 8 | 621 | 6 | 2 | warm | Bookmark manager page, edit bubble popover | `NSOutlineView`, AppKit popover |
 | `CmuxNextApp/Vault` | 4 | 181 | 2 | 1 | cold | Vault list | AppKit |
 | `CmuxNextApp/Checklist` | 3 | 180 | 2 | 1 | cold | Workspace todo page | AppKit |
-| `CmuxNextApp/TaskManager`, `CmuxNextResources/TaskManager` | 2 | 161 | 1 | 1 | warm (live) | Task manager page | `NSTableView` |
+| `CmuxNextApp/TaskManager`, `CmuxNextResources/TaskManager` | done | | | | warm (live) | Task manager page | React page `cmux.task-manager` (webviews/src/pages/task-manager) |
 | `CmuxNextChiefMemory` | 3 | 259 | 3 | 0 | cold | Chief memory inspector | AppKit |
 | `CmuxNextAccounts/Views` | 4 | 358 | 6 | 0 | cold | Accounts palette and section | AppKit |
 | `CmuxNextAppPermissions/UI` | 3 | 106 | 1 | 0 | cold | App permissions | AppKit |

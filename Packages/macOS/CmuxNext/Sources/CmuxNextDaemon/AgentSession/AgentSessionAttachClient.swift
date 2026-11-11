@@ -204,7 +204,7 @@ public actor AgentSessionAttachClient {
         guard !transport.isClosed else {
             throw AgentSessionAttachError(code: "agent_session.closed", message: "the connection ended before the start was sent")
         }
-        let data = try await call("agent-session-start", params, on: transport)
+        let data = try await call("agent-session-start", params, timeout: Self.startTimeout, on: transport)
         guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let session = object["session"] as? String, !session.isEmpty else {
             throw AgentSessionAttachError(code: "agent_session.refused", message: "agent-session-start answered no session")
@@ -548,6 +548,13 @@ public actor AgentSessionAttachClient {
     public func servesLogin() async -> Bool {
         (try? await liveConnection())?.1.login ?? false
     }
+
+    /// How long a chat start may wait for its machine: the daemon there waits on acpmux as long as acpmux
+    /// still answers, up to 15 minutes (`START_PATIENCE`, agent_session_start.rs), and answers
+    /// `agent_session.timeout` itself when acpmux goes silent; this is that ceiling plus the carrier. A
+    /// link that drops fails the start at once, as before. Was the client's 75 s, which a harness starting in
+    /// a big folder on a busy machine passed (cmux#40385's matrix).
+    static let startTimeout: Duration = .seconds(16 * 60)
 
     /// How long each login step may wait, past the daemon's own wait for it: start waits for the
     /// CLI's sign-in page (30 s), saving a key for its CLI (75 s), and finish for the person's

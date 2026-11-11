@@ -242,11 +242,11 @@ fn evaluate(part: &mut Part, now: u64) -> Cond {
         Kind::SessionDaemon => {
             prune(&mut s.starts, policy::DAEMON_LOOP_WINDOW_MS, now);
             let starts = s.starts.len();
-            let window = starts.checked_sub(policy::DAEMON_LOOP_STARTS);
-            let looping = if let (Some(&first), Some(&newest), Some(&third)) =
-                (s.starts.front(), s.starts.back(), window.and_then(|i| s.starts.get(i)))
-            {
-                let span_ms = newest - first;
+            let loop_starts = starts.checked_sub(policy::DAEMON_LOOP_STARTS).and_then(|third| {
+                Some((*s.starts.front()?, *s.starts.back()?, *s.starts.get(third)?))
+            });
+            let looping = if let Some((first, last, third)) = loop_starts {
+                let span_ms = last - first;
                 // Ends when the third newest start leaves the window.
                 let ends = third + policy::DAEMON_LOOP_WINDOW_MS;
                 stuck(Cause::DaemonLoop { starts, span_ms }, Mode::Hold).until(ends)
@@ -301,9 +301,9 @@ impl Health {
         self.ids.get(id).copied()
     }
 
-    /// The part in `slot`, read-only; `None` for a freed slot.
-    fn live_part(&self, slot: usize) -> Option<&Part> {
-        self.slots.get(slot)?.as_ref()
+    /// Whether `slot` still holds the part whose deadline carried `generation`.
+    fn is_live(&self, slot: usize, generation: u64) -> bool {
+        self.slots.get(slot).and_then(Option::as_ref).is_some_and(|p| p.generation == generation)
     }
 
     /// The live part in `slot`; `None` only for a slot freed by `unregister`.
@@ -335,13 +335,17 @@ impl Health {
             deadline: None,
             generation: 0,
         };
-        let slot = match self.free.pop().filter(|&slot| slot < self.slots.len()) {
-            Some(slot) => {
-                if let Some(entry) = self.slots.get_mut(slot) {
-                    *entry = Some(part);
+        let slot = match self.free.pop() {
+            Some(slot) => match self.slots.get_mut(slot) {
+                Some(free) => {
+                    *free = Some(part);
+                    slot
                 }
-                slot
-            }
+                None => {
+                    self.slots.push(Some(part));
+                    self.slots.len() - 1
+                }
+            },
             None => {
                 self.slots.push(Some(part));
                 self.slots.len() - 1
@@ -356,10 +360,10 @@ impl Health {
     pub fn unregister(&mut self, id: &str) {
         let Some(slot) = self.ids.remove(id) else { return };
         self.set_deadline(slot, None);
-        if let Some(entry) = self.slots.get_mut(slot) {
-            *entry = None;
+        if let Some(freed) = self.slots.get_mut(slot) {
+            *freed = None;
+            self.free.push(slot);
         }
-        self.free.push(slot);
         self.unhealthy.remove(id);
     }
 
@@ -548,7 +552,7 @@ impl Health {
             {
                 self.visited += 1;
             }
-            let live = self.live_part(slot).is_some_and(|p| p.generation == generation);
+            let live = self.is_live(slot, generation);
             if live {
                 due.push(slot);
             }
@@ -568,7 +572,7 @@ impl Health {
     /// The earliest live deadline: the host's one timer. `None`: no timer.
     pub fn next_tick_ms(&mut self) -> Option<u64> {
         while let Some(&Reverse((deadline, generation, slot))) = self.heap.peek() {
-            if self.live_part(slot).is_some_and(|p| p.generation == generation) {
+            if self.is_live(slot, generation) {
                 return Some(deadline);
             }
             self.heap.pop();
@@ -590,7 +594,7 @@ impl Health {
         let parts: Vec<PartView> = self
             .unhealthy
             .iter()
-            .filter_map(|id| self.live_part(*self.ids.get(id)?))
+            .filter_map(|id| self.slots.get(*self.ids.get(id)?)?.as_ref())
             .map(|p| PartView {
                 id: p.id.clone(),
                 kind: p.kind,

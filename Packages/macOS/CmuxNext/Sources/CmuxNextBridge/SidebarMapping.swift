@@ -301,7 +301,7 @@ public struct SidebarMapping {
 
     /// The agent chat a workspace's row shows (Copy Agent Identifier on the row copies its id).
     public func rowChat(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> TabModel? {
-        chatTab(faceTabs(workspace, selectedTab: selectedTab).front, workspace.screens.flatMap(\.panes).flatMap(\.tabs))
+        chatTab(frontTab(workspace, selectedTab: selectedTab), workspace.screens.flatMap(\.panes).flatMap(\.tabs))
     }
 
     static func tabKind(_ kind: TabKind) -> SidebarTabKind {

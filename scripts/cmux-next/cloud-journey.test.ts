@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { claudeTranscriptModelsProgram, transcriptModels } from "./cloud-journey";
 import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
@@ -906,5 +907,39 @@ describe("cloud journey: leaked machines (--machines, --delete-ids)", () => {
     const scope = { ...f.scope, get: async () => machine() };
     const r = await deleteJourneyMachines([id(1)], [scope], "t", deps([]));
     expect(r.failed[0]!.reason).toContain("read back");
+  });
+});
+
+// The "session model" step reads what ran from the session's Claude transcript, wherever the agent's Claude
+// directory is: ~/.claude, or ~/.config/cmux/claude-team (agent-auth.sh's team and gateway modes on a shared machine).
+describe("claudeTranscriptModelsProgram", () => {
+  const id = "0b6c2f5e-9d1a-4c3e-8f00-1234567890ab";
+  const run = (home: string, env: Record<string, string> = {}) =>
+    spawnSync("bash", ["-c", claudeTranscriptModelsProgram(id)], { encoding: "utf8", env: { PATH: process.env.PATH ?? "", HOME: home, ...env } }).stdout;
+  const transcript = (dir: string, models: string[]) => {
+    const project = join(dir, "projects", "-home-cmux-chats-x");
+    spawnSync("mkdir", ["-p", project]);
+    writeFileSync(join(project, `${id}.jsonl`), models.map((m) => JSON.stringify({ type: "assistant", message: { model: m, role: "assistant" } })).join("\n") + "\n");
+  };
+  test("finds the transcript in the claude-team directory a team or gateway agent runs with", () => {
+    const home = mkdtempSync(join(tmpdir(), "journey-claude-team-"));
+    try {
+      transcript(join(home, ".config/cmux/claude-team"), ["claude-sonnet-5-5", "<synthetic>"]);
+      expect(transcriptModels(run(home))).toEqual(["claude-sonnet-5-5"]);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+  test("finds it in ~/.claude and in CLAUDE_CONFIG_DIR, and names every model that ran", () => {
+    const home = mkdtempSync(join(tmpdir(), "journey-claude-home-"));
+    try {
+      transcript(join(home, ".claude"), ["claude-haiku-5-5"]);
+      transcript(join(home, "elsewhere"), ["claude-opus-5-5"]);
+      expect(transcriptModels(run(home)).sort()).toEqual(["claude-haiku-5-5"]);
+      expect(transcriptModels(run(home, { CLAUDE_CONFIG_DIR: join(home, "elsewhere") })).sort()).toEqual(["claude-haiku-5-5", "claude-opus-5-5"]);
+      expect(transcriptModels(run(join(home, "none")))).toEqual([]);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });

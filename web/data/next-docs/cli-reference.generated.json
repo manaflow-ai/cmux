@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 858,
-    "mcp": 774
+    "verbs": 862,
+    "mcp": 778
   },
   "nouns": [
     {
@@ -1806,6 +1806,32 @@
           "id": "device.add",
           "mcp": true,
           "mcpTool": "app_device_add"
+        }
+      ]
+    },
+    {
+      "noun": "divider",
+      "verbs": [
+        {
+          "command": "cmux divider hide",
+          "title": "Hide Divider",
+          "id": "divider.hide",
+          "mcp": true,
+          "mcpTool": "app_divider_hide"
+        },
+        {
+          "command": "cmux divider insert",
+          "title": "Insert New",
+          "id": "divider.insertNew",
+          "mcp": true,
+          "mcpTool": "app_divider_insert"
+        },
+        {
+          "command": "cmux divider show",
+          "title": "Show Divider",
+          "id": "divider.show",
+          "mcp": true,
+          "mcpTool": "app_divider_show"
         }
       ]
     },
@@ -4338,6 +4364,13 @@
           "id": "sidebar.spaces.show",
           "mcp": true,
           "mcpTool": "app_sidebar_show_spaces"
+        },
+        {
+          "command": "cmux sidebar toggle-custom",
+          "title": "Toggle Custom Sidebar",
+          "id": "sidebar.custom.toggle",
+          "mcp": true,
+          "mcpTool": "app_sidebar_toggle_custom"
         },
         {
           "command": "cmux sidebar toggle-item-archive",

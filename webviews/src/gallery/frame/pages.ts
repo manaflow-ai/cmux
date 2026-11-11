@@ -383,6 +383,7 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   if (state.retention) provider.retention = JSON.parse(JSON.stringify(state.retention));
   if (state.machinesCap !== undefined) provider.machinesCap = state.machinesCap;
   if (state.freeUp) provider.freeUp = state.freeUp;
+  if (state.idle) provider.idle = [...state.idle];
   if (state.retentionForbidden) provider.retentionForbidden = true;
   if (state.spendCap) provider.spendCap = { ...state.spendCap };
   if (state.memberBudget) provider.memberBudget = { ...state.memberBudget };

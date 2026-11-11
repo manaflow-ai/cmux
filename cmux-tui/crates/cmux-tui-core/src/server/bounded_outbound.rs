@@ -20,6 +20,7 @@ use crate::panic_free::RecoverPoison;
 use crate::platform::transport;
 use std::collections::HashMap;
 use std::collections::VecDeque;
+use std::io::IoSlice;
 use std::io::Read;
 use std::io::Write;
 use std::net::Shutdown;
@@ -595,8 +596,9 @@ pub(super) fn write_line_outbound_item<W: Write + ?Sized>(
 ) -> std::io::Result<()> {
     match item {
         OutboundItem::Text(text) => {
-            writer.write_all(text.as_bytes())?;
-            writer.write_all(b"\n")
+            let result = write_line(writer, text.as_bytes());
+            text.note_written(result.is_ok());
+            result
         }
         OutboundItem::Flush(flushed) => {
             writer.flush()?;
@@ -604,6 +606,23 @@ pub(super) fn write_line_outbound_item<W: Write + ?Sized>(
             Ok(())
         }
     }
+}
+
+/// `line` and its `\n` in one vectored write: one syscall per line, and the
+/// client never wakes on a line body with no end. A short write finishes with
+/// the rest, as `write_all` would.
+fn write_line<W: Write + ?Sized>(writer: &mut W, line: &[u8]) -> std::io::Result<()> {
+    let mut parts = [IoSlice::new(line), IoSlice::new(b"\n")];
+    let mut rest = &mut parts[..];
+    while !rest.is_empty() {
+        match writer.write_vectored(rest) {
+            Ok(0) => return Err(std::io::ErrorKind::WriteZero.into()),
+            Ok(written) => IoSlice::advance_slices(&mut rest, written),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
 }
 
 pub(super) struct QueuedSink {

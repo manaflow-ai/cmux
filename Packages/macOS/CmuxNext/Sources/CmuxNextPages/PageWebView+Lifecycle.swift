@@ -11,6 +11,7 @@ extension PageWebView {
         bridge.uninstall()
         endChromium()
         webView.configuration.userContentController.removeScriptMessageHandler(forName: PagePaintProbe.handlerName, contentWorld: .page)
+        PageAccessibilityPress.uninstall(from: webView)
         resumeLoadWaiters()
         webView.stopLoading()
         WebViewRetirement.retire(webView)

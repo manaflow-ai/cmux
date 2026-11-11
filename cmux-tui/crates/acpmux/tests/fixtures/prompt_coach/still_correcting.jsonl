@@ -10,4 +10,6 @@
 {"turn_end":"cancelled","expect_offer":false}
 {"prompt":"ok good, ship it"}
 {"turn_end":"cancelled","expect_offer":false}
+{"turn_end":"completed","expect_offer":false}
+{"prompt":"go on"}
 {"turn_end":"completed","expect_offer":true,"expect_corrections":4}

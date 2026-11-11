@@ -2124,7 +2124,7 @@
   }
  },
  {
-  "name": "a ticketed answer to a question picks nothing (its answers are no pick)",
+  "name": "a ticketed answer to a question picks its answers by their canonical digest",
   "text": "{\"jsonrpc\":\"2.0\",\"id\":45,\"method\":\"_acpmux/permission_respond\",\"params\":{\"sessionId\":\"s1\",\"permissionId\":\"p1\",\"optionId\":\"allow_once\",\"answers\":{\"Which auth method should the API use?\":\"Passkeys\"},\"_meta\":{\"cmuxGesture\":\"t6\"}}}",
   "state": {
    "first": false,
@@ -2160,7 +2160,12 @@
     "other_meta": false,
     "pick": {
      "method": "_acpmux/permission_respond",
-     "params": null
+     "params": {
+      "sessionId": "s1",
+      "permissionId": "p1",
+      "optionId": "allow_once",
+      "answers": "2790eafc7833f2bfa1e6f899324110e7ebca453b1399f6797bc6fcccce4201e9"
+     }
     },
     "session_id": "s1",
     "needs_gesture": true,

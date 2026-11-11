@@ -87,6 +87,8 @@ mod code_mode;
 mod coderouter;
 mod codex_app_server;
 mod command;
+mod completion;
+pub(crate) use completion::refuse_in_help_reader;
 #[cfg(unix)]
 mod dev;
 mod docs;
@@ -650,6 +652,10 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     let surface = Surface::current();
     if let Ok((_, command)) = parse_globals(args) {
         vm_words::activate_for(&command);
+    }
+    // `cmux completion zsh|bash|fish` and the scripts' `cmux __complete -- WORDS`.
+    if let Some(code) = completion::run_if_requested(args) {
+        return code;
     }
     #[cfg(unix)]
     if let Some(code) = dev::run_if_requested(args, surface) {
@@ -1493,6 +1499,7 @@ fn scope_help_with_keys(
         "keys" => Cow::Owned(keys_help::help(&keys(), catalog)),
         machine_server::HELP_TOPIC => Cow::Owned(machine_server::help()),
         "docs" => Cow::Borrowed(docs::help()),
+        "completion" => Cow::Borrowed(completion::HELP),
         "server" => Cow::Borrowed(catalog.local_server.help),
         "server start" => Cow::Borrowed(catalog.local_server.start_help),
         "server ensure" => Cow::Borrowed(catalog.local_server.ensure_help),

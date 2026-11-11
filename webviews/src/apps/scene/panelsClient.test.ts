@@ -269,6 +269,94 @@ test("a catalog change before the watch activates is recovered by its completion
   expect(host.count("unmount")).toBe(1);
 });
 
+const WIDGET_OPTIONS = {
+  interface: "cmux.newtab.widget/1",
+  limits: { maxNodes: 4, types: new Set(["VStack", "Text"]) },
+  mounts: (panel: AppPanel, layout: readonly string[]) => layout.includes(`app:${panel.app}#${panel.section}`),
+};
+
+test("New Tab widgets list their interface, mount only placed ones and save the layout", async () => {
+  const mock = new MockAppPanelsClient();
+  const owner = new AppPanelsClient(mock, { surface: "newTab" }, WIDGET_OPTIONS);
+  owner.start();
+  await settled();
+  await settled();
+  // Listed for Add Widgets, nothing placed: no mount (R1).
+  expect(owner.getView().panels.length).toBe(3);
+  expect(owner.getView().mounted).toEqual([]);
+  expect(mock.mounted).toBe(0);
+  const clock = "app:manaflow-ai/clock#cmux.newtab.widget/1";
+  owner.setLayout(["timer", clock]);
+  expect(mock.savedLayouts).toEqual([["timer", clock]]);
+  expect(owner.getView().layout).toEqual(["timer", clock]);
+  await settled();
+  await settled();
+  expect(mock.mounted).toBe(1);
+  expect(owner.getView().mounted.map((entry) => entry.panel.app)).toEqual(["manaflow-ai/clock"]);
+  owner.setLayout(["timer"]);
+  expect(mock.mounted).toBe(0);
+  owner.stop();
+});
+
+test("a widget over its limits is unmounted and named; a failed mount is named and not retried in a loop", async () => {
+  const mock = new MockAppPanelsClient();
+  mock.failing.add("samples/github-prs");
+  mock.layout = ["app:samples/too-big#cmux.newtab.widget/1", "app:samples/github-prs#cmux.newtab.widget/1"];
+  const owner = new AppPanelsClient(mock, { surface: "newTab" }, WIDGET_OPTIONS);
+  owner.start();
+  for (let i = 0; i < 4; i++) await settled();
+  const problems = Object.fromEntries(owner.getView().mounted.map((entry) => [entry.panel.app, entry.problem]));
+  expect(problems["samples/too-big"]).toEqual({ kind: "over", violation: { kind: "nodes", limit: 4 } });
+  expect(problems["samples/github-prs"]).toEqual({ kind: "failed" });
+  // The over-budget mount ended; the failed one never mounted.
+  expect(mock.mounted).toBe(0);
+  owner.stop();
+});
+
+test("hiding the page ends every widget mount", async () => {
+  const mock = new MockAppPanelsClient();
+  mock.layout = ["app:manaflow-ai/clock#cmux.newtab.widget/1"];
+  const owner = new AppPanelsClient(mock, { surface: "newTab" }, WIDGET_OPTIONS);
+  owner.start();
+  for (let i = 0; i < 4; i++) await settled();
+  expect(mock.mounted).toBe(1);
+  owner.stop();
+  expect(mock.mounted).toBe(0);
+});
+
+test("a host that ignores the interface lists no widgets and offers no edits", async () => {
+  const mock = new MockAppPanelsClient();
+  mock.ignoresInterface = true; // it answers with Session Info's sections and no layout
+  const owner = new AppPanelsClient(mock, { surface: "newTab" }, WIDGET_OPTIONS);
+  owner.start();
+  for (let i = 0; i < 4; i++) await settled();
+  expect(owner.getView().panels).toEqual([]);
+  expect(owner.getView().editable).toBe(false);
+  owner.setLayout(["app:samples/github-prs#recent"]);
+  expect(mock.savedLayouts).toEqual([]);
+  expect(owner.getView().layout).toEqual([]);
+  expect(mock.mounted).toBe(0);
+  owner.stop();
+});
+
+test("a host that refuses layout.set ends edits and keeps the row it listed", async () => {
+  const mock = new MockAppPanelsClient();
+  mock.refusesLayout = true;
+  const owner = new AppPanelsClient(mock, { surface: "newTab" }, WIDGET_OPTIONS);
+  owner.start();
+  for (let i = 0; i < 4; i++) await settled();
+  expect(owner.getView().editable).toBe(true);
+  owner.setLayout(["app:manaflow-ai/clock#cmux.newtab.widget/1"]);
+  for (let i = 0; i < 4; i++) await settled();
+  expect(owner.getView().editable).toBe(false);
+  expect(owner.getView().layout).toEqual([]);
+  expect(mock.mounted).toBe(0);
+  // A later list does not bring edits back.
+  await owner.refresh();
+  expect(owner.getView().editable).toBe(false);
+  owner.stop();
+});
+
 test("mount names its surface; status events reach the scene store and Reload calls the host from the click", async () => {
   const host = new Host();
   host.mount = Promise.resolve({ mount_id: "mount-a" });

@@ -113,6 +113,26 @@ import Testing
         #expect(bar.model.activeProfileID == keys[0], "the window did not go back to the space it showed before the press")
     }
 
+    /// The give-back takes the window from the dragged space to the one it showed before the press. A window that
+    /// shows another space by the drop (a key or an agent switched it during the drag) is not on the dragged
+    /// space: the tear-off opens the space's window and leaves this window where that later switch put it.
+    @Test func aTearOffAfterALaterSwitchGivesNothingBack() {
+        let bar = ProfileBarDotTearOffTests.Bar()
+        defer { bar.window.closeAfterTest() }
+        let keys = ProfileBarDotTearOffTests.keys, start = bar.center(1)
+        bar.view.mouseDown(with: bar.event(.leftMouseDown, start))
+        #expect(bar.model.activeProfileID == keys[1], "the press did not show the space")
+        for point in [NSPoint(x: start.x + 6, y: start.y), NSPoint(x: start.x + 20, y: start.y + 120)] {
+            bar.view.mouseDragged(with: bar.event(.leftMouseDragged, point))
+        }
+        bar.model.activeProfileID = keys[2] // Next Space by a key, or an agent's `space switch`, while the dot is in the air
+        bar.view.mouseDragged(with: bar.event(.leftMouseDragged, NSPoint(x: start.x + 40, y: start.y + 300)))
+        bar.view.mouseUp(with: bar.event(.leftMouseUp, NSPoint(x: start.x + 40, y: start.y + 300)))
+        #expect(bar.intents == [.switchProfile(keys[1]), .openProfileInNewWindow(keys[1])],
+                "the tear-off took back a switch that was not the press's: \(bar.intents)")
+        #expect(bar.model.activeProfileID == keys[2], "the window left the space the later switch showed")
+    }
+
     /// The current space's dot torn off: the press switched nothing, so there is nothing to give back.
     @Test func theCurrentSpacesDotTornOffSwitchesNothing() {
         let bar = ProfileBarDotTearOffTests.Bar()

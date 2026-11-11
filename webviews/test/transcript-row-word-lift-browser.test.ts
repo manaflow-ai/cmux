@@ -74,11 +74,14 @@ await requireBrowserLane("transcript-row-word-lift-browser.test.ts", async () =>
       glyph: ".cv-agent-activity__icon",
     },
     {
-      name: "background reaction line",
+      // A failure's line under the default background-turn-look (inline): its rows already draw under
+      // it, so it opens nothing and is no button, like "Subagent finished" with no report.
+      name: "background reaction line (opens nothing)",
       entry: "agent-pane.background-reactions",
-      line: "button.cv-background-turn",
+      line: "div.cv-background-turn",
       words: ".cv-agent-activity__sentence",
       glyph: ".cv-agent-activity__icon",
+      lights: false,
     },
     {
       name: "Subagent finished, no report (only its name chip opens)",
@@ -171,7 +174,9 @@ await requireBrowserLane("transcript-row-word-lift-browser.test.ts", async () =>
     const page = await browser.newPage({ viewport: { width: 760, height: 2400 } });
     await page.emulateMedia({ reducedMotion: "reduce" });
     const port = (vite!.httpServer!.address() as { port: number }).port;
-    await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { width: 760 })}`);
+    await page.goto(
+      `http://127.0.0.1:${port}${galleryFrame(entry, { width: 760, exp: "background-turn-look", arm: "line" })}`,
+    );
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 120_000,
     });

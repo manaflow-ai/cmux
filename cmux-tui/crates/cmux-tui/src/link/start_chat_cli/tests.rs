@@ -621,6 +621,7 @@ fn a_copy_answers_whether_this_macs_acpmux_trusts_the_chats_folder() {
         record: record.to_path_buf(),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     };
     let record = home.join("trust.json");
     let folder = project.to_string_lossy().into_owned();

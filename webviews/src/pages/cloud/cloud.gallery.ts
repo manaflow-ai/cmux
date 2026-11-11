@@ -122,6 +122,20 @@ const capPausedMachines = machines.map((machine) =>
     : machine,
 ) as CloudMachine[];
 
+// A paused machine exactly as staging's cloud.machine.get answered it (sleep-keeps probe, run 42823810342), only its
+// ids and name changed: the paused rate is the backend's own (cmux-platform Cost.ts), not a fixture's guess.
+const stagingPaused: CloudMachine = {
+  ...structuredClone(buildCache!),
+  id: "vm_staging_paused",
+  name: "sleeps-when-idle",
+  size: { cpu: 2, memory_mb: 4096, disk_mb: 16_384 },
+  status: "paused",
+  hourly_rate_usd: 0.1322,
+  paused_hourly_rate_usd: 0.001376,
+  running_since: null,
+  revision: "1",
+};
+
 export default cloudPageEntry({
   id: "pages.cloud",
   title: "Cloud",
@@ -158,6 +172,28 @@ export default cloudPageEntry({
       machines,
       snapshots,
     },
+    "creating-at-limit": {
+      note: "The create sheet when every machine the plan runs at once is running: Create stays open; a create pauses an idle machine.",
+      action: "create",
+      maxActive: 3,
+      machines,
+      snapshots,
+    },
+    "creating-at-limit-idle": {
+      note: "Create at the running-machines limit with an idle machine: the new machine starts and the idle one shows paused.",
+      action: "create-at-cap",
+      maxActive: 3,
+      idle: [machines[0]!.id],
+      machines,
+      snapshots,
+    },
+    "creating-at-limit-busy": {
+      note: "Create at the running-machines limit with nothing idle: the sheet offers to pause the running machine used longest ago, then create.",
+      action: "create-at-cap",
+      maxActive: 3,
+      machines,
+      snapshots,
+    },
     "creating-snapshots-failed": {
       note: "The create sheet when the snapshot list fails: Base image stays, with Retry.",
       action: "create",
@@ -179,6 +215,12 @@ export default cloudPageEntry({
       machines,
       snapshots,
       ports: samplePorts,
+    },
+    "paused-price-staging": {
+      note: "A paused machine with the paused rate staging sends: the row and detail say what the pause costs a month.",
+      action: "select-machine",
+      machines: [stagingPaused, apiDev!],
+      snapshots,
     },
     "spend-cap-near": {
       note: "The team is near its spending cap: a dismissible warning with the spend, and team spend in Usage.",
@@ -236,7 +278,7 @@ export default cloudPageEntry({
       snapshots,
     },
     "storefront-full": {
-      note: "The storefront when every active machine on the plan is in use: Get is disabled.",
+      note: "The storefront when every machine the plan runs at once is running: Get stays open and says a new one pauses one of yours.",
       hash: "#/get",
       maxActive: 3,
       machines,

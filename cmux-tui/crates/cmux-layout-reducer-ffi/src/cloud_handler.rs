@@ -49,7 +49,7 @@ struct Arg {
     /// The machine a `machineWorkspace` refusal names.
     #[serde(default)]
     machine: String,
-    /// The refusal key of an `id` check (`networkIDRequired`, `ruleIDRequired`, `publicationRequired`).
+    /// The refusal key of an `id` check (`publicationRequired`).
     #[serde(default)]
     missing: String,
     /// The idle pause choices, in minutes (0 is `off`).
@@ -68,8 +68,6 @@ fn arg(request: &Arg) -> Result<Value, i32> {
         "machineWorkspace" => checked(args::machine_workspace(given, &request.machine)),
         "id" => {
             let missing = match request.missing.as_str() {
-                "networkIDRequired" => "networkIDRequired",
-                "ruleIDRequired" => "ruleIDRequired",
                 "publicationRequired" => "publicationRequired",
                 _ => return Err(ERR_INVALID),
             };
@@ -79,7 +77,6 @@ fn arg(request: &Arg) -> Result<Value, i32> {
         "resize" => checked(args::resize(given)),
         "provisionAPI" => checked(args::provision_api(given)),
         "applyMachineConfig" => checked(args::apply_machine_config(given, &request.home)),
-        "firewallRule" => checked(args::firewall_rule(given)),
         "newMachine" => checked(args::new_machine(given, &request.home)),
         other => checked(args::needed(given, other, &request.names)),
     }
@@ -98,10 +95,6 @@ struct Route {
     has_window: bool,
     #[serde(default)]
     is_default: bool,
-    #[serde(default)]
-    changing: bool,
-    #[serde(default)]
-    has_app_link: bool,
 }
 
 #[derive(Deserialize)]
@@ -187,7 +180,6 @@ struct Facts {
     link: Option<answers::ShareLink>,
     #[serde(default)]
     url: String,
-    action: Option<String>,
     code: Option<String>,
     #[serde(default)]
     text: String,
@@ -216,10 +208,6 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 Err(refusal) => json!({ "refusal": value(refusal)? }),
             }
         }
-        b"cloud_handler_attachable" => {
-            let r: Route = read(request)?;
-            json!({ "attachable": decide::attachable(r.changing, r.connected, r.has_app_link) })
-        }
         b"cloud_handler_new_workspace" => {
             let r: Route = read(request)?;
             json!({ "route": value(decide::new_workspace(r.has_target, r.connected, r.by_user, r.has_window))? })
@@ -242,13 +230,6 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             match decide::settled(&settled) {
                 Ok(fields) => fields_of(fields),
                 Err(failure) => json!({ "failure": value(failure)? }),
-            }
-        }
-        b"cloud_handler_desktop" => {
-            let facts: decide::DesktopFacts = read(request)?;
-            match decide::desktop(&facts) {
-                Ok(viewer) => json!({ "viewer": value(viewer)? }),
-                Err(refusal) => json!({ "refusal": value(refusal)? }),
             }
         }
         b"cloud_handler_diagnostics" => {
@@ -275,10 +256,6 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
         b"cloud_handler_answer" => {
             let found: answers::Found = read(request)?;
             value(answers::of(&found))?
-        }
-        b"cloud_handler_previews" => {
-            let inventory: Value = read(request)?;
-            value(answers::previews(&inventory))?
         }
         b"cloud_handler_constants" => {
             let sizes: Map<String, Value> = args::CREATE_SIZES
@@ -365,9 +342,6 @@ fn facts(operation: &[u8], f: Facts) -> Result<Value, i32> {
                 f.names.said("portFailed", &["the platform returned an invalid share URL"])
             });
             json!({ "ok": ok, "refusal": value(refusal)? })
-        }
-        b"cloud_handler_confirmation" => {
-            json!({ "prompt": f.action.as_deref().and_then(decide::confirmation) })
         }
         b"cloud_handler_port_failure" => {
             json!({ "refusal": value(decide::port_failure(f.code.as_deref(), &f.text, &f.names))? })

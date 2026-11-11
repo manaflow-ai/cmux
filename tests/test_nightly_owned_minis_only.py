@@ -268,7 +268,7 @@ class PublishersHoldTheWholeMini(unittest.TestCase):
                              "${{  vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || "
                              "github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && "
                              "vars.CI_NIGHTLY_SIGN_RUNNER || "
-                             "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}")
+                             "'glaeda-nightly-std-xcode-26.6' }}")
         for name in EXCLUSIVE_PUBLISHERS:
             with self.subTest(job=name):
                 route = manaflow_route(name)

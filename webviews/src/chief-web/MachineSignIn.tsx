@@ -148,9 +148,11 @@ export function MachineSignIn({ run, api, onExpired }: { run: string; api: Machi
       ? t("turn.signIn.codex")
       : state.harness === "claude"
         ? t("turn.signIn.claude")
-        : state.harness === "cursor"
-          ? t("turn.signIn.cursor")
-          : t("needsYou.chief");
+        : state.harness === "grok"
+          ? t("turn.signIn.grok")
+          : state.harness === "cursor"
+            ? t("turn.signIn.cursor")
+            : t("needsYou.chief");
   return (
     <section className="chief-machine-login" aria-label={title} data-testid="chief-machine-login" aria-busy={busy}>
       <div className="chief-machine-login__heading">

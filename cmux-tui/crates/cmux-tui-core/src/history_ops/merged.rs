@@ -220,10 +220,16 @@ impl HistoryHost {
         changed
     }
 
-    /// Agent entries the hides leave visible.
-    fn agent_entries(&self, hidden: &HiddenHistory) -> Vec<HistoryEntry> {
+    /// Agent entries the hides leave visible, each with the newer of the
+    /// journal's time and `live` (the daemon's own report times, keyed
+    /// `<provider>/<session id>`).
+    fn agent_entries(
+        &self,
+        hidden: &HiddenHistory,
+        live: &std::collections::HashMap<String, i64>,
+    ) -> Vec<HistoryEntry> {
         let context = EntryContext { local_machine: LOCAL_MACHINE, available: true };
-        self.lock().agents.entries(&context, hidden)
+        self.lock().agents.entries_with_live(&context, hidden, live)
     }
 
     fn revision(&self) -> u64 {
@@ -293,7 +299,7 @@ pub(super) fn list(
             pending.push(HistoryKind::Agent.as_str());
         }
         let (hidden, _) = hidden_doc::load(mux).map_err(|error| failed(OPERATION, &error))?;
-        entries.extend(mux.history.agent_entries(&hidden));
+        entries.extend(mux.history.agent_entries(&hidden, &mux.live_agent_activity()));
     }
     if wants(HistoryKind::Command) {
         // Every unexpired row up to the store's page (1000): the search and

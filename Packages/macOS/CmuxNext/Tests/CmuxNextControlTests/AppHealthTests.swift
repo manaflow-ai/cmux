@@ -117,6 +117,42 @@ struct AppHealthTests {
         #expect(action?.action == .restartPageHost)
     }
 
+    @Test(.enabled(if: linked)) func aRestoreThatMakesProgressHoldsReplacementsAtOnceAndAStalledOneDoesNot() {
+        let clock = ManualClock()
+        let health = AppHealth(clock: clock)
+        #expect(!health.holdsReplace)
+        // The first progress line holds: no start loop needs to be seen first.
+        health.noteDaemonRestoring(pid: 42)
+        #expect(health.holdsReplace)
+        clock.advance(by: .seconds(119))
+        #expect(health.holdsReplace)
+        // No progress for the model's bound: stuck, no longer protected.
+        clock.advance(by: .seconds(1))
+        #expect(!health.holdsReplace)
+        health.noteDaemonRestoring(pid: 42)
+        health.noteDaemonReady(pid: 42)
+        #expect(!health.holdsReplace, "a ready owner is no restore to protect")
+    }
+
+    /// Codex's review of #39247 (F2): the start-loop hold ended only on ready, so a daemon that loops
+    /// and then stalls kept every automatic replacement held for the rest of the app's life.
+    @Test(.enabled(if: linked)) func aStartLoopHoldEndsWhenTheDaemonStallsToo() async {
+        let clock = ManualClock()
+        let health = AppHealth(clock: clock)
+        health.register(AppHealth.sessionDaemonID, kind: .sessionDaemon, label: "Session service")
+        health.noteDaemonStarted()
+        health.noteDaemonStarted()
+        health.noteDaemonStarted()
+        await Self.snapshot(of: health) { snapshot in
+            snapshot["receipts"]?.arrayValue?.contains { $0["action"]?.stringValue == AppHealth.Repair.holdReplace.rawValue } == true
+        }
+        #expect(health.holdsReplace)
+        clock.advance(by: .seconds(119))
+        #expect(health.holdsReplace)
+        clock.advance(by: .seconds(1))
+        #expect(!health.holdsReplace, "a loop that makes no progress for the bound is stuck, not protected")
+    }
+
     @Test(.enabled(if: linked)) func theSnapshotIsPublishedOnlyWhenItChanges() {
         let health = AppHealth(clock: ManualClock())
         let published = AppHealthTestBox(0)

@@ -306,20 +306,25 @@ final class NewTabSparePool {
     private(set) var lastRecycleRefusal: String?
 
     func recycle(_ view: AgentPaneView) -> Bool {
-        guard !pressured else { return false }
-        lastRecycleRefusal = view.model.neverPooled ? "another machine's page" : !slot.shouldWarm ? "slot full" : view.model.newTab == nil ? "became a chat"
-            : view.model.userTouched ? "touched by \(view.model.touchedBy ?? "?")" : target == nil ? "no target window" : nil
-        guard lastRecycleRefusal == nil else { return false }
+        lastRecycleRefusal = refusal(of: view)
+        guard lastRecycleRefusal == nil, returns.arrived(view, in: parking, of: target) else { lastRecycleRefusal = lastRecycleRefusal ?? "not in the window"; return false }
         BenchSpans.measure("pool.recycle") {
             view.adoptNewTab(NewTabPage.sparePage(services))
-            // Out of the view tree now (as cheap as a close); back into the window at the next
-            // quiet moment: putting a WKWebView back into a window costs a 15-20 ms commit, which
-            // in the close frame dropped a frame on every Cmd-W (R81 bench).
-            view.removeFromSuperview()
             slot.parked(view)
         }
+        schedulePrepare()
+        if !refills.isOpening { snapshotParked(view) } // never a capture while an open settles (as `fitParked`)
         scheduleWarm()
         return true
+    }
+    private let returns = AgentPaneSpareReturns()
+    private func refusal(of view: AgentPaneView) -> String? {
+        pressured ? "memory pressure" : view.model.neverPooled ? "another machine's page" : !slot.shouldWarm ? "slot full" : view.model.newTab == nil ? "became a chat"
+            : view.model.userTouched ? "touched by \(view.model.touchedBy ?? "?")" : target == nil ? "no target window" : nil
+    }
+    /// A closed tab's page the pool can take back waits for `recycle` in the parking view, inside its window (`AgentPaneSpareReturns`).
+    func keepInWindow(_ view: NSView) -> Bool {
+        (view as? AgentPaneView).map { page in refusal(of: page) == nil && BenchSpans.measure("pool.park") { returns.keep(page, in: parking, of: target) } } ?? false
     }
 
     func record(_ opening: Opening) {
@@ -352,7 +357,7 @@ final class NewTabSparePool {
     /// Arms the quiet-input deadline; each key or click pushes it back.
     private func scheduleWarm() {
         guard !pressured else { return }
-        let web = services.agentTabs.canHostChat && (wantsPage || unparked != nil)
+        let web = services.agentTabs.canHostChat && wantsPage
         guard target != nil, web || (wantsNative && nativeSpare == nil) else { return }
         watchMemoryPressure()
         if inputMonitor == nil {
@@ -383,8 +388,6 @@ final class NewTabSparePool {
     }
 
     private var wantsPage: Bool { slot.count < (usedThisSession ? slot.capacity : 1) } // a launch loads one page
-    /// A recycled spare not yet back in the window.
-    private var unparked: AgentPaneView? { slot.all.first { $0.superview == nil } }
 
     private func warmNow() {
         if refills.settled() { schedulePrepare() } // the backstop ends an open whose page never reported its frame
@@ -392,15 +395,7 @@ final class NewTabSparePool {
         inputMonitor = nil
         warmNative()
         guard services.agentTabs.canHostChat else { return }
-        if let view = unparked, let content = target?.contentView {
-            park(in: content)
-            view.frame = parking.bounds
-            view.autoresizingMask = [.width, .height]
-            BenchSpans.measure("pool.park") { parking.addSubview(view) }
-            schedulePrepare()
-            snapshotParked(view)
-            return wantsPage ? scheduleWarm() : ()
-        }
+        returns.expire(after: AgentPaneSpareReturns.limit, in: parking)
         guard webKit.state == .ready else { return webKit.probe { [weak self] in self?.scheduleWarm() } }
         guard wantsPage, !pressured, let content = target?.contentView else { return }
         let start = ContinuousClock.now, page = NewTabPage.sparePage(services)

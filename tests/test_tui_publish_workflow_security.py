@@ -11,7 +11,13 @@ from pathlib import Path
 
 import tomllib
 import yaml
-import git_fixture_env
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -1116,7 +1122,7 @@ def test_tag_cut_retry_behavior_accepts_tags_after_main_advances() -> None:
         git("config", "user.email", "release-test@cmux.dev", cwd=source)
         git("commit", "--allow-empty", "-m", "release", cwd=source)
         release_sha = git("rev-parse", "HEAD", cwd=source)
-        git("init", "--bare", str(remote), cwd=temporary)
+        git_fixture_env.init_repo(remote, "--bare", cwd=temporary)
         git("remote", "add", "origin", str(remote), cwd=source)
         git("push", "origin", "main", cwd=source)
 
@@ -2354,6 +2360,8 @@ def test_cmux_next_daemon_tests_take_blacksmith_linux_and_the_mac_shadow_never_t
     # Every label it can resolve to is Blacksmith Linux or the GCP fleet Linux label, which tree-preflight's
     # linux-placement step emits only when the runner census shows an idle Linux member; size and overflow
     # wiring are free to change.
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent))  # tests/ itself: `python3 -I` puts no script folder on sys.path
     from runs_on_labels import disallowed_labels
     fleet_linux = "cmux-fleet-linux-x64"
     picker = next(step for step in jobs["tree-preflight"]["steps"] if step.get("id") == "linux-placement")

@@ -139,6 +139,9 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     /// A tab bar's empty area: the strip's or the vertical tab list's (Edge's and Chrome's
     /// vertical-tab menus: New Tab, the vertical tabs rows, Task Manager).
     case tabStrip
+    /// A split's divider (its grab band, a hidden divider's too): Insert New, Hide or Show Divider. The menu passes
+    /// the split as the rows' `split` argument.
+    case divider
 
     /// The object a right-click in this context targets, if any.
     public var targetKind: ActionTargetKind? {
@@ -161,8 +164,8 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         case .browserProfile: .browserProfile
         case .bookmark: .bookmark
         case .bookmarksBar, .bookmarkManager, .screenBar, .notification: nil
-        // The workspace whose background it is.
-        case .windowBackground: .workspace
+        // The workspace whose background it is; a divider's workspace (its split goes as an argument).
+        case .windowBackground, .divider: .workspace
         case .sidebarItem: .sidebarItem
         case .sidebarSection: .sidebarSection
         // The chat's tab (the App passes it).

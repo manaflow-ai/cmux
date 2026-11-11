@@ -5,6 +5,8 @@
 # actions.md together (cmux#38644, 2026-11-09: its Linux lane had no way to regenerate them).
 # swift is a stub that writes the exports the way ActionSurfaceParityTests does.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 src="$(cd "$here/../../.." && pwd)"
 tmp="$(mktemp -d)"

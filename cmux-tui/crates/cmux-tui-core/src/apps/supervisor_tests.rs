@@ -248,7 +248,7 @@ fn write_app(root: &Path, dir: &str, id: &str, scopes: Value) {
     let mut manifest = json!({
         "manifestVersion": 2, "id": id, "name": "Demo", "version": "1.0.0", "description": "d",
         "engines": { "cmux": "^2.0" }, "runtime": { "main": "dist/main.js" }, "catalog": "catalog.json",
-        "implements": { "cmux.section/1": { "export": "render", "title": "Demo" }, "cmux.session.info.section/1": { "export": "renderSession", "title": "Session", "symbol": "info.circle", "options": { "maxRows": 8 } }, "cmux.status/1": { "export": "renderFail" }, "cmux.palette.scope/1": { "export": "renderLive" } },
+        "implements": { "cmux.section/1": { "export": "render", "title": "Demo" }, "cmux.session.info.section/1": { "export": "renderSession", "title": "Session", "symbol": "info.circle", "options": { "maxRows": 8 } }, "cmux.status/1": { "export": "renderFail" }, "cmux.palette.scope/1": { "export": "renderLive" }, "cmux.newtab.widget/1": { "export": "renderWidget", "title": "Clock", "symbol": "clock", "options": { "size": "wide" } } },
         "scopes": scopes, "files": ["dist/", "catalog.json"]
     });
     if !id.starts_with("local/") {
@@ -471,6 +471,64 @@ fn session_info_panels_lists_only_visible_installed_apps() {
         f.supervisor.store_call(CLIENT, "apps.panels.list", json!({}), Origin::Script).unwrap()["panels"],
         json!([])
     );
+}
+
+#[test]
+fn new_tab_widgets_list_with_the_layout_and_start_no_host() {
+    const WIDGET: &str = "cmux.newtab.widget/1";
+    let f = fixture();
+    let list = || {
+        f.supervisor
+            .store_call(CLIENT, "apps.panels.list", json!({ "interface": WIDGET }), Origin::Script)
+            .unwrap()
+    };
+    assert_eq!(list(), json!({ "panels": [], "layout": [] }));
+
+    f.install("cmux/demo");
+    let hosts = || f.supervisor.inner.lock().unwrap().hosts.len();
+    let before = hosts();
+    assert_eq!(
+        list()["panels"],
+        json!([{
+            "app": "cmux/demo", "section": WIDGET, "title": "Clock", "symbol": "clock", "size": "wide"
+        }])
+    );
+    // R1: listing a page's widgets reads the catalog only; a host starts on a mount.
+    assert_eq!(hosts(), before);
+
+    let layout = json!(["clock", "app:cmux/demo#cmux.newtab.widget/1"]);
+    let set = |origin: Origin, layout: Value| {
+        f.supervisor.store_call(
+            CLIENT,
+            "apps.panels.layout.set",
+            json!({ "interface": WIDGET, "layout": layout, "idempotency_key": "layout-1" }),
+            origin,
+        )
+    };
+    assert_eq!(set(Origin::Script, layout.clone()).unwrap_err().code, "apps.origin");
+    assert_eq!(set(Origin::User, json!(["clock", "clock"])).unwrap_err().code, "bad-request");
+    assert_eq!(set(Origin::User, layout.clone()).unwrap()["layout"], layout);
+    assert_eq!(list()["layout"], layout);
+    let saved: Value =
+        serde_json::from_slice(&std::fs::read(f.state.join("apps-newtab-layout.json")).unwrap())
+            .unwrap();
+    assert_eq!(saved["layout"], layout);
+
+    // Session Info keeps its listing (no interface named), and a sidebar section is no page panel.
+    let session =
+        f.supervisor.store_call(CLIENT, "apps.panels.list", json!({}), Origin::Script).unwrap();
+    assert_eq!(session["panels"][0]["section"], "cmux.session.info.section/1");
+    assert!(session.get("layout").is_none());
+    let refused = f
+        .supervisor
+        .store_call(
+            CLIENT,
+            "apps.panels.list",
+            json!({ "interface": "cmux.section/1" }),
+            Origin::Script,
+        )
+        .unwrap_err();
+    assert_eq!(refused.code, "apps.panels.interface");
 }
 
 #[test]
@@ -1018,3 +1076,6 @@ mod subscriptions;
 
 #[path = "supervisor_run_lifecycle_tests.rs"]
 mod run_lifecycle;
+
+#[path = "supervisor_rollback_tests.rs"]
+mod rollback_tolerance;
