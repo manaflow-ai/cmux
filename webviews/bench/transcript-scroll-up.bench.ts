@@ -114,14 +114,18 @@ async function run(name: string, engine: BrowserType) {
     await page.evaluate(() => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       const holder = window as unknown as {
-        __upWatch: { frames: Frame[]; long: number[]; stop(): void };
+        __upWatch: { frames: Frame[]; long: number[]; spans: [number, number][]; origin: number; stop(): void };
       };
       const frames: Frame[] = [];
       const long: number[] = [];
+      const spans: [number, number][] = [];
       let observer: PerformanceObserver | undefined;
       try {
         observer = new PerformanceObserver((list) => {
-          for (const entry of list.getEntries()) long.push(entry.duration);
+          for (const entry of list.getEntries()) {
+            long.push(entry.duration);
+            spans.push([entry.startTime, entry.startTime + entry.duration]);
+          }
         });
         observer.observe({ type: "longtask", buffered: false });
       } catch {
@@ -138,6 +142,8 @@ async function run(name: string, engine: BrowserType) {
       holder.__upWatch = {
         frames,
         long,
+        spans,
+        origin: performance.timeOrigin,
         stop: () => {
           stop();
           observer?.disconnect();
@@ -146,12 +152,14 @@ async function run(name: string, engine: BrowserType) {
       (holder as unknown as { __longtasks: boolean }).__longtasks = observer !== undefined;
     });
     // PROFILE=1 (Chromium): a CPU profile of the wheel, its busiest functions by self time printed at the end.
+    let profiledAt = 0;
     const cdp =
       process.env.PROFILE === "1" && name === "chromium" ? await page.context().newCDPSession(page) : undefined;
     if (cdp) {
       await cdp.send("Profiler.enable");
       await cdp.send("Profiler.setSamplingInterval", { interval: 250 });
       await cdp.send("Profiler.start");
+      profiledAt = (await page.evaluate(() => performance.now())) as number;
     }
     const traces: Awaited<ReturnType<typeof traceUpwardAnchors>>[] = [];
     const driftLog: string[] = [];
@@ -205,11 +213,16 @@ async function run(name: string, engine: BrowserType) {
     }
     const watched = await page.evaluate(() => {
       const holder = window as unknown as {
-        __upWatch: { frames: Frame[]; long: number[]; stop(): void };
+        __upWatch: { frames: Frame[]; long: number[]; spans: [number, number][]; origin: number; stop(): void };
         __longtasks: boolean;
       };
       holder.__upWatch.stop();
-      return { frames: holder.__upWatch.frames, long: holder.__upWatch.long, longtasks: holder.__longtasks };
+      return {
+        frames: holder.__upWatch.frames,
+        long: holder.__upWatch.long,
+        spans: holder.__upWatch.spans,
+        longtasks: holder.__longtasks,
+      };
     });
     if (cdp) {
       type Node = {
@@ -220,6 +233,10 @@ async function run(name: string, engine: BrowserType) {
       const { profile } = (await cdp.send("Profiler.stop")) as unknown as {
         profile: { nodes: Node[]; samples: number[]; timeDeltas: number[] };
       };
+      // Self time inside the long tasks only (each sample's page time: the profile's start, read on
+      // the page, plus the deltas so far), by function.
+      const inLong = new Map<string, number>();
+      let clock = 0;
       const byId = new Map(profile.nodes.map((node) => [node.id, node]));
       const parents = new Map<number, Node>();
       for (const node of profile.nodes) for (const child of node.children ?? []) parents.set(child, node);
@@ -228,11 +245,20 @@ async function run(name: string, engine: BrowserType) {
       const callers = new Map<string, number>();
       profile.samples.forEach((id, index) => {
         const ms = (profile.timeDeltas[index] ?? 0) / 1000;
+        clock += ms;
         const node = byId.get(id)!;
         if (node.callFrame.functionName === "(idle)") return;
         const label = (each: Node) =>
           `${each.callFrame.functionName || "(anon)"} ${each.callFrame.url.split("/").pop()?.split("?")[0] ?? ""}:${each.callFrame.lineNumber + 1}`;
         self.set(label(node), (self.get(label(node)) ?? 0) + ms);
+        const at = profiledAt + clock;
+        if (watched.spans.some(([from, to]) => at >= from && at <= to)) {
+          // Charged to the nearest frame of the page's own code, so a forced layout names its caller.
+          let owner: Node | undefined = node;
+          while (owner && !owner.callFrame.url) owner = parents.get(owner.id);
+          const key = owner ? label(owner) : label(node);
+          inLong.set(key, (inLong.get(key) ?? 0) + ms);
+        }
         // A native frame (a forced layout in getBoundingClientRect, scrollTop) is charged to the
         // script that called it, so the page's own reads and the harness's read apart.
         if (!node.callFrame.url) {
@@ -254,6 +280,8 @@ async function run(name: string, engine: BrowserType) {
       const top = (map: Map<string, number>, count: number) => [...map].sort((a, b) => b[1] - a[1]).slice(0, count);
       for (const [key, ms] of top(self, 30))
         console.log(`transcript-scroll-up profile self ${Math.round(ms)} ms ${key}`);
+      for (const [key, ms] of top(inLong, 20))
+        console.log(`transcript-scroll-up profile long ${Math.round(ms)} ms ${key}`);
       for (const [key, ms] of top(callers, 15))
         console.log(`transcript-scroll-up profile native ${Math.round(ms)} ms ${key}`);
       // The source at each of the busiest anonymous or bundled frames, since a bundle's line says little.
@@ -270,7 +298,7 @@ async function run(name: string, engine: BrowserType) {
           );
       const sources = new Map<string, string[]>();
       const callerKeys = top(callers, 8).map(([key]) => key.split(" <- ")[1]!);
-      for (const key of [...new Set([...top(self, 20).map(([each]) => each), ...callerKeys])]) {
+      for (const key of new Set([...top(self, 20).map(([each]) => each), ...callerKeys])) {
         const at = where.get(key);
         if (!at) continue;
         if (!sources.has(at.url))
