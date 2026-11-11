@@ -1085,6 +1085,19 @@ impl AgentRoster {
         vec![RosterDelta::Upsert { terminal_id: terminal_id.to_string(), entry }]
     }
 
+    /// Each terminal's hook session id (ended or not) and the harness its
+    /// roster entry names, from the journal: a restarted daemon shows the
+    /// session a resume needs again (W5-R).
+    pub(crate) fn hook_sessions(&self) -> Vec<(String, String, Option<String>)> {
+        self.hook_fences
+            .iter()
+            .map(|(terminal, fence)| {
+                let agent = self.entries.get(terminal).and_then(|entry| entry.agent.clone());
+                (terminal.clone(), fence.session_id.clone(), agent)
+            })
+            .collect()
+    }
+
     /// Drop a terminal that left the session (tab closed, terminal
     /// tombstoned). Terminal lifecycle does not flow through `agent.*`
     /// events yet, so the host retires entries explicitly.

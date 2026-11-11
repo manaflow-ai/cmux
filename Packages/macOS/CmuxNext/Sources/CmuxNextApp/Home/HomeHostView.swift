@@ -363,7 +363,7 @@ final class HomeHostView: PaneMotionFollowingView {
             guard let self, !Task.isCancelled else { return }
             transcript.holdsFirstRun = false
             // A launch holds a Home still being made until here (WorkspaceContentController).
-            reveal.markReady(.home)
+            reveal.markReady(.home); DebugTimings.markLaunch("home.first_page")
         }
         wantsLayer = true
         clipsToBounds = true

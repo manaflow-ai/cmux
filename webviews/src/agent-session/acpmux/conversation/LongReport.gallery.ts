@@ -188,9 +188,9 @@ export default agentPaneEntry({
       snapshot: lead(false),
     },
     "lead-running-hover": {
-      note: "The sub-session's line under the pointer: its name lights all the way through, as a tool row's words do (Leo, 2026-11-09).",
+      note: "The pointer on the sub-session's name: only its chip lights, the chat's one opener (Leo, 2026-11-05: \"subagents need to have their clickable bit be highlighted instead of the whole line click\").",
       snapshot: lead(false),
-      play: async (ctx) => ctx.hover({ selector: "button.cv-disclosure__open .cv-disclosure__label" }),
+      play: async (ctx) => ctx.hover({ selector: ".cv-disclosure__open button.cv-agent-tag.is-open" }),
     },
     "lead-finished": {
       note: "The lead chat once the review finished: its work folds, and the review stays in sight as one line that opens its report.",

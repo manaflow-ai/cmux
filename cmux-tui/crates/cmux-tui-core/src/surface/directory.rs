@@ -60,6 +60,28 @@ impl Surface {
             .last_command()
     }
 
+    /// When a client last wrote input: `extra.last_input`
+    /// (`terminal-activity-v1`, read-time only).
+    pub(crate) fn terminal_last_input(&self) -> Option<u64> {
+        self.as_pty()?
+            .terminal_metadata
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .activity
+            .last_input()
+    }
+
+    /// Notes that a client wrote input to this terminal now.
+    pub(crate) fn note_terminal_input(&self) {
+        let Some(pty) = self.as_pty() else { return };
+        let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
+        pty.terminal_metadata
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .activity
+            .note_input(now_ms);
+    }
+
     /// When the terminal last printed anything: `extra.last_output`
     /// (`terminal-activity-v1`).
     pub(crate) fn terminal_last_output(&self) -> Option<u64> {
@@ -163,29 +185,47 @@ impl Surface {
 
     fn publish_progress_change(&self, with_alerts: bool) {
         let Some(pty) = self.as_pty() else { return };
-        let (progress_changed, records) = {
+        // A command or prompt edge is durable. A new OSC 9;4 progress and a
+        // moved last output are live facts: the open streams get them, the
+        // registry and the journal do not.
+        let (activity_edge, live_changed, records) = {
             let mut metadata = pty.terminal_metadata.lock().unwrap();
             let progress = metadata.take_progress_change().is_some();
-            (metadata.take_busy_change() || progress, metadata.program_status())
+            let edge = metadata.take_busy_change();
+            let output = metadata.take_output_change();
+            (edge, progress || output, metadata.program_status())
         };
-        let (status_changed, shown_changed, alerts, blocker) = {
+        let (status, shown_changed, shown_state_changed, alerts, blocker) = {
             let mut records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let shown_state = records.shown_published_state();
             let shown = records.take_shown_change(!self.is_dead());
+            let shown_state_changed =
+                shown.is_some_and(|shown| shown.map(|shown| shown.state) != shown_state);
             let alerts = if with_alerts { records.take_alerts() } else { Vec::new() };
             let blocker = records.take_blocker_change(!self.is_dead());
-            (records.take_change(), shown, alerts, blocker)
+            (records.take_change(), shown, shown_state_changed, alerts, blocker)
         };
         // A publish after the terminal died (reconnect) can hide its
         // running records with no new report: send that shown change too.
-        if !progress_changed && !status_changed && shown_changed.is_none() {
+        if !activity_edge && !live_changed && !status.any && shown_changed.is_none() {
             return;
         }
         let Some(mux) = pty.mux.upgrade() else { return };
-        let mutation = if status_changed { "terminal.program_status" } else { "terminal.progress" };
-        if (progress_changed || status_changed)
-            && let Err(error) = mux.publish_terminal_progress(self, mutation)
-        {
-            eprintln!("cmux-tui: terminal {mutation} publication failed: {error}");
+        // A report that changes a record's state or kind, or the shown
+        // state, is one commit. One that keeps them is live, and so is the
+        // shown record's new progress number.
+        let status_edge = status.edge || (status.any && shown_state_changed);
+        // While a journal stream follows the rows of live facts (an agent
+        // plugin's wake) or a journal hook is delivered them, a live fact
+        // is a row too, as a durable edge is.
+        let live = live_changed || status.any;
+        if activity_edge || status_edge || (live && mux.terminal_progress_rows_followed()) {
+            let mutation = if status.any { "terminal.program_status" } else { "terminal.progress" };
+            if let Err(error) = mux.publish_terminal_progress(self, mutation) {
+                eprintln!("cmux-tui: terminal {mutation} publication failed: {error}");
+            }
+        } else if live {
+            mux.publish_terminal_live(self);
         }
         // After the terminal's upsert, so the roster's row follows it.
         if let Some(state) = blocker {
@@ -258,6 +298,11 @@ impl Surface {
                 PublishedDirectory::Reported(directory)
             };
         }
+    }
+
+    /// Whether a directory report waits for `publish_pending_directory`.
+    pub(crate) fn directory_publication_pending(&self) -> bool {
+        self.as_pty().is_some_and(|pty| pty.directory_pending.load(Ordering::Acquire))
     }
 
     pub(crate) fn publish_pending_directory(&self) {

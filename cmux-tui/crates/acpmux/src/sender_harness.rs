@@ -347,15 +347,17 @@ pub fn record(prompt_id: &str, claimed: Option<Value>, checked: Option<Value>) -
 }
 
 /// A prompt's acceptance callback that also writes its `sender_claim` with `write`, once the
-/// prompt is kept (queued, started or steered in): a duplicate writes nothing, and a refused
-/// prompt never calls its acceptance, so no claim names a prompt the chat does not hold.
+/// prompt is kept (queued, started or steered in): a duplicate, a withdrawn one or an inbox resend
+/// (`resent`) writes nothing, and a refused prompt never calls its acceptance, so no claim names a
+/// prompt the chat does not hold, nor rewrites one it holds.
 pub fn on_kept(
     claim: Value,
     write: impl FnOnce(Value) + Send + 'static,
     next: Option<Box<dyn FnOnce(Value) + Send>>,
 ) -> Option<Box<dyn FnOnce(Value) + Send>> {
     Some(Box::new(move |accepted: Value| {
-        if accepted.pointer("/duplicate").and_then(Value::as_bool) != Some(true) {
+        let said = |key: &str| accepted.get(key).and_then(Value::as_bool) == Some(true);
+        if !said("duplicate") && !said("withdrawn") && !said("resent") {
             write(claim);
         }
         if let Some(next) = next {
@@ -455,7 +457,9 @@ pub fn chain(lookup: impl Fn(u32) -> Option<Proc>, pid: u32) -> Chain {
         let Some(p) = lookup(at) else { break };
         let name = p.exe.rsplit('/').next().unwrap_or(p.exe.as_str());
         // acpmux itself may be the copy an app ships (cmux.app's): that bundle is not the sender.
-        if found.app.is_none() && name != "acpmux" {
+        // The first process is acpmux by construction, whatever the kernel names its file
+        // (cmux.app's bin/acpmux resolves to bin/cmux).
+        if found.app.is_none() && p.pid != pid && name != "acpmux" {
             found.app = app_bundle(&p.exe);
         }
         if found.harness.is_none() {

@@ -466,10 +466,12 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
         [command] if command == "serve" => serve(global, true),
         [command, flag] if command == "serve" && flag == "--all-tools" => serve(global, false),
         [command] if command == "tools" => list_tools(global),
-        _ => {
-            eprintln!("cmux: {usage}");
-            2
-        }
+        _ => super::scope_usage_failure(
+            global.output,
+            "mcp",
+            &super::unknown_words("mcp", args),
+            usage.strip_prefix("usage: ").unwrap_or(usage),
+        ),
     }
 }
 
@@ -1361,7 +1363,15 @@ impl<B: Backend> Server<B> {
             })
             .flatten();
         let call_session = call.session.clone();
-        match self.backend.resource(call.session.as_deref(), call.plan, &call.prefixes) {
+        // A terminal wait that ran out of time says `timed_out`, as the CLI's does.
+        let wait = super::wire::wait_timeout::Wait::of(&call.plan);
+        let answer = self.backend.resource(call.session.as_deref(), call.plan, &call.prefixes);
+        match answer.map(|mut value| {
+            if let Some(wait) = &wait {
+                wait.mark(&mut value);
+            }
+            value
+        }) {
             Ok(value) if typed.is_some() => success(
                 {
                     let mut value = value;
@@ -1609,15 +1619,19 @@ fn envelope(error: Value, state: &str, idempotency_key: Option<&str>) -> Value {
 
 pub(super) fn failure_result(failure: CallFailure) -> Value {
     // An owner that says whether the run started (the app's `busy` and
-    // `timeout`) decides the state.
+    // `timeout`) decides the state. So does one that says it decided the refusal
+    // itself (`rejected`: a pane that cannot split): the app marks that `not_run`
+    // too (nothing applied), and `not_run` alone would tell the agent to send it again.
     let data = failure.error.get("data").or_else(|| failure.error.get("details"));
     let owner_state = data.and_then(|data| {
+        let said = data.get("state").and_then(Value::as_str);
+        if said == Some("rejected") {
+            return Some("rejected");
+        }
         if data.get("not_run") == Some(&Value::Bool(true)) {
             return Some("not_run");
         }
-        data.get("state")
-            .and_then(Value::as_str)
-            .filter(|state| matches!(*state, "not_run" | "in_progress"))
+        said.filter(|state| matches!(*state, "not_run" | "in_progress"))
     });
     // The app's queue deadline (`timeout`) says nothing about whether the
     // run started; a retry with the same key is safe either way.

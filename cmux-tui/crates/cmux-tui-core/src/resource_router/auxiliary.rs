@@ -72,11 +72,15 @@ pub(super) fn dispatch_trusted_local(
 
 fn list_agents(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
     let session_id = resolve_session(mux, &request.selectors)?;
-    let terminal = request.fields.get("terminal_id").map(parse_terminal_id).transpose()?;
+    let terminal = match request.fields.get("terminal").and_then(Value::as_str) {
+        Some(raw) => Some(resolve_terminal_selector(mux, &request.selectors, raw)?),
+        None => request.fields.get("terminal_id").map(parse_terminal_id).transpose()?,
+    };
     let state = request.fields.get("state").map(parse_agent_state).transpose()?;
     let state_filter = state.map(AgentState::as_str);
     // The kept replies are memory only, read before the projection lock.
     let replies = mux.agent_list_replies(terminal.as_ref());
+    let last_sessions = mux.agent_last_sessions();
     // Public agents are durable terminal projections. They remain listable
     // after process exit detaches the runtime and every tab view.
     let values = mux
@@ -86,6 +90,7 @@ fn list_agents(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value,
                 .into_iter()
                 .map(|agent| agent.into_public_snapshot(&session_id))
                 .map(|agent| crate::mux::with_agent_list_replies(agent, &replies))
+                .map(|agent| crate::mux::with_kept_session(agent, &last_sessions))
                 .collect::<Vec<_>>())
         })
         .map_err(resource_operation_error)?;
@@ -562,6 +567,33 @@ fn resolve_session(
     mux.resolve_resource_path(ResourceTarget::Session, &session_selectors)?
         .session
         .ok_or_else(|| ResourceError::not_found("session", "<resolved>"))
+}
+
+/// The terminal a `terminal` selector field names (W5-P): every form a
+/// terminal selector takes (a full id, a unique prefix, a bare or host id, a
+/// tab or pane id, a name, `current`), resolved by the one resolver. A name
+/// or `current` gets `current` parents, as the CLI sends a terminal target,
+/// so a name the focused tab lacks is looked up in the whole session.
+fn resolve_terminal_selector(
+    mux: &Mux,
+    routing: &ResourceSelectors,
+    raw: &str,
+) -> Result<TerminalPublicId, ResourceError> {
+    let implicit =
+        (!matches!(Selector::parse(raw)?, Selector::Id(_))).then(|| "current".to_owned());
+    let selectors = ResourceSelectors {
+        machine: routing.machine.clone(),
+        session: routing.session.clone(),
+        workspace: implicit.clone(),
+        screen: implicit.clone(),
+        pane: implicit.clone(),
+        tab: implicit,
+        terminal: Some(raw.to_owned()),
+        ..Default::default()
+    };
+    mux.resolve_resource_path(ResourceTarget::Terminal, &selectors)?
+        .terminal
+        .ok_or_else(|| ResourceError::not_found("terminal", raw))
 }
 
 fn parse_terminal_id(value: &Value) -> Result<TerminalPublicId, ResourceError> {

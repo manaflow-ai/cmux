@@ -111,10 +111,7 @@ fn parse_send(args: &[String]) -> Result<Send, String> {
             "--wait" => send.wait = true,
             "--no-wait-agents" => send.no_wait_agents = true,
             "--timeout" => {
-                let text = value()?;
-                let secs: u64 =
-                    text.parse().map_err(|_| format!("--timeout takes seconds, not {text}"))?;
-                send.timeout_secs = (secs > 0).then_some(secs);
+                send.timeout_secs = crate::cli::chat_send::timeout_secs(&value()?)?;
             }
             "--as" | "--from" => send.sender_name = Some(value()?),
             "--class" => send.class = Some(value()?),

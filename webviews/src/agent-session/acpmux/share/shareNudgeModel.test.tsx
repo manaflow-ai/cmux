@@ -5,7 +5,7 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { memoryTipHost } from "../../../ui/featureTips/store";
+import { memoryTipHost, type TipHost } from "../../../ui/featureTips/store";
 import type { AcpmuxRow } from "../model";
 import type { AcpmuxSessionEntry } from "../sessionList";
 import {
@@ -60,9 +60,12 @@ test("a second chat of the person's own blocks it; side chats and agent-started 
     session("side", { side: true }),
     session("sub", { startedBy: "s1" }),
     session("spawn", { spawnedBy: "s1" }),
+    session("lane", { reportsTo: "s1" }),
   ];
   expect(ownChats(helpers).map((entry) => entry.sessionId)).toEqual(["s1"]);
   expect(shareNudgeBlocked(chat({ sessions: helpers }), context)).toBeUndefined();
+  // A chat tagged as reporting to itself is still the person's own.
+  expect(ownChats([session("s1", { reportsTo: "s1" })]).map((entry) => entry.sessionId)).toEqual(["s1"]);
   // Before the daemon's list is read, the count is unknown.
   expect(shareNudgeBlocked(chat({ listedSessions: undefined }), context)).toBe("unlisted");
 });
@@ -107,7 +110,7 @@ afterEach(async () => {
 
 type Live = ShareNudgeChat & { isWorking: boolean; turnsEnded?: number };
 
-async function mount(host: ReturnType<typeof memoryTipHost>, start: Live) {
+async function mount(host: TipHost, start: Live) {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
   for (const key of ["window", "document", "IS_REACT_ACT_ENVIRONMENT"]) saved.set(key, scope[key]);
   Object.assign(scope, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true });
@@ -191,11 +194,36 @@ test("it goes when the next turn starts or a second chat appears", async () => {
 });
 
 test("an app that keeps no records shows no nudge", async () => {
-  const host = {
+  const host: TipHost = {
     ...memoryTipHost(),
     read: () => Promise.reject(new Error("tips.state.noRecords")),
+    claim: () => Promise.reject(new Error("tips.state.unsupported")),
   };
-  const { state, render } = await mount(host as ReturnType<typeof memoryTipHost>, running);
+  const { state, render } = await mount(host, running);
   await render(answered);
   expect(state.current?.shown).toBe(false);
+});
+
+test("two panes ending a turn at once: the app's claim gives it to one only", async () => {
+  const host = memoryTipHost();
+  // Both panes ask before either answer lands, as two windows would.
+  const asked = await Promise.all([host.claim(SHARE_NUDGE_ID, undefined), host.claim(SHARE_NUDGE_ID, undefined)]);
+  expect(asked.filter(Boolean)).toHaveLength(1);
+
+  // Through the hook: a second pane on the same install draws nothing.
+  const fresh = memoryTipHost();
+  const first = await mount(fresh, running);
+  await first.render(answered);
+  expect(first.state.current?.shown).toBe(true);
+  await act(async () => root!.unmount());
+  root = undefined;
+  const other = await mount(fresh, running);
+  await other.render(answered);
+  expect(other.state.current?.shown).toBe(false);
+});
+
+test("a lane another chat started does not count as the person's second chat", async () => {
+  const { state, render } = await mount(memoryTipHost(), running);
+  await render({ ...answered, sessions: [session("s1"), session("lane", { reportsTo: "s1" })] });
+  expect(state.current?.shown).toBe(true);
 });

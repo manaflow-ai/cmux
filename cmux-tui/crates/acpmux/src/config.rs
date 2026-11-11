@@ -856,8 +856,10 @@ pub fn turn_cut(name: &str, profile: &HarnessProfile) -> Option<TurnCut> {
     }
 }
 
-/// Permission policy applied when no attached client answers.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+/// Permission policy applied when no attached client answers. Read from config.json through
+/// `FromStr`: a value this build does not know (one a newer build added and saved, read after a
+/// rollback) reads as `ask` rather than failing the whole config, which stopped the daemon.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum PermissionPolicy {
     /// Ask attached clients; wait without limit when none is attached.
@@ -888,6 +890,16 @@ impl std::str::FromStr for PermissionPolicy {
             "review" => Ok(Self::Review),
             other => Err(format!("unknown permission policy: {other}")),
         }
+    }
+}
+
+impl<'de> Deserialize<'de> for PermissionPolicy {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+        let text = String::deserialize(d)?;
+        Ok(text.parse().unwrap_or_else(|_| {
+            tracing::warn!("permission policy {text:?} is not one this build knows; using ask");
+            Self::Ask
+        }))
     }
 }
 
@@ -2036,13 +2048,14 @@ fn write_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> Result<()> {
 }
 
 mod nested_env;
+pub(crate) use nested_env::inherited_caller_scoped_keys;
 #[cfg(windows)]
 pub(crate) use nested_env::nested_claude_keys;
 pub use nested_env::{
     CHIEF_CREDENTIAL_ENV, LAUNCH_CREDENTIAL_ENV, scrub_nested_claude_env,
     scrub_nested_claude_env_for, scrub_nested_claude_env_tokio, scrub_nested_claude_env_tokio_for,
 };
-pub(crate) use nested_env::{inherited_caller_scoped_keys, is_nested_claude_key};
+pub use nested_env::{is_caller_scoped_key, is_nested_claude_key};
 mod launchers;
 pub(crate) use launchers::which;
 pub use launchers::{is_subrouter_proxy, subrouter_route, verify_launchers, verify_launchers_with};

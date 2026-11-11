@@ -12,7 +12,9 @@ import java.util.Objects;
 
 public final class ServerStatsResult implements WireValue {
     private final ServerStatsConnections connections;
+    private final Field<ServerStatsDisk> disk;
     private final Field<ServerStatsHookQueue> hookQueue;
+    private final Field<ServerStatsJournalFollowers> journalFollowers;
     private final ServerStatsJournalWriter journalWriter;
     private final Field<ServerStatsLocks> locks;
     private final ServerStatsRegistryLock registryLock;
@@ -24,7 +26,9 @@ public final class ServerStatsResult implements WireValue {
     private ServerStatsResult(Builder builder) {
         if (!builder.connectionsSet) throw new IllegalArgumentException("connections is required");
         this.connections = Wire.nonNull(builder.connections, "connections");
+        this.disk = builder.disk;
         this.hookQueue = builder.hookQueue;
+        this.journalFollowers = builder.journalFollowers;
         if (!builder.journalWriterSet) throw new IllegalArgumentException("journal_writer is required");
         this.journalWriter = builder.journalWriter;
         this.locks = builder.locks;
@@ -41,7 +45,9 @@ public final class ServerStatsResult implements WireValue {
     public static Builder builder() { return new Builder(); }
 
     public ServerStatsConnections connections() { return connections; }
+    public Field<ServerStatsDisk> disk() { return disk; }
     public Field<ServerStatsHookQueue> hookQueue() { return hookQueue; }
+    public Field<ServerStatsJournalFollowers> journalFollowers() { return journalFollowers; }
     public ServerStatsJournalWriter journalWriter() { return journalWriter; }
     public Field<ServerStatsLocks> locks() { return locks; }
     public ServerStatsRegistryLock registryLock() { return registryLock; }
@@ -55,9 +61,17 @@ public final class ServerStatsResult implements WireValue {
         Builder builder = builder();
         Object rawConnections = Wire.required(object, "connections");
         builder.connections(ServerStatsConnections.fromWire(rawConnections));
+        Object rawDisk = Wire.optional(object, "disk");
+        if (!Wire.isMissing(rawDisk)) {
+            builder.disk(ServerStatsDisk.fromWire(rawDisk));
+        }
         Object rawHookQueue = Wire.optional(object, "hook_queue");
         if (!Wire.isMissing(rawHookQueue)) {
             builder.hookQueue(ServerStatsHookQueue.fromWire(rawHookQueue));
+        }
+        Object rawJournalFollowers = Wire.optional(object, "journal_followers");
+        if (!Wire.isMissing(rawJournalFollowers)) {
+            builder.journalFollowers(ServerStatsJournalFollowers.fromWire(rawJournalFollowers));
         }
         Object rawJournalWriter = Wire.required(object, "journal_writer");
         builder.journalWriter(rawJournalWriter == null ? null : ServerStatsJournalWriter.fromWire(rawJournalWriter));
@@ -86,7 +100,9 @@ public final class ServerStatsResult implements WireValue {
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "connections", connections);
+        Wire.put(object, "disk", disk);
         Wire.put(object, "hook_queue", hookQueue);
+        Wire.put(object, "journal_followers", journalFollowers);
         Wire.put(object, "journal_writer", journalWriter);
         Wire.put(object, "locks", locks);
         Wire.put(object, "registry_lock", registryLock);
@@ -100,11 +116,11 @@ public final class ServerStatsResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ServerStatsResult that)) return false;
-        return Objects.equals(connections, that.connections) && Objects.equals(hookQueue, that.hookQueue) && Objects.equals(journalWriter, that.journalWriter) && Objects.equals(locks, that.locks) && Objects.equals(registryLock, that.registryLock) && Objects.equals(resourceProjection, that.resourceProjection) && Objects.equals(schema, that.schema) && Objects.equals(uptimeMs, that.uptimeMs) && Objects.equals(writePath, that.writePath);
+        return Objects.equals(connections, that.connections) && Objects.equals(disk, that.disk) && Objects.equals(hookQueue, that.hookQueue) && Objects.equals(journalFollowers, that.journalFollowers) && Objects.equals(journalWriter, that.journalWriter) && Objects.equals(locks, that.locks) && Objects.equals(registryLock, that.registryLock) && Objects.equals(resourceProjection, that.resourceProjection) && Objects.equals(schema, that.schema) && Objects.equals(uptimeMs, that.uptimeMs) && Objects.equals(writePath, that.writePath);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(connections, hookQueue, journalWriter, locks, registryLock, resourceProjection, schema, uptimeMs, writePath); }
+    public int hashCode() { return Objects.hash(connections, disk, hookQueue, journalFollowers, journalWriter, locks, registryLock, resourceProjection, schema, uptimeMs, writePath); }
 
     @Override
     public String toString() { return "ServerStatsResult" + toWire(); }
@@ -112,7 +128,9 @@ public final class ServerStatsResult implements WireValue {
     public static final class Builder {
         private ServerStatsConnections connections;
         private boolean connectionsSet;
+        private Field<ServerStatsDisk> disk = Field.omitted();
         private Field<ServerStatsHookQueue> hookQueue = Field.omitted();
+        private Field<ServerStatsJournalFollowers> journalFollowers = Field.omitted();
         private ServerStatsJournalWriter journalWriter;
         private boolean journalWriterSet;
         private Field<ServerStatsLocks> locks = Field.omitted();
@@ -130,8 +148,16 @@ public final class ServerStatsResult implements WireValue {
             this.connectionsSet = true;
             return this;
         }
+        public Builder disk(ServerStatsDisk value) {
+            this.disk = Field.of(value);
+            return this;
+        }
         public Builder hookQueue(ServerStatsHookQueue value) {
             this.hookQueue = Field.of(value);
+            return this;
+        }
+        public Builder journalFollowers(ServerStatsJournalFollowers value) {
+            this.journalFollowers = Field.of(value);
             return this;
         }
         public Builder journalWriter(ServerStatsJournalWriter value) {

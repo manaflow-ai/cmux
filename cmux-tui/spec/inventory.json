@@ -71,6 +71,9 @@
     "cloud.owner.handoff_wait",
     "cloud.owner.handoffs",
     "cloud.owner.harness_login_copy",
+    "cloud.owner.turn_checkpoint",
+    "cloud.owner.turn_rewind",
+    "cloud.owner.turns",
     "cloud.previews.create_link",
     "cloud.previews.refresh",
     "cloud.previews.revoke_link",
@@ -169,6 +172,7 @@
     "pane.focus_direction",
     "pane.get",
     "pane.list",
+    "pane.move",
     "pane.neighbor.get",
     "pane.rename",
     "pane.run",
@@ -504,6 +508,7 @@
       "set-client-sizing",
       "set-column-dock",
       "set-default-colors",
+      "set-divider-visible",
       "set-frontend-browser-history",
       "set-host-size-policy",
       "set-layout-sizes",
@@ -525,14 +530,17 @@
       "set-viewport-pane-width",
       "set-window-title",
       "set-workspace-metadata",
+      "shell-read",
+      "shell-run",
+      "shell-stop",
       "split",
       "swap-pane",
       "terminal-events",
       "terminal-history",
+      "terminal-last-command",
       "terminal-ports",
       "terminal-read-range",
       "terminal-resources",
-      "terminal-last-command",
       "terminal-resume-command",
       "undo-layout",
       "ungroup-screen-group",
@@ -1179,6 +1187,18 @@
     },
     {
       "name": "cloud-inbox-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "feed-view-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "feed-reports-changed",
       "streams": [
         "subscribe"
       ]

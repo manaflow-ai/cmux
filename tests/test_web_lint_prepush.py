@@ -17,7 +17,9 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import threading
 import sys
+import time
 import unittest
 from unittest import mock
 import git_fixture_env  # disables git auto maintenance
@@ -151,6 +153,7 @@ class WebLintPrePushTests(unittest.TestCase):
             "scripts/cmux-next/git_batch.py",
             "scripts/ci/base_merge_warning.py",
             "scripts/ci/github_release_download.py",
+            "scripts/ci/deadline_http.py",
             "scripts/web-lint.sh",
             "scripts/merge-xcstrings.py",
             "scripts/merge-pbxproj.py",
@@ -343,6 +346,92 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertRegex(result.stderr, r"web lint passed in \d+\.\ds \(webviews\)")
         self.assertFalse(log.exists(), "a Swift-only push runs only the pieces that read Swift")
         self.assertEqual(self.remote_head(), head)
+
+    # 2026-11-10: a Swift-only push wrote a full lint tree (49,011 files, `git worktree add`) for three checks that
+    # read 14,791 of them: 7 of the web lint's 11 s on an idle Mac, 2-6 minutes on a loaded one. The pieces now get
+    # a tree of only what they declare they read, and no worktree is registered.
+    def test_a_swift_only_push_from_a_dirty_checkout_writes_no_full_lint_tree(self):
+        self.text_focus_fixture()
+        self.write(self.SWIFT_SOURCE, 'struct Field {\n    var body: some View {\n'
+                   '        SecureField("Key", text: $key)\n            .focusEffectDisabled()\n    }\n}\n')
+        self.commit("a field without a ring")
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        self.write("notes.txt", "untracked\n")  # the checkout is no longer exactly the commit
+        env, trees = self.logged_trees()
+
+        result = self.push(**env)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertRegex(result.stderr, r"web lint passed in \d+\.\ds \(webviews\)")
+        self.assertEqual(trees(), [], "a full checkout was written for checks that read a few folders")
+        self.assertEqual(self.remote_head(), head)
+
+    def test_a_swift_only_push_from_a_dirty_checkout_is_still_refused_for_a_focus_ring(self):
+        self.text_focus_fixture()
+        before = self.remote_head()
+        self.write(self.SWIFT_SOURCE, self.RINGED_FIELD)
+        self.commit("a field with a focus ring")
+        # The checkout no longer holds the commit: the check must read the pushed field, not this one.
+        self.write(self.SWIFT_SOURCE, 'struct Field {}\n')
+        env, trees = self.logged_trees()
+
+        result = self.push(**env)
+
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.remote_head(), before, "the field with a ring must not reach origin")
+        self.assertIn(f"{self.SWIFT_SOURCE}:3", result.stderr, "must name the pushed field")
+        self.assertEqual(trees(), [])
+
+    def test_a_lone_piece_tree_holds_what_the_piece_reads_and_no_more(self):
+        self.text_focus_fixture()
+        self.write(self.SWIFT_SOURCE, 'struct Field {}\n')
+        self.commit("a Swift-only change")
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        lint = load_lint(self.repo)
+        exists, read = lint.snapshot(self.repo, head)
+        plan = lint.make_plan(self.repo, [self.SWIFT_SOURCE], guard_executed=False, exists=exists, read=read)
+
+        paths = lint.piece_tree_paths(self.repo, head, plan, read)
+
+        self.assertIn(self.SWIFT_SOURCE, paths)
+        self.assertIn("webviews/src/app.ts", paths)
+        self.assertIn(self.TEXT_FOCUS, paths)
+        self.assertIn("webviews/package.json", paths)
+        self.assertNotIn("web/app/page.tsx", paths)
+        self.assertNotIn("webviews/test/app.test.ts", paths)
+        tree = self.root / "piece-tree"
+        work = self.root / "piece-work"
+        work.mkdir()
+        lint.export_files(self.repo, head, paths, tree, work)
+        written = sorted(str(path.relative_to(tree)) for path in tree.rglob("*") if path.is_file())
+        self.assertEqual(written, sorted(paths))
+        self.assertEqual((tree / self.SWIFT_SOURCE).read_text(), 'struct Field {}\n')
+        self.assertEqual(len(self.git("worktree", "list").stdout.splitlines()), 1, "no worktree is registered")
+
+    def test_a_plan_with_a_whole_package_check_keeps_the_full_tree(self):
+        self.text_focus_fixture()
+        self.write("webviews/src/app.ts", "export const app = 6;\n")
+        self.commit("a web change")
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        lint = load_lint(self.repo)
+        exists, read = lint.snapshot(self.repo, head)
+        plan = lint.make_plan(self.repo, ["webviews/src/app.ts"], guard_executed=False, exists=exists, read=read)
+
+        self.assertIsNone(lint.piece_tree_paths(self.repo, head, plan, read))
+
+    def test_a_symlink_in_what_a_piece_reads_keeps_the_full_tree(self):
+        # A link would be read through to a file the smaller tree does not hold.
+        self.text_focus_fixture()
+        link = self.repo / "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Linked.swift"
+        link.symlink_to("../../../../../web/app/page.tsx")
+        self.commit("a link among the Swift sources")
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        lint = load_lint(self.repo)
+        exists, read = lint.snapshot(self.repo, head)
+        plan = lint.make_plan(self.repo, [self.SWIFT_SOURCE], guard_executed=False, exists=exists, read=read)
+
+        self.assertTrue(plan.script_pieces)
+        self.assertIsNone(lint.piece_tree_paths(self.repo, head, plan, read))
 
     def test_a_lone_piece_never_runs_check_code_an_earlier_push_changed(self):
         # The trust boundary holds for #34046's lone pieces too: a branch whose earlier push changed a source-check
@@ -1231,6 +1320,53 @@ class WebLintPrePushTests(unittest.TestCase):
 
         self.assertNotIn("web-lint: webviews: bun install", run_lint(), "without --timings the log stays as it was")
 
+    def test_in_ci_the_type_aware_checks_take_one_slot_per_two_cores_and_light_ones_run_beside_them(self):
+        # All the vp checks at once on a 4 vCPU fast-gates runner: the web lint took 185 to 698 s and once outgrew the
+        # job's 15 min. In CI the type-aware ones now share a slot per two cores (99.9 and 135.8 s); elsewhere
+        # capped_env and nice already keep them off a person's machine.
+        self.heavy_fixture()
+        lint = load_lint(self.repo)
+        real = subprocess.run
+        lock = threading.Lock()
+        running, peak, overlapped = set(), {}, []
+
+        def weighty(words):
+            return words[:2] in (["vp", "lint"], ["vp", "check"]) or "check:nested" in words
+
+        def spy(command, *args, **kwargs):
+            words = command.split() if isinstance(command, str) else [str(w) for w in command]
+            if Path(words[0]).name == "nice":
+                words = words[3:]
+            if Path(words[0]).name == "git":
+                return real(command, *args, **kwargs)
+            if Path(words[0]).name == "sh" and words[1:2] == ["-c"]:
+                words = words[2:]
+            words = [Path(words[0]).name, *words[1:]]
+            name = " ".join(words)
+            with lock:
+                running.add(name)
+                heavy_now = [n for n in running if weighty(n.split())]
+                peak["heavy"] = max(peak.get("heavy", 0), len(heavy_now))
+                if not weighty(words) and heavy_now:
+                    overlapped.append(name)
+            time.sleep(0.3)  # long enough for the pool to start whatever it would run beside this one
+            with lock:
+                running.discard(name)
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        for ci, expected in (("true", 1), ("", 2)):
+            peak.clear()
+            overlapped.clear()
+            with mock.patch.dict(os.environ, {"CMUX_LOCAL_HEAVY_CHECKS": "1", "GITHUB_ACTIONS": ci, "CI": ""}), \
+                    mock.patch.object(lint.subprocess, "run", spy), \
+                    mock.patch.object(lint.os, "sched_getaffinity", lambda pid: {0, 1}, create=True), \
+                    mock.patch("sys.stderr", new_callable=lambda: open(os.devnull, "w")):
+                self.assertEqual(lint.main(["--repo", str(self.repo), "--base", "HEAD~1", "--head", head]), 0)
+            self.assertEqual(peak.get("heavy"), expected, f"CI={ci!r}: type-aware checks at once on 2 cores")
+            if ci:
+                self.assertTrue(overlapped, "light checks run beside the type-aware one, not after it")
+
     def test_new_only_reruns_a_piece_on_the_base_niced_and_capped(self):
         # Both the head and the base fail `vp lint` with the same finding: the base rerun is a second type check,
         # so it gets the same nice and caps as the first.
@@ -1839,6 +1975,39 @@ class CheckPiecesTests(unittest.TestCase):
             self.assertTrue([piece for piece in pieces if script in piece], (script, pieces))
         self.assertFalse([piece for piece in pieces if "check-system-blue.py" in piece], "it only warns")
         self.assertEqual(lint.input_pieces(SOURCE, webviews, ["README.md", "ios/App.swift"], read), [])
+
+    def test_the_real_swift_reading_pieces_pass_on_a_tree_of_only_what_they_declare(self):
+        # INPUTS is the whole of what a piece reads: on a tree holding only those files of HEAD, each piece a Swift
+        # change runs ends as it does on the checkout. A piece that reads a file it does not declare fails here.
+        lint = load_lint(SOURCE)
+        head = subprocess.run(["git", "-C", str(SOURCE), "rev-parse", "HEAD"], text=True, capture_output=True,
+                              check=True).stdout.strip()
+        exists, read = lint.snapshot(SOURCE, head)
+        plan = lint.make_plan(SOURCE, ["Packages/macOS/CmuxNext/Sources/CmuxNextApp/New.swift"],
+                              guard_executed=False, exists=exists, read=read)
+        self.assertEqual(list(plan.script_pieces), ["webviews"], plan)
+        paths = lint.piece_tree_paths(SOURCE, head, plan, read)
+        self.assertIsNotNone(paths, "a symlink or a piece with no INPUTS: the Swift-only tree is the whole commit")
+        tracked = subprocess.run(["git", "-C", str(SOURCE), "ls-tree", "-r", "--name-only", head], text=True,
+                                 capture_output=True, check=True).stdout.splitlines()
+        self.assertLess(len(paths), len(tracked) / 2, "the tree of a Swift-only push is most of the commit")
+        status = subprocess.run(["git", "-C", str(SOURCE), "status", "--porcelain"], text=True, capture_output=True)
+        sparse = subprocess.run(["git", "-C", str(SOURCE), "config", "--get", "core.sparseCheckout"], text=True,
+                                capture_output=True).stdout.strip() == "true"
+        same_as_checkout = status.returncode == 0 and not status.stdout.strip() and not sparse
+        with tempfile.TemporaryDirectory(prefix="cmux-piece-tree-") as temporary:
+            tree = Path(temporary) / "tree"
+            lint.export_files(SOURCE, head, paths, tree, Path(temporary))
+            for piece in plan.script_pieces["webviews"]:
+                with self.subTest(piece=piece):
+                    argv = [sys.executable, *lint.light_argv(piece)[1:]]
+                    small = subprocess.run(argv, cwd=tree / "webviews", text=True, capture_output=True)
+                    self.assertNotIn("Traceback", small.stderr)
+                    self.assertIn(small.returncode, (0, 1), small.stderr)
+                    if same_as_checkout:  # a dirty or sparse checkout is not HEAD: nothing to compare with
+                        full = subprocess.run(argv, cwd=SOURCE / "webviews", text=True, capture_output=True)
+                        self.assertEqual(small.returncode, full.returncode, small.stdout + small.stderr)
+                        self.assertEqual(small.stdout.replace(str(tree), ""), full.stdout.replace(str(SOURCE), ""))
 
     def test_every_declared_input_names_files_that_exist(self):
         # A typo in INPUTS would turn the piece's coverage off with no error: each check of the real webviews check

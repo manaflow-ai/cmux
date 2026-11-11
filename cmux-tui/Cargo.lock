@@ -61,6 +61,7 @@ dependencies = [
  "notify",
  "plist",
  "png",
+ "proptest",
  "pulldown-cmark",
  "ratatui",
  "rcgen",
@@ -84,6 +85,7 @@ dependencies = [
  "tokio-tungstenite",
  "tokio-util",
  "toml",
+ "toml_edit 0.22.27",
  "tracing",
  "tracing-subscriber",
  "turmoil",
@@ -95,6 +97,7 @@ dependencies = [
  "windows-sys 0.61.2",
  "x25519-dalek",
  "zeroize",
+ "zstd",
 ]
 
 [[package]]
@@ -1016,6 +1019,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "unicode-normalization",
 ]
 
@@ -1404,8 +1408,11 @@ dependencies = [
 name = "cmux-feed-core"
 version = "0.1.0"
 dependencies = [
+ "chrono",
+ "icu_normalizer",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -1433,6 +1440,14 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "wait-timeout",
+]
+
+[[package]]
+name = "cmux-health-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1999,6 +2014,7 @@ dependencies = [
  "bytes",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
+ "cmux-app-manifest",
  "cmux-automations",
  "cmux-build-identity",
  "cmux-chat-index",
@@ -2007,6 +2023,7 @@ dependencies = [
  "cmux-cloud-codex-holder",
  "cmux-cloud-config",
  "cmux-cloud-environment",
+ "cmux-cloud-start-core",
  "cmux-cloud-wire",
  "cmux-config",
  "cmux-conversation",
@@ -2049,6 +2066,7 @@ dependencies = [
  "ghostty-vt",
  "glob",
  "libc",
+ "notify",
  "parking_lot",
  "plist",
  "ratatui",
@@ -3750,6 +3768,15 @@ dependencies = [
  "foldhash",
  "serde",
  "serde_core",
+]
+
+[[package]]
+name = "hashlink"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "824e001ac4f3012dd16a264bec811403a67ca9deb6c102fc5049b32c4574b35f"
+dependencies = [
+ "hashbrown 0.16.1",
 ]
 
 [[package]]
@@ -6720,6 +6747,7 @@ dependencies = [
  "bitflags 2.13.1",
  "fallible-iterator",
  "fallible-streaming-iterator",
+ "hashlink",
  "libsqlite3-sys",
  "smallvec",
  "sqlite-wasm-rs",

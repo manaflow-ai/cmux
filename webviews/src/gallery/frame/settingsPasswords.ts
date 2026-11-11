@@ -99,6 +99,8 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
   if (state.sharedLinks) mock.provider.shares = structuredClone(state.sharedLinks);
   if (state.tailnet !== undefined) mock.provider.tailnet = structuredClone(state.tailnet);
   if (state.agents) mock.provider.agents.state = { ...mock.provider.agents.state, ...structuredClone(state.agents) };
+  if (state.endpoint)
+    mock.provider.agents.endpoint = { ...mock.provider.agents.endpoint, ...structuredClone(state.endpoint) };
   if (state.harnesses) mock.provider.harnesses = structuredClone(state.harnesses);
   if (state.devices) mock.provider.devices = structuredClone(state.devices);
   if (state.integrations) mock.provider.integrations = structuredClone(state.integrations);

@@ -20,11 +20,15 @@ use std::time::Duration;
 use super::{EXIT_WITH_PID_ARG, EnsureWebSocket, ExitWith, OwnerSpec};
 
 /// The environment keys of the detached owner's launch contract.
-const CARRIED_ENV: [&str; 4] = [
+const CARRIED_ENV: [&str; 5] = [
     "CMUX_TUI_CHIEF_TOOLS_SOCKET",
     cmux_tui_core::chief_brains::ENV,
     cmux_tui_core::first_party_dir::ENV,
     cmux_tui_core::first_party_dir::DIRS_ENV,
+    // The settings file the owner was started on: a restart from a client
+    // without the variable must not move the settings owner to the default
+    // file (settings.snapshot `path`, plans/cmux-next/settings-react.md).
+    cmux_config::CONFIG_OVERRIDE,
 ];
 
 /// The launch of a running owner that the next owner repeats.
@@ -49,7 +53,15 @@ impl CarriedLaunch {
             return Self::default();
         }
         cmux_tui_core::platform::process_launch(pid, &CARRIED_ENV)
-            .map(|launch| Self::from_launch(&launch.argv, launch.env))
+            .map(|mut launch| {
+                // A settings file this client names itself wins, like its
+                // own flags: the owner it spawns inherits that variable.
+                let own = std::env::var_os(cmux_config::CONFIG_OVERRIDE);
+                if own.is_some_and(|own| !own.is_empty()) {
+                    launch.env.retain(|(key, _)| key != cmux_config::CONFIG_OVERRIDE);
+                }
+                Self::from_launch(&launch.argv, launch.env)
+            })
             .unwrap_or_default()
     }
 

@@ -136,10 +136,17 @@ fn run(global: GlobalArgs, args: &[String], lines: bool) -> i32 {
     let outcome = execute(&backend, None, &command, global.idempotency_key.as_deref(), "agents");
     drop(notes);
     match outcome {
-        // A wait that timed out prints its receipt and exits 1, as
-        // `screen wait` does (docs/cli-contract.md).
-        Ok(value) if matches!(command, AgentCommand::Wait(_)) && value["matched"] == false => {
-            wire::print_local_success(&value, global.output).max(1)
+        // A wait that timed out prints its receipt and exits 124, as
+        // `screen wait` and `terminal send` do (docs/cli-contract.md).
+        Ok(value)
+            if matches!(command, AgentCommand::Wait(_))
+                && (value.get("timed_out").and_then(Value::as_bool) == Some(true)
+                    || value.get("matched").and_then(Value::as_bool) == Some(false)) =>
+        {
+            match wire::print_local_success(&value, global.output) {
+                0 => wire::wait_timeout::TIMEOUT_EXIT,
+                code => code,
+            }
         }
         // The cursor goes to stderr, so stdout is only the events.
         Ok(value) if lines => {
@@ -953,6 +960,6 @@ pub(super) fn snapshot_tool() -> Value {
 }
 
 pub(super) mod chat;
-mod chat_control;
+pub(super) mod chat_control;
 #[cfg(test)]
 mod tests;

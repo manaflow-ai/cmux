@@ -66,6 +66,12 @@
 #   deploy-staging        deploy the dispatched ref to staging, then smoke it
 #   tail-production       stream the production Worker's live events (wrangler tail) for
 #                         tail_minutes; repository Cloudflare secrets, feat-cmux-next only
+#   migrate-staging       apply the pending cmux_vm migrations to cmux-prod staging (job
+#                         migrate-staging, feat-cmux-next only; every feat-cmux-next push runs it
+#                         before deploy-staging). Uses the PlanetScale service token, which only
+#                         cmux-vm-production holds, on branch staging only: a 2 h admin role
+#                         granted cmux_vm_migrator applies through SET ROLE (staging-owner.ts),
+#                         so the owner's password is never needed or changed. dry_run=true plans.
 #   migrate-production    apply the landed cmux_vm migrations to cmux-prod main (job
 #                         migrate-production, feat-cmux-next only, environment
 #                         cmux-vm-production; every feat-cmux-next push runs it as an apply
@@ -83,6 +89,15 @@
 #   sweep-orphans-production  list provider VMs of production that no cmux_vm ownership row records, older than
 #                         15 minutes, with our exact slug and metadata (cmux#35013); dry_run=false then deletes them
 #                         and logs each id. The Worker's 5-minute cron runs the same sweep (src/upstream/orphan-sweep.ts).
+#   db-connections-staging  who holds the staging database's connection slots (db-connections.ts; the
+#                         deploy gate's 53300 "remaining connection slots are reserved"): settings, backends
+#                         by role, application and state, and the staging Hyperdrive config's origin limit.
+#                         dry_run=false first caps the staging Hyperdrive pool (hyperdrive.sh limit, 10) and
+#                         restarts it (drains the Worker role's
+#                         origin connections; a full server lets nobody in to end them one by one), then
+#                         ends the Worker role's backends idle over 2 min; never another role's, never an
+#                         active one; it waits up to 5 min for the old pool to drain. Environment
+#                         cmux-vm-staging, so any ref can run it.
 #   journey-machines-staging  list the staging agent test account's Cloud machines (its own team and
 #                         CMUX_JOURNEY_PRODUCT_TEAM), one JSON line each with `eligible` by the leaked journey machine
 #                         rule (cloud-journey.ts journeyMachineEligible); machine_ids (at most 5 `vm_ID@JOB_ID`, JOB_ID
@@ -119,7 +134,7 @@ on:
       action:
         description: Manual action
         type: choice
-        options: [cloudflare-preflight, hyperdrive-ensure, deploy-staging, deploy-production, smoke-production, migrate-production, tail-production, sweep-orphans-production, journey-machines-staging]
+        options: [cloudflare-preflight, hyperdrive-ensure, deploy-staging, deploy-production, smoke-production, migrate-staging, migrate-production, tail-production, sweep-orphans-production, journey-machines-staging, db-connections-staging]
         default: cloudflare-preflight
       environment:
         description: Environment for hyperdrive-ensure
@@ -131,7 +146,7 @@ on:
         type: boolean
         default: false
       dry_run:
-        description: migrate-production and sweep-orphans-production only, inspect and list; change nothing on production (false applies or deletes)
+        description: migrate-staging, migrate-production, sweep-orphans-production and db-connections-staging only, inspect and list; change nothing (false applies, deletes or ends idle connections)
         type: boolean
         default: true
       skip_rehearsal:
@@ -467,15 +482,19 @@ jobs:
         run: bash scripts/deploy.sh
 
   deploy-staging:
+    # After migrate-staging (feat-cmux-next): the ordering gate below then finds this commit's migrations applied.
     if: >-
-      (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next')) ||
-      (github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy-staging' || inputs.action == 'deploy-production'))
-    needs: check
+      !cancelled() && needs.check.result == 'success' &&
+      (needs.migrate-staging.result == 'success' || needs.migrate-staging.result == 'skipped') &&
+      ((github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next')) ||
+      (github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy-staging' || inputs.action == 'deploy-production'))) &&
+      !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'cmux-vm-breaking-change-ok')
+    needs: [check, migrate-staging]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 45
     environment: cmux-vm-staging
     concurrency:
-      group: cmux-vm-deploy-staging
+      group: cmux-vm-deploy-staging${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'cmux-vm-breaking-change-ok' && format('-label-{0}', github.run_id) || '' }}
       cancel-in-progress: false
     defaults:
       run:
@@ -512,6 +531,15 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         working-directory: scripts/cmux-next/release
         run: bun install --frozen-lockfile
+      # Detector: who holds staging's connection slots, before the gate needs one (a warning at 80 % used;
+      # direct, then PgBouncer when full). Diagnostic only: the gate below decides.
+      - name: Staging database connection usage
+        if: steps.gate.outputs.enabled == 'true'
+        continue-on-error: true
+        working-directory: scripts/cmux-next/release
+        env:
+          CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
+        run: bun db-connections.ts report --url-env CMUX_VM_DATABASE_URL
       # Deploy ordering (plans/cmux-next/release-rails.md): read the staging database and refuse a
       # commit whose migrations are not applied there, before anything ships. On 2026-10-07 a push
       # ran ahead of 0008 and every Stack webhook answered 503.
@@ -1403,6 +1431,122 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-vm-migrate-production-receipts
+          path: ${{ runner.temp }}/receipts
+          if-no-files-found: ignore
+          retention-days: 90
+
+  db-connections-staging:
+    name: staging database connections
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'db-connections-staging'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
+    environment: cmux-vm-staging
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - name: Install the release rails
+        working-directory: scripts/cmux-next/release
+        run: bun install --frozen-lockfile
+      - name: Staging Hyperdrive config (origin connection limit)
+        continue-on-error: true
+        working-directory: workers/cmux-vm
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: bash scripts/hyperdrive.sh show cmux-vm-staging
+      - name: Cap and restart the staging Hyperdrive pool (the Worker role's connections)
+        if: ${{ !inputs.dry_run }}
+        working-directory: workers/cmux-vm
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          bash scripts/hyperdrive.sh limit cmux-vm-staging
+          bash scripts/hyperdrive.sh restart cmux-vm-staging
+      - name: ${{ inputs.dry_run && 'Connections (read only)' || 'Connections, then end the Worker role''s idle backends' }}
+        working-directory: scripts/cmux-next/release
+        env:
+          MODE: ${{ inputs.dry_run && 'report' || 'free' }}
+          # After the restart the old pool drains in minutes (2026-11-09), so free waits for a slot.
+          WAIT: ${{ inputs.dry_run && '0' || '300' }}
+          CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
+        run: bun db-connections.ts "$MODE" --url-env CMUX_VM_DATABASE_URL --wait-seconds "$WAIT"
+
+  migrate-staging:
+    # Staging cmux_vm migrations (release-rails.md, "Staging migrations from CI"): every push to feat-cmux-next
+    # applies them before deploy-staging, and action migrate-staging runs them alone (dry_run=true plans only).
+    # The PlanetScale service token lives only in cmux-vm-production (its branch policy admits feat-cmux-next
+    # alone); staging-owner.ts uses it on cmux-prod branch staging only, never main. The owner cmux_vm_migrator
+    # is a SQL role: a 2 h admin role is granted it, applies through SET ROLE, is revoked and deleted, so the
+    # owner's password is never read or changed.
+    name: migrate staging (cmux_vm)
+    if: >-
+      !cancelled() && github.ref == 'refs/heads/feat-cmux-next' && (needs.check.result == 'success' || needs.check.result == 'skipped') &&
+      !(github.event_name == 'push' && startsWith(github.event.head_commit.message, 'cmux-vm: image roll')) &&
+      (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.action == 'migrate-staging' || inputs.action == 'deploy-staging' || inputs.action == 'deploy-production')))
+    needs: check
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 30
+    environment: cmux-vm-production
+    concurrency:
+      group: cmux-vm-migrate-staging
+      cancel-in-progress: false
+    steps:
+      - name: Required secrets
+        env:
+          HAS_PSCALE_ID: ${{ secrets.PLANETSCALE_SERVICE_TOKEN_ID != '' }}
+          HAS_PSCALE_TOKEN: ${{ secrets.PLANETSCALE_SERVICE_TOKEN != '' }}
+        run: |
+          set -euo pipefail
+          if [ "$HAS_PSCALE_ID" != true ] || [ "$HAS_PSCALE_TOKEN" != true ]; then
+            echo "::error title=migrate-staging::cmux-vm-production lacks PLANETSCALE_SERVICE_TOKEN_ID or PLANETSCALE_SERVICE_TOKEN; nothing ran"
+            exit 1
+          fi
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - name: Install the release rails
+        working-directory: scripts/cmux-next/release
+        run: bun install --frozen-lockfile
+      - name: Install pscale 0.349.0 (checksum pinned)
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64) arch=amd64; sum=139dc952ccdd21e68b3e70c20f48f9adb3559ee62f6fdcd6d42ddf9b086825f7 ;;
+            aarch64|arm64) arch=arm64; sum=c319e1f1c6699e0fc1ec455329be241c0c555ef244b0edb0f90751eb5cc13f09 ;;
+            *) echo "::error::no pinned pscale for $(uname -m)"; exit 1 ;;
+          esac
+          dir="$RUNNER_TEMP/pscale"
+          mkdir -p "$dir"
+          tarball="$dir/pscale.tar.gz"
+          curl -fsSL --retry 3 -o "$tarball" "https://github.com/planetscale/cli/releases/download/v0.349.0/pscale_0.349.0_linux_${arch}.tar.gz"
+          echo "$sum  $tarball" | sha256sum -c -
+          tar -xzf "$tarball" -C "$dir" pscale
+          "$dir/pscale" version
+          echo "PSCALE_BIN=$dir/pscale" >> "$GITHUB_ENV"
+      - name: ${{ (github.event_name == 'workflow_dispatch' && inputs.action == 'migrate-staging' && inputs.dry_run) && 'Plan (dry run; staging unchanged)' || 'Apply to cmux-prod staging as cmux_vm_migrator' }}
+        working-directory: scripts/cmux-next/release
+        env:
+          MODE: ${{ (github.event_name == 'workflow_dispatch' && inputs.action == 'migrate-staging' && inputs.dry_run) && 'plan' || 'migrate' }}
+          PLANETSCALE_SERVICE_TOKEN_ID: ${{ secrets.PLANETSCALE_SERVICE_TOKEN_ID }}
+          PLANETSCALE_SERVICE_TOKEN: ${{ secrets.PLANETSCALE_SERVICE_TOKEN }}
+          CMUX_RELEASE_RECEIPTS_DIR: ${{ runner.temp }}/receipts
+        run: |
+          set -euo pipefail
+          mkdir -p "$CMUX_RELEASE_RECEIPTS_DIR"
+          bun staging-owner.ts "$MODE"
+      - name: Upload the release receipts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-vm-migrate-staging-receipts
           path: ${{ runner.temp }}/receipts
           if-no-files-found: ignore
           retention-days: 90

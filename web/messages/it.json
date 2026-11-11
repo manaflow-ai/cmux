@@ -576,17 +576,17 @@
           ],
           "pro": [
             "Agenti cloud su Cloud VMs",
-            "Fino a 5 Cloud VMs che condividono 20 vCPU e 40 GB di RAM. Una VM può usare fino a 16 GB di RAM / 8 vCPU. Le dimensioni 24 GB / 12 vCPU e 32 GB / 16 vCPU richiedono Max.",
+            "Cloud VMs senza limite di numero, misurate oltre l’utilizzo incluso; una VM può usare fino a 16 GB di RAM / 8 vCPU. Le dimensioni 24 GB / 12 vCPU e 32 GB / 16 vCPU richiedono Max.",
             "L'app cmux per iOS"
           ],
           "max": [
-            "Fino a 5 Cloud VMs che condividono 80 vCPU e 160 GB di RAM. Max sblocca 24 GB / 12 vCPU, 32 GB / 16 vCPU e fino a 64 GB / 32 vCPU.",
+            "Cloud VMs senza limite di numero, misurate oltre l’utilizzo incluso; Max sblocca 24 GB / 12 vCPU, 32 GB / 16 vCPU e fino a 64 GB / 32 vCPU.",
             "Macchine più grandi",
             "Tutto ciò che include Pro"
           ],
           "team": [
             "Tutto ciò che include Pro per ogni membro",
-            "Fino a 5 Cloud VMs per postazione a pagamento, che condividono 20 vCPU e 40 GB di RAM per postazione a pagamento in tutto il team",
+            "Cloud VMs senza limite di numero per tutto il team, misurate oltre l’utilizzo incluso; il limite di spesa del team è lo stop",
             "Un'unica fattura per tutto il team",
             "Supporto prioritario"
           ]
@@ -2970,13 +2970,13 @@
       "planMax": "Max",
       "sizesDefault": "Le nuove macchine usano 8 GB di memoria se non scegli una dimensione. Esegui cmux vm ls --json per vedere le dimensioni consentite dal tuo piano.",
       "limitsTitle": "Limiti del piano",
-      "limitsDesc": "Le tue macchine attive condividono un unico pool di vCPU e memoria. Usa una macchina grande o diverse piccole. Le macchine in pausa non usano il pool. Il disco è impostato per ogni macchina e non fa parte del pool.",
+      "limitsDesc": "Pro, Team e Max non hanno limiti al numero di macchine; Plus mantiene una macchina. Oltre l’utilizzo incluso, le macchine in esecuzione sono misurate per ora di vCPU e per ora di GB, e le macchine salvate e in pausa per GB-mese di disco. Il limite di spesa del team è l’unico stop: al raggiungimento i nuovi avvii vengono rifiutati e le macchine in esecuzione vanno in pausa dopo un avviso, senza perdere nulla.",
       "limitsFree": "Gli account gratuiti non possono creare macchine.",
-      "limitsPaid": "Gli account Pro possono avere fino a 5 macchine, incluse quelle in pausa che condividono 20 vCPU e 40 GB di memoria.",
-      "limitsTeam": "Gli account Team possono avere fino a 5 macchine, incluse quelle in pausa per ogni postazione a pagamento. Ogni postazione a pagamento aggiunge 20 vCPU e 40 GB di memoria al pool del team.",
-      "limitsMax": "Gli account Max possono avere fino a 5 macchine, incluse quelle in pausa che condividono 80 vCPU e 160 GB di memoria. Una macchina Max può usare fino a 64 GB e 32 vCPU, incluse le configurazioni da 24 GB / 12 vCPU e 32 GB / 16 vCPU; Pro e Team si fermano a 16 GB e 8 vCPU.",
-      "limitsPoolFull": "Se una macchina nuova, ripresa, ingrandita o duplicata con fork superasse il pool, cmux rifiuta la richiesta e mostra quanto del pool è in uso. Metti in pausa o elimina una macchina per liberare risorse, oppure passa a Max.",
-      "limitsPricing": "Consulta la pagina dei prezzi per i prezzi attuali. Non ci sono misurazioni a consumo né addebiti per eccedenze.",
+      "limitsPaid": "Gli account Pro possono avere un numero qualsiasi di macchine, ciascuna fino a 16 GB e 8 vCPU.",
+      "limitsTeam": "Team è facoltativo: riunisce tutti in un’unica fattura condivisa e un unico limite di spesa. Le postazioni non cambiano quante macchine può avere ciascuno.",
+      "limitsMax": "Gli account Max possono avere un numero qualsiasi di macchine. Una macchina Max può usare fino a 64 GB e 32 vCPU, incluse le dimensioni 24 GB / 12 vCPU e 32 GB / 16 vCPU; Pro e Team si fermano a 16 GB e 8 vCPU.",
+      "limitsPoolFull": "Al limite di spesa, cmux rifiuta una macchina nuova o ripresa e indica che il team ha raggiunto il suo limite. Alza il limite per avviare di nuovo le macchine; non viene eliminato nulla.",
+      "limitsPricing": "Consulta la pagina dei prezzi per i prezzi attuali. L’utilizzo oltre la quantità inclusa viene misurato.",
       "agentUpdatesTitle": "Mantieni aggiornati gli agenti di programmazione",
       "agentUpdatesDesc": "Con questa impostazione attiva, la macchina aggiorna Claude Code, Codex, OpenCode, pi e agent-browser. Controlla dopo la creazione della macchina e a ogni connessione, al massimo una volta ogni 24 ore. L'aggiornamento viene eseguito in modo separato, quindi non blocca mai la connessione.",
       "agentUpdatesSource": "Ogni strumento proviene dalla sua release ufficiale su GitHub ed è verificato con il digest sha256 dell'asset della release. npm non viene usato. Una release viene installata solo dopo essere stata pubblica per 3 giorni, e un aggiornamento non installa mai una versione precedente. Un agente in esecuzione mantiene i file con cui è partito, e un aggiornamento non riuscito lascia la versione attuale al suo posto.",
@@ -5417,7 +5417,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro è attivo",
     "title": "Benvenuto in cmux Pro",
-    "body": "Pro include fino a 5 VM Cloud che condividono 20 vCPU e 40 GB di RAM, oltre all’accesso a cmux iOS tramite TestFlight. Una VM può usare fino a 16 GB di RAM / 8 vCPU. Le dimensioni 24 GB / 12 vCPU e 32 GB / 16 vCPU richiedono Max.",
+    "body": "Pro include VM Cloud senza limite di numero, misurate oltre l’utilizzo incluso, oltre all’accesso a cmux iOS tramite TestFlight. Una VM può usare fino a 16 GB di RAM / 8 vCPU. Le dimensioni 24 GB / 12 vCPU e 32 GB / 16 vCPU richiedono Max.",
     "done": "Vai alla dashboard",
     "steps": {
       "iosApp": {
