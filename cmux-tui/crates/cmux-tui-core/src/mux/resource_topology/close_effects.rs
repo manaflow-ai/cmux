@@ -853,10 +853,12 @@ impl Mux {
                 Some(self.workspace_close_record(&projected, workspace, &workspace_key, index));
             // Every index change of this close is inside the closed workspace: drop its entries
             // and no other. The rebuild of every index walked the whole session for one close.
-            // An index that names no workspace keeps the full rebuild below.
+            // An index that names no workspace takes the full rebuild below.
             if let Some(closed) = state.workspaces.get(index) {
                 forget_closed_workspace_indexes(&mut projected, closed, index);
                 split_index_changed = false;
+            } else {
+                split_index_changed = true;
             }
         } else if let Some(emptied) = self.close_emptied_workspaces_for_resource_close_locked(
             registry,
