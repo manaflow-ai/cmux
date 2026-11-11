@@ -11,6 +11,7 @@
 import type { Node as ProseNode } from "@milkdown/kit/prose/model";
 import { type EditorState, Plugin, PluginKey, TextSelection } from "@milkdown/kit/prose/state";
 import { Decoration, DecorationSet, type EditorView } from "@milkdown/kit/prose/view";
+import { watchPageKey } from "../pageKey";
 import { INLINE_NODE } from "./inlineNode";
 
 export const inlineCaretKey = new PluginKey("acpmux-inline-caret");
@@ -69,14 +70,25 @@ function textMiddleOnLine(block: HTMLElement, top: number, bottom: number): numb
   return undefined;
 }
 
+/// The collapsed DOM selection's rect when it is the editor's caret, else undefined.
+function domCaretRect(view: EditorView): { left: number; top: number; bottom: number } | undefined {
+  const selection = view.dom.ownerDocument.getSelection();
+  if (!selection?.rangeCount || !selection.isCollapsed || !view.dom.contains(selection.anchorNode)) return undefined;
+  const rects = selection.getRangeAt(0).getClientRects();
+  const rect = rects[rects.length - 1];
+  return rect && rect.bottom > rect.top ? { left: rect.left, top: rect.top, bottom: rect.bottom } : undefined;
+}
+
 /// Where the drawn caret stands, in the viewport: its x and its top and bottom.
 function caretPlace(view: EditorView, block: HTMLElement): { x: number; top: number; bottom: number } | null {
   const head = view.state.selection.head;
   const $head = view.state.doc.resolve(head);
   // Beside text, the text's own character (its box is the words' height); beside a chip alone, the
   // chip's edge.
-  const side = $head.nodeAfter?.isText || !$head.nodeBefore ? 1 : -1;
-  const at = view.coordsAtPos(head, side);
+  // The browser's own caret place first: at a soft wrap its collapsed range keeps the side the
+  // native caret is drawn on (the end of the line after End, the start after typing on), which a
+  // document position alone cannot tell.
+  const at = domCaretRect(view) ?? view.coordsAtPos(head, $head.nodeAfter?.isText || !$head.nodeBefore ? 1 : -1);
   const height = lineHeightOf(block);
   const tall = at.bottom - at.top > height * 1.25;
   let middle = (at.top + at.bottom) / 2;
@@ -101,14 +113,16 @@ export function inlineCaretPlugin(): Plugin {
       let field: HTMLElement | null = null;
       let last = "";
       const hide = () => {
+        if (caret.hidden) return;
         caret.hidden = true;
         last = "";
       };
-      hide();
+      caret.hidden = true;
       // perf-hot: one caret layout read per selection change, only on a line with an attachment composer-draft-typing
       const draw = () => {
         const line = caretLine(view.state);
-        if (!line || !view.hasFocus() || view.composing) return hide();
+        // During IME composition too: the paragraph's native caret is clear, so the bar stays.
+        if (!line || !view.hasFocus()) return hide();
         const block = view.nodeDOM(line.pos);
         if (!(block instanceof HTMLElement)) return hide();
         if (!field) {
@@ -133,16 +147,21 @@ export function inlineCaretPlugin(): Plugin {
         caret.style.backgroundColor = color === "auto" ? getComputedStyle(view.dom).color : color;
         caret.hidden = false;
         // A caret that moved shows at once and starts its blink again, as the native one does.
-        caret.style.animation = "none";
-        void caret.offsetWidth;
-        caret.style.animation = "";
+        for (const blink of caret.getAnimations()) {
+          blink.cancel();
+          blink.play();
+        }
       };
       const observer = typeof ResizeObserver === "function" ? new ResizeObserver(() => draw()) : undefined;
       observer?.observe(view.dom);
       view.dom.addEventListener("focus", draw);
       view.dom.addEventListener("blur", hide);
-      view.dom.addEventListener("compositionstart", hide);
-      view.dom.addEventListener("compositionend", draw);
+      // The page becoming the key one again: the field's caret color comes back from transparent
+      // (composerStates.css), so the bar takes it again.
+      const stopKey = watchPageKey(() => {
+        last = "";
+        draw();
+      }, view.dom.ownerDocument);
       // A chip's picture loading grows its line without a transaction.
       view.dom.addEventListener("load", draw, true);
       return {
@@ -151,8 +170,7 @@ export function inlineCaretPlugin(): Plugin {
           observer?.disconnect();
           view.dom.removeEventListener("focus", draw);
           view.dom.removeEventListener("blur", hide);
-          view.dom.removeEventListener("compositionstart", hide);
-          view.dom.removeEventListener("compositionend", draw);
+          stopKey();
           view.dom.removeEventListener("load", draw, true);
           caret.remove();
         },
