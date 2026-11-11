@@ -214,6 +214,12 @@ pub(crate) fn decorate_value(
     Ok(())
 }
 
+/// `change` is an upsert of a `resource` value.
+fn is_upsert_of(change: &Value, resource: &str) -> bool {
+    let field = |name: &str| change.get(name).and_then(Value::as_str);
+    field("kind") == Some("upsert") && field("resource") == Some(resource)
+}
+
 /// Decorate every ordinary upsert of a change batch. The workspace upserts are read together, with
 /// a fixed number of statements for all of them (`state/workspace_extras.rs`): a close states each
 /// workspace after the closed one again.
@@ -225,8 +231,8 @@ pub(crate) fn decorate_changes(connection: &Connection, changes: &mut Value) -> 
     let workspaces = {
         let ids = changes
             .iter()
-            .filter(|change| change["kind"] == "upsert" && change["resource"] == "workspace")
-            .filter_map(|change| change["value"]["id"].as_str())
+            .filter(|change| is_upsert_of(change, "workspace"))
+            .filter_map(|change| change.get("value")?.get("id")?.as_str())
             .collect::<Vec<_>>();
         workspace_extras(connection, &ids)?
     };
@@ -237,7 +243,8 @@ pub(crate) fn decorate_changes(connection: &Connection, changes: &mut Value) -> 
         let resource = change["resource"].as_str().unwrap_or_default().to_string();
         let Some(value) = change.get_mut("value") else { continue };
         if resource == "workspace" {
-            let fields = value["id"].as_str().and_then(|id| workspaces.get(id)).cloned();
+            let id = value.get("id").and_then(Value::as_str);
+            let fields = id.and_then(|id| workspaces.get(id)).cloned();
             if let Some(fields) = fields {
                 merge_extra(value, fields);
             }
