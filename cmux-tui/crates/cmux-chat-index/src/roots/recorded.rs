@@ -61,3 +61,7 @@ impl RecordedRoots {
         Ok(true)
     }
 }
+
+#[cfg(test)]
+#[path = "recorded_tests.rs"]
+mod tests;
