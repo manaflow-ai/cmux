@@ -179,15 +179,14 @@ extension CaptureSceneRegistry {
         guard let capture = try? HomeNeedsYouCapture(send: { op, data in await Self.feedOp(daemon, op, data) }) else { return failed("in-app acpmux did not listen") }
         defer { capture.stop() }
         (environment.executable, environment.socketPath) = (executable, capture.socket) // the in-app acpmux, which this app serves
-        TopPages.show(.home, services: services, in: controller.state)
-        let page = controller.topPages.views[.home] as? TopHomePageView
-        page?.show(ConversationID(chief))
+        _ = AppActions.showHome(services) // docked Home (the home workspace, its Chief tab), or classic Home's top page
+        (controller.topPages.views[.home] as? TopHomePageView)?.show(ConversationID(chief))
         let bridge = AcpmuxPermissionFeedBridge(
             environment: environment,
             owner: { _, body in capture.owner(body) }, isSignedIn: { true }, ownInstall: { "inst_capture_mac" },
             presenceKeys: { throw CancellationError() })
         bridge.start()
-        let section = { page?.host.flatMap(HomePageTab.transcript(in:))?.pinnedSection as? FeedNeedsYouSection }
+        let section = { controller.window?.contentView.flatMap(HomePageTab.transcript(in:))?.pinnedSection as? FeedNeedsYouSection }
         frames.start()
         let shown = await frames.settled(until: { (section()?.waiting ?? 0) > 0 }, start: .now, window: 100, deadline: 8_000)
         var report: [String: CmuxNextSettings.JSONValue] = ["shown_frames": frames.stop(), "connected": .bool(capture.connected)]
@@ -203,7 +202,7 @@ extension CaptureSceneRegistry {
             capture.notifyPending()
         }
         report["acpmux_and_feed"] = .array((capture.infoReads + capture.ops).map { .string($0) })
-        report["view"] = .string((try? await services.feed.daemon.view(.needsYou)).map { "home \(page?.host != nil) pinned \(services.settings?.snapshot.homeNeedsYouInChief ?? false) settled \($0.isSettled) \($0.connection?.state ?? "-") \($0.connection?.reason ?? "-") needs_you \($0.items(in: "needs_you").count)" } ?? "unread")
+        report["view"] = .string((try? await services.feed.daemon.view(.needsYou)).map { "transcript \(controller.window?.contentView.flatMap(HomePageTab.transcript(in:)) != nil) pinned \(services.settings?.snapshot.homeNeedsYouInChief ?? false) settled \($0.isSettled) \($0.connection?.state ?? "-") \($0.connection?.reason ?? "-") needs_you \($0.items(in: "needs_you").count)" } ?? "unread")
         guard shown != nil, case .object(let drawn)? = row, drawn["matched"]?.boolValue == true else {
             return .object(report.merging(["error": .string("Needs you never drew the prompt"), "scene": .string(scene)]) { $1 })
         }
