@@ -54,6 +54,12 @@ PUSH_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
             "scripts/cmux-next/chromium-objc-contract.json",
             "scripts/import-apple-developer-id-intermediates.sh",
             "scripts/prune_nightly_release_assets.py",
+            # Files the app build or its packaging reads (cmux_next_route.py NATIVE_SCRIPT_INPUTS): pull
+            # requests admit them through scripts/ci/** and scripts/cmux-next/**, which pushes do not take.
+            "scripts/ci/cmux_tui_tree_key.py", "scripts/ci/fleet-rust-cache.sh",
+            "scripts/ci/lib/signing-runtime-guard.sh", "scripts/ci/macho_minos.py",
+            "scripts/ci/swift_incremental_diagnostics.py", "scripts/cmux-next/cef-license/LICENSE.txt",
+            "scripts/cmux-next/cmux-tui-tree-inputs.txt",
         }),
         "base pushes also compile for the nightly release inputs, so a nightly repair "
         "earns its Release compile before promotion; the base-red classifier runs "
@@ -77,7 +83,7 @@ PULL_REQUEST_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
             "scripts/ci/**", ".claude/settings.json", ".gitattributes", ".github/github-token-budget.json",
             ".github/runners.json", "README.md", "cmux-next-ios/scripts/set-test-notes.sh",
             "scripts/cef/test-embedder-step.sh", "scripts/cef/tests/test-embedder-step.test.sh",
-            "scripts/download-prebuilt-ghosttykit.sh", "scripts/ghosttykit-checksums.txt",
+            "scripts/download-prebuilt-ghosttykit.sh",
             "scripts/install-git-hooks.sh", "scripts/launch-tagged-automation.sh", "scripts/lib/reload-shim.test.mjs",
             "scripts/lib/stop-app-instances.sh", "scripts/merge-pbxproj.py", "scripts/merge-xcstrings.py",
             "scripts/web-lint.sh", "scripts/web_lint_prepush.py", "scripts/strip-release-bundle.sh",
