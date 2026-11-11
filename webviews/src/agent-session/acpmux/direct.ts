@@ -3207,9 +3207,8 @@ export class AcpmuxDirectClient {
         // The bridge's open that got no answer in time names its wait (bridgeSocket.ts `openError`,
         // `native.timed_out`), so the handshake loop retries it as a recovery.
         const openError = opened ? undefined : (socket as { openError?: Error }).openError;
-        this.wire.lifecycle("error", {
-          message: opened ? "WebSocket error" : (openError?.message ?? "Unable to connect"),
-        });
+        if (openError) this.wire.lifecycle("error", { message: openError.message });
+        else this.wire.lifecycle("error", { message: opened ? "WebSocket error" : "Unable to connect" });
         this.opening = false;
         reject(openError ?? new Error(translate("error.connectFailed")));
       };

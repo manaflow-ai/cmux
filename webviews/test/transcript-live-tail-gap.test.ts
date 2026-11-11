@@ -447,7 +447,8 @@ test("reconnect waits stay within 10 s however long the pane was away, and onlin
     }
     await settle();
     expect(Math.max(...waits)).toBeLessThanOrEqual(10_000);
-    expect(waits.at(-1)).toBe(10_000);
+    // The capped step, jittered to 50-100% so tabs that lost one daemon spread out.
+    expect(waits.at(-1)).toBeGreaterThanOrEqual(5_000);
     // The laptop wakes: the network comes back, and the pane connects without waiting out its timer.
     refuse = false;
     const opens = p.opens();
