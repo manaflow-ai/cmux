@@ -125,6 +125,30 @@ ALLOWED = {
         "a path in the fuzz guest VM the run boots, where its account is the only one",
     ("scripts/fuzz/macos-matrix/fuzz.py", 'g.sh(f"cat /tmp/fuzz-unresp-{i}.txt")'):
         "a path in the fuzz guest VM the run boots, where its account is the only one",
+    ("scripts/cmux-next/austins-day/austins-day.sh",
+     'mktemp -d "${TMPDIR:-/tmp}/austins-day-$(date -u +%Y%m%dT%H%M%SZ).XXXXXX"'):
+        "a mktemp template. The script sources capture-host-env.sh by a path only a run can tell, so the sweep "
+        "cannot follow it and calls the mktemp unknown (shell_tree.shadows, the cmux-platform#1266 review). That "
+        "file defines no function, alias or builtin; it evals only fleet_routes.py ensure, which prints three "
+        "assignments and an export",
+    ("scripts/cmux-next/restore-journey-slot.sh", 'mktemp -d "/tmp/restore-journey-$job-$(date +%H%M%S).XXXXXX"'):
+        "a mktemp template. The script sources capture-host-env.sh by a path only a run can tell, so the sweep "
+        "cannot follow it and calls the mktemp unknown (shell_tree.shadows, the cmux-platform#1266 review). That "
+        "file defines no function, alias or builtin; it evals only fleet_routes.py ensure, which prints three "
+        "assignments and an export",
+    ("scripts/reload.sh", 'mktemp -d "${TMPDIR:-/tmp}/cmux-launch-${TAG_SLUG}.XXXXXX"'):
+        "a mktemp template. The script sources lib/mobile-attach.sh, dev-secrets.sh, stop-app-instances.sh, cmux- "
+        "dev- shim-install, dev-sign-identity.sh and cmux-next/lib/dogfood-bench-tags.sh by $SCRIPT_DIR, which "
+        "the sweep cannot follow, so it calls the mktemp unknown (shell_tree.shadows, the cmux-platform#1266 "
+        "review). None of them defines, aliases or enables mktemp",
+    ("scripts/run-iroh-release-gate.sh", 'mktemp -d "${TMPDIR:-/tmp}/cmux-iroh-ui-${TAG}.XXXXXX"'):
+        "a mktemp template. The script sources lib/mobile-attach.sh, dev-secrets.sh and iroh-release-gate- "
+        "targets.sh by $SCRIPT_DIR, which the sweep cannot follow, so it calls the mktemp unknown "
+        "(shell_tree.shadows, the cmux- platform#1266 review). None of them defines, aliases or enables mktemp",
+    ("scripts/run-iroh-release-gate.sh", 'mktemp "${TMPDIR:-/tmp}/cmux-iroh-launch-${TAG}.XXXXXX"'):
+        "a mktemp template. The script sources lib/mobile-attach.sh, dev-secrets.sh and iroh-release-gate- "
+        "targets.sh by $SCRIPT_DIR, which the sweep cannot follow, so it calls the mktemp unknown "
+        "(shell_tree.shadows, the cmux- platform#1266 review). None of them defines, aliases or enables mktemp",
 }
 
 
@@ -487,7 +511,9 @@ class NoclobberSweep(unittest.TestCase):
                         self.assertIn("ran cmd", run.stdout, run.stderr)
                     else:
                         self.assertNotIn("ran cmd", run.stdout)
-                        self.assertRegex(run.stderr, re.escape(want) + r": (command )?not found")
+                        # bash says NAME: not found; GNU time, which runs NAME itself, says cannot run NAME
+                        missing = r"(?:cannot run )?" + re.escape(want) + r": (?:(?:command )?not found|No such file)"
+                        self.assertRegex(run.stderr, missing)
         finally:
             shutil.rmtree(bindir, ignore_errors=True)
 
