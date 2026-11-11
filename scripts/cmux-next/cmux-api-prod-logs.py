@@ -29,7 +29,7 @@ PAGES = 20
 # Printed values are scrubbed as well as allowlisted: a free-text msg, error or path may hold one (run logs are public).
 SCRUB = [(re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"), "<email>"),
          (re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b|\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{0,4}){4,7}\b"), "<ip>"),
-         (re.compile(r"[A-Za-z0-9+/_=-]{40,}"), "<long>")]
+         (re.compile(r"[A-Za-z0-9+=-]{32,}"), "<long>")]
 
 
 def scrub(v):
