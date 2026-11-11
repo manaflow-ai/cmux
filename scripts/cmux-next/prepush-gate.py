@@ -58,6 +58,11 @@ change">` trailer, and a visual change also edits plans/cmux-next/sidebar-owner.
 many changes to sidebar?"). CMUX_NEXT_CHECKS_SKIP_REASON does not skip it. A commit the owner logged in
 that note (its 11-character sha) passes. CI also sweeps every commit since the check landed
 (`--only sidebar --commits`), so a push from an old hook copy or a cancelled CI run is still caught.
+Also on every push: "Chrome layer look" (schemas/theme/chrome-layer-colors.json): a commit that changes that
+file (the colours ChromeLayerColorTests reads off the sidebar, footer and titlebar in the default themes), or a
+hunk of a chrome-layer token source naming a chrome token, carries a `Chrome-Look-OK:` trailer quoting Leo: his
+name and his words in quotes. #39984 dimmed the sidebar for a non-Leo issue (Leo 2026-11-11: "bro why is the
+sidebar now a different color?"). CMUX_NEXT_CHECKS_SKIP_REASON does not skip it.
 Also on every push, in any file: "Merge conflict markers": a file the push adds both a `<<<<<<< ` and
 a `>>>>>>> ` line to (c779988d57d, 2026-10-22, broke CmuxNextAppTests). Nothing skips it.
 Also on every push: "UI font" (check-ui-font.py): the UI font stays the macOS system font with no
@@ -286,6 +291,27 @@ SIDEBAR_EXEMPT = ("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Resources/",
 SIDEBAR_NOTE = "plans/cmux-next/sidebar-owner.md"
 SIDEBAR_TRAILER = re.compile(r"^Sidebar-Look:[ \t]*(\S.*)$", re.MULTILINE)
 SIDEBAR_NO_VISUAL = re.compile(r"^no visual change\b", re.IGNORECASE)
+# The chrome layer (sidebar, footer, titlebar) keeps its colour unless Leo asks (#39984 laid a 20% black dim on the
+# sidebar for a non-Leo issue; Leo 2026-11-11: "bro why is the sidebar now a different color?", reverted by #41047).
+# ChromeLayerColorTests holds the colours each region paints in the default dark and light themes against
+# CHROME_VECTORS; a commit that changes that file, or a hunk of a chrome-layer token source that names a chrome
+# token, needs a `Chrome-Look-OK:` trailer quoting Leo: his name and his words in quotes.
+CHROME_CHECK = "Chrome layer look (schemas/theme/chrome-layer-colors.json)"
+CHROME_VECTORS = "schemas/theme/chrome-layer-colors.json"
+CHROME_SOURCES = (f"{PKG}/Sources/CmuxNextDesign/Palette.swift",
+                  f"{PKG}/Sources/CmuxNextDesign/PaletteDynamic.swift",
+                  f"{PKG}/Sources/CmuxNextDesign/MainPane.swift",
+                  f"{PKG}/Sources/CmuxNextSidebar/Views/SidebarStyle.swift",
+                  f"{PKG}/Sources/CmuxNextSidebar/Views/SidebarContainerView.swift",
+                  f"{PKG}/Sources/CmuxNextSidebar/Logic/SidebarTunables.swift",
+                  f"{PKG}/Sources/CmuxNextApp/WindowRootView+Surface.swift",
+                  "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift")
+CHROME_TOKENS = re.compile(r"\b(surfaceDim\w*|sidebarDim|sidebarBackground|windowBackground|surfaceBackground|"
+                           r"chromeBackground|sidebarStep|mainPaneChromeShade|mainPaneShade\w*|applySurfaceFill|"
+                           r"SidebarStyle\.ground)\b")
+CHROME_TRAILER = re.compile(r"^Chrome-Look-OK:[ \t]*(\S.*)$", re.MULTILINE)
+CHROME_LEO = re.compile(r"\bLeo\b")
+CHROME_QUOTE = re.compile(r"[\"“][^\"“”]{3,}[\"”]")
 # An added line that opens or closes a conflict hunk (`=======` alone is a Markdown or RST rule).
 CONFLICT_OPEN = re.compile(r"^<{7} ")
 CONFLICT_CLOSE = re.compile(r"^>{7} ")
@@ -1945,6 +1971,68 @@ def sidebar_owner_by_commit(repo: Path, base: str, head: str, ack_rev: str | Non
     return found
 
 
+def chrome_hunks(repo: Path, sha: str, sources: list[str]) -> list[str]:
+    """The chrome-layer token sources among SOURCES whose change in SHA touches a hunk naming a chrome token
+    (`CHROME_TOKENS`, in a changed line or its three lines of context)."""
+    out = git(repo, "show", "--format=", "--no-color", "-U3", sha, "--", *sources, check=False).decode(errors="replace")
+    named: list[str] = []
+    path, hunk, changed = "", [], False
+
+    def close() -> None:
+        if changed and path and path not in named and any(CHROME_TOKENS.search(line) for line in hunk):
+            named.append(path)
+
+    for line in out.split("\n"):
+        if line.startswith("diff --git "):
+            close()
+            path, hunk, changed = line.split(" b/", 1)[-1], [], False
+        elif line.startswith("@@"):
+            close()
+            hunk, changed = [], False
+        elif line.startswith(("+++", "---")):
+            continue
+        elif line[:1] in ("+", "-", " "):
+            hunk.append(line[1:])
+            changed = changed or line[:1] != " "
+    close()
+    return named
+
+
+def chrome_look(repo: Path, base: str, head: str) -> list[str]:
+    """Each pushed commit that changes the chrome layer's recorded colours (`CHROME_VECTORS`) or a chrome token in
+    its sources (`CHROME_SOURCES`) without a `Chrome-Look-OK:` trailer quoting Leo (his name and quoted words).
+
+    Checked per commit, like the sidebar owner, so a later commit cannot launder an earlier one. Leo's ask
+    (2026-11-11, after #39984 dimmed the sidebar for a non-Leo issue): a chrome-layer token change fails unless
+    the pull request quotes him. ChromeLayerColorTests fails on any change to what those regions paint until the
+    file is rewritten, so a colour change reaches this rule through the file even from an unlisted source."""
+    found: list[str] = []
+    watched = [CHROME_VECTORS, *CHROME_SOURCES]
+    out = git(repo, "log", "--reverse", "--no-merges", "--name-only", "--format=%x1e%H%x1f%B%x1f",
+              f"{base}..{head}", "--", *watched, check=False).decode(errors="replace")
+    for record in out.split("\x1e")[1:]:
+        sha, message, names = (record.split("\x1f") + ["", ""])[:3]
+        files = [f for f in names.split("\n") if f in watched]
+        if not files:
+            continue
+        touched = ([CHROME_VECTORS] if CHROME_VECTORS in files else []) + chrome_hunks(
+            repo, sha, [f for f in files if f != CHROME_VECTORS])
+        if not touched:
+            continue
+        trailer = CHROME_TRAILER.search(message)
+        words = trailer.group(1).strip() if trailer else ""
+        if CHROME_LEO.search(words) and CHROME_QUOTE.search(words):
+            continue
+        subject = message.strip().splitlines()[0] if message.strip() else ""
+        where = f"{sha[:11]} {subject[:70]} ({touched[0]}{f' and {len(touched) - 1} more' if len(touched) > 1 else ''})"
+        why = ("no `Chrome-Look-OK:` trailer" if trailer is None else
+               f"`Chrome-Look-OK: {words[:60]}` does not quote Leo (his name and his words in quotes)")
+        found.append(f"{where}: changes the chrome layer's colour (sidebar, footer, titlebar) with {why}. The chrome "
+                     "keeps its colour unless Leo asks: add `Chrome-Look-OK: Leo <date> \"<his words>\"`, or leave "
+                     f"the chrome tokens and {CHROME_VECTORS} as they are.")
+    return found
+
+
 def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
          trusted_scripts: Path | None = None, ack_rev: str | None = None,
          restrict: set[str] | None = None, swiftformat_layer: bool = False,
@@ -1986,6 +2074,10 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         owner = sidebar_owner(repo, base, head, ack_rev)
         if owner:
             reserved.append((SIDEBAR_CHECK, owner))
+    if only is None or "chrome" in only:
+        chrome = chrome_look(repo, base, head)
+        if chrome:
+            reserved.append((CHROME_CHECK, chrome))
     if only is None or "freeze" in only:
         frozen = window_freezes(repo, base, head)
         if frozen:
@@ -2882,6 +2974,9 @@ def main(argv: list[str] | None = None) -> int:
     elif skip and any(name == SIDEBAR_CHECK for name, _ in found_any):
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {SIDEBAR_CHECK}. Amend the commit with a "
               "`Sidebar-Look:` trailer (and the note for a visual change); the sidebar owner keeps the look.")
+    elif skip and any(name == CHROME_CHECK for name, _ in found_any):
+        print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {CHROME_CHECK}. The chrome layer keeps its "
+              "colour unless Leo asks, quoted in a `Chrome-Look-OK: Leo <date> \"<his words>\"` commit trailer.")
     elif skip and any(name == RESERVED_CHECK for name, _ in found_any):
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {RESERVED_CHECK}. Changing a Ghostty-default "
               "shortcut needs the user's explicit OK, quoted in a `Ghostty-defaults-OK: <the user's words>` commit trailer.")

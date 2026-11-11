@@ -1,0 +1,9 @@
+{
+"generator": "ChromeLayerColorTests (CmuxNextAppTests); its failure prints this file's new text. Rewriting it needs a Chrome-Look-OK: trailer quoting Leo (scripts/cmux-next/prepush-gate.py, Chrome layer look)",
+"checkedBy": "CmuxNextAppTests ChromeLayerColorTests (the layers each region paints), AAChromeLayerGalleryTests (the pixels, on a display worker)",
+"regions": "sidebar: the list's leading inset halfway down; footer: the footer band's leading inset; titlebar: the top row over the main column",
+"cases": [
+{"theme":"Apple System Colors","isDark":true,"sidebar":"#000000","footer":"#000000","titlebar":"#000000"},
+{"theme":"Apple System Colors Light","isDark":false,"sidebar":"#000000","footer":"#000000","titlebar":"#000000"}
+]
+}
