@@ -668,3 +668,12 @@ fn person_services_shortcuts_parse_from_defaults_output() {
     assert_eq!(keymap::service_shortcut("@^t", false), Some((t, keymap::FLAG_COMMAND | keymap::FLAG_CONTROL)));
     assert_eq!(keymap::service_shortcut("^~\r", false), Some((keymap::KEY_RETURN, keymap::FLAG_CONTROL | keymap::FLAG_ALTERNATE)));
 }
+
+#[test]
+fn a_missing_core_foundation_value_is_none_not_a_crash() {
+    // A Copy/Create call that finds nothing returns NULL; taking it must not
+    // release NULL (CFRelease(NULL) traps and took down the worker).
+    assert!(sys::Cf::created(std::ptr::null()).is_none());
+    assert!(sys::Cf::preference("cmuxNoSuchKey", "com.apple.HIToolbox").is_none());
+    assert!(sys::Cf::preference("NSServicesStatus", "cmux.no.such.domain").is_none());
+}
