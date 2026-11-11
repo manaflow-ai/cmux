@@ -395,6 +395,7 @@ class Bucket(r2_cache_prune.Bucket):
 def presign_works(signer) -> bool:
     """The host can only delete with these URLs if R2 accepts the signature: try one GET."""
     try:
+        # user-agent: presigned R2, no CDN
         with urllib.request.urlopen(signer("GET", LATEST[0]), timeout=60) as response:
             return json.loads(response.read()).get("commit") is not None
     except (OSError, ValueError):

@@ -1119,6 +1119,11 @@ COMPILE_RECEIPT_SECONDS = 20
 # (error code 1010, a refused client signature), so every read was refused and no compile red could be judged
 # (cmux#39582, 2026-11-09). Name the client.
 COMPILE_RECEIPT_USER_AGENT = "cmux-base-red-excuse"
+# The body of that refusal. It comes from the CDN's edge, not the receipts host, so it says nothing about the service:
+# it is neither "down" (ReceiptUnreachable, which hands the red to GitHub) nor a receipt answer, and its refusal says
+# which it is, so nobody reads it as the results service being down (2026-11-10: the probe of the same host failed
+# three runs in a row this way while the receiver was up).
+CDN_REFUSED_SIGNATURE = "error code: 1010"
 COMPILE_RECEIPT_RECIPE = (2, "release-onone")
 FLEET_COMPILE_JOB = "cmux-next fleet Release compile"
 FLEET_COMPILE_FAIL = re.compile(r"^##\[error\]\s*cmux-next/compile is not a pass for [0-9a-f]{40} \(fail\)")
@@ -1154,6 +1159,19 @@ class ReceiptUnreachable(Refused):
     receipt either, so a caller may ask GitHub instead (github_compile_red)."""
 
 
+def receipt_http_refusal(error) -> str:
+    """What a 4xx answer to a receipt read says: "HTTP N", or, for the CDN's refused client signature, that the
+    reader's User-Agent was refused at the edge and the receipts host was never asked."""
+    try:
+        detail = (error.read(300) or b"").decode(errors="replace").strip()
+    except Exception:  # noqa: BLE001 - an unreadable body is only a bare status
+        detail = ""
+    if error.code == 403 and CDN_REFUSED_SIGNATURE in detail:
+        return (f"HTTP 403: {CDN_REFUSED_SIGNATURE}: the CDN refused this reader's signature (its User-Agent), "
+                "so the receipts host was not reached: name the client (COMPILE_RECEIPT_USER_AGENT)")
+    return f"HTTP {error.code}"
+
+
 def compile_receipt(repo: str, sha: str) -> dict | None:
     """The fleet's compile receipt for SHA (one anonymous read, no wait), or None when it has none (404). Any other
     answer refuses: an unread receipt is no verdict."""
@@ -1169,7 +1187,7 @@ def compile_receipt(repo: str, sha: str) -> dict | None:
             return None
         if error.code >= COMPILE_RECEIPT_DOWN:
             raise ReceiptUnreachable(f"the compile receipt of {sha[:12]}: HTTP {error.code}") from error
-        raise Refused(f"the compile receipt of {sha[:12]}: HTTP {error.code}") from error
+        raise Refused(f"the compile receipt of {sha[:12]}: {receipt_http_refusal(error)}") from error
     except OSError as error:  # URLError, a refused connection, a timeout: the service did not answer
         raise ReceiptUnreachable(f"the compile receipt of {sha[:12]}: {type(error).__name__}: {error}") from error
     except ValueError as error:

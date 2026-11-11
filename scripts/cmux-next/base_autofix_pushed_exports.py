@@ -159,6 +159,7 @@ class Api:
             "X-GitHub-Api-Version": "2022-11-28"}
         if cached:
             headers["If-None-Match"] = cached[0]
+        # user-agent: GitHub's API, no CDN
         request = urllib.request.Request(f"{self.base}/repos/{self.repo}/{path}", headers=headers)
         try:
             with urllib.request.urlopen(request, timeout=20) as response:

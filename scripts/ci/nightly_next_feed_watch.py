@@ -140,6 +140,7 @@ class GitHub:
             self.base + path, method=method, data=json.dumps(body).encode() if body is not None else None,
             headers={"Authorization": f"Bearer {self.token}", "Accept": "application/vnd.github+json",
                      "X-GitHub-Api-Version": "2022-11-28"})
+        # user-agent: GitHub's API, no CDN
         with urllib.request.urlopen(request, timeout=30) as response:
             data = response.read()
         return json.loads(data) if data else None
