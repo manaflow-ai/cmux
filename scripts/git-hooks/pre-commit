@@ -192,7 +192,7 @@ def check(candidate, root, mode, dirs):
 def find(name, search_path, dirs):
     for entry in search_path.split(":"):
         if not entry.startswith("/"):
-            if os.path.isfile(os.path.join(entry, name)):
+            if os.path.isfile(os.path.join(entry, name)) and os.access(os.path.join(entry, name), os.X_OK):
                 label = entry or "(empty: the current directory)"
                 say(f"PATH entry {label} is relative; not running {name} from it.")
             continue
@@ -239,17 +239,22 @@ def child_path(search_path, dirs, found):
         os.chmod(stubs[kind], 0o755)
     not_listed = os.path.join(shims, NOT_LISTED)
     os.mkdir(not_listed)
+    # Every executable file on PATH, whatever its name (.hidden-tool too):
+    # whether a name runs is up to the file, so that alone decides.
     names = set()
     for entry in search_path.split(":"):
         if entry.startswith("/"):
             try:
-                names.update(os.listdir(entry))
+                listed = os.listdir(entry)
             except OSError:
-                pass
+                continue
+            for name in listed:
+                path = os.path.join(entry, name)
+                if name not in (".", "..") and os.path.isfile(path) and os.access(path, os.X_OK):
+                    names.add(name)
     for name in names.union(CHILD_TOOLS).difference(linked):
-        if not name.startswith(".") and "/" not in name:
-            kind = "unresolved" if name in CHILD_TOOLS else "not-listed"
-            os.symlink(stubs[kind], os.path.join(not_listed, name))
+        kind = "unresolved" if name in CHILD_TOOLS else "not-listed"
+        os.symlink(stubs[kind], os.path.join(not_listed, name))
     return shims
 
 
