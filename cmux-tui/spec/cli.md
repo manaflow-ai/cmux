@@ -1233,7 +1233,12 @@ again right before the folder and the branch go: a branch that got new commits
 meanwhile stays. With `--discard` that work is lost. The main checkout is
 refused as `not_a_worktree`, and other worktrees are never touched. The result
 is the removed `root`, `main_root`, the `branch` and whether it was deleted
-(`branch_deleted`). A retry after a timeout finishes what the first attempt
+(`branch_deleted`). `root` is the path `git worktree create` printed: a
+worktree in cmux's worktree root is named under `~/.cmux/worktrees`, not the
+`~/.cmux/worktrees.noindex` folder that link resolves to on macOS; any other
+worktree keeps the path git gives. Once the worktree is gone, its project
+folder (`~/.cmux/worktrees/<project>`) goes too when it is empty; the worktree
+root itself and a project folder that still holds anything stay. A retry after a timeout finishes what the first attempt
 started; once the folder is gone, a request naming it finds no repository.
 The check and the branch rule are `cmux_git::worktree`, which `acpmux
 worktree remove` uses too.
