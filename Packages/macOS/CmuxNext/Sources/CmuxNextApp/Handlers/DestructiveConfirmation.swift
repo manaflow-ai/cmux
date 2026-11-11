@@ -102,7 +102,7 @@ enum DestructiveConfirmation {
         case .remoteInstall?:
             return await RemoteConfirmation.prompt(for: id, invocation, context)
         case .updateRollback?: // palette, menu and the pulled-build banner's Roll Back
-            return UpdateDropBack.confirmation(services.updater.revertOffer, as: Prompt.init(title:body:button:))
+            return UpdateDropBack.confirmation(services.updater.revertOffer, as: { Prompt(title: $0, body: $1, button: $2) })
         case .tabGroupClose?:
             // The rule of every tab close (TabCloseGuard): the undo toast
             // brings the group back, so only work in progress asks.

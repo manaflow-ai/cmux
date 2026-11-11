@@ -110,7 +110,7 @@ public struct UpdateDropBack {
         return (title, body, UpdaterStrings.goBackButton)
     }
 
-    /// ``confirmation(_:)`` made into the caller's prompt (`Prompt.init(title:body:button:)`).
+    /// ``confirmation(_:)`` made into the caller's prompt.
     public static func confirmation<Prompt>(_ target: RevertTarget?, as make: (String, String, String) -> Prompt) -> Prompt {
         let ask = confirmation(target)
         return make(ask.title, ask.body, ask.button)
