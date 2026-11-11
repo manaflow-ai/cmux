@@ -86,6 +86,16 @@ class Plan(unittest.TestCase):
             with self.subTest(target=target):
                 self.assertEqual(sum(shards.suite_counts(PACKAGE / "Tests" / target).values()), raw)
 
+    def test_a_test_named_in_a_comment_is_not_a_test(self) -> None:
+        # SessionFixtureSize.swift (#40488) has no test and a doc comment that says `@Test(arguments:)`: the raw
+        # count read it as a test in no suite (10633 != 10634), and a comment line inside a suite added to its size.
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "SomeTests"
+            target.mkdir()
+            (target / "Size.swift").write_text("/// A `@Test(arguments:)` list reads it.\nenum Size { case large }\n")
+            (target / "A.swift").write_text("struct ASuite {\n    // @Test func old() {}\n    @Test func a() {}\n}\n")
+            self.assertEqual(shards.suite_counts(target), {"ASuite": 1})
+
     def test_a_free_test_function_runs_in_exactly_one_shard(self) -> None:
         # AgentPageOpsBtwTests.swift declares its @Test at file scope: Swift Testing names it Target.function().
         with tempfile.TemporaryDirectory() as tmp:
