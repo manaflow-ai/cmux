@@ -214,23 +214,25 @@ final class CaptureSceneRegistry {
         case Self.sidebarTryScene:
             // Two finished workspaces: one whose agent gave its build's Tag Opener page, one a command.
             services.windows.active?.sidebar.restore(width: 300, hidden: false)
+            // The rows the window draws, by name: the window's own workspace ids, which the showcase's
+            // daemon ids are not (a scene keyed by those drew no pill).
+            let build = SidebarTry(label: "Open try-agent-work build", url: "http://127.0.0.1:17320/try-agent-work",
+                                   verify: ["The sidebar row shows Try.", "Click it: the build opens here."])
+            let demo = SidebarTry(label: "Run the demo", command: "make demo", verify: ["It prints 14 passing tests."])
             var tries: [WorkspaceID: SidebarTry] = [:]
-            if let id = services.showcase.workspaces["cmux-next"] {
-                tries[WorkspaceID(id)] = SidebarTry(label: "Open try-agent-work build", url: "http://127.0.0.1:17320/try-agent-work",
-                                                    verify: ["The sidebar row shows Try.", "Click it: the build opens here."])
-            }
-            if let id = services.showcase.workspaces["infra"] {
-                tries[WorkspaceID(id)] = SidebarTry(label: "Run the demo", command: "make demo", verify: ["It prints 14 passing tests."])
+            for row in services.windows.active?.sidebar.model.allWorkspaces ?? [] {
+                switch row.title {
+                case "cmux-next": tries[row.id] = build
+                case "infra": tries[row.id] = demo
+                default: break
+                }
             }
             if SidebarSessionTree.shared.onTry == nil { SidebarTryOpener.install(services) }
             SidebarSessionTree.shared.captureTries = tries
             SidebarSessionTree.shared.tries = tries
-            let known = services.showcase.workspaces.map { "\($0.key)=\($0.value)" }.sorted()
             return .object(["sidebar": .string("shown"), "tries": .number(Double(tries.count)),
                             "opener": .bool(SidebarSessionTree.shared.onTry != nil),
-                            "showcase": .array(known.map(CmuxNextSettings.JSONValue.string)),
-                            "window_members": .array((services.windows.active.map { services.windows.registry.members(of: $0.state.id) } ?? [])
-                                .map(CmuxNextSettings.JSONValue.string))])
+                            "rows": .array(tries.keys.map(\.rawValue).sorted().map(CmuxNextSettings.JSONValue.string))])
         case "settings":
             return await DebugAgentPane.handle(["action": .string("open_menu"), "label": .string("Effort")], services)
         case "history-narrow":
