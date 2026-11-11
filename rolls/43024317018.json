@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43024317018",
+  "recorded_at": "2026-11-11T13:02:11Z",
+  "reason": "cmux-tui 533272641fa3 changes the image's cmux-tui (pinned f969818e8f90)",
+  "dry_run": false,
+  "cmux_tui": "533272641fa3b629acaedf70ab24f83cacb701a6",
+  "fixes": [
+    {
+      "sha": "533272641fa3b629acaedf70ab24f83cacb701a6",
+      "mergedAt": "2026-11-11T04:36:37-08:00",
+      "subject": "cmux-tui tests: the idle-wakeup daemon gets its own home folder"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T13:02:11Z",
+    "snapshot_id": "sh-80369d33a5ed4c9ea18f03550f6c149d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43024317018): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a7b40d7bf531fef63ae174e50f8cbc885a0306ba",
+    "image": "cloud-native-auto-53327264-43024317018-1",
+    "revision": "ci-43024317018-1",
+    "at": "2026-11-11T13:02:11Z"
+  },
+  "rolled_back": false
+}
