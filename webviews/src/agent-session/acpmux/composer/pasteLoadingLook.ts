@@ -13,3 +13,8 @@ export function usePasteLoadingLook() {
   const [look] = useState(() => experimentArm(pastePlaceholderLook));
   return look;
 }
+
+/// Whether `look` draws the chip itself from the first frame (the `chip` arms), never a loading tile.
+export function isChipLook(look: string): boolean {
+  return look === "chip" || look.startsWith("chip-");
+}

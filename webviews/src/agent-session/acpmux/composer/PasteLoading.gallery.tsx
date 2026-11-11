@@ -5,14 +5,16 @@
 // actually loads in? ... Or actually, could we do both? Right now we just have a solid color with a
 // spinner. But actually, why do we have a solid color thing anyway? Shouldn't it also be glass?").
 // Every arm is the composer's glass, dim at first and coming up; they differ in what shows once the
-// read passes 400 ms (pastePlaceholder.experiment.ts). `glass-ring` ships.
+// read passes 400 ms (pastePlaceholder.experiment.ts). The `chip` arms (Leo, 2026-11-11: "this 3
+// stage attachment thing is still there") have no loading tile: the chip it becomes, in its final
+// box, from the first frame (attachmentIntake.tsx PendingTile). `chip` ships.
 import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { experimentArm } from "../../../experiments/experiment";
 import { pastePlaceholderLook } from "./pastePlaceholder.experiment";
 
-type Look = "glass-ring" | "glass-bar" | "glass-dim" | "solid";
+type Look = "chip" | "chip-blur" | "chip-bar" | "glass-ring" | "glass-bar" | "glass-dim" | "solid";
 type Props = { look?: Look; ready?: boolean };
 
 /** A screenshot-shaped picture, `width`×`height`, for the chip the read makes. */
@@ -30,17 +32,17 @@ function shot(width: number, height: number): string {
 }
 
 const readyButton = { selector: "[data-stage=ready]" };
-const loaded = (ctx: PlayContext) => ctx.document.querySelector(".acpmux-md-inline-chip[data-loaded] img");
+const loaded = (ctx: PlayContext) => ctx.document.querySelector(".acpmux-md-inline-chip[data-state=ready] img");
 
 export const pasteLoadingScript = [
   {
-    name: "the read passes 400 ms: the late indicator fades in",
+    name: "the paste: the loading chip at the caret (a late indicator after 400 ms in the glass arms)",
     run: async (ctx: PlayContext) => {
-      await ctx.waitFor(() => ctx.document.querySelector(".acpmux-paste-loading"));
+      await ctx.waitFor(() => ctx.document.querySelector(".acpmux-md-inline-chip[data-state=loading]"));
     },
   },
   {
-    name: "the read ends: the picture comes up from the tile's dim",
+    name: "the read ends: the chip in the loading one's place",
     run: async (ctx: PlayContext) => {
       await ctx.click(readyButton);
       await ctx.waitFor(() => loaded(ctx));
@@ -62,31 +64,57 @@ export default componentEntry<Props>({
     ),
   experiment: { definition: pastePlaceholderLook, script: pasteLoadingScript },
   load: () =>
-    Promise.all([import("./pasteLoading"), import("./pasteLoadingLook"), import("../conversation/icons")]).then(
-      ([{ PasteLoadingMark }, { PASTE_LOADING_CLASS }, { Spinner }]) =>
+    Promise.all([
+      import("./pasteLoading"),
+      import("./pasteLoadingLook"),
+      import("../conversation/icons"),
+      import("./attachmentIntake"),
+    ]).then(
+      ([{ PasteLoadingMark }, { PASTE_LOADING_CLASS, isChipLook }, { Spinner }, { PendingTile }]) =>
         function Gallery({ look: given, ready: readyAtFirst = false }: Props) {
           const look = given ?? experimentArm(pastePlaceholderLook);
           const [ready, setReady] = useState(readyAtFirst);
           const [picture] = useState(() => shot(1280, 800));
           // `solid`: the tile before this change, a solid fill and a spinner from the first frame.
-          const tile =
-            look === "solid" ? (
-              <span className="acpmux-md-inline-chip" data-state="loading" aria-busy="true" aria-label="Image">
-                <Spinner loading size={14} className="acpmux-md-inline-spinner" />
-              </span>
-            ) : (
-              <span
-                className={`acpmux-md-inline-chip ${PASTE_LOADING_CLASS}`}
-                data-state="loading"
-                data-paste-look={look}
-                aria-busy="true"
-                aria-label="Image"
-              >
-                <PasteLoadingMark look={look} size={14} className="acpmux-md-inline-spinner" upload={undefined} />
-              </span>
-            );
+          // A `chip` look: the chip itself while it loads, its picture from the file at once.
+          const tile = isChipLook(look) ? (
+            <span className="acpmux-md-inline-chip" data-state="loading" data-chip="strip">
+              <PendingTile
+                chip={{
+                  id: "shot",
+                  name: "image.png",
+                  image: true,
+                  size: { width: 1280, height: 800 },
+                  preview: picture,
+                }}
+                look={look}
+                name="Image"
+                remove={null}
+                upload={undefined}
+              />
+            </span>
+          ) : look === "solid" ? (
+            <span className="acpmux-md-inline-chip" data-state="loading" aria-busy="true" aria-label="Image">
+              <Spinner loading size={14} className="acpmux-md-inline-spinner" />
+            </span>
+          ) : (
+            <span
+              className={`acpmux-md-inline-chip ${PASTE_LOADING_CLASS}`}
+              data-state="loading"
+              data-paste-look={look}
+              aria-busy="true"
+              aria-label="Image"
+            >
+              <PasteLoadingMark look={look} size={14} className="acpmux-md-inline-spinner" upload={undefined} />
+            </span>
+          );
           const chip = (
-            <span className="acpmux-md-inline-chip" data-state="ready" data-chip="strip" data-loaded="">
+            <span
+              className="acpmux-md-inline-chip"
+              data-state="ready"
+              data-chip="strip"
+              {...(isChipLook(look) ? {} : { "data-loaded": "" })}
+            >
               <span className="acpmux-attachment acpmux-attachment-image">
                 <img alt="Screenshot of the narrow sidebar" draggable={false} src={picture} />
               </span>
@@ -119,8 +147,20 @@ export default componentEntry<Props>({
         },
     ),
   variants: {
+    chip: {
+      note: "Shipped. No loading tile: the pasted screenshot is its chip from the first frame, its own picture in its thumbnail's box at the caret. When the read ends the chip takes its place at the same size, so nothing changes size or moves. A file with no picture yet shows its kind's glyph in the same box.",
+      props: { look: "chip" },
+    },
+    "chip-blur": {
+      note: "The chip in its final box from the first frame, its picture soft until the read ends, then sharp in place (as a pasted screenshot uploads in another desktop chat app). Reads as still working, but the soft picture is a second look of the same chip.",
+      props: { look: "chip-blur" },
+    },
+    "chip-bar": {
+      note: "The chip in its final box from the first frame; a thin bar along its foot once the read passes 400 ms. Says a long read is working, but adds a mark the sent message never has.",
+      props: { look: "chip-bar" },
+    },
     "glass-ring": {
-      note: "Shipped. The composer's glass at the caret, dim at first and coming up over a second; a small ring fades in only once the read passes 400 ms.",
+      note: "Before. The composer's glass at the caret, dim at first and coming up over a second; a small ring fades in only once the read passes 400 ms.",
       props: { look: "glass-ring" },
     },
     "glass-bar": {
@@ -136,8 +176,8 @@ export default componentEntry<Props>({
       props: { look: "solid" },
     },
     ready: {
-      note: "The read ended: the picture comes up from the tile's dim in place, the line it sits on unchanged.",
-      props: { look: "glass-ring", ready: true },
+      note: "The read ended: the chip, the same size and place as the loading chip of the shipped look.",
+      props: { look: "chip", ready: true },
     },
   },
 });
