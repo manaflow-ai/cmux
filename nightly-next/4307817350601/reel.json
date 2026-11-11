@@ -1,0 +1,167 @@
+{
+  "version": 1,
+  "build": "4307817350601",
+  "notes": "notes/4307817350601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 41305,
+      "title": "Cloud composer: the Mode chip names the Cloud start's mode in the real app, and New Tab starts the agent it names",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41386,
+      "title": "base_red_excuse: a merge-tested ws-check run counts when its tree is the head squashed onto the base tip (LW#4369)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41395,
+      "title": "webviews: base reds in ToolGroupExpanded and gallery coverage",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41320,
+      "title": "cmux-next: SnapshotApplyScale and ProcessRunner stdin tests judge the work, not the runner",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41423,
+      "title": "cmux-remote tests: relay+do's default run checks delivery and order; its echo and batching bounds run on their own",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41419,
+      "title": "backend test: team cap compares the period end it wrote; test_reds reads a vitest failure as a failure",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41079,
+      "title": "Cloud start: a folder this Mac doesn't trust is refused before any machine, and the refusal says to trust it here",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41339,
+      "title": "Base red: React Doctor's 5 over-baseline rows fixed in code; base pushes scan the whole tree",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41135,
+      "title": "Cloud start: the agent check rule in Rust, before the lease (step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41018,
+      "title": "Composer hat: a question waiting on you has a close x and Escape, and a started chat's name is no longer cut short",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40892,
+      "title": "Composer: an image pasted right after another keeps its place after it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41346,
+      "title": "acpmux tests: a forum test's held turn counts as running once its prompt went out (forum flakes)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41351,
+      "title": "ci: lint push-queue summaries for SUPERSEDED_RULE; base_red_excuse passes over a replaced-while-waiting red; iOS summary base reds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40556,
+      "title": "cmux-tui test: the history page test records its trail steps in the past",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41355,
+      "title": "prepush-gate: refuse process-wide test hooks in acpmux",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40672,
+      "title": "carrier: the adopt line ends with a newline, so the next route line starts its own",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41294,
+      "title": "acpmux: a peer session's notices carry its row's qualifiedSessionId",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41189,
+      "title": "cmux app chat perf: measure a chat's frames and record-to-paint in the running app",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41390,
+      "title": "test_reds: an escape never eats a failure line; a FAIL file is owned in its own step (#41382 review F1, F2)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41285,
+      "title": "acpmux: honor $/cancel_request: answer -32800, free the slot, cancel at the agent or peer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41072,
+      "title": "Cloud: a DEV or NIGHTLY start carries the Codex login the way it carries Claude's",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41394,
+      "title": "Cloud image roll: detect an environment booting a stale image; journey prints machine facts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41385,
+      "title": "A workspace or screen close drops the keys its starting pane gave back",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40345,
+      "title": "Notifications: done and needs-you workspaces move to the top by default (notifications.attention.moveToTop on)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41375,
+      "title": "Hat fold tests: the stack's height never goes up; the trace comment says what the model does",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40093,
+      "title": "test(resize): the Reduce Motion key-turn test ends the key's turn before it steps the tick (67479c6b6cb)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
