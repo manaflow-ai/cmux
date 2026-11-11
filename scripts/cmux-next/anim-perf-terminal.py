@@ -181,7 +181,7 @@ def at_a(panes=1):
 
 
 class Owner:
-    """A JSON-lines connection to the Chief home's daemon (the v1 protocol)."""
+    """A JSON-lines connection to the Chief home's daemon (the v1 protocol, as home-inbox-parity.py)."""
 
     def __init__(self, path):
         import socket

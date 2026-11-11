@@ -47,6 +47,8 @@ final class LinkStatusBubbleView: NSView {
             trailing.constant = BrowserMetrics.overlayPadding
             glass.cornerRadius = BrowserMetrics.overlayCornerRadius
         }
+        // Without this the values above never apply: the address ran edge to edge in the label font.
+        density.start()
         setAccessibilityElement(false)
     }
 

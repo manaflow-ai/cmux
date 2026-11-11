@@ -1,3 +1,4 @@
+import CmuxMobileChief
 import CmuxMobileTransport
 import Foundation
 
@@ -75,9 +76,20 @@ enum HomeInboxFixture {
     private static let small = encode(rows(.small))
     private static let god = encode(rows(.god))
 
-    static func encode(_ rows: [[String: Any]]) -> Data {
+    static func encode(_ rows: [[String: Any]], _ extra: [String: Any] = [:]) -> Data {
+        var data: [String: Any] = ["me": "user_local", "rows": rows]
+        data.merge(extra) { _, new in new }
         // A fixture is always valid JSON.
-        try! JSONSerialization.data(withJSONObject: ["ok": true, "data": ["rows": rows]])
+        return try! JSONSerialization.data(withJSONObject: ["ok": true, "data": data])
+    }
+
+    /// What a windowing host (cmux-mobile-host `InboxWindow`) sends the first screen: the first
+    /// ``MacHomeRows/firstWindow`` rows of the list, `offset` 0 and the list's `total`.
+    static func firstWindowWire(_ size: InstantPerfSize) -> Data { size == .small ? smallWindow : godWindow }
+    private static let smallWindow = window(.small)
+    private static let godWindow = window(.god)
+    private static func window(_ size: InstantPerfSize) -> Data {
+        encode(Array(rows(size).prefix(MacHomeRows.firstWindow)), ["offset": 0, "total": rowCount(size)])
     }
 
     /// The reference "now" of every fixture: 2026-11-10T00:00:00Z.
