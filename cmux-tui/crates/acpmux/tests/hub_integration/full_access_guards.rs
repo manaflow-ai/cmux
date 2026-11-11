@@ -39,7 +39,9 @@ async fn hub_with(env: &[(&str, &str)]) -> (Arc<Hub>, TestClient) {
         argv.extend(["--fake", *k, *v]);
     }
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": argv}},
+        // The family it had with its settings in `env`: a setting value such as
+        // `FAKE_PICKER_MODES claude` on the command line must not make it Claude Code.
+        "harnesses": {"fake": {"argv": argv, "family": "fake"}},
         "defaultHarness": "fake",
         "permissionPolicy": "ask",
         "defaultPermissionMode": "fullAccess",
