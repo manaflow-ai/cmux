@@ -76,7 +76,13 @@ permissions: {}
 # publish run at a time, and every feed write (publish, rollback) is a compare-and-swap on R2.
 
 env:
-  NEXT_FEED_BASE: https://files-next.cmux.com/nightly-next/next
+  # The nightly-next track's one feed (nightly.yml NIGHTLY_NEXT_FEED_BASE): since 2026-11-05 every
+  # build ships as cmux NIGHTLY there (hq#7156), with its notes in notes/. The retired cmux NEXT
+  # feed in next/ gets no builds; reading it re-tested its last build every night (11-06 to 11-10).
+  NEXT_FEED_BASE: https://files-next.cmux.com/nightly-next
+  # The canary verdicts and pulled.json stay in the retired feed's folder (nightly.yml
+  # NIGHTLY_NEXT_VERDICTS_BASE), where the app reads them.
+  NEXT_VERDICTS_BASE: https://files-next.cmux.com/nightly-next/next
   # The path keeps /nightly-next/: UpdateFeedResolver classifies the feed by it.
   STABLE_FEED_BASE: https://files-next.cmux.com/nightly-next/stable
   STABLE_APPCAST: appcast-arm64.xml
@@ -185,7 +191,7 @@ jobs:
         run: |
           set -euo pipefail
           curl -fsS --retry 3 -A cmux-stable-next/1 -o "$RUNNER_TEMP/next.xml" "$NEXT_FEED_BASE/appcast-arm64.xml"
-          curl -fsS --retry 3 -A cmux-stable-next/1 -o "$RUNNER_TEMP/pulled.json" "$NEXT_FEED_BASE/pulled.json" \
+          curl -fsS --retry 3 -A cmux-stable-next/1 -o "$RUNNER_TEMP/pulled.json" "$NEXT_VERDICTS_BASE/pulled.json" \
             || echo '[]' > "$RUNNER_TEMP/pulled.json"
           curl -fsS --retry 3 -A cmux-stable-next/1 -o "$RUNNER_TEMP/stable.xml" "$STABLE_FEED_BASE/$STABLE_APPCAST" \
             || : > "$RUNNER_TEMP/stable.xml"
@@ -202,7 +208,7 @@ jobs:
           [ -z "$BUILD" ] || args=(--build "$BUILD")
           python3 -I scripts/ci/stable_next.py pick --feed "$RUNNER_TEMP/next.xml" --stable "$RUNNER_TEMP/stable.xml" \
             --pulled "$RUNNER_TEMP/pulled.json" --stable-pulled "$RUNNER_TEMP/stable-pulled.json" \
-            --verdicts "$NEXT_FEED_BASE/verdicts" ${args[@]+"${args[@]}"}
+            --verdicts "$NEXT_VERDICTS_BASE/verdicts" ${args[@]+"${args[@]}"}
 
       # The commit the build was compiled from: nightly.yml's build_sha (the resolved cmux-tui tree,
       # which can trail the run's head, or a recovered run's source), as its release notes record it
@@ -231,10 +237,21 @@ jobs:
           SKIP: ${{ steps.pick.outputs.skip }}
           SKIP_REASON: ${{ steps.pick.outputs.skip_reason }}
           FORCE: ${{ inputs.force || false }}
+          PUBLISHED_AT: ${{ steps.pick.outputs.published_at }}
         run: |
           go=true
           if [ "$SKIP" = true ] && [ "$FORCE" != true ] && [ "$MODE" = publish ]; then go=false; fi
           echo "go=$go" >> "$GITHUB_OUTPUT"
+          # The newest nightly is normally hours old. Days old means the track stopped publishing, or
+          # moved its feed again (NEXT_FEED_BASE), and every night re-tests the same build.
+          age_h=""
+          if [ -n "$PUBLISHED_AT" ]; then
+            published_s="$(date -u -d "$PUBLISHED_AT" +%s 2>/dev/null || true)"
+            [ -z "$published_s" ] || age_h=$(( ($(date -u +%s) - published_s) / 3600 ))
+            if [ -n "$age_h" ] && [ "$age_h" -ge 48 ]; then
+              echo "::warning title=cmux NEXT Stable::the newest nightly on $NEXT_FEED_BASE is ${age_h} h old (published $PUBLISHED_AT); check that nightly-next still publishes there"
+            fi
+          fi
           {
             echo "### cmux NEXT Stable ($MODE)"
             echo
@@ -242,6 +259,7 @@ jobs:
             echo "| --- | --- |"
             echo "| build | ${{ steps.pick.outputs.build }} (${{ steps.pick.outputs.short_version }}) |"
             echo "| commit | ${{ steps.commit.outputs.commit }} |"
+            echo "| published | ${PUBLISHED_AT:-unknown}${age_h:+ (${age_h} h ago)} |"
             echo "| canary verdict | ${{ steps.pick.outputs.verdict }} |"
             echo "| runs | $go${SKIP_REASON:+ ($SKIP_REASON)} |"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -296,8 +314,12 @@ jobs:
             echo "::notice title=cmux NEXT Stable::no stable build yet; the crash-class delta has no base"
             exit 0
           fi
-          base="$(curl -fsS --retry 3 -A cmux-stable-next/1 "$NEXT_FEED_BASE/notes/$served.json" \
-            | python3 -c 'import json,sys; print(json.load(sys.stdin)["head"])')"
+          # Notes of builds from before the feed move (2026-11-05) may sit only in the retired folder.
+          notes="$RUNNER_TEMP/served-notes.json"
+          curl -fsS --retry 3 -A cmux-stable-next/1 -o "$notes" "$NEXT_FEED_BASE/notes/$served.json" \
+            || curl -fsS --retry 3 -A cmux-stable-next/1 -o "$notes" "$NEXT_VERDICTS_BASE/notes/$served.json" \
+            || { echo "::error title=cmux NEXT Stable::no notes/$served.json in $NEXT_FEED_BASE or $NEXT_VERDICTS_BASE"; exit 1; }
+          base="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["head"])' "$notes")"
           [[ "$base" =~ ^[0-9a-f]{40}$ ]] || { echo "notes/$served.json names no commit" >&2; exit 1; }
           git fetch --no-tags --depth=1 origin "$base" "$COMMIT"
           mkdir -p "$RUNNER_TEMP/base-tree" "$RUNNER_TEMP/head-tree"
@@ -356,12 +378,35 @@ jobs:
               75) echo "::warning title=stable perf::step $KEY-$n still queued after $((queue / 3600)) h (kept); no perf verdict for this build"; exit 0 ;;
               124) echo "::warning title=stable perf::step $KEY-$n ran past its time limit; measuring again" ;;
               *)
-                # A gate verdict printed its PERF-BUDGETS lines; a step that never measured did not.
-                if grep -q -E 'cmux-ci: step [0-9a-f]+ (cancelled|failed)' "$log" && ! grep -q 'PERF-BUDGETS rows=' "$log"; then
-                  echo "::warning title=stable perf::step $KEY-$n ended without a verdict; measuring again"
-                else
-                  exit "$status"
-                fi ;;
+                # The verdict is the step's report: rows over the baseline are a regression and final. A
+                # step with no report or no regressed row (cancelled, a host fault) measured nothing. The
+                # report, not the log: a step re-attached after the controller dropped its log prints only
+                # "controller HTTP 404" (run 42832167718).
+                grep -q 'PERF-BUDGETS rows=' "$log" && exit "$status"  # the gate printed its verdict
+                id="$(grep -o -E 'cmux-ci: step [0-9a-f]{24}' "$log" | head -1 | awk '{print $3}')"
+                report="$RUNNER_TEMP/perf-report-$n.json"
+                regressed=0
+                if [ -n "$id" ] && { "$client" artifact "$id" "$report" --failed || "$client" artifact "$id" "$report"; } >/dev/null 2>&1; then
+                  regressed="$(python3 -I - "$report" "${GITHUB_STEP_SUMMARY:-/dev/null}" <<'PY'
+          import json, sys
+          try:
+              rows = json.load(open(sys.argv[1])).get("regressed") or []
+          except (OSError, ValueError, AttributeError):
+              rows = []
+          with open(sys.argv[2], "a") as summary:
+              if rows:
+                  summary.write("### Perf budgets: rows over the baseline p95\n\n| row | p95 | baseline | worse |\n| --- | --- | --- | --- |\n")
+              for row in rows:
+                  summary.write(f"| {row.get('name')} | {row.get('p95')} | {row.get('baseline')} | {row.get('worse_pct')}% |\n")
+          print(len(rows))
+          PY
+                  )"
+                fi
+                if [ "${regressed:-0}" -gt 0 ]; then
+                  echo "::error title=stable perf::step $id: $regressed rows over the baseline (run summary)"
+                  exit 1
+                fi
+                echo "::warning title=stable perf::step $KEY-$n (${id:-no step}) ended without a perf verdict; measuring again" ;;
             esac
           done
           echo "::warning title=stable perf::three perf steps for this build ended without a verdict; no perf verdict"
@@ -553,9 +598,15 @@ jobs:
           echo "runner $RUNNER_NAME: $chip, macOS $os"
           case "$chip" in *M6*) echo "::error::stable-next never uses an M6 mini ($RUNNER_NAME)"; exit 1 ;; esac
           [ "${os%%.*}" = 27 ] || { echo "::error::smoke-27 needs macOS 27, $RUNNER_NAME has $os"; exit 1; }
+      # An owned runner keeps one clone for every job of the repository. A sparse checkout there
+      # failed on another job's modified files ("not uptodate; will not remove", run 42832167718) and
+      # leaves the clone sparse for the next job, so these scripts get a clone of their own.
+      - name: Start a clean clone of the smoke scripts
+        run: rm -rf "$GITHUB_WORKSPACE/.stable-next-smoke"
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          path: .stable-next-smoke
           sparse-checkout: |
             scripts/ci/fresh_home_launch_smoke.py
             scripts/ci/stable_next_ui_journey.py
@@ -567,9 +618,10 @@ jobs:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: stable-next-signed
-          path: stable-signed
+          path: .stable-next-smoke/stable-signed
       - name: UI tests of cmux NEXT Stable (macOS 27)
         id: smoke
+        working-directory: .stable-next-smoke
         env:
           DMG: stable-signed/${{ needs.sign.outputs.dmg_name }}
           EXPECT_SHA256: ${{ needs.sign.outputs.dmg_sha256 }}
@@ -598,9 +650,13 @@ jobs:
         run: |
           os="$(sw_vers -productVersion)"; echo "runner $RUNNER_NAME: $(sysctl -n machdep.cpu.brand_string), macOS $os"
           [ "${os%%.*}" = 26 ] || { echo "::error::smoke-26 needs macOS 26, $RUNNER_NAME has $os"; exit 1; }
+      # MACOS_RUNNER_26 can name an owned runner: a clone of its own, as smoke-27.
+      - name: Start a clean clone of the smoke scripts
+        run: rm -rf "$GITHUB_WORKSPACE/.stable-next-smoke"
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          path: .stable-next-smoke
           sparse-checkout: |
             scripts/ci/fresh_home_launch_smoke.py
             scripts/ci/stable_next_ui_journey.py
@@ -612,9 +668,10 @@ jobs:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: stable-next-signed
-          path: stable-signed
+          path: .stable-next-smoke/stable-signed
       - name: UI tests of cmux NEXT Stable (macOS 26)
         id: smoke
+        working-directory: .stable-next-smoke
         env:
           DMG: stable-signed/${{ needs.sign.outputs.dmg_name }}
           EXPECT_SHA256: ${{ needs.sign.outputs.dmg_sha256 }}
@@ -652,9 +709,9 @@ jobs:
         run: |
           set -euo pipefail
           # Fail closed: with the feed check gone, an unreadable pulled.json must never read as "nothing pulled".
-          curl -fsS --retry 5 --retry-all-errors -A cmux-stable-next/1 -o "$RUNNER_TEMP/pulled.json" "$NEXT_FEED_BASE/pulled.json"
+          curl -fsS --retry 5 --retry-all-errors -A cmux-stable-next/1 -o "$RUNNER_TEMP/pulled.json" "$NEXT_VERDICTS_BASE/pulled.json"
           python3 -I scripts/ci/stable_next.py soak --build "$BUILD" --pulled "$RUNNER_TEMP/pulled.json" \
-            --verdicts "$NEXT_FEED_BASE/verdicts"
+            --verdicts "$NEXT_VERDICTS_BASE/verdicts"
       - name: No new unhandled Sentry issue first seen in this release
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
@@ -719,9 +776,9 @@ jobs:
       - name: The build is still not pulled and has no fail verdict
         run: |
           set -euo pipefail
-          curl -fsS --retry 5 --retry-all-errors -A cmux-stable-next/1 -o "$RUNNER_TEMP/pulled.json" "$NEXT_FEED_BASE/pulled.json"
+          curl -fsS --retry 5 --retry-all-errors -A cmux-stable-next/1 -o "$RUNNER_TEMP/pulled.json" "$NEXT_VERDICTS_BASE/pulled.json"
           python3 -I scripts/ci/stable_next.py soak --build "$BUILD" --pulled "$RUNNER_TEMP/pulled.json" \
-            --verdicts "$NEXT_FEED_BASE/verdicts"
+            --verdicts "$NEXT_VERDICTS_BASE/verdicts"
       - name: Dry run - compose the feed the publish would write
         if: env.PUBLISH != 'true'
         run: |

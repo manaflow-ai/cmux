@@ -76,7 +76,7 @@ struct ServerHeadlessApprovalOriginTests {
     }
 
     @Test func addServerIsPersonOnlyAtTheSharedActionBoundary() throws {
-        let descriptor = try #require(ServerActionCatalog.descriptors().first { $0.id == "server.addServer" })
+        let descriptor = try #require(ActionCatalog.all.first { $0.id == "server.addServer" })
         #expect(descriptor.isPersonOnly)
     }
 }

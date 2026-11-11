@@ -51,6 +51,7 @@ on:
       - "cmux-tui/crates/cmux-cookie-sync/**"
       - "cmux-tui/crates/cmux-daemon-conn-core/**"
       - "cmux-tui/crates/cmux-daemon-launch-core/**"
+      - "cmux-tui/crates/cmux-health-core/**"
       - "cmux-tui/crates/cmux-focus-core/**"
       - "cmux-tui/crates/cmux-imessage/**"
       - "cmux-tui/crates/cmux-layout-reducer/**"
@@ -95,7 +96,10 @@ jobs:
     # first, Blacksmith as overflow. On Blacksmith alone the build sat queued on
     # blacksmith-12vcpu-macos-26 for 12 hours (run 39402525970, 2026-10-20) and
     # the app FFI pin stayed red on every push. A re-run, a dispatch or an empty
-    # variable takes the Blacksmith label as before.
+    # variable takes the Blacksmith label as before. Queued there, the build holds
+    # that label against pull request placements as a nightly job does (the queue
+    # janitor's reserved_queued, queue_janitor.RESERVED_POOL_WORKFLOW): run
+    # 42833220418 waited 66 minutes behind pull request jobs on 2026-11-10.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NEXT_PROMOTE_POOL != '' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 45
     # A newer push or dispatch on the same ref waits for this build, never
@@ -445,7 +449,21 @@ jobs:
           (cd assets && sha256sum --check --strict SHA256SUMS)
           [[ "$(tr -d '[:space:]' < assets/SOURCE_SHA)" == "$GITHUB_SHA" ]]
           notes="The cmux app FFI (remote desktop core + sidebar layout reducer) as CCmuxAppFFI.xcframework (one static library, universal macOS arm64/x86_64). Source $GITHUB_SHA. SwiftPM binaryTarget checksum (SHA-256 of the zip): $CHECKSUM"
-          if gh release view "$TAG" >/dev/null 2>&1; then
+          # Only gh's "release not found" means absent; any other failed read
+          # (a 502) is asked again, so a rerun never creates over its release.
+          exists=""
+          probe="$(mktemp)"
+          for attempt in 1 2 3 4 5 6; do
+            if gh release view "$TAG" >/dev/null 2>"$probe"; then exists=1; break; fi
+            if grep -qi "release not found" "$probe"; then exists=no; break; fi
+            echo "read $attempt of release $TAG failed: $(tr '\n' ' ' < "$probe")"
+            [[ "$attempt" == 6 ]] || sleep 10
+          done
+          if [[ -z "$exists" ]]; then
+            echo "::error title=Publish by hand::could not read release $TAG after 6 tries (errors above), so this run neither created nor checked it. Rerun this job; if the release is still absent, publish by hand: $HAND_PUBLISH"
+            exit 1
+          fi
+          if [[ "$exists" == 1 ]]; then
             existing="$(mktemp -d)"
             gh release download "$TAG" --pattern "CCmuxAppFFI.xcframework.zip" --dir "$existing"
             published="$(sha256sum "$existing/CCmuxAppFFI.xcframework.zip" | awk '{print $1}')"
@@ -498,10 +516,15 @@ jobs:
       # The last word: the job is green only when the release exists with this
       # run's archive. It also runs after a failed or skipped step, so a create
       # that published nothing can never end green.
+      # A failed read is asked again before it counts: run 42919934207 created
+      # the release and downloaded it anonymously, then one read here failed
+      # (GitHub was returning 502s) and the job said "does not exist", which
+      # skipped the re-pin and left base red on "Check the app FFI pin". It
+      # reads the public download URL, as the anonymous check does, so its
+      # retries spend no API token.
       - name: The release exists with this run's archive
         if: ${{ !cancelled() }}
         env:
-          GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.build.outputs.tag }}
           CHECKSUM: ${{ needs.build.outputs.checksum }}
@@ -509,8 +532,18 @@ jobs:
         run: |
           set -euo pipefail
           check="$(mktemp -d)"
-          if ! gh release view "$TAG" >/dev/null 2>&1 \
-              || ! gh release download "$TAG" --pattern "CCmuxAppFFI.xcframework.zip" --dir "$check"; then
+          url="https://github.com/$GH_REPO/releases/download/$TAG/CCmuxAppFFI.xcframework.zip"
+          found=""
+          for attempt in 1 2 3 4 5 6; do
+            rm -f "$check/CCmuxAppFFI.xcframework.zip"
+            if curl -fsSL -o "$check/CCmuxAppFFI.xcframework.zip" "$url" 2>"$check/read.err"; then
+              found=1
+              break
+            fi
+            echo "read $attempt of release $TAG failed: $(tr '\n' ' ' < "$check/read.err")"
+            [[ "$attempt" == 6 ]] || sleep 10
+          done
+          if [[ -z "$found" ]]; then
             echo "::error title=Publish by hand::release $TAG does not exist; this run published nothing. Publish by hand: $HAND_PUBLISH"
             exit 1
           fi
@@ -570,6 +603,22 @@ jobs:
           repositories: ${{ github.event.repository.name }}
           permission-pull-requests: write
 
+      # The base autofix's push identity (manaflow-cmux-pr-autofix, the bypass
+      # actor of feat-cmux-next's required check): publish-app-ffi-repin.sh
+      # pins on the base with it (scripts/cmux-next/pin-app-ffi-on-base.sh).
+      # Without it the pin goes through the pull request, as before.
+      - name: Mint the base pin token
+        id: base-token
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_PR_AUTOFIX_APP_ID }}
+          private-key: ${{ secrets.CMUX_PR_AUTOFIX_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
       # Treeless with full history: the re-pin walks feat-cmux-next's commits
       # back to the current pin to find the newest published release.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -601,6 +650,8 @@ jobs:
           GH_TOKEN: ${{ steps.pr-token.outputs.token }}
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
           READ_TOKEN: ${{ github.token }}
+          BASE_TOKEN: ${{ steps.base-token.outputs.token }}
+          BASE_PIN_ENABLED: ${{ vars.CMUX_NEXT_BASE_AUTOFIX == '1' }}
           TAG: ${{ needs.build.outputs.tag }}
           CHECKSUM: ${{ needs.build.outputs.checksum }}
         shell: bash

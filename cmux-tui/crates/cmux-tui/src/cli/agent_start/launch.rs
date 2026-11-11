@@ -6,7 +6,7 @@
 //! extra argument (`--resume <id>`, a session id) stays its own argv word
 //! that no shell parses again. `terminal <t> process show` keeps that argv
 //! after the agent exits (the tab runs with `--on-exit keep`), so `resume`
-//! reads the launcher and the arguments back from it.
+//! reads the launcher back from it.
 
 use super::super::agent_vocabulary::harness_name;
 
@@ -107,20 +107,6 @@ pub(in crate::cli) fn resume_args(harness: &str, id: &str) -> Option<Vec<String>
     let mut args: Vec<String> = words.iter().map(|word| (*word).to_owned()).collect();
     args.push(id.to_owned());
     Some(args)
-}
-
-/// `args` without a resume tail a former `resume` appended, so resuming a
-/// resumed agent does not pile up `--resume` arguments.
-pub(in crate::cli) fn strip_resume(harness: &str, args: &[String]) -> Vec<String> {
-    let Some(shape) = resume_args(harness, "") else { return args.to_vec() };
-    // The tail is the shape's fixed words, then one session id.
-    let Some((_, fixed)) = shape.split_last() else { return args.to_vec() };
-    if let Some((_, rest)) = args.split_last()
-        && let Some(kept) = rest.strip_suffix(fixed)
-    {
-        return kept.to_vec();
-    }
-    args.to_vec()
 }
 
 /// Whether `id` can be a harness session id: what the daemon publishes

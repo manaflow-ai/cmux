@@ -445,8 +445,12 @@ export function ComposerPickers({
   useEffect(() => {
     const wanted = pending.current;
     if (!wanted) return;
-    // Dropped on a session switch, or once the session moves off the picked model (or never reaches it).
-    const away = current !== wanted.model && (current !== wanted.from || wanted.reached);
+    // Dropped on a session switch, or once the session moves off the picked model (or never reaches
+    // it). While a model pick is still in flight (`confirmedModel`: the chip draws the pick), a report
+    // of another model is an earlier pick landing on the way, not a move away: two quick picks then
+    // a level lost the level when the first pick's model reported before the second's.
+    const inFlight = summary?.confirmedModel !== undefined && summary.model === wanted.model;
+    const away = current !== wanted.model && !inFlight && (current !== wanted.from || wanted.reached);
     if (wanted.sessionId !== summary?.sessionId || away) {
       pending.current = undefined;
       return;
@@ -455,7 +459,16 @@ export function ComposerPickers({
     if (current !== wanted.model || !effortId || !effortValues.split("\u0000").includes(wanted.effort)) return;
     pending.current = undefined;
     if (wanted.effort !== currentEffort) onEffort(effortId, wanted.effort);
-  }, [summary?.sessionId, current, currentEffort, effortId, effortValues, onEffort]);
+  }, [
+    summary?.sessionId,
+    summary?.model,
+    summary?.confirmedModel,
+    current,
+    currentEffort,
+    effortId,
+    effortValues,
+    onEffort,
+  ]);
   // One pick of a model and effort: the model first, then the effort once the agent reports
   // that model offering it (the effect above); the same model only changes the effort.
   // A pick in a chat on another machine names that machine's models: this one's new chats keep theirs.

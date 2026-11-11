@@ -540,6 +540,8 @@ struct NextStepCard: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("agentChat.nextStep.recap")
             }
+            // A finished task's way to try it: its Try button, Report link and Verify steps.
+            if let tryIt = ask.tryIt { NextStepTryView(tryIt: tryIt) }
             if !ask.question.isEmpty {
                 Text(ask.question)
                     .font(.headline)
@@ -573,6 +575,75 @@ struct NextStepCard: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("agentChat.nextStep")
         .onChange(of: answer) { _, _ in sent = false }
+    }
+}
+/// A finished wrap-up's Try (NextStepAsk.Try): a page on the internet opens on the phone; a build on
+/// the Mac (a loopback Tag Opener address) or a command runs on the Mac, so the phone shows what it
+/// is with Copy (a phone never runs a command on the Mac: SECURITY.md, "Remote CLI relay"). The
+/// Verify steps are a checklist the person ticks; the report opens when it is a web page.
+struct NextStepTryView: View {
+    let tryIt: NextStepAsk.Try
+    @Environment(\.openURL) private var openURL
+    @State private var ticked: Set<Int> = []
+
+    private var target: String? { tryIt.url?.absoluteString ?? tryIt.command }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                if let label = tryIt.label, let target {
+                    if tryIt.opensOnPhone, let url = tryIt.url {
+                        Button {
+                            openURL(url)
+                        } label: {
+                            Label(label, systemImage: "play.fill")
+                        }
+                        .buttonStyle(CmuxMobileCapsuleButtonStyle(.primary, size: .large))
+                        .accessibilityIdentifier("agentChat.nextStep.try")
+                    } else {
+                        Button {
+                            UIPasteboard.general.string = target
+                        } label: {
+                            Label(String(localized: "mobile.agentChat.try.copy", defaultValue: "Copy to try on your Mac", bundle: .module), systemImage: "doc.on.doc")
+                        }
+                        .buttonStyle(CmuxMobileCapsuleButtonStyle(.secondary, size: .large))
+                        .accessibilityIdentifier("agentChat.nextStep.tryCopy")
+                    }
+                }
+                if let report = tryIt.report, let url = URL(string: report), ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+                    Button(String(localized: "mobile.agentChat.try.report", defaultValue: "Report", bundle: .module)) { openURL(url) }
+                        .buttonStyle(CmuxMobileCapsuleButtonStyle(.secondary, size: .large))
+                        .accessibilityIdentifier("agentChat.nextStep.report")
+                }
+            }
+            if let target {
+                Text(target)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .textSelection(.enabled)
+                    .accessibilityIdentifier("agentChat.nextStep.tryTarget")
+            }
+            if !tryIt.verify.isEmpty {
+                Text(String(localized: "mobile.agentChat.try.verify", defaultValue: "Verify", bundle: .module))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(Array(tryIt.verify.enumerated()), id: \.offset) { index, step in
+                    Button {
+                        if ticked.contains(index) { ticked.remove(index) } else { ticked.insert(index) }
+                    } label: {
+                        Label(step, systemImage: ticked.contains(index) ? "checkmark.square.fill" : "square")
+                            .font(.subheadline)
+                            .foregroundStyle(ticked.contains(index) ? .secondary : .primary)
+                            .multilineTextAlignment(.leading)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("agentChat.nextStep.verify.\(index)")
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("agentChat.nextStep.tryBlock")
     }
 }
 #endif
