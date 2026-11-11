@@ -1,6 +1,6 @@
 //! Dynamic machine catalog backed by a versioned external provider.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 #[cfg(test)]
 use std::path::Path;
 use std::path::PathBuf;
@@ -28,7 +28,8 @@ use crate::machine::{
 #[cfg(test)]
 use crate::machine_provider_client::UnixProviderConnector;
 use crate::machine_provider_client::{
-    MachineProviderConnector, ProviderClient, ProviderClientError,
+    MachineProviderConnector, ProviderClient, ProviderClientError, ProviderResult,
+    request_mutation_id_mut,
 };
 use crate::machine_runtime::{
     MachineConnectFn, MachineConnection, MachineConnectionHub, MachineRuntime,
@@ -72,6 +73,57 @@ struct PendingConnection {
     candidate: Option<OpenConnection>,
     rollback: Option<ProviderSelectionRollback>,
     retire_open_on_abort: bool,
+}
+
+/// Mutations sent without a definite answer.
+///
+/// A timeout, disconnect, or retryable failure leaves a mutation's outcome
+/// unknown: the provider may still commit it. Each entry keys the exact
+/// request, with its id cleared, to the `mutation_id` already sent, so the
+/// next identical request replays that id and the provider returns the one
+/// committed result instead of making a second machine or workspace.
+#[derive(Default)]
+struct UnsettledMutations {
+    entries: VecDeque<(protocol::ProviderRequest, protocol::OpaqueId)>,
+}
+
+/// Keeps the ledger bounded when many unrelated mutations stay unanswered.
+const MAX_UNSETTLED_MUTATIONS: usize = 32;
+
+impl UnsettledMutations {
+    fn replay_id(&self, intent: &protocol::ProviderRequest) -> Option<protocol::OpaqueId> {
+        self.entries
+            .iter()
+            .find(|(candidate, _)| candidate == intent)
+            .map(|(_, mutation_id)| mutation_id.clone())
+    }
+
+    fn remember(&mut self, intent: protocol::ProviderRequest, mutation_id: protocol::OpaqueId) {
+        self.settle(&intent);
+        if self.entries.len() == MAX_UNSETTLED_MUTATIONS {
+            self.entries.pop_front();
+        }
+        self.entries.push_back((intent, mutation_id));
+    }
+
+    fn settle(&mut self, intent: &protocol::ProviderRequest) {
+        self.entries.retain(|(candidate, _)| candidate != intent);
+    }
+}
+
+/// Success or a non-retryable provider failure ends a mutation. Anything else
+/// (timeout, disconnect, protocol error, retryable failure) may have committed.
+fn mutation_answer_is_definite<T>(result: &ProviderResult<T>) -> bool {
+    match result {
+        Ok(_) => true,
+        Err(ProviderClientError::Provider(error)) => !error.retryable,
+        Err(_) => false,
+    }
+}
+
+/// The id a mutation request carries before the runtime assigns its real one.
+fn unassigned_mutation_id() -> anyhow::Result<protocol::OpaqueId> {
+    Ok(protocol::OpaqueId::new("cmux-unassigned-mutation")?)
 }
 
 struct PendingExternalConnect {
@@ -174,6 +226,7 @@ pub(crate) struct ProviderMachineRuntime {
     connection_registry: Arc<Mutex<HashMap<MachineKey, OpenConnection>>>,
     pending: Option<PendingConnection>,
     pending_external_connect: Option<PendingExternalConnect>,
+    unsettled_mutations: UnsettledMutations,
     accepted_selection: Option<AcceptedSelectionIntent>,
     last_snapshot_notice: Option<protocol::ProviderNotice>,
     pending_notice_messages: HashSet<String>,
@@ -555,6 +608,7 @@ impl ProviderMachineRuntime {
             connection_registry: Arc::new(Mutex::new(HashMap::new())),
             pending: None,
             pending_external_connect: None,
+            unsettled_mutations: UnsettledMutations::default(),
             accepted_selection: None,
             last_snapshot_notice: None,
             pending_notice_messages: HashSet::new(),
@@ -688,9 +742,11 @@ impl ProviderMachineRuntime {
                 Ok(result)
             }
             MachineRequest::Create => {
-                let created = self.client.create_machine(
-                    self.snapshot.selected_scope_id.clone(),
-                    self.next_mutation_id()?,
+                let created: protocol::CreateMachineResult = self.send_mutation(
+                    protocol::ProviderRequest::CreateMachine(protocol::CreateMachineParams {
+                        scope_id: self.snapshot.selected_scope_id.clone(),
+                        mutation_id: unassigned_mutation_id()?,
+                    }),
                 )?;
                 Ok(self.finish_accepted_machine_selection(created.machine_id, created.notice))
             }
@@ -736,12 +792,14 @@ impl ProviderMachineRuntime {
                         (key, value)
                     })
                     .collect::<BTreeMap<_, _>>();
-                let result = self.client.invoke_action(
-                    protocol::OpaqueId::new(action_id)?,
-                    values,
-                    machine_id.map(protocol::OpaqueId::new).transpose()?,
-                    workspace_id.map(protocol::OpaqueId::new).transpose()?,
-                    self.next_mutation_id()?,
+                let result: protocol::InvokeActionResult = self.send_mutation(
+                    protocol::ProviderRequest::InvokeAction(protocol::InvokeActionParams {
+                        action_id: protocol::OpaqueId::new(action_id)?,
+                        values,
+                        machine_id: machine_id.map(protocol::OpaqueId::new).transpose()?,
+                        workspace_id: workspace_id.map(protocol::OpaqueId::new).transpose()?,
+                        mutation_id: unassigned_mutation_id()?,
+                    }),
                 )?;
                 let selected_scope_id = result.selected_scope_id;
                 let selected_machine_id = result.selected_machine_id;
@@ -775,13 +833,15 @@ impl ProviderMachineRuntime {
                 let renames_open_session =
                     self.open.as_ref().is_some_and(|open| open.machine_id == machine_id);
                 let session_label = renames_open_session.then(|| name.clone());
-                let result = self.client.rename_machine(protocol::RenameMachineParams {
-                    scope_id: self.snapshot.selected_scope_id.clone(),
-                    machine_id,
-                    expected_version,
-                    display_name: name,
-                    mutation_id: self.next_mutation_id()?,
-                })?;
+                let result: protocol::MachineMutationResult = self.send_mutation(
+                    protocol::ProviderRequest::RenameMachine(protocol::RenameMachineParams {
+                        scope_id: self.snapshot.selected_scope_id.clone(),
+                        machine_id,
+                        expected_version,
+                        display_name: name,
+                        mutation_id: unassigned_mutation_id()?,
+                    }),
+                )?;
                 self.set_notice(result.notice);
                 Ok(self.finish_accepted_action(
                     AcceptedProviderEffects { session_label, ..AcceptedProviderEffects::default() },
@@ -807,12 +867,14 @@ impl ProviderMachineRuntime {
                     .position(|descriptor| descriptor.id == machine_id)
                     .unwrap_or_default();
                 let deleted_id = machine_id.clone();
-                let result = self.client.delete_machine(protocol::MachineMutationParams {
-                    scope_id: self.snapshot.selected_scope_id.clone(),
-                    machine_id,
-                    expected_version,
-                    mutation_id: self.next_mutation_id()?,
-                })?;
+                let result: protocol::MachineMutationResult = self.send_mutation(
+                    protocol::ProviderRequest::DeleteMachine(protocol::MachineMutationParams {
+                        scope_id: self.snapshot.selected_scope_id.clone(),
+                        machine_id,
+                        expected_version,
+                        mutation_id: unassigned_mutation_id()?,
+                    }),
+                )?;
                 self.set_notice(result.notice);
                 Ok(self.finish_accepted_action(
                     AcceptedProviderEffects {
@@ -906,12 +968,14 @@ impl ProviderMachineRuntime {
                 ))
             }
             MachineRequest::RestoreManagedMachine { machine, expected_version } => {
-                let result = self.client.restore_machine(protocol::MachineMutationParams {
-                    scope_id: self.snapshot.selected_scope_id.clone(),
-                    machine_id: self.machine_id(machine)?,
-                    expected_version,
-                    mutation_id: self.next_mutation_id()?,
-                })?;
+                let result: protocol::MachineMutationResult = self.send_mutation(
+                    protocol::ProviderRequest::RestoreMachine(protocol::MachineMutationParams {
+                        scope_id: self.snapshot.selected_scope_id.clone(),
+                        machine_id: self.machine_id(machine)?,
+                        expected_version,
+                        mutation_id: unassigned_mutation_id()?,
+                    }),
+                )?;
                 self.set_notice(result.notice);
                 Ok(self.finish_accepted_action(AcceptedProviderEffects::default(), |runtime| {
                     runtime.refresh()?;
@@ -919,12 +983,14 @@ impl ProviderMachineRuntime {
                 }))
             }
             MachineRequest::PurgeManagedMachine { machine, expected_version } => {
-                let result = self.client.purge_machine(protocol::MachineMutationParams {
-                    scope_id: self.snapshot.selected_scope_id.clone(),
-                    machine_id: self.machine_id(machine)?,
-                    expected_version,
-                    mutation_id: self.next_mutation_id()?,
-                })?;
+                let result: protocol::MachineMutationResult = self.send_mutation(
+                    protocol::ProviderRequest::PurgeMachine(protocol::MachineMutationParams {
+                        scope_id: self.snapshot.selected_scope_id.clone(),
+                        machine_id: self.machine_id(machine)?,
+                        expected_version,
+                        mutation_id: unassigned_mutation_id()?,
+                    }),
+                )?;
                 self.set_notice(result.notice);
                 Ok(self.finish_accepted_action(AcceptedProviderEffects::default(), |runtime| {
                     runtime.refresh()?;
@@ -943,37 +1009,44 @@ impl ProviderMachineRuntime {
                 expected_version,
                 name,
             } => {
-                let result = self.client.rename_workspace(protocol::RenameWorkspaceParams {
-                    machine_id: self.machine_id(machine)?,
-                    workspace_id: protocol::OpaqueId::new(workspace_id.clone())?,
-                    expected_version,
-                    display_name: name.clone(),
-                    mutation_id: self.next_mutation_id()?,
-                })?;
+                let result: protocol::WorkspaceMutationResult = self.send_mutation(
+                    protocol::ProviderRequest::RenameWorkspace(protocol::RenameWorkspaceParams {
+                        machine_id: self.machine_id(machine)?,
+                        workspace_id: protocol::OpaqueId::new(workspace_id.clone())?,
+                        expected_version,
+                        display_name: name.clone(),
+                        mutation_id: unassigned_mutation_id()?,
+                    }),
+                )?;
                 self.set_notice(result.notice);
                 Ok(self.finish_accepted_workspace_mutation(
                     ManagedWorkspaceSessionMutation::Rename { workspace_key: workspace_id, name },
                 ))
             }
             MachineRequest::DeleteManagedWorkspace { machine, workspace_id, expected_version } => {
-                let result = self.client.delete_workspace(protocol::WorkspaceMutationParams {
-                    machine_id: self.machine_id(machine)?,
-                    workspace_id: protocol::OpaqueId::new(workspace_id.clone())?,
-                    expected_version,
-                    mutation_id: self.next_mutation_id()?,
-                })?;
+                let result: protocol::WorkspaceMutationResult = self.send_mutation(
+                    protocol::ProviderRequest::DeleteWorkspace(protocol::WorkspaceMutationParams {
+                        machine_id: self.machine_id(machine)?,
+                        workspace_id: protocol::OpaqueId::new(workspace_id.clone())?,
+                        expected_version,
+                        mutation_id: unassigned_mutation_id()?,
+                    }),
+                )?;
                 self.set_notice(result.notice);
                 Ok(self.finish_accepted_workspace_mutation(
                     ManagedWorkspaceSessionMutation::Close { workspace_key: workspace_id },
                 ))
             }
             MachineRequest::RestoreManagedWorkspace { machine, workspace_id, expected_version } => {
-                let result = self.client.restore_workspace(protocol::WorkspaceMutationParams {
-                    machine_id: self.machine_id(machine)?,
-                    workspace_id: protocol::OpaqueId::new(workspace_id)?,
-                    expected_version,
-                    mutation_id: self.next_mutation_id()?,
-                })?;
+                let result: protocol::WorkspaceMutationResult =
+                    self.send_mutation(protocol::ProviderRequest::RestoreWorkspace(
+                        protocol::WorkspaceMutationParams {
+                            machine_id: self.machine_id(machine)?,
+                            workspace_id: protocol::OpaqueId::new(workspace_id)?,
+                            expected_version,
+                            mutation_id: unassigned_mutation_id()?,
+                        },
+                    ))?;
                 self.set_notice(result.notice);
                 Ok(self.finish_accepted_action(AcceptedProviderEffects::default(), |runtime| {
                     runtime.refresh()?;
@@ -981,12 +1054,14 @@ impl ProviderMachineRuntime {
                 }))
             }
             MachineRequest::PurgeManagedWorkspace { machine, workspace_id, expected_version } => {
-                let result = self.client.purge_workspace(protocol::WorkspaceMutationParams {
-                    machine_id: self.machine_id(machine)?,
-                    workspace_id: protocol::OpaqueId::new(workspace_id)?,
-                    expected_version,
-                    mutation_id: self.next_mutation_id()?,
-                })?;
+                let result: protocol::WorkspaceMutationResult = self.send_mutation(
+                    protocol::ProviderRequest::PurgeWorkspace(protocol::WorkspaceMutationParams {
+                        machine_id: self.machine_id(machine)?,
+                        workspace_id: protocol::OpaqueId::new(workspace_id)?,
+                        expected_version,
+                        mutation_id: unassigned_mutation_id()?,
+                    }),
+                )?;
                 self.set_notice(result.notice);
                 Ok(self.finish_accepted_action(AcceptedProviderEffects::default(), |runtime| {
                     runtime.refresh()?;
@@ -1675,8 +1750,13 @@ impl ProviderMachineRuntime {
         key: MachineKey,
         mode: protocol::WorkspaceCreateMode,
     ) -> anyhow::Result<MachineActionResult> {
-        let result =
-            self.client.create_workspace(self.machine_id(key)?, mode, self.next_mutation_id()?)?;
+        let result: protocol::CreateWorkspaceResult = self.send_mutation(
+            protocol::ProviderRequest::CreateWorkspace(protocol::CreateWorkspaceParams {
+                machine_id: self.machine_id(key)?,
+                mode,
+                mutation_id: unassigned_mutation_id()?,
+            }),
+        )?;
         self.set_notice(result.notice);
         Ok(self.finish_accepted_action(AcceptedProviderEffects::default(), |runtime| {
             runtime.refresh()?;
@@ -1865,6 +1945,32 @@ impl ProviderMachineRuntime {
             .get(&key)
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("unknown machine {}", key.0))
+    }
+
+    /// Sends one mutation, replaying the `mutation_id` an earlier unanswered
+    /// attempt of the exact same request already sent.
+    fn send_mutation<T>(&mut self, mut request: protocol::ProviderRequest) -> anyhow::Result<T>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        let mut intent = request.clone();
+        let Some(intent_id) = request_mutation_id_mut(&mut intent) else {
+            anyhow::bail!("machine-provider request carries no mutation id");
+        };
+        *intent_id = unassigned_mutation_id()?;
+        let mutation_id = match self.unsettled_mutations.replay_id(&intent) {
+            Some(mutation_id) => mutation_id,
+            None => self.next_mutation_id()?,
+        };
+        if let Some(slot) = request_mutation_id_mut(&mut request) {
+            *slot = mutation_id.clone();
+        }
+        self.unsettled_mutations.remember(intent.clone(), mutation_id);
+        let result = self.client.mutate(request);
+        if mutation_answer_is_definite(&result) {
+            self.unsettled_mutations.settle(&intent);
+        }
+        Ok(result?)
     }
 
     fn next_mutation_id(&self) -> anyhow::Result<protocol::OpaqueId> {
@@ -3085,13 +3191,15 @@ mod tests {
         }
     }
 
+    /// Answers one accepted mutation and returns the `mutation_id` it carried.
     fn serve_accepted_mutation(
         kind: AcceptedMutationKind,
         stream: &mut UnixStream,
         reader: &mut BufReader<UnixStream>,
-    ) {
+    ) -> protocol::OpaqueId {
         let mutation: protocol::RequestEnvelope = read_frame(reader);
         let request_id = mutation.id;
+        let mutation_id = sent_mutation_id(&mutation.request);
         match (kind, mutation.request) {
             (AcceptedMutationKind::CreateMachine, protocol::ProviderRequest::CreateMachine(_)) => {
                 write_frame(
@@ -3214,6 +3322,121 @@ mod tests {
             }
             (_, request) => panic!("unexpected request for {kind:?}: {request:?}"),
         }
+        mutation_id
+    }
+
+    fn sent_mutation_id(request: &protocol::ProviderRequest) -> protocol::OpaqueId {
+        let mut request = request.clone();
+        request_mutation_id_mut(&mut request).expect("request carries a mutation id").clone()
+    }
+
+    fn fail_followup_refresh(
+        stream: &mut UnixStream,
+        reader: &mut BufReader<UnixStream>,
+        kind: AcceptedMutationKind,
+    ) {
+        let failed_refresh: protocol::RequestEnvelope = read_frame(reader);
+        assert!(matches!(failed_refresh.request, protocol::ProviderRequest::Snapshot(_)));
+        write_frame(
+            stream,
+            &protocol::ResponseEnvelope::<protocol::SnapshotResult>::failure(
+                failed_refresh.id,
+                protocol::ProviderError {
+                    code: protocol::ProviderErrorCode::Unavailable,
+                    message: format!("refresh failed after accepted {kind:?}"),
+                    retryable: true,
+                },
+            ),
+        );
+    }
+
+    /// A mutation whose answer outran its bound may still commit on the
+    /// provider. Its retry must replay the same mutation_id, so a slow create
+    /// makes one machine, not two. Success then settles the id.
+    #[test]
+    fn every_timed_out_provider_mutation_replays_its_mutation_id_on_retry() {
+        use crate::machine_provider_client::ProviderRequestDeadlines;
+
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let catalog = provider_managed_snapshot(1);
+        let workspace = active_workspace_snapshot(1);
+        let server_catalog = catalog;
+        let server_workspace = workspace;
+        let server = thread::spawn(move || {
+            let (mut stream, mut reader) =
+                serve_initial_snapshot(&listener, server_catalog.clone());
+            serve_workspace_snapshot(&mut stream, &mut reader, &server_workspace);
+            let mut first_create_id = None;
+            for kind in AcceptedMutationKind::ALL {
+                serve_runtime_refresh(
+                    &mut stream,
+                    &mut reader,
+                    &server_catalog,
+                    Some(&server_workspace),
+                );
+                // The provider is still working: no answer before the bound.
+                let unanswered: protocol::RequestEnvelope = read_frame(&mut reader);
+                let first_id = sent_mutation_id(&unanswered.request);
+
+                serve_runtime_refresh(
+                    &mut stream,
+                    &mut reader,
+                    &server_catalog,
+                    Some(&server_workspace),
+                );
+                let retry_id = serve_accepted_mutation(kind, &mut stream, &mut reader);
+                assert_eq!(retry_id, first_id, "{kind:?} retry minted a new mutation_id");
+                if matches!(kind, AcceptedMutationKind::CreateMachine) {
+                    first_create_id = Some(first_id);
+                }
+                fail_followup_refresh(&mut stream, &mut reader, kind);
+            }
+
+            // The answered create settled its id; a new create is a new machine.
+            serve_runtime_refresh(
+                &mut stream,
+                &mut reader,
+                &server_catalog,
+                Some(&server_workspace),
+            );
+            let next_create_id = serve_accepted_mutation(
+                AcceptedMutationKind::CreateMachine,
+                &mut stream,
+                &mut reader,
+            );
+            assert_ne!(Some(next_create_id), first_create_id);
+            fail_followup_refresh(&mut stream, &mut reader, AcceptedMutationKind::CreateMachine);
+        });
+
+        let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        let bound = Duration::from_millis(500);
+        runtime.client.set_request_deadlines(ProviderRequestDeadlines {
+            control: bound,
+            create: bound,
+            open: bound,
+        });
+        let machine = key_for_id(&runtime.keys, &id("machine-1")).unwrap();
+        for kind in AcceptedMutationKind::ALL {
+            let Err(first) = runtime.perform_request(accepted_mutation_request(kind, machine))
+            else {
+                panic!("{kind:?} completed although the provider never answered");
+            };
+            assert!(
+                matches!(
+                    first.downcast_ref::<ProviderClientError>(),
+                    Some(ProviderClientError::Timeout)
+                ),
+                "{kind:?} failed with {first:#} instead of a timeout"
+            );
+            if let Err(error) = runtime.perform_request(accepted_mutation_request(kind, machine)) {
+                panic!("{kind:?} retry failed: {error:#}");
+            }
+            runtime.open = None;
+        }
+        runtime.perform_request(MachineRequest::Create).unwrap();
+        drop(runtime);
+        server.join().unwrap();
     }
 
     #[test]

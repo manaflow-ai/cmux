@@ -8,7 +8,7 @@
 //! of the runtime and UI layers.
 
 #[cfg(unix)]
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{HashMap, VecDeque};
 #[cfg(unix)]
 use std::fmt;
 #[cfg(unix)]
@@ -24,22 +24,19 @@ use std::time::{Duration, Instant};
 
 #[cfg(unix)]
 use cmux_tui_machine_protocol::{
-    AcknowledgeNoticeParams, AcknowledgeNoticeResult, ActionValue, BearerToken,
+    AcknowledgeNoticeParams, AcknowledgeNoticeResult, BearerToken,
     CLIENT_CAPABILITY_NEGOTIATION_CAPABILITY, CONNECTION_PROGRESS_CLIENT_CAPABILITY,
     ClientDescriptor, CloseMachineParams, CloseMachineResult, ConnectExternalMachineParams,
-    ConnectExternalMachineResult, CreateMachineParams, CreateMachineResult, CreateWorkspaceParams,
-    CreateWorkspaceResult, DURABLE_NOTICES_CAPABILITY, EXTERNAL_MACHINE_CONNECT_CAPABILITY,
-    EventEnvelope, ExternalMachineSpecifier, HelloParams, HelloResult, InvokeActionParams,
-    InvokeActionResult, MACHINE_LIFECYCLE_CAPABILITY, MachineLifecycleSnapshotParams,
-    MachineLifecycleSnapshotResult, MachineMutationParams, MachineMutationResult,
+    ConnectExternalMachineResult, DURABLE_NOTICES_CAPABILITY, EXTERNAL_MACHINE_CONNECT_CAPABILITY,
+    EventEnvelope, ExternalMachineSpecifier, HelloParams, HelloResult,
+    MACHINE_LIFECYCLE_CAPABILITY, MachineLifecycleSnapshotParams, MachineLifecycleSnapshotResult,
     NegotiateClientCapabilitiesParams, NegotiateClientCapabilitiesResult, NoticeDelivery, OpaqueId,
     OpenMachineParams, OpenMachineResult, PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY, Protocol,
-    ProviderError, ProviderEvent, ProviderRequest, ProviderResponse, RenameMachineParams,
-    RenameWorkspaceParams, RequestEnvelope, ResponseEnvelope, SelectScopeParams, SelectScopeResult,
-    SnapshotParams, SnapshotResult, SubscribeNoticesParams, SubscribeNoticesResult,
-    TransportDescriptor, TransportHandshake, TransportHandshakeResult, TransportRole, Version,
-    WORKSPACE_LIFECYCLE_CAPABILITY, WorkspaceCreateMode, WorkspaceMutationParams,
-    WorkspaceMutationResult, WorkspaceSnapshotParams, WorkspaceSnapshotResult,
+    ProviderError, ProviderEvent, ProviderRequest, ProviderResponse, RequestEnvelope,
+    ResponseEnvelope, SelectScopeParams, SelectScopeResult, SnapshotParams, SnapshotResult,
+    SubscribeNoticesParams, SubscribeNoticesResult, TransportDescriptor, TransportHandshake,
+    TransportHandshakeResult, TransportRole, Version, WORKSPACE_LIFECYCLE_CAPABILITY,
+    WorkspaceSnapshotParams, WorkspaceSnapshotResult,
 };
 #[cfg(unix)]
 use serde::Serialize;
@@ -74,12 +71,118 @@ const MAX_CONTROL_FRAME_BYTES: usize = 1024 * 1024;
 #[cfg(unix)]
 const MAX_TRANSPORT_FRAME_BYTES: usize = 64 * 1024 * 1024;
 #[cfg(unix)]
+// Snapshots, selection, notices, and metadata mutations answer in well under
+// a second. This bound only catches a wedged provider.
 const PROVIDER_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 #[cfg(unix)]
 // A suspended cloud machine may spend up to two minutes resuming and another
 // two minutes waiting for its relay. Keep the client deadline above that
 // server-side bound so the control generation owns cancellation.
 const PROVIDER_OPEN_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+#[cfg(unix)]
+// A cloud create claims a ready spare or boots a new machine. Measured creates
+// take 8 to 28 seconds, the server may wait 35 seconds for its carrier, and it
+// holds the reservation for 120 seconds. Keep the client deadline above that
+// reservation so a slow create finishes instead of showing an error while the
+// machine is still coming up. A create that still times out keeps its
+// mutation_id, so the retry replays it instead of making a second machine.
+const PROVIDER_CREATE_TIMEOUT: Duration = Duration::from_secs(150);
+
+/// How long the client waits for each provider request's response.
+///
+/// `for_request` names every request kind, so a new request has to choose its
+/// bound instead of inheriting the 30 second control default.
+#[cfg(unix)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ProviderRequestDeadlines {
+    pub(crate) control: Duration,
+    pub(crate) create: Duration,
+    pub(crate) open: Duration,
+}
+
+#[cfg(unix)]
+impl ProviderRequestDeadlines {
+    pub(crate) const PRODUCTION: Self = Self {
+        control: PROVIDER_REQUEST_TIMEOUT,
+        create: PROVIDER_CREATE_TIMEOUT,
+        open: PROVIDER_OPEN_TIMEOUT,
+    };
+
+    pub(crate) fn for_request(&self, request: &ProviderRequest) -> Duration {
+        match request {
+            ProviderRequest::OpenMachine(_) => self.open,
+            ProviderRequest::CreateMachine(_) | ProviderRequest::CreateWorkspace(_) => self.create,
+            ProviderRequest::Hello(_)
+            | ProviderRequest::NegotiateClientCapabilities(_)
+            | ProviderRequest::SubscribeNotices(_)
+            | ProviderRequest::AcknowledgeNotice(_)
+            | ProviderRequest::Snapshot(_)
+            | ProviderRequest::SelectScope(_)
+            | ProviderRequest::ConnectExternalMachine(_)
+            | ProviderRequest::MachineLifecycleSnapshot(_)
+            | ProviderRequest::RenameMachine(_)
+            | ProviderRequest::DeleteMachine(_)
+            | ProviderRequest::RestoreMachine(_)
+            | ProviderRequest::PurgeMachine(_)
+            | ProviderRequest::WorkspaceSnapshot(_)
+            | ProviderRequest::RenameWorkspace(_)
+            | ProviderRequest::DeleteWorkspace(_)
+            | ProviderRequest::RestoreWorkspace(_)
+            | ProviderRequest::PurgeWorkspace(_)
+            | ProviderRequest::InvokeAction(_)
+            | ProviderRequest::CloseMachine(_) => self.control,
+        }
+    }
+}
+
+/// The idempotency key of a mutating request, or `None` for a read.
+///
+/// The provider treats an exact replay of one `mutation_id` as the same
+/// mutation, so callers keep this key until they see a definite answer.
+#[cfg(unix)]
+pub(crate) fn request_mutation_id_mut(request: &mut ProviderRequest) -> Option<&mut OpaqueId> {
+    match request {
+        ProviderRequest::CreateMachine(params) => Some(&mut params.mutation_id),
+        ProviderRequest::ConnectExternalMachine(params) => Some(&mut params.mutation_id),
+        ProviderRequest::RenameMachine(params) => Some(&mut params.mutation_id),
+        ProviderRequest::DeleteMachine(params)
+        | ProviderRequest::RestoreMachine(params)
+        | ProviderRequest::PurgeMachine(params) => Some(&mut params.mutation_id),
+        ProviderRequest::CreateWorkspace(params) => Some(&mut params.mutation_id),
+        ProviderRequest::RenameWorkspace(params) => Some(&mut params.mutation_id),
+        ProviderRequest::DeleteWorkspace(params)
+        | ProviderRequest::RestoreWorkspace(params)
+        | ProviderRequest::PurgeWorkspace(params) => Some(&mut params.mutation_id),
+        ProviderRequest::InvokeAction(params) => Some(&mut params.mutation_id),
+        ProviderRequest::Hello(_)
+        | ProviderRequest::NegotiateClientCapabilities(_)
+        | ProviderRequest::SubscribeNotices(_)
+        | ProviderRequest::AcknowledgeNotice(_)
+        | ProviderRequest::Snapshot(_)
+        | ProviderRequest::OpenMachine(_)
+        | ProviderRequest::SelectScope(_)
+        | ProviderRequest::MachineLifecycleSnapshot(_)
+        | ProviderRequest::WorkspaceSnapshot(_)
+        | ProviderRequest::CloseMachine(_) => None,
+    }
+}
+
+/// The negotiated capability a mutating request needs, if any.
+#[cfg(unix)]
+fn mutation_capability(request: &ProviderRequest) -> Option<&'static str> {
+    match request {
+        ProviderRequest::ConnectExternalMachine(_) => Some(EXTERNAL_MACHINE_CONNECT_CAPABILITY),
+        ProviderRequest::RenameMachine(_)
+        | ProviderRequest::DeleteMachine(_)
+        | ProviderRequest::RestoreMachine(_)
+        | ProviderRequest::PurgeMachine(_) => Some(MACHINE_LIFECYCLE_CAPABILITY),
+        ProviderRequest::RenameWorkspace(_)
+        | ProviderRequest::DeleteWorkspace(_)
+        | ProviderRequest::RestoreWorkspace(_)
+        | ProviderRequest::PurgeWorkspace(_) => Some(WORKSPACE_LIFECYCLE_CAPABILITY),
+        _ => None,
+    }
+}
 #[cfg(unix)]
 const PROVIDER_EVENT_QUEUE_CAPACITY: usize = 64;
 
@@ -165,7 +268,7 @@ impl From<serde_json::Error> for ProviderClientError {
 }
 
 #[cfg(unix)]
-type ProviderResult<T> = Result<T, ProviderClientError>;
+pub(crate) type ProviderResult<T> = Result<T, ProviderClientError>;
 
 #[cfg(unix)]
 #[derive(Debug, Clone)]
@@ -368,6 +471,7 @@ struct ProviderClientInner {
     token: Mutex<Option<BearerToken>>,
     provider_capabilities: Mutex<Vec<String>>,
     negotiated_client_capabilities: Mutex<Vec<String>>,
+    request_deadlines: Mutex<ProviderRequestDeadlines>,
 }
 
 #[cfg(unix)]
@@ -631,6 +735,7 @@ impl ProviderClient {
             token: Mutex::new(None),
             provider_capabilities: Mutex::new(Vec::new()),
             negotiated_client_capabilities: Mutex::new(Vec::new()),
+            request_deadlines: Mutex::new(ProviderRequestDeadlines::PRODUCTION),
         });
         let weak = Arc::downgrade(&inner);
         std::thread::Builder::new()
@@ -681,10 +786,9 @@ impl ProviderClient {
 
         // Keep the original private and move only a temporary clone into the
         // one hello frame. Failed authentication is not retried implicitly.
-        let result = self.request_unchecked_with_metadata(
-            ProviderRequest::Hello(HelloParams { token: token.clone(), client }),
-            PROVIDER_REQUEST_TIMEOUT,
-        );
+        let request = ProviderRequest::Hello(HelloParams { token: token.clone(), client });
+        let timeout = self.deadline_for(&request)?;
+        let result = self.request_unchecked_with_metadata(request, timeout);
         match result {
             Ok((hello, capabilities)) => {
                 *self
@@ -719,12 +823,18 @@ impl ProviderClient {
         Ok(result)
     }
 
-    pub(crate) fn create_machine(
-        &self,
-        scope_id: OpaqueId,
-        mutation_id: OpaqueId,
-    ) -> ProviderResult<CreateMachineResult> {
-        self.request(ProviderRequest::CreateMachine(CreateMachineParams { scope_id, mutation_id }))
+    /// Sends one mutating request after checking the capability it needs.
+    ///
+    /// The runtime owns the request's `mutation_id`: it keeps the same id
+    /// across a timeout or disconnect so the provider can replay the result.
+    pub(crate) fn mutate<T>(&self, request: ProviderRequest) -> ProviderResult<T>
+    where
+        T: DeserializeOwned,
+    {
+        if let Some(capability) = mutation_capability(&request) {
+            self.require_capability(capability)?;
+        }
+        self.request(request)
     }
 
     pub(crate) fn connect_external_machine(
@@ -733,8 +843,7 @@ impl ProviderClient {
         specifier: ExternalMachineSpecifier,
         mutation_id: OpaqueId,
     ) -> ProviderResult<ConnectExternalMachineResult> {
-        self.require_capability(EXTERNAL_MACHINE_CONNECT_CAPABILITY)?;
-        self.request(ProviderRequest::ConnectExternalMachine(ConnectExternalMachineParams {
+        self.mutate(ProviderRequest::ConnectExternalMachine(ConnectExternalMachineParams {
             scope_id,
             specifier,
             mutation_id,
@@ -753,38 +862,6 @@ impl ProviderClient {
         }))
     }
 
-    pub(crate) fn rename_machine(
-        &self,
-        params: RenameMachineParams,
-    ) -> ProviderResult<MachineMutationResult> {
-        self.require_capability(MACHINE_LIFECYCLE_CAPABILITY)?;
-        self.request(ProviderRequest::RenameMachine(params))
-    }
-
-    pub(crate) fn delete_machine(
-        &self,
-        params: MachineMutationParams,
-    ) -> ProviderResult<MachineMutationResult> {
-        self.require_capability(MACHINE_LIFECYCLE_CAPABILITY)?;
-        self.request(ProviderRequest::DeleteMachine(params))
-    }
-
-    pub(crate) fn restore_machine(
-        &self,
-        params: MachineMutationParams,
-    ) -> ProviderResult<MachineMutationResult> {
-        self.require_capability(MACHINE_LIFECYCLE_CAPABILITY)?;
-        self.request(ProviderRequest::RestoreMachine(params))
-    }
-
-    pub(crate) fn purge_machine(
-        &self,
-        params: MachineMutationParams,
-    ) -> ProviderResult<MachineMutationResult> {
-        self.require_capability(MACHINE_LIFECYCLE_CAPABILITY)?;
-        self.request(ProviderRequest::PurgeMachine(params))
-    }
-
     pub(crate) fn open_machine(
         &self,
         machine_id: OpaqueId,
@@ -793,19 +870,6 @@ impl ProviderClient {
         self.request(ProviderRequest::OpenMachine(OpenMachineParams {
             machine_id,
             workspace_mirror_authority,
-        }))
-    }
-
-    pub(crate) fn create_workspace(
-        &self,
-        machine_id: OpaqueId,
-        mode: WorkspaceCreateMode,
-        mutation_id: OpaqueId,
-    ) -> ProviderResult<CreateWorkspaceResult> {
-        self.request(ProviderRequest::CreateWorkspace(CreateWorkspaceParams {
-            machine_id,
-            mode,
-            mutation_id,
         }))
     }
 
@@ -818,55 +882,6 @@ impl ProviderClient {
         self.request(ProviderRequest::WorkspaceSnapshot(WorkspaceSnapshotParams {
             machine_id,
             known_revision,
-        }))
-    }
-
-    pub(crate) fn rename_workspace(
-        &self,
-        params: RenameWorkspaceParams,
-    ) -> ProviderResult<WorkspaceMutationResult> {
-        self.require_capability(WORKSPACE_LIFECYCLE_CAPABILITY)?;
-        self.request(ProviderRequest::RenameWorkspace(params))
-    }
-
-    pub(crate) fn delete_workspace(
-        &self,
-        params: WorkspaceMutationParams,
-    ) -> ProviderResult<WorkspaceMutationResult> {
-        self.require_capability(WORKSPACE_LIFECYCLE_CAPABILITY)?;
-        self.request(ProviderRequest::DeleteWorkspace(params))
-    }
-
-    pub(crate) fn restore_workspace(
-        &self,
-        params: WorkspaceMutationParams,
-    ) -> ProviderResult<WorkspaceMutationResult> {
-        self.require_capability(WORKSPACE_LIFECYCLE_CAPABILITY)?;
-        self.request(ProviderRequest::RestoreWorkspace(params))
-    }
-
-    pub(crate) fn purge_workspace(
-        &self,
-        params: WorkspaceMutationParams,
-    ) -> ProviderResult<WorkspaceMutationResult> {
-        self.require_capability(WORKSPACE_LIFECYCLE_CAPABILITY)?;
-        self.request(ProviderRequest::PurgeWorkspace(params))
-    }
-
-    pub(crate) fn invoke_action(
-        &self,
-        action_id: OpaqueId,
-        values: BTreeMap<String, ActionValue>,
-        machine_id: Option<OpaqueId>,
-        workspace_id: Option<OpaqueId>,
-        mutation_id: OpaqueId,
-    ) -> ProviderResult<InvokeActionResult> {
-        self.request(ProviderRequest::InvokeAction(InvokeActionParams {
-            action_id,
-            values,
-            machine_id,
-            workspace_id,
-            mutation_id,
         }))
     }
 
@@ -1036,12 +1051,23 @@ impl ProviderClient {
         T: DeserializeOwned,
     {
         self.ensure_authenticated()?;
-        let timeout = if matches!(request, ProviderRequest::OpenMachine(_)) {
-            PROVIDER_OPEN_TIMEOUT
-        } else {
-            PROVIDER_REQUEST_TIMEOUT
-        };
+        let timeout = self.deadline_for(&request)?;
         self.request_unchecked(request, timeout)
+    }
+
+    fn deadline_for(&self, request: &ProviderRequest) -> ProviderResult<Duration> {
+        let deadlines = self
+            .inner
+            .request_deadlines
+            .lock()
+            .map_err(|_| ProviderClientError::StatePoisoned("request-deadlines"))?;
+        Ok(deadlines.for_request(request))
+    }
+
+    /// Scales every request bound so tests can model slow providers quickly.
+    #[cfg(test)]
+    pub(crate) fn set_request_deadlines(&self, deadlines: ProviderRequestDeadlines) {
+        *self.inner.request_deadlines.lock().expect("request deadlines") = deadlines;
     }
 
     pub(crate) fn supports_capability(&self, capability: &str) -> ProviderResult<bool> {
@@ -1544,6 +1570,8 @@ mod tests {
         ProviderErrorCode, ProviderNotice, ResponseEnvelope, SnapshotChangedEvent,
         TransportDescriptor, TransportHandshake,
     };
+
+    use cmux_tui_machine_protocol as protocol;
 
     use super::*;
 
@@ -2718,5 +2746,282 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(2));
         drop(provider);
         server.join().expect("join fake provider");
+    }
+
+    /// Ten milliseconds of test time per production second.
+    fn scaled(seconds: u64) -> Duration {
+        Duration::from_millis(seconds * 10)
+    }
+
+    fn scaled_deadlines() -> ProviderRequestDeadlines {
+        let production = ProviderRequestDeadlines::PRODUCTION;
+        ProviderRequestDeadlines {
+            control: scaled(production.control.as_secs()),
+            create: scaled(production.create.as_secs()),
+            open: scaled(production.open.as_secs()),
+        }
+    }
+
+    #[test]
+    fn a_create_slower_than_the_control_bound_is_not_a_timeout() {
+        let socket = TestSocket::bind();
+        let listener = socket.listener();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept control socket");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone control socket"));
+            accept_hello(&mut stream, &mut reader, "provider-secret");
+
+            // The control request is never answered, proving the scaled
+            // control bound is shorter than the create's answer below.
+            let snapshot: RequestEnvelope = read_test_frame(&mut reader);
+            assert!(matches!(snapshot.request, ProviderRequest::Snapshot(_)));
+
+            // Measured server creates take up to 28 s and the carrier wait can
+            // reach 35 s; answer at 35 scaled seconds.
+            let create: RequestEnvelope = read_test_frame(&mut reader);
+            assert!(matches!(create.request, ProviderRequest::CreateMachine(_)));
+            thread::sleep(scaled(35));
+            write_test_frame(
+                &mut stream,
+                &ResponseEnvelope::success(
+                    create.id,
+                    protocol::CreateMachineResult {
+                        machine_id: id("machine-1"),
+                        revision: 2,
+                        notice: None,
+                    },
+                ),
+            );
+        });
+
+        let (provider, _) = ProviderClient::connect_authenticated(
+            &socket.path,
+            token("provider-secret"),
+            client_descriptor(),
+        )
+        .expect("authenticate provider");
+        provider.set_request_deadlines(scaled_deadlines());
+        let error = provider.snapshot(None).expect_err("an unanswered control request times out");
+        assert!(matches!(error, ProviderClientError::Timeout));
+
+        let created: protocol::CreateMachineResult = provider
+            .mutate(ProviderRequest::CreateMachine(protocol::CreateMachineParams {
+                scope_id: id("personal"),
+                mutation_id: id("create-1"),
+            }))
+            .expect("a create slower than the control bound must not time out");
+        assert_eq!(created.machine_id, id("machine-1"));
+        drop(provider);
+        server.join().expect("join fake provider");
+    }
+
+    /// Mutations allowed on the 30 second control bound, each with the reason
+    /// a slow answer there can neither show an error for a machine that is
+    /// still coming up nor make a duplicate. A mutation missing from this
+    /// list must take a longer bound in `ProviderRequestDeadlines`.
+    const CONTROL_BOUND_MUTATIONS: &[(&str, &str)] = &[
+        (
+            "connect_external_machine",
+            "enrollment only checks a pairing code; PendingExternalConnect replays its mutation_id",
+        ),
+        ("rename_machine", "metadata write; the runtime replays its mutation_id after a timeout"),
+        (
+            "delete_machine",
+            "marks the machine deleted and tears down after answering; replayed after a timeout",
+        ),
+        (
+            "restore_machine",
+            "clears the deleted mark; the machine wakes on open; replayed after a timeout",
+        ),
+        (
+            "purge_machine",
+            "teardown runs after the answer; the runtime replays its mutation_id after a timeout",
+        ),
+        ("rename_workspace", "metadata write; the runtime replays its mutation_id after a timeout"),
+        (
+            "delete_workspace",
+            "marks the workspace deleted; the runtime replays its mutation_id after a timeout",
+        ),
+        (
+            "restore_workspace",
+            "clears the deleted mark; the runtime replays its mutation_id after a timeout",
+        ),
+        (
+            "purge_workspace",
+            "teardown runs after the answer; the runtime replays its mutation_id after a timeout",
+        ),
+        (
+            "invoke_action",
+            "provider actions answer with a notice or URL, not a machine; replayed after a timeout",
+        ),
+    ];
+
+    /// One request per `ProviderRequest` kind. `request_kind_index` names
+    /// every kind, so adding one fails to compile until it has a sample here.
+    fn every_provider_request() -> Vec<ProviderRequest> {
+        let machine_mutation = || protocol::MachineMutationParams {
+            scope_id: id("personal"),
+            machine_id: id("machine-1"),
+            expected_version: 1,
+            mutation_id: id("mutation-1"),
+        };
+        let workspace_mutation = || protocol::WorkspaceMutationParams {
+            machine_id: id("machine-1"),
+            workspace_id: id("workspace-1"),
+            expected_version: 1,
+            mutation_id: id("mutation-1"),
+        };
+        let requests = vec![
+            ProviderRequest::Hello(HelloParams {
+                token: token("provider-secret"),
+                client: client_descriptor(),
+            }),
+            ProviderRequest::NegotiateClientCapabilities(NegotiateClientCapabilitiesParams {
+                capabilities: Vec::new(),
+            }),
+            ProviderRequest::SubscribeNotices(SubscribeNoticesParams {
+                consumer_id: id("consumer-1"),
+            }),
+            ProviderRequest::AcknowledgeNotice(AcknowledgeNoticeParams {
+                notice_id: id("notice-1"),
+                sequence: 1,
+            }),
+            ProviderRequest::Snapshot(SnapshotParams { known_revision: None }),
+            ProviderRequest::OpenMachine(OpenMachineParams {
+                machine_id: id("machine-1"),
+                workspace_mirror_authority: false,
+            }),
+            ProviderRequest::SelectScope(SelectScopeParams { scope_id: id("personal") }),
+            ProviderRequest::CreateMachine(protocol::CreateMachineParams {
+                scope_id: id("personal"),
+                mutation_id: id("mutation-1"),
+            }),
+            ProviderRequest::ConnectExternalMachine(ConnectExternalMachineParams {
+                scope_id: id("personal"),
+                specifier: ExternalMachineSpecifier::new("PAIR 4J7K").unwrap(),
+                mutation_id: id("mutation-1"),
+            }),
+            ProviderRequest::MachineLifecycleSnapshot(MachineLifecycleSnapshotParams {
+                scope_id: id("personal"),
+                known_revision: None,
+            }),
+            ProviderRequest::RenameMachine(protocol::RenameMachineParams {
+                scope_id: id("personal"),
+                machine_id: id("machine-1"),
+                expected_version: 1,
+                display_name: "Renamed".into(),
+                mutation_id: id("mutation-1"),
+            }),
+            ProviderRequest::DeleteMachine(machine_mutation()),
+            ProviderRequest::RestoreMachine(machine_mutation()),
+            ProviderRequest::PurgeMachine(machine_mutation()),
+            ProviderRequest::CreateWorkspace(protocol::CreateWorkspaceParams {
+                machine_id: id("machine-1"),
+                mode: protocol::WorkspaceCreateMode::Isolated,
+                mutation_id: id("mutation-1"),
+            }),
+            ProviderRequest::WorkspaceSnapshot(WorkspaceSnapshotParams {
+                machine_id: id("machine-1"),
+                known_revision: None,
+            }),
+            ProviderRequest::RenameWorkspace(protocol::RenameWorkspaceParams {
+                machine_id: id("machine-1"),
+                workspace_id: id("workspace-1"),
+                expected_version: 1,
+                display_name: "Renamed".into(),
+                mutation_id: id("mutation-1"),
+            }),
+            ProviderRequest::DeleteWorkspace(workspace_mutation()),
+            ProviderRequest::RestoreWorkspace(workspace_mutation()),
+            ProviderRequest::PurgeWorkspace(workspace_mutation()),
+            ProviderRequest::InvokeAction(protocol::InvokeActionParams {
+                action_id: id("action-1"),
+                values: std::collections::BTreeMap::new(),
+                machine_id: None,
+                workspace_id: None,
+                mutation_id: id("mutation-1"),
+            }),
+            ProviderRequest::CloseMachine(CloseMachineParams { connection_id: id("connection-1") }),
+        ];
+        let kinds: std::collections::BTreeSet<usize> =
+            requests.iter().map(request_kind_index).collect();
+        assert_eq!(kinds.len(), PROVIDER_REQUEST_KINDS, "every request kind needs one sample");
+        requests
+    }
+
+    const PROVIDER_REQUEST_KINDS: usize = 22;
+
+    fn request_kind_index(request: &ProviderRequest) -> usize {
+        match request {
+            ProviderRequest::Hello(_) => 0,
+            ProviderRequest::NegotiateClientCapabilities(_) => 1,
+            ProviderRequest::SubscribeNotices(_) => 2,
+            ProviderRequest::AcknowledgeNotice(_) => 3,
+            ProviderRequest::Snapshot(_) => 4,
+            ProviderRequest::OpenMachine(_) => 5,
+            ProviderRequest::SelectScope(_) => 6,
+            ProviderRequest::CreateMachine(_) => 7,
+            ProviderRequest::ConnectExternalMachine(_) => 8,
+            ProviderRequest::MachineLifecycleSnapshot(_) => 9,
+            ProviderRequest::RenameMachine(_) => 10,
+            ProviderRequest::DeleteMachine(_) => 11,
+            ProviderRequest::RestoreMachine(_) => 12,
+            ProviderRequest::PurgeMachine(_) => 13,
+            ProviderRequest::CreateWorkspace(_) => 14,
+            ProviderRequest::WorkspaceSnapshot(_) => 15,
+            ProviderRequest::RenameWorkspace(_) => 16,
+            ProviderRequest::DeleteWorkspace(_) => 17,
+            ProviderRequest::RestoreWorkspace(_) => 18,
+            ProviderRequest::PurgeWorkspace(_) => 19,
+            ProviderRequest::InvokeAction(_) => 20,
+            ProviderRequest::CloseMachine(_) => 21,
+        }
+    }
+
+    /// Detector: a request carrying a `mutation_id` must not sit on the 30 s
+    /// control bound unless `CONTROL_BOUND_MUTATIONS` says why that is safe.
+    #[test]
+    fn no_mutation_is_bounded_by_the_control_timeout_without_a_listed_reason() {
+        let deadlines = ProviderRequestDeadlines::PRODUCTION;
+        let mut control_bound = Vec::new();
+        for request in every_provider_request() {
+            let wire = serde_json::to_value(&request).expect("encode request");
+            let method = wire["method"].as_str().expect("request method").to_string();
+            let carries_mutation_id = wire["params"].get("mutation_id").is_some();
+            let mut probe = request.clone();
+            assert_eq!(
+                request_mutation_id_mut(&mut probe).is_some(),
+                carries_mutation_id,
+                "{method}: request_mutation_id_mut disagrees with the wire shape"
+            );
+            let reason = CONTROL_BOUND_MUTATIONS
+                .iter()
+                .find(|(listed, _)| *listed == method)
+                .map(|(_, reason)| *reason);
+            if carries_mutation_id && deadlines.for_request(&request) == PROVIDER_REQUEST_TIMEOUT {
+                assert!(
+                    reason.is_some_and(|reason| !reason.trim().is_empty()),
+                    "{method} carries a mutation_id but is bounded by the 30 s control timeout \
+                     with no reason in CONTROL_BOUND_MUTATIONS; give it a longer bound in \
+                     ProviderRequestDeadlines::for_request or list why 30 s is safe"
+                );
+                control_bound.push(method);
+            } else {
+                assert!(
+                    reason.is_none(),
+                    "{method} is listed in CONTROL_BOUND_MUTATIONS but is not a control-bound mutation"
+                );
+            }
+        }
+        assert_eq!(control_bound.len(), CONTROL_BOUND_MUTATIONS.len());
+        // The server holds a create reservation for 120 s.
+        assert!(PROVIDER_CREATE_TIMEOUT > Duration::from_secs(120));
+        assert_eq!(
+            deadlines.for_request(&ProviderRequest::CreateMachine(protocol::CreateMachineParams {
+                scope_id: id("personal"),
+                mutation_id: id("mutation-1"),
+            })),
+            PROVIDER_CREATE_TIMEOUT
+        );
     }
 }

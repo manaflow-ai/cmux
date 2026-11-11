@@ -50,6 +50,23 @@ struct CloudMachineCreateCoordinatorTests {
         #expect(owner.projection.operations.first?.refusalCode == nil)
     }
 
+    @Test("A timed-out create's retry keeps its operation identity, so the server sees one create")
+    func timedOutCreateRetryKeepsItsOperationIdentity() throws {
+        let owner = makeOwner()
+        let first = owner.reserve(request())
+        _ = owner.finish(CloudMachineCreateCompletion(
+            succeeded: false, wasCancelled: false, output: "",
+            failureOutput: "The request timed out.", machineID: nil, workspaceID: nil
+        ), from: first)
+        let retry = try #require(owner.retry(first.operationID))
+        // The app sends "app-" + operationID as the create's Idempotency-Key,
+        // so the same identity replays the create instead of making a second machine.
+        #expect(retry.operationID == first.operationID)
+        #expect(retry.canAllocateMachine)
+        #expect(owner.projection.operations.count == 1)
+        #expect(owner.retry(first.operationID) == nil, "a second Retry tap while the retry runs starts nothing")
+    }
+
     @Test("A machine that exists but failed to open keeps no create refusal code")
     func openFailureCarriesNoRefusalCode() {
         let owner = makeOwner()

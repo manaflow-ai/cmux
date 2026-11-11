@@ -136,6 +136,31 @@ import Testing
         #expect(service.calls.create[0].idempotencyKey == service.calls.create[1].idempotencyKey)
     }
 
+    @Test func timedOutCreateRetriedAndTappedAgainReachesTheServerAsOneCreate() async {
+        let service = FakeCloudVMService()
+        service.creation = .failure(URLError(.timedOut))
+        let controller = makeController(service: service)
+        let options = CloudMachineCreateOptions(kind: .base)
+
+        #expect(await controller.createMachine(options: options) == nil)
+        service.creation = .success(CloudMachine(id: "vm-once", provider: "freestyle", status: "starting"))
+        service.holdCreation = true
+        let retry = Task { await controller.createMachine(options: options) }
+        await service.waitForCreationStart()
+        #expect(await controller.createMachine(options: options) == nil, "a second tap while the retry runs sends nothing")
+        await service.releaseHeldCreation()
+        #expect(await retry.value?.id == "vm-once")
+
+        let keys = Set(service.calls.create.map(\.idempotencyKey))
+        #expect(service.calls.create.count == 2)
+        #expect(keys.count == 1, "a timed-out create and its retry must share one idempotency key")
+
+        service.holdCreation = false
+        _ = await controller.createMachine(options: options)
+        #expect(service.calls.create.count == 3)
+        #expect(!keys.contains(service.calls.create[2].idempotencyKey), "a create after success is a new machine")
+    }
+
     @Test func disappearDropsTunnelAndForegroundReturnRestartsOnlyWhileVisible() async {
         let starter = FakeTunnelStarter()
         let controller = makeController(starter: starter)
