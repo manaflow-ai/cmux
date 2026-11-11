@@ -52,7 +52,7 @@ afterEach(() => {
   dom = undefined;
 });
 
-const button = () => container.querySelector<HTMLButtonElement>("button.acpmux-jump-latest")!;
+const button = () => container.querySelector<HTMLButtonElement>("button.acpmux-jump-latest:not(.acpmux-jump-up)")!;
 
 test("cmux registers exactly the variants slots.json lists, default first", () => {
   const spec = slotsSchema.slots.find((entry) => entry.id === "chat.jumpToBottom")!;
