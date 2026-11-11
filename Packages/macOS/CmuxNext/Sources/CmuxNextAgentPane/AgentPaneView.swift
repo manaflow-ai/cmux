@@ -277,6 +277,7 @@ public final class AgentPaneView: NSView {
         self.webView = webView
         super.init(frame: .zero)
         pageEvents?.onUiPointerReport = { [weak self] value in self?.uiPointerReport?(value) }
+        pageEvents?.onFlicker = { [weak self] params in self?.recordPageFlicker(params) }
         pageResources?.themeKey = { [weak self] in
             guard let self else { return nil }
             return self.performWithTheme { AgentPageEvent.theme(self.themeTokens, surface: self.surfaceKind)?.value["key"]?.stringValue }

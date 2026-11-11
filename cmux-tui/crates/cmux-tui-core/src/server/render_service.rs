@@ -18,7 +18,7 @@ use crate::panic_free::RecoverPoison;
 use base64::Engine;
 use ghostty_vt::KittyReplayState;
 use serde::Serialize;
-use serde_json::json;
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::io::Write;
@@ -306,6 +306,36 @@ impl RenderService {
     ) -> std::io::Result<Arc<BudgetedText>> {
         let mut writer = BudgetedJsonWriter::new(self.outbound_budget.clone());
         serde_json::to_writer(&mut writer, value).map_err(json_error_to_io)?;
+        Ok(writer.finish())
+    }
+
+    /// A snapshot viewer's `output` event: the text [`RenderService::serialize`]
+    /// makes of `{"event": "output", "surface", "data": <base64>, "generation",
+    /// "offset"}` and, when given, `"colors"`, written straight into the
+    /// outbound buffer with no base64 string or JSON value between. The keys
+    /// go in the order serde_json writes a map (sorted), so the line is
+    /// byte-identical to the one built from a value.
+    pub(super) fn serialize_snapshot_output(
+        &self,
+        surface: SurfaceId,
+        output: &[u8],
+        generation: u64,
+        offset: u64,
+        colors: Option<&Value>,
+    ) -> std::io::Result<Arc<BudgetedText>> {
+        let mut writer = BudgetedJsonWriter::new(self.outbound_budget.clone());
+        writer.write_all(b"{")?;
+        if let Some(colors) = colors {
+            writer.write_all(b"\"colors\":")?;
+            serde_json::to_writer(&mut writer, colors).map_err(json_error_to_io)?;
+            writer.write_all(b",")?;
+        }
+        writer.write_all(b"\"data\":\"")?;
+        write_base64_json_string(&mut writer, output)?;
+        write!(
+            writer,
+            "\",\"event\":\"output\",\"generation\":{generation},\"offset\":{offset},\"surface\":{surface}}}"
+        )?;
         Ok(writer.finish())
     }
 

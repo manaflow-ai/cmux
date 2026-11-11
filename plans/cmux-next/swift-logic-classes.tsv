@@ -3311,6 +3311,7 @@ CmuxNextBookmarks	struct	BookmarkTree	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sou
 CmuxNextBookmarks	enum	BookmarkLimits	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/Model/BookmarkURL.swift	from enum BookmarkURL:5: bookmark URL rules: same-page key, favicon cache key, list display
 CmuxNextBookmarks	enum	BookmarkURL	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/Model/BookmarkURL.swift	bookmark URL rules: same-page key, favicon cache key, list display
 CmuxNextBookmarks	actor	BookmarkFileStore	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/Store/BookmarkFileStore.swift	local bookmarks.json file store, a fallback while daemon lacks bookmarks-v1 (daemon has it now: likely dead)
+CmuxNextBookmarks	class	BookmarkBarItemView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkBarItemView.swift	AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBookmarks	class	BookmarkEditBubble	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditBubble.swift	from struct BookmarkFolderChoice:7: AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBookmarks	struct	BookmarkFolderChoice	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditBubble.swift	AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBookmarks	class	BookmarkEditModel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditView.swift	from class BookmarkEditModel:6: AppKit/SwiftUI view, panel, menu or style code
@@ -3318,6 +3319,9 @@ CmuxNextBookmarks	struct	BookmarkEditView	0	PLATFORM	0	0	Packages/macOS/CmuxNext
 CmuxNextBookmarks	struct	BookmarkEditorSheet	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditorSheet.swift	AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBookmarks	enum	BookmarkPageAddress	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditorState.swift	from struct BookmarkEditorState:4: AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBookmarks	struct	BookmarkEditorState	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditorState.swift	AppKit/SwiftUI view, panel, menu or style code
+CmuxNextBookmarks	class	BookmarkFolderMenu	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkFolderMenu.swift	from class BookmarkFolderMenu:7: AppKit/SwiftUI view, panel, menu or style code
+CmuxNextBookmarks	protocol	BookmarksBarHost	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarksBarHost.swift	AppKit/SwiftUI view, panel, menu or style code
+CmuxNextBookmarks	class	BookmarksBarHostSource	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarksBarHostSource.swift	AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBookmarks	class	BookmarkManagerHostView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkManagerHostView.swift	AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBookmarks	struct	BookmarkManagerList	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkManagerList.swift	AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBookmarks	class	BookmarkManagerModel	0	MIXED	47	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkManagerModel.swift	from protocol BookmarkManagerSource:9: BookmarkManagerSource protocol + view-local selection/editor PLATFORM; folder/query/rows filter and folderChoices LOGIC (:51-110)
@@ -3327,6 +3331,10 @@ CmuxNextBookmarks	struct	BookmarkFolderIconMenuItems	0	PLATFORM	0	0	Packages/mac
 CmuxNextBookmarks	struct	BookmarkNodeIcon	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkNodeIcon.swift	AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBookmarks	struct	BookmarkPageColors	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkPageColors.swift	AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBookmarks	enum	BookmarkOpenDisposition	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/Model/BookmarkOpenDisposition.swift	open disposition of a bookmark click (click/cmd/shift/middle)
+CmuxNextBookmarks	protocol	BookmarksBarSource	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarksBarSource.swift	what the bookmarks bar and its folder menus read and do (protocol the App fills)
+CmuxNextBookmarks	extension	BookmarksBarView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarksBarView+Drag.swift	AppKit/SwiftUI view, panel, menu or style code
+CmuxNextBookmarks	extension	BookmarksBarView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarksBarView+ItemFrame.swift	AppKit/SwiftUI view, panel, menu or style code
+CmuxNextBookmarks	class	BookmarksBarView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarksBarView.swift	AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBridge	extension	AgentTimeline	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBridge/AgentTimeline+Chat.swift	Agent chat timeline/turn-state store extension rules
 CmuxNextBridge	extension	AgentTurnStateStore	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBridge/AgentTurnStateStore+Family.swift	Agent chat timeline/turn-state store extension rules
 CmuxNextBridge	extension	AgentTurnStateStore	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBridge/AgentTurnStateStore+Working.swift	Agent chat timeline/turn-state store extension rules

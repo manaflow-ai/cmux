@@ -178,9 +178,12 @@ await requireBrowserLane("running-chrome-scroll-steady.test.ts", async () => {
           const name = (animation as CSSAnimation).animationName;
           const label = name ?? (animation as CSSTransition).transitionProperty;
           if (name && shared.has(name)) {
-            const period = Number(animation.effect?.getTiming().duration);
+            // The drawn phase is the iteration's progress: a shimmer phased by a negative delay
+            // (ui/spinnerClock.ts `setLoopPhase`) is that far ahead of its currentTime.
+            const timing = animation.effect!.getComputedTiming();
+            const period = Number(timing.duration);
             const phase = (performance.timeOrigin + now) % period;
-            const drawn = ((Number(animation.currentTime) % period) + period) % period;
+            const drawn = Number(timing.progress) * period;
             const off = Math.min(Math.abs(phase - drawn), period - Math.abs(phase - drawn));
             if (off < 50) continue;
             rowAnimations.push(
