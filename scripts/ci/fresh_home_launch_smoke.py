@@ -33,7 +33,8 @@ from a home this tool makes (seed_cookie_sync_home: made-up data, no person's):
 Chromium profile whose cookies are kept in sync, and that profile's `Cookies`
 database with rows. It passes when the app stays up SEEDED-SECONDS (default 10)
 with Home rendered and no crash, and the app's cookie sync saved its baseline
-of the seeded store (the proof that it opened and read it). A build whose sync
+of the seeded store with at least one site (the proof that it opened and read
+it). A build whose sync
 never reads the store (it has none, or its format moved on) is "not-run" for
 this arm, said in the log and in report.json's `arms`; it is never a pass of
 it and never a failure. A crash of the seeded arm fails the run as a crash of
@@ -820,6 +821,11 @@ def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict,
         arm.update(verdict=NOT_RUN, reason=f"the app stayed up {elapsed:.0f}s with Home rendered, but its cookie sync "
                    "did not read the seeded store (a build with no cookie sync, or one whose import store this tool "
                    "does not make)")
+    elif not seen["cookie_sync"]["scanned_hosts"]:
+        # A baseline of no site: the sync opened the store and kept none of its rows, so this was not a launch
+        # with "a cookie store with rows".
+        arm.update(verdict=NOT_RUN, reason=f"the app stayed up {elapsed:.0f}s with Home rendered, but its cookie sync "
+                   "did not read the seeded store's rows (it saved a baseline of no site: the seed's format moved on)")
     else:
         arm["verdict"] = "pass"
     # The verdict stands before the evidence is kept: a copy or a log read that fails must not undo a crash.

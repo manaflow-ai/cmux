@@ -37,8 +37,8 @@ spec.loader.exec_module(smoke)
 BUNDLE = "com.example.fresh-smoke-stub"
 
 # The stub app: MODE (crash | healthy | no-home | new-tab | first-run | first-run-unmarked | sync-crash | no-sync |
-# seeded-no-home | own-report | quit-report) comes from the bundle's Resources/mode file. sync-crash, no-sync and
-# seeded-no-home are healthy in an empty home. own-report: healthy, and in the seeded home a crash report that names
+# seeded-no-home | empty-sync | own-report | quit-report) comes from the bundle's Resources/mode file. sync-crash,
+# no-sync, empty-sync (the sync saves a baseline of no site) and seeded-no-home are healthy in an empty home. own-report: healthy, and in the seeded home a crash report that names
 # this process appears while it is up. quit-report: healthy, and the empty home's process "crashes while it quits":
 # a crash report that names it appears once the seeded home's launch is up, as ReportCrash writes one seconds later.
 STUB = r'''#!PYTHON
@@ -86,9 +86,10 @@ if seeded and mode != "no-sync":
         conn.close()
         state = os.path.join(os.path.dirname(seeded[0]), "cookie-sync")
         os.makedirs(state, exist_ok=True)
-        saved = {"version": 1, "source": record["browser"] + "/" + record["profileDirectory"], "hosts": hosts}
+        saved = {"version": 1, "source": record["browser"] + "/" + record["profileDirectory"],
+                 "hosts": {} if mode == "empty-sync" else hosts}
         open(os.path.join(state, "chrome_Default-0123456789abcdef.fingerprint"), "w").write(json.dumps(saved))
-if mode in ("sync-crash", "no-sync"):
+if mode in ("sync-crash", "no-sync", "empty-sync"):
     mode = "healthy"
 if mode == "seeded-no-home":
     mode = "no-home" if seeded else "healthy"
@@ -586,6 +587,15 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertEqual(arm["verdict"], "not-run")
         self.assertIn("did not read the seeded store", arm["reason"])
         self.assertIn("seeded-home arm NOT RUN", output)
+        self.assert_cleaned_up(report)
+
+    def test_an_app_whose_sync_kept_none_of_the_seeded_rows_leaves_the_arm_not_run(self):
+        status, output, report, _out = self.seeded("empty-sync")
+        self.assertEqual(status, smoke.PASS, output)
+        arm = report["arms"]["seeded"]
+        self.assertEqual((report["verdict"], report["arm"], arm["verdict"]), ("pass", "empty", "not-run"))
+        self.assertEqual(arm["cookie_sync"]["scanned_hosts"], 0)
+        self.assertIn("did not read the seeded store's rows", arm["reason"])
         self.assert_cleaned_up(report)
 
     def test_the_seeded_arm_is_not_run_after_a_first_arm_that_failed(self):
