@@ -1303,7 +1303,7 @@ export function ComposerPickers({
           current={
             (cloudAsking ? undefined : mode?.id) ?? (pendingAccessModes.length > 0 ? shownStart?.modeId : undefined)
           }
-          sessionId={summary?.sessionId}
+          scope={`${summary?.sessionId || "new"}\u0000${chipHarness ?? ""}`}
           warning={t(PICKER_LABELS.fullAccessWarning)}
           managed={fullAccessManaged}
           managedReason={t(PICKER_LABELS.fullAccessManaged)}
@@ -1403,7 +1403,7 @@ function AccessMenu({
   label,
   modes,
   current,
-  sessionId,
+  scope,
   warning,
   managed,
   managedReason,
@@ -1417,7 +1417,9 @@ function AccessMenu({
   label: string;
   modes: ModeChoice[];
   current?: string;
-  sessionId?: string;
+  /// The chat and harness the picks and refusals belong to. Before a session there is no id, so the
+  /// harness keeps a New Tab's Claude pick or refusal off its Codex chip (and the other way round).
+  scope: string;
   warning: string;
   /// Full access is managed off for this chat (`useFullAccessManaged`, this Mac's chats only).
   managed: boolean;
@@ -1439,18 +1441,18 @@ function AccessMenu({
   const [open, setOpen] = useState(false);
   // Right-click and automation open it by its label (pickerOpeners.ts).
   useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
-  const [optimistic, setOptimistic] = useState<{ sessionId?: string; modeId: string }>();
+  const [optimistic, setOptimistic] = useState<{ scope: string; modeId: string }>();
   useEffect(() => {
-    if (optimistic && optimistic.sessionId !== sessionId) setOptimistic(undefined);
-  }, [optimistic, sessionId]);
+    if (optimistic && optimistic.scope !== scope) setOptimistic(undefined);
+  }, [optimistic, scope]);
   useEffect(() => {
-    if (optimistic?.sessionId === sessionId && optimistic?.modeId === current) setOptimistic(undefined);
-  }, [current, optimistic, sessionId]);
-  const optimisticMode = optimistic?.sessionId === sessionId ? optimistic?.modeId : undefined;
+    if (optimistic?.scope === scope && optimistic?.modeId === current) setOptimistic(undefined);
+  }, [current, optimistic, scope]);
+  const optimisticMode = optimistic?.scope === scope ? optimistic?.modeId : undefined;
   // Modes the agent refused in this session (a company-managed Mac's Claude Code settings can
   // disable bypass mode): the chip goes back to the mode in force and their rows are disabled.
-  const [refused, setRefused] = useState<{ sessionId?: string; ids: readonly string[] }>({ ids: [] });
-  const refusedIds = refused.sessionId === sessionId ? refused.ids : [];
+  const [refused, setRefused] = useState<{ scope?: string; ids: readonly string[] }>({ ids: [] });
+  const refusedIds = refused.scope === scope ? refused.ids : [];
   // MDM or a team policy keeps full access off (#23322, `managed`): its rows are disabled and say so.
   const blocked = (id: string) => refusedIds.includes(id) || (managed && unrestricted(id));
   // A chat that has not reported its mode (one acpmux has not started) names none, not the first,
@@ -1468,14 +1470,14 @@ function AccessMenu({
   const fullAccess = answeredForYou || unrestricted(value);
   const pick = (next: string) => {
     if (blocked(next)) return;
-    setOptimistic({ sessionId, modeId: next });
+    setOptimistic({ scope, modeId: next });
     setOpen(false);
     void settle(() => onMode(next)).then((applied) => {
       if (applied) return;
       setOptimistic((pending) => (pending?.modeId === next ? undefined : pending));
       setRefused((old) => ({
-        sessionId,
-        ids: [...(old.sessionId === sessionId ? old.ids : []), next],
+        scope,
+        ids: [...(old.scope === scope ? old.ids : []), next],
       }));
     });
   };
