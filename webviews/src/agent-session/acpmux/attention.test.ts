@@ -76,8 +76,12 @@ test("moves arm no timer of their own: one per idle time at most", () => {
     h.advance(1);
     h.fire("pointermove");
   }
-  // The first timer, plus one re-arm when it found the hand had moved since.
+  // 500 moves inside the first idle time: only the first timer.
+  expect(h.armed()).toBe(1);
+  // It fires at 1000 ms, finds the hand moved at 500 ms and re-arms once for what is left.
+  h.advance(600);
   expect(h.armed()).toBe(2);
+  expect(h.attention.present()).toBe(true);
   expect(h.changes()).toBe(0);
 });
 

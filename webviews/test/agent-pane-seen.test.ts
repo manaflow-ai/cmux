@@ -265,5 +265,31 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
         await page.close();
       }
     }, 120_000);
+
+    test("a reader who leaves and comes back while the attach is out still tells acpmux both", async () => {
+      const from = sent.length;
+      holdAttach = true;
+      releaseAttach = undefined;
+      const page = await openPane();
+      try {
+        await until(() => releaseAttach !== undefined, "the attach", ATTACH_MS);
+        // Away and back before acpmux answered the attach: each view keeps what the page was then.
+        await setVisibility(page, "hidden");
+        await setVisibility(page, "visible");
+        await caughtUp(page);
+        expect(views(from)).toEqual([]);
+        holdAttach = false;
+        releaseAttach!();
+        await until(() => views(from).length >= 2, "both views");
+        await settled();
+        expect(views(from)).toEqual([
+          { sessionId: SESSION, visible: false },
+          { sessionId: SESSION, visible: true },
+        ]);
+      } finally {
+        holdAttach = false;
+        await page.close();
+      }
+    }, 120_000);
   });
 });
