@@ -44,6 +44,8 @@ export type ComposerPlusRegistryOptions = {
   commands?: readonly SlashCommand[];
   translate?: Translate;
   canCapture?: boolean;
+  /// Record Screen…: the chat reads a recording kept on this Mac (a chat here).
+  canRecord?: boolean;
   canChooseProject?: boolean;
   /** The composer can run its prompt on several agents (Composer.tsx `runOnAgents`). */
   canRunOnAgents?: boolean;
@@ -57,6 +59,7 @@ const COMMANDS = {
   attachFiles: "composer.attachFiles",
   attachScreenshot: "composer.attachScreenshot",
   attachWindow: "composer.attachWindow",
+  recordScreen: "composer.recordScreen",
   chooseProject: "composer.chooseProject",
   planMode: "composer.planMode",
   mention: "composer.mention",
@@ -64,6 +67,17 @@ const COMMANDS = {
   commands: "composer.commands",
   searchFiles: "searchFiles",
 } as const;
+
+/// What the host's `composer.capture` takes (AgentPaneCapture.swift): a region, a window, or a
+/// recording from the system's Screenshot toolbar.
+export type CaptureMode = "screen" | "window" | "video";
+
+/// The + menu's capture rows, by command.
+export const CAPTURE_MODES: Readonly<Record<string, CaptureMode | undefined>> = {
+  [COMMANDS.attachScreenshot]: "screen",
+  [COMMANDS.attachWindow]: "window",
+  [COMMANDS.recordScreen]: "video",
+};
 
 const staticRows: readonly ComposerPlusEntry[] = [
   {
@@ -114,6 +128,20 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
         action: { kind: "command", id: COMMANDS.attachWindow },
       },
     );
+  }
+  // Leo, 2026-11-07: "could we also have a more native screenshot/screensharer (ergonomic
+  // one)/video recording of the app type thing/route?" A recording goes as a video link, so it does
+  // not wait on the model taking images.
+  if (options.canRecord) {
+    rows.push({
+      id: "add.recording",
+      section: "attach",
+      name: label("composer.recordScreen"),
+      description: "",
+      icon: "remote.display",
+      keywords: ["record", "recording", "video", "screen recording", "movie", "capture", "bug", "report"],
+      action: { kind: "command", id: COMMANDS.recordScreen },
+    });
   }
 
   if (options.planMode) {
