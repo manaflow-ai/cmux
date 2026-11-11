@@ -221,6 +221,64 @@ struct BrowserInstalledBrowserDetectorTests {
         #expect(firefox.profiles.contains { $0.displayName == "My Work Profile" && $0.isDefault })
     }
 
+    @Test("Safari found only by its container cookie store still offers a default profile")
+    func safariContainerCookieStoreAloneOffersADefaultProfile() throws {
+        let home = try makeTempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        // No ~/Library/Safari at all: the only trace of Safari is the sandbox container's store.
+        let store = home.appendingPathComponent(
+            "Library/Containers/com.apple.Safari/Data/Library/Cookies/Cookies.binarycookies")
+        try FileManager.default.createDirectory(
+            at: store.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("cook".utf8).write(to: store)
+
+        let detector = BrowserInstalledBrowserDetector(
+            homeDirectoryURL: home,
+            bundleLookup: { _ in nil },
+            applicationSearchDirectories: [],
+            fileManager: .default
+        )
+
+        let safari = try #require(detector.detectInstalledBrowsers().first { $0.id == "safari" })
+        let profile = try #require(safari.profiles.first)
+        #expect(safari.profiles.count == 1)
+        #expect(profile.isDefault)
+        #expect(safari.dataRootURL == nil)
+        // The default profile is what the cookie reader resolves to the container store, so
+        // the candidate can actually be imported from.
+        #expect(SafariCookieStoreReader(homeDirectory: home).load(for: profile)
+            == .loaded(url: store, data: Data("cook".utf8)))
+    }
+
+    @Test("Safari with a data root keeps the profile detected there")
+    func safariWithADataRootKeepsItsDetectedProfile() throws {
+        let home = try makeTempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let root = home.appendingPathComponent("Library/Safari", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data().write(to: root.appendingPathComponent("History.db"))
+        let store = home.appendingPathComponent(
+            "Library/Containers/com.apple.Safari/Data/Library/Cookies/Cookies.binarycookies")
+        try FileManager.default.createDirectory(
+            at: store.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("cook".utf8).write(to: store)
+
+        let detector = BrowserInstalledBrowserDetector(
+            homeDirectoryURL: home,
+            bundleLookup: { _ in nil },
+            applicationSearchDirectories: [],
+            fileManager: .default
+        )
+
+        let safari = try #require(detector.detectInstalledBrowsers().first { $0.id == "safari" })
+        #expect(safari.dataRootURL?.standardizedFileURL == root.standardizedFileURL)
+        #expect(safari.profiles.count == 1)
+        #expect(safari.profiles.first?.isDefault == true)
+        #expect(safari.profiles.first?.rootURL.standardizedFileURL == root.standardizedFileURL)
+    }
+
     @Test("an app-only hit still produces a candidate via bundle lookup")
     func detectsAppOnlyFromBundleLookup() throws {
         let home = try makeTempHome()
