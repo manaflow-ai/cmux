@@ -133,7 +133,7 @@ def code(line: str) -> str:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import shell_tree  # noqa: E402
 
-SHELL_TREE_SHA256 = "b00541ca8a12e0fa6d4e670139169b096d8fa821de79a952b0be7675df84aaa5"
+SHELL_TREE_SHA256 = "7e1057a751fad50f874faa113cd43789e3223195c7e6093cf97d3bf0e086dc82"
 
 
 def without_templates(line: str) -> str:
@@ -307,8 +307,10 @@ class NoclobberSweep(unittest.TestCase):
         self.assertTrue(shutil.which("bash"), "bash is needed to read the corpus; a host without it fails, never skips")
         bad = [line for line, _ in shell_tree.corpus() if line not in shell_tree.NOT_SHELL
                and subprocess.run(["bash", "-n", "-c", line], capture_output=True).returncode != 0]
+        # -O extglob: bash -n runs no shopt, and a FILES case turns extglob on (manaflow-ai/cmux-platform#1271, F2)
         bad += [path for path, text, _ in shell_tree.FILES if not path.endswith(".yml")
-                and subprocess.run(["bash", "-n"], input=text, capture_output=True, text=True).returncode != 0]
+                and subprocess.run(["bash", "-O", "extglob", "-n"], input=text, capture_output=True,
+                                   text=True).returncode != 0]
         self.assertEqual(bad, [])
 
     def test_a_whole_file_is_read_in_context(self):

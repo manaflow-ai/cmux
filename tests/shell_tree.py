@@ -21,8 +21,8 @@ check: what bash does with a fixture, beside what the tree reads in it.
 This file is the same, byte for byte, in manaflow-ai/cmux tests/, manaflow-ai/cmux-platform test/node/,
 manaflow-ai/cmuxterm-hq tests/ and teamleaderleo/leo-workspace tools/; each repo's noclobber sweep pins its SHA-256.
 Change it in all four at once. Run as a script it reads a JSON list of strings on stdin and prints the list of their
-scan_text(code(...)) (cmux-platform's TypeScript sweep runs it so); --corpus, --file-corpus, --files and --bash print
-corpus(), FILES, each file's scan_file() and each text's bash_writes() as JSON.
+scan_text(code(...)) (cmux-platform's TypeScript sweep runs it so); --corpus, --file-corpus, --files, --unparsed and
+--bash print corpus(), FILES, each file's scan_file(), each file's unparsed() and each text's bash_writes() as JSON.
 """
 from __future__ import annotations
 
@@ -963,21 +963,35 @@ def scan_file(path: str, text: str) -> list[str]:
     """Each line of TEXT (split at \\n) as a noclobber scan reads it: comments dropped and template words blanked.
     A shell file (by suffix or #!), and each `run: |` block of a YAML file, is parsed whole, so a here-document, a
     line continuation or a quote across lines is read in its context: a here-document's # is no comment, and its
-    substitutions run. Any other text, and a script that does not parse whole, is read line by line. A #! line that
-    shebang() cannot resolve is read as shell, and a sweep reports it besides."""
+    substitutions run. Any other text is read line by line. A shell block that does not parse whole keeps its raw
+    text, every # and template included, never a line-by-line guess (manaflow-ai/cmux-platform#1271 review at
+    cd22cde4, F2): unparsed() names it, and a sweep reports it as unresolved. A #! line that shebang() cannot
+    resolve is read as shell, and a sweep reports it besides."""
+    lines = text.split("\n")
+    out: list = [None] * len(lines)
+    for a, b in shell_blocks(path, text):
+        got = scan_block(lines[a:b])
+        out[a:b] = lines[a:b] if got is None else got
+    return [scan_text(code(line)) if got is None else got for line, got in zip(lines, out)]
+
+
+def shell_blocks(path: str, text: str) -> list[tuple[int, int]]:
+    """The (first, end) line ranges of TEXT that are shell: the whole of a shell file (by suffix or #!), or each
+    `run: |` block of a YAML file."""
     lines = text.split("\n")
     if path.endswith(SHELL_SUFFIXES) or shebang(text) in ("shell", "unresolved"):
-        blocks = [(0, len(lines))]
-    elif path.endswith((".yml", ".yaml")):
-        blocks = run_blocks(lines)
-    else:
-        blocks = []
-    out: list = [None] * len(lines)
-    for a, b in blocks:
-        got = scan_block(lines[a:b])
-        if got is not None:
-            out[a:b] = got
-    return [scan_text(code(line)) if got is None else got for line, got in zip(lines, out)]
+        return [(0, len(lines))]
+    if path.endswith((".yml", ".yaml")):
+        return run_blocks(lines)
+    return []
+
+
+def unparsed(path: str, text: str) -> list[int]:
+    """The first line (1-based) of each shell block of TEXT (shell_blocks) that this parser cannot read: a sweep
+    reports each as unresolved, since what it runs is unknown, and scan_file() scans its raw text."""
+    lines = text.split("\n")
+    return [a + 1 + next((k for k, line in enumerate(lines[a:b]) if line.strip()), 0)
+            for a, b in shell_blocks(path, text) if scan_block(lines[a:b]) is None]
 
 
 def run_blocks(lines: list[str]) -> list[tuple[int, int]]:
@@ -1354,6 +1368,15 @@ FILES = (
     ("scripts/env-split-expands", "#!/usr/bin/env -S ${SHELL} -e\nd=$(mktemp -d /tmp/$USER.XXXXXX)\n", True),
     ("scripts/env-split-python", "#!/usr/bin/env -S 'python3' -u\nimport os\n", False),
     ("scripts/shebang-python", "#!/usr/bin/env python3\nimport os\n", False),
+    # manaflow-ai/cmux-platform#1271 review at cd22cde4, F2: this parser does not read extglob, so the file does not
+    # parse whole; read line by line, the here-document's body line was a comment, though bash runs it.
+    ("scripts/extglob-heredoc.sh",
+     "shopt -s extglob\ncase x in @(x|y)) :;; esac\ncat <<EOF\n# $(printf s > /tmp/out.$$)\nEOF\n", True),
+    # A shell block this parser cannot read is reported unresolved, even with no temp name in it: what it runs is
+    # unknown. The same text inside a workflow's run block.
+    ("scripts/extglob-only.sh", "shopt -s extglob\ncase x in @(x|y)) :;; esac\n", True),
+    ("scripts/extglob.yml", "jobs:\n  a:\n    steps:\n      - run: |\n          shopt -s extglob\n"
+     "          case x in @(x|y)) :;; esac\n", True),
     ("scripts/workflow-safe.yml", "jobs:\n  a:\n    steps:\n      - run: |\n          d=$(mktemp -d \\\n"
      "            /tmp/$USER.XXXXXX)\n", False),
 )
@@ -1507,6 +1530,8 @@ if __name__ == "__main__":
         json.dump(corpus(), sys.stdout)
     elif sys.argv[1:] == ["--files"]:  # [[path, text], ...] -> [scan_file(path, text), ...]
         json.dump([scan_file(p, t) for p, t in json.load(sys.stdin)], sys.stdout)
+    elif sys.argv[1:] == ["--unparsed"]:  # [[path, text], ...] -> [unparsed(path, text), ...]
+        json.dump([unparsed(p, t) for p, t in json.load(sys.stdin)], sys.stdout)
     elif sys.argv[1:] == ["--file-corpus"]:
         json.dump(FILES, sys.stdout)
     elif sys.argv[1:] == ["--bash"]:  # [text, ...] -> [bash_writes(text), ...]
