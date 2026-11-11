@@ -109,12 +109,9 @@ fn a_plan_names_its_machine_keys_and_setup_and_without_keys_is_no_answer() {
     );
     // A machine the plan found (or a reservation it bound) is not this send's to delete.
     assert!(!plan.made_for_send);
-    for made in [
-        json!({"ok": true, "machine": "vm-2", "create_key": "c", "tab_key": "t", "ensured": {"created": true}}),
-    ] {
-        let (answer, object) = parse(&output(&made.to_string(), "", 0));
-        assert!(start_chat_plan(answer, object.as_ref()).1.made_for_send, "{made}");
-    }
+    let made = json!({"ok": true, "machine": "vm-2", "create_key": "c", "tab_key": "t", "ensured": {"created": true}});
+    let (answer, object) = parse(&output(&made.to_string(), "", 0));
+    assert!(start_chat_plan(answer, object.as_ref()).1.made_for_send, "{made}");
     let (answer, object) = parse(&output(
         &json!({"ok": true, "machine": "vm-2", "create_key": "c", "tab_key": "t", "ensured": {"created": false}}).to_string(),
         "",
