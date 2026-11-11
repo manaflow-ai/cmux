@@ -39,7 +39,7 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     /// and the desktop shows only a little. At 0.55 the desktop was nearly half the picture (Leo,
     /// 2026-11-07: "the point is to have the art show through and be shown nicely / the desktop ehhh i
     /// guess a little / but former is the biggest one").
-    public static let windowGlassArtOpacity = 0.55
+    public static let windowGlassArtOpacity = 0.85
     /// Live experimental adjustments applied to the tint.
     public var tuning: AppearanceTuning = .identity
     /// The one-time texture pass applied when artwork is loaded.

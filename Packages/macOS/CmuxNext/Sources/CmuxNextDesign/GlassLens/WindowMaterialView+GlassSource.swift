@@ -15,7 +15,7 @@ extension WindowMaterialView {
     /// page's glass shows, not plain blur (Leo, 2026-11-07: "the point is to have the art show through
     /// and be shown nicely").
     static func refractsArt(opacity: Float) -> Bool {
-        opacity >= 0.98
+        opacity >= Float(WindowBackdrop.windowGlassArtOpacity) - 0.001
     }
 
     /// The art layer's frame in window coordinates; its image is aspect-filled into it.
