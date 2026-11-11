@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43115360087",
+  "recorded_at": "2026-11-11T22:57:02Z",
+  "reason": "cmux-tui ad25409f1bfd changes the image's cmux-tui (pinned b69875277992)",
+  "dry_run": false,
+  "cmux_tui": "ad25409f1bfdf8709ac220b6212abe1c908125e6",
+  "fixes": [
+    {
+      "sha": "049f48762b70882f16ff002af6d1d045d032fd62",
+      "mergedAt": "2026-11-11T16:37:32-06:00",
+      "subject": "acpmux start: the owed background-task ends are found after the store is ready"
+    },
+    {
+      "sha": "39c27a078882bd83892b444f0260889937f8b901",
+      "mergedAt": "2026-11-11T16:37:32-06:00",
+      "subject": "acpmux start: red test, a slow background-task record holds the session list"
+    },
+    {
+      "sha": "df7f03d3b34dd2b4da18a0280e6c219fa0d0fb42",
+      "mergedAt": "2026-11-11T16:37:31-06:00",
+      "subject": "cmux-tui-core: a projected hook's retry row is cleared in the journal writer batch"
+    },
+    {
+      "sha": "5c3e6b8a62963fe022f2c37717fe85630f4d71a5",
+      "mergedAt": "2026-11-11T16:37:31-06:00",
+      "subject": "cmux-tui-core: test that a projected hook's retry row is cleared in the writer batch"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-11T22:57:02Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
