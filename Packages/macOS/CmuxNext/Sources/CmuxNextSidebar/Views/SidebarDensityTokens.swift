@@ -37,7 +37,7 @@ enum SidebarDensityTokens {
     /// which the sidebar's cards read too).
     private static var extra: CGFloat { SidebarRowTokens.current.extraHeight }
 
-    /// A one-line workspace row, group header or band row: 30 pt with no gap at Default (``SidebarRowTokens/matchesCodex``).
+    /// A one-line workspace row, group header or band row: 30 pt at Default (``SidebarRowTokens/matchesCodex``).
     static var rowHeight: CGFloat { SidebarRowTokens.current.listRowHeight }
     /// The gap between list rows, `space1` at every density: 2 pt at Default, so two lit rows' fills do not touch
     /// (Lucas 2026-11-11: "lets change this to 2px"; Codex's rows touch).

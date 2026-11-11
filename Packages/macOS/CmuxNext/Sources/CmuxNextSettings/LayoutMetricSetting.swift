@@ -25,9 +25,11 @@ public nonisolated struct LayoutMetricSetting: Sendable, Hashable {
                                                             comfortable: 7)
     public static let titlebarHeight = LayoutMetricSetting(name: "titlebarHeight", range: titlebarHeightRange, compact: titlebarHeightPlaceholder,
                                                            comfortable: 40)
-    /// The workspace rows' height alone: unset, a row is the density's and the tab bar's pills match it
-    /// (`Metrics.densityRowHeight`); set, only the rows move (Lawrence 2026-11-11: "potentially I want my workspace rows to be
-    /// thinner than my tab bar rows, but then definitely not as the default").
+    /// The workspace rows' height: unset, a row is the density's and the tab bar's pills match it
+    /// (`Metrics.densityRowHeight`); set, `Metrics.sidebarRowHeight` moves (the workspace rows and the other rows that
+    /// read it: Settings, the sidebar's search and footer, Home's group rows) and the tabs keep the density's row
+    /// (Lawrence 2026-11-11: "potentially I want my workspace rows to be thinner than my tab bar rows, but then
+    /// definitely not as the default").
     public static let sidebarRowHeight = LayoutMetricSetting(name: "sidebarRowHeight", range: sidebarRowHeightRange, compact: sidebarRowHeightPlaceholder,
                                                              comfortable: 32)
 

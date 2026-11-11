@@ -52,7 +52,7 @@ public struct Metrics {
     /// `(strip - tab - stripTopOutset) / 2`, so the padding is the gap the corners nest across).
     public static var tabStripHeight: CGFloat {
         guard let padding = DesignSettings.shared.paneChrome.cornerPadding else {
-            return MetricTunables.tabStripHeight.value + (DesignSettings.shared.overrides[.tabStripHeight] == nil ? tabRowGrowth : 0)
+            return MetricTunables.tabStripHeight.value + tabRowGrowth
         }
         return tabHeight + 2 * scale(padding) + stripTopOutset
     }
@@ -77,7 +77,7 @@ public struct Metrics {
         guard DesignSettings.shared.overrides[.tabStripHeight] != nil else { return tab }
         let strip = MetricTunables.tabStripHeight
         let densityStrip = scale(strip.tunable.resolve(tokens.resolve(compact: strip.compactValue, comfortable: strip.comfortable, token: strip.name)))
-        return max(tab + tabStripHeight - densityStrip - tabRowGrowth, 0)
+        return max(tab + tabStripHeight - densityStrip, 0)
     }
     public static var controlHeight: CGFloat { MetricTunables.controlHeight.value }
     public static var tabMaxWidth: CGFloat { MetricTunables.tabMaxWidth.value }

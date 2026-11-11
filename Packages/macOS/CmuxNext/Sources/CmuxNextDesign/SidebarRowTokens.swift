@@ -69,11 +69,11 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
     /// inset, and rounds the fill 10 px (`--radius-token-row`). Every other density keeps its own rows, so
     /// `appearance.density`, `sidebar.density` and the metric overrides still pick them.
     public var matchesCodex: Bool { base.isCodexDensity && density == .compact }
-    /// A list or band row's height: the row and the gap under it as one fill when ``matchesCodex``, so the pitch
-    /// stays the row step and the fill grows into the gap (28 + 2 = 30 at Default).
+    /// A list or band row's height: Codex's 30 pt row when ``matchesCodex`` (28 + `space1`), else the row.
     public var listRowHeight: CGFloat { rowHeight + (matchesCodex ? base.space1 : 0) }
-    /// The gap between list rows: none when ``matchesCodex`` (Codex's rows touch), else `space1`.
-    public var rowGap: CGFloat { matchesCodex ? 0 : base.space1 }
+    /// The gap between list rows: `space1` at every density, so two lit rows' fills never touch (the list's
+    /// `SidebarDensityTokens.rowSpacing`).
+    public var rowGap: CGFloat { base.space1 }
     /// A row's content (icon, title, trailing marks) from its fill's edge: `space4` (8 pt) when ``matchesCodex``,
     /// else the outer inset.
     public var contentInset: CGFloat { matchesCodex ? base.space4 : horizontalInset }
