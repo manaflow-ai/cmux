@@ -1588,10 +1588,18 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           const current = view.current;
           if (!current) return true;
           const { doc, selection } = current.state;
-          // The caret's text block must be the prompt's first (or last), and the caret on that
-          // block's top (or bottom) visual line: ProseMirror measures the wrapped layout.
-          const edge = direction === "up" ? Selection.atStart(doc) : Selection.atEnd(doc);
-          if (edge.$head.parent !== selection.$head.parent) return false;
+          // The selection's top (↑) or bottom (↓) end, as endOfTextblock measures it. A selected
+          // block (a rule) has no line to move within.
+          const $end = direction === "up" ? selection.$from : selection.$to;
+          if (!$end.parent.isTextblock) return true;
+          // No text block before (↑) or after (↓) the end's, a rule or other block atom between
+          // them aside, and the end on its block's top (or bottom) visual line: ProseMirror
+          // measures the wrapped layout.
+          const beyond =
+            direction === "up"
+              ? Selection.findFrom(doc.resolve($end.before()), -1, true)
+              : Selection.findFrom(doc.resolve($end.after()), 1, true);
+          if (beyond) return false;
           return current.endOfTextblock(direction);
         },
         writeText: (value, selectionStart, selectionEnd) => {
