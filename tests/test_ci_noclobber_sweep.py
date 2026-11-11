@@ -24,8 +24,11 @@ reason, keyed by path and a piece of its line; an entry nothing matches fails, s
 """
 from __future__ import annotations
 
+import hashlib
 import re
+import shutil
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -112,162 +115,27 @@ ALLOWED = {
 
 
 def code(line: str) -> str:
-    return re.sub(r"(^|\s)#.*$", "", line)
+    """LINE without its comments, taken from the shell parser: a quoted # is not one (shell_tree.code)."""
+    return shell_tree.code(line)
 
 
-# The template word of each mktemp call, found by a small shell tokenizer, never a regex: shell parsed by regex let
-# through a guessable name beside a template twice (review of manaflow-ai/cmux-platform#1262, F2:
-# `d=$(mktemp -d ".../safe.XXXXXX"); printf secret > /tmp/out.$$`; of #1265, F1: `d=$(mktemp -d) > /tmp/out.$$.XXXXXX`).
-# The tokenizer tracks quotes, escapes, $( ), backticks, ${ }, $(( )), subshells, separators and redirections. A word
-# containing XXXXXX is left out of the scan only when it is an argument of a command whose name is mktemp, not a
-# redirection's target. A line it cannot parse (an unclosed quote or substitution) exempts nothing.
-class Unparsed(Exception):
-    """The line is not shell this tokenizer can read through."""
+# A mktemp template word is found in the line's parse tree (shell_tree.py beside this file, the same bytes in
+# manaflow-ai/cmux, manaflow-ai/cmux-platform, manaflow-ai/cmuxterm-hq and teamleaderleo/leo-workspace). Shell read by
+# regex, then by token masking, let a guessable name through three times, and a comment cut at any # once more
+# (shell_tree.MISSES): a line with XXXXXX was exempt whole; a redirection's target was taken for mktemp's argument;
+# overlapping template spans shifted each other, and a template word exempted the substitutions inside it. Now only the
+# literal text of a mktemp argument with XXXXXX in that literal text is left out. Each command substitution inside the
+# word is still scanned, and so is every redirection. A line the parser cannot read exempts nothing and keeps its #s.
+# shell_tree.corpus() is the detector's own check: every unsafe write in it is flagged and no safe template is.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import shell_tree  # noqa: E402
 
-
-ASSIGNMENT = re.compile(r"[A-Za-z_]\w*\+?=")
-REDIRECT = re.compile(r"&>>|&>|<<<|<<-|<<|<>|<&|<|>>|>&|>\||>")
-WORD_END = " \t\n;&|()<>"
-
-
-def shell_commands(line: str) -> list[list[tuple[int, int, bool]]]:
-    """Every simple command in LINE, those inside $( ) and backticks too: its words as (start, end, is a redirection
-    target) spans of LINE."""
-    out: list[list[tuple[int, int, bool]]] = []
-    if _commands(line, 0, None, out) != len(line):
-        raise Unparsed(line)
-    return out
-
-
-def _commands(s: str, i: int, close: str | None, out: list) -> int:
-    """Commands from s[i:] up to CLOSE (")" or "`", or None for the end); the index after it."""
-    cmd: list[tuple[int, int, bool]] = []
-    target, depth, n = False, 0, len(s)
-
-    def end_command() -> None:
-        nonlocal cmd
-        if target:
-            raise Unparsed(s)
-        if cmd:
-            out.append(cmd)
-        cmd = []
-
-    while True:
-        while i < n and s[i] in " \t":
-            i += 1
-        if i >= n:
-            if close is not None:
-                raise Unparsed(s)
-            end_command()
-            return i
-        c = s[i]
-        if c == close and (close == "`" or depth == 0):
-            end_command()
-            return i + 1
-        m = REDIRECT.match(s, i)
-        if m:
-            if target:
-                raise Unparsed(s)
-            target, i = True, m.end()
-            continue
-        if c in ";&|\n":
-            end_command()
-            i += 2 if s.startswith(("&&", "||", ";;", "|&"), i) else 1
-            continue
-        if c == "(":
-            end_command()
-            depth, i = depth + 1, i + 1
-            continue
-        if c == ")":
-            end_command()
-            depth, i = max(0, depth - 1), i + 1
-            continue
-        if c == "#":  # a comment to the end
-            if close is not None:
-                raise Unparsed(s)
-            end_command()
-            return n
-        j = _word(s, i, close, out)
-        if not target and s[i:j].isdigit() and j < n and s[j] in "<>":
-            i = j  # a file descriptor's number: the redirection follows
-            continue
-        cmd.append((i, j, target))
-        target, i = False, j
-
-
-def _word(s: str, i: int, close: str | None, out: list) -> int:
-    n = len(s)
-    while i < n and s[i] not in WORD_END and not (close == "`" and s[i] == "`"):
-        i = _piece(s, i, out)
-    return i
-
-
-def _piece(s: str, i: int, out: list) -> int:
-    """The index after the quoted string, substitution, expansion, escape or character at s[i]."""
-    c = s[i]
-    if c == "\\":
-        return i + 2
-    if c == "'":
-        j = s.find("'", i + 1)
-        if j < 0:
-            raise Unparsed(s)
-        return j + 1
-    if c == '"':
-        i += 1
-        while i < len(s) and s[i] != '"':
-            i = _piece(s, i, out) if s[i] in "\\$`" else i + 1
-        if i >= len(s):
-            raise Unparsed(s)
-        return i + 1
-    if s.startswith("$((", i):
-        depth, i = 0, i + 3
-        while i < len(s):
-            if s[i] == "(":
-                depth += 1
-            elif s[i] == ")":
-                if depth == 0:
-                    if s.startswith("))", i):
-                        return i + 2
-                    raise Unparsed(s)
-                depth -= 1
-            i += 1
-        raise Unparsed(s)
-    if s.startswith("$(", i):
-        return _commands(s, i + 2, ")", out)
-    if s.startswith("${", i):
-        i += 2
-        while i < len(s) and s[i] != "}":
-            i = _piece(s, i, out)
-        if i >= len(s):
-            raise Unparsed(s)
-        return i + 1
-    if c == "`":
-        return _commands(s, i + 1, "`", out)
-    return i + 1
-
-
-def mktemp_templates(line: str) -> list[tuple[int, int]]:
-    """The spans of LINE that are a mktemp call's template word; none when LINE does not parse."""
-    try:
-        commands = shell_commands(line)
-    except Unparsed:
-        return []
-    spans = []
-    for cmd in commands:
-        words = [(a, b) for a, b, target in cmd if not target]
-        k = 0
-        while k < len(words) and ASSIGNMENT.match(line, words[k][0]):
-            k += 1
-        if k < len(words) and line[words[k][0]:words[k][1]].rsplit("/", 1)[-1] == "mktemp":
-            spans += [(a, b) for a, b in words[k + 1:] if "XXXXXX" in line[a:b]]
-    return spans
+SHELL_TREE_SHA256 = "9ecf58397ea0af7144d376d2dbdded4706912bc28a4a7b28b78e2fd583d486ba"
 
 
 def without_templates(line: str) -> str:
-    """LINE with each mktemp template word replaced by TEMPLATE."""
-    for a, b in sorted(set(mktemp_templates(line)), reverse=True):
-        line = line[:a] + "TEMPLATE" + line[b:]
-    return line
+    """LINE with the literal text of each mktemp template word blanked (shell_tree.scan_text)."""
+    return shell_tree.scan_text(line)
 
 
 def shared_tmp(line: str) -> list[str]:
@@ -372,6 +240,24 @@ class NoclobberSweep(unittest.TestCase):
                      # exempts nothing.
                      'mktemp "$(mktemp /tmp/a.XXXXXX)" > /tmp/out.$$', "mktemp /tmp/a.$$.XXXXXX)"):
             self.assertTrue(flagged(code(line)), line)
+
+    def test_the_tree_walk_misses_nothing_in_the_corpus(self):
+        """Every unsafe write in shell_tree.corpus() (nesting depth x substitution form x quoting x where the write
+        sits) is flagged, and no safe mktemp template is."""
+        misses = [(line, unsafe) for line, unsafe in shell_tree.corpus() if flagged(code(line)) != unsafe]
+        self.assertEqual(misses, [], "(line, is unsafe) the sweep got wrong")
+
+    @unittest.skipUnless(shutil.which("bash"), "no bash to read the corpus")
+    def test_the_corpus_is_shell(self):
+        bad = [line for line, _ in shell_tree.corpus() if line not in shell_tree.NOT_SHELL
+               and subprocess.run(["bash", "-n", "-c", line], capture_output=True).returncode != 0]
+        self.assertEqual(bad, [])
+
+    def test_shell_tree_is_the_shared_copy(self):
+        """shell_tree.py is one file in four repos (its docstring); a change to it lands in all four, with this pin."""
+        digest = hashlib.sha256(Path(shell_tree.__file__).read_bytes()).hexdigest()
+        self.assertEqual(digest, SHELL_TREE_SHA256, "shell_tree.py is not the shared copy: change it in manaflow-ai/"
+                         "cmux, cmux-platform, cmuxterm-hq and teamleaderleo/leo-workspace together, and each pin")
 
     def test_an_app_name_excuses_only_app_names(self):
         self.assertTrue(app_named('sock="/tmp/cmux-debug-$tag.sock"'))
