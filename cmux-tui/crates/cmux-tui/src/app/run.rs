@@ -161,6 +161,16 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
     )?;
     let encoder = KeyEncoder::new()?;
     let (tx, rx) = sync_channel::<AppEvent>(APP_EVENT_CAPACITY);
+    // The loop blocks with no timeout when nothing timed waits (idle_wait),
+    // so state it checks after each wait must wake it when set elsewhere.
+    if let Some(mux) = owner_mux.as_deref() {
+        let wake = tx.clone();
+        mux.set_daemon_shutdown_waker(move || {
+            let _ = wake.try_send(AppEvent::Wake);
+        });
+    }
+    #[cfg(unix)]
+    wake_on_shutdown_signal(tx.clone());
     let owner_reload_worker =
         owner_mux.as_deref().map(|mux| OwnerReloadWorker::spawn(mux, tx.clone())).transpose()?;
     let host_input = HostInputRuntime::new();
@@ -587,6 +597,8 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
     }
 
     let result = app.event_loop(&mut terminal, rx);
+    #[cfg(unix)]
+    SIGNAL_WAKE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
     app.shutdown_runtime_components();
     let restore_result = terminal_restore.restore();
     match (result, restore_result) {
@@ -606,6 +618,33 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         .map(RunOutcome::Machine)
         .unwrap_or(RunOutcome::Quit);
     Ok(outcome)
+}
+
+/// The running loop's sender for a termination signal's wake.
+#[cfg(unix)]
+static SIGNAL_WAKE: Mutex<Option<crossbeam_channel::Sender<AppEvent>>> = Mutex::new(None);
+
+/// A termination signal sets the shutdown flag the loop checks after each
+/// wait; this wakes the loop for it. One waiter serves every run of the loop
+/// in the process (a machine switch runs it again); it peeks, so other
+/// shutdown waiters still see the signal.
+#[cfg(unix)]
+fn wake_on_shutdown_signal(tx: crossbeam_channel::Sender<AppEvent>) {
+    static WAITER: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    *SIGNAL_WAKE.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(tx);
+    WAITER.get_or_init(|| {
+        let spawned = std::thread::Builder::new().name("tui-signal-wake".into()).spawn(|| {
+            crate::wait_for_shutdown_signal_peek();
+            if let Some(tx) =
+                SIGNAL_WAKE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref()
+            {
+                let _ = tx.try_send(AppEvent::Wake);
+            }
+        });
+        if let Err(error) = spawned {
+            crate::client_log::warn("signals", &format!("no signal wake thread: {error}"));
+        }
+    });
 }
 
 pub(super) fn format_panic_diagnostic(info: &std::panic::PanicHookInfo<'_>) -> String {

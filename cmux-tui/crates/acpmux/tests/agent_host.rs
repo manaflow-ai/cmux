@@ -459,6 +459,40 @@ async fn a_line_that_is_not_utf8_never_ends_the_harness_output() {
     assert_eq!(exit, Some(Some(0)), "the harness did not end as it chose to: {seen:?}");
 }
 
+/// The cleanup of a dead host incarnation (`remove_artifacts`, at adoption for a record whose
+/// host is gone) never takes the files of a newer host of the same chat. Adoption reads the
+/// records at its start and comes to a stale one later; a prompt to that chat may have started a
+/// fresh host meanwhile, which wrote its own record and socket at the same paths. Removing them
+/// made the fresh host's record watch end it, harness and turn with it.
+#[tokio::test]
+async fn cleaning_up_a_dead_incarnation_spares_the_newer_host_of_its_chat() {
+    let dir = scratch("stale");
+    let launch = spec(&dir, "s-stale");
+    let record = link::spawn(&launcher(), &launch).await.expect("spawn host");
+    let lock = live_lock(&dir, &record);
+    let harness = record.harness_pid.expect("harness pid") as i32;
+    // The record of an older incarnation of the same chat, as adoption read it at its start.
+    let mut stale = record.clone();
+    stale.start_nonce = "an-older-incarnation".into();
+    stale.incarnation = "an-older-incarnation".into();
+    agent_host::remove_artifacts(&dir.join("hosts"), &stale);
+    let record_left = agent_host::record_path(&dir.join("hosts"), "s-stale").exists();
+    let socket_left = record.socket.exists();
+    // Longer than the record watch takes to end a host whose record went away.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    // SAFETY: signal 0 only asks whether the harness runs.
+    let harness_alive = unsafe { libc::kill(harness, 0) } == 0;
+    // SAFETY: the host this test spawned; its live lock is held, so the pid is its own.
+    unsafe { libc::kill(record.host_pid as i32, libc::SIGKILL) };
+    wait_dead(lock).await;
+    // SAFETY: the harness group this test's host started.
+    unsafe { libc::killpg(harness, libc::SIGKILL) };
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(record_left, "the newer host's record was removed");
+    assert!(socket_left, "the newer host's socket was removed");
+    assert!(harness_alive, "the newer host's harness was ended");
+}
+
 /// A host whose start fails (here the harness cannot be spawned) leaves no
 /// liveness lock file behind: a stale `.live` file would outlive the session.
 #[tokio::test]
