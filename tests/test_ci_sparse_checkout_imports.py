@@ -1294,6 +1294,9 @@ def _command_name(command: list[_Tok]) -> tuple[_Tok | None, list[str]]:
 
 
 _OK, _FAILED, _EXEMPT = 1, 0, -1
+# A group's or block's own redirection failed, so its body never ran: bash returns 1 from there before
+# it applies !, so ! does not invert it (`! { exit 1; } > / || cd x` runs the cd). Gone by pipeline end.
+_REDIRECT = -2
 
 
 class _Shell:
@@ -1470,10 +1473,20 @@ class _Shell:
             outcomes = [state for state in outcomes if not state[2]]
         else:  # it was on in there; whether it is out here, the enclosing groups will say
             outcomes = [(cwd, ok, min(dies, depth)) for cwd, ok, dies in outcomes]
-        if negated:  # its failure is one bash does not exit for
-            outcomes = [(cwd, _EXEMPT if ok == _OK else _OK, dies) for cwd, ok, dies in outcomes]
-        elif suppressed or self.ignore:
-            outcomes = [(cwd, _EXEMPT if ok == _FAILED else ok, dies) for cwd, ok, dies in outcomes]
+        if negated:  # its failure is one bash does not exit for; a failed redirection stays a failure
+            outcomes = [
+                state
+                for cwd, ok, dies in outcomes
+                for state in (
+                    [(cwd, _FAILED, dies), (cwd, _EXEMPT, dies)] if ok == _REDIRECT
+                    else [(cwd, _EXEMPT if ok == _OK else _OK, dies)]
+                )
+            ]
+            # whether errexit then ends the step: keeping both is the superset of what bash does
+        else:
+            outcomes = [(cwd, _FAILED if ok == _REDIRECT else ok, dies) for cwd, ok, dies in outcomes]
+            if suppressed or self.ignore:
+                outcomes = [(cwd, _EXEMPT if ok == _FAILED else ok, dies) for cwd, ok, dies in outcomes]
         self.tail = (tuple(outcomes), skipped, negated)
         self.states = tuple(dict.fromkeys([*outcomes, *skipped]))
         return True
@@ -1565,9 +1578,9 @@ class _Shell:
                 if self.group is not None and not self.command:  # on a group or block: it may not run
                     start = self._merge(self._split()[0])
                     if self.moved:
-                        self.group = tuple((None, ok, dies) for _, ok, dies in self.group) + ((None, _FAILED, 0),)
+                        self.group = tuple((None, ok, dies) for _, ok, dies in self.group) + ((None, _REDIRECT, 0),)
                     else:
-                        self.group += tuple((cwd, _FAILED, dies) for cwd, _, dies in start)
+                        self.group += tuple((cwd, _REDIRECT, dies) for cwd, _, dies in start)
                 previous = self.command[-1] if self.command else None
                 if previous is not None and previous.end == tok.start and previous.raw.isdigit():
                     self.command.pop()  # 2>&1: the 2 is the redirection's
@@ -2073,7 +2086,7 @@ _SHELL_SHAPES: tuple[tuple[str, bool, str, str | None], ...] = (
     ("set +e\nset -e\ncd scripts/ci\npython3 x", True, "x", _CI),
     # Review of #41088: a compound command's own redirection failing is not a status ! inverts:
     # bash takes the || branch here.
-    ("! { exit 1; } > / || cd scripts/ci\npython3 x", True, "x", None),
+    ("! { exit 1; } > / || cd scripts/ci\npython3 x", True, "x", _CI),
     # the generator's finds at a2a71b13 (the same tree as 338d1230), the same class
     ("while false; do set +e; done ; : > /\n! set +e || ! { exit 1; } > / || cd lib\n( set -e ) > /dev/null\npython3 x", False, "x", None),  # seed 42021
     ("! true || cd missing > / && { exit\n}\n! { if ! set -e; then { true && set +e; } > / && ! while false; do : > /; done\nfi > /dev/null ; exit 1\n} > / || ! set +e || ! cd ..\npython3 x", True, "x", None),  # seed 66672
