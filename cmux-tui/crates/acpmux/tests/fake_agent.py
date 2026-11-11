@@ -750,6 +750,15 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": "child-1", "state": "completed"})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "notice-gate: PATH" anywhere in the prompt (an inbox notice carries another agent's message
+    # after its own lines) works as "gate: PATH".
+    if "notice-gate:" in text:
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "before-gate"}})
+        with open(text.split("notice-gate:", 1)[1].split()[0].rstrip("\"'`).,;")) as gate:
+            gate.read()
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "after-gate"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "gate: PATH" streams "before-gate", blocks until the test writes to
     # the FIFO at PATH (no timers), then streams "after-gate" and ends.
     if text.startswith("gate:"):

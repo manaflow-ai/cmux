@@ -691,6 +691,57 @@ async fn a_steer_its_turn_never_read_runs_next_after_an_update_restart() {
     assert_eq!(runs, 1, "the steer ran more than once: {:#?}", daemon.events(&session));
 }
 
+/// An update restarts acpmux while another agent's message runs as a turn of its own (an inbox
+/// notice). The daemon that started the notice writes `inbox_answered` when it ends, and a
+/// sender's resend of the message is answered from it. The adopting daemon ended the turn and
+/// wrote nothing: the message stayed in the inbox unanswered, and its sender's resend waited
+/// for an answer that never came.
+#[tokio::test]
+async fn a_notice_turn_adopted_across_an_update_restart_answers_its_senders() {
+    let mut daemon = Daemon::new("notice-up", "approve-all");
+    let session = new_session(&daemon).await;
+    let gate = daemon.home.join("gate");
+    make_fifo(&gate);
+    let from = |prompt_id: &str, text: String, resend: bool| {
+        let meta = json!({"promptId": prompt_id, "fromAgent": "coordinator", "class": "block",
+                          "steer": false, "resend": resend});
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": meta}})
+    };
+    // The chat's first work runs as its prompt; the next message from another agent is an inbox
+    // item, and the notice that carries it is a turn of its own.
+    let mut sender = daemon.rpc().await;
+    let first = sender.call("session/prompt", from("w-first", "hello".into(), false)).await;
+    assert_eq!(first["stopReason"], "end_turn", "{first:#}");
+    sender
+        .send("session/prompt", from("m-1", format!("notice-gate: {}", gate.display()), false))
+        .await;
+    daemon.wait_event(&session, "the notice written", |e| {
+        e["kind"] == "inbox_noticed"
+            && e["msg"]["promptIds"].as_array().is_some_and(|ids| ids.contains(&json!("m-1")))
+    });
+    daemon.wait_event(&session, "the notice's turn", |e| chunk(e, "before-gate"));
+
+    daemon.sigterm();
+    drop(sender);
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    std::fs::write(&gate, b"go").unwrap();
+    daemon.wait_event(&session, "the notice's inbox_answered", |e| {
+        e["kind"] == "inbox_answered"
+            && e["msg"]["promptIds"].as_array().is_some_and(|ids| ids.contains(&json!("m-1")))
+    });
+    let mut sender = daemon.rpc().await;
+    let resend = sender
+        .call("session/prompt", from("m-1", format!("notice-gate: {}", gate.display()), true));
+    let answer = tokio::time::timeout(Duration::from_secs(20), resend)
+        .await
+        .expect("the resend was never answered");
+    assert_eq!(
+        answer["stopReason"], "end_turn",
+        "the resend was not answered by its turn: {answer:#}"
+    );
+}
+
 /// An update restart adopts a running Claude chat without initializing its agent again, so the
 /// agent's `steering` capability came back false: every prompt sent into its turns then stopped
 /// the turn ("Sent now · stopped the turn") instead of steering, and the composer's hint flipped
