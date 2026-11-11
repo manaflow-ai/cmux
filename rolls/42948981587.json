@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42948981587",
+  "recorded_at": "2026-11-11T03:00:53Z",
+  "reason": "cmux-tui 391239cc7fbf changes the image's cmux-tui (pinned 0517ee38e02f)",
+  "dry_run": false,
+  "cmux_tui": "391239cc7fbf6a65d31bdf3a6bace9c639f9532c",
+  "fixes": [
+    {
+      "sha": "391239cc7fbf6a65d31bdf3a6bace9c639f9532c",
+      "mergedAt": "2026-11-10T18:36:47-08:00",
+      "subject": "terminal host: a client connection's send buffer holds one writer batch"
+    },
+    {
+      "sha": "a6356ccb897f88fba3f4fa9f81bebaafeb9c56dc",
+      "mergedAt": "2026-11-10T18:36:46-08:00",
+      "subject": "terminal host: build the legacy stream only while a legacy client is attached"
+    },
+    {
+      "sha": "a36fe19494be5bc3cd6078684f57bc9ce14fc029",
+      "mergedAt": "2026-11-10T18:36:45-08:00",
+      "subject": "terminal host: the client writer sends each frame, and each run of queued frames, in one vectored write"
+    },
+    {
+      "sha": "0bcf39cfb9f66216d02fc6012d39c101a4b28d55",
+      "mergedAt": "2026-11-10T18:36:45-08:00",
+      "subject": "terminal host: one copy of each PTY read, shared by the retention, the taps and the parser"
+    },
+    {
+      "sha": "23c3c49f15fb51284509ff4704b8e54993696d8a",
+      "mergedAt": "2026-11-11T02:35:14Z",
+      "subject": "chore(next): base autofix at 73f9197c6e25"
+    },
+    {
+      "sha": "73f9197c6e25f3786a8c018ea4a936fba2931a22",
+      "mergedAt": "2026-11-11T02:32:53Z",
+      "subject": "cmux-remote: a relay socket that dies silently while opening or just after registering is found in seconds (#40917)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T03:00:53Z",
+    "snapshot_id": "sh-569d00aaf89549b3bafa2b68f7e6e2a3",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42948981587): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d3ca427493b8725422bf7bf2dac444e951a3ae52",
+    "image": "cloud-native-auto-391239cc-42948981587-1",
+    "revision": "ci-42948981587-1",
+    "at": "2026-11-11T03:00:53Z"
+  },
+  "rolled_back": false
+}
