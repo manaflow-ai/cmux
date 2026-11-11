@@ -84,8 +84,7 @@ import os
 
     /// The refusal's words when `token`'s Claude limit for `model` is used up; nil otherwise or when unknown.
     func limitRefusal(harness: String?, model named: String?, userID: String, token: Data) async -> String? {
-        let model = Self.modelID(named)
-        let key = userID + "\n" + model
+        let model = Self.modelID(named), key = userID + "\n" + model
         if let kept = kept[key], kept.freshUntil > now() { return kept.refusal?.message }
         let task = asking[key] ?? Task { [self] in
             guard let probe = await probe(token, model: model) else { return nil }
@@ -100,19 +99,16 @@ import os
         return answer.refusal?.message
     }
 
-    /// The rule's answer for `probe` (cmux-cloud-start-core `agent_check::check`); nil when the FFI does not answer.
     /// The full Claude model id a start of `model` runs, which the probe asks and the rule reads: the
     /// default for none (or `default`); a context-window suffix dropped (`claude-opus-5-5[1m]`, whose
     /// limits are its model's, and which the API does not take); a family alias (`opus`, `opusplan`,
     /// `sonnet`, `haiku`) as that family's current id; any other `claude-` id as it is.
     nonisolated static func modelID(_ model: String?) -> String {
-        var id = (model ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if id.hasSuffix("]"), let open = id.lastIndex(of: "[") { id = String(id[..<open]) }
-        if id.hasPrefix("claude-") { return id }
-        for family in ["opus", "sonnet", "haiku"] where id.hasPrefix(family) { return "claude-\(family)-5-5" }
-        return defaultModel
+        let id = (model ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased().split(separator: "[", maxSplits: 1).first.map(String.init) ?? ""
+        return id.hasPrefix("claude-") ? id : ["opus", "sonnet", "haiku"].first { id.hasPrefix($0) }.map { "claude-\($0)-5-5" } ?? defaultModel
     }
 
+    /// The rule's answer for `probe` (cmux-cloud-start-core `agent_check::check`); nil when the FFI does not answer.
     nonisolated static func answer(harness: String?, model: String?, probe: Probe?, now: Int64) -> Answer? {
         CloudStartCore().call("cloud_agent_check", Request(harness: harness, model: model, probe: probe, now: now), as: Answer.self)
     }
@@ -120,9 +116,7 @@ import os
     /// One request with `token` for one output token of `model`'s limits; its status and headers, or nil when it did not answer in time.
     private func probe(_ token: Data, model: String?) async -> Probe? {
         guard let bearer = String(data: token, encoding: .utf8), let request = Self.probeRequest(bearer: bearer, model: model) else { return nil }
-        let reply = try? await send(request)
-        guard let response = reply?.1 as? HTTPURLResponse else { return nil }
-        return Self.probe(response)
+        return ((try? await send(request))?.1 as? HTTPURLResponse).map(Self.probe)
     }
 
     /// The probe: Claude Code's own request shape for a subscription login, the smallest it can be, on the start's own
@@ -144,10 +138,7 @@ import os
     /// A reply's status and its limit headers (only `anthropic-ratelimit-unified-*` leave this function).
     nonisolated static func probe(_ response: HTTPURLResponse) -> Probe {
         var headers: [String: String] = [:]
-        for (key, value) in response.allHeaderFields {
-            guard let key = (key as? String)?.lowercased(), key.hasPrefix("anthropic-ratelimit-unified-") else { continue }
-            headers[key] = value as? String ?? "\(value)"
-        }
+        for case let (key as String, value) in response.allHeaderFields where key.lowercased().hasPrefix("anthropic-ratelimit-unified-") { headers[key.lowercased()] = value as? String ?? "\(value)" }
         return Probe(status: response.statusCode, headers: headers)
     }
 }
