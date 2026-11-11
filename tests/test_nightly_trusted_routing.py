@@ -49,6 +49,9 @@ OUR_LABELS = {NIGHTLY_ONLY, NIGHTLY_SLOT, SIGNING_SLOT, HOSTED}
 # override): an upload with the release App key that held the whole signing Mac.
 HOSTED_SECRET_JOBS = ('sentry-dsyms-nightly', 'sign-release-notes', 'publish-release-notes', 'publish-nightly-reel',
                       'publish-nightly-next-github')
+# The secret-free runner preflight ahead of decide: it judges the routing labels, so it never waits on one of them
+# (test_nightly_owned_minis_only.HOSTED_PREFLIGHT_JOBS has its reason).
+HOSTED_PREFLIGHT_JOBS = ('runner-preflight',)
 # On our minis for nightly-next only; classic and RC keep GitHub-hosted Ubuntu, as their release uploads may wait out
 # the rate limit for 360 min (test_nightly_owned_minis_only.NIGHTLY_NEXT_ONLY_OWNED).
 NIGHTLY_NEXT_ONLY_OWNED = ('republish-nightly-deltas',)
@@ -475,7 +478,7 @@ class NightlyTrustedRouting(unittest.TestCase):
                                    'github.ref': 'refs/heads/nightly-next',
                                    'vars.CI_CLOUD_OVERFLOW_SAVED': '{"probe":"x"}',
                                    'needs.prepare-nightly-variant-primary.result': primary}
-                        allowed = {HOSTED} if name in HOSTED_SECRET_JOBS else OUR_LABELS - {HOSTED}
+                        allowed = {HOSTED} if name in HOSTED_SECRET_JOBS or name in HOSTED_PREFLIGHT_JOBS else OUR_LABELS - {HOSTED}
                         with self.subTest(job=name, runner=runner, attempt=attempt, primary=primary):
                             self.assertIn(evaluate(parse_expression(source), context), allowed)
                         if name in NIGHTLY_NEXT_ONLY_OWNED:

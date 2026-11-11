@@ -280,6 +280,10 @@ path = "tests/test_nightly_resume_tracks.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_runner_preflight.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_sign_admit.py"
 lane = "linux-guard"
 
