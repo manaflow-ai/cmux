@@ -24,10 +24,18 @@ fi
 # by a bare name: a checkout that put its own rustup (or git, sed, env...) ahead
 # on PATH ran it before anything was checked. The resolver takes a name through
 # PATH's absolute entries only ('', '.' and other relative entries are skipped),
-# or an absolute path, and prints it only when its real path (symlinks
-# resolved) lies outside this checkout: its work tree, its git directories and
-# every worktree of the clone. A tool from an install root (mise, asdf, ~/.bun)
-# must also resolve inside that root. Otherwise it says why and prints nothing.
+# or an absolute path, and prints it only when no place its lookup passes
+# through lies inside this checkout (its work tree, its git directories and
+# every worktree of the clone): not the directory it is found in, not any
+# symlink hop (a link to a file or to a directory, followed one hop at a time),
+# not its final target. A checkout link named git pointing at /bin/sh is
+# refused like a checkout git: the link picks what runs and as which name. A
+# tool from an install root (mise, asdf, ~/.bun) must also resolve inside that
+# root. Otherwise it says why and prints nothing.
+# Children look programs up by name too (npm's `#!/usr/bin/env node`, the
+# registry helper's git): their PATH is one private directory of links to
+# checked tools only (CHILD_TOOLS below), never a PATH directory, whose other
+# entries nobody checked.
 # The trusted interpreter the installer recorded is its only root of trust.
 # tests/test_install_git_hooks.py parses this hook and fails on any command
 # that is neither a shell builtin nor a resolved tool.
@@ -35,6 +43,17 @@ fi
 TOOL_RESOLVER='
 import os
 import sys
+import tempfile
+
+# The names children of the hook may look up on PATH. Each gets a link in the
+# private PATH directory of the children when the resolver finds a checked one; a
+# name not listed here is simply not found by a child.
+CHILD_TOOLS = (
+    "git", "sed", "grep", "head", "cut", "sort", "awk", "cat", "mkdir", "mv", "rm", "find", "env",
+    "mktemp", "tail", "sleep", "sh", "bash", "node", "npm", "npx", "bun", "bunx", "rustup", "rustfmt",
+    "cargo", "python3", "dirname", "basename", "readlink", "realpath", "uname", "chmod", "ln", "cp",
+    "tr", "xargs", "touch", "wc", "date", "id", "which", "tar", "gzip",
+)
 
 
 def real(path):
@@ -100,6 +119,40 @@ def checkout_dirs(start):
     return found
 
 
+def trail(path):
+    """Every place a lookup of an absolute path passes through: each symlink, at its real
+    location, one hop at a time (links to directories and chains included), then the
+    final target. None for a link loop or an unreadable link."""
+    places = []
+    pending = [part for part in path.split("/") if part]
+    current = "/"
+    hops = 0
+    while pending:
+        part = pending.pop(0)
+        if part == ".":
+            continue
+        if part == "..":
+            current = os.path.dirname(current)
+            continue
+        step = os.path.join(current, part)
+        if os.path.islink(step):
+            hops += 1
+            if hops > 40:
+                return None
+            places.append(step)
+            try:
+                target = os.readlink(step)
+            except OSError:
+                return None
+            if target.startswith("/"):
+                current = "/"
+            pending = [piece for piece in target.split("/") if piece] + pending
+        else:
+            current = step
+    places.append(current)
+    return places
+
+
 def check(candidate, root, mode, dirs):
     """True when candidate may run; otherwise says why (unless it is simply absent)."""
     if not candidate.startswith("/"):
@@ -107,7 +160,11 @@ def check(candidate, root, mode, dirs):
         return False
     if not os.path.exists(candidate):
         return False
-    resolved = real(candidate)
+    places = trail(candidate)
+    if places is None:
+        say(f"{candidate} is a symlink loop or an unreadable link; not running it.")
+        return False
+    resolved = places[-1]
     if not (os.path.isfile(resolved) and os.access(resolved, os.X_OK)):
         say(f"{candidate} is not an executable file; not running it.")
         return False
@@ -118,12 +175,13 @@ def check(candidate, root, mode, dirs):
             return False
     # A package install inside the checkout (its node_modules) is the one place
     # a tool may live inside it; the hook checks that git tracks nothing there.
-    if mode == "checkout-install":
-        return True
-    for directory in dirs:
-        if within(resolved, directory):
-            say(f"{candidate} resolves to {resolved}, inside this checkout ({directory}); not running it.")
-            return False
+    for place in places:
+        if mode == "checkout-install" and within(place, root_real):
+            continue
+        for directory in dirs:
+            if within(place, directory):
+                say(f"{candidate} passes through {place}, inside this checkout ({directory}); not running it.")
+                return False
     return True
 
 
@@ -140,13 +198,23 @@ def find(name, search_path, dirs):
     return ""
 
 
-def safe_path(search_path, dirs):
-    kept = []
-    for entry in search_path.split(":"):
-        if entry.startswith("/") and os.path.isdir(entry) and entry not in kept \
-                and not any(within(real(entry), directory) for directory in dirs):
-            kept.append(entry)
-    return ":".join(kept)
+def child_path(search_path, dirs, found):
+    """A new private directory (mode 0700, outside the checkout) of links to the checked
+    CHILD_TOOLS: the only PATH children of the hook get."""
+    for base in (tempfile.gettempdir(), "/tmp"):
+        if base.startswith("/") and os.path.isdir(base) \
+                and not any(within(real(base), directory) for directory in dirs):
+            break
+    else:
+        say("no temporary directory outside this checkout for the PATH of its children; not committing.")
+        sys.exit(1)
+    plain(real(base))  # the directory name must reach bash whole, or nothing is made
+    shims = real(tempfile.mkdtemp(prefix="cmux-pre-commit-path.", dir=base))
+    for name in CHILD_TOOLS:
+        tool = found[name] if name in found else find(name, search_path, dirs)
+        if tool:
+            os.symlink(tool, os.path.join(shims, name))
+    return shims
 
 
 def plain(*fields):
@@ -166,17 +234,19 @@ if mode == "boot":
     if not check(sys.executable, "", "", dirs):
         sys.exit(1)
     lines = [plain("dir", directory) for directory in dirs]
-    lines.append(plain("path", safe_path(search_path, dirs)))
     missing = []
+    found = {}
     for name in names:
-        found = find(name, search_path, dirs)
-        if found:
-            lines.append(plain("tool", "TOOL_" + name.upper().replace("-", "_"), found))
+        found[name] = find(name, search_path, dirs)
+        if found[name]:
+            lines.append(plain("tool", "TOOL_" + name.upper().replace("-", "_"), found[name]))
         else:
             missing.append(name)
     if missing:
         say("no usable " + ", ".join(missing) + " on PATH outside this checkout; not committing.")
         sys.exit(1)
+    shims = child_path(search_path, dirs, found)
+    lines.append(plain("path", shims))
     print("\n".join(lines + ["ok"]))
 elif mode == "resolve":
     wanted, root, kind, search_path, dirs = arguments[0], arguments[1], arguments[2], arguments[3], arguments[4:]
@@ -192,7 +262,7 @@ else:
 '
 ORIGINAL_PATH="${PATH:-}"
 CHECKOUT_REAL_DIRS=()
-SAFE_PATH=""
+CHILD_PATH_DIR=""
 BOOT_OK=0
 # The programs every commit may need, resolved in one interpreter start.
 CORE_TOOLS=(git sed grep head cut sort awk cat mkdir mv rm find env mktemp tail sleep)
@@ -202,7 +272,7 @@ load_resolved_tools() {
     while IFS=$'\t' read -r kind name value; do
         case "$kind" in
             dir) CHECKOUT_REAL_DIRS+=("$name") ;;
-            path) SAFE_PATH="$name" ;;
+            path) CHILD_PATH_DIR="$name" ;;
             tool) [[ "$name" =~ ^TOOL_[A-Z0-9_]+$ ]] && printf -v "$name" '%s' "$value" ;;
             ok) BOOT_OK=1 ;;
         esac
@@ -213,10 +283,13 @@ if (( ! BOOT_OK )); then
     echo "pre-commit: could not resolve the tools this hook runs outside this checkout; refusing to run (do not pass --no-verify)." >&2
     exit 1
 fi
-# Children (vp's `#!/usr/bin/env node`, a rustup proxy, the registry helper's
-# git) look tools up by name: give them PATH without relative entries or
-# entries inside this checkout.
-export PATH="$SAFE_PATH"
+# Children (vp's and npm's `#!/usr/bin/env node`, a rustup proxy, the registry
+# helper's git) look tools up by name: their only PATH is the private directory
+# of links to checked tools the boot made. A PATH directory itself is never
+# handed on: an outside one may hold node -> <checkout>/payload.
+export PATH="$CHILD_PATH_DIR"
+# Removed however the hook ends (cleanup, below, takes this trap over).
+trap '"$TOOL_RM" -rf "$CHILD_PATH_DIR"' EXIT
 # The one checked resolver: a name (looked up on the caller's PATH) or an
 # absolute path, optionally within an install root. Prints the path or fails.
 resolve_tool() { # name-or-path [install-root] [checkout-install]
@@ -265,8 +338,8 @@ if (( ! IN_MERGE )) && "$TOOL_GIT" diff --cached --name-only --diff-filter=ACMRT
         } | "$TOOL_SORT" -u
     )
     if (( ${#OWN_TESTS[@]} > 0 )); then
-        # The helper runs `git` by name: put the resolved git's directory first.
-        PATH="${TOOL_GIT%/*}:$PATH" "$PYTHON3_BIN" -I "$REGISTRY_VALIDATOR" --repo-root "$REPO_ROOT" --write "${OWN_TESTS[@]}" >/dev/null 2>&1 || true
+        # The helper runs `git` by name: the children's PATH links the resolved git.
+        "$PYTHON3_BIN" -I "$REGISTRY_VALIDATOR" --repo-root "$REPO_ROOT" --write "${OWN_TESTS[@]}" >/dev/null 2>&1 || true
     fi
     if ! registry_unchanged; then
         "$TOOL_GIT" add -A -- "${REGISTRY[@]}"
@@ -382,6 +455,7 @@ BUN_PIN=""
 HELD_LOCK=""
 cleanup() {
     "$TOOL_RM" -f "${RUSTFMT_DEFAULTS:-}" "${BOOTSTRAP_LOG:-}"
+    "$TOOL_RM" -rf "$CHILD_PATH_DIR"
     release_install_lock
 }
 # Removes the lock only while it is still ours: a hook that ran past the
