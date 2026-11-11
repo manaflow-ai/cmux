@@ -124,7 +124,7 @@ class Token(NamedTuple):
 class Lexed(NamedTuple):
     tokens: list[Token]
     complete: bool  # False: the lexer stopped at something it could not finish; later text is unread
-    heredoc_subs: list[str]  # scripts of `$(..)` and backticks in unquoted heredoc bodies
+    heredoc_subs: list[str]  # scripts of `$(..)` and backticks in unquoted heredoc bodies and arithmetic commands
 
 
 class Invocation(NamedTuple):
@@ -235,9 +235,19 @@ def _expansions(parts: list):
 
 
 def _expansion_subs(text: str, in_double: bool) -> list[str] | None:
-    """The scripts of the substitutions a `${..}` or `$((..))` expansion (TEXT, whole) runs, read by shell_tree in
-    the quoting it is in (inside double quotes a ${ }'s single quote is literal). None when shell_tree cannot read
-    it: the caller then stops, so whatever follows may run anything (fail closed)."""
+    """The scripts of the substitutions a `${..}` or `$((..))` expansion (TEXT, whole) may run, read by shell_tree.
+    Both readings count, because a context this lexer does not track can change which applies: unquoted, and as
+    bash reads it inside double quotes or arithmetic, where a ${ }'s single quote is literal (`(( ${x:-'`a`'} ))`
+    runs a). An arithmetic body is also read the way bash reads it, as double-quoted text. None when either reading
+    fails: the caller then stops, so whatever follows may run anything (fail closed)."""
+    found = _read_expansion(text, in_double)
+    other = _body_subs(text[3:-2]) if text.startswith("$((") else _read_expansion(text, not in_double)
+    if found is None or other is None:
+        return None
+    return found + [script for script in other if script not in found]
+
+
+def _read_expansion(text: str, in_double: bool) -> list[str] | None:
     source = f'"{text}"' if in_double else text
     try:
         script = shell_tree.parse(source)
@@ -261,6 +271,38 @@ def _body_subs(body: str) -> list[str] | None:
     except shell_tree.Unparsed:
         return None
     return _tree_subs(source, [redirect.body for command in script.commands for redirect in command.redirects])
+
+
+def _bracket_close(text: str, index: int) -> int | None:
+    """The index just past the `]` closing the `$[` at `index`; None if it never closes. Substitutions and parameter
+    expansions inside are skipped whole."""
+    depth = 1
+    i = index + 2
+    while i < len(text):
+        c = text[i]
+        if c == "\\":
+            i += 2
+            continue
+        if text.startswith(("$(", "${"), i):
+            end = _match_close(text, i, text[i:i + 2])
+            if end is None:
+                return None
+            i = end
+            continue
+        if c == "`":
+            end = _backtick_close(text, i)
+            if end is None:
+                return None
+            i = end
+            continue
+        if c == "[":
+            depth += 1
+        elif c == "]":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return None
 
 
 def _skip_heredoc_bodies(text: str, index: int, pending: list[tuple[str, bool, bool]],
@@ -363,6 +405,15 @@ def lex(text: str) -> Lexed:
             dynamic = True
             buf.append(text[at:end])
             return end
+        if text.startswith("$[", at):
+            # `$[ .. ]`, bash's old arithmetic, reads its body as double-quoted text: its substitutions run whatever
+            # quotes surround them. The words go on to be read as usual too.
+            end = _bracket_close(text, at)
+            inner = None if end is None else _body_subs(text[at + 2:end - 1])
+            if inner is None:
+                return None
+            subs.extend(inner)
+            dynamic = True
         if _DOLLAR_NAME.match(text[at + 1:at + 2] or " "):
             dynamic = True
         buf.append("$")
@@ -446,6 +497,15 @@ def lex(text: str) -> Lexed:
             i = end
         elif c in ";&|()<>":
             end_word(i)
+            if text.startswith("((", i):
+                # An arithmetic command `(( .. ))` or `for (( .. ))` reads its body as double-quoted text, so a
+                # substitution inside runs whatever quotes surround it; its words are read as usual too.
+                end = _match_close(text, i, "$(")
+                if end is not None and text[end:end + 1] == ")":
+                    inner = _body_subs(text[i + 2:end - 1])
+                    if inner is None:
+                        return Lexed(tokens, False, heredoc_subs)
+                    heredoc_subs.extend(inner)
             operator = next(op for op in _OPERATORS if text.startswith(op, i))
             if operator in _HEREDOCS:
                 expect_delimiter = operator == "<<-"

@@ -95,6 +95,9 @@ FIXTURES = [
     ("a quoted single quote in a parameter default does not hide a substitution",
      "echo \"${x:-'$(a)'}\" >/dev/null", {"a"}, set()),
     ("an escaped dollar in backticks is a substitution there", "echo `echo \\$(a)` >/dev/null", {"a"}, set()),
+    # Found by the grammar below: arithmetic reads its body as double-quoted text, so a ${ }'s single quote is literal.
+    ("a backtick in a single-quoted default in an arithmetic command runs", "(( \"\"${x:-'`a`'}\"\"0 ))", {"a"}, set()),
+    ("a backtick in a single-quoted default in $(( )) runs", "echo $(( ${x:-'`a`'}0 )) >/dev/null", {"a"}, set()),
 ]
 
 
@@ -407,6 +410,8 @@ def bash_runs_gh(scripts: list[str]) -> set[int]:
 
 
 class NestingGrammarAgainstBash(unittest.TestCase):
+    maxDiff = None
+
     def test_the_estimate_covers_every_release_bash_runs_in_a_generated_nesting(self) -> None:
         from shell_invocations import may_run_nested
         scripts = [nest_script(seed) for seed in range(NEST_SEEDS)]
@@ -420,7 +425,7 @@ class NestingGrammarAgainstBash(unittest.TestCase):
             if not may_run_program(script, "gh") or not any(
                     words == [] or words[:3] == ["gh", "release", "create"] for words in nested):
                 missed.append(script)
-        self.assertEqual(missed[:5], [], f"{len(missed)} of {len(ran)} samples bash ran gh in were estimated not to")
+        self.assertEqual(missed, [], f"{len(missed)} of {len(ran)} samples bash ran gh in were estimated not to")
 
     def test_the_reviewer_row(self) -> None:
         from shell_invocations import may_run_nested
