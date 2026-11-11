@@ -54,7 +54,7 @@ impl Hub {
     /// for the store's existing retry and is reported as an error rather than success.
     pub fn clear_peer_snapshots(&self) -> Result<Value, RpcError> {
         let reply = {
-            let _rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+            let _rows = self.remote_sessions.fence();
             self.peer_snapshots.begin_clear()
         };
         if let Some(reply) = reply

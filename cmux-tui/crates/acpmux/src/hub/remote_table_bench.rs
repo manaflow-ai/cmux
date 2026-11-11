@@ -131,3 +131,27 @@ fn remote_table_bench() {
     print("busy", &busy);
     print("idle", &idle);
 }
+
+/// The guard: with a reader walking every row the whole time, a peer notice's p99 stays within
+/// 4x of its p99 with no reader. Before the snapshot (`remote_table.rs`) each notice waited out
+/// a whole 12,000-row walk: p99 about a thousand times the idle one. Each side measured twice,
+/// the better kept, so a scheduler hiccup does not fail it.
+#[test]
+fn a_reader_walking_every_row_never_holds_up_a_peer_notice() {
+    let (hub, peers) = linked();
+    let peer = peers.last().unwrap();
+    notices_round(&hub, peer, false, 0);
+    let p99 = |busy: bool, round: usize| {
+        notices_round(&hub, peer, busy, round)
+            .p99
+            .min(notices_round(&hub, peer, busy, round + 1).p99)
+    };
+    let busy = p99(true, 1);
+    let idle = p99(false, 3);
+    eprintln!(
+        "remote-table-guard busy_p99_us={} idle_p99_us={}",
+        busy.as_micros(),
+        idle.as_micros()
+    );
+    assert!(busy < idle * 4, "a busy reader held notices up: p99 {busy:?} against {idle:?} idle");
+}

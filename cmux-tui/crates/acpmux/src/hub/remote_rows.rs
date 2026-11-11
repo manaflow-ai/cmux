@@ -317,7 +317,7 @@ mod tests {
             if got != want {
                 return fail(format!("of_peer({peer}) {got:?} != model {want:?}"));
             }
-            if rows.has_peer(&peer) != !want.is_empty() {
+            if rows.has_peer(&peer) == want.is_empty() {
                 return fail(format!("has_peer({peer})"));
             }
             for m in 0..MUXES {

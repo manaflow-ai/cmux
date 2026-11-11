@@ -33,7 +33,7 @@ impl Hub {
             return;
         };
         {
-            let _rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+            let _rows = self.remote_sessions.fence();
             let link = current.link();
             if link.attempts <= 1 {
                 tracing::warn!(peer, "peer disconnected: {reason}");

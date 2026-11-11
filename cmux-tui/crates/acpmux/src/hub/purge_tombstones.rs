@@ -119,8 +119,7 @@ mod tests {
     fn rows(hub: &Hub, peer: &str) -> Vec<String> {
         let mut ids: Vec<String> = hub
             .remote_sessions
-            .lock()
-            .unwrap()
+            .read()
             .values()
             .filter(|r| r.peer == peer)
             .map(|r| r.receipt.mux_session_id.clone())

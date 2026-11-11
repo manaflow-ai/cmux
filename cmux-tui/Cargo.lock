@@ -10,6 +10,7 @@ dependencies = [
  "acpmux-hot",
  "aho-corasick",
  "anyhow",
+ "arc-swap",
  "async-trait",
  "axum",
  "base64",

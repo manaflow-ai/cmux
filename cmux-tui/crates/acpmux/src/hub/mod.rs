@@ -292,6 +292,7 @@ pub(crate) mod peer_snapshot;
 pub use peer_lease::PeerLease;
 mod peers;
 mod remote_rows;
+mod remote_table;
 pub(crate) use peers::{
     PEER_LAGGED, PEER_PERMISSION_PENDING, PEER_SETTLE_BUDGET, is_permission_ask,
 };
@@ -726,7 +727,9 @@ pub struct Hub {
     pub(crate) fatal: crate::supervise::Fatal,
     pub started_at: u64,
     pub(super) peers: StdMutex<HashMap<String, Arc<crate::peer::Peer>>>,
-    pub(super) remote_sessions: StdMutex<remote_rows::RemoteRows>,
+    /// The peers' rows, published as a snapshot (`remote_table.rs`): a reader loads it with no
+    /// lock and never holds up a writer; writers (peer notices, purges) take turns.
+    pub(super) remote_sessions: remote_table::RemoteTable,
     /// The same person's machines and sessions the mesh hub lists (`mesh_book.rs`).
     pub(super) mesh_book: StdMutex<mesh_book::MeshBook>,
     /// Read answers larger than one hub message, held for their asker (`mesh_read_parts.rs`).
