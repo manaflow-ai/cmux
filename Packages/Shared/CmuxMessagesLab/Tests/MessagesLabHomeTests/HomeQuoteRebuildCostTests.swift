@@ -92,46 +92,57 @@ import Testing
         func cancel() {}
     }
 
-    /// Pictures that load together (a chat's open, `HomeProjection.refreshAttachments()`) reach the transcript as one
-    /// `.cmuxSetAttachments` commit: every row below the oldest is re-derived once, not once per picture. The 40 one-picture
-    /// commits the projection used to dispatch are timed beside it (`HOMEQUOTE pictures` line).
-    @Test func picturesThatLoadTogetherCostOneCommit() throws {
-        var items: [TranscriptItem] = []
-        let count = 1200
-        var roots: [MessageID] = []
-        for seq in 1...count {
-            let mid = MessageID("msg_\(seq)")
-            let author = seq % 2 == 0 ? Self.me : Self.chief
-            let at = Self.date(Double(seq) * 30)
-            if seq % 30 == 0 {
-                let ref = AttachmentRef(hash: "hash_\(seq)", name: "shot-\(seq).png", mimeType: "image/png", byteCount: 90_000, width: 1200, height: 800)
-                items.append(TranscriptItem(key: IdempotencyKey("k\(seq)"), seq: Seq(seq), author: author, parts: [.attachment(ref)], createdAt: at,
-                                            delivery: .committed, messageID: mid))
-            } else if seq % 3 == 0, !roots.isEmpty {
-                let r = roots[(seq / 3) % roots.count]
-                items.append(TranscriptItem(key: IdempotencyKey("k\(seq)"), seq: Seq(seq), author: author, parts: [.text("ok, on it \(seq)")],
-                                            createdAt: at, delivery: .committed, replyTo: CmuxHomeCore.PartRef(message: r), threadRoot: r, messageID: mid))
-            } else {
-                roots.append(mid)
-                items.append(TranscriptItem(key: IdempotencyKey("k\(seq)"), seq: Seq(seq), author: author, parts: [.text(Self.root(seq))],
-                                            createdAt: at, delivery: .committed, messageID: mid))
+    /// A chat of `count` messages, every 30th a picture, every third a reply quoting a long root, installed in a window and
+    /// laid out once (every bubble measured).
+    @MainActor final class PictureChat {
+        let window: NSWindow
+        let controller: ChatController
+        let store: Store
+
+        init(messages count: Int) throws {
+            var items: [TranscriptItem] = []
+            var roots: [MessageID] = []
+            for seq in 1...count {
+                let mid = MessageID("msg_\(seq)")
+                let author = seq % 2 == 0 ? HomeQuoteRebuildCostTests.me : HomeQuoteRebuildCostTests.chief
+                let at = HomeQuoteRebuildCostTests.date(Double(seq) * 30)
+                if seq % 30 == 0 {
+                    let ref = AttachmentRef(hash: "hash_\(seq)", name: "shot-\(seq).png", mimeType: "image/png", byteCount: 90_000, width: 1200, height: 800)
+                    items.append(TranscriptItem(key: IdempotencyKey("k\(seq)"), seq: Seq(seq), author: author, parts: [.attachment(ref)], createdAt: at,
+                                                delivery: .committed, messageID: mid))
+                } else if seq % 3 == 0, !roots.isEmpty {
+                    let r = roots[(seq / 3) % roots.count]
+                    items.append(TranscriptItem(key: IdempotencyKey("k\(seq)"), seq: Seq(seq), author: author, parts: [.text("ok, on it \(seq)")],
+                                                createdAt: at, delivery: .committed, replyTo: CmuxHomeCore.PartRef(message: r), threadRoot: r, messageID: mid))
+                } else {
+                    roots.append(mid)
+                    items.append(TranscriptItem(key: IdempotencyKey("k\(seq)"), seq: Seq(seq), author: author, parts: [.text(HomeQuoteRebuildCostTests.root(seq))],
+                                                createdAt: at, delivery: .committed, messageID: mid))
+                }
             }
+            let summary = ConversationSummary(
+                id: HomeQuoteRebuildCostTests.id,
+                participants: [CmuxHomeCore.Participant(id: HomeQuoteRebuildCostTests.me, kind: .human, displayName: "Me"),
+                               CmuxHomeCore.Participant(id: HomeQuoteRebuildCostTests.chief, kind: .agent, displayName: "Chief")],
+                lastSeq: Seq(count), createdAt: HomeQuoteRebuildCostTests.date(-100), updatedAt: HomeQuoteRebuildCostTests.date(Double(count) * 30))
+            var core = ProjectionCore(me: HomeQuoteRebuildCostTests.me)
+            let (conv, w) = core.install(HomeQuoteRebuildCostTests.id, items: items, summary: summary)
+            let width = HomeQuoteRebuildCostTests.width
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 900), styleMask: [.titled], backing: .buffered, defer: true)
+            window.isReleasedWhenClosed = false
+            let controller = ChatController(host: HostView(frame: NSRect(x: 0, y: 0, width: width, height: 900)), wake: NoWake())
+            window.contentView = controller.host
+            controller.install(conv, windowStart: w.start, total: w.total)
+            controller.host.layoutSubtreeIfNeeded()
+            let store = try #require(controller.store)
+            self.window = window
+            self.controller = controller
+            self.store = store
         }
-        let summary = ConversationSummary(
-            id: Self.id,
-            participants: [CmuxHomeCore.Participant(id: Self.me, kind: .human, displayName: "Me"),
-                           CmuxHomeCore.Participant(id: Self.chief, kind: .agent, displayName: "Chief")],
-            lastSeq: Seq(count), createdAt: Self.date(-100), updatedAt: Self.date(Double(count) * 30))
-        var core = ProjectionCore(me: Self.me)
-        let (conv, w) = core.install(Self.id, items: items, summary: summary)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: Self.width, height: 900), styleMask: [.titled], backing: .buffered, defer: true)
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
-        let controller = ChatController(host: HostView(frame: NSRect(x: 0, y: 0, width: Self.width, height: 900)), wake: NoWake())
-        window.contentView = controller.host
-        controller.install(conv, windowStart: w.start, total: w.total)
-        controller.host.layoutSubtreeIfNeeded()
-        let store = try #require(controller.store)
+
+        func close() { window.close() }
+
+        /// Every picture of the chat, set to `transfer`.
         func pictures(_ transfer: MessagesLabHome.Attachment.Transfer) -> [(id: ID, attachment: MessagesLabHome.Attachment)] {
             store.state.conversation.messages.compactMap { m in
                 guard case var .attachment(a)? = m.parts.first else { return nil }
@@ -139,22 +150,59 @@ import Testing
                 return (id: m.id, attachment: a)
             }
         }
-        let loaded = pictures(.downloading(0.5))
+
+        /// One commit per picture, as `refreshAttachments` dispatched them before: how long they took together.
+        func oneCommitPerPicture(_ updates: [(id: ID, attachment: MessagesLabHome.Attachment)], clock: ContinuousClock) -> Duration {
+            let start = clock.now
+            for update in updates { controller.dispatch(.cmuxSetAttachments([update])) }
+            return clock.now - start
+        }
+
+        /// The fastest of three one-commit refreshes of every picture; each sets a transfer the pictures do not have yet,
+        /// so every commit changes them all. Ends with every picture `.done`.
+        func bestBatch(clock: ContinuousClock) -> Duration {
+            var best: Duration?
+            let transfers: [MessagesLabHome.Attachment.Transfer] = [.downloading(0.75), .downloading(0.9), .done]
+            for transfer in transfers {
+                let update = pictures(transfer)
+                let start = clock.now
+                controller.dispatch(.cmuxSetAttachments(update))
+                let took = clock.now - start
+                best = min(best ?? took, took)
+            }
+            return best ?? .zero
+        }
+    }
+
+    /// Pictures that load together (a chat's open, `HomeProjection.refreshAttachments()`) reach the transcript as one
+    /// `.cmuxSetAttachments` commit: every row below the oldest is re-derived once, not once per picture. The one-picture
+    /// commits the projection used to dispatch are timed beside it (`HOMEQUOTE pictures` line).
+    ///
+    /// Scaling check, no wall-clock bound: one batch commit at n = 1,200 messages (40 pictures) and at 4n = 4,800 (160
+    /// pictures), best of 3 each. Re-deriving the rows once grows with the chat (about 4x); re-deriving them once per
+    /// picture grows with rows times pictures (about 16x), so the ratio stays under 8.
+    @Test func picturesThatLoadTogetherCostOneCommit() throws {
+        let clock = ContinuousClock()
+        let small = try PictureChat(messages: 1200)
+        defer { small.close() }
+        let loaded = small.pictures(.downloading(0.5))
         #expect(loaded.count >= 30, "the window holds the chat's pictures (\(loaded.count))")
         // Before: one commit per picture, as refreshAttachments dispatched them.
-        var t0 = CACurrentMediaTime()
-        for update in loaded { controller.dispatch(.cmuxSetAttachments([update])) }
-        let singles = (CACurrentMediaTime() - t0) * 1000
+        let singles = small.oneCommitPerPicture(loaded, clock: clock)
         // After: one commit for the refresh.
-        let done = pictures(.done)
-        t0 = CACurrentMediaTime()
-        controller.dispatch(.cmuxSetAttachments(done))
-        let batch = (CACurrentMediaTime() - t0) * 1000
-        #expect(pictures(.done).allSatisfy { u in store.state.conversation.messages.contains { m in
+        let batchN = small.bestBatch(clock: clock)
+        #expect(small.pictures(.done).allSatisfy { u in small.store.state.conversation.messages.contains { m in
             if case let .attachment(a)? = m.parts.first, m.id == u.id { return a.transfer == .done }; return false } })
-        print(String(format: "HOMEQUOTE pictures %d one-per-picture %.2f ms, one batch %.2f ms", loaded.count, singles, batch))
-        #expect(batch < 150, "one refresh of \(loaded.count) pictures blocks the main thread \(batch) ms")
-        #expect(batch * 5 < singles, "one commit (\(batch) ms) costs a fraction of one per picture (\(singles) ms)")
+        let singlesPerBatch = singles / batchN
+        #expect(singlesPerBatch > 5, "one commit (\(batchN)) costs a fraction of one per picture (\(singles))")
+
+        let large = try PictureChat(messages: 4800)
+        defer { large.close() }
+        let batch4N = large.bestBatch(clock: clock)
+        #expect(large.pictures(.done).count == 4 * loaded.count, "the 4n chat holds four times the pictures")
+        let ratio = batch4N / batchN
+        print("HOMEQUOTE pictures \(loaded.count) one-per-picture \(singles), one batch \(batchN); 4n batch \(batch4N), ratio \(ratio)")
+        #expect(ratio < 8, "one refresh of 4x the pictures in a 4x chat costs \(ratio)x (\(batchN) -> \(batch4N)): it grows faster than the chat")
     }
 
     /// A quote's lines and box are the same whether laid out the first time or taken again on a later re-derivation.

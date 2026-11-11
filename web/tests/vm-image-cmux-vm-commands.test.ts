@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { aptUpdateCommand } from "../scripts/cmux-vm-image/apt-update";
@@ -363,8 +363,32 @@ describe("cmux VM image /tmp writer after clean (image roll 42888042827: /tmp/op
     const holder = spawn("bash", ["-c", 'exec 3>>"$1"; exec sleep 300', "holder", leftover], { stdio: "ignore" });
     const namer = spawn("sh", ["-c", "sleep 300; :", "namer", leftover], { stdio: "ignore" });
     try {
-      for (let i = 0; i < 50 && !readdirSync(dir).includes("opencode"); i++) await new Promise((r) => setTimeout(r, 50));
-      await new Promise((r) => setTimeout(r, 200));
+      // Wait for what the command reads in /proc, not a fixed time: the holder has exec'd `sleep 300` with the
+      // leftover open, and the namer is running with it on its command line.
+      const cmdline = (pid: number | undefined) => {
+        try {
+          return readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0").join(" ");
+        } catch {
+          return "";
+        }
+      };
+      const holds = (pid: number | undefined) => {
+        try {
+          return readdirSync(`/proc/${pid}/fd`).some((fd) => {
+            try {
+              return readlinkSync(`/proc/${pid}/fd/${fd}`) === leftover;
+            } catch {
+              return false;
+            }
+          });
+        } catch {
+          return false;
+        }
+      };
+      const ready = () => cmdline(holder.pid).startsWith("sleep 300") && holds(holder.pid) && cmdline(namer.pid).includes(leftover);
+      const deadline = Date.now() + 10_000;
+      while (!ready() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+      expect(ready()).toBe(true);
       const result = await writers(dir);
       const out = result.stdout + result.stderr;
       expect(result.status).not.toBe(0);

@@ -49,9 +49,26 @@ nonisolated struct SettingsFileLock: Sendable {
     /// waiting for the write.
     private static let waits = DispatchQueue(label: "com.cmuxterm.next.settings.file-lock", qos: .userInitiated)
 
-    /// How many waits are on ``waits``, queued or in `flock`. While it is not 0 no write tries the
-    /// lock directly.
-    private static let waiting = Mutex(0)
+    /// The waits on ``waits``, queued or in `flock`: how many (while it is not 0 no write tries the
+    /// lock directly), and how many for each lock file.
+    private nonisolated struct Waiting {
+        var count = 0
+        var byLockPath: [String: Int] = [:]
+    }
+
+    private static let waiting = Mutex(Waiting())
+
+    /// The lock file beside the settings file at `url`.
+    private static func lockPath(file url: URL) -> String {
+        url.deletingLastPathComponent().appending(path: ".\(url.lastPathComponent).lock").path
+    }
+
+    /// Whether a write of the settings file at `url` is waiting for its lock: the one sign that it
+    /// is held behind another writer (a test waits on it instead of a fixed time).
+    static func isWaiting(file url: URL) -> Bool {
+        let path = lockPath(file: url)
+        return waiting.withLock { $0.byLockPath[path, default: 0] > 0 }
+    }
 
     /// Takes the lock of the settings file at `url`. A free lock is taken at once when no earlier
     /// write waits; otherwise the write waits its turn off the caller's thread, for at most
@@ -64,28 +81,33 @@ nonisolated struct SettingsFileLock: Sendable {
     static func acquire(file url: URL, patience: Duration = SettingsFileLock.patience) async throws -> SettingsFileLock {
         let directory = url.deletingLastPathComponent()
         try? FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true)
-        let path = directory.appending(path: ".\(url.lastPathComponent).lock").path
+        let path = lockPath(file: url)
         let descriptor = open(path, O_WRONLY | O_CREAT | O_CLOEXEC, 0o666)
         guard descriptor >= 0 else { return SettingsFileLock(descriptor: -1) }
         return try await withCheckedThrowingContinuation { continuation in
             // One decision per write, in call order: the try and the place on the queue are one
             // step, so a write never passes one that came before it.
-            let taken = waiting.withLock { count -> SettingsFileLock? in
-                if count == 0 {
+            let taken = waiting.withLock { state -> SettingsFileLock? in
+                if state.count == 0 {
                     if flock(descriptor, LOCK_EX | LOCK_NB) == 0 { return SettingsFileLock(descriptor: descriptor) }
                     if errno != EWOULDBLOCK {
                         close(descriptor)
                         return SettingsFileLock(descriptor: -1)
                     }
                 }
-                count += 1
+                state.count += 1
+                state.byLockPath[path, default: 0] += 1
                 let wait = Wait(descriptor: descriptor, continuation: continuation)
                 let deadline = DemandTimer(owner: "settings.file-lock")
                 deadline.schedule(after: patience) { wait.giveUp() }
                 waits.async {
                     wait.lock()
                     deadline.cancel()
-                    waiting.withLock { $0 -= 1 }
+                    waiting.withLock { state in
+                        state.count -= 1
+                        let left = state.byLockPath[path, default: 1] - 1
+                        state.byLockPath[path] = left > 0 ? left : nil
+                    }
                 }
                 return nil
             }

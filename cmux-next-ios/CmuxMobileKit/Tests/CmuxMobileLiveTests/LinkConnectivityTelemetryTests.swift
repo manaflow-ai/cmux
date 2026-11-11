@@ -8,7 +8,15 @@ import Testing
 /// for the cmux team and text-free for everyone else.
 @MainActor
 @Suite struct LinkConnectivityTelemetryTests {
-    private func failingDial(audience: ConnectivityAudience) async -> [ConnectivityRecord] {
+    /// Waits for `condition`, polling the real state, until a deadline far past a normal run.
+    private func eventually(_ condition: () -> Bool, within: Duration = .seconds(20),
+                            sourceLocation: SourceLocation = #_sourceLocation) async throws {
+        let deadline = ContinuousClock.now + within
+        while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        try #require(condition(), "timed out waiting for the failed dial to reach the waiting phase", sourceLocation: sourceLocation)
+    }
+
+    private func failingDial(audience: ConnectivityAudience) async throws -> [ConnectivityRecord] {
         let telemetry = ConnectivityTelemetry()
         telemetry.setAudience(audience)
         let journal = ConnectivityJournal(directory: FileManager.default.temporaryDirectory
@@ -18,13 +26,13 @@ import Testing
                                         accessToken: { _ in "t" })
         controller.endpoint = { LinkEndpoint(baseURL: URL(string: "https://api.example")!, teamID: "team-1", deviceID: "d", macDeviceID: $0) }
         controller.send(.target(LinkMachine.Target(macID: "mac-42", name: "Mac", isOnline: true)))
-        for _ in 0..<200 { if case .waiting = controller.phase { break }; await Task.yield() }
+        try await eventually { if case .waiting = controller.phase { return true }; return false }
         await telemetry.flush()
         return journal.records()
     }
 
     @Test func teamSeesTheFailedDialInFull() async throws {
-        let records = await failingDial(audience: .team)
+        let records = try await failingDial(audience: .team)
         let start = try #require(records.first { $0.name == "dial_start" })
         #expect(start.fields["mac_id"] == .text("mac-42"))
         #expect(start.detail == "https://api.example")
@@ -37,7 +45,7 @@ import Testing
     }
 
     @Test func everyoneSeesTheFailureWithoutIdentifiers() async throws {
-        let records = await failingDial(audience: .everyone)
+        let records = try await failingDial(audience: .everyone)
         let failed = try #require(records.first { $0.name == "dial_failed" })
         #expect(failed.fields["error_code"] == .code("timeout"))
         #expect(failed.detail == nil)

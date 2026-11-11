@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -53,8 +54,14 @@ struct AgentPaneActAsMePillBuildTests {
         #expect(builtWhileOff == 0, "\(builtWhileOff) of \(count) pages built the pill while the grant was off")
 
         // Each page's follower starts and waits on a grant that is off: still no pill. The turn-on below then
-        // wakes a follower that waits, which is the path of a person's click.
-        try await Task.sleep(for: .milliseconds(50))
+        // wakes a follower that waits, which is the path of a person's click. The signal that they have read the
+        // grant: a follower of the test's own, made after theirs as a main-actor task, gets its first value (off)
+        // only after the main actor ran their tasks to the same point.
+        let readByAFollowerAfterThem = await Task { @MainActor () -> Bool? in
+            for await on in ObservationStream({ [grant] in grant.isOn }) { return on }
+            return nil
+        }.value
+        #expect(readByAFollowerAfterThem == false, "the grant was not off when the followers read it")
         let builtWhileWaiting = pages.map { Self.pills(in: $0).count }.reduce(0, +)
         #expect(builtWhileWaiting == 0, "\(builtWhileWaiting) of \(count) pages built the pill later, while the grant was still off")
 

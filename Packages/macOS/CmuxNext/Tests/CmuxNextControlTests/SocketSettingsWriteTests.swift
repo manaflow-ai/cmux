@@ -230,6 +230,10 @@ import Testing
     /// to its publish (cmux-tui `cmux-config`, `lock_config`); this test is that writer. While it
     /// holds the lock, the socket's `settings.set` must not write: it would edit a text the other
     /// writer is about to replace, and one of the two edits would be lost.
+    ///
+    /// The proof that the socket write waits is the lock's own record of it: the write is queued
+    /// behind the held lock (`SettingsFileLock.isWaiting`), and the file is unchanged meanwhile. A
+    /// write that ignored the lock finishes at once instead, which ends the wait below as well.
     @Test func aSocketWriteWaitsForTheWriterThatHoldsTheSettingsLock() async throws {
         let (router, settings, directory) = try make()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -240,15 +244,23 @@ import Testing
         defer { close(lock) }
         try #require(flock(lock, LOCK_EX) == 0, "the other writer takes the lock")
         let read = try String(contentsOf: url, encoding: .utf8)
+        let finished = Box()
         let write = Task {
-            await router.handle(ControlRequest(id: "1", method: "settings.set",
-                                               params: ["path": "notifications.mutedWorkspaces", "value": ["ws-1"], "origin": "script"]))
+            let answer = await router.handle(ControlRequest(id: "1", method: "settings.set",
+                                                            params: ["path": "notifications.mutedWorkspaces", "value": ["ws-1"], "origin": "script"]))
+            finished.flag.withLock { $0 = true }
+            return answer
         }
-        // Room for the socket write to reach the file. Nothing reports "waiting for the lock", so
-        // this is a bounded wait: with the lock honored the write cannot finish inside it.
-        try await Task.sleep(for: .milliseconds(500))
+        // Until the write is queued behind the lock or has finished. Hang guard: 10 s, far above
+        // the moment the write reaches the lock (it queues at once); only a hang reaches it.
+        let deadline = ContinuousClock.now + .seconds(10)
+        while !SettingsFileLock.isWaiting(file: settings.file.url), !finished.flag.withLock({ $0 }), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        #expect(SettingsFileLock.isWaiting(file: settings.file.url), "the socket write did not wait for the lock")
         #expect(try String(contentsOf: url, encoding: .utf8) == read, "the socket wrote the file while another writer held its lock")
-        // The other writer publishes its edit of the text it read, then lets go of the lock.
+        // The other writer publishes its edit of the text it read, then lets go of the lock; the
+        // socket write then gets the lock and both edits survive.
         try Data(#"{"appearance":{"density":"compact"}}"#.utf8).write(to: url, options: .atomic)
         #expect(flock(lock, LOCK_UN) == 0)
         let answer = await write.value

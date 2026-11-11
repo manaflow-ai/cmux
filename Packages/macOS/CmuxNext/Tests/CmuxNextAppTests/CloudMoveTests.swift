@@ -103,13 +103,14 @@ struct CloudMoveTests {
     /// A CLI run whose daemon command reports an event sequence (here a rename of the chat tab) answers once a
     /// snapshot shows that sequence, never at its deadline. A move whose window-record save (a focus move) joined
     /// its run waited out the whole minute on aws-m4pro-8, where that save opened inside the run.
+    ///
+    /// The answer says which: a run that settles answers `ok` from the snapshot that reflects its sequence, and
+    /// one still waiting (on its work, the daemon or that snapshot) at its deadline answers `timeout`
+    /// (`ControlRouter.stillRunning`), so no clock is read here.
     @Test func aCLIRunThatSendsADaemonCommandAnswersOnceTheSnapshotShowsIt() async throws {
         try await Self.withMove("moves") { move in
-            let started = ContinuousClock.now
             let error = await move.cli("tab rename", args: ["name": .string("Renamed Chat")])
-            let took = ContinuousClock.now - started
-            #expect(error == nil, "cmux tab rename: \(error.map { "\($0.code) \($0.message)" } ?? "")")
-            #expect(took < .seconds(10), "the run answered after \(took), not once its rename showed")
+            #expect(error == nil, "cmux tab rename answered at its deadline, not once its rename showed: \(error.map { "\($0.code) \($0.message)" } ?? "")")
         }
     }
 

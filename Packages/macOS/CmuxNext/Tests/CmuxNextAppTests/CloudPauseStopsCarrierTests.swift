@@ -19,14 +19,18 @@ struct CloudPauseStopsCarrierTests {
         try await waitUntil { await resolver.opens >= 1 }
         #expect(await resolver.closes == 0, "a connect leaves the serve running")
 
+        let connectsBeforePause = session.connects
         session.suspend()
         try await waitUntil { await resolver.closes >= 1 }
         let opensWhilePaused = await resolver.opens
-        try await Task.sleep(for: .milliseconds(200))
-        #expect(await resolver.opens == opensWhilePaused, "the paused machine is dialed no more")
+        #expect(session.connects == connectsBeforePause, "the pause started a connect")
 
+        // No fixed quiet window: the resume's dial bounds the pause. Every dial is a connect of this session, so
+        // exactly one connect and one dial after the pause are the resume's own; a dial while paused makes two.
         session.connect()
         try await waitUntil { await resolver.opens > opensWhilePaused }
+        #expect(session.connects == connectsBeforePause + 1, "the paused machine was connected again before its resume")
+        #expect(await resolver.opens == opensWhilePaused + 1, "the paused machine was dialed while paused")
     }
 
     /// The server took a person's pause: the session parks the link before the paused record arrives.

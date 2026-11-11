@@ -119,6 +119,14 @@ struct PaneVerbsKeyTurnTests {
         return done()
     }
 
+    /// The positive signal a "no apply" check waits on: `probe` changes the store's layout to one that shows `order`,
+    /// and only the content's own observation of the store applies it. Observation delivers in order, so once the
+    /// window shows the probe, every store change before it (the echo, the command's refusal) has been observed too.
+    private static func probeShows(_ order: [DaemonPaneID], _ shown: Shown, _ probe: () -> Void) async -> Bool {
+        probe()
+        return await eventually { shown.order == order }
+    }
+
     // MARK: (a) zoom
 
     @Test func zoomShowsInTheTurnOfItsKeyAndUnzoomIsItsInverse() async throws {
@@ -185,7 +193,9 @@ struct PaneVerbsKeyTurnTests {
         try #require(PaneHandlers.neighbor(of: shown.left.layoutPaneID, direction: .right, in: shown.content) == smaller.layoutPaneID,
                      "the harness: Focus Pane Right does not go to the pane the person was last in: \(shown.content.recentPanes)")
 
-        #expect(Self.run("swapPaneRight", on: shown.left, shown))
+        var ran = false
+        let work = shown.services.registry.capturingWork { ran = Self.run("swapPaneRight", on: shown.left, shown) }
+        #expect(ran)
         let swapped = Self.three(Self.below, Self.right, Self.left)
         #expect(shown.store.screen(containing: Self.left)?.layout == swapped, "the store does not show the swap with Focus Pane's neighbor")
         // One pending change, and it is that swap (the tree above): what the registry sends is what the screen shows.
@@ -198,12 +208,17 @@ struct PaneVerbsKeyTurnTests {
         let echo = ScreenLayoutDelta(activePane: Self.left, layout: swapped)
         shown.store.apply(batch: [DaemonEventEnvelope(sequence: 1, event: .layoutChanged(screen: Self.screen, layout: echo, transaction: nil))])
         shown.content.applyLayoutIfChanged()
-        for _ in 0..<20 { await Task.yield() }
-        try await Task.sleep(for: .milliseconds(50))
+        // The command's answer, after its echo as the daemon sends them (the connection refuses it).
+        for task in work { _ = await task.value }
 
-        #expect(shown.content.debugApplies == applies, "the daemon's echo of the shown swap applied the layout \(shown.content.debugApplies - applies) more time(s)")
         #expect(shown.order == [Self.below, Self.right, Self.left], "the daemon's echo swapped the panes back or again: \(shown.order)")
         #expect(shown.store.screen(containing: Self.left)?.layout == swapped)
+        let probed = await Self.probeShows([Self.left, Self.right, Self.below], shown) {
+            let back = ScreenLayoutDelta(activePane: Self.left, layout: Self.three(Self.left, Self.right, Self.below))
+            shown.store.apply(batch: [DaemonEventEnvelope(sequence: 2, event: .layoutChanged(screen: Self.screen, layout: back, transaction: nil))])
+        }
+        try #require(probed, "the content never applied a later layout change: \(shown.order)")
+        #expect(shown.content.debugApplies == applies + 1, "the daemon's echo of the shown swap applied the layout \(Int(shown.content.debugApplies) - Int(applies) - 1) more time(s)")
     }
 
     // MARK: (c) refusal
@@ -251,7 +266,9 @@ struct PaneVerbsKeyTurnTests {
     @Test func theDaemonsEchoOfAShownZoomAppliesNoLayout() async throws {
         let shown = try await Self.shown()
         defer { shown.close() }
-        #expect(Self.run("toggleSplitZoom", on: shown.left, shown))
+        var ran = false
+        let work = shown.services.registry.capturingWork { ran = Self.run("toggleSplitZoom", on: shown.left, shown) }
+        #expect(ran)
         try #require(shown.zoomed, "the zoom does not show before the daemon's answer, so its echo is the first change")
         let applies = shown.content.debugApplies
         let frame = shown.frame(shown.left)
@@ -260,33 +277,45 @@ struct PaneVerbsKeyTurnTests {
         let echo = ScreenLayoutDelta(activePane: Self.left, zoomedPane: Self.left, layout: Self.split(Self.left, Self.right))
         shown.store.apply(batch: [DaemonEventEnvelope(sequence: 1, event: .layoutChanged(screen: Self.screen, layout: echo, transaction: nil))])
         shown.content.applyLayoutIfChanged()
-        // The content's own observation of the store, on later turns.
-        for _ in 0..<20 { await Task.yield() }
-        try await Task.sleep(for: .milliseconds(50))
+        // The command's answer, after its echo as the daemon sends them (the connection refuses it).
+        for task in work { _ = await task.value }
 
-        #expect(shown.content.debugApplies == applies, "the daemon's echo of the shown zoom applied the layout \(shown.content.debugApplies - applies) more time(s)")
         #expect(shown.zoomed && shown.order == [Self.left])
         #expect(shown.frame(shown.left) == frame)
         #expect(shown.store.screen(containing: Self.left)?.zoomedPane == Self.left, "the zoom the daemon confirmed did not stay")
+        // The content's own observation of the store, on later turns: a later unzoom it must apply.
+        let probed = await Self.probeShows([Self.left, Self.right], shown) {
+            let unzoom = ScreenLayoutDelta(activePane: Self.left, layout: Self.split(Self.left, Self.right))
+            shown.store.apply(batch: [DaemonEventEnvelope(sequence: 2, event: .layoutChanged(screen: Self.screen, layout: unzoom, transaction: nil))])
+        }
+        try #require(probed, "the content never applied a later layout change: \(shown.order)")
+        #expect(shown.content.debugApplies == applies + 1, "the daemon's echo of the shown zoom applied the layout \(Int(shown.content.debugApplies) - Int(applies) - 1) more time(s)")
     }
 
     /// The daemon's `layout-changed` for the swap the screen already shows: no layout apply.
     @Test func theDaemonsEchoOfAShownSwapAppliesNoLayout() async throws {
         let shown = try await Self.shown()
         defer { shown.close() }
-        #expect(Self.run("swapPaneRight", on: shown.left, shown))
+        var ran = false
+        let work = shown.services.registry.capturingWork { ran = Self.run("swapPaneRight", on: shown.left, shown) }
+        #expect(ran)
         try #require(shown.order == [Self.right, Self.left], "the swap does not show before the daemon's answer, so its echo is the first change")
         let applies = shown.content.debugApplies
 
         let echo = ScreenLayoutDelta(activePane: Self.left, layout: Self.split(Self.right, Self.left))
         shown.store.apply(batch: [DaemonEventEnvelope(sequence: 1, event: .layoutChanged(screen: Self.screen, layout: echo, transaction: nil))])
         shown.content.applyLayoutIfChanged()
-        for _ in 0..<20 { await Task.yield() }
-        try await Task.sleep(for: .milliseconds(50))
+        // The command's answer, after its echo as the daemon sends them (the connection refuses it).
+        for task in work { _ = await task.value }
 
-        #expect(shown.content.debugApplies == applies, "the daemon's echo of the shown swap applied the layout \(shown.content.debugApplies - applies) more time(s)")
         #expect(shown.order == [Self.right, Self.left], "the swap the daemon confirmed did not stay: \(shown.order)")
         #expect(shown.store.screen(containing: Self.left)?.layout == Self.split(Self.right, Self.left))
+        let probed = await Self.probeShows([Self.left, Self.right], shown) {
+            let back = ScreenLayoutDelta(activePane: Self.left, layout: Self.split(Self.left, Self.right))
+            shown.store.apply(batch: [DaemonEventEnvelope(sequence: 2, event: .layoutChanged(screen: Self.screen, layout: back, transaction: nil))])
+        }
+        try #require(probed, "the content never applied a later layout change: \(shown.order)")
+        #expect(shown.content.debugApplies == applies + 1, "the daemon's echo of the shown swap applied the layout \(Int(shown.content.debugApplies) - Int(applies) - 1) more time(s)")
     }
 
     /// The daemon also sends `tree-changed` for a swap, and the snapshot the client then reads lists the screen's pane
@@ -295,18 +324,24 @@ struct PaneVerbsKeyTurnTests {
     @Test func theDaemonsSnapshotOfAShownSwapAppliesNoLayout() async throws {
         let shown = try await Self.shown()
         defer { shown.close() }
-        #expect(Self.run("swapPaneRight", on: shown.left, shown))
+        var ran = false
+        let work = shown.services.registry.capturingWork { ran = Self.run("swapPaneRight", on: shown.left, shown) }
+        #expect(ran)
         try #require(shown.order == [Self.right, Self.left], "the swap does not show before the daemon's answer, so its snapshot is the first change")
         let applies = shown.content.debugApplies
         let leftFrame = shown.frame(shown.left), rightFrame = shown.frame(shown.right)
 
         shown.store.apply(snapshot: Self.tree(Self.split(Self.right, Self.left)))
         shown.content.applyLayoutIfChanged()
-        for _ in 0..<20 { await Task.yield() }
-        try await Task.sleep(for: .milliseconds(50))
+        // The command's answer, after the snapshot (the connection refuses it).
+        for task in work { _ = await task.value }
 
-        #expect(shown.content.debugApplies == applies, "the daemon's snapshot of the shown swap applied the layout \(shown.content.debugApplies - applies) more time(s)")
         #expect(shown.order == [Self.right, Self.left], "the swap the daemon confirmed did not stay: \(shown.order)")
         #expect(shown.frame(shown.left) == leftFrame && shown.frame(shown.right) == rightFrame)
+        let probed = await Self.probeShows([Self.left, Self.right], shown) {
+            shown.store.apply(snapshot: Self.tree(Self.split(Self.left, Self.right)))
+        }
+        try #require(probed, "the content never applied a later layout change: \(shown.order)")
+        #expect(shown.content.debugApplies == applies + 1, "the daemon's snapshot of the shown swap applied the layout \(Int(shown.content.debugApplies) - Int(applies) - 1) more time(s)")
     }
 }
