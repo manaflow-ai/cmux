@@ -297,7 +297,7 @@ extension AppActions {
                 guard hidden else { return }
                 ClosingWorkspaces.shared.end(id, refused: false, in: nil)
                 if shownAtPress, services.workspace(id: id) != nil, let controller, controller.state.workspaceID == selected.afterPress {
-                    services.windows.show(workspaceID: id, in: controller.state)
+                    services.windows.registry.closeSelection.repairing { services.windows.show(workspaceID: id, in: controller.state) } // the close's selection, no gesture
                 }
             })
         return flow.effect(id, asks: invocation.asksIfRunning) { ClosingWorkspaces.shared.end(id, refused: true, reason: WorkspaceClose.shownReason($0), in: controller?.window) }

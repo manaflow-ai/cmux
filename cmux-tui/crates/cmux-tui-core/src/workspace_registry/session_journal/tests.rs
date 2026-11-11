@@ -1043,3 +1043,90 @@ fn resource_event_pages_keep_their_head_gap_and_ahead_rules() {
     let gap = registry.resource_events_after(4).unwrap_err().to_string();
     assert!(gap.starts_with("cursor.gap:"), "{gap}");
 }
+
+/// Probe (ignored): the cost of one agent roster snapshot save for a roster
+/// of N agent terminals (hook rows plus screen evidence), as the fold writes
+/// it after each pass that moves its cursor. Prints the snapshot size, the
+/// time per save and the WAL bytes each save appends.
+#[test]
+#[ignore = "probe: prints roster snapshot save cost"]
+fn agent_roster_snapshot_save_cost_probe() {
+    use crate::journal_reducers::{AGENT_PLUGIN_FORMAT, AgentRoster, RosterEvent};
+    for terminals in [10_usize, 170, 800] {
+        let mut roster = AgentRoster::default();
+        let mut sequence = 0_u64;
+        for index in 0..terminals {
+            let terminal = format!("term_{index:032x}");
+            for native_event in ["SessionStart", "UserPromptSubmit", "PreToolUse"] {
+                sequence += 1;
+                let ingress = crate::agent_hook_journal_ingress(
+                    "claude",
+                    native_event,
+                    Some(&terminal),
+                    serde_json::json!({"tool_name":"Bash","session_id":format!("session-{index}")}),
+                )
+                .unwrap();
+                roster.apply(&RosterEvent {
+                    producer_id: &ingress.producer_id,
+                    kind: &ingress.kind,
+                    subjects: &ingress.subjects,
+                    payload: &ingress.payload,
+                    sequence,
+                    committed_at_ms: 1_000_000 + sequence,
+                });
+            }
+            sequence += 1;
+            let payload = serde_json::json!({
+                "format": AGENT_PLUGIN_FORMAT,
+                "plugin": {"id": "agent-screen-detection", "version": 1},
+                "adapter": {"id": "claude", "version": 1},
+                "event": "state.changed",
+                "normalized": {
+                    "state": "working",
+                    "source_session": format!("pid:{}", 4000 + index),
+                    "observed_at_ms": (1_000_000 + sequence).to_string(),
+                    "plugin_generation": "1",
+                },
+                "native": {"visible": {"idle": false, "blocker": false, "working": true}},
+            });
+            let subjects = vec![JournalSubject { kind: "terminal".into(), id: terminal.clone() }];
+            roster.apply(&RosterEvent {
+                producer_id: "agent-screen-detection",
+                kind: "plugin.agent-screen-detection.agent.state.changed",
+                subjects: &subjects,
+                payload: &payload,
+                sequence,
+                committed_at_ms: 1_000_000 + sequence,
+            });
+        }
+        let root = std::env::temp_dir().join(format!("cmux-roster-save-{}", new_uuid_v4()));
+        let registry = WorkspaceRegistry::open(&root, "roster-save").unwrap();
+        let database_path = registry.session_journal_database_path().unwrap();
+        let wal_path = database_path.with_extension("sqlite3-wal");
+        let wal_len = || fs::metadata(&wal_path).map(|meta| meta.len()).unwrap_or(0);
+        const SAVES: u64 = 200;
+        let serialize_started = std::time::Instant::now();
+        let mut snapshot = String::new();
+        for _ in 0..SAVES {
+            snapshot = roster.snapshot().to_string();
+        }
+        let serialize = serialize_started.elapsed() / SAVES as u32;
+        // One save first, so the probe measures replacing a snapshot.
+        registry.put_journal_reducer_state("agent_roster", 1, 0, &snapshot).unwrap();
+        let wal_before = wal_len();
+        let started = std::time::Instant::now();
+        for cursor in 1..=SAVES {
+            registry.put_journal_reducer_state("agent_roster", 1, cursor, &snapshot).unwrap();
+        }
+        let per_save = started.elapsed() / SAVES as u32;
+        let wal_after = wal_len();
+        eprintln!(
+            "roster save: {terminals} agent terminals, snapshot {} bytes, serialize {serialize:?}, \
+             save {per_save:?}, WAL {} bytes per save (wal {wal_before} -> {wal_after})",
+            snapshot.len(),
+            wal_after.saturating_sub(wal_before) / SAVES,
+        );
+        drop(registry);
+        let _ = fs::remove_dir_all(root);
+    }
+}

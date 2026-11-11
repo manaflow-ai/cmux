@@ -1349,36 +1349,8 @@ fn reply_of_turn(events: &[Value], turn: &str) -> Option<String> {
     })
 }
 
-/// The last `count` assistant replies of a session, oldest first.
-pub(crate) async fn last_replies(
-    client: &Arc<Client>,
-    id: &str,
-    count: usize,
-) -> Result<Vec<String>> {
-    // Transcript records only, in the largest page the daemon gives (`TRANSCRIPT_PAGE_BYTES`).
-    let page = json!({
-        "sessionId": id, "limit": 5000, "kinds": ["transcript"], "maxBytes": TRANSCRIPT_PAGE_BYTES,
-        // Events with beforeSeq read newest first. This one-shot read must not attach the
-        // shared daemon-to-daemon link to a running chat's live stream.
-        "beforeSeq": u64::MAX
-    });
-    let mut t = Transcript::default();
-    for e in paged_events(client, page, method::MUX_EVENTS).await? {
-        t.apply_event(&e);
-    }
-    let mut out: Vec<String> = t
-        .items
-        .iter()
-        .rev()
-        .filter_map(|i| match i {
-            Item::Assistant { text } => Some(text.clone()),
-            _ => None,
-        })
-        .take(count.max(1))
-        .collect();
-    out.reverse();
-    Ok(out)
-}
+/// The last `count` assistant replies of a session, oldest first (`cli/last_reply.rs`).
+pub(crate) use super::last_reply::last_replies;
 
 #[cfg(test)]
 mod prompt_tests {

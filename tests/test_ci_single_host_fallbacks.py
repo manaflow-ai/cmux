@@ -30,10 +30,12 @@ fails here first. Its nightly scan (nightly_terminal_labels, nightly_job_outputs
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -42,7 +44,25 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+_git_fixture_spec = importlib.util.spec_from_file_location(
+    "git_fixture_env", os.path.join(os.path.dirname(os.path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
+
 ROOT = Path(__file__).resolve().parents[1]
+# sha256 of prepush-gate.py's PEP668_ROUTE. leo-workspace tools/test_host_baseline.py pins the same digest for the same
+# text in machines/host-baseline.json, so the two PEP 668 decisions cannot drift apart.
+PEP668_ROUTE_SHA256 = "1c3f19137ff17c7123fa3fc03093ff2fcdd3e33d9b9488415dd9f5d159de97b0"
+
+
+def base_interpreter() -> str:
+    """A Python that is not a venv (sys.prefix == sys.base_prefix), checked by asking it."""
+    base = getattr(sys, "_base_executable", sys.executable)
+    asked = subprocess.run([base, "-I", "-c", "import sys; print(sys.prefix == sys.base_prefix)"],
+                           capture_output=True, text=True, check=True).stdout.strip()
+    assert asked == "True", f"{base} is itself a venv, so it cannot stand for a base interpreter"
+    return base
 SCRIPT = ROOT / "scripts" / "cmux-next" / "check-single-host-fallbacks.py"
 _spec = importlib.util.spec_from_file_location("check_single_host_fallbacks", SCRIPT)
 checker = importlib.util.module_from_spec(_spec)
@@ -287,6 +307,8 @@ class PrepushGateLayer(unittest.TestCase):
         self.repo = Path(self.tmp.name) / "repo"
         (self.repo / ".github" / "workflows").mkdir(parents=True)
         self.git("init", "-q")
+        for key, value in git_fixture_env.OPT_OUT:  # in the repository's own config too
+            self.git("config", key, value)
         shutil.copy(DECLARATION, self.repo / ".github" / "single-host-fallbacks.json")
         self.workflow("a.yml", "${{ vars.RUNNER_POOLS }}")
         self.base = self.commit("base")
@@ -294,7 +316,9 @@ class PrepushGateLayer(unittest.TestCase):
         self.installed.mkdir()
 
     def git(self, *args: str) -> str:
-        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        # No GIT_* from the caller (a pre-push hook's GIT_DIR would aim this at the pushing repository), then
+        # the helper's maintenance opt-out back on top.
+        env = git_fixture_env.fixture_env({k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
         return subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=fixture",
                                "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", *args],
                               check=True, capture_output=True, text=True, env=env).stdout.strip()
@@ -344,22 +368,71 @@ class PrepushGateLayer(unittest.TestCase):
 
     def test_the_install_line_reaches_the_interpreter_the_hook_runs(self) -> None:
         command = self.gate.pyyaml_install_command
+        apt_dir = self.gate.APT_DIST_PACKAGES
+        base = base_interpreter()
         with tempfile.TemporaryDirectory() as tmp:
             writable, stdlib = Path(tmp) / "site", Path(tmp) / "lib"
             writable.mkdir(); stdlib.mkdir()
-            python = "/opt/py 3/bin/python3"
-            self.assertEqual(command(python, str(writable), str(stdlib), apt=False),
-                             "'/opt/py 3/bin/python3' -m pip install PyYAML==6.0.3")
-            (stdlib / "EXTERNALLY-MANAGED").write_text("", encoding="utf-8")
-            self.assertEqual(command(python, str(writable), str(stdlib), apt=False),
-                             "'/opt/py 3/bin/python3' -m pip install --break-system-packages PyYAML==6.0.3")
+            (Path(tmp) / "py 3").mkdir()
+            python = str(Path(tmp) / "py 3" / "python3")
+            os.symlink(base, python)
+            quoted = shlex.quote(python)
             unwritable = str(Path(tmp) / "missing-site")
-            self.assertEqual(command(python, unwritable, str(stdlib), apt=True), "sudo apt-get install -y python3-yaml")
-            self.assertEqual(command(python, unwritable, str(stdlib), apt=False),
-                             "sudo '/opt/py 3/bin/python3' -m pip install PyYAML==6.0.3")
-            for line in (command(python, str(writable), str(stdlib), apt=False),
-                         command(python, unwritable, str(stdlib), apt=False)):
+            # Codex on #40880 (F2): apt on the host says nothing about this interpreter. A venv or a custom Python whose
+            # sys.path lacks apt's dist-packages gets pip, as -I (user site off), into its own prefix.
+            self.assertEqual(command(python, str(writable), str(stdlib), apt=True, syspath=[str(writable)]),
+                             f"{quoted} -I -m pip install PyYAML==6.0.3")
+            self.assertEqual(command(python, unwritable, str(stdlib), apt=True, syspath=[unwritable]),
+                             f"sudo {quoted} -I -m pip install PyYAML==6.0.3")
+            # The interpreter apt's python3-yaml reaches: apt.
+            self.assertEqual(command(python, unwritable, str(stdlib), apt=True, syspath=[unwritable, apt_dir]),
+                             "sudo apt-get install -y python3-yaml")
+            self.assertEqual(command(python, str(writable), str(stdlib), apt=False, syspath=[apt_dir]),
+                             f"{quoted} -I -m pip install PyYAML==6.0.3")
+            for line in (command(python, str(writable), str(stdlib), apt=True, syspath=[]),
+                         command(python, unwritable, str(stdlib), apt=False, syspath=[])):
                 self.assertNotIn("--user", line, "-I ignores user site-packages, so a --user install never helps")
+
+    def test_the_interpreters_own_sys_path_decides_the_apt_route(self) -> None:
+        # Without SYSPATH the command reads the target interpreter's sys.path as the hook runs it (-I).
+        command = self.gate.pyyaml_install_command(sys.executable, apt=True)
+        reaches = self.gate.APT_DIST_PACKAGES in self.gate.interpreter_sys_path(sys.executable)
+        self.assertEqual(command == "sudo apt-get install -y python3-yaml", reaches, command)
+
+    def test_the_pep668_route_matrix(self) -> None:
+        # Codex on leo-workspace#4198 (F1): a PEP 668 interpreter whose prefix this user can write (Homebrew) installs
+        # with --break-system-packages; one whose prefix it cannot write (a system Python under /usr) refuses with what
+        # to do; a venv, which reads its base's stdlib and so sees the marker (Codex on #40966), gets plain pip. The
+        # decision is PEP668_ROUTE, the same text as leo-workspace machines/host-baseline.json's PyYAML install
+        # carries; both repos pin its sha256 here, so a change to one side fails until the other matches.
+        command = self.gate.pyyaml_install_command
+        base = base_interpreter()
+        with tempfile.TemporaryDirectory() as tmp:
+            managed, plain, writable, env = (Path(tmp) / n for n in ("managed", "plain", "site", "venv"))
+            for d in (managed, plain, writable):
+                d.mkdir()
+            (managed / "EXTERNALLY-MANAGED").write_text("", encoding="utf-8")
+            unwritable = str(Path(tmp) / "missing-site")  # os.access says no even for root
+            subprocess.run([base, "-I", "-m", "venv", "--without-pip", str(env)], check=True, capture_output=True)
+            venv = str(env / "bin" / "python3")
+            pin = "PyYAML==6.0.3"
+            for python, stdlib, purelib, want, line in (
+                    (base, managed, str(writable), "break",
+                     f"{shlex.quote(base)} -I -m pip install --break-system-packages {pin}"),
+                    (base, managed, unwritable, "refuse", None),
+                    (venv, managed, str(writable), "pip", f"{shlex.quote(venv)} -I -m pip install {pin}"),
+                    (base, plain, str(writable), "pip", f"{shlex.quote(base)} -I -m pip install {pin}"),
+                    (base, plain, unwritable, "sudo-pip", f"sudo {shlex.quote(base)} -I -m pip install {pin}")):
+                with self.subTest(python=python, stdlib=stdlib.name, purelib=purelib, want=want):
+                    got = command(python, purelib, str(stdlib), apt=False, syspath=[])
+                    if line is None:
+                        self.assertIn("externally managed", got)
+                        self.assertNotIn("pip install", got)
+                    else:
+                        self.assertEqual(got, line)
+                    self.assertEqual(self.gate.pep668_route(python, str(stdlib), purelib), want)
+        # Last, so a behavior regression fails on behavior first: the route text is leo-workspace's, byte for byte.
+        self.assertEqual(hashlib.sha256(self.gate.PEP668_ROUTE.encode()).hexdigest(), PEP668_ROUTE_SHA256)
 
     def test_a_missing_install_only_warns(self) -> None:
         self.workflow("b.yml", "${{ vars.NEW_X }}")
