@@ -748,6 +748,34 @@ def _javascript_identifier_character(character: str) -> bool:
     return unicodedata.category(character) in _UNICODE_ID_CONTINUE_CATEGORIES
 
 
+def _javascript_jsx_tag_opens_at(source: str, index: int) -> bool:
+    """Whether the `<` at INDEX reads as a JSX open tag or fragment where an expression may start: `<>` or `<Name`,
+    unless the name is followed by `extends` (not `extends=`), `=` or `,`, which make it a type parameter list
+    (`<T extends U>`, `<T = V>`, `<T,>`)."""
+    after = index + 1
+    if after >= len(source):
+        return False
+    if source[after] == ">":
+        return True
+    if not _javascript_identifier_start(source[after]):
+        return False
+    end = after + 1
+    while end < len(source) and _javascript_identifier_character(source[end]):
+        end += 1
+    while end < len(source) and source[end] in " \t\r\n":
+        end += 1
+    if source.startswith(("=", ","), end):
+        return False
+    if source.startswith("extends", end) and not (
+        end + 7 < len(source) and _javascript_identifier_character(source[end + 7])
+    ):
+        rest = end + 7
+        while rest < len(source) and source[rest] in " \t\r\n":
+            rest += 1
+        return source.startswith("=", rest) and not source.startswith(("==", "=>"), rest)
+    return True
+
+
 def _javascript_word_before(source: str, end: int, comments: bytearray) -> tuple[str, int]:
     """The identifier or keyword that ends just before END (skipping blanks and comments), and where it starts;
     ("", END) when there is none."""
@@ -983,7 +1011,8 @@ def _lexical_positions_and_unresolved(
     path_suffix: str = "",
 ) -> tuple[bytes, bytes, tuple[int, ...]]:
     """Return compact executable-code and line-comment masks for source text, and the offsets of each JavaScript
-    slash the lexer could not tell a regex literal from a division (read as a division, but unresolved).
+    slash the lexer could not tell a regex literal from a division (read as a division, but unresolved), and of each
+    `<` in a JSX file it could not tell a JSX tag from a comparison (read as a comparison, but unresolved).
 
     The network detector intentionally accepts URLs in string arguments to real
     clients (for example, ``fetch("https://...")``), so stripping every string
@@ -1034,14 +1063,6 @@ def _lexical_positions_and_unresolved(
         else:
             stop = expression_stop.search(line, index)
         run_end = stop.start() if stop else length
-        if kind == "jsx-tag" and run_end > index:
-            # `<T extends U>(x: T) => ...` is a generic arrow's type parameters, never a tag: read it as code.
-            extends = re.search(r"(?<![\w$])extends(?![\w$])", line[index:run_end])
-            if extends:
-                executable[index : index + extends.start()] = b"\x01" * extends.start()
-                index += extends.start()
-                contexts.pop()
-                continue
         if run_end > index:
             if kind == "block-comment":
                 comments[index:run_end] = b"\x01" * (run_end - index)
@@ -1065,7 +1086,7 @@ def _lexical_positions_and_unresolved(
                 # The closing `>` is no operator: like a string's end, a slash after it divides.
                 contexts.pop()
                 index = close + 1
-            elif index + 1 < length and (line[index + 1] == ">" or _javascript_identifier_start(line[index + 1])):
+            elif _javascript_jsx_tag_opens_at(line, index):
                 executable[index] = True
                 contexts.append(("jsx-tag", 0, ""))
                 index += 1
@@ -1258,18 +1279,17 @@ def _lexical_positions_and_unresolved(
             index = comment_end
             continue
 
-        if (
-            is_jsx
-            and character == "<"
-            and index + 1 < length
-            and (line[index + 1] == ">" or _javascript_identifier_start(line[index + 1]))
-            and _javascript_regex_literal_starts_at(line, index, executable, comments)
-        ):
-            # Where an expression starts, `<Name` or `<>` opens a JSX element.
-            executable[index] = True
-            contexts.append(("jsx-tag", 0, ""))
-            index += 1
-            continue
+        if is_jsx and character == "<" and _javascript_jsx_tag_opens_at(line, index):
+            # Where an expression starts, `<Name` or `<>` opens a JSX element; after a name or a value it is a
+            # comparison. Where the text cannot tell (after a `)` or `}` it cannot classify), it is unresolved.
+            expression_starts = _javascript_regex_literal_starts_at(line, index, executable, comments)
+            if expression_starts is None:
+                unresolved.append(index)
+            elif expression_starts:
+                executable[index] = True
+                contexts.append(("jsx-tag", 0, ""))
+                index += 1
+                continue
 
         if path_suffix in _JAVASCRIPT_SUFFIXES and character == "/":
             starts_regex = _javascript_regex_literal_starts_at(
@@ -5039,7 +5059,9 @@ def _brace_line_functions(text: str, path_suffix: str) -> list[str]:
         unresolved_line = len(before) if partial else len(before) + 1
         column = len(before[-1]) + 1 if partial else 1
         unresolved_name = (
-            f"{UNRESOLVED_SCOPE_PREFIX}: regex literal or division at {unresolved_line}:{column}>"
+            f"{UNRESOLVED_SCOPE_PREFIX}: "
+            f"{'JSX tag or comparison' if text[unresolved[0]] == '<' else 'regex literal or division'} "
+            f"at {unresolved_line}:{column}>"
         )
 
     for line_number, lexed in enumerate(_masked_lines(text, path_suffix), start=1):
@@ -5254,7 +5276,7 @@ def load_allowlist_entries(path: pathlib.Path) -> list[AllowlistEntry]:
             if function.startswith(UNRESOLVED_SCOPE_PREFIX):
                 raise ValueError(
                     f"{path}:{line_number}: {function} is no function: a finding after a slash the lexer cannot "
-                    "read is never allowlisted; make that slash unambiguous and delete the entry"
+                    "read is never allowlisted; make that token unambiguous and delete the entry"
                 )
             entry = AllowlistEntry(rel_path, function, rule, reason, line_number)
             if entry.key() in seen:
@@ -8195,11 +8217,16 @@ def main(argv: list[str]) -> int:
             print(finding.format())
         for finding in unresolved:
             where = finding.function[len(UNRESOLVED_SCOPE_PREFIX) + 2 : -1]
+            reading, at = where.rsplit(" at ", 1)
+            token, fix = (
+                ("<", "parenthesize the JSX element or the comparison")
+                if reading.startswith("JSX")
+                else ("slash", "parenthesize the regex or the division")
+            )
             print(
-                f"{finding.path}:{finding.line}: {finding.rule} unresolved: the lexer cannot tell whether the slash "
-                f"at {where.rsplit(' at ', 1)[-1]} starts a {where.rsplit(' at ', 1)[0]}, so the function this "
-                f"finding sits in is unknown; make that slash unambiguous (parenthesize the regex or the division): "
-                f"{finding.snippet}"
+                f"{finding.path}:{finding.line}: {finding.rule} unresolved: the lexer cannot tell whether the {token} "
+                f"at {at} starts a {reading}, so the function this finding sits in is unknown; make that {token} "
+                f"unambiguous ({fix}): {finding.snippet}"
             )
         for entry in stale:
             print(
