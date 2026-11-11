@@ -2530,6 +2530,31 @@ def test_helper_a_test_only_unrouted_workflows_run_names_reaches_no_lane() -> No
     assert helper_areas(nothing_runs) is None
 
 
+def test_helper_a_test_only_a_manual_test_runs_reaches_no_lane() -> None:
+    """tests/test_script_module_loads.py (registry lane manual, no workflow names it) runs the route test in a
+    subprocess, by hand. A manual test runs what it names only where a person runs it, so the route test
+    stays a dead end; on 2026-11-11 it made owned_pool_rescue.py and strip-release-bundle.sh fail open."""
+    registry = ('version = 1\n[[test]]\npath = "tests/test_unrouted.py"\nlane = "linux-guard"\n'
+                '[[test]]\npath = "tests/test_by_hand.py"\nlane = "manual"\n')
+    by_hand = {
+        "tests/test_unrouted.py": "# runs scripts/ci/helper.py\nimport helper\n",
+        ".github/workflows/next.yml": "on: pull_request\njobs:\n  checks:\n    runs-on: macos-15\n"
+                                      "    steps:\n      - run: python3 tests/test_unrouted.py\n",
+        "tests/test-execution.toml": registry,
+        "tests/test_by_hand.py": 'import subprocess\nsubprocess.run(["python3", "-m", "pytest", "tests/test_unrouted.py"])\n',
+    }
+    assert helper_areas(by_hand) == areas()
+    # The same runner in a lane a Mac job runs, or run by a workflow, still fails open.
+    on_a_mac = {**by_hand, "tests/test-execution.toml": registry.replace('lane = "manual"', 'lane = "macos-shell"')}
+    assert helper_areas(on_a_mac) is None
+    run_by_a_workflow = {
+        **by_hand,
+        ".github/workflows/ci-guards.yml": ROUTED_TREE[".github/workflows/ci-guards.yml"]
+        + "      - run: python3 tests/test_by_hand.py\n",
+    }
+    assert helper_areas(run_by_a_workflow) is None
+
+
 def _trusted_router_copy(directory: Path):
     """detect_ci_change_areas.py loaded from a copy of only the files ci.yml's
     trusted-ci-router step copies, so no other scripts/ci module is importable."""

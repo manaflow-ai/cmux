@@ -94,6 +94,13 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Iterable, Optional
 
+# scripts/ci/guard_findings.py: each active finding is its own check of the CI guard step, so a red on the base
+# never masks a new one (imported by name, tests/test_script_module_loads.py).
+_GUARD_FINDINGS_DIR = str(pathlib.Path(__file__).resolve().parent / "ci")
+if _GUARD_FINDINGS_DIR not in sys.path:
+    sys.path.insert(0, _GUARD_FINDINGS_DIR)
+import guard_findings  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -4000,10 +4007,32 @@ def _sleep_in_loop(lines: list[str], idx: int) -> bool:
     return False
 
 
+# A JS/TS string or regex literal on one line: the text a call quotes or matches, never a call.
+# `expect(wait).not.toMatch(/sleep (?!1;)\d/)` asserts that a generated shell script has no long
+# sleep; `sleep (` there is inside a regex literal (web/tests/vm-image-cmux-vm-commands.test.ts).
+# A regex literal starts after an operator or an opening bracket, never after a value, so a
+# division (`a / b / c`) is left alone.
+_JS_SLEEP_SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts")
+_JS_LITERAL = re.compile(
+    r"""(?x)
+      "(?:\\.|[^"\\\n])*"
+    | '(?:\\.|[^'\\\n])*'
+    | `(?:\\.|[^`\\\n])*`
+    | (?<=[(,=:\[!&|?{};])\s*/(?![/*])(?:\\.|\[(?:\\.|[^\]\\\n])*\]|[^/\\\n\[])+/[a-z]*
+    """
+)
+
+
+def _sleep_call_on(line: str, path_suffix: str) -> bool:
+    if path_suffix in _JS_SLEEP_SUFFIXES:
+        line = _JS_LITERAL.sub('""', line)
+    return bool(_SLEEP_CALL.search(line))
+
+
 def detect_sleep_then_assert(lines: list[str], idx: int, path_suffix: str) -> bool:
     """Sleep on lines[idx] followed by an assertion within 3 non-blank lines."""
     line = lines[idx]
-    is_sleep = bool(_SLEEP_CALL.search(line))
+    is_sleep = _sleep_call_on(line, path_suffix)
     if not is_sleep and path_suffix == ".sh":
         is_sleep = bool(_SHELL_BARE_SLEEP.search(line))
     if not is_sleep:
@@ -4627,6 +4656,23 @@ def _isolated_import_self_test() -> list[str]:
 def _self_test() -> int:
     # (filename, source, expected rules present, rules that must NOT be present)
     positives: list[tuple[str, str, set[str]]] = [
+        # A real JS sleep still counts when a regex or string literal shares its line.
+        (
+            "web/tests/p32.test.ts",
+            (
+                "    if (/x/.test(name)) await new Promise((r) => setTimeout(r, 200));\n"
+                "    expect(seen).toBe(1);\n"
+            ),
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "web/tests/p33.test.ts",
+            (
+                "    await new Promise((r) => setTimeout(r, 200));\n"
+                "    expect(log).toContain(\"sleep (\");\n"
+            ),
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
         # A temp git repo with git's detached auto maintenance still on (the Errno 39 '.git' race).
         (
             "tests/git_temp_repo.py",
@@ -6543,6 +6589,15 @@ def _self_test() -> int:
             "tests/n29.py",
             'assert span < 5, "the duration was off"\n',
         ),
+        # `sleep (` inside a JS regex literal (or a string) is matched text, not a sleep call.
+        (
+            "web/tests/n32.test.ts",
+            (
+                "    expect(wait).not.toMatch(/sleep (?!1;)\\d/);\n"
+                "    expect(wait).toContain('sleep(3) is never run');\n"
+                "    expect(wait).toContain(\"done\");\n"
+            ),
+        ),
         # A sleep inside a deadline-bounded Swift `repeat { } while` poll is a poll body.
         (
             "cmuxTests/n30.swift",
@@ -6782,6 +6837,7 @@ def main(argv: list[str]) -> int:
             print("(non-strict mode: not failing. Run with --strict to enforce.)")
 
     if args.strict and active:
+        guard_findings.report(f"{finding.path}: {finding.rule}: {finding.snippet}" for finding in active)
         return 1
     return 0
 

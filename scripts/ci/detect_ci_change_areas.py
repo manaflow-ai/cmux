@@ -642,6 +642,27 @@ def _python_runner_names(root: Path, runner: str, test: str) -> Optional[bool]:
     return _python_names(text, test)
 
 
+def _test_nothing_runs(root: Path, test: str) -> bool:
+    """True for a tests/ file in a registry lane no job runs (manual, say) that no workflow, action, script or
+    other test runs and nothing imports: a test a person runs by hand. One that runs another test runs it only
+    there. tests/test_script_module_loads.py (manual) runs test_cmux_next_route.py in a subprocess, which made
+    every helper that route test names fail open (owned_pool_rescue.py, strip-release-bundle.sh: 2026-11-11)."""
+    if not test.startswith("tests/") or not _nothing_imports_test(root, test):
+        return False
+    runners = _files_naming(root, test)
+    if runners is None:
+        return False
+    for runner in runners:
+        if (runner == test or runner in _TEST_PATH_LISTS or runner.endswith(_DOCUMENTATION_SUFFIXES)
+                or (is_test_registry_path(runner) and _registry_lane_is_inert(root, test))):
+            continue
+        # A Python file that names it only in a comment or docstring does not run it.
+        if runner.endswith(".py") and _python_runner_names(root, runner, test) is False:
+            continue
+        return False
+    return True
+
+
 def _nothing_imports_test(root: Path, test: str) -> bool:
     """True when no tracked file but the test, its inert registry entry, the
     test path lists and documentation names its module, outside a Python file
@@ -832,6 +853,7 @@ def ci_helper_areas(
                         and not (is_test_registry_path(runner) and _registry_lane_is_inert(root, referrer))
                         and not (runner.startswith("tests/") and runner.endswith(".py")
                                  and _python_runner_names(root, runner, referrer) is False)
+                        and not _test_nothing_runs(root, runner)
                     ]
                     if not runners and _nothing_imports_test(root, referrer):
                         # Nothing runs it or imports it: a manual-lane test
