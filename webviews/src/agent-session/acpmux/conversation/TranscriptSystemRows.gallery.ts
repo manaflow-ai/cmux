@@ -24,6 +24,7 @@ import {
 } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxActivity } from "../model";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
+import { backgroundTurnLook, drawsBackgroundTurnLines } from "./backgroundTurnLook.experiment";
 
 const run = (description: string, command: string): AcpmuxActivity =>
   tool(command, "execute", "completed", { description, command, output: "ok\n", exitCode: 0 });
@@ -114,7 +115,16 @@ export default agentPaneEntry({
     "scheduled-check-hover": {
       note: '"Scheduled check" under the pointer: its words light all the way through, as "Ran 2 commands" does, not only its chevron (Leo, 2026-11-09: "this scheduled check thing isn\'t highlighted all the way through like other tool calls are").',
       snapshot: snapshot(),
-      play: async (ctx) => ctx.hover({ selector: "button.cv-background-turn .cv-agent-activity__sentence" }),
+      play: async (ctx) => {
+        // The line look's line (backgroundTurnLook.experiment.ts); the inline look draws none.
+        if (!drawsBackgroundTurnLines()) return;
+        await ctx.hover({ selector: "button.cv-background-turn .cv-agent-activity__sentence" });
+      },
     },
+  },
+  // Compare arms: the turn's calls inline (default, Leo 2026-11-11) and the line look these variants first drew.
+  experiment: {
+    definition: backgroundTurnLook,
+    script: [{ name: "hover the first row", run: async (ctx) => ctx.hover({ selector: ".cv-tool" }) }],
   },
 });

@@ -215,6 +215,26 @@ test("a failed command's warning shows its exit on the line", async () => {
   expect(line.querySelector(".cv-notice__end")?.textContent?.trim()).toBe("(exit 2)");
 });
 
+// User, 2026-11-09: "generally in gui we should not mention stuff like \"acpmux\"". A background
+// command's end names cmux as its sender, and its opened body never shows the task's internal id or
+// the tool the model reads it with.
+test("a background command's notice never shows acpmux, its task id or bg_output", async () => {
+  const end = bgEnd("bg-b08e9de42d3e", "make test", 0, "lint: ok\ntest: 412 passed\nOK");
+  const read = incomingPrompt(end.text, { _meta: { provenance: end.provenance } });
+  if (read?.kind !== "message") throw new Error("not a message");
+  expect(read.message.name).toBe("cmux");
+  const container = await render(<IncomingMessageLine id="n-9" message={read.message} onOpen={() => undefined} />);
+  const line = container.querySelector(".cv-received.cv-notice")!;
+  expect(line.textContent).toContain("cmux");
+  expect(line.textContent).not.toMatch(/acpmux/i);
+  await act(async () => (line.querySelector(".cv-disclosure__toggle") as HTMLElement).click());
+  const all = container.textContent ?? "";
+  expect(all).toContain("test: 412 passed");
+  expect(all).not.toMatch(/acpmux|bg-b08e9de42d3e|bg_output/i);
+  for (const el of container.querySelectorAll("[aria-label],[title]"))
+    expect(`${el.getAttribute("aria-label") ?? ""} ${el.getAttribute("title") ?? ""}`).not.toMatch(/acpmux/i);
+});
+
 /// Notices that waited behind a busy turn go in as one (acpmux hub/digest.rs `digest_blocks`).
 function digest(...ends: { text: string; provenance: Record<string, unknown> }[]) {
   const parts = ends.map(
@@ -228,7 +248,7 @@ function digest(...ends: { text: string; provenance: Record<string, unknown> }[]
 test("background command ends that went in together read as their notice, never acpmux twice", async () => {
   const read = digest(bgEnd("bg-3", LONG, 0, "note: one"), bgEnd("bg-4", "cargo fmt --check", 0, "ok"));
   if (read?.kind !== "message") throw new Error("not a message");
-  expect(read.message.name).toBe("acpmux");
+  expect(read.message.name).toBe("cmux");
   expect(read.message.notice?.title).toBe(`Background command finished: ${LONG} (exit 0)`);
   expect(read.message.notice?.more).toBe(1);
   const container = await render(<IncomingMessageLine id="n-3" message={read.message} onOpen={() => undefined} />);
@@ -240,7 +260,7 @@ test("background command ends that went in together read as their notice, never 
   const text = container.querySelector(".cv-received__text")!.textContent ?? "";
   // Opened: each notice's own title, then its body, never the rendered head.
   expect(text).toContain("Background command finished: cargo fmt --check (exit 0)");
-  expect(text).toContain("Task bg-4: cargo fmt --check");
+  expect(text).not.toContain("Task bg-4");
   expect(text).not.toContain("[notice from");
 });
 
@@ -249,7 +269,7 @@ test("one notice that went in as a digest reads as that notice", () => {
   if (read?.kind !== "message") throw new Error("not a message");
   expect(read.message.notice).toMatchObject({ severity: "warn", title: "Background command finished: make (exit 3)" });
   expect(read.message.notice?.more).toBeUndefined();
-  expect(read.message.text.startsWith("Task bg-5: make")).toBe(true);
+  expect(read.message.text.startsWith("Last 3 lines of its output:")).toBe(true);
 });
 
 test("the most severe notice of a digest names its line", () => {
