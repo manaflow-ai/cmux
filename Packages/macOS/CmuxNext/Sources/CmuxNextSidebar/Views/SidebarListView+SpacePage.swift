@@ -85,7 +85,21 @@ struct SidebarSpacePages {
     /// The metrics of the full layout the list shows (`SidebarListView.spliceBase`), read when it was made: the list's
     /// own `metrics` are the tokens of now, which a density or a font change in the turn of a switch already moved.
     /// Nil when the list shows no full layout of its row caches: no page is kept from it (`spacePage`).
-    var shownMetrics: SidebarLayoutMetrics?
+    private(set) var shownMetrics: SidebarLayoutMetrics?
+    /// The model's structure (`SidebarModel.structureRevision`) that full layout was made of.
+    private var shownStructure: UInt64 = 0
+
+    /// The list shows a full layout made with `metrics` of the model at `structure` (nil: it shows no full layout).
+    mutating func showsFullLayout(metrics: SidebarLayoutMetrics?, structure: UInt64) {
+        (shownMetrics, shownStructure) = (metrics, structure)
+    }
+
+    /// The list's row caches take a change of the model in place (a row patch, a group's fold) with the model at
+    /// `structure`. When that is not the structure the shown layout was made of (a set whose reload has not run),
+    /// the caches are ahead of the layout: no page is kept from them until the next full layout.
+    mutating func cachesTookChange(at structure: UInt64) {
+        if structure != shownStructure { shownMetrics = nil }
+    }
 
     /// Keeps `page` (nil: nothing to keep) for `space`, and drops the pages of spaces the model no longer has.
     mutating func keep(_ page: SidebarSpacePage?, for space: ProfileKey, live: Set<ProfileKey>) {
@@ -120,8 +134,8 @@ extension SidebarListViewComponents {
     /// The space the list shows as a page: only a full layout of the model (`spliceBase`) at rest, with no change
     /// held and no drag, so the layout is the one a reload would make of the caches' sections. Each change of the
     /// layout in place writes the caches too: a row patch its row (`patchRowsNow`), a fold its section (`foldGroup`).
-    /// A row patch that puts the model's section or group in the caches for another arrangement than the shown one
-    /// (the reload that shows it has not run) clears `shownMetrics`: the list keeps no page until its next full layout.
+    /// A patch or a fold that comes after a structural set the list has not shown yet writes caches that are ahead of
+    /// the layout (`SidebarSpacePages.cachesTookChange`): the list then keeps no page until its next full layout.
     private func spacePage() -> SidebarSpacePage? {
         guard let base = spliceBase, let metrics = spacePages.shownMetrics, !holdsModelChange, drag == nil, settling == nil,
               landing == nil, external == nil, rowHold.isEmpty, leaving.isEmpty, !displayed.rows.isEmpty,
