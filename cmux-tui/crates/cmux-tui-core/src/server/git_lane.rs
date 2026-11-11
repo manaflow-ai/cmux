@@ -21,6 +21,14 @@
 //!   start 50 git processes on a machine that is busy already. Mutations
 //!   have places of their own: a person's commit does not wait for the reads
 //!   of a burst, and a push that takes its 120 s holds no read.
+//! - **A short read does not wait for long ones.** A diff and a file list
+//!   or search are long reads ([`Class::of`]): their git work grows with
+//!   the change or with the tree. They take at most [`MAX_LONG_READ_RUNS`]
+//!   of the read places, so one place is kept for the short reads (a
+//!   status, the branches, a checkpoint row, the comments). The wire does
+//!   not say who asks, but the operation says how long the answer takes:
+//!   the `git.status` of the view a person opens starts while the diffs of
+//!   a burst hold their places and wait in the queue.
 //! - **Equal reads share one run.** A read that waits takes in each later
 //!   read of its connection with the same operation and params. The run
 //!   starts after the last of them came, so its result is new enough for
@@ -38,8 +46,8 @@
 //!   sent still run and answer ([`GitLane::drain`]); after a broken one the
 //!   requests that wait are dropped ([`GitLane::abandon`]).
 //!
-//! Requests start in the order they came (among those their connection's
-//! order lets start); the lane knows no priority.
+//! Requests of one class start in the order they came (among those their
+//! connection's order lets start); the lane knows no other priority.
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
@@ -63,6 +71,11 @@ use crate::resource_router::ParsedResourceRequest;
 /// behind one slow diff without a burst of git processes.
 const MAX_READ_RUNS: usize = 4;
 
+/// The read places that long reads may take at one time. One less than
+/// [`MAX_READ_RUNS`]: the place they leave is where a short read starts
+/// while long reads hold every place of theirs.
+const MAX_LONG_READ_RUNS: usize = 3;
+
 /// Git mutations (a commit, a push, a worktree) that run at one time, in the
 /// whole daemon, beside the reads. They are a person's own actions and few.
 const MAX_MUTATION_RUNS: usize = 2;
@@ -75,10 +88,42 @@ const QUEUED_PER_CLIENT: usize = 512;
 /// Equal reads that share one run. One more waits as a request of its own.
 const SHARED_READS: usize = 64;
 
+/// What a git request is to the order rules.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Class {
+    /// A read whose git work is small: a status, the branches, a checkpoint
+    /// row or list, the comments, the state of a worktree's setup.
+    ShortRead,
+    /// A read whose git work grows with the size of the change or of the
+    /// tree: a diff, a file list or search.
+    LongRead,
+    /// A request that changes the repository or the daemon's git records.
+    Mutation,
+}
+
+impl Class {
+    fn of(operation: ResourceOperation) -> Self {
+        if operation.is_mutation() {
+            return Self::Mutation;
+        }
+        match operation {
+            ResourceOperation::GitDiff
+            | ResourceOperation::GitCheckpointDiff
+            | ResourceOperation::GitFilesList
+            | ResourceOperation::GitFilesSearch => Self::LongRead,
+            _ => Self::ShortRead,
+        }
+    }
+
+    fn is_mutation(self) -> bool {
+        self == Self::Mutation
+    }
+}
+
 /// One request that waits, as the order rules see it.
 struct Entry<J> {
     client: u64,
-    mutation: bool,
+    class: Class,
     job: J,
 }
 
@@ -86,7 +131,7 @@ struct Entry<J> {
 struct Running {
     run: u64,
     client: u64,
-    mutation: bool,
+    class: Class,
 }
 
 /// The lane's order: which request may start, with no I/O and no clock.
@@ -119,7 +164,7 @@ impl<J> Schedule<J> {
     /// its place, and must not run before a mutation it came after.
     fn waiting_read(&mut self, client: u64, equal: impl Fn(&J) -> bool) -> Option<&mut J> {
         for entry in self.queue.iter_mut().rev().filter(|entry| entry.client == client) {
-            if entry.mutation {
+            if entry.class.is_mutation() {
                 return None;
             }
             if equal(&entry.job) {
@@ -129,16 +174,18 @@ impl<J> Schedule<J> {
         None
     }
 
-    fn push(&mut self, client: u64, mutation: bool, job: J) {
-        self.queue.push_back(Entry { client, mutation, job });
+    fn push(&mut self, client: u64, class: Class, job: J) {
+        self.queue.push_back(Entry { client, class, job });
     }
 
     /// The first request that may start now, taken from the queue and
     /// counted as running. A mutation may start when nothing of its
     /// connection runs or waits before it; a read, when no mutation of its
-    /// connection runs or waits before it.
+    /// connection runs or waits before it. A long read also needs one of
+    /// the places long reads may take.
     fn start_next(&mut self) -> Option<(u64, J)> {
-        let mutations = self.running.iter().filter(|running| running.mutation).count();
+        let count = |class: Class| self.running.iter().filter(|run| run.class == class).count();
+        let (mutations, long_reads) = (count(Class::Mutation), count(Class::LongRead));
         let reads = self.running.len().saturating_sub(mutations);
         if reads >= MAX_READ_RUNS && mutations >= MAX_MUTATION_RUNS {
             return None;
@@ -151,14 +198,15 @@ impl<J> Schedule<J> {
         for (index, entry) in self.queue.iter().enumerate() {
             let client = entry.client;
             let mut of_client = self.running.iter().filter(|running| running.client == client);
-            let may_start = if entry.mutation {
+            let may_start = if entry.class.is_mutation() {
                 mutations < MAX_MUTATION_RUNS
                     && !waiting.contains(&client)
                     && of_client.next().is_none()
             } else {
                 reads < MAX_READ_RUNS
+                    && (entry.class == Class::ShortRead || long_reads < MAX_LONG_READ_RUNS)
                     && !barred.contains(&client)
-                    && !of_client.any(|running| running.mutation)
+                    && !of_client.any(|running| running.class.is_mutation())
             };
             if may_start {
                 found = Some(index);
@@ -167,14 +215,14 @@ impl<J> Schedule<J> {
             if !waiting.contains(&client) {
                 waiting.push(client);
             }
-            if entry.mutation && !barred.contains(&client) {
+            if entry.class.is_mutation() && !barred.contains(&client) {
                 barred.push(client);
             }
         }
         let entry = self.queue.remove(found?)?;
         let run = self.next_run;
         self.next_run = self.next_run.wrapping_add(1);
-        self.running.push(Running { run, client: entry.client, mutation: entry.mutation });
+        self.running.push(Running { run, client: entry.client, class: entry.class });
         Some((run, entry.job))
     }
 
@@ -315,10 +363,10 @@ pub(super) fn submit(
     let lane = &mux.control_clients.git_lane;
     let operation = request.envelope.operation;
     let id = request.envelope.id.clone();
-    let mutation = operation.is_mutation();
+    let class = Class::of(operation);
     {
         let mut schedule = lane.schedule.lock().recover_poison();
-        let shared = if mutation {
+        let shared = if class.is_mutation() {
             None
         } else {
             schedule.waiting_read(client, |job| job.same_read(&request))
@@ -340,7 +388,7 @@ pub(super) fn submit(
         crate::diagnostics::answered_later();
         let first = Waiter::new(id);
         let job = Job { client, writer: writer.clone(), request, first, joined: Vec::new() };
-        schedule.push(client, mutation, job);
+        schedule.push(client, class, job);
     }
     lane.start_ready(mux);
     true
@@ -424,7 +472,7 @@ mod tests {
         let mut schedule = Schedule::default();
         for number in 0..50u64 {
             // 2 connections, 25 reads each.
-            schedule.push(number % 2, false, number);
+            schedule.push(number % 2, Class::ShortRead, number);
         }
         let mut order: Vec<u64> =
             std::iter::from_fn(|| schedule.start_next()).map(|(_, job)| job).collect();
@@ -444,10 +492,10 @@ mod tests {
     #[test]
     fn a_mutation_waits_for_its_connections_earlier_reads_and_holds_its_later_ones() {
         let mut schedule = Schedule::default();
-        schedule.push(1, false, "read before");
-        schedule.push(1, true, "commit");
-        schedule.push(1, false, "read after");
-        schedule.push(2, false, "other connection");
+        schedule.push(1, Class::ShortRead, "read before");
+        schedule.push(1, Class::Mutation, "commit");
+        schedule.push(1, Class::ShortRead, "read after");
+        schedule.push(2, Class::ShortRead, "other connection");
         assert_eq!(started(&mut schedule), ["read before", "other connection"]);
         let before = run_of(&schedule, 1);
         schedule.finish(before);
@@ -460,8 +508,8 @@ mod tests {
     #[test]
     fn mutations_of_one_connection_run_one_at_a_time_in_order() {
         let mut schedule = Schedule::default();
-        schedule.push(1, true, "commit");
-        schedule.push(1, true, "push");
+        schedule.push(1, Class::Mutation, "commit");
+        schedule.push(1, Class::Mutation, "push");
         assert_eq!(started(&mut schedule), ["commit"]);
         let commit = run_of(&schedule, 1);
         schedule.finish(commit);
@@ -472,10 +520,10 @@ mod tests {
     fn mutations_have_places_of_their_own_beside_the_reads() {
         let mut schedule = Schedule::default();
         for client in (0u64..).take(MAX_READ_RUNS + 1) {
-            schedule.push(client, false, "read");
+            schedule.push(client, Class::ShortRead, "read");
         }
         for client in (100u64..).take(MAX_MUTATION_RUNS + 1) {
-            schedule.push(client, true, "commit");
+            schedule.push(client, Class::Mutation, "commit");
         }
         let ran = started(&mut schedule);
         let count = |name: &str| ran.iter().filter(|job| **job == name).count();
@@ -491,18 +539,18 @@ mod tests {
     #[test]
     fn an_equal_read_joins_one_that_waits_but_not_across_a_mutation() {
         let mut schedule = Schedule::default();
-        schedule.push(1, false, "status");
-        schedule.push(2, false, "status");
-        schedule.push(1, false, "diff");
+        schedule.push(1, Class::ShortRead, "status");
+        schedule.push(2, Class::ShortRead, "status");
+        schedule.push(1, Class::ShortRead, "diff");
         let status = |job: &&str| *job == "status";
         assert_eq!(schedule.waiting_read(1, status).copied(), Some("status"));
         assert_eq!(schedule.waiting_read(3, status).copied(), None, "its own connection only");
-        schedule.push(1, true, "commit");
+        schedule.push(1, Class::Mutation, "commit");
         let joined = schedule.waiting_read(1, status).copied();
         assert_eq!(joined, None, "a read after the commit must see the commit");
         // A read that runs is not joined: it may have started before the caller asked.
         let mut schedule = Schedule::default();
-        schedule.push(1, false, "status");
+        schedule.push(1, Class::ShortRead, "status");
         assert_eq!(started(&mut schedule), ["status"]);
         assert_eq!(schedule.waiting_read(1, status).copied(), None);
     }
@@ -511,11 +559,11 @@ mod tests {
     fn a_broken_connections_waiting_requests_are_taken_and_the_rest_stay() {
         let mut schedule = Schedule::default();
         for client in (0u64..).take(MAX_READ_RUNS) {
-            schedule.push(client, false, "runs");
+            schedule.push(client, Class::ShortRead, "runs");
         }
         assert_eq!(started(&mut schedule).len(), MAX_READ_RUNS);
-        schedule.push(1, false, "waits of 1");
-        schedule.push(2, false, "waits of 2");
+        schedule.push(1, Class::ShortRead, "waits of 1");
+        schedule.push(2, Class::ShortRead, "waits of 2");
         assert!(schedule.busy(1));
         assert_eq!(schedule.take_queued(1), ["waits of 1"]);
         assert_eq!(schedule.queued(1), 0);
@@ -524,5 +572,47 @@ mod tests {
         schedule.finish(run);
         assert!(!schedule.busy(1));
         assert_eq!(started(&mut schedule), ["waits of 2"]);
+    }
+
+    #[test]
+    fn a_short_read_starts_while_long_reads_hold_their_places_and_wait() {
+        let mut schedule = Schedule::default();
+        for number in 0..24u64 {
+            schedule.push(number % 3, Class::LongRead, "diff");
+        }
+        schedule.push(1, Class::ShortRead, "status");
+        schedule.push(2, Class::ShortRead, "branches");
+        let ran = started(&mut schedule);
+        assert_eq!(ran, ["diff", "diff", "diff", "status"], "one place is not for long reads");
+        assert_eq!(schedule.queue.len(), 22, "21 diffs and the second short read wait");
+        let status = schedule.running.iter().find(|run| run.class == Class::ShortRead).unwrap().run;
+        schedule.finish(status);
+        assert_eq!(started(&mut schedule), ["branches"], "the place goes to the next short read");
+        let diff = schedule.running.iter().find(|run| run.class == Class::LongRead).unwrap().run;
+        schedule.finish(diff);
+        assert_eq!(started(&mut schedule), ["diff"], "a long read's place goes to a long read");
+    }
+
+    #[test]
+    fn short_reads_may_take_every_read_place() {
+        let mut schedule = Schedule::default();
+        for client in (0u64..).take(MAX_READ_RUNS + 1) {
+            schedule.push(client, Class::ShortRead, "status");
+        }
+        schedule.push(9, Class::LongRead, "diff");
+        assert_eq!(started(&mut schedule).len(), MAX_READ_RUNS);
+        assert_eq!(schedule.queue.len(), 2);
+    }
+
+    #[test]
+    fn the_class_of_an_operation() {
+        assert_eq!(Class::of(ResourceOperation::GitStatus), Class::ShortRead);
+        assert_eq!(Class::of(ResourceOperation::GitBranches), Class::ShortRead);
+        assert_eq!(Class::of(ResourceOperation::DiffCommentsList), Class::ShortRead);
+        assert_eq!(Class::of(ResourceOperation::GitDiff), Class::LongRead);
+        assert_eq!(Class::of(ResourceOperation::GitCheckpointDiff), Class::LongRead);
+        assert_eq!(Class::of(ResourceOperation::GitFilesSearch), Class::LongRead);
+        assert_eq!(Class::of(ResourceOperation::GitCommit), Class::Mutation);
+        assert_eq!(Class::of(ResourceOperation::DiffCommentsSave), Class::Mutation);
     }
 }
