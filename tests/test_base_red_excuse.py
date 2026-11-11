@@ -3224,6 +3224,126 @@ def cut_short_log(*results, running=()):
     return "\n".join(f"2026-11-09T19:24:25.9168732Z {line}" for line in lines)
 
 
+# One verdict on every surface (#41431's follow-up, dep-fleet-6: "the webview per-test window and ws-check's per-unit
+# window both ask one verdict alone"). The same rows, each a head's failures and a window of base verdicts (newest
+# first), as abstract units (name, variant), rendered on each surface that judges a red against a window: the webview
+# per-test window (variant: the error a test fails with), the cancelled shard's per-file window (variant: the file)
+# and ws-check's per-unit window (variant: the step a test fails in). Placed jobs (compare_window) carry the same
+# rows in tests/test_base_red_excuse_property.py's AnExcuseKeepsTheBasesEvidence.
+A0, A1, B0, B1, C0 = ("alpha", 0), ("alpha", 1), ("beta", 0), ("beta", 1), ("gamma", 0)
+ONE_VERDICT_ROWS = (
+    # (what, head units, the window's verdicts' units newest first, excused)
+    ("each failure on a verdict of its own", (A0, B0), ((A0,), (B0,)), False),
+    ("an older verdict alone holds every failure", (A0, B0), ((A0,), (A0, B0)), True),
+    ("the newest verdict alone holds every failure", (A0, B0), ((A0, B0, C0), (C0,)), True),
+    # #41422's review F1, the display-named "beta": its identity on one verdict, the other failure on another.
+    ("beta as the head fails it is on the older verdict alone, alpha on the newest alone", (A0, B0),
+     ((A0, B1), (B0,)), False),
+    ("beta as the head fails it with alpha on the older verdict", (A0, B0), ((A0, B1), (A0, B0)), True),
+    ("one failure on none", (A0, C0), ((A0,), (A0, B0)), False),
+)
+
+
+class OneVerdictSurface:
+    """How a surface renders units and judges a head against a window: excused(head, window) -> bool."""
+
+    def excused(self, head, window):
+        raise NotImplementedError
+
+
+class WebWindowSurface(OneVerdictSurface):
+    """test_reds.classify_web_window: a unit is test `NAME page > works` in test/NAME.test.ts, failing with error
+    `expected VARIANT`."""
+
+    @staticmethod
+    def render(units):
+        files = {}
+        for name, variant in units:
+            files.setdefault(f"test/{name}.test.ts", []).append((f"{name} page > works", f"expected {variant}", 3))
+        return web_log(*sorted(files.items()))
+
+    def excused(self, head, window):
+        verdict = excuse.test_reds.classify_web_window(
+            [self.render(head)], iter([(f"run {30 - n}", [self.render(units)]) for n, units in enumerate(window)]))
+        return verdict is not None and not verdict.own
+
+
+class CutShortSurface(OneVerdictSurface):
+    """test_reds.classify_web_cut_short: a unit is red file test/NAME-VARIANT.test.ts."""
+
+    @staticmethod
+    def file(unit):
+        return f"test/{unit[0]}-{unit[1]}.test.ts"
+
+    def excused(self, head, window):
+        verdict = excuse.test_reds.classify_web_cut_short(
+            cut_short_log(*((self.file(unit), "FAIL") for unit in head)),
+            iter([(f"run {30 - n}", [web_log(*((self.file(unit), [("t", "e", 1)]) for unit in units))])
+                  for n, units in enumerate(window)]))
+        return verdict is not None and not verdict.own
+
+
+class WsCheckSurface(OneVerdictSurface):
+    """ws_check_red: a unit is test test_NAME failing in DEPLOY (variant 0) or OTHER (variant 1); the window is main's
+    TIP, OLDER and MERGE_BASE commits."""
+    DEPLOY = ".github/workflows/tools-tests.yml test: ws-deploy and ws_tree_lock"
+    OTHER = ".github/workflows/tools-tests.yml test: lane place"
+
+    def red(self, units):
+        steps = {}
+        for name, variant in units:
+            steps.setdefault(self.OTHER if variant else self.DEPLOY, []).append(f"test_{name}")
+        printed = {}
+        for step, tests in steps.items():
+            lines = []
+            for test in tests:
+                lines += ["=" * 70, f"ERROR: {test} (__main__.FastForward.{test})", "-" * 70,
+                          "Traceback (most recent call last):", "subprocess.CalledProcessError: exit status 128."]
+            printed[step] = lines + ["-" * 70, "Ran 77 tests in 41.360s", "", f"FAILED (errors={len(tests)})"]
+        return printed
+
+    def excused(self, head, window):
+        gh = WsCheckGitHub()
+        gh.verdict(HEAD, 1, self.red(head))
+        gh.base_commits = [gh.TIP, gh.OLDER, gh.MERGE_BASE][:len(window)]
+        for n, (sha, units) in enumerate(zip(gh.base_commits, window)):
+            gh.verdict(sha, 2 + n, self.red(units))
+        return excuse.ws_check_red(gh.REPO, "main", HEAD, gh)["kind"] == "base_red"
+
+
+ONE_VERDICT_SURFACES = {"webview per-test window": WebWindowSurface(), "cancelled shard per-file window":
+                        CutShortSurface(), "ws-check per-unit window": WsCheckSurface()}
+
+
+class EveryWindowAsksOneVerdictAlone(unittest.TestCase):
+    """The property on every surface that judges a red against a window of base verdicts: excused by the window
+    implies excused by one verdict of it alone (and the converse: a verdict that alone holds every failure excuses
+    it). The same rows on each surface, then generated rows."""
+
+    def test_the_rows_on_every_surface(self):
+        for surface_name, surface in ONE_VERDICT_SURFACES.items():
+            for what, head, window, excused in ONE_VERDICT_ROWS:
+                with self.subTest(surface=surface_name, row=what):
+                    self.assertEqual(surface.excused(head, window), excused)
+                    self.assertEqual(any(surface.excused(head, (units,)) for units in window), excused)
+
+    def test_excused_by_the_window_iff_by_one_verdict_alone_on_generated_rows(self):
+        import random
+        units = (A0, A1, B0, B1, C0)
+        found = []
+        for surface_name, surface in ONE_VERDICT_SURFACES.items():
+            rng = random.Random(41431)
+            for seed in range(120):
+                head = tuple(sorted(rng.sample(units, rng.randint(1, 3))))
+                window = tuple(tuple(sorted(rng.sample(units, rng.randint(1, 4)))) for _ in range(rng.randint(1, 3)))
+                whole = surface.excused(head, window)
+                alone = any(surface.excused(head, (verdict,)) for verdict in window)
+                if whole != alone:
+                    found.append(f"{surface_name} seed {seed}: head {head}, window {window}: excused by the window "
+                                 f"{whole}, by one verdict alone {alone}")
+        self.assertEqual(found, [], "\n".join(found[:6]))
+
+
 class CancelledWebShardPerFile(unittest.TestCase):
     """A head shard cancelled or timed out mid-run is judged per file against the base's webview runs: cmux#39676's
     `web / react-apps-check (1)` was cancelled after 31 min while every file it failed fails on feat-cmux-next too, and
