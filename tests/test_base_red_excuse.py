@@ -6110,9 +6110,13 @@ class WsCheckSquashTree(unittest.TestCase):
     to leo-workspace's hosted paths, whichever checkout or runner made the run. Compared by tree, never by path."""
     REPO = "teamleaderleo/leo-workspace"
 
+    # Every fixture git call has an identity, so a commit or a squash merge never depends on the host's git config.
+    IDENTITY = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+                "GIT_COMMITTER_EMAIL": "t@t"}
+
     def git(self, *args, cwd=None, text=None):
         return subprocess.run(["git", *args], cwd=cwd or self.work, check=True, capture_output=True, text=True,
-                              input=text, env=git_fixture_env.fixture_env()).stdout.strip()
+                              input=text, env=git_fixture_env.fixture_env({**os.environ, **self.IDENTITY})).stdout.strip()
 
     def commit(self, files, message):
         for name, body in files.items():
@@ -6120,7 +6124,7 @@ class WsCheckSquashTree(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(body)
         self.git("add", "-A")
-        self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", message)
+        self.git("commit", "-q", "-m", message)
         return self.git("rev-parse", "HEAD")
 
     def setUp(self):
@@ -6139,6 +6143,7 @@ class WsCheckSquashTree(unittest.TestCase):
         self.other = self.commit({"tools/a.py": "a3\n"}, "another PR")
         self.git("checkout", "-q", "-b", "clash", self.old)
         self.clash = self.commit({"tools/b.py": "b3\n"}, "conflicts with main")
+        self.top = Path(top.name)
         cache = Path(top.name, "cache")
         git_fixture_env.init_repo(cache / "teamleaderleo__leo-workspace.git", "--bare")
         self.git("push", "-q", str(cache / "teamleaderleo__leo-workspace.git"), "main", "pr", "other", "clash")
@@ -6151,7 +6156,7 @@ class WsCheckSquashTree(unittest.TestCase):
         """What a pinned squash of HEAD onto TIP lands, cut as the broker cuts its snapshot: tools and machines only."""
         self.git("checkout", "-q", "--detach", tip)
         self.git("merge", "-q", "--squash", head)
-        self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "squash")
+        self.git("commit", "-q", "-m", "squash")
         landed = self.git("rev-parse", "HEAD")
         return self.git("mktree", text="\n".join(self.git("ls-tree", landed, "--", path)
                                                    for path in ("tools", "machines")) + "\n")
@@ -6175,6 +6180,35 @@ class WsCheckSquashTree(unittest.TestCase):
     def test_a_conflicted_merge_is_refused(self):
         with self.assertRaisesRegex(excuse.Refused, r"does not merge cleanly .*conflicts in: tools/b\.py"):
             excuse.ws_check_squash_tree(self.REPO, self.clash, self.tip)
+
+    def test_a_cache_git_commit_filled_shallow_still_merges_by_the_whole_history(self):
+        # dep-fleet-6 on cmux#41386 at 0000f4c0 (F1): git_commit fills the shared cache one commit deep, so both
+        # commits are present while their history is not. Present is not complete: the merge needs the merge-base.
+        shallow = self.top / "shallow-cache"
+        self.git("config", "uploadpack.allowFilter", "true")
+        self.git("config", "uploadpack.allowAnySHA1InWant", "true")
+        remote = lambda repo: self.work.as_uri()  # noqa: E731
+        with unittest.mock.patch.dict(os.environ, {excuse.SOURCE_CACHE_ENV: str(shallow)}), \
+                unittest.mock.patch.object(excuse, "git_remote", remote):
+            self.assertEqual(excuse.git_commit(self.REPO, self.head), self.head)
+            self.assertEqual(excuse.git_commit(self.REPO, self.tip), self.tip)
+            cache = shallow / "teamleaderleo__leo-workspace.git"
+            self.assertEqual(self.git("rev-parse", "--is-shallow-repository", cwd=cache), "true")
+            self.assertEqual(excuse.ws_check_squash_tree(self.REPO, self.head, self.tip),
+                             self.squashed(self.head, self.tip))
+
+    def test_a_shallow_cache_whose_history_cannot_be_fetched_is_refused(self):
+        shallow = self.top / "shallow-cache"
+        self.git("config", "uploadpack.allowFilter", "true")
+        self.git("config", "uploadpack.allowAnySHA1InWant", "true")
+        with unittest.mock.patch.dict(os.environ, {excuse.SOURCE_CACHE_ENV: str(shallow)}):
+            with unittest.mock.patch.object(excuse, "git_remote", lambda repo: self.work.as_uri()):
+                excuse.git_commit(self.REPO, self.head)
+                excuse.git_commit(self.REPO, self.tip)
+            gone = (self.top / "gone.git").as_uri()
+            with unittest.mock.patch.object(excuse, "git_remote", lambda repo: gone), \
+                    self.assertRaisesRegex(excuse.Refused, "shallow"):
+                excuse.ws_check_squash_tree(self.REPO, self.head, self.tip)
 
     def test_a_commit_git_cannot_read_is_refused(self):
         with unittest.mock.patch.object(excuse, "git_remote", lambda repo: str(Path(self.work, "missing.git"))), \
