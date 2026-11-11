@@ -64,6 +64,13 @@ OWNED_DEFAULT = "glaeda-std-xcode-26.6"
 # An owned pool label a runs-on may already name (not glaeda-ios-sim, a capability beside a pool).
 OWNED_POOL = re.compile(r"'(glaeda-[a-z0-9-]*xcode-[0-9.]+|glaeda-nightly-only-m4pro|glaeda-trusted-next-signing)'")
 
+# Workflows whose runs-on another guard pins to an exact allowlist; the switch leaves them alone (they stay on their
+# own selector, CI_TRUSTED_RUNNER, which can already name ubuntu-24.04).
+NOT_WRAPPED = {
+    "cla.yml": "scripts/ci/validate-cla-policy.rb admits only its exact CLA runner expressions (CLA_RUNNERS)",
+    "cla-policy-guard.yml": "scripts/ci/validate-cla-policy.rb admits only its exact CLA runner expressions (CLA_RUNNERS)",
+}
+
 RUNS_ON = re.compile(r"^(?P<lead>\s*runs-on:\s*)(?P<value>\S.*?)(?P<comment>\s+#.*)?$")
 EXPRESSION = re.compile(r"^\$\{\{\s*(?P<inner>.*?)\s*\}\}$")
 JOB = re.compile(r"^  (?P<id>[A-Za-z0-9_-]+):\s*(?:#.*)?$")
@@ -225,6 +232,8 @@ def needs_wrap(value: str) -> bool:
 
 def rewrite(path: Path, classes: dict[str, str]) -> tuple[str, list[str]]:
     """The file's text with every runs-on that can reach Blacksmith wrapped, and `file#job` for each one."""
+    if path.name in NOT_WRAPPED:
+        return path.read_text(encoding="utf-8"), []
     lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
     by_job = job_classes(path, classes)
     in_jobs = False

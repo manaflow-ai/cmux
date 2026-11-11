@@ -38,11 +38,22 @@ def jobs():
                 yield f"{path.name}#{name}", job
 
 
+def not_wrapped(key: str) -> bool:
+    """A workflow another guard pins (blacksmith_off.NOT_WRAPPED): it keeps its own selector."""
+    return key.split("#", 1)[0] in blacksmith_off.NOT_WRAPPED
+
+
 def skipped_when_off(condition) -> bool:
     return blacksmith_off.SKIP_WHEN_OFF in str(condition or "")
 
 
 class BlacksmithOffSwitch(unittest.TestCase):
+    def test_not_wrapped_workflows_name_their_guard(self):
+        for name, reason in blacksmith_off.NOT_WRAPPED.items():
+            with self.subTest(workflow=name):
+                self.assertTrue((ROOT / ".github/workflows" / name).is_file(), "a stale entry")
+                self.assertIn("scripts/", reason)
+
     def test_every_runs_on_that_can_reach_blacksmith_is_wrapped(self):
         result = subprocess.run([sys.executable, str(ROOT / "scripts/ci/blacksmith_off.py"), "--check"],
                                 capture_output=True, text=True, check=False)
