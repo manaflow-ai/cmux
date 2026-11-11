@@ -24,6 +24,7 @@ jobs:
         with:
           bun-version: "1.4.4"
       - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps --only-shell chromium webkit
       - name: Red, the test without the fix must fail
         run: |
           git checkout -q HEAD~2 -- src/agent-session/acpmux/model.ts
