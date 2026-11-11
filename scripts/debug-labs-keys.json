@@ -133,6 +133,7 @@
   "sidebar.toggleIcon": {"case": "keep", "why": "Icon candidates for review; the default stays until one is picked."},
   "sidebar.updateCard.automaticControl": {"case": "keep", "why": "A look comparison for the update card's Automatic Updates control; the switch is the default look."},
   "sidebar.updateCard.button": {"case": "keep", "why": "A look comparison of update button fills; the primary default is the chosen one."},
+  "sidebar.updateCard.layout": {"case": "keep", "why": "Three Restart to Update layouts for Leo to pick from (#39682); the card default stays until he picks one."},
   "sidebar.updateCard.simulatePending": {"case": "keep", "why": "A test hook that pretends an update is staged to show the Update Ready card; nothing installs."},
   "sidebar.workspaceTitleMotion": {"case": "keep", "why": "An animation comparison for late and renamed titles; the roll default is the current look."},
   "sidebar.workspacesAsTabs": {"case": "keep", "why": "An off-by-default prototype that remaps Cmd-Shift-[ and ]; changing the default would change the shipped keys."},
