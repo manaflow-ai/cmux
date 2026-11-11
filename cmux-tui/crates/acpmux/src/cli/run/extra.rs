@@ -116,33 +116,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Kill { session, purge, condition } => {
-            let client = connect(true).await?;
-            // An older daemon would ignore the condition and stop a busy session.
-            if condition.if_idle && !client.daemon_lists(crate::hub::stop_if_idle::FEATURE) {
-                return Err(crate::cli::errors::AppError::new(
-                    crate::cli::errors::Code::Runtime,
-                    "stop_if_idle_unsupported",
-                    "the running daemon predates `session stop --if-idle`: nothing was stopped; \
-                     restart it on the installed acpmux, then retry",
-                )
-                .into());
-            }
-            let id = crate::cli::resolve::control_id(&client, &session).await?;
-            let mut params = json!({"sessionId": id, "purge": purge});
-            if condition.if_idle {
-                cmux_json::JsonSet::set(&mut params, "ifIdle", json!(true));
-            }
-            if let Some(rev) = condition.expect_revision {
-                cmux_json::JsonSet::set(&mut params, "expectRevision", json!(rev));
-            }
-            let v = client.request(method::MUX_KILL, params).await?;
-            if json_out {
-                print_json(&v)
-            } else {
-                println!("{}", if purge { "purged" } else { "closed" })
-            }
-            Ok(())
+        Command::Kill { sessions, purge, condition } => {
+            super::session_stop::run(&sessions, purge, condition, json_out).await
         }
         Command::RestartAgent { session } => {
             let client = connect(true).await?;

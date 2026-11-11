@@ -523,7 +523,10 @@ pub enum Command {
     Cancel { session: String },
     #[command(hide = true, alias = "kill-session")]
     Kill {
-        session: String,
+        /// Each session to stop, in order: one that cannot be stopped is reported, and the
+        /// ones after it are still stopped.
+        #[arg(required = true, num_args = 1.., value_name = "SESSION")]
+        sessions: Vec<String>,
         #[arg(long)]
         purge: bool,
         /// Set from `session stop --if-idle`; the hidden spelling takes no condition.
@@ -950,10 +953,14 @@ pub enum SessionCmd {
     },
     /// Cancel the running turn.
     Cancel { session: String },
-    /// Stop the agent process. The session stays resumable.
+    /// Stop the agent process of each named session. The session stays resumable: `acpmux send
+    /// NAME "text"` continues it in the same conversation (the output says so). With several
+    /// names, each is stopped in order; one that cannot be stopped is reported, and the rest
+    /// are still stopped.
     #[command(alias = "kill")]
     Stop {
-        session: String,
+        #[arg(required = true, num_args = 1.., value_name = "SESSION")]
+        sessions: Vec<String>,
         #[command(flatten)]
         mesh: crate::cli::mesh_control::RouteArgs,
         /// Also delete the log.
@@ -1440,8 +1447,8 @@ pub fn flatten(c: Command) -> Command {
         Command::Session(sc) => match sc {
             SessionCmd::Info { session, fields } => Command::Info { session, fields },
             SessionCmd::Cancel { session } => Command::Cancel { session },
-            SessionCmd::Stop { session, purge, mesh, condition } if !mesh.mesh => {
-                Command::Kill { session, purge, condition }
+            SessionCmd::Stop { sessions, purge, mesh, condition } if !mesh.mesh => {
+                Command::Kill { sessions, purge, condition }
             }
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Rename { session, new_name } => Command::Rename { session, new_name },

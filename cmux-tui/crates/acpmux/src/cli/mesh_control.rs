@@ -88,7 +88,12 @@ fn request(command: SessionCmd) -> Result<Value> {
         SessionCmd::Resume { session, mesh, .. } if mesh.mesh => {
             ("resume", target(&session, mesh.id), Value::Null, mesh.idempotency_key)
         }
-        SessionCmd::Stop { session, purge, mesh, condition } if mesh.mesh => {
+        SessionCmd::Stop { sessions, purge, mesh, condition } if mesh.mesh => {
+            let [session] = sessions.as_slice() else {
+                bail!(
+                    "mesh stop takes one session; run `acpmux session stop NAME --mesh` for each"
+                );
+            };
             if purge {
                 bail!("mesh stop keeps the stored session; --purge is unsupported");
             }
@@ -99,7 +104,7 @@ fn request(command: SessionCmd) -> Result<Value> {
                      the session's host"
                 );
             }
-            ("stop", target(&session, mesh.id), Value::Null, mesh.idempotency_key)
+            ("stop", target(session, mesh.id), Value::Null, mesh.idempotency_key)
         }
         SessionCmd::Receipt { message_id } => return Ok(json!({"receipt": message_id})),
         _ => bail!("not a mesh lifecycle command"),
@@ -204,8 +209,8 @@ mod tests {
             &["acpmux", "session", "kill", "--id", id, "--purge"][..],
         ] {
             match local(argv) {
-                Command::Kill { session, purge, condition } => {
-                    assert_eq!(session, id, "{argv:?}");
+                Command::Kill { sessions, purge, condition } => {
+                    assert_eq!(sessions, [id], "{argv:?}");
                     assert_eq!(purge, argv.contains(&"--purge"), "{argv:?}");
                     // Without --if-idle the stop is the plain one, as before.
                     assert_eq!(condition, crate::cli::command::StopIf::default(), "{argv:?}");
