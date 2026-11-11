@@ -366,15 +366,16 @@ private enum FeedTick {
     /// workspaces; the transport loses 1%, duplicates 2% and reorders 2%.
     /// Asserts: the phone's rows equal the Mac's at the end; every duplicate
     /// or overtaken delta changed nothing; every loss was repaired by a
-    /// re-list, at most one per gap. The 1,000-workspace variant runs the
-    /// same faults over 5x the rows; its wall time is reported beside the
-    /// 200 one.
+    /// re-list, at most one per gap. A 2,000-delta run over 1,000
+    /// workspaces reports the cost per delta at 5x the rows.
     @Test func cellTickTenThousandDeltas() async throws {
         let seed = TickRandom.seed(default: 40_961)
-        for (variant, workspaces) in [("200-workspaces", 200), ("1000-workspaces", 1_000)] {
+        // The 1,000-workspace run is shorter: it is there for the cost per delta at 5x the rows.
+        for (variant, workspaces, deltas) in [("200-workspaces", 200, 10_000), ("1000-workspaces", 1_000, 2_000)] {
             let report = TickReport(cell: "tick_deltas", variant: variant, seed: seed)
-            let run = try await runDeltas(10_000, workspaces: workspaces, seed: seed)
-            report.finish(ops: 10_000, virtual: run.virtual, [
+            let run = try await runDeltas(deltas, workspaces: workspaces, seed: seed)
+            report.finish(ops: deltas, virtual: run.virtual, [
+                "wall_us_per_delta": Int(report.wall.tickSeconds * 1e6) / deltas,
                 "applied": run.applied, "stale": run.stale, "resnapshots": run.resnapshots,
                 "lost": run.faults.lost, "duplicated": run.faults.duplicated, "reordered": run.faults.reordered,
             ])
@@ -394,8 +395,8 @@ private enum FeedTick {
     /// asks in memory, every open ask kept, no id twice; after each warning
     /// at most 100 plus the open asks. On disk: at most the spill's cap once
     /// the disk is back, and no more bytes at 10,000 events than at 5,000
-    /// (past the cap the disk is flat). Reading older pages back brings no
-    /// duplicates.
+    /// (past the cap the disk is flat). Scrolling to the end brings every
+    /// spilled row back once.
     @Test func cellTickFeedUnderPressureAndDiskFull() async throws {
         let seed = TickRandom.seed(default: 40_962)
         var random = TickRandom(seed: seed)
@@ -468,13 +469,18 @@ private enum FeedTick {
         spill.flush()
         let stored = spill.storedCount()
         let endBytes = disk.bytes()
-        // The person scrolls to the end: every page on disk comes back, once.
-        await store.loadOlderPage()
+        // The person scrolls to the end until the spill is empty: a page per scroll.
+        let before = store.items.count
+        var scrolls = 0
+        while store.olderOnDisk > 0, scrolls < 1_000 {
+            await store.loadOlderPage()
+            scrolls += 1
+        }
         let ids = store.items.map(\.id)
         report.finish(ops: emitted, virtual: clock.now, [
             "warnings": warnings, "disk_refusals": refusals, "events_while_refused": refusedWrites,
             "spill_rows": stored, "disk_bytes_mid": midBytes, "disk_bytes_end": endBytes,
-            "items_after_reload": ids.count, "open_asks": openAsks.count,
+            "items_after_reload": ids.count, "scrolls": scrolls, "open_asks": openAsks.count,
         ])
         #expect(emitted == events)
         #expect(warnings > 10 && refusals > 2, "seed \(seed): \(warnings) warnings, \(refusals) disk refusals")
@@ -486,5 +492,7 @@ private enum FeedTick {
         #expect(stored <= spill.maxRows + spill.pageSize - 1, "seed \(seed): \(stored) rows spilled, cap \(spill.maxRows) plus a page")
         #expect(midBytes > 0 && Double(endBytes) <= Double(midBytes) * 1.2, "seed \(seed): disk grew past the cap, \(midBytes) to \(endBytes) bytes")
         #expect(Set(ids).count == ids.count, "seed \(seed): reading back the spill duplicated an event")
+        // Every row the spill held (pages and the rows short of a page) came back once.
+        #expect(ids.count - before == stored, "seed \(seed): \(ids.count - before) rows came back of \(stored) spilled")
     }
 }
