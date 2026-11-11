@@ -393,6 +393,7 @@ impl Hub {
                     &mut p.argv,
                     flag.as_ref(),
                     pair,
+                    env.get(crate::claude_cloud_auth::HEADERS).map(String::as_str).unwrap_or(""),
                     meta.remote_origin,
                 );
             }

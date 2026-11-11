@@ -832,7 +832,12 @@ fn claude_args(
     let settings = match crate::claude_cloud_auth::marked_pair(&profile.env) {
         Some(pair) => {
             let own = serde_json::from_str::<serde_json::Map<String, Value>>(&settings).ok();
-            crate::claude_cloud_auth::team_settings(own.as_ref(), &pair)
+            let headers = profile.env.get(crate::claude_cloud_auth::HEADERS);
+            crate::claude_cloud_auth::team_settings(
+                own.as_ref(),
+                &pair,
+                headers.map(String::as_str).unwrap_or(""),
+            )
         }
         None => settings,
     };

@@ -80,7 +80,8 @@ cmux_agent_has_own_login() {
     claude)
       [ -n "${CLAUDE_CODE_OAUTH_TOKEN-}" ] && return 0
       cmux_aa_login="${CLAUDE_CONFIG_DIR:-${HOME:-/root}/.claude}/.credentials.json"
-      [ -f "$cmux_aa_login" ] && grep -q '"claudeAiOauth"' "$cmux_aa_login" 2>/dev/null
+      [ -f "$cmux_aa_login" ] && grep -q '"claudeAiOauth"' "$cmux_aa_login" 2>/dev/null && return 0
+      cmux_claude_settings_has login
       ;;
     codex)
       [ -n "${CODEX_API_KEY-}" ] && return 0
@@ -109,6 +110,77 @@ sys.exit(0 if isinstance(auth, dict) and auth else 1)
       ;;
     *) return 1 ;;
   esac
+}
+
+# 0 when Claude's settings hold what decides its sign-in, as acpmux reads them
+# (claude_cloud_auth.rs, claude_auth.rs). Claude applies its settings files'
+# env over its process env, and its last --settings over those; the launcher
+# passes that one's value in cmux_claude_flag_settings (set when
+# cmux_claude_flag_settings_given=1).
+#   login  a key, token or enabled provider switch in the env of the managed,
+#          user, project (this folder and its parents) or local settings or of
+#          the --settings; a credential helper in any of them; the API key
+#          /login saved in .claude.json; or a --settings that does not read
+#   pair   the --settings env names an endpoint or key of its own
+cmux_claude_settings_has() {
+  python3 -I -c '
+import json, os, sys
+mode, given, flag = sys.argv[1], sys.argv[2] == "1", sys.argv[3]
+keys = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN")
+switches = ("CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY")
+helpers = ("apiKeyHelper", "awsCredentialExport", "awsAuthRefresh")
+def on(v):
+    return v is True or (isinstance(v, (int, float)) and not isinstance(v, bool) and v != 0) or (isinstance(v, str) and v.strip() not in ("", "0") and v.strip().lower() != "false")
+def credential(s):
+    env = s.get("env") if isinstance(s.get("env"), dict) else {}
+    return (any(isinstance(env.get(k), str) and env.get(k) for k in keys)
+            or any(on(env.get(k)) for k in switches)
+            or any(isinstance(s.get(h), str) and s.get(h) for h in helpers))
+def load(text):
+    s = json.loads(text)
+    if not isinstance(s, dict):
+        raise ValueError("not an object")
+    return s
+flag_settings = None
+if given:
+    try:
+        flag_settings = load(flag if flag.lstrip().startswith("{") else open(flag).read())
+    except Exception:
+        sys.exit(0 if mode == "login" else 1)
+if mode == "pair":
+    env = flag_settings.get("env") if flag_settings and isinstance(flag_settings.get("env"), dict) else {}
+    sys.exit(0 if any(isinstance(env.get(k), str) and env.get(k) for k in ("ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY")) else 1)
+home = os.environ.get("HOME") or "/root"
+config = os.environ.get("CLAUDE_CONFIG_DIR") or ""
+files = ["/etc/claude-code/managed-settings.json", os.path.join(config or os.path.join(home, ".claude"), "settings.json")]
+d = os.path.realpath(os.getcwd())
+while True:
+    files += [os.path.join(d, ".claude", "settings.json"), os.path.join(d, ".claude", "settings.local.json")]
+    if os.path.dirname(d) == d:
+        break
+    d = os.path.dirname(d)
+for f in files:
+    try:
+        if credential(load(open(f).read())):
+            sys.exit(0)
+    except Exception:
+        pass
+if flag_settings is not None and credential(flag_settings):
+    sys.exit(0)
+try:
+    saved = json.load(open(os.path.join(config, ".claude.json") if config else os.path.join(home, ".claude.json")))
+    if isinstance(saved, dict) and isinstance(saved.get("primaryApiKey"), str) and saved["primaryApiKey"]:
+        sys.exit(0)
+except Exception:
+    pass
+sys.exit(1)
+' "$1" "${cmux_claude_flag_settings_given-0}" "${cmux_claude_flag_settings-}" 2>/dev/null
+}
+
+# The usage attribution lines (x-cmux-*) of ANTHROPIC_CUSTOM_HEADERS, the only
+# extra headers team mode keeps: any other header is the user's own.
+cmux_claude_cmux_headers() {
+  printf '%s\n' "${ANTHROPIC_CUSTOM_HEADERS-}" | grep -i '^x-cmux-' || true
 }
 
 # Whether the team's CodeRouter can serve <agent> on this machine:
@@ -269,8 +341,13 @@ cmux_claude_apply_auth_mode() {
   cmux_agent_auth_resolve claude
   if [ "$cmux_agent_auth_mode" = team ]; then
     if [ "$cmux_agent_auth_reason" = shared-machine ]; then
+      cmux_aa_headers=$(cmux_claude_cmux_headers)
       unset CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_AUTH_TOKEN ANTHROPIC_CUSTOM_HEADERS \
         CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY
+      if [ -n "$cmux_aa_headers" ]; then
+        ANTHROPIC_CUSTOM_HEADERS=$cmux_aa_headers
+        export ANTHROPIC_CUSTOM_HEADERS
+      fi
       CLAUDE_CONFIG_DIR="${HOME:-/root}/.config/cmux/claude-team"
       mkdir -p "$CLAUDE_CONFIG_DIR" 2>/dev/null || return 1
       chmod 0700 "$CLAUDE_CONFIG_DIR" 2>/dev/null || return 1
@@ -283,7 +360,7 @@ cmux_claude_apply_auth_mode() {
       if [ ! -e "$CLAUDE_CONFIG_DIR/.claude.json" ]; then
         python3 -I /etc/cmux/claude-onboarding.py "$CLAUDE_CONFIG_DIR/.claude.json" || return 1
       fi
-    elif [ -z "${ANTHROPIC_BASE_URL-}" ] && [ -z "${ANTHROPIC_API_KEY-}" ] && [ -n "${CMUX_CLAUDE_TEAM_BASE_URL-}" ]; then
+    elif [ -z "${ANTHROPIC_BASE_URL-}" ] && [ -z "${ANTHROPIC_API_KEY-}" ] && [ -n "${CMUX_CLAUDE_TEAM_BASE_URL-}" ] && ! cmux_claude_settings_has pair; then
       ANTHROPIC_BASE_URL=$CMUX_CLAUDE_TEAM_BASE_URL
       ANTHROPIC_API_KEY=${CMUX_CLAUDE_TEAM_API_KEY-}
       export ANTHROPIC_BASE_URL ANTHROPIC_API_KEY

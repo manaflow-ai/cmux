@@ -106,6 +106,7 @@ async fn a_discovered_claude_with_no_sign_in_gets_the_team_plane() {
         ("CMUX_CLAUDE_AUTH", "team"),
         ("ANTHROPIC_AUTH_TOKEN", "personal-token"),
         ("CLAUDE_CODE_USE_BEDROCK", "1"),
+        ("ANTHROPIC_CUSTOM_HEADERS", "x-cmux-workspace-id: ws-1\nx-personal: 1"),
     ]);
     pinned.argv.extend([
         "--settings".to_owned(),
@@ -129,10 +130,13 @@ async fn a_discovered_claude_with_no_sign_in_gets_the_team_plane() {
         .filter(|(_, v)| v.is_none())
         .map(|(k, _)| k.to_string_lossy().into_owned())
         .collect();
-    for key in crate::claude_cloud_auth::TEAM_CLEARS {
-        assert!(!child.contains_key(key), "{key} reached the child");
+    let headers = crate::claude_cloud_auth::HEADERS;
+    for key in crate::claude_cloud_auth::TEAM_CLEARS.iter().filter(|k| **k != headers) {
+        assert!(!child.contains_key(*key), "{key} reached the child");
         assert!(removed.iter().any(|k| k == key), "{key} not removed from the inherited env");
     }
+    // The usage attribution header stays; the personal one does not.
+    assert_eq!(child[headers], "x-cmux-workspace-id: ws-1");
     assert!(!child.contains_key(crate::claude_cloud_auth::TEAM_MARKER));
     // The env Claude runs on, as Claude Code 2.1.322 layers it: its process env, then the user's,
     // the project's and the local settings `env`, then the last --settings (a later one replaces
@@ -164,8 +168,9 @@ async fn a_discovered_claude_with_no_sign_in_gets_the_team_plane() {
     );
     assert_eq!(claude["ANTHROPIC_BASE_URL"], "https://localhost");
     assert_eq!(claude["ANTHROPIC_API_KEY"], crate::codex_cloud_auth::PLACEHOLDER_KEY);
-    for key in crate::claude_cloud_auth::TEAM_CLEARS {
-        assert_eq!(claude.get(key).map(String::as_str).unwrap_or(""), "", "{key} reaches Claude");
+    for key in crate::claude_cloud_auth::TEAM_CLEARS.iter().filter(|k| **k != headers) {
+        assert_eq!(claude.get(*key).map(String::as_str).unwrap_or(""), "", "{key} reaches Claude");
     }
+    assert_eq!(claude[headers], "x-cmux-workspace-id: ws-1");
     let _ = std::fs::remove_dir_all(&root);
 }

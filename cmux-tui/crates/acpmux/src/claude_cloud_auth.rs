@@ -101,7 +101,8 @@ where
 /// The credentials and provider switches team mode must not keep, as the image's launcher clears
 /// them for a shared machine (`agent-auth.sh`): a personal token next to the pair would be sent to
 /// the team's endpoint (`ANTHROPIC_AUTH_TOKEN` outranks `ANTHROPIC_API_KEY`), and a provider switch
-/// would route the launch away from it.
+/// would route the launch away from it. `ANTHROPIC_CUSTOM_HEADERS` keeps only its usage attribution
+/// lines ([`cmux_headers`]).
 pub(crate) const TEAM_CLEARS: [&str; 6] = [
     "ANTHROPIC_AUTH_TOKEN",
     "CLAUDE_CODE_OAUTH_TOKEN",
@@ -114,6 +115,19 @@ pub(crate) const TEAM_CLEARS: [&str; 6] = [
 /// The profile-env marker of a team-mode launch, for the remote chain's settings; never in the
 /// child's env (`agent/command.rs` removes it).
 pub(crate) const TEAM_MARKER: &str = "ACPMUX_CLAUDE_TEAM_PLANE";
+
+/// The extra request headers team mode keeps: the usage attribution lines (`x-cmux-workspace-id`,
+/// `x-cmux-surface-id`; `agent-config.sh` sets them in every cmux terminal), never a person's own.
+pub(crate) const HEADERS: &str = "ANTHROPIC_CUSTOM_HEADERS";
+
+/// The `x-cmux-*` lines of a `ANTHROPIC_CUSTOM_HEADERS` value, one per line.
+pub(crate) fn cmux_headers(value: &str) -> String {
+    value
+        .lines()
+        .filter(|l| l.trim_start().to_ascii_lowercase().starts_with("x-cmux-"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 
 /// The team pair of a profile env [`apply_team`] marked, or None.
 pub(crate) fn marked_pair(env: &BTreeMap<String, String>) -> Option<[(String, String); 2]> {
@@ -171,9 +185,11 @@ fn settings_args(argv: &[String]) -> (Vec<String>, Option<String>) {
 
 /// The one `--settings` a team-mode launch ends with: `flag` (the launch's own) with the pair
 /// and every [`TEAM_CLEARS`] name set empty in its `env`, over any settings file's.
+/// `headers` is the launch's `ANTHROPIC_CUSTOM_HEADERS`, of which only [`cmux_headers`] stays.
 pub(crate) fn team_settings(
     flag: Option<&Map<String, Value>>,
     pair: &[(String, String); 2],
+    headers: &str,
 ) -> String {
     let mut settings = flag.cloned().unwrap_or_default();
     let env = settings.entry("env").or_insert_with(|| Value::Object(Map::new()));
@@ -184,6 +200,7 @@ pub(crate) fn team_settings(
         for key in TEAM_CLEARS {
             env.insert(key.to_owned(), Value::String(String::new()));
         }
+        env.insert(HEADERS.to_owned(), Value::String(cmux_headers(headers)));
         for (k, v) in pair {
             env.insert(k.clone(), Value::String(v.clone()));
         }
@@ -203,14 +220,16 @@ pub(crate) fn apply_team(
     argv: &mut Vec<String>,
     flag: Option<&Map<String, Value>>,
     pair: [(String, String); 2],
+    headers: &str,
     remote: bool,
 ) {
     env.insert(TEAM_MARKER.to_owned(), "1".to_owned());
+    let kept = cmux_headers(headers);
     if !remote && !argv.is_empty() {
         let mut rest = settings_args(&argv[1..]).0;
         rest.insert(0, argv[0].clone());
         rest.push("--settings".to_owned());
-        rest.push(team_settings(flag, &pair));
+        rest.push(team_settings(flag, &pair, &kept));
         *argv = rest;
     }
     let mut unset: Vec<String> = env
@@ -219,7 +238,12 @@ pub(crate) fn apply_team(
         .unwrap_or_default();
     for key in TEAM_CLEARS {
         env.remove(key);
-        if !unset.iter().any(|k| k == key) {
+        // The kept usage headers replace the inherited value (the profile env goes on after it);
+        // an unset name would remove them too.
+        if key == HEADERS && !kept.is_empty() {
+            unset.retain(|k| k != key);
+            env.insert(key.to_owned(), kept.clone());
+        } else if !unset.iter().any(|k| k == key) {
             unset.push(key.to_owned());
         }
     }
@@ -344,13 +368,23 @@ mod tests {
             .map(str::to_owned)
             .to_vec();
         let flag = flag_settings(&argv[1..], Path::new("/")).unwrap();
-        apply_team(&mut env, &mut argv, flag.as_ref(), team_pair_value(), false);
-        for key in TEAM_CLEARS {
-            assert!(!env.contains_key(key));
+        apply_team(
+            &mut env,
+            &mut argv,
+            flag.as_ref(),
+            team_pair_value(),
+            "x-personal: 1\nx-cmux-workspace-id: ws-1",
+            false,
+        );
+        // Only the usage attribution header stays, in place of the inherited value.
+        assert_eq!(env[HEADERS], "x-cmux-workspace-id: ws-1");
+        for key in TEAM_CLEARS.iter().filter(|k| **k != HEADERS) {
+            assert!(!env.contains_key(*key));
         }
         let unset: Vec<&str> = env[crate::routes::UNSET_KEY].split(',').collect();
         assert_eq!(unset[0], "OPENAI_API_KEY");
-        assert!(TEAM_CLEARS.iter().all(|k| unset.contains(k)));
+        assert!(TEAM_CLEARS.iter().filter(|k| **k != HEADERS).all(|k| unset.contains(k)));
+        assert!(!unset.contains(&HEADERS));
         assert_eq!(env["ANTHROPIC_API_KEY"], PLACEHOLDER_KEY);
         assert_eq!(marked_pair(&env), Some(team_pair_value()));
         // One --settings, last: the launch's own merged with the pair and the clears.
@@ -360,15 +394,19 @@ mod tests {
         let settings: Value = serde_json::from_str(argv.last().unwrap()).unwrap();
         assert_eq!(settings["model"], "opus");
         assert_eq!(settings["env"]["ANTHROPIC_API_KEY"], PLACEHOLDER_KEY);
-        for key in TEAM_CLEARS {
-            assert_eq!(settings["env"][key], "");
+        for key in TEAM_CLEARS.iter().filter(|k| **k != HEADERS) {
+            assert_eq!(settings["env"][*key], "");
         }
+        assert_eq!(settings["env"][HEADERS], "x-cmux-workspace-id: ws-1");
         // A remote chain keeps its argv; its own settings take the pair (remote_sandbox.rs).
         let mut env = BTreeMap::new();
         let mut argv = vec!["claude".to_owned()];
-        apply_team(&mut env, &mut argv, None, team_pair_value(), true);
+        apply_team(&mut env, &mut argv, None, team_pair_value(), "x-personal: 1", true);
         assert_eq!(argv, ["claude"]);
         assert!(marked_pair(&env).is_some());
+        // No usage header: the name goes on the unset list.
+        assert!(!env.contains_key(HEADERS));
+        assert!(env[crate::routes::UNSET_KEY].split(',').any(|k| k == HEADERS));
     }
 
     #[test]

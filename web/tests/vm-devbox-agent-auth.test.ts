@@ -94,6 +94,8 @@ function machine(homeName = "home"): Machine {
         "#!/bin/sh",
         ...["ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_CUSTOM_HEADERS", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY", "CLAUDE_CONFIG_DIR", "OPENAI_BASE_URL", "OPENAI_API_KEY", "CODEX_HOME", "OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR", "XDG_DATA_HOME", "XDG_CONFIG_HOME"]
           .map((name) => `printf "${name}=%s\\n" "\${${name}-<unset>}"`),
+        // The launcher's own team-mode --settings comes first: report it apart.
+        'if [ "${1-}" = --settings ]; then printf "settings=%s\\n" "$2"; shift 2; fi',
         'printf "args=%s\\n" "$*"',
         "",
       ].join("\n"),
@@ -143,6 +145,19 @@ async function launch(m: Machine, agent: Agent, extra: Record<string, string> = 
   expect(result.status).toBe(0);
   return parse(result.stdout);
 }
+
+/** Starts claude with `args` (shell words) from a shell that sourced agent-config.sh. */
+async function launchWith(m: Machine, args: string, extra: Record<string, string> = {}, cwd?: string) {
+  const result = await runChild("/bin/bash", ["-c", `. ${m.config}; ${cwd ? `cd ${cwd};` : ""} ${m.launchers.claude} ${args}`], { env: bootEnv(m, extra) });
+  return { ...result, env: parse(result.stdout) };
+}
+
+/** The env of the --settings the launcher started Claude with (team mode), or undefined. */
+function settingsEnv(env: Record<string, string>): Record<string, string> | undefined {
+  return env.settings === undefined ? undefined : JSON.parse(env.settings).env;
+}
+
+const PERSONAL_CLEARS = ["ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY"];
 
 function choose(m: Machine, mode: string, agent: Agent = "claude"): void {
   mkdirSync(path.join(m.home, ".config/cmux/agent-auth"), { recursive: true });
@@ -247,6 +262,88 @@ describe("Claude Code sign-in precedence", () => {
     expect(env.ANTHROPIC_BASE_URL).toBe(ORIGIN);
     expect(env.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
     expect(env.ANTHROPIC_CUSTOM_HEADERS).toBe("x-cmux-workspace-id: ws-1");
+    // The --settings Claude applies over every settings file keeps the pair and the usage
+    // headers, and empties every personal credential and provider switch.
+    const settings = settingsEnv(env)!;
+    expect(settings.ANTHROPIC_BASE_URL).toBe(ORIGIN);
+    expect(settings.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
+    expect(settings.ANTHROPIC_CUSTOM_HEADERS).toBe("x-cmux-workspace-id: ws-1");
+    for (const name of PERSONAL_CLEARS) expect(settings[name]).toBe("");
+    expect(env.args).toBe("--resume x");
+  });
+
+  test("team mode overrides a personal credential in a settings file, keeping only the usage headers", async () => {
+    const m = machine();
+    choose(m, "team");
+    mkdirSync(path.join(m.home, ".claude"), { recursive: true });
+    writeFileSync(path.join(m.home, ".claude/settings.json"), JSON.stringify({ env: { ANTHROPIC_AUTH_TOKEN: "personal-user", ANTHROPIC_BASE_URL: "https://own.example.test" } }));
+    const { env, status } = await launchWith(
+      m,
+      `--settings '{"model":"opus","env":{"ANTHROPIC_CUSTOM_HEADERS":"x-personal: 1","CLAUDE_CODE_OAUTH_TOKEN":"personal-flag"}}' --resume x`,
+      { CMUX_WORKSPACE_ID: "ws-1", CMUX_SURFACE_ID: "sf-1" },
+    );
+    expect(status).toBe(0);
+    // One --settings: the launch's own merged into the launcher's.
+    expect(env.args).toBe("--resume x");
+    const settings = JSON.parse(env.settings);
+    expect(settings.model).toBe("opus");
+    expect(settings.env.ANTHROPIC_BASE_URL).toBe(ORIGIN);
+    expect(settings.env.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
+    expect(settings.env.ANTHROPIC_CUSTOM_HEADERS).toBe("x-cmux-workspace-id: ws-1\nx-cmux-surface-id: sf-1");
+    for (const name of PERSONAL_CLEARS) expect(settings.env[name]).toBe("");
+  });
+
+  test("team mode refuses a --settings it cannot read rather than guess", async () => {
+    const m = machine();
+    choose(m, "team");
+    const { status, stderr, stdout } = await launchWith(m, "--settings /nonexistent/settings.json --resume x");
+    expect(status).not.toBe(0);
+    expect(stderr).toContain("team mode cannot start");
+    expect(stdout).toBe("");
+  });
+
+  test("with no choice, a sign-in in Claude's settings or its own --settings keeps own", async () => {
+    const cases: [string, (m: Machine) => string][] = [
+      ["a personal endpoint and key in --settings", () => `--settings '{"env":{"ANTHROPIC_BASE_URL":"https://own.example.test","ANTHROPIC_API_KEY":"sk-own"}}'`],
+      ["a token in the user settings", (m) => {
+        mkdirSync(path.join(m.home, ".claude"), { recursive: true });
+        writeFileSync(path.join(m.home, ".claude/settings.json"), JSON.stringify({ env: { ANTHROPIC_AUTH_TOKEN: "t" } }));
+        return "";
+      }],
+      ["a key helper in the project settings", (m) => {
+        mkdirSync(path.join(m.root, "proj/.claude"), { recursive: true });
+        writeFileSync(path.join(m.root, "proj/.claude/settings.local.json"), JSON.stringify({ apiKeyHelper: "/bin/key" }));
+        return "";
+      }],
+      ["a --settings file it cannot read", () => "--settings /nonexistent/settings.json"],
+    ];
+    for (const [name, arrange] of cases) {
+      const m = machine();
+      mkdirSync(path.join(m.root, "proj"), { recursive: true });
+      const args = arrange(m);
+      // The launch's own --settings after a first word, so the fake reports only a launcher one apart.
+      const { env, status } = await launchWith(m, `--resume x ${args}`, { FAKE_ACCESS: ALL }, path.join(m.root, "proj"));
+      expect(status, name).toBe(0);
+      expect(env.settings, name).toBeUndefined();
+      expect(env.ANTHROPIC_BASE_URL, name).toBe("<unset>");
+      expect(env.ANTHROPIC_API_KEY, name).toBe("<unset>");
+      expect(env.args, name).toBe(`--resume x ${args}`.trim().replaceAll("'", ""));
+    }
+    // Settings with no credential stay team.
+    const m = machine();
+    const { env } = await launchWith(m, `--settings '{"model":"opus"}' --resume x`, { FAKE_ACCESS: ALL });
+    expect(settingsEnv(env)?.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
+  });
+
+  test("a chosen team mode keeps a personal endpoint and key the launch's --settings names", async () => {
+    const m = machine();
+    choose(m, "team");
+    const flag = `--settings '{"env":{"ANTHROPIC_BASE_URL":"https://own.example.test","ANTHROPIC_API_KEY":"sk-own"}}'`;
+    const { env, status } = await launchWith(m, `--resume x ${flag}`);
+    expect(status).toBe(0);
+    expect(env.settings).toBeUndefined();
+    expect(env.args).toContain("sk-own");
+    expect(env.ANTHROPIC_BASE_URL).toBe("<unset>");
   });
 
   test("a user-set key wins in every mode", async () => {
@@ -754,7 +851,9 @@ describe("the default for every agent", () => {
       for (const agent of ["claude", "codex"] as const) {
         const result = await runChild("/bin/bash", ["-c", `${m.launchers[agent]} --resume x`], { env: bootEnv(m) });
         expect(result.status).toBe(0);
+        // Claude's team mode starts with the launcher's --settings first (reported apart).
         expect(parse(result.stdout).args).toBe("--resume x");
+        if (agent === "claude") expect(settingsEnv(parse(result.stdout))?.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
       }
     } finally {
       chmodSync(m.home, 0o700);
