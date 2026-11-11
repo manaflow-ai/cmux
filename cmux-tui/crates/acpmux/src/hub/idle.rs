@@ -134,7 +134,7 @@ impl Hub {
         if !self.idle_reaper.swap(true, Ordering::SeqCst) {
             let weak = Arc::downgrade(self);
             let wake = self.idle_wake.clone();
-            tokio::spawn(async move { Self::idle_reaper_loop(weak, wake).await });
+            self.scope.spawn_until_cancelled("idle-reaper", Self::idle_reaper_loop(weak, wake));
         }
         self.idle_wake.notify_one();
     }
@@ -402,7 +402,7 @@ impl Hub {
         }
         let hub = self.clone();
         let session = session.clone();
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("wake-for-cause", async move {
             if !hub.folder_trusted(&session, web).await
                 || session.stops.load(Ordering::SeqCst) != stops
                 || session.status() == SessionStatus::Closed

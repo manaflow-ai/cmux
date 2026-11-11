@@ -331,7 +331,14 @@ impl Client {
         let _ = self.send_request(method::MUX_TAG, json!({"sessionId": id, "set": set})).await;
     }
 
-    async fn send_request(&self, m: &str, params: Value) -> Result<Value> {
+    async fn send_request(&self, m: &str, mut params: Value) -> Result<Value> {
+        // Every request leaves here, so none can carry this host's sender token to a daemon
+        // that would keep it: one that did not list the feature at initialize stores and
+        // forwards what it does not know (reviews of #41064 at 8cc17ed2 and 814a7eba).
+        crate::sender_token::withhold_unless(
+            &mut params,
+            self.daemon_lists(crate::sender_token::FEATURE),
+        );
         let context = format!("sending {m}");
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let key = Value::from(id).to_string();

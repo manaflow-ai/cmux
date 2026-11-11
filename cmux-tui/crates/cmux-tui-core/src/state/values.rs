@@ -44,21 +44,34 @@ fn workspace_extra(
     Ok(extras.remove(workspace_id).unwrap_or_default())
 }
 
+/// `connection.query_row` on the connection's prepared-statement cache: a
+/// point read that runs once for each row of a list (a scoped tab list, the
+/// screens of a snapshot, each upsert of a change batch) compiles its
+/// statement once per connection, not once per row. Same statement, same row.
+pub(crate) fn query_row_cached<T, P: rusqlite::Params>(
+    connection: &Connection,
+    sql: &str,
+    params: P,
+    read: impl FnOnce(&rusqlite::Row<'_>) -> rusqlite::Result<T>,
+) -> rusqlite::Result<T> {
+    connection.prepare_cached(sql)?.query_row(params, read)
+}
+
 fn screen_extra(connection: &Connection, screen_id: &str) -> anyhow::Result<Map<String, Value>> {
     let mut fields = Map::new();
-    let state = connection
-        .query_row(
-            "SELECT pinned, color, icon FROM screen_presentation WHERE screen_id = ?1",
-            [screen_id],
-            |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                ))
-            },
-        )
-        .optional()?;
+    let state = query_row_cached(
+        connection,
+        "SELECT pinned, color, icon FROM screen_presentation WHERE screen_id = ?1",
+        [screen_id],
+        |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        },
+    )
+    .optional()?;
     if let Some((pinned, color, icon)) = state {
         if pinned != 0 {
             fields.insert("pinned".into(), json!(true));
@@ -70,16 +83,16 @@ fn screen_extra(connection: &Connection, screen_id: &str) -> anyhow::Result<Map<
             fields.insert("icon".into(), json!(icon));
         }
     }
-    let group = connection
-        .query_row(
-            "SELECT m.group_id
+    let group = query_row_cached(
+        connection,
+        "SELECT m.group_id
              FROM screen_group_members AS m
              JOIN screen_groups AS g ON g.group_id = m.group_id
              WHERE m.screen_id = ?1",
-            [screen_id],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?;
+        [screen_id],
+        |row| row.get::<_, String>(0),
+    )
+    .optional()?;
     if let Some(group) = group {
         fields.insert("screen_group_id".into(), json!(group));
     }

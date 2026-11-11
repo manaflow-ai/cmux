@@ -68,6 +68,7 @@ class PreflightTrustTests(unittest.TestCase):
             "scripts/ci/test_execution_registry.py",
             "scripts/ci/workload_entrypoints.py",
             "scripts/normalize-pbxproj.py",
+            "scripts/webviews_bun_version.py",
             "scripts/verify-push.py",
         ):
             source, target = SOURCE / relative, self.repo / relative
