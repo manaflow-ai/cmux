@@ -32,7 +32,7 @@ describe("a daemon message's question, location and widget parts", () => {
   const wire = (part: Record<string, unknown>) =>
     message({ id: "m1", seq: 1, author: "chief", created_at: "2026-11-10T00:00:00Z", parts: [part] });
 
-  test("a question reads as its prompt and choices, not as \"question\"", () => {
+  test('a question reads as its prompt and choices, not as "question"', () => {
     const shown = wire({
       type: "question",
       session: "s1",
@@ -51,13 +51,13 @@ describe("a daemon message's question, location and widget parts", () => {
     expect(messageText(shown)).toBe("Deploy to production?\n1. Yes\n2. No");
   });
 
-  test("a location reads as its label, not as \"location\"", () => {
+  test('a location reads as its label, not as "location"', () => {
     const shown = wire({ type: "location", latitude: 37.33, longitude: -122.01, label: "Meet here" });
     expect(shown.parts[0]).toEqual({ type: "location", latitude: 37.33, longitude: -122.01, label: "Meet here" });
     expect(messageText(shown)).toBe("Meet here");
   });
 
-  test("a widget reads as its fallback text, not as \"widget\"", () => {
+  test('a widget reads as its fallback text, not as "widget"', () => {
     const shown = wire({
       type: "widget",
       app: "cmux.weather",
