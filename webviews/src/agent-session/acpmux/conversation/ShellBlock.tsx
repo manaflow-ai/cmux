@@ -5,13 +5,13 @@
 // eight lines the output scrolls inside an eight-line box, its bottom edge fading while more lies
 // under it, with Show all N lines to drop the cap (BlockParts.tsx), so a long or streaming output
 // never pushes the transcript down; while the command runs the box follows its newest line unless
-// the reader scrolled up. Output keeps each printed line on its own row by default, so a table
-// reads with its columns aligned, and its right edge fades while more lies past; Wrap lines folds
-// the long rows back under their start (blockWrap.ts).
+// the reader scrolled up. By default the output wraps its long lines down under their start, but a
+// table keeps each printed row on its own line, columns aligned, its right edge fading while more
+// lies past (blockWrap.ts `outputWraps`); Wrap lines flips every output block the other way.
 import { cornerAction } from "./cornerActions";
-import { memo, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
+import { memo, useLayoutEffect, useMemo, useRef, type ReactNode, type RefObject } from "react";
 import { useT } from "../i18n";
-import { useBlockWrap } from "./blockWrap";
+import { outputWraps, useBlockWrap } from "./blockWrap";
 import { Lines, PreviewMore, WrapButton } from "./BlockParts";
 import { lineCount, SIDEWAYS_SCROLLER, usePreview, useSidewaysEdge } from "./blockPartsModel";
 import { commandFolder } from "./commandFolder";
@@ -51,7 +51,8 @@ export function ShellBlock({
   const t = useT();
   const raw = useOutput(output, reveal);
   const { folder, rest } = command ? commandFolder(command) : { folder: undefined, rest: undefined };
-  const [wrap] = useBlockWrap("output");
+  const shaped = useMemo(() => outputWraps(raw.text), [raw.text]);
+  const [wrap] = useBlockWrap("output", shaped);
   // The output's lines, though a long output draws only its end until opened (none to cut when whole).
   const preview = usePreview(whole ? 0 : lineCount(raw.text), reveal);
   const shown = previewedOutput(raw, preview);
@@ -86,7 +87,7 @@ export function ShellBlock({
         <span className="cv-shell__actions">
           {/* One choice for every Shell block (blockWrap.ts): shown on this block's hover or focus only,
               so Verbose's open blocks don't repeat it; the chat menu's Transcript view has it at rest. */}
-          <WrapButton kind="output" className={`${cornerAction()} cv-shell__wrap`} />
+          <WrapButton kind="output" shaped={shaped} className={`${cornerAction()} cv-shell__wrap`} />
           {shown.text && <CopyButton text={shown.text} label={t("turn.copy")} />}
         </span>
       </div>
