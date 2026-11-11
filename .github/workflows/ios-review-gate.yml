@@ -408,37 +408,65 @@ jobs:
     env:
       ASC_APP_ID: ${{ vars.IOS_APPSTORE_APP_ID }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # Nothing from the judged source runs here: this job holds the App
+      # Store Connect key. The gate's own scripts come from gate_sha, the
+      # judged source is only read as data, and the version is read before
+      # any secret is in the environment.
+      - name: Checkout the gate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ needs.plan.outputs.sha }}
+          ref: ${{ needs.plan.outputs.gate_sha }}
+          path: gate
           persist-credentials: false
           sparse-checkout: |
-            cmux-next-ios
-            scripts
+            cmux-next-ios/scripts
+            scripts/select-ci-xcode.sh
+            scripts/ci/xcode-pins.txt
+            .xcode-version
+          sparse-checkout-cone-mode: false
+      - name: Checkout the app source (data only)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          path: app
+          persist-credentials: false
+          sparse-checkout: |
+            cmux-next-ios/project.yml
+            cmux-next-ios/AppStoreReview
+          sparse-checkout-cone-mode: false
       - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
+        run: ./gate/scripts/select-ci-xcode.sh
       - name: Install asc
         run: brew list asc >/dev/null 2>&1 || brew install asc
+      - name: The version to validate
+        id: version
+        run: |
+          set -euo pipefail
+          # The AppStore configuration's MARKETING_VERSION (project.yml), read
+          # by the gate's own script before any secret is exposed.
+          version="$(python3 -I gate/cmux-next-ios/scripts/app_review_gate.py version --source-root app --lane appstore || true)"
+          [[ -z "$version" || "$version" =~ ^[0-9][0-9.]*$ ]] || version=""
+          echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: asc validate --strict (read-only)
         env:
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          ASC_VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -uo pipefail
           key="$RUNNER_TEMP/AuthKey.p8"
           printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$key"
           chmod 600 "$key"
           export ASC_KEY_ID="$ASC_API_KEY_ID" ASC_ISSUER_ID="$ASC_API_ISSUER_ID" ASC_PRIVATE_KEY_PATH="$key"
-          # The AppStore configuration's MARKETING_VERSION (project.yml).
-          version="$(python3 -I cmux-next-ios/scripts/app_review_gate.py version --source-root . --lane appstore || true)"
+          version="$ASC_VERSION"
           if [ -z "$version" ]; then
             echo '{"issues":[{"severity":"error","code":"version.unknown","message":"no MARKETING_VERSION in cmux-next-ios/project.yml"}]}' > asc-validate.json
           else
             asc validate --app "$ASC_APP_ID" --version "$version" --platform IOS --strict --output json > asc-validate.json || true
           fi
-          if [ -d cmux-next-ios/AppStoreReview/metadata ]; then
-            asc metadata validate --dir cmux-next-ios/AppStoreReview/metadata --output json > asc-metadata.json || true
+          if [ -d app/cmux-next-ios/AppStoreReview/metadata ]; then
+            asc metadata validate --dir app/cmux-next-ios/AppStoreReview/metadata --output json > asc-metadata.json || true
           fi
           rm -f "$key"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

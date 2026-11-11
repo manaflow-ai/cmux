@@ -246,6 +246,49 @@ class AppReviewGateTests(unittest.TestCase):
         lint.check_app_bundle(app)
         self.assertIn("binary.apple-sign-in", self.rules(lint))
 
+    def test_url_checks_never_reach_a_private_address(self) -> None:
+        # A URL in the judged source is fetched only over https from a public host.
+        for url in ("http://cmux.com/support", "https://127.0.0.1/x", "https://169.254.169.254/latest/meta-data/",
+                    "https://10.0.0.1/", "https://[::1]/", "https://localhost/", "file:///etc/passwd"):
+            result = gate.fetch(url)
+            self.assertEqual(result["status"], 0, url)
+            self.assertIn("not fetched", result["error"], url)
+
+    def test_a_redirect_to_a_private_address_is_refused(self) -> None:
+        import unittest.mock as mock
+        hops = []
+
+        class Resp:
+            def __init__(self, status, location=None):
+                self.status, self.location = status, location
+
+            def getheader(self, name):
+                return self.location if name == "Location" else None
+
+            def read(self, n):
+                return b"<title>ok</title>"
+
+        class Conn:
+            def __init__(self, host, address, port, timeout):
+                hops.append(host)
+                self.host = host
+
+            def request(self, *a, **k):
+                pass
+
+            def getresponse(self):
+                return Resp(302, "https://127.0.0.1/admin") if self.host == "cmux.com" else Resp(200)
+
+            def close(self):
+                pass
+
+        with mock.patch.object(gate, "PinnedHTTPSConnection", Conn), \
+                mock.patch.object(gate.socket, "getaddrinfo",
+                                  lambda host, *a, **k: [(0, 0, 0, "", ("104.18.0.1" if host == "cmux.com" else "127.0.0.1", 443))]):
+            result = gate.fetch("https://cmux.com/support")
+        self.assertEqual(hops, ["cmux.com"])
+        self.assertIn("not a public address", result["error"])
+
     def test_report_reads_asc_strict_warnings_as_blockers(self) -> None:
         asc = self.root / "asc-validate.json"
         asc.write_text(json.dumps({"issues": [

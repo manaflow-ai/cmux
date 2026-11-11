@@ -39,15 +39,20 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import html
+import http.client
+import ipaddress
 import json
 import os
 import plistlib
 import re
 import shutil
+import socket
+import ssl
 import subprocess
 import sys
 import tempfile
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -628,20 +633,83 @@ class Lint:
         return history.get("rejections", [])
 
 
-def fetch(url: str) -> dict:
-    req = urllib.request.Request(url, headers={
-        "User-Agent": "Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
-        "Accept": "text/html,*/*",
-    })
+FETCH_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+    "Accept": "text/html,*/*",
+}
+MAX_REDIRECTS = 5
+
+
+class UnsafeURL(Exception):
+    """A URL the lint must not fetch: not https, or a host that is not public."""
+
+
+def public_address(host: str, port: int) -> str:
+    """The one address `host` is fetched from: every address it resolves to must
+    be public (global), so a URL in the judged source can never reach the
+    runner's loopback, link-local metadata service or a private network. The
+    connection goes to this address, so a second lookup cannot swap it."""
     try:
-        with urllib.request.urlopen(req, timeout=25) as resp:
-            body = resp.read(2_000_000).decode("utf-8", "ignore")
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except OSError as exc:
+        raise UnsafeURL(f"{host} does not resolve ({exc})") from exc
+    addrs = [info[4][0] for info in infos]
+    if not addrs:
+        raise UnsafeURL(f"{host} does not resolve")
+    for addr in addrs:
+        ip = ipaddress.ip_address(addr.split("%", 1)[0])
+        if not ip.is_global or ip.is_multicast:
+            raise UnsafeURL(f"{host} resolves to {ip}, which is not a public address")
+    return addrs[0]
+
+
+class PinnedHTTPSConnection(http.client.HTTPSConnection):
+    """HTTPS to one already-checked address, the certificate verified for the host name."""
+
+    def __init__(self, host: str, address: str, port: int, timeout: float) -> None:
+        super().__init__(host, port, timeout=timeout, context=ssl.create_default_context())
+        self.pinned_address = address
+
+    def connect(self) -> None:
+        sock = socket.create_connection((self.pinned_address, self.port), self.timeout)
+        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+
+
+def safe_get(url: str, timeout: float = 25) -> tuple[int, str, str]:
+    """GET an https URL on a public host, following at most MAX_REDIRECTS
+    redirects, each checked the same way. Returns (status, final URL, body)."""
+    for _ in range(MAX_REDIRECTS + 1):
+        parts = urllib.parse.urlsplit(url)
+        if parts.scheme != "https" or not parts.hostname:
+            raise UnsafeURL(f"{url} is not an https URL")
+        port = parts.port or 443
+        address = public_address(parts.hostname, port)
+        conn = PinnedHTTPSConnection(parts.hostname, address, port, timeout)
+        try:
+            path = urllib.parse.urlunsplit(("", "", parts.path or "/", parts.query, ""))
+            conn.request("GET", path, headers=FETCH_HEADERS)
+            resp = conn.getresponse()
             status = resp.status
-            final = resp.geturl()
-    except urllib.error.HTTPError as exc:
-        return {"url": url, "status": exc.code, "final_url": url, "title": "", "error": str(exc)}
+            location = resp.getheader("Location")
+            body = resp.read(2_000_000).decode("utf-8", "ignore")
+        finally:
+            conn.close()
+        if status in (301, 302, 303, 307, 308) and location:
+            url = urllib.parse.urljoin(url, location)
+            continue
+        return status, url, body
+    raise UnsafeURL(f"more than {MAX_REDIRECTS} redirects")
+
+
+def fetch(url: str) -> dict:
+    try:
+        status, final, body = safe_get(url)
+    except UnsafeURL as exc:
+        return {"url": url, "status": 0, "final_url": url, "title": "", "error": f"not fetched: {exc}"}
     except Exception as exc:  # noqa: BLE001 - network errors are findings
         return {"url": url, "status": 0, "final_url": url, "title": "", "error": f"{type(exc).__name__}: {exc}"}
+    if status >= 400:
+        return {"url": url, "status": status, "final_url": final, "title": "", "error": f"HTTP {status}"}
     title_match = re.search(r"<title[^>]*>(.*?)</title>", body, re.S | re.I)
     title = html.unescape(title_match.group(1).strip()) if title_match else ""
     text = re.sub(r"<[^>]+>", " ", re.sub(r"(?s)<(script|style).*?</\1>", " ", body))
