@@ -231,6 +231,10 @@ public final class RecorderHostButton: NSButton {
     // Read access is `internal` so the test target can observe recording
     // state via `@testable import`; writes stay `private` to this view.
     private(set) var isRecording = false
+    /// Whether the Command-Escape assist could not be armed for the current
+    /// recording, because Carbon refused the registration on the first attempt
+    /// and on the retry. The recorder stays armed for every other stroke.
+    private(set) var carbonEscapeAssistUnavailable = false
     private var pendingFirst: ShortcutStroke?
     private var hasPendingRejection = false
     // `deinit` is nonisolated and must remove the local event monitor; the
@@ -355,15 +359,34 @@ public final class RecorderHostButton: NSButton {
         hasPendingRejection = false
         installEventMonitor()
         refreshTitle()
+        carbonEscapeAssistUnavailable = false
         Self.postActiveRecordingDidChange()
         // Carbon rejects a second registration of a combo this process already
-        // holds, so register only after the app's system-wide hotkey has handled
-        // the notification above and stood down. Deferring one main-loop turn
-        // keeps that order whether its observer runs inline or is enqueued.
-        DispatchQueue.main.async { [weak self] in
-            guard let self, self.isRecording, Self.activeRecorder === self else { return }
-            Self.registerCarbonEscapeHotKeys(for: self)
+        // holds, so the app's system-wide hotkey has to stand down first. Its
+        // observer uses `queue: .main`, which normally runs inline when posted
+        // from the main thread; the one retry covers an observer that runs later.
+        armCarbonEscapeAssist(retryOnFailure: true)
+    }
+
+    /// Registers the Command-Escape assist for this recording. If Carbon refuses,
+    /// retries once on the next main-loop turn, in case the hotkey's owner reacts
+    /// to the notification asynchronously, then records the failure in
+    /// `carbonEscapeAssistUnavailable`.
+    private func armCarbonEscapeAssist(retryOnFailure: Bool) {
+        guard recordsSystemWideHotkey, isRecording, Self.activeRecorder === self else { return }
+        if Self.registerCarbonEscapeHotKeys(for: self) { return }
+        guard retryOnFailure else {
+            carbonEscapeAssistUnavailable = true
+            return
         }
+        DispatchQueue.main.async { [weak self] in
+            self?.armCarbonEscapeAssist(retryOnFailure: false)
+        }
+    }
+
+    /// Whether recorder-only Carbon hotkeys are currently registered.
+    static var isCarbonEscapeAssistRegistered: Bool {
+        !carbonEscapeHotKeyRefs.isEmpty
     }
 
     func stopRecording() {
@@ -411,14 +434,15 @@ public final class RecorderHostButton: NSButton {
     }
 
     /// Registers the recorder-only Carbon hotkeys for `recorder`, replacing any
-    /// previous registration. Does nothing unless the recorder is armed and binds
-    /// a system-wide hotkey.
-    private static func registerCarbonEscapeHotKeys(for recorder: RecorderHostButton) {
+    /// previous registration. Returns `false`, leaving nothing registered, when
+    /// the recorder is not armed for a system-wide hotkey or Carbon refuses any
+    /// of the registrations.
+    private static func registerCarbonEscapeHotKeys(for recorder: RecorderHostButton) -> Bool {
         // No key-window requirement here: recording already stops when the window
         // resigns key, and the handler checks key window and first responder on fire.
         // Requiring it at registration skipped Cmd+Escape when recording started
         // while the window was still becoming key.
-        guard recorder.isRecording, recorder.recordsSystemWideHotkey else { return }
+        guard recorder.isRecording, recorder.recordsSystemWideHotkey else { return false }
 
         installCarbonEscapeHotKeyHandlerIfNeeded()
         unregisterCarbonEscapeHotKeys()
@@ -437,10 +461,13 @@ public final class RecorderHostButton: NSButton {
                 0,
                 &hotKeyRef
             )
-            if status == noErr, let hotKeyRef {
-                carbonEscapeHotKeyRefs.append(hotKeyRef)
+            guard status == noErr, let hotKeyRef else {
+                unregisterCarbonEscapeHotKeys()
+                return false
             }
+            carbonEscapeHotKeyRefs.append(hotKeyRef)
         }
+        return true
     }
 
     /// Releases every recorder-only Carbon hotkey. Nonisolated so `deinit` can call it.

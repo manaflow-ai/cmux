@@ -5,7 +5,9 @@ import Testing
 @testable import CmuxSettingsUI
 
 @MainActor
-@Suite("Shortcut recorder view")
+// Serialized: recorders share process-wide state (the active recorder and its
+// Carbon registrations), so interleaved tests would steal each other's recorder.
+@Suite("Shortcut recorder view", .serialized)
 struct ShortcutRecorderViewTests {
     @Test func CarbonEscapeAssistRegistersOnlyCommandEscape() {
         let modifierSets = RecorderHostButton.carbonEscapeModifierSets()
@@ -88,6 +90,55 @@ struct ShortcutRecorderViewTests {
         #expect(!RecorderHostButton.deliverCarbonEscapeHotKey(id: 1, to: nil, hasKeyFocus: true))
         #expect(recordedStroke == nil)
         #expect(button.isRecording)
+    }
+
+    @Test func systemWideRecorderRegistersTheCarbonAssistWhileRecording() throws {
+        let button = RecorderHostButton(frame: .zero)
+        defer { button.cancelRecordingIfActive() }
+        button.recordsSystemWideHotkey = true
+
+        button.startRecording()
+        try #require(button.isRecording)
+        #expect(RecorderHostButton.isCarbonEscapeAssistRegistered)
+        #expect(!button.carbonEscapeAssistUnavailable)
+
+        button.stopRecording()
+        #expect(!RecorderHostButton.isCarbonEscapeAssistRegistered)
+    }
+
+    @Test func foregroundRecorderNeverRegistersTheCarbonAssist() throws {
+        let button = RecorderHostButton(frame: .zero)
+        defer { button.cancelRecordingIfActive() }
+
+        button.startRecording()
+        try #require(button.isRecording)
+        #expect(!RecorderHostButton.isCarbonEscapeAssistRegistered)
+    }
+
+    @Test func carbonAssistReportsFailureWhenCommandEscapeIsStillHeld() async throws {
+        // Stands in for an app hotkey that did not stand down: Carbon refuses a
+        // second registration of a combo this process already holds.
+        var heldRef: EventHotKeyRef?
+        let held = RegisterEventHotKey(
+            UInt32(kVK_Escape),
+            UInt32(cmdKey),
+            EventHotKeyID(signature: 0x54455354, id: 1), // "TEST"
+            GetApplicationEventTarget(),
+            0,
+            &heldRef
+        )
+        try #require(held == noErr)
+        defer { if let heldRef { UnregisterEventHotKey(heldRef) } }
+
+        let button = RecorderHostButton(frame: .zero)
+        defer { button.cancelRecordingIfActive() }
+        button.recordsSystemWideHotkey = true
+        button.startRecording()
+        try await Task.sleep(for: .milliseconds(50)) // let the one retry run
+
+        #expect(button.isRecording)
+        #expect(button.carbonEscapeAssistUnavailable)
+        #expect(!RecorderHostButton.isCarbonEscapeAssistRegistered)
     }
 
     @Test func carbonCommandEscapeFireIsIgnoredWhenNotRecording() {
