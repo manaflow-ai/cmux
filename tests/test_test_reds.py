@@ -640,6 +640,61 @@ def health(fresh=(), known=(), slow=(), **extra):
 WAIT = "play: waitFor did not hold within 5000 ms"
 
 
+class ReportedFailuresAreAllNamed(unittest.TestCase):
+    """#41166's review F2: failed_tests recorded a runner's failure line as unnamed only when nothing at all was named,
+    so one parsed name beside an unparsed failure read as fully identified. Each runner's summary is now set against the
+    names that runner printed since its last summary (unnamed_failures)."""
+
+    def unnamed(self, *lines):
+        found: list = []
+        reds.failed_tests(list(lines), found)
+        return found
+
+    def test_a_summary_counting_more_than_its_runner_named_is_unnamed(self):
+        cases = {
+            "cargo": ["test tests::a ... FAILED", "test src/lib.rs - f (line 3) ... FAILED",
+                      "test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out"],
+            "unittest": ["FAIL: test_a (pkg.Case.test_a)", "FAIL: [interrupted]", "Ran 2 tests in 0.010s",
+                         "FAILED (failures=2)"],
+            "pytest": ["FAILED tests/test_m.py::test_a - assert 0", "FAILED tests/test_m.py - setup broke",
+                       "===== 2 failed in 0.12s ====="],
+            "swift": ["✘ Test a() recorded an issue at A.swift:1:1: x", "✘ Test b recorded an issue at A.swift:2:1: x",
+                      "✘ Test run with 2 tests in 1 suite failed after 0.1 seconds with 2 issues."],
+            "bun": ["bun test v1.3.0", "test/a.test.ts:", "(fail) a > one [1.00ms]", " 0 pass", " 2 fail"],
+            # Another runner's name never stands for this one's failure.
+            "cargo beside swift": ["✘ Test a() recorded an issue at A.swift:1:1: x",
+                                   "✘ Test run with 1 test in 1 suite failed after 0.1 seconds with 1 issue.",
+                                   "test result: FAILED. 0 passed; 1 failed; 0 ignored"],
+            "xctest beside swift": ["✘ Test a() recorded an issue at A.swift:1:1: x",
+                                    "Executed 1 test, with 1 failure (0 unexpected) in 0.1 (0.1) seconds"],
+        }
+        for runner, lines in cases.items():
+            with self.subTest(runner=runner):
+                self.assertTrue(self.unnamed(*lines), lines)
+
+    def test_a_summary_whose_failures_are_all_named_is_not(self):
+        cases = {
+            "cargo": ["test tests::a ... FAILED", "test result: FAILED. 0 passed; 1 failed; 0 ignored"],
+            "unittest": ["FAIL: test_a (pkg.Case.test_a)", "ERROR: test_b (pkg.Case.test_b)", "Ran 2 tests in 0.1s",
+                         "FAILED (failures=1, errors=1)"],
+            "pytest": ["FAILED tests/test_m.py::test_a - assert 0", "===== 1 failed, 1 rerun in 0.12s ====="],
+            "swift": ["✘ Test a() recorded an issue at A.swift:1:1: x", "✘ Test a() recorded an issue at A.swift:2:1: y",
+                      "✘ Test run with 3 tests in 1 suite failed after 0.1 seconds with 2 issues."],
+            # The wrapper's retry is its own run: the first run's count is set against its own results.
+            "bun retry": ["bun test v1.3.0", "test/a.test.ts:", "(fail) a > one [1.00ms]", "(fail) a > two [1.00ms]",
+                          " 0 pass", " 2 fail", "--- retry, alone ---", "bun test v1.3.0", "test/a.test.ts:",
+                          "(fail) a > one [1.00ms]", " 1 pass", " 1 fail"],
+        }
+        for runner, lines in cases.items():
+            with self.subTest(runner=runner):
+                self.assertEqual(self.unnamed(*lines), [])
+
+    def test_the_recorded_fixtures_name_every_failure_they_report(self):
+        for path in sorted(FIXTURES.glob("*.log")):
+            with self.subTest(fixture=path.name):
+                self.assertEqual(self.unnamed(*reds.lines_of(path.read_text())), [])
+
+
 class GalleryHealth(unittest.TestCase):
     """Gallery health's broken and over-budget states, judged per state against the same states rendered on the base
     (gallery-health.yml): the base entries that held SHIP'd webview PRs (streaming-text#jump-during-stream over budget,

@@ -8409,7 +8409,8 @@ COMPARATORS = ("signature", "step_errors", "compare_window", "crash_signals", "r
 VIEW_COMPARATORS = frozenset({
     "signature", "step_errors", "section_lines", "compare_window", "crash_signals", "ratchet_red",
     "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "quarantined_only",
-    "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text", "fixed_on_base_by_step", "step_evidence"})
+    "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text", "fixed_on_base_by_step", "step_evidence",
+    "unnamed_tests", "step_unnamed"})
 # The only readers of step_owners: failed_view (every comparator's) and failed_steps_log (what a comment shows, never
 # compared).
 STEP_OWNERS_READERS = frozenset({"failed_view", "failed_steps_log"})
@@ -8784,7 +8785,7 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
                        "FAILED (failures=1)", "Executed 4 tests, with 1 failure (0 unexpected) in 0.2 (0.3) seconds"):
             with self.subTest(marker=marker):
                 said = ["error: expect(received).toBe(expected)", marker]
-                with self.assertRaisesRegex(excuse.Refused, "says tests failed and names none of them"):
+                with self.assertRaisesRegex(excuse.Refused, "reports more failed tests than it names"):
                     self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, said, said))
 
     def test_a_base_that_fails_more_is_not_enough_either(self):
@@ -9249,6 +9250,68 @@ class FailedStepIdentity(unittest.TestCase):
         github.jobs[1]["steps"].append(dict(github.jobs[1]["steps"][2]))
         with self.assertRaisesRegex(excuse.Refused, r"Run package tests \(failure\) x2"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+
+class OneVerdictCoversTheHeadsIdentity(unittest.TestCase):
+    """#41166's review F1 (found again by tests/test_base_red_excuse_property.py, seed 37): compare_window merged the
+    failed-step keys of the whole window (Counter |), so a head whose "Run package tests" failed and a second one was
+    cancelled matched the newest base verdict's failure and an older one's cancel: an identity no base run had. Each
+    verdict is compared alone."""
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        steps = self.gh.jobs[1]["steps"]
+        steps.append(dict(steps[2], conclusion="cancelled"))
+        self.gh.logs[1] = log(SWIFT, TEST_STEP, ISSUE)
+        self.gh.base_runs = []
+
+    def base(self, run_id, hour, conclusions):
+        self.gh.base_runs.append({"id": run_id, "event": "push", "head_branch": "feat-cmux-next",
+                                  "status": "completed", "conclusion": "failure", "head_sha": BASE_SHA,
+                                  "created_at": f"2026-11-11T{hour:02d}:00:00Z"})
+        job = failed_job(run_id, run_id, BASE_SHA)
+        job["steps"] = job["steps"][:2] + [dict(job["steps"][2], conclusion=c) for c in conclusions]
+        self.gh.jobs[run_id] = job
+        self.gh.logs[run_id] = log(SWIFT, TEST_STEP, ISSUE)
+
+    def test_a_failure_and_a_cancel_split_over_two_verdicts_is_not_excused(self):
+        self.base(30, 12, ["failure"])
+        self.base(29, 11, ["cancelled"])
+        with self.assertRaisesRegex(excuse.Refused, r"failed steps not on feat-cmux-next any of runs 30, 29 with the "
+                                                    r"same conclusion, as often, each verdict alone"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+
+    def test_one_verdict_with_both_is_still_excused(self):
+        self.base(30, 12, ["failure"])
+        self.base(29, 11, ["failure", "cancelled"])
+        said = excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+        self.assertTrue(said[0].startswith(f"excused '{SWIFT}'"), said)
+
+
+class EveryReportedFailureIsNamed(unittest.TestCase):
+    """#41166's review F2 (found again by tests/test_base_red_excuse_property.py, seeds 7 and 12): an unnamed failure
+    was recorded only when no failing test was named at all, and the placed comparison never asked, so a log with one
+    parsed name and one failure no parser reads (a cargo doc test) was excused as if fully identified. Whenever a
+    runner reports more failures than it names, the red is refused, placed or whole."""
+
+    CARGO = ["running 2 tests", "test tests::reconnects ... FAILED", "test src/lib.rs - parse (line 3) ... FAILED",
+             "test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s"]
+
+    def test_placed(self):
+        github = FakeGitHub()
+        github.logs[1] = github.logs[2] = log(SWIFT, TEST_STEP, *self.CARGO)
+        with self.assertRaisesRegex(excuse.Refused, "more failing tests than it names .*test result: FAILED"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        # Every failure named, the same on the base: excused as before.
+        named = [line for line in self.CARGO if "src/lib.rs" not in line]
+        named[-1] = named[-1].replace("2 failed", "1 failed")
+        github.logs[1] = github.logs[2] = log(SWIFT, TEST_STEP, *named)
+        self.assertTrue(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)[0].startswith("excused "))
+
+    def test_whole_log(self):
+        with self.assertRaisesRegex(excuse.Refused, "reports more failed tests than it names .*test result: FAILED"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10],
+                         UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, self.CARGO, self.CARGO))
 
 
 class GuardCrashIsNotItsFinding(unittest.TestCase):

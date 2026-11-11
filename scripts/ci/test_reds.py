@@ -399,14 +399,127 @@ FAILURE_MARKERS = (
     re.compile(r"Executed \d+ tests?, with [1-9]\d* failures?"),  # XCTest
     re.compile(r"^✘ Test run with \d+ tests?\b.*\bfailed\b"),  # Swift Testing
 )
+# Each runner's reported failure total, where its summary counts what failed_names names one line per (#41166's
+# review F2: a log with one parsed name and one unparsed failure counted as fully identified, since an unnamed failure
+# was recorded only when no name at all was read). Per invocation: each summary is compared with the lines its own
+# runner's pattern named since that runner's previous summary, so a run that names more never covers one that names
+# fewer:
+# - cargo `test result: FAILED. X passed; N failed;` per test binary, against its `test NAME ... FAILED` lines;
+# - unittest `FAILED (failures=N, errors=M, unexpected successes=K)` (each a test or subtest, none of them named by
+#   anything but a `FAIL:` / `ERROR:` line; an unexpected success is named by none), against those lines;
+# - pytest's closing `N failed, M error(s)` (`rerun`s are attempts, never counted), against its `FAILED a::b` lines
+#   (an `ERROR a::b` is named by none);
+# - Swift Testing's `Test run with ... with N issues` (less `including K known issues`): its summary counts issues,
+#   never tests, and each issue prints one `✘ Test|Suite X recorded an issue` line, which are counted;
+# - bun's ` N fail` per invocation (the wrapper's retry is its own invocation), against that invocation's `(fail)`
+#   results and unhandled errors (its recap, which repeats them, counted instead when it names more).
+# XCTest's `Executed N tests, with M failures` counts assertion failures, once per enclosing suite as well, so no total
+# of its can be set against names: an XCTest summary is unnamed only when nothing XCTest (`Test Case '-[...]' failed`,
+# an xcresult `FAILED:` line, xcodebuild's `Failing tests:` list) named a failure; likewise a summary line whose count
+# cannot be read.
+CARGO_FAILED_TOTAL = re.compile(r"^test result: FAILED\. \d+ passed; (\d+) failed\b")
+UNITTEST_FAILED_TOTAL = re.compile(r"^FAILED \(([^)]*)\)$")
+UNITTEST_COUNTED = re.compile(r"\b(failures|errors|unexpected successes)=(\d+)")
+PYTEST_TOTAL = re.compile(r"^=+ (.*?) =+$")
+PYTEST_COUNTED = re.compile(r"\b(\d+) (failed|errors?)\b")
+SWIFT_ISSUES = re.compile(r"^✘ Test run with \d+ tests?\b.*\bwith (\d+) issues?\b(?:.*?\bincluding (\d+) known issues?)?")
+SWIFT_ISSUE_LINE = re.compile(r"✘ (?:Test|Suite) .* recorded an issue\b")
+BUN_FAIL_TOTAL = re.compile(r"^\s*(\d+) fail$")
+
+
+def unnamed_failures(lines: list[str]) -> list[str]:
+    """The runner lines of LINES (a step's output, lines_of) that report more failures than that runner's lines name
+    (see above), each summary against the names its runner printed since its previous summary: a failure no parser
+    names, which no comparison can tell from another."""
+    found: list[str] = []
+    since = Counter()  # per runner, the lines it named since its last summary
+    xc_family = 0  # XCTest, xcresult `FAILED:` and xcodebuild listing names, anywhere in LINES
+    xc_summaries: list[str] = []
+    listing = False
+    for text in lines:
+        if text.startswith(TAP_MARKER):
+            continue
+        if listing:
+            if XCODEBUILD_FAILED.match(text):
+                xc_family += 1
+                continue
+            listing = False
+        if text.strip() == XCODEBUILD_FAILING:
+            listing = True
+            continue
+        if FAILED[0].search(text) and SWIFT_ISSUE_LINE.search(text) or \
+                SUITE_FAILED.search(text) and SWIFT_ISSUE_LINE.search(text):
+            since["swift"] += 1
+        for runner, n in (("cargo", 2), ("unittest", 3), ("pytest", 4)):
+            if FAILED[n].search(text):
+                since[runner] += 1
+        if FAILED[1].search(text) or XCRESULT_FAILED.match(text):
+            xc_family += 1
+        reported, runner = None, ""
+        if FAILURE_MARKERS[0].search(text):
+            runner, match = "cargo", CARGO_FAILED_TOTAL.match(text)
+            reported = int(match.group(1)) if match else None
+        elif (match := UNITTEST_FAILED_TOTAL.match(text)) and (FAILURE_MARKERS[1].search(text)
+                                                              or UNITTEST_COUNTED.search(match.group(1))):
+            counts = UNITTEST_COUNTED.findall(match.group(1))
+            runner, reported = "unittest", sum(int(n) for _, n in counts) if counts else None
+        elif (match := PYTEST_TOTAL.match(text)) and PYTEST_COUNTED.search(match.group(1)):
+            runner, reported = "pytest", sum(int(n) for n, _ in PYTEST_COUNTED.findall(match.group(1)))
+        elif FAILURE_MARKERS[4].search(text):
+            match = SWIFT_ISSUES.match(text)
+            runner, reported = "swift", int(match.group(1)) - int(match.group(2) or 0) if match else None
+        elif FAILURE_MARKERS[3].search(text):
+            xc_summaries.append(text)
+        if runner:
+            # A count that cannot be read is unnamed unless its runner named something since its last summary.
+            if (reported is None and not since[runner]) or (reported is not None and reported > since[runner]):
+                found.append(text)
+            since[runner] = 0
+    if not xc_family:
+        found.extend(xc_summaries)
+    found.extend(bun_unnamed(lines))
+    return found
+
+
+def bun_unnamed(lines: list[str]) -> list[str]:
+    """Bun's lines of LINES that report more failures than they name (unnamed_failures): each invocation's ` N fail`
+    count above its `(fail)` results and unhandled errors, and the wrapper's `FAIL file` when no bun result names a
+    failure at all."""
+    found: list[str] = []
+    results = recap = unhandled = 0
+    in_recap = False
+    any_named = False
+    for text in lines:
+        if BUN_RUN.match(text) or text == WEB_RETRY:
+            results = recap = unhandled = 0
+            in_recap = False
+        elif BUN_RECAP.match(text):
+            in_recap = True
+        elif (match := BUN_TEST.match(text)) and match.group(1) == "fail":
+            any_named = True
+            if in_recap:
+                recap += 1
+            else:
+                results += 1
+        elif BUN_UNHANDLED.match(text):
+            any_named = True
+            unhandled += 1
+        elif match := BUN_FAIL_TOTAL.match(text):
+            if int(match.group(1)) > max(results, recap) + unhandled:
+                found.append(text)
+            results = recap = unhandled = 0
+            in_recap = False
+    if not any_named:
+        found.extend(text for text in lines if (match := BUN_RESULT.match(text)) and match.group(1) == "FAIL")
+    return found
 
 
 def failed_tests(lines: list[str], unnamed: list | None = None) -> Counter:
     """The failing tests LINES name, counted, by the one parser every reader shares: failed_names' (once per line that
     names one; an xcresult `FAILED:` line and an entry under xcodebuild's `Failing tests:` are two lines, each
     counted: cmux#41158's review F2) and read_bun's `FILE > TEST` (once per result that failed it). LINES are a
-    step's output (lines_of). With UNNAMED, each runner line that says tests failed (FAILURE_MARKERS, bun's) where
-    that runner's failing tests went unnamed is added to it."""
+    step's output (lines_of). With UNNAMED, each runner line that reports more failures than that runner's lines name
+    (unnamed_failures) is added to it."""
     counted: Counter = Counter()
     listing = False
     for text in lines:
@@ -424,11 +537,7 @@ def failed_tests(lines: list[str], unnamed: list | None = None) -> Counter:
     bun = Result()
     read_bun(lines, bun)
     if unnamed is not None:
-        if not counted:
-            unnamed.extend(text for text in lines if any(marker.search(text) for marker in FAILURE_MARKERS))
-        if not bun.counts:
-            unnamed.extend(text for text in lines if BUN_FAILED_COUNT.match(text)
-                           or ((match := BUN_RESULT.match(text)) and match.group(1) == "FAIL"))
+        unnamed.extend(unnamed_failures(lines))
     counted.update(bun.counts)
     return counted
 
