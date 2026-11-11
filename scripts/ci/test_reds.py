@@ -60,7 +60,8 @@ from urllib.request import urlopen
 
 # Each line of `gh run view --log` or of the job-logs endpoint starts with its time.
 STAMP = re.compile(r"^(?:[^\t]*\t[^\t]*\t)?﻿?\d{4}-\d\d-\d\dT[\d:.]+Z ?")
-ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+# A terminal escape: a CSI sequence (colour, cursor) or an OSC one (a hyperlink, a title), as base_red_excuse reads them.
+ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 
 FAILED = (
     # Swift Testing: `name()`, or a display name (`@Test("A capped plan …")` prints `✘ Test "A capped plan …"`).
@@ -321,6 +322,12 @@ def volatile(text: str) -> str:
 def same_error(head: str | None, base: str | None) -> bool:
     """Whether two printed errors say the same thing once their run-to-run tokens are masked."""
     return bool(head) and bool(base) and volatile(head) == volatile(base)
+
+
+def plain(log: str) -> str:
+    """LOG without its terminal escapes (ANSI): what a log reader hands every parser (#41329's review F2: a summary
+    matched on the raw line missed `\x1b[31mFAILED\x1b[0m`)."""
+    return ANSI.sub("", log)
 
 
 def log_lines(log: str) -> list[str]:

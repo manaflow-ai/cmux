@@ -900,7 +900,8 @@ class PortableGhLog(unittest.TestCase):
 
     def test_logs_use_the_flag_and_strip_ansi_in_python(self):
         raw = self.read("")
-        self.assertIn("\x1b[31mred", raw)
+        # The reader strips the colour gh served, once, so no parser sees it (#41329's review F2).
+        self.assertEqual(raw, "2026-10-30T12:00:00.000Z red log\n")
         route = f"repos/{REPO}/actions/jobs/7/logs"
         self.assertEqual(self.asked(), [f"api --allow-escape-sequences {route}"])
         self.assertEqual(excuse.lines_of(raw), ["red log"])

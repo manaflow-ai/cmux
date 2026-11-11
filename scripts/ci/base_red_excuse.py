@@ -301,16 +301,18 @@ class GitHub(_evidence.GitHub):
         # reader that matches a stamp or a prefix (cmuxterm-hq run 42391652834's WS_CHECK_RESULT, 2026-11-07).
         # This host's glaeda-gh keeps the same bytes for every failed job its daemon saw: read there first, with no
         # API call (a replay of 200 verdicts read each log again: about 150 reads, and it stopped at 51 runs).
+        # The log's terminal escapes are stripped here too, once, so no parser of it sees raw colour (#41329's review
+        # F2: a summary matched on its raw line missed `\x1b[31mFAILED\x1b[0m`).
         kept = glaeda_log.cached_job_log(repo, job.get("id")) if glaeda_log is not None else None
         if kept is not None:
-            return kept.replace("\ufeff", "")
+            return test_reds.plain(kept.replace("\ufeff", ""))
         try:
-            return self.run(["api", ESCAPE_FLAG, route]).replace("\ufeff", "")
+            return test_reds.plain(self.run(["api", ESCAPE_FLAG, route]).replace("\ufeff", ""))
         except Refused as error:
             said = str(error)
             if not (said.startswith(REQUEST_FAILED) and escape_flag_unknown(said[len(REQUEST_FAILED):])):
                 raise
-        return self.run(["api", route]).replace("\ufeff", "")
+        return test_reds.plain(self.run(["api", route]).replace("\ufeff", ""))
 
     def json(self, route: str, *, paginate: bool = False, per_page: int = 100):
         # A run's job list carries every job's steps; see JOBS_PAGE.
@@ -723,7 +725,7 @@ def tested_sha(run: dict) -> str:
     return match.group(1) if match else str(run.get("head_sha") or "")
 
 
-ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
+ANSI = test_reds.ANSI  # one pattern for every reader
 ERROR = re.compile(r"##\[error\]|\berror:")
 WARNING = re.compile(r"##\[warning\]|\bwarning:")
 # A job whose own script says its one red on a line of its own, not an annotation: that line is its error line.
