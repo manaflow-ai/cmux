@@ -97,7 +97,7 @@ nonisolated public struct KeptVersionStore: Sendable {
             let team = teams ? checkedTeam(bundle: bundle, record: record) : record?.teamID
             return KeptVersion(build: info["CFBundleVersion"] as? String ?? build,
                                shortVersion: info["CFBundleShortVersionString"] as? String ?? build,
-                               bundle: bundle, storeSchemas: plistSchemas ?? record?.storeSchemas, teamID: team,
+                               bundle: bundle, storeSchemas: plistSchemas ?? record?.trustedStoreSchemas(key: recordKey()), teamID: team,
                                keptAt: record?.keptAt, date: record?.date)
         }
         .sorted { Self.isNewer($0.build, than: $1.build) }
@@ -128,6 +128,9 @@ nonisolated public struct KeptVersionStore: Sendable {
             let file = kept.bundle.deletingLastPathComponent().appending(path: Self.recordName)
             var record = KeptRecord.read(from: file) ?? KeptRecord(build: kept.build)
             guard record.seal == nil, record.sealFailedBy != runningBuild else { return nil }
+            // Sealing signs the record: schemas it carries unsigned (any process could have written
+            // them) are dropped first, and the copy's own CLI reads them again (KeptWarmup).
+            if !record.isAuthentic(key: recordKey()) { record.storeSchemas = nil }
             record.seal(kept.bundle, check: .full, fullCheck: teamID, key: recordKey())
             if record.seal == nil { record.sealFailedBy = runningBuild }
             guard (try? record.save(to: file)) != nil, record.seal != nil else { return nil }

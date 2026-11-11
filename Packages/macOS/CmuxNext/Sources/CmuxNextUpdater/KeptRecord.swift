@@ -17,8 +17,9 @@ nonisolated public struct KeptRecord: Codable, Equatable, Sendable {
     var seal: KeptSeal?
     /// Whether its code has run once since it was kept (``KeptWarmup``); nil: not yet.
     var warmed: Bool?
-    /// HMAC-SHA256 (``KeptVersionStore/recordKey``) over the build, the team and the seal: a record
-    /// another process wrote (a bundle changed and its seal taken again) is never trusted.
+    /// HMAC-SHA256 (``KeptVersionStore/recordKey``) over the build, the team, the seal and the store
+    /// schemas: a record another process wrote (a bundle changed and its seal taken again, or the
+    /// schemas raised so an old build is let at newer stores) is never trusted.
     var mac: String?
     /// The running build whose launch could not check every file of it (``KeptVersionStore/sealPending(runningBuild:)``).
     var sealFailedBy: String?
@@ -47,9 +48,22 @@ nonisolated public struct KeptRecord: Codable, Equatable, Sendable {
             teamID = nil
             seal = nil
         }
+        sign(key: key)
+    }
+
+    /// Signs the record as it stands with `key` (no key, or no sealed team: no MAC). Only for a record
+    /// this app just wrote or one ``isAuthentic(key:)`` vouched for before the caller changed it:
+    /// signing a record read from disk unchecked would vouch for what another process wrote.
+    mutating func sign(key: SymmetricKey?) {
         mac = key.flatMap { key in
             message.map { HMAC<SHA256>.authenticationCode(for: $0, using: key).map { String(format: "%02x", $0) }.joined() }
         }
+    }
+
+    /// ``storeSchemas`` when ``isAuthentic(key:)`` vouches for them, else nil: the schemas let a
+    /// rollback skip the kept build's own CLI, so only ones this app wrote count (cmux#41013 review).
+    func trustedStoreSchemas(key: SymmetricKey?) -> [String: Int]? {
+        isAuthentic(key: key) ? storeSchemas : nil
     }
 
     /// Whether ``mac`` is this record's under `key` (compared in constant time).
@@ -66,10 +80,12 @@ nonisolated public struct KeptRecord: Codable, Equatable, Sendable {
         return HMAC<SHA256>.isValidAuthenticationCode(code, authenticating: message, using: key)
     }
 
-    /// What ``mac`` covers: the team and the seal that trust it, for this build; nil without either.
+    /// What ``mac`` covers: the team and the seal that trust it and the store schemas it vouches for,
+    /// for this build; nil without a team or a seal.
     private var message: Data? {
         guard let teamID, let seal else { return nil }
-        return Data("cmux kept build\u{0}\(build)\u{0}\(teamID)\u{0}\(seal.digest)\u{0}\(seal.items)".utf8)
+        let schemas = storeSchemas.map { $0.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",") } ?? "-"
+        return Data("cmux kept build v2\u{0}\(build)\u{0}\(teamID)\u{0}\(seal.digest)\u{0}\(seal.items)\u{0}\(schemas)".utf8)
     }
 
     static func read(from file: URL) -> KeptRecord? {

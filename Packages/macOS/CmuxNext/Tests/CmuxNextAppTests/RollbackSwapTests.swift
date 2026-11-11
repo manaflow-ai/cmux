@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 @testable import CmuxNextUpdater
 import Testing
@@ -45,7 +46,8 @@ import Testing
     @Test func aRefusedQuitPutsTheRunningBuildBack() throws {
         let root = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: root) }
-        let store = KeptVersionStore(root: root.appending(path: "versions"), teamID: { _ in "TEAM" })
+        let key = SymmetricKey(size: .bits256)
+        let store = KeptVersionStore(root: root.appending(path: "versions"), teamID: { _ in "TEAM" }, recordKey: { key })
         let app = root.appending(path: "Applications/cmux.app", directoryHint: .isDirectory)
         try Self.makeBundle(at: app, build: "200")
         let previous = root.appending(path: "previous/cmux.app", directoryHint: .isDirectory)

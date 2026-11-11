@@ -64,6 +64,43 @@ import Testing
         #expect(full.value == 3)
     }
 
+    /// The store schemas a record names let a rollback skip the kept build's own CLI, so they are
+    /// signed with the rest: a record edited to say an old build reads newer stores (cmux#41013
+    /// review) is not believed, and the rollback asks the build itself.
+    @Test func editedStoreSchemasAreNotBelieved() throws {
+        let root = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = Self.store(root, full: Counter())
+        let app = root.appending(path: "a/cmux.app", directoryHint: .isDirectory)
+        try Self.makeBundle(at: app, build: "100")
+        try store.keep(bundle: app, build: "100", limit: 2, record: KeptRecord(build: "100", storeSchemas: ["chats": 3]))
+        let kept = try #require(store.list(teams: false).first)
+        #expect(kept.storeSchemas == ["chats": 3], "the schemas this app wrote count")
+
+        let file = kept.bundle.deletingLastPathComponent().appending(path: KeptVersionStore.recordName)
+        var forged = try #require(KeptRecord.read(from: file))
+        forged.storeSchemas = ["chats": 9]
+        try forged.save(to: file)
+        let listed = try #require(store.list(teams: false).first)
+        #expect(listed.storeSchemas == nil, "edited schemas are not believed")
+        let decided = RollbackDecision.decide(kept: [listed], build: "100", running: "200", stored: ["chats": 9], teamID: "TEAM")
+        #expect(decided == .failure(.predatesRollback(listed)), "an old build is not let at newer stores on the record's word")
+
+        // A record with no key behind it (an ad hoc build) vouches for no schemas either.
+        try forged.save(to: file)
+        #expect(Self.store(root, full: Counter(), key: nil).list(teams: false).first?.storeSchemas == nil)
+    }
+
+    /// With no kept build offered, Go back downloads the feed's previous build: the question says
+    /// that, not that cmux reopens a kept build (cmux#41013 review).
+    @MainActor @Test func theQuestionSaysWhatGoBackDoes() {
+        #expect(UpdateDropBack.confirmation(nil).body == UpdaterStrings.goBackDownloadBody)
+        let feed = RevertTarget(build: "90", version: "1.0.0-nightly.90", date: nil, kept: false)
+        #expect(UpdateDropBack.confirmation(feed).body == UpdaterStrings.goBackDownloadBody)
+        let kept = RevertTarget(build: "90", version: "1.0.0-nightly.90", date: nil, kept: true)
+        #expect(UpdateDropBack.confirmation(kept).body == UpdaterStrings.rollbackConfirmBody)
+    }
+
     @Test func theSwapRefusesABundleChangedAfterTheCheck() throws {
         let root = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: root) }
