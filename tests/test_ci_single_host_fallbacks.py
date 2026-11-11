@@ -211,6 +211,21 @@ class SingleHostFallbacks(unittest.TestCase):
             with self.subTest(runs_on=runs_on):
                 self.assert_names(self.scan({"x.yml": f"jobs:\n  a:\n    runs-on: ${{{{ {runs_on} }}}}\n"}), name)
 
+    def test_a_variable_named_inside_a_string_literal_is_not_read(self) -> None:
+        """Codex on hq#9175: `${{ 'vars.X' }}` is the text "vars.X", not a read of X, so the resolver read a variable
+        no runs-on consumes (the build-fleet expression readers agree; this one did not). A read beside it still
+        counts, a quoted index still names its variable, and an escaped quote does not end the literal."""
+        wj = checker.load_workflow_jobs()
+        for text, expected in (("${{ 'vars.QUOTED' }}", []),
+                               ("${{ 'it''s vars.Q' || vars.R }}", ["R"]),
+                               ('${{ "vars.D" || vars.E }}', ["E"]),
+                               ("${{ vars['B'] || 'vars.NOT_A_READ' }}", ["B"]),
+                               ("${{ vars[format('{0}', 'vars.G')] }}", [None]),
+                               ("${{ toJSON(vars) == 'vars.H' }}", [None])):
+            with self.subTest(text=text):
+                self.assertEqual(wj.variable_reads(text), expected)
+        self.assertEqual(self.scan({"x.yml": "jobs:\n  a:\n    runs-on: ${{ 'vars.NEW_X' }}\n"}), [])
+
     def test_a_part_that_reads_no_variable_is_not_this_policys_business(self) -> None:
         for runs_on in ("${{ needs.setup.outputs.runner }}", "${{ fromJSON(needs.setup.outputs.runners).mac }}",
                         "${{ inputs.runner }}"):
