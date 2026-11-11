@@ -405,9 +405,7 @@ public final class ChiefSources {
                 return
             } catch let ChiefCloudError.refused(_, code, _) where code == "revision.conflict" {
                 guard attempt == 0 else { break }
-                let list = try ChiefCloudHTTP.json(["op": "chief.list", "params": [String: Any]()])
-                let chiefs = CloudChief.parseList(try ChiefCloudHTTP.value(try await http.send("POST", "/v1/read", body: list)))
-                guard let fresh = chiefs.first(where: { $0.id == chief.id }) else {
+                guard let fresh = try await listed(http).first(where: { $0.id == chief.id }) else {
                     throw ChiefCloudError.badReply(String(localized: "This Chief is no longer on your account."))
                 }
                 record = fresh
@@ -544,22 +542,40 @@ public final class ChiefSources {
 
     /// `chief.create {display_name}`: the new chief (with its main conversation).
     /// The account's first chief uses the catalog's key `chief-default`, so
-    /// the phone and another device never both make one; if that key replays
-    /// a chief since archived, a fresh key makes a new one.
+    /// the phone and another device never both make one. The owner answers a
+    /// key it has seen with that first create's stored result, so once that
+    /// chief was archived or deleted the key hands it back: its id, its main
+    /// conversation and all of its history (CMUX-40: New Chief after Delete
+    /// Chief reopened the deleted one). A chief the account no longer lists is
+    /// never the new one: a fresh key makes a new one. So does the key's refusal
+    /// for another name (`idempotency.conflict`: the ledger keys the params too).
+    /// `first` is this phone's view (``cloudChiefs`` is empty until a list loads),
+    /// so the account may well have chiefs, the replayed one deleted since.
     nonisolated static func create(_ http: ChiefCloudHTTP, displayName: String, first: Bool) async throws -> CloudChief {
         let key = first ? "chief-default" : "chief-create-\(UUID().uuidString)"
         let body = try ChiefCloudHTTP.json([
             "op": "chief.create", "params": ["display_name": displayName], "idempotency_key": key, "origin": "user",
         ])
         let reply = try await http.send("POST", "/v1/ops", body: body)
-        let value = try ChiefCloudHTTP.value(reply)
-        if first, let raw = value as? [String: Any], raw["archived_at"] is String {
+        let value: Any?
+        do {
+            value = try ChiefCloudHTTP.value(reply)
+        } catch let ChiefCloudError.refused(_, code, _) where first && code == "idempotency.conflict" {
             return try await create(http, displayName: displayName, first: false)
         }
         guard let chief = CloudChief.parse(value) else {
             throw ChiefCloudError.badReply(String(localized: "The service made no chief."))
         }
+        if first, !(try await listed(http)).contains(where: { $0.id == chief.id }) {
+            return try await create(http, displayName: displayName, first: false)
+        }
         return chief
+    }
+
+    /// The account's active chiefs now (`chief.list`).
+    nonisolated static func listed(_ http: ChiefCloudHTTP) async throws -> [CloudChief] {
+        let body = try ChiefCloudHTTP.json(["op": "chief.list", "params": [String: Any]()])
+        return CloudChief.parseList(try ChiefCloudHTTP.value(try await http.send("POST", "/v1/read", body: body)))
     }
 
     /// `PUT /v1/chiefs/<chief>/brain {enabled, model, effort}`.

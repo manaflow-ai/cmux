@@ -19,8 +19,10 @@ import {
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 
 type Look = "text" | "icon" | "accent";
-type Shown = "chip" | "panel" | "refused" | "no-machine" | "running" | "finished" | "failed";
-type Props = { look: Look; shown: Shown };
+type Shown = "chip" | "panel" | "refused" | "unavailable" | "no-machine" | "running" | "finished" | "failed";
+/** The panel's buttons: the shared subtle/solid pair (shipped), or the alternatives beside it. */
+type Actions = "subtle" | "ghost" | "outline";
+type Props = { look: Look; shown: Shown; actions?: Actions };
 
 /** Long ago, so the chip's 20 s have passed in every capture. */
 const STARTED = Date.UTC(2026, 10, 8, 10, 0, 0);
@@ -76,6 +78,8 @@ function stateFor(shown: Shown): RunState | undefined {
         plan: { eligible: false, why: "vim needs this machine", machines: PLAN.machines },
         send: [],
       };
+    case "unavailable":
+      return { phase: "choosing", plan: { eligible: false, unavailable: true, machines: [] }, send: [] };
     case "no-machine":
       return { phase: "choosing", plan: { ...PLAN, machines: [] }, send: [] };
     case "running":
@@ -101,7 +105,7 @@ function stateFor(shown: Shown): RunState | undefined {
   }
 }
 
-function Stage({ look, shown }: Props) {
+function Stage({ look, shown, actions = "subtle" }: Props) {
   const runs = useMemo<RunElsewhere>(() => {
     const store = new RunElsewhereStore();
     const state = stateFor(shown);
@@ -112,7 +116,12 @@ function Stage({ look, shown }: Props) {
   return (
     <TranscriptDisclosureProvider sessionId="gallery-run-elsewhere">
       <RunElsewhereContext.Provider value={runs}>
-        <div className="acpmux-shell cv-run-elsewhere-looks" data-look={look} style={{ padding: 16 }}>
+        <div
+          className="acpmux-shell cv-run-elsewhere-looks"
+          data-look={look}
+          data-actions={actions}
+          style={{ padding: 16 }}
+        >
           <div className="cv-tools">
             <CommandRow item={call("test", "cargo test -p cmux-core")} />
           </div>
@@ -136,7 +145,12 @@ export default componentEntry<Props>({
   ],
   load: async () => Stage,
   styles: () =>
-    Promise.all([import("../styles.css"), import("./conversation.css"), import("./RunElsewhere.gallery.css")]),
+    Promise.all([
+      import("../../../ui/controls.css"),
+      import("../styles.css"),
+      import("./conversation.css"),
+      import("./RunElsewhere.gallery.css"),
+    ]),
   height: 420,
   widths: { narrow: 360, normal: 640 },
   anchors: [{ selector: ".cv-run-elsewhere-chip" }, { selector: ".cv-run-elsewhere" }],
@@ -160,6 +174,22 @@ export default componentEntry<Props>({
     refused: {
       note: "A command that needs this machine (an editor, sudo, a local service) says why and offers nothing to run.",
       props: { look: "text", shown: "refused" },
+    },
+    unavailable: {
+      note: 'The host does not pass the request on (a build whose relay lacks it): one plain line, never the transport\'s "Refused by the cmux host". Cancel is the shared subtle button with its ⎋ keycap, as every cmux dialog\'s (Leo, 2026-11-11: "the weird looking cancel").',
+      props: { look: "text", shown: "unavailable" },
+    },
+    "unavailable-ghost": {
+      note: "Alternative: Cancel as a ghost button, no fill at rest. Quieter, but on a card with one button it reads as text, not a control.",
+      props: { look: "text", shown: "unavailable", actions: "ghost" },
+    },
+    "unavailable-outline": {
+      note: "Alternative: Cancel outlined, as the permission card's instructions buttons. A second border inside the card's ring; busier.",
+      props: { look: "text", shown: "unavailable", actions: "outline" },
+    },
+    "panel-ghost": {
+      note: "Alternative on the full panel: ghost Cancel beside the solid Run.",
+      props: { look: "text", shown: "panel", actions: "ghost" },
     },
     "no-machine": {
       note: "Nothing connected: one line pointing to Machines.",

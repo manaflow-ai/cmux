@@ -41,6 +41,7 @@ pub mod catalog;
 pub mod chat_fork;
 pub mod chats;
 pub mod claude_auth;
+mod claude_cloud_auth;
 pub mod claude_peers;
 pub mod claude_stdio;
 pub mod cli;

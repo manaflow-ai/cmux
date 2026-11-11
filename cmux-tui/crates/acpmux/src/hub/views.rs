@@ -925,7 +925,7 @@ impl Hub {
             "defaultHarness": cfg.default_harness,
             "permissionPolicy": cfg.permission_policy.to_string(),
             "peers": self.peers(),
-            "remoteSessions": self.remote_sessions.lock().unwrap().len(),
+            "remoteSessions": self.remote_sessions.read().len(),
             "openWaits": self.open_waits.load(Ordering::SeqCst),
             // Messages this daemon sent near the per-message cap, or refused over it
             // (`wire_size.rs`): the next one too large to send is seen coming.
