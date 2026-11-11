@@ -159,7 +159,12 @@ def install_copy(repo: Path, stage: Path) -> list[tuple[str, str]]:
     open STAGE, so a stage removed meanwhile fails the install instead of coming back without its .in-use; a
     tracked file missing from the checkout fails it too."""
     inputs = read_inputs((repo / INPUTS).read_bytes()) or []
-    tracked = git(repo, "ls-files", "-z", "--", *(source for source, _ in inputs)).decode().split("\0")
+    # `git ls-files` run in the checkout, as the installer ran it: with core.fsmonitor=true this index read starts
+    # the fsmonitor daemon, which must not inherit the install lock (test_cmux_next_guardrails stands in for it).
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    listed = subprocess.run(["git", "ls-files", "-z", "--", *(source for source, _ in inputs)], cwd=repo,
+                            capture_output=True, env=env, timeout=60, check=True, stdin=subprocess.DEVNULL)
+    tracked = listed.stdout.decode().split("\0")
     present = [path for path in tracked if path] + [source for source, _ in inputs
                                                   if not source.endswith("/") and (repo / source).is_file()]
     pairs = copy_pairs(inputs, present)
