@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -525,6 +526,50 @@ class ATestSpawnedGuardRunLeavesTheCallersFilesAlone(unittest.TestCase):
             for name in outer:
                 with self.subTest(file=name):
                     self.assertEqual(after[name], before[name])
+
+    # A child that appends to every file its environment names, by the caller's variable names.
+    WRITE_EVERY_FILE = (
+        "import os, sys\n"
+        "for name in sys.argv[1:]:\n"
+        "    target = os.environ.get(name)\n"
+        "    if target and not os.path.isdir(target):\n"
+        "        with open(target, 'a', encoding='utf-8') as handle:\n"
+        "            handle.write('/child/leaked\\n')\n"
+    )
+
+    def test_no_github_file_variable_reaches_the_caller_known_or_not(self) -> None:
+        """GITHUB_PATH was left pointing at the caller's file, so a fixture could change PATH for the guard steps
+        after it. Every GITHUB_* variable that names a file is isolated by pattern, not by a list: GITHUB_STATE
+        and a GITHUB_FOO_FILE no runner sets yet included."""
+        names = ("GITHUB_PATH", "GITHUB_STATE", "GITHUB_FOO_FILE", "GITHUB_ENV", "GITHUB_OUTPUT",
+                 "GITHUB_STEP_SUMMARY")
+        with tempfile.TemporaryDirectory() as temp:
+            caller, child = Path(temp) / "caller", Path(temp) / "child"
+            caller.mkdir()
+            child.mkdir()
+            outer = {name: caller / name.lower() for name in names}
+            for name, path in outer.items():
+                path.write_text(f"the caller's own {name}\n", encoding="utf-8")
+            with mock.patch.dict(os.environ, {name: str(path) for name, path in outer.items()}):
+                env = guard_child_env.guard_child_env(child)
+            done = subprocess.run([sys.executable, "-c", self.WRITE_EVERY_FILE, *names], env=env,
+                                  capture_output=True, text=True, timeout=60)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            for name, path in outer.items():
+                with self.subTest(variable=name):
+                    self.assertEqual(path.read_text(encoding="utf-8"), f"the caller's own {name}\n")
+                    self.assertTrue(env[name].startswith(str(child)), env[name])
+
+    def test_a_github_input_file_stays_readable_and_a_github_folder_is_untouched(self) -> None:
+        """The child still reads the event payload (its own copy) and keeps GITHUB_WORKSPACE as it was."""
+        with tempfile.TemporaryDirectory() as temp:
+            event, child = Path(temp) / "event.json", Path(temp) / "child"
+            child.mkdir()
+            event.write_text('{"number": 1}', encoding="utf-8")
+            with mock.patch.dict(os.environ, {"GITHUB_EVENT_PATH": str(event), "GITHUB_WORKSPACE": temp}):
+                env = guard_child_env.guard_child_env(child)
+            self.assertEqual(env["GITHUB_WORKSPACE"], temp)
+            self.assertEqual(Path(env["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"), '{"number": 1}')
 
 
 if __name__ == "__main__":
