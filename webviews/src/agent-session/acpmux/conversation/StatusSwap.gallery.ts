@@ -29,7 +29,7 @@ const holdAt = (ms: number) => async (ctx: PlayContext) => {
   }
 };
 
-export default componentEntry<Record<string, never>>({
+export default componentEntry<{ sequence?: "leo" }>({
   id: "agent-pane.status-swap",
   title: "Status lines: the hat's step and the live line roll to the next",
   area: "Agent pane",
@@ -59,6 +59,15 @@ export default componentEntry<Record<string, never>>({
       note: "Near the end: the new words almost in place, the old almost out of the box.",
       props: {},
       play: holdAt(100),
+    },
+    "leo-sequence": {
+      note: 'Leo\'s recording, 2026-11-11: "Thinking 1m · 1.7K tokens", "Sending a message 1m · 1.7K tokens", "Thinking 1m 5s · 2.5K tokens". The whole line rolls, its time and tokens with its words: no count pops off or on.',
+      props: { sequence: "leo" },
+    },
+    "leo-sequence-mid-roll": {
+      note: "Halfway into Thinking to Sending a message: the old line, tokens and all, half out above; the new half in below.",
+      props: { sequence: "leo" },
+      play: holdAt(60),
     },
     play: {
       note: "Four steps: each change rolls on the hat and on the live line.",

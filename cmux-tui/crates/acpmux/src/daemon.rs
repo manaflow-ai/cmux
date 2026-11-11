@@ -633,6 +633,12 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     hub.start_harness_checks();
     // Uploads past their age cap (`hub/file_uploads.rs`).
     hub.start_upload_sweep();
+    // The host's sender token, which our own tools present to be named verified
+    // (`sender_token.rs`): made once, kept across restarts. Without it no send is verified by it,
+    // as before, so a failure is only logged.
+    if let Err(e) = crate::sender_token::ensure(&home()) {
+        tracing::warn!("the host sender token: {e}");
+    }
     // The pid file only explains a dropped connection (`client::closed_error`):
     // a daemon that cannot write it (a full disk) serves without it and tries
     // again, never exits (`daemon/persist_retry.rs`).
@@ -1071,6 +1077,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             usize::MAX
         }
     };
+    // The hub's own tasks after its agents: cancelled and joined, any left named (`hub/shutdown.rs`).
+    hub.close_owned_tasks().await;
     // After the agents: their model streams go through the router.
     // A lost home's router path may be another daemon's router now: let go of ours, never ask
     // that path to stop.
