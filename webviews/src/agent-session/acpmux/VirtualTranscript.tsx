@@ -2088,7 +2088,8 @@ function TranscriptView({
     // suspends a hidden page's animations, so its entrance would play on return (shared/pageReveal.ts).
     // The rows a "Worked for" the reader opened reveals fade in with its fold (turnFold.ts) instead.
     if (entranceAllowed() && !turnFold.current?.opening) {
-      if (arrived.length <= LIVE_ROWS_PER_UPDATE) for (const row of arrived) enteringRows.current.add(rowFrameKey(row));
+      // A live update's rows all enter.
+      const live = arrived.length <= LIVE_ROWS_PER_UPDATE;
       // A turn that ends and the next that starts in one update (other agents' messages run as the
       // next turn: "Received 2 messages", then "Thinking") bring more rows than a live update, the
       // turn's regrouped work among them, and none entered: the new lines at the chat's end popped in
@@ -2096,7 +2097,8 @@ function TranscriptView({
       // borked and unintegrated"). The lines at the end that open nothing of the turn's work (a
       // received message's line, the live line) still enter, on the same fade as any live row; the
       // regrouped work stays the turn end's fold's (turnEndFold.ts). O(arrived).
-      else for (const row of arrived) if (row.below || isLineRow(row)) enteringRows.current.add(rowFrameKey(row));
+      const entering = enteringRows.current;
+      for (const row of arrived) if (live || row.below || isLineRow(row)) entering.add(rowFrameKey(row));
     }
   }
   knownFor.current = rows;
@@ -3002,15 +3004,13 @@ function TranscriptView({
   // card shrinking (a send clearing it) gives back only what it held: a send is one move. Push (the
   // before): the rows are drawn up with the card (`lift`), on the field growth's curve.
   const overlayDock = experimentArm(composerDockMotion) === "overlay";
+  // What the last pass left (its layout effect writes them), read once for this pass.
+  const openedAtLatest = didOpenAtLatest.current;
+  const cardAtRest = cardRest.current;
+  const cardHeldAt = cardBase.current;
   const lifting =
-    !overlayDock &&
-    following &&
-    !sessionSwitched &&
-    didOpenAtLatest.current &&
-    dockSpace > 0 &&
-    dockCard > 0 &&
-    cardRest.current > 0;
-  const grown = lifting ? Math.min(dockSpace, dockCard - cardRest.current) : 0;
+    !overlayDock && following && !sessionSwitched && openedAtLatest && dockSpace > 0 && dockCard > 0 && cardAtRest > 0;
+  const grown = lifting ? Math.min(dockSpace, dockCard - cardAtRest) : 0;
   // The content's end with all the stack's height as room, as the view would hold it unlifted.
   // The last row's turn gap and the rest gap's share (`dockRoom`) make the rest gap over the
   // floating stack, which the room keeps however tall the stack grows. The old permanent TRANSCRIPT_RUNWAY (removed after #23094) kept an extra blank
@@ -3039,12 +3039,9 @@ function TranscriptView({
   const lineLast = rows.length > 0 && isLiveLine(rows[rows.length - 1]!);
   const trayBase = lineLast ? Math.max(heldBase, dockTray - restExtra / 2) : heldBase;
   const trayHold = Math.min(dockSpace, dockTray - trayBase);
-  const cardHolds =
-    overlayDock && following && !sessionSwitched && didOpenAtLatest.current && dockSpace > 0 && cardBase.current > 0;
+  const cardHolds = overlayDock && following && !sessionSwitched && openedAtLatest && dockSpace > 0 && cardHeldAt > 0;
   const cardHold =
-    cardHolds && rowsGrew <= 0.5
-      ? Math.max(0, Math.min(dockSpace - Math.max(0, trayHold), dockCard - cardBase.current))
-      : 0;
+    cardHolds && rowsGrew <= 0.5 ? Math.max(0, Math.min(dockSpace - Math.max(0, trayHold), dockCard - cardHeldAt)) : 0;
   // Over a floating stack the newest line rests the rest gap over it (`dockRoom`, model.ts `restRoom`);
   // a turn footer's action row lies in the band under its reply, so that band comes first
   // (transcriptGrid.ts `restBand`). Docked in flow, the composer gap is the rows' own (`tailGap`).
@@ -3522,10 +3519,24 @@ function TranscriptView({
       // card leaves (`floor`) can make the content taller again in this same commit.
       const live = node.scrollTop;
       const previousOrigin = scrollOrigin(node);
+      // The scroller as it is now, not as last measured: a chat shown again after its workspace was
+      // away (hidden, parked) draws what landed meanwhile in the first frame back, before its
+      // ResizeObserver reports a size that changed while it was away (the window or the sidebar
+      // moved). The browser already clamped the offset to the new box, so against the old height
+      // that clamp read as the reader scrolling up: the view stopped following and the turn went on
+      // under the composer behind Jump to latest, or a smaller one moved the rows on the follow chase,
+      // down from where the old box drew them, leaving a sliver at the bottom (Leo, 2026-11-11: "a
+      // new message from you seemed to come down from the heavens ... a sliver of space at the bottom
+      // that the newest few lines started from the top"; agent-pane-reveal-in-place.test.ts). That
+      // pass is a resize: the offset is held to the box as it is, nothing reads as the reader's, and
+      // nothing glides. One read; this pass already laid out.
+      const liveHeight = node.clientHeight;
+      const unmeasured = liveHeight > 0 && Math.abs(liveHeight - height) > 0.5;
+      const viewHeight = unmeasured ? liveHeight : height;
       // The browser rounds the height it clamps to, so the old end allows a pixel either way.
       // The live extent may already have shrunk and clamped the offset before reconciliation.
       // Keep that boundary as well as the old total so the clamp never reads as upward input.
-      const end = Math.min(node.scrollHeight, old.totalHeight) - height;
+      const end = Math.min(node.scrollHeight, old.totalHeight) - viewHeight;
       const recentUp = readerUpPending.current && live < scrolledTo.current.top;
       const clamped = !recentUp && live < scrolledTo.current.top - 0.5 && live >= end - 1;
       // A reader's move can reach the live offset before its scroll event. Layout changes alone
@@ -3547,6 +3558,7 @@ function TranscriptView({
       const unseenReaderMove =
         followingRef.current &&
         !clamped &&
+        !unmeasured &&
         jumpTarget.current === undefined &&
         viewport.height === height &&
         viewport.width === width &&
@@ -3574,7 +3586,7 @@ function TranscriptView({
         // view's foot for its 180 ms at every streamed chunk, and on open it slid from a layout that
         // never painted (estimated heights) to the drawn one (Leo 2026-10-21: "IMMEDIATELY ... at the
         // bottom every single time").
-        const latest = Math.max(0, layout.totalHeight - height);
+        const latest = Math.max(0, layout.totalHeight - viewHeight);
         // Jump to latest's glide in flight heads for the new end instead of snapping there.
         const jumping = jumpTarget.current !== undefined;
         // The shared animation reads the moving end every frame on its original clock.
@@ -3606,7 +3618,7 @@ function TranscriptView({
         const cardCleared = dockCard < box.dockCard && box.dockSpace - dockSpace <= box.dockCard - dockCard + 0.5;
         const dockMoved = box.dockSpace !== dockSpace && !((sendWindow || cardCleared) && dockSpace < box.dockSpace);
         const now = performance.now();
-        if (box.height !== height || box.width !== width || (!chasing && box.dockSpace !== dockSpace)) {
+        if (unmeasured || box.height !== height || box.width !== width || (!chasing && box.dockSpace !== dockSpace)) {
           resizedAt.current = now;
           stopFollowMotion();
         }
