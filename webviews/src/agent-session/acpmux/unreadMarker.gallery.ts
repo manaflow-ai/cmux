@@ -10,6 +10,7 @@ import type { Play } from "../../gallery/play";
 import wallpaper from "../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?inline";
 import { assistant, chat, row, summary, user } from "../../gallery/fixtures/acpmux";
 import { SINCE_DIVIDER } from "./model";
+import { jumpUpButton } from "./jumpUp.experiment";
 
 const MARK = "gallery-unread:41";
 
@@ -67,6 +68,13 @@ const atLatest =
     else if (ctx.document.querySelector(".acpmux-since-jump")) throw new Error("the banner draws while it is off");
   };
 
+/// Scrolled to the middle by hand: Jump to latest shows, and under jump-up `on` Jump up over it.
+const midChat = async (ctx: Parameters<Play>[0]) => {
+  await settle(ctx);
+  await ctx.scroll({ selector: ".acpmux-scroll" }, 1_400);
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]"));
+};
+
 /// The banner pressed: the transcript brings the line in, and the banner has done its job.
 const lineInView: Play = async (ctx) => {
   await display({ "agentPane.display.unreadBanner": "expanded" });
@@ -101,7 +109,9 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 640,
   widths: { narrow: 420, normal: 900, wide: 1600 },
-  covers: ["agent-session/acpmux/conversation/SinceDivider.tsx", "agent-session/acpmux/VirtualTranscript.tsx"],
+  covers: ["agent-session/acpmux/conversation/SinceDivider.tsx", "agent-session/acpmux/VirtualTranscript.tsx#JumpUp"],
+  // Jump up (jumpUp.experiment.ts): off by default; `on` stacks it on Jump to latest mid-chat.
+  experiment: { definition: jumpUpButton, script: [{ name: "scroll to the middle", run: midChat }] },
   keywords: ["unread", "new since", "jump to bottom", "banner"],
   variants: {
     "banner-off": {
