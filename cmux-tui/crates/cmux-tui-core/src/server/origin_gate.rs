@@ -407,8 +407,15 @@ pub(super) fn set_peer_identity_at_accept(
     client: u64,
     peer_key: Option<String>,
     peer_token: Option<cmux_link::app_caller::PeerToken>,
-) {
+) -> crate::diagnostics::ClientKind {
+    use crate::diagnostics::ClientKind;
     let local_peer = classify_local_peer(mux, peer_key.as_deref(), peer_session_id);
+    // What the peer is for the request counters, before it declares a kind.
+    let kind = match &local_peer {
+        LocalPeer::Terminal(_) => ClientKind::Terminal,
+        LocalPeer::Other => ClientKind::Local,
+        LocalPeer::Unknown => ClientKind::Unknown,
+    };
     let mobile_host = peer_executable(peer_key.as_deref(), peer_token.as_ref())
         .is_some_and(|path| is_bundled_mobile_host_path(&path));
     let mut state = mux.control_clients.state.lock().recover_poison();
@@ -417,6 +424,7 @@ pub(super) fn set_peer_identity_at_accept(
         record.origin.local_peer = local_peer;
         record.origin.mobile_host = mobile_host;
     }
+    kind
 }
 
 /// Name of the phone host beside the daemon's executable

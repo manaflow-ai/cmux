@@ -172,6 +172,16 @@ export function cloudPageRefusal(offered: boolean): "cloud_not_now" | undefined 
   return offered ? undefined : "cloud_not_now";
 }
 
+/// Whether the composer's agent runs on this Mac, given that the chat itself is this Mac's
+/// (`chatLocal`): a new chat with Cloud picked runs its agent on the Cloud machine, whose sign-in the
+/// start handles (the login copy, or the machine's own sign-in). This Mac's harness health and sign-in
+/// then neither show nor hold Send: a Mac with no agent CLI signed in, whose composer then names a
+/// built-in such as UniiChat, kept every Cloud send under "unii isn't signed in", for a harness the
+/// start never runs (Cloud composer journey, run 42953585969).
+export function composerAgentLocal(chatLocal: boolean, runMode: string | undefined, sessionId?: string | null) {
+  return chatLocal && !(runMode === "cloud" && !sessionId);
+}
+
 /// Sends `start` to the host and resolves to its answer; never rejects. The host answers once the
 /// chat opens on the machine (a new machine boots in minutes), or with why it didn't.
 export async function startCloudChat(

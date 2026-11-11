@@ -105,6 +105,13 @@ const REST_PX = 0.25;
 const REST_SPEED = 4;
 /// A frame gap longer than this (a hidden page, a long task) integrates as this long.
 const MAX_STEP_S = 1 / 30;
+/// A frame asked for this long ago (ms) and still not run: the page draws no frames (its workspace
+/// switched away covers or parks its view while it still reads visible). What lands meanwhile moves
+/// at once, so the first frame back draws the rows where they rest instead of a chase held back the
+/// whole time away (Leo, 2026-11-11: "austin was navigating between workspaces ... a sliver of
+/// space at the bottom"; agent-pane-reveal-in-place.test.ts). A busy page still runs a frame well
+/// within it.
+const FRAMELESS_MS = 150;
 /// The fixed-duration arm's step: the standard step, eased out (MOTION_EASE_OUT's start slope).
 const CHUNK_S = MOTION_MS.standard / 1000;
 
@@ -174,6 +181,10 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
   /// it back to the spring from where it is drawn and how fast it goes.
   let arrival: { from: number; at: number; duration: number } | undefined;
   let frame: number | undefined;
+  /// When the pending `frame` was asked for (performance.now ms).
+  let askedAt = 0;
+  /// The page drew no frame for FRAMELESS_MS: moves land at once until a frame runs again.
+  let frameless = false;
   /// A send's rows, or anything in the `blocks` arm: it may pass under the glass composer while it
   /// settles, so `below` holds nothing back (the trail bound still does). Set by each `shift`: a
   /// finite `below` after a send keeps to it again.
@@ -266,6 +277,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       }
       stepped = Math.abs(x - from);
       draw();
+      askedAt = performance.now();
       frame = thread?.ownerDocument.defaultView?.requestAnimationFrame(step);
       return;
     } else if (arm === "spring" || arm === "blocks") {
@@ -322,6 +334,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       return;
     }
     draw();
+    askedAt = performance.now();
     frame = thread?.ownerDocument.defaultView?.requestAnimationFrame(step);
   };
   /// Runs the frame loop again from where the thread is drawn (after `hold`, or for `land`).
@@ -331,6 +344,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     const view = thread.ownerDocument.defaultView;
     const timeline = thread.ownerDocument.timeline?.currentTime;
     last = typeof timeline === "number" ? timeline : performance.now();
+    askedAt = performance.now();
     frame = view?.requestAnimationFrame(step);
   };
   return {
@@ -403,6 +417,19 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
         return false;
       }
       if (thread && thread !== node) stop();
+      // No frame ran since one was asked for FRAMELESS_MS ago: nobody sees the chase, so the rows
+      // move at once, and what it held lands with them. One frame running again ends it.
+      if (frameless || (frame !== undefined && performance.now() - askedAt > FRAMELESS_MS)) {
+        stop();
+        thread = node;
+        if (!frameless) {
+          frameless = true;
+          node.ownerDocument.defaultView?.requestAnimationFrame(() => {
+            frameless = false;
+          });
+        }
+        return false;
+      }
       thread = node;
       landing = false;
       scale = speed;
@@ -460,6 +487,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
         // Integrate from this frame's time: the first step lands one display frame on.
         const view = node.ownerDocument.defaultView;
         last = at;
+        askedAt = performance.now();
         frame = view?.requestAnimationFrame(step);
       }
       return true;

@@ -16869,27 +16869,27 @@
     "settings.machines.sshLinkHosts.help": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask."}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "يتصل رابط ssh:// من تطبيق آخر بهؤلاء المضيفين دون أن يسأل. أزل مضيفًا ليُطلب منك مرة أخرى. لا تسأل الأجهزة المحفوظة ونظراء acpmux أبدًا."}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "ssh:// link iz druge aplikacije povezuje se s ovim hostovima bez pitanja. Uklonite host da biste ponovo bili upitani. Sačuvani računari i acpmux peerovi nikad ne pitaju."}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Et ssh://-link fra en anden app forbinder til disse værter uden at spørge. Fjern en vært for at blive spurgt igen. Gemte maskiner og acpmux-peers spørger aldrig."}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Ein ssh://-Link aus einer anderen App verbindet sich ohne Nachfrage mit diesen Hosts. Entfernen Sie einen Host, um wieder gefragt zu werden. Gespeicherte Rechner und acpmux-Peers fragen nie."}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Un enlace ssh:// de otra app se conecta a estos hosts sin preguntar. Quita un host para que se vuelva a preguntar. Las máquinas guardadas y los pares de acpmux nunca preguntan."}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Un lien ssh:// provenant d'une autre app se connecte à ces hôtes sans demander. Supprimez un hôte pour être de nouveau sollicité. Les machines enregistrées et les pairs acpmux ne demandent jamais."}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Un link ssh:// da un'altra app si connette a questi host senza chiedere. Rimuovi un host per ricevere di nuovo la richiesta. Le macchine salvate e i peer acpmux non chiedono mai."}},
-        "ja": {"stringUnit": {"state": "needs_review", "value": "他のアプリからの ssh:// リンクは、確認なしでこれらのホストに接続します。再び確認するにはホストを削除してください。保存済みのマシンと acpmux ピアは確認しません。"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "តំណ ssh:// ពីកម្មវិធីផ្សេងភ្ជាប់ទៅម៉ាស៊ីនទាំងនេះដោយមិនសួរ។ លុបម៉ាស៊ីនមួយចេញដើម្បីឱ្យសួរម្តងទៀត។ ម៉ាស៊ីនដែលបានរក្សាទុក និង peer acpmux មិនដែលសួរទេ។"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "다른 앱의 ssh:// 링크는 묻지 않고 이 호스트에 연결합니다. 다시 묻게 하려면 호스트를 제거하세요. 저장된 머신과 acpmux 피어는 묻지 않습니다."}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "En ssh://-lenke fra en annen app kobler til disse vertene uten å spørre. Fjern en vert for å bli spurt igjen. Lagrede maskiner og acpmux-peerer spør aldri."}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Link ssh:// z innej aplikacji łączy się z tymi hostami bez pytania. Usuń host, aby znów pojawiało się pytanie. Zapisane maszyny i peery acpmux nigdy nie pytają."}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Um link ssh:// de outro app se conecta a estes hosts sem perguntar. Remova um host para ser perguntado novamente. Máquinas salvas e peers do acpmux nunca perguntam."}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Ссылка ssh:// из другого приложения подключается к этим хостам без вопроса. Удалите хост, чтобы снова получать вопрос. Сохранённые компьютеры и узлы acpmux не спрашивают никогда."}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "ลิงก์ ssh:// จากแอปอื่นจะเชื่อมต่อกับโฮสต์เหล่านี้โดยไม่ถาม ลบโฮสต์ออกเพื่อให้ถามอีกครั้ง เครื่องที่บันทึกไว้และ peer ของ acpmux จะไม่ถามเลย"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "Başka bir uygulamadan gelen ssh:// bağlantısı bu ana bilgisayarlara sormadan bağlanır. Yeniden sorulması için bir ana bilgisayarı kaldırın. Kayıtlı makineler ve acpmux eşleri hiç sormaz."}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Посилання ssh:// з іншої програми підключається до цих хостів без запиту. Вилучіть хост, щоб знову отримувати запит. Збережені комп’ютери та вузли acpmux ніколи не питають."}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Liên kết ssh:// từ ứng dụng khác sẽ kết nối với các máy chủ này mà không hỏi. Xóa một máy chủ để được hỏi lại. Máy đã lưu và các peer acpmux không bao giờ hỏi."}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "来自其他应用的 ssh:// 链接会不经询问直接连接这些主机。移除主机后将再次询问。已保存的机器和 acpmux 对等端从不询问。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "來自其他 App 的 ssh:// 連結會不經詢問直接連線至這些主機。移除主機後將再次詢問。已儲存的機器和 acpmux 對等端從不詢問。"}}
+        "en": {"stringUnit": {"state": "translated", "value": "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and cmux peers never ask."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يتصل رابط ssh:// من تطبيق آخر بهؤلاء المضيفين دون أن يسأل. أزل مضيفًا ليُطلب منك مرة أخرى. لا تسأل الأجهزة المحفوظة ونظراء cmux أبدًا."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "ssh:// link iz druge aplikacije povezuje se s ovim hostovima bez pitanja. Uklonite host da biste ponovo bili upitani. Sačuvani računari i cmux peerovi nikad ne pitaju."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Et ssh://-link fra en anden app forbinder til disse værter uden at spørge. Fjern en vært for at blive spurgt igen. Gemte maskiner og cmux-peers spørger aldrig."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ein ssh://-Link aus einer anderen App verbindet sich ohne Nachfrage mit diesen Hosts. Entfernen Sie einen Host, um wieder gefragt zu werden. Gespeicherte Rechner und cmux-Peers fragen nie."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Un enlace ssh:// de otra app se conecta a estos hosts sin preguntar. Quita un host para que se vuelva a preguntar. Las máquinas guardadas y los pares de cmux nunca preguntan."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Un lien ssh:// provenant d'une autre app se connecte à ces hôtes sans demander. Supprimez un hôte pour être de nouveau sollicité. Les machines enregistrées et les pairs cmux ne demandent jamais."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Un link ssh:// da un'altra app si connette a questi host senza chiedere. Rimuovi un host per ricevere di nuovo la richiesta. Le macchine salvate e i peer cmux non chiedono mai."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "他のアプリからの ssh:// リンクは、確認なしでこれらのホストに接続します。再び確認するにはホストを削除してください。保存済みのマシンと cmux ピアは確認しません。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "តំណ ssh:// ពីកម្មវិធីផ្សេងភ្ជាប់ទៅម៉ាស៊ីនទាំងនេះដោយមិនសួរ។ លុបម៉ាស៊ីនមួយចេញដើម្បីឱ្យសួរម្តងទៀត។ ម៉ាស៊ីនដែលបានរក្សាទុក និង peer cmux មិនដែលសួរទេ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "다른 앱의 ssh:// 링크는 묻지 않고 이 호스트에 연결합니다. 다시 묻게 하려면 호스트를 제거하세요. 저장된 머신과 cmux 피어는 묻지 않습니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "En ssh://-lenke fra en annen app kobler til disse vertene uten å spørre. Fjern en vert for å bli spurt igjen. Lagrede maskiner og cmux-peerer spør aldri."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Link ssh:// z innej aplikacji łączy się z tymi hostami bez pytania. Usuń host, aby znów pojawiało się pytanie. Zapisane maszyny i peery cmux nigdy nie pytają."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Um link ssh:// de outro app se conecta a estes hosts sem perguntar. Remova um host para ser perguntado novamente. Máquinas salvas e peers do cmux nunca perguntam."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Ссылка ssh:// из другого приложения подключается к этим хостам без вопроса. Удалите хост, чтобы снова получать вопрос. Сохранённые компьютеры и узлы cmux не спрашивают никогда."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ลิงก์ ssh:// จากแอปอื่นจะเชื่อมต่อกับโฮสต์เหล่านี้โดยไม่ถาม ลบโฮสต์ออกเพื่อให้ถามอีกครั้ง เครื่องที่บันทึกไว้และ peer ของ cmux จะไม่ถามเลย"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Başka bir uygulamadan gelen ssh:// bağlantısı bu ana bilgisayarlara sormadan bağlanır. Yeniden sorulması için bir ana bilgisayarı kaldırın. Kayıtlı makineler ve cmux eşleri hiç sormaz."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Посилання ssh:// з іншої програми підключається до цих хостів без запиту. Вилучіть хост, щоб знову отримувати запит. Збережені комп’ютери та вузли cmux ніколи не питають."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Liên kết ssh:// từ ứng dụng khác sẽ kết nối với các máy chủ này mà không hỏi. Xóa một máy chủ để được hỏi lại. Máy đã lưu và các peer cmux không bao giờ hỏi."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "来自其他应用的 ssh:// 链接会不经询问直接连接这些主机。移除主机后将再次询问。已保存的机器和 cmux 对等端从不询问。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "來自其他 App 的 ssh:// 連結會不經詢問直接連線至這些主機。移除主機後將再次詢問。已儲存的機器和 cmux 對等端從不詢問。"}}
       }
     },
     "settings.group.import": {
@@ -30784,6 +30784,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "瀏覽器標籤頁和 cmux 頁面（例如歷史記錄和 App）會以此引擎開啟。"
+          }
+        }
+      }
+    },
+    "settings.browser.vimKeys": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim Keys in Pages"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مفاتيح Vim في الصفحات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vim tipke na stranicama"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vim-taster på sider"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vim-Tasten auf Seiten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teclas de Vim en páginas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Touches Vim dans les pages"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tasti Vim nelle pagine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ページでVimキーを使う"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្រាប់ចុច Vim ក្នុងទំព័រ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "페이지에서 Vim 키"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vim-taster på sider"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klawisze Vim na stronach"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teclas do Vim nas Páginas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Клавиши Vim на страницах"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปุ่มแบบ Vim ในหน้าเว็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sayfalarda Vim Tuşları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Клавіші Vim на сторінках"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phím Vim trong trang"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "页面中的 Vim 按键"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "頁面中的 Vim 按鍵"
+          }
+        }
+      }
+    },
+    "settings.browser.vimKeys.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outside a text field, f clicks a link by its label, Shift-F opens one in a new split, j and k scroll, gg and Shift-G go to the top and bottom."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خارج حقل النص، يضغط f رابطًا عبر تسميته، ويفتح Shift-F رابطًا في قسم جديد، ويمرر j وk الصفحة، وينتقل gg وShift-G إلى الأعلى والأسفل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izvan tekstualnog polja, f klikne link po njegovoj oznaci, Shift-F ga otvori u novoj podjeli, j i k pomjeraju stranicu, gg i Shift-G idu na vrh i dno."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uden for et tekstfelt klikker f på et link via dets mærke, Shift-F åbner det i en ny opdeling, j og k ruller, gg og Shift-G går til toppen og bunden."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Außerhalb eines Textfelds klickt f einen Link über sein Kürzel, Shift-F öffnet ihn in einer neuen Teilung, j und k scrollen, gg und Shift-G springen an den Anfang und das Ende."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fuera de un campo de texto, f hace clic en un enlace por su etiqueta, Mayús-F lo abre en una nueva división, j y k desplazan, gg y Mayús-G van al principio y al final."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hors d’un champ de texte, f clique sur un lien par son repère, Maj-F l’ouvre dans une nouvelle division, j et k font défiler, gg et Maj-G vont en haut et en bas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fuori da un campo di testo, f fa clic su un link tramite la sua etichetta, Maiusc-F lo apre in una nuova divisione, j e k scorrono, gg e Maiusc-G vanno all’inizio e alla fine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "テキストフィールドの外で、fはラベルでリンクをクリックし、Shift-Fは新しい分割で開き、jとkでスクロールし、ggとShift-Gで先頭と末尾に移動します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅក្រៅប្រអប់អត្ថបទ f ចុចតំណតាមស្លាករបស់វា Shift-F បើកវាក្នុងការបំបែកថ្មី j និង k រំកិល gg និង Shift-G ទៅខាងលើ និងខាងក្រោមបំផុត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "텍스트 필드 밖에서 f는 레이블로 링크를 클릭하고, Shift-F는 새 분할에서 열며, j와 k는 스크롤하고, gg와 Shift-G는 맨 위와 맨 아래로 이동합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utenfor et tekstfelt klikker f på en lenke via merket, Shift-F åpner den i en ny deling, j og k ruller, gg og Shift-G går til toppen og bunnen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Poza polem tekstowym f klika link po jego etykiecie, Shift-F otwiera go w nowym podziale, j i k przewijają, gg i Shift-G przechodzą na górę i na dół."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fora de um campo de texto, f clica em um link pelo rótulo, Shift-F o abre em uma nova divisão, j e k rolam, gg e Shift-G vão para o topo e o final."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вне текстового поля f нажимает ссылку по её метке, Shift-F открывает её в новом разделении, j и k прокручивают, gg и Shift-G переходят в начало и конец."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "นอกช่องข้อความ f คลิกลิงก์ตามป้ายกำกับ Shift-F เปิดในการแยกใหม่ j และ k เลื่อนหน้า gg และ Shift-G ไปบนสุดและล่างสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Metin alanı dışında f bir bağlantıya etiketiyle tıklar, Shift-F onu yeni bölmede açar, j ve k kaydırır, gg ve Shift-G en üste ve en alta gider."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поза текстовим полем f натискає посилання за міткою, Shift-F відкриває його в новому розділенні, j і k прокручують, gg і Shift-G переходять на початок і в кінець."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bên ngoài ô văn bản, f nhấp liên kết theo nhãn, Shift-F mở nó trong vùng chia mới, j và k cuộn, gg và Shift-G về đầu và cuối trang."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在文本框之外，f 按标签点击链接，Shift-F 在新分屏中打开，j 和 k 滚动，gg 和 Shift-G 跳到顶部和底部。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在文字欄位之外，f 依標籤點按連結，Shift-F 在新分割中開啟，j 和 k 捲動，gg 和 Shift-G 跳到頂端和底端。"
           }
         }
       }

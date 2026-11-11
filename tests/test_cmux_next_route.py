@@ -26,6 +26,13 @@ from cmux_next_push_attribution import (MAX_COMMENTED_PRS, failed_jobs, bisect_h
 import cmux_next_route  # noqa: E402
 from cmux_next_route import MAX_PRIORITY_SUITES, outputs, route  # noqa: E402
 from cmux_next_route import matches as route_matches  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 PACKAGE = "Packages/macOS/CmuxNext"
 GRAPH = json.loads((ROOT / PACKAGE / "ci-target-graph.json").read_text(encoding="utf-8"))
@@ -123,9 +130,37 @@ _PATH_TOKEN = re.compile(r"[A-Za-z0-9_.@-]*(?:/[A-Za-z0-9_.@-]+)+|[A-Za-z0-9_-]+
 _NOT_A_READ = re.compile(r"^\s*(#|//|\"\"\")|\b(echo|printf|print|warn|die|fail|log)\b[ (]")
 
 
+# Where a shell line runs or sources a script it names: at the start of a command (after `;`, `&&`, `|`, `$(`,
+# a keyword or an opening quote) or as the argument of an interpreter or wrapper.
+# `!` negates a command (`if ! "$D/x.sh"`); a `{` opens a group but not `${VAR}`; an interpreter may take flags
+# first (`python3 -I x.py`, `bash -euo pipefail x.sh`).
+_SHELL_RUN = (r"(?:^|[;&|(`!]|(?<!\$)\{|\b(?:then|do|else|exec|source|env|xcrun|nice|timeout\s+\S+|time)\b|^\s*\."
+              r"|\b(?:bash|sh|zsh|python3?)\b(?:\s+-\S+(?:\s+pipefail)?)*)"
+              r"\s*(?:[A-Z_]+=\S*\s+)*[\"']?")
+_PY_RUN = re.compile(r"\b(?:run|call|check_call|check_output|Popen|execv[pe]?|run_path)\(")
+
+
+# Files a walked script reads that are not inputs of what it builds, each with why.
+NOT_A_BUILD_INPUT = {
+    # local-build-cache-preflight.py (reload.sh) hashes it into the SwiftPM cache key: it picks which cache a
+    # build restores, never what the build makes.
+    "scripts/ci/swiftpm-cache-layout",
+}
+
+
+def _runs(line: str, token: str, script: str) -> bool:
+    """Whether `line` of `script` runs or sources the file `token` names, not only mentions it."""
+    if script.endswith(".py"):
+        return bool(_PY_RUN.search(line))
+    if re.match(r"\s*(?:source|\.)\s", line):
+        return True  # a source line names one file, however its path is built (`"$(dirname ...)/lib/x.sh"`)
+    return re.search(_SHELL_RUN + r"[^\s\"';|&]*" + re.escape(token) + r"(?![\w./-])", line) is not None
+
+
 def native_script_reads() -> dict[str, set[str]]:
     """{repository file: the build or packaging files that read it}. Walks the seeds, the scripts the Xcode
-    project's phases name and the shell files a walked script sources; a read is a path literal outside a
+    project's phases name, and every script a walked script runs or sources (`bash x.sh`, `"$DIR/x.sh"`,
+    `python3 x.py`, a subprocess call), however deep; a read is a path literal outside a
     comment or message that names an existing file, from the root or the script's folder, with or without
     its leading variable (`$SCRIPT_DIR/...`, `$(SRCROOT)/...`)."""
     def resolve(token: str, folder: Path) -> str | None:
@@ -161,8 +196,7 @@ def native_script_reads() -> dict[str, set[str]]:
                     continue
                 reads.setdefault(path, set()).add(script)
                 runnable = path.endswith((".sh", ".py")) or (path.startswith("scripts/") and "." not in path.rsplit("/", 1)[-1])
-                sourced = re.search(r"(\bsource|^\s*\.)\s+\S*" + re.escape(path.rsplit("/", 1)[-1]), line)
-                if runnable and (project or sourced):
+                if runnable and (project or _runs(line, token, script)):
                     pending.append(path)
     return reads
 
@@ -619,24 +653,37 @@ class PullRequestTiers(unittest.TestCase):
         reads = native_script_reads()
         self.assertIn("scripts/ghosttykit-checksums.txt", reads)
         self.assertIn("THIRD_PARTY_LICENSES.md", reads)
+        # An interpreter with flags first (`exec python3 -I .../check-version-surfaces.py`).
+        self.assertIn("scripts/cmux-next/check-version-surfaces.sh", {s for r in reads.values() for s in r})
+        for line, token in (('exec python3 -I "$here/check.py" "$@"', "check.py"),
+                            ('bash -euo pipefail "$D/z.sh"', "z.sh"), ('if ! "$D/z.sh"; then', "z.sh")):
+            self.assertTrue(_runs(line, token, "x.sh"), line)
+        self.assertTrue(_runs('source "$(dirname "${BASH_SOURCE[0]}")/lib/x.sh"', "lib/x.sh", "y.sh"))
+        self.assertFalse(_runs('cp "${ROOT}/scripts/x.sh" out', "scripts/x.sh", "y.sh"))
+        # Two scripts deep: reload.sh runs build-acpmux.sh, which runs or sources these.
+        self.assertIn("scripts/cmux-next/build-acpmux.sh", reads)
+        self.assertIn("scripts/ci/tailnet-go.sh", reads)
+        self.assertIn("scripts/ci/acpmux-build-features.sh", reads)
         bundle = route_module.WEBVIEW + route_module.BUNDLE_INPUTS + route_module.CHECKED_WEB_BUNDLES
         in_bundle = lambda path: any(fnmatch.fnmatch(path, p) for p in bundle)  # noqa: E731
         misrouted = sorted(
             f"{path} (read by {', '.join(sorted(readers))})" for path, readers in reads.items()
             # ci-web's bundle --check stands in for the app compile for the web bundles' own inputs.
             if not in_bundle(path) and not all(in_bundle(reader) for reader in readers)
-            and (route_module.web_fast(path) or route_module.ci_only(path))
+            and (route_module.web_fast(path) or route_module.ci_only(path)) and path not in NOT_A_BUILD_INPUT
         )
         self.assertEqual(misrouted, [], "add these to NATIVE_SCRIPT_INPUTS in scripts/ci/cmux_next_route.py")
         import yaml
         import workflow_paths_cover_inputs as path_filters
         workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8"))
-        kind, patterns = path_filters.filtered_events(workflow)["pull_request"]
+        filters = path_filters.filtered_events(workflow)
+        self.assertEqual(set(filters), {"push", "pull_request"})
         for path in route_module.NATIVE_SCRIPT_INPUTS:
             with self.subTest(path=path):
                 self.assertIn(path, reads, "a NATIVE_SCRIPT_INPUTS entry no build script reads any more")
-                # The router only routes what starts the workflow.
-                self.assertTrue(path_filters.admits(kind, patterns, path), "add it to cmux-next.yml's paths")
+                # The router only routes what starts the workflow: a base push must run the compiles too.
+                for event, (kind, patterns) in sorted(filters.items()):
+                    self.assertTrue(path_filters.admits(kind, patterns, path), f"add it to cmux-next.yml's {event} paths")
                 result = tiers([path])
                 self.assertEqual(result["native"], "true")
                 self.assertEqual(result["scheme"], "true")

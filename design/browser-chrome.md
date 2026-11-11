@@ -199,42 +199,27 @@ not a banner).
 
 ## Bookmarks bar
 
-The strip under the toolbar that shows the Bookmarks Bar folder's items (`webviews/src/browser-chrome/bookmarks-bar/BookmarksBar.tsx`,
-`model.ts`, `store.ts`, `bookmarksBar.css`; page `pages/bookmarks-bar`; host
-`CmuxNextBookmarks/Page/BookmarksBarPage.swift`; gallery `browser-chrome.bookmarks-bar`). It is the
-native `BookmarksBarView`'s look and behavior, now drawn by a page.
+The strip under the toolbar that shows the Bookmarks Bar folder's items. It is native AppKit
+(`CmuxNextBookmarks/UI/BookmarksBarView.swift`, `BookmarkBarItemView.swift`, `BookmarkFolderMenu.swift`,
+`BookmarksBarView+Drag.swift`), filled by the app through `BookmarksBarSource`
+(`BookmarksBarHostSource` over the app's `BookmarksBarHost`, the same model path as the star and the manager page).
 
-- **Hosting.** Each browser tab's chrome holds a native strip (`BookmarksBarHostView`, height
-  `controlHeight + space2`, the pane fill). A strip borrows a bar page from `BookmarksBarPages` when
-  it enters a window and gives it back when it leaves, so there is one page per bar on screen (one
-  per visible browser pane), however many tabs are open; switching tabs in a pane hands the same
-  page to the next tab. One spare page waits for the next bar. A page that last drew another
-  profile stays hidden until it reports its new row's layout; the strip's fill stands in. The page
-  never takes the keys.
-- **Data.** The page reads only what it draws: `bookmarks.children` of `bar` (one level) and of
-  `other` (its count), again on each `bookmarks-changed` of its profile and on a relay resync. A
-  folder, the chevron or Other Bookmarks reads that subtree on the click.
-- **Layout (Standard density, pt).** Items 24 tall, 2 apart, from a 2 inset; 8 side padding, a 12
-  icon, 4 to the title in the body step; widest item `tabMaxWidth * 0.8`. What does not fit goes
-  behind the chevron (24 square); Other Bookmarks keeps the trailing end. Only the items that fit are
-  rendered.
+- **Hosting.** Each browser tab's chrome holds one bar view as its accessory bar (height
+  `controlHeight + space2`). The bar paints no fill: the chrome gives the accessory band the toolbar's
+  fill, so the toolbar and the bar read as one band. No glass (the toolbar has none). A bar off its
+  window rebuilds when it is shown again.
+- **Layout (Standard density, pt).** Items `controlHeight` tall, `space1` apart, from the pane chrome
+  inset; a small icon and the title in the body step; widest item `tabMaxWidth * 0.8`. What does not fit
+  goes behind the chevron; Other Bookmarks keeps the trailing end when it has anything.
 - **States.** No fill at rest, the gray hover fill fading at the quick motion step, the pressed fill
   at once. Empty bar with Other Bookmarks: the caption hint in the faint ink. A drop shows a 2 pt
   line between items.
-- **Menus.** Folders, the chevron and Other Bookmarks open native menus (the host builds them from
-  the page's rows; a submenu fills when it opens) with Open All past one link and "(empty)" for
-  none. Right-click is the registry's Bookmark or Bookmarks Bar menu.
+- **Menus.** Folders, the chevron and Other Bookmarks open a native `NSMenu` (a submenu fills when it
+  opens) with Open All past one link and "(empty)" for none. Right-click is the registry's Bookmark or
+  Bookmarks Bar menu.
 - **Clicks.** Click opens in the tab, Cmd-click or the middle button in a background tab, Shift or
-  Cmd-Shift in a new tab. Drag an item to reorder it; drop a link to bookmark it there (its title
-  is the dragged link's text). A refused drop or move says why.
-
-| surface | variants | recommended |
-| --- | --- | --- |
-| bookmarks bar | parity (today), tonal (a faint fill at rest), dense (6 padding, no gap) | **parity** |
-
-**Parity** keeps the bar as it was: the move to a page changes nothing a person sees. Tonal reads
-the items as buttons, but a strip of filled pills under every tab is busy; dense fits more before
-the chevron, but titles run into each other.
+  Cmd-Shift in a new tab. Drag an item to reorder it (pasteboard type `com.cmuxterm.bookmark-id`);
+  drop a link to bookmark it there.
 
 ## Keyboard
 

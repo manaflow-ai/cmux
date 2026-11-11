@@ -68,6 +68,7 @@ members = [
     "crates/cmux-flow-trace",
     "crates/cmux-holder-v3",
     "crates/cmux-process",
+    "crates/cmux-scope",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
     "crates/cmux-remote",
@@ -168,6 +169,7 @@ default-members = [
     "crates/cmux-cloud-api",
     "crates/cmux-pty",
     "crates/cmux-process",
+    "crates/cmux-scope",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
     "crates/cmux-remote",
@@ -303,6 +305,7 @@ cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
 cmux-holder = { path = "crates/cmux-holder" }
 cmux-process = { path = "crates/cmux-process" }
+cmux-scope = { path = "crates/cmux-scope" }
 cmux-flow-trace = { path = "crates/cmux-flow-trace" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
@@ -421,6 +424,9 @@ subtle = "2.6.1"
 parking_lot = "0.12"
 # One-load published snapshots (cmux-tui-core `published.rs`, R-DAEMON-STATE); already in the tree through iroh-dns.
 arc-swap = "1.9"
+# Persistent maps: the peers' rows (acpmux `hub/remote_rows.rs`) clone in O(1), so a writer
+# changes a structurally shared copy while readers hold a published snapshot (`remote_table.rs`).
+imbl = "7"
 wait-timeout = "0.2"
 # rusqlite 0.40's libsqlite3-sys build script requires Rust 1.95 without
 # declaring that MSRV. Keep the workspace's advertised Rust 1.91 support.

@@ -390,27 +390,63 @@ fn capabilities_takes_its_json_flag_and_the_dial_s_hub_flag() {
     assert_eq!(parse("capability"), None);
 }
 
-/// The accepted test accounts are exactly the ones the provisioner makes
-/// (`Target("…@manaflow.dev"` in scripts/ci/cloud_capture_provision.py), so a
-/// renamed or added account fails here rather than refusing its probe.
-#[test]
-fn the_probe_accounts_are_the_provisioners_accounts() {
+/// The provisioner's `Target(...)` calls in scripts/ci/cloud_capture_provision.py: each one's
+/// email and whether it names a `team_id` (the account is made a member of a shared team).
+fn provisioned_targets() -> Vec<(String, bool)> {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../scripts/ci/cloud_capture_provision.py");
     let text = std::fs::read_to_string(&path)
         .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
-    let mut provisioned: Vec<&str> = text
-        .split("Target(\"")
+    text.split("Target(\"")
         .skip(1)
-        .filter_map(|rest| rest.split('"').next())
-        .filter(|email| email.ends_with("@manaflow.dev"))
-        .collect();
-    provisioned.sort_unstable();
+        .filter_map(|rest| {
+            let email = rest.split('"').next()?;
+            // The call's arguments run to its closing `)` outside a string: display names
+            // such as "cmux cloud probe (production, team)" hold parentheses of their own.
+            // `rest` starts inside the email's string.
+            let mut in_string = true;
+            let close = rest.char_indices().find_map(|(at, c)| match c {
+                '"' => {
+                    in_string = !in_string;
+                    None
+                }
+                ')' if !in_string => Some(at),
+                _ => None,
+            })?;
+            let args = &rest[..close];
+            let team = args.contains("team_id=") && !args.contains("team_id=None");
+            email.ends_with("@manaflow.dev").then(|| (email.to_owned(), team))
+        })
+        .collect()
+}
+
+/// The accepted test accounts are exactly the ones the provisioner makes in no shared team
+/// (`Target("…@manaflow.dev"` without `team_id=` in scripts/ci/cloud_capture_provision.py), so a
+/// renamed or added account fails here rather than refusing its probe. An account the
+/// provisioner puts in a team (`team_id=`, such as cmux-cloud-capture-prod-team in the production
+/// company team) shares that team's machines with its people, and `cloud start-chat --target`
+/// can reach them, so it never takes a carrier fault. The probe teams `--probe-teams` makes are
+/// not a `team_id`: they hold only the capture account, which the provisioner checks on every run.
+#[test]
+fn the_probe_accounts_are_the_provisioners_accounts() {
+    let targets = provisioned_targets();
+    assert!(targets.len() >= 5, "the provisioner lost its targets: {targets:?}");
+    let mut solo: Vec<&str> =
+        targets.iter().filter(|(_, team)| !team).map(|(email, _)| email.as_str()).collect();
+    solo.sort_unstable();
     let mut accepted = super::PROBE_ACCOUNTS.to_vec();
     accepted.sort_unstable();
-    assert!(provisioned.len() >= 5, "the provisioner lost its targets: {provisioned:?}");
-    assert_eq!(accepted, provisioned);
-    assert!(provisioned.iter().all(|email| probe_account(email)));
+    assert_eq!(accepted, solo);
+    assert!(solo.iter().all(|email| probe_account(email)));
+    let teamed: Vec<&str> =
+        targets.iter().filter(|(_, team)| *team).map(|(email, _)| email.as_str()).collect();
+    assert!(
+        teamed.contains(&"cmux-cloud-capture-prod-team@manaflow.dev"),
+        "the provisioner's team account lost its team_id: {targets:?}"
+    );
+    for email in teamed {
+        assert!(!probe_account(email), "{email} is in a shared team and must not take faults");
+    }
 }
 
 /// The canary rule is web's `isSyntheticAccountEmail` (web/services/analytics/syntheticAccounts.ts,

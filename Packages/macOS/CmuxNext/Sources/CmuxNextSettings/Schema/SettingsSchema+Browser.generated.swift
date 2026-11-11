@@ -189,6 +189,12 @@ extension BrowserLinkClickSetting {
     public nonisolated static let middleClickDefault: BrowserLinkClickAction = .backgroundTab
 }
 
+extension BrowserVimKeysSetting {
+    /// `browser.vimKeys`.
+    public nonisolated static let configPath = ["browser", "vimKeys"]
+    public nonisolated static let fallback = true
+}
+
 extension LinkRouting {
     /// `browser.enabled`: Classic's Disable cmux Browser switch: false sends every link to the system and opens no browser tab for a web page.
     public nonisolated static let enabledPath = ["browser", "enabled"]

@@ -19,17 +19,9 @@ extension CloudHandlers {
         }
     }
 
-    /// A person's run shows the machines where they already live, the right
-    /// sidebar's Cloud section. Any other run (CLI, MCP, a script) gets the
-    /// list as `action.run`'s `result` and nothing changes on screen.
+    /// Every run (a person's, the CLI, MCP, a script) gets the list as
+    /// `action.run`'s `result` and nothing changes on screen.
     static func listMachines(_ invocation: ActionInvocation, _ context: AppActionContext) throws {
-        guard origin(of: invocation) != .user else {
-            guard let controller = context.activeWindow else { throw ActionFailure(message: RefusalStrings.noWindowOpen) }
-            guard controller.showRightSidebar(.machines, focus: invocation.allowsViewChange) else {
-                throw ActionFailure.needsAppCapability("right-sidebar")
-            }
-            return
-        }
         let cloud = context.services.cloud
         // A first load that outlasts `listLoadWait` answers what the store has
         // now (`loaded: false`, `pending: true`) inside `action.run`'s result

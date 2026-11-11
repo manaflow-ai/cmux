@@ -102,17 +102,6 @@
         "bookmarks-changed"
       ]
     },
-    "bookmarks-bar": {
-      "description": "The bookmarks bar under a browser tab's toolbar. Reads only what it draws (the bar's row, whether Other Bookmarks has any, a folder menu's subtree on a click) with bookmarks.children; a link dropped on it or an item dragged along it is written by the app (which keeps its own copy and the last folder up to date), never by the page; it hears bookmarks-changed and re-reads its row.",
-      "read": [
-        "bookmarks.children"
-      ],
-      "gesture": [],
-      "confirm": [],
-      "events": [
-        "bookmarks-changed"
-      ]
-    },
     "tasks": {
       "description": "Tasks. Reads the local Tasks owner's mirror (tasks.snapshot); creating, changing, moving, archiving or delegating a task needs the person's gesture (each is one click, drop or Return in the page); it hears tasks-changed, so an open page applies every commit made elsewhere (the CLI, an agent) without a re-read.",
       "read": [

@@ -71,6 +71,36 @@ fn english_catalog_equals_the_swift_dump() {
             }
         }
     }
+    // Swift's `ActionEnumCase` also has `subtitle` and `symbol`: run-time list data (a team
+    // row's kind and plan, from the cloud team rows) that the app's decoder never reads from
+    // the catalog. The dump reflects them as null; only a null is dropped, so a case that
+    // carries one still differs.
+    let arguments = swift
+        .get_mut("actions")
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+        .filter_map(|action| action.get_mut("arguments").and_then(Value::as_array_mut))
+        .flatten()
+        .filter_map(Value::as_object_mut);
+    for argument in arguments {
+        for (key, value) in argument.iter_mut() {
+            let cases = match key.as_str() {
+                "kind" => value.get_mut("enumeration"),
+                "suggestions" => value.get_mut("pinned"),
+                _ => None,
+            };
+            for case in cases.and_then(Value::as_array_mut).into_iter().flatten() {
+                if let Some(case) = case.as_object_mut() {
+                    for field in ["subtitle", "symbol"] {
+                        if case.get(field).is_some_and(Value::is_null) {
+                            case.remove(field);
+                        }
+                    }
+                }
+            }
+        }
+    }
     // A set in Swift: compare it in one order.
     let sort = |v: &mut Value| {
         if let Some(keys) = v["key_binding_defaults"]["text_input_keys"].as_array_mut() {
