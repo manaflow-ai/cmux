@@ -1980,6 +1980,7 @@ def base_run_jobs(repo: str, run: dict, github) -> list[dict]:
 # workflow on the same head: a failure is a verdict and stays red whatever a later run says (merge_hold's
 # _superseded_cancels, router-review F1 at 241b0da0).
 SUPERSEDABLE = ("cancelled", "stale")
+VERDICT_REDS = ("failure", "timed_out")  # a verdict whatever a later run says (superseding_run)
 GREEN = ("success", "skipped", "neutral")
 ACTIONS_JOB_URL = r"https://github\.com/{repo}/actions/runs/(\d+)/job/(\d+)"
 
@@ -2019,7 +2020,9 @@ def head_runs(repo: str, sha: str, github, seen: dict) -> dict:
     key = ("runs-at", sha)
     if key not in seen:
         listed = github.json(f"repos/{repo}/actions/runs?head_sha={sha}&per_page=100", paginate=True)
-        seen[key] = {listed_run.get("id"): listed_run for page in listed
+        # A reader may answer one page unwrapped; any other shape lists no run, so nothing is superseded by it.
+        pages = listed if isinstance(listed, list) else [listed]
+        seen[key] = {listed_run.get("id"): listed_run for page in pages if isinstance(page, dict)
                      for listed_run in page.get("workflow_runs") or [] if isinstance(listed_run, dict)}
     return seen[key]
 
@@ -2117,10 +2120,13 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
         run_rollups = []
         children = []
         # The run-level pass: a cancelled run a later green run of its workflow file superseded (superseding_run).
-        # Asked only when the run shows no job or a job with no verdict, so a run of failures reads no run list.
+        # Asked of every run with no failed or timed-out job (none at all, or every one passed, skipped, neutral or
+        # cancelled: #40963 review F1, a cancelled run whose jobs all passed still read "no failed job found"), and of
+        # a run with a cancelled or stale job beside its failures; a run of plain failures reads no run list.
         run_jobs = last_real_jobs(repo, run, github)
         superseded = (superseding_run(repo, sha, run, github, seen)
-                      if not run_jobs or any(job.get("conclusion") not in (*GREEN, "failure") for job in run_jobs)
+                      if not any(job.get("conclusion") in VERDICT_REDS for job in run_jobs)
+                      or any(job.get("conclusion") in SUPERSEDABLE for job in run_jobs)
                       else None)
         if superseded is not None:
             if ignored is not None:
