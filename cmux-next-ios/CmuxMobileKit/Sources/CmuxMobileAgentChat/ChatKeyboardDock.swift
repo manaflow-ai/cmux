@@ -62,7 +62,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// The transcript: a collection view of reused rows (`ChatTranscriptList`).
     private let list: ChatTranscriptList
     private var scrollView: ChatTranscriptCollectionView { list.collectionView }
-    /// The native top edge's container, over the header (status bar and navigation bar).
+    /// Workspace chats have no navigation bar to provide a native top edge.
     private let topShelf = UIView()
     /// Like the embedded terminal, iOS 26 also needs a gradient fallback:
     /// a bare top edge container alone does not obscure text under the clock.
@@ -72,6 +72,10 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// below it) soften the way they do under a system toolbar, instead of reading through
     /// the composer's glass.
     private let bottomShelf = UIView()
+    /// iOS 26 draws no edge effect for a bare container (as `topFade` for the top): while rows
+    /// are under the stack, they fade into the background over the stack's top and stay
+    /// covered under it and the home indicator.
+    private let bottomFade = BottomFadeView()
     private let emptyHost: UIHostingController<AnyView>
     private var dockHost: UIHostingController<AnyView>?
     private var dockContainer: PassthroughView?
@@ -238,17 +242,13 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         view.addSubview(scrollView)
         setContentScrollView(scrollView, for: .top)
 
-        // The native top edge spans the whole header: the status bar and, for a pushed chat,
-        // the navigation bar under it. The bar alone softened only the status bar's height
-        // (the transcript manages its own insets), so rows under the title read sharp.
-        topShelf.isUserInteractionEnabled = false
-        topShelf.isAccessibilityElement = false
-        view.addSubview(topShelf)
-        let topEdge = UIScrollEdgeElementContainerInteraction()
-        topEdge.scrollView = scrollView
-        topEdge.edge = .top
-        topShelf.addInteraction(topEdge)
         if placement == .external {
+            topShelf.isUserInteractionEnabled = false
+            view.addSubview(topShelf)
+            let topEdge = UIScrollEdgeElementContainerInteraction()
+            topEdge.scrollView = scrollView
+            topEdge.edge = .top
+            topShelf.addInteraction(topEdge)
             if #unavailable(iOS 27) {
                 topFade.isUserInteractionEnabled = false
                 topFade.isAccessibilityElement = false
@@ -264,6 +264,19 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         bottomEdge.scrollView = scrollView
         bottomEdge.edge = .bottom
         bottomShelf.addInteraction(bottomEdge)
+        if #unavailable(iOS 27) {
+            bottomFade.isUserInteractionEnabled = false
+            bottomFade.isAccessibilityElement = false
+            bottomFade.translatesAutoresizingMaskIntoConstraints = false
+            bottomFade.alpha = 0
+            view.addSubview(bottomFade)
+            NSLayoutConstraint.activate([
+                bottomFade.topAnchor.constraint(equalTo: dockGuide.topAnchor, constant: -BottomFadeView.tail),
+                bottomFade.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+                bottomFade.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                bottomFade.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            ])
+        }
 
         for host in [emptyHost] + [dockHost, jumpHost].compactMap({ $0 }) {
             addChild(host)
@@ -417,9 +430,11 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         if openAreaTop?.constant != top { openAreaTop?.constant = top }
         updateStackCeiling(headerBottom: top)
         scrollView.edgeTopInset = top
-        let chromeFrame = CGRect(x: 0, y: 0, width: view.bounds.width, height: top)
-        if topShelf.frame != chromeFrame { topShelf.frame = chromeFrame }
-        if topFade.superview != nil, topFade.frame != chromeFrame { topFade.frame = chromeFrame }
+        if placement == .external {
+            let chromeFrame = CGRect(x: 0, y: 0, width: view.bounds.width, height: top)
+            if topShelf.frame != chromeFrame { topShelf.frame = chromeFrame }
+            if topFade.superview != nil, topFade.frame != chromeFrame { topFade.frame = chromeFrame }
+        }
 
         // As in Messages, a transcript drag takes the keyboard once the finger
         // reaches the stack's top edge.
@@ -803,6 +818,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         // row (8 pt over the stack) nothing is, and the edge stays off it (as the terminal's).
         let under = !isEmpty && distanceFromBottom > Self.contentGap
         if scrollView.bottomEdgeEffect.isHidden == under { scrollView.bottomEdgeEffect.isHidden = !under }
+        let fade: CGFloat = under ? 1 : 0
+        if bottomFade.superview != nil, bottomFade.alpha != fade { bottomFade.alpha = fade }
         let shown: Bool
         if isEmpty {
             jumpVisibility = JumpToBottomVisibility()
@@ -1136,6 +1153,41 @@ final class ChatKeyboardTrace {
 /// Solid over the status bar, then fades to clear at the content inset so the
 /// first row at rest is unobscured. Matches the embedded terminal's fallback.
 @MainActor
+/// Clear over the stack's top, then the background from the stack's top down to the screen's
+/// bottom: rows scrolled under the composer fade out instead of reading through its glass.
+private final class BottomFadeView: UIView {
+    static let tail: CGFloat = 24
+
+    private let gradient = CAGradientLayer()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        layer.addSublayer(gradient)
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: BottomFadeView, _: UITraitCollection) in
+            view.updateColors()
+        }
+        updateColors()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        gradient.frame = bounds
+        let clear = min(1, Self.tail / max(bounds.height, 1))
+        gradient.locations = [0, NSNumber(value: Double(clear)), 1]
+        CATransaction.commit()
+    }
+
+    private func updateColors() {
+        let color = UIColor(Color.cmuxMobileBackground).resolvedColor(with: traitCollection)
+        gradient.colors = [color.withAlphaComponent(0).cgColor, color.cgColor, color.cgColor]
+    }
+}
+
 private final class TopFadeView: UIView {
     private static let tail: CGFloat = 18
 
