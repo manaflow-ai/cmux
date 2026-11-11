@@ -1687,6 +1687,23 @@ export default agentPaneEntry({
       ]),
       play: hoverReference(24175, ".cv-link-preview.acpmux-pr-card"),
     },
+    "github-references-scroll": {
+      note: 'Leo 2026-11-10: "just tried this touchpad scrolling the github preview is kinda bad". A long reply with a pull request chip on every paragraph: a wheel or touchpad scroll puts an open card away at once, and a chip sliding under a still pointer opens nothing until the pointer moves again.',
+      ...LEO_WORKSPACE,
+      snapshot: chat([
+        user("Which pull requests landed tonight?", 6),
+        assistant(
+          Array.from(
+            { length: 24 },
+            (_, index) =>
+              `Paragraph ${index + 1}: the lane landed #${LANE_NUMBERS[index % LANE_NUMBERS.length]} after review, ` +
+              "and the follow-up keeps the transcript readable while it waits for the next base merge.",
+          ).join("\n\n"),
+          5.6,
+        ),
+        summary(5.6, { status: "completed", durationMs: 14_000 }),
+      ]),
+    },
     "github-references-same-number": {
       note: "A bare #843 is a pull request in both leo-workspace (the folder's) and cmux (which the chat linked): the chip names its repository.",
       ...LEO_WORKSPACE,

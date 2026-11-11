@@ -44,6 +44,12 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+_git_fixture_spec = importlib.util.spec_from_file_location(
+    "git_fixture_env", os.path.join(os.path.dirname(os.path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
+
 ROOT = Path(__file__).resolve().parents[1]
 # sha256 of prepush-gate.py's PEP668_ROUTE. leo-workspace tools/test_host_baseline.py pins the same digest for the same
 # text in machines/host-baseline.json, so the two PEP 668 decisions cannot drift apart.
@@ -301,6 +307,8 @@ class PrepushGateLayer(unittest.TestCase):
         self.repo = Path(self.tmp.name) / "repo"
         (self.repo / ".github" / "workflows").mkdir(parents=True)
         self.git("init", "-q")
+        for key, value in git_fixture_env.OPT_OUT:  # in the repository's own config too
+            self.git("config", key, value)
         shutil.copy(DECLARATION, self.repo / ".github" / "single-host-fallbacks.json")
         self.workflow("a.yml", "${{ vars.RUNNER_POOLS }}")
         self.base = self.commit("base")
@@ -308,7 +316,9 @@ class PrepushGateLayer(unittest.TestCase):
         self.installed.mkdir()
 
     def git(self, *args: str) -> str:
-        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        # No GIT_* from the caller (a pre-push hook's GIT_DIR would aim this at the pushing repository), then
+        # the helper's maintenance opt-out back on top.
+        env = git_fixture_env.fixture_env({k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
         return subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=fixture",
                                "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", *args],
                               check=True, capture_output=True, text=True, env=env).stdout.strip()

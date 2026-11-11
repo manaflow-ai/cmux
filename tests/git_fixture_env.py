@@ -20,8 +20,8 @@ three ways, because each one alone has a hole:
 3. GIT_CONFIG_GLOBAL, pointed (when unset; an empty value means no global
    config and is kept) at a file in a fresh private folder (tempfile.mkdtemp,
    removed at exit; never a predictable path another user could plant) that includes
-   ~/.gitconfig and ~/.config/git/config and then sets OPT_OUT (without the
-   includes when HOME is unset: git refuses to expand ~/ then). Receive-pack
+   the person's global config in plain git's order ($XDG_CONFIG_HOME/git/config,
+   then ~/.gitconfig) and then sets OPT_OUT (global_config_text). Receive-pack
    reads it too.
 
 A fixture that builds an environment from scratch (or filters GIT_* out of
@@ -38,6 +38,7 @@ git-bare-repo-unmanaged rules fail a test that skips this module.
 from __future__ import annotations
 
 import atexit
+import hashlib
 import os
 import shutil
 import stat
@@ -56,10 +57,6 @@ OPT_OUT: tuple[tuple[str, str], ...] = (
 # Config-file text with OPT_OUT, for a fixture that writes its own config file.
 CONFIG_FILE_OPT_OUT = "[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n[receive]\n\tautogc = false\n"
 
-_GLOBAL_CONFIG_TEXT = (
-    # The person's (or the fixture HOME's) own global config first, so OPT_OUT after it wins.
-    "[include]\n\tpath = ~/.gitconfig\n\tpath = ~/.config/git/config\n" + CONFIG_FILE_OPT_OUT
-)
 _FALSE = {"false", "no", "off", "0"}
 
 
@@ -95,30 +92,57 @@ def _global_config_dir() -> str:
     # An inherited folder is used only when it is private to us: a shared or planted one (another user's, a
     # symlink, a world-writable one) could hold a config that adds core.hooksPath (cmux#40871 Codex F1).
     folder = os.environ.get("CMUX_GIT_FIXTURE_GLOBAL_DIR")
-    if (folder and _private_dir(folder) and os.path.isfile(os.path.join(folder, "home.gitconfig"))
-            and os.path.isfile(os.path.join(folder, "no-home.gitconfig"))):
+    if folder and _private_dir(folder):
         return folder
     folder = tempfile.mkdtemp(prefix="git-fixture-")  # mode 0700, a fresh unpredictable name
-    with open(os.path.join(folder, "home.gitconfig"), "w") as handle:
-        handle.write(_GLOBAL_CONFIG_TEXT)
-    # Git refuses an include of ~/ when HOME is unset, so an environment without HOME gets this one.
-    with open(os.path.join(folder, "no-home.gitconfig"), "w") as handle:
-        handle.write(CONFIG_FILE_OPT_OUT)
     atexit.register(shutil.rmtree, folder, True)
     os.environ["CMUX_GIT_FIXTURE_GLOBAL_DIR"] = folder
     return folder
 
 
-_GLOBAL_DIR = _global_config_dir()
-GLOBAL_CONFIG = os.path.join(_GLOBAL_DIR, "home.gitconfig")
-GLOBAL_CONFIG_NO_HOME = os.path.join(_GLOBAL_DIR, "no-home.gitconfig")
+def _quoted(path: str) -> str:
+    return '"' + path.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def global_config_text(env: Mapping[str, str]) -> str:
+    """GIT_CONFIG_GLOBAL text that reads env's global config as plain git does, then OPT_OUT.
+
+    Plain git reads $XDG_CONFIG_HOME/git/config (~/.config/git/config when XDG_CONFIG_HOME is unset or empty)
+    and then ~/.gitconfig, so a key in ~/.gitconfig wins. The file includes them in that order by absolute
+    path ([include] path=, so their own include/includeIf lines still work; git skips an include whose file
+    is missing, so one created later is still read) and puts OPT_OUT last. With no HOME and no
+    XDG_CONFIG_HOME it holds OPT_OUT alone.
+    """
+    home = env.get("HOME") or ""
+    xdg = env.get("XDG_CONFIG_HOME") or (os.path.join(home, ".config") if home else "")
+    paths = [os.path.join(xdg, "git", "config")] if xdg else []
+    if home:
+        paths.append(os.path.join(home, ".gitconfig"))
+    includes = "".join(f"[include]\n\tpath = {_quoted(path)}\n" for path in paths)
+    return includes + CONFIG_FILE_OPT_OUT
+
+
+def global_config_for(env: Mapping[str, str]) -> str:
+    """Path of a GIT_CONFIG_GLOBAL file with global_config_text(env); one file per distinct text."""
+    text = global_config_text(env)
+    path = os.path.join(_global_config_dir(), hashlib.sha256(text.encode()).hexdigest()[:16] + ".gitconfig")
+    if not os.path.isfile(path):
+        partial = f"{path}.{os.getpid()}"
+        with open(partial, "w") as handle:
+            handle.write(text)
+        os.replace(partial, path)
+    return path
+
+
+GLOBAL_CONFIG = global_config_for(os.environ)
 
 
 def fixture_env(env: Mapping[str, str] | None = None) -> dict[str, str]:
     """A copy of env (default os.environ) with OPT_OUT pairs and, if it names none, a GIT_CONFIG_GLOBAL with OPT_OUT."""
     result = dict(os.environ if env is None else env)
     without_auto_maintenance(result)
-    result.setdefault("GIT_CONFIG_GLOBAL", GLOBAL_CONFIG if result.get("HOME") else GLOBAL_CONFIG_NO_HOME)
+    if "GIT_CONFIG_GLOBAL" not in result:
+        result["GIT_CONFIG_GLOBAL"] = global_config_for(result)
     return result
 
 
@@ -156,4 +180,4 @@ def clone_repo(source: str | os.PathLike[str], dest: str | os.PathLike[str], *ar
 
 
 without_auto_maintenance(os.environ)
-os.environ.setdefault("GIT_CONFIG_GLOBAL", GLOBAL_CONFIG if os.environ.get("HOME") else GLOBAL_CONFIG_NO_HOME)
+os.environ.setdefault("GIT_CONFIG_GLOBAL", GLOBAL_CONFIG)
