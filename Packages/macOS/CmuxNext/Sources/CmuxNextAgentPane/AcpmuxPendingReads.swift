@@ -19,9 +19,11 @@ public nonisolated struct AcpmuxPendingReads: Sendable {
     /// The feed bridge's recovery of prompts that predate its connection. 10 s is well past a
     /// healthy peer's info answer over its link (local ones answer in milliseconds), and bounds
     /// how long a stalled peer holds one of the four slots; nothing waits on the batch as a whole.
+    // timeout: a stall breaker per peer read; a peer past it counts as no prompts, nothing is refused or lost
     public static let feed = AcpmuxPendingReads(width: 4, deadline: .seconds(10))
     /// The dialog desk's list (`feed.list`): its whole connection lives 5 s
     /// (``AcpmuxPersonLine/open(_:deadline:)``), so one read gets 2 s and the list still answers.
+    // timeout: inside the dialog connection's 5 s life; a slow peer's read counts as no prompts so the list still answers
     public static let dialog = AcpmuxPendingReads(width: 4, deadline: .seconds(2))
 
     public init(width: Int, deadline: Duration, clock: any Clock<Duration> = ContinuousClock()) {
