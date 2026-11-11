@@ -27,7 +27,8 @@ final class CloudMachinesCaptureUITests: XCTestCase {
         XCUIDevice.shared.appearance = appearance
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
-        app.launchArguments += ["-cmux-mobile-recovery-gallery", "cloudmachines", "-cmux-mobile-no-restore"]
+        app.launchArguments += ["-cmux-mobile-recovery-gallery", "cloudmachines", "-cmux-mobile-no-restore",
+                                "-cmux-mobile-gallery-appearance", name]
         app.launch()
         defer { app.terminate() }
 
