@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileAuth
+import CmuxMobileBillingUI
 import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileRealtime
@@ -65,6 +66,9 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
             ScrollViewReader { proxy in
             List {
                 accountSection.id("top")
+                // Plan: the current plan and the App Store plans screen; nothing
+                // when the root injected no billing model (mock, DEBUG, staging).
+                MobileSettingsPlanSection()
                 if let team = store.activeTeam {
                     Section {
                         NavigationLink(value: SettingsRoute.team) {
