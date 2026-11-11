@@ -89,8 +89,13 @@ struct GroupCloseCleanupUndoTests {
                                         within: .seconds(10), report: { "toasts \(CmuxToastCenter.shared.toasts(in: setup.window).map(\.message))" })
         #expect(CmuxToastCenter.shared.runAction(id: Self.toastID, in: setup.window))
         @MainActor func held() -> Set<String> { Set(context.workspaces(inPersonalGroup: setup.group).map(\.name)) }
+        // The report says where the two workspaces are: open outside the group (the Undo lost the group) or
+        // still closed (the Undo did not reopen them: its waits on the closed history are 5 s each).
         try await PinnedPageTests.until({ held() == ["undo-1", "undo-2"] }, within: .seconds(60), report: {
-            "group \(personal.group(setup.group)?.name ?? "missing") holds \(held().sorted()); groups \(personal.groups.map(\.name))"
+            let open = services.machines.local.store.workspaces.map(\.name).sorted()
+            let closed = DaemonClosedHistory.entries([.workspace], in: services).map { "\($0.item.name ?? "?") in \($0.item.group?.name ?? "no group")" }
+            return "group \(personal.group(setup.group)?.name ?? "missing") holds \(held().sorted()); groups \(personal.groups.map(\.name)); "
+                + "open workspaces \(open); closed items, newest first \(closed)"
         })
         let restored = try #require(personal.group(setup.group))
         #expect(restored.name == setup.name)
