@@ -263,7 +263,6 @@ public final class HomeNativeTranscriptView: NSView {
 
     required init?(coder: NSCoder) { nil }
 
-
     /// The hover cards of link chips (``enableLinkPreviews(coordinator:previewer:)``), nil until the host enables them.
     private(set) var linkPreviews: HomeLinkChipHoverSource?
 

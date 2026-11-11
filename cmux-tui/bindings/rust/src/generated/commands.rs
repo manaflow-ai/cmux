@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 4092e18628956f6f0140e6c2a2f97a370ff80cf2f567a54c4d066c1240242b1d.
+// cmux-tui mux protocol 12, IR 8f7c38cfe306dacf10763a16c8b540a144ad4c48ef14d76c58f729ee5f0f8ee0.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -3457,6 +3457,18 @@ pub type SetDefaultColorsResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetDividerVisibleRequest {
+    pub split: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<u64>,
+    pub visible: bool,
+}
+
+#[rustfmt::skip]
+pub type SetDividerVisibleResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetFrontendBrowserHistoryRequest {
     pub history: Nullable<T::JsonValue>,
     pub surface: T::Id,
@@ -3800,6 +3812,9 @@ pub struct SnapshotRequestRequest {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SplitRequest {
+    /// The split the new split wraps whole (the new pane after it, as wide or tall as the whole subtree): inserting a pane at a divider. pane must be that split's last pane and dir right or down.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub around: Optional<T::Id>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub before: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -5646,6 +5661,10 @@ impl CmuxClient {
         self.execute(&SET_DEFAULT_COLORS_METADATA, &request)
     }
 
+    pub fn set_divider_visible(&mut self, request: SetDividerVisibleRequest) -> Result<SetDividerVisibleResult> {
+        self.execute(&SET_DIVIDER_VISIBLE_METADATA, &request)
+    }
+
     pub fn set_frontend_browser_history(&mut self, request: SetFrontendBrowserHistoryRequest) -> Result<SetFrontendBrowserHistoryResult> {
         self.execute(&SET_FRONTEND_BROWSER_HISTORY_METADATA, &request)
     }
@@ -5794,6 +5813,10 @@ impl CmuxClient {
     }
 
     pub fn split(&mut self, request: SplitRequest) -> Result<SplitResult> {
+        if !request.around.is_missing() {
+            self.require_protocol_field("split", 12)?;
+            self.require_capability_field("split", "split-around-v1")?;
+        }
         if request.before.is_some() {
             self.require_protocol_field("split", 12)?;
             self.require_capability_field("split", "split-before-v1")?;

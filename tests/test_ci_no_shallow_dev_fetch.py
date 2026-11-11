@@ -19,6 +19,20 @@ belongs in OWN_REPOSITORY with the reason.
 Limit: the check is per file. A file that already checks for a shallow
 repository can still add a second, unguarded fetch further down.
 
+Tests get the same rule for the checkout they run in, and one more. Under car
+guards every test shares the job's checkout: full history, blob-less
+(actions/checkout's filter: blob:none). test_ci_owned_pool_sources.py's
+`git fetch --depth=1` there wrote .git/shallow, and
+test_cmux_next_guards_notices_pair.py's `git clone --shared` of the checkout,
+running beside it, then died: clone ignores --shared and --local for a shallow
+source and packs through upload-pack, which may not fetch the blobs the source
+never had ("could not fetch ... from promisor remote", cmux#40871). So a test
+file that runs git in the repository root (`-C ROOT`, `cwd=ROOT`, `-C "$ROOT"`)
+fetches with a depth flag only behind a shallow check, and no test clones the
+repository root with --shared, --reference, --local or -s: it clones over
+file:// (depth 1, blob-less: see the notices-pair test) or builds a fixture.
+A file the first scan misreads goes in TESTS_NOT_IN_THE_CHECKOUT with the reason.
+
 Usage: python3 tests/test_ci_no_shallow_dev_fetch.py
 """
 from __future__ import annotations
@@ -28,6 +42,13 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -59,6 +80,41 @@ OWN_REPOSITORY = {
     "webviews/src/agent-session/acpmux/session-info/commandRules.ts":
         "runs no git: it names a shown command line in words, and lists `git clone`'s --depth as a flag to skip",
 }
+
+
+# Test files whose depth flags never reach a fetch in the repository root.
+TESTS_NOT_IN_THE_CHECKOUT = {
+    "tests/test_ci_test_execution_registry.py": "the depth fetch is workflow text it asserts on, never run",
+    "tests/test_cmux_next_fast_gates.py": "its depth fetches and clones run in its own fixture repositories",
+}
+# Git run in the repository root: `-C ROOT`, `cwd=ROOT`, `-C "$ROOT"` and the like.
+IN_ROOT = re.compile(r"""-C["']?,?\s*(str\()?\s*["']?\$?\{?(ROOT|REPO_ROOT|repo_root)\b|cwd=(str\()?(ROOT|REPO_ROOT)\b""")
+# A clone that borrows its source's object store, or copies it as a local clone.
+BORROWING_CLONE = re.compile(r"""\bclone\b.*(--shared|--reference|--local|["']-s["']|\s-s\s)""")
+ROOT_NAME = re.compile(r"\b(ROOT|REPO_ROOT|repo_root)\b")
+
+
+def tracked_test_files() -> list[str]:
+    names = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"], check=True, capture_output=True,
+                           text=True).stdout.split("\0")
+    return sorted(
+        name for name in names
+        if name.endswith((".py", ".sh", ".bash"))
+        and not name.startswith(("vendor/", "node_modules/")) and "/node_modules/" not in name
+        and re.search(r"(^|/)tests?/|(^|/)test_[^/]*\.py$|\.test\.[a-z]+$|_test\.[a-z]+$", name)
+    )
+
+
+def root_depth_fetches(text: str) -> list[int]:
+    """Unguarded depth-limited fetches in a test file that also runs git in the repository root."""
+    return unguarded_depth_fetches(text) if IN_ROOT.search(text) else []
+
+
+def borrowing_root_clones(text: str) -> list[int]:
+    """1-based lines that clone the repository root with --shared, --reference, --local or -s."""
+    return [index for index, line in enumerate(text.splitlines(), 1)
+            if BORROWING_CLONE.search(line) and ROOT_NAME.search(line)
+            and not line.lstrip().startswith(("#", "//", "*"))]
 
 
 def tracked_scripts() -> list[str]:
@@ -163,6 +219,57 @@ class NoShallowDevFetchTests(unittest.TestCase):
                 git("cat-file", "-e", f"{side}^{{commit}}", cwd=clone)
                 self.assertEqual(git("rev-parse", "--is-shallow-repository", cwd=clone), expected, clone.name)
             self.assertEqual(git("rev-list", "--count", side, cwd=full), "4")
+
+
+class TestsLeaveTheJobCheckoutAlone(unittest.TestCase):
+    """cmux#40871: one test made car guards' checkout shallow, and another's --shared clone of it died."""
+
+    def scan(self, finder) -> list[str]:
+        problems = []
+        for name in tracked_test_files():
+            if name in TESTS_NOT_IN_THE_CHECKOUT or name == "tests/test_ci_no_shallow_dev_fetch.py":
+                continue
+            try:
+                text = (ROOT / name).read_text(encoding="utf-8")
+            except (UnicodeDecodeError, FileNotFoundError, IsADirectoryError):
+                continue
+            problems += [f"{name}:{line}" for line in finder(text)]
+        return problems
+
+    def test_no_test_makes_the_repository_root_shallow(self):
+        self.assertEqual(self.scan(root_depth_fetches), [],
+                         "a test that runs git in the repository root fetches with a depth flag and no "
+                         "`is-shallow-repository` check: under car guards that makes the job's checkout "
+                         "shallow for every test beside it (see this file's docstring)")
+
+    def test_no_test_borrows_the_repository_roots_objects(self):
+        self.assertEqual(self.scan(borrowing_root_clones), [],
+                         "a test clones the repository root with --shared/--reference/--local/-s: under car "
+                         "guards that is the job's blob-less checkout, and the clone dies once it is shallow; "
+                         "clone it over file:// at depth 1 with --filter=blob:none instead "
+                         "(tests/test_cmux_next_guards_notices_pair.py)")
+
+    def test_allowlisted_files_exist_and_still_need_it(self):
+        for name, reason in TESTS_NOT_IN_THE_CHECKOUT.items():
+            path = ROOT / name
+            self.assertTrue(path.is_file(), f"{name} is listed but does not exist")
+            self.assertTrue(reason.strip(), f"{name} needs a reason")
+            self.assertTrue(root_depth_fetches(path.read_text(encoding="utf-8")), f"{name} no longer needs an entry")
+
+    def test_the_scans_flag_cmux_40871s_two_lines(self):
+        # test_ci_owned_pool_sources.py and test_cmux_next_guards_notices_pair.py as they were at 8349c18e.
+        owned_pool = ('def git(*args):\n    return subprocess.run(["git", "-C", str(ROOT), *args])\n'
+                      'git("fetch", "--no-tags", "--depth=1", "--filter=blob:none", "origin", ref)\n')
+        self.assertEqual(root_depth_fetches(owned_pool), [3])
+        self.assertEqual(root_depth_fetches(owned_pool.replace(
+            'git("fetch"', 'shallow = git("rev-parse", "--is-shallow-repository")\ngit("fetch"')), [])
+        self.assertEqual(root_depth_fetches('git("fetch", "--depth=1", "origin")  # in a fixture repo\n'), [])
+        notices = 'subprocess.run(["git", "clone", "-q", "--shared", "--no-checkout", str(ROOT), str(path)])\n'
+        self.assertEqual(borrowing_root_clones(notices), [1])
+        self.assertEqual(borrowing_root_clones('git clone -q --reference "$ROOT" "$url" "$dir"\n'), [1])
+        self.assertEqual(borrowing_root_clones(
+            'clone_repo(ROOT.as_uri(), path, "--depth=1", "--filter=blob:none")\n'), [])
+        self.assertEqual(borrowing_root_clones('git clone -q --shared app mid\n'), [])
 
 
 if __name__ == "__main__":

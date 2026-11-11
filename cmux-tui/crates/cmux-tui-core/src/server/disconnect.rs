@@ -137,10 +137,12 @@ fn disconnect_client_with_notice(
         mux.remove_size_client_from_attached_surfaces(client, record.attached.keys().copied());
         record
     };
+    mux.activity.disconnect(client);
     mux.unbind_conversation_principal(client);
     #[cfg(unix)]
     mux.forget_cloud_token_client(client);
     mux.release_cloud_conversation_client(client);
+    mux.feed_connection_closed(client);
     // Provider capabilities are valid only for the control connection that
     // published them. Release before announcing detachment so waiters can
     // never observe a stale target after the owning client is gone.

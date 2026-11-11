@@ -142,6 +142,9 @@ struct CmuxTUITreeWire: Decodable {
         var kind: String
         var name: String?
         var title: String?
+        /// What the tab shows of `title` (D2): a terminal's without its status
+        /// glyphs. A daemon from before the split sends only `title`.
+        var title_text: String?
         var size: Size?
         var dead: Bool?
         var terminal_id: String?
@@ -184,7 +187,7 @@ struct CmuxTUITreeWire: Decodable {
                             resourceID: tab.terminal_resource_id,
                             terminalID: tab.terminal_id,
                             name: tab.name,
-                            title: tab.title ?? "",
+                            title: tab.title_text ?? tab.title ?? "",
                             cols: tab.size?.cols,
                             rows: tab.size?.rows,
                             dead: tab.dead ?? false
@@ -292,6 +295,8 @@ struct CmuxTUIEventWire: Decodable {
     /// `vt-state` or `resized` replay; the next output completes it.
     var pending: String?
     var title: String?
+    /// `title-changed`'s split of `title` (D2); the phone shows it.
+    var text: String?
     var colors: CmuxTUIColorsWire?
 }
 

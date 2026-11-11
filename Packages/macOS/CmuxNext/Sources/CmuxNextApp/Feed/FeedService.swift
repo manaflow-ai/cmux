@@ -1,52 +1,29 @@
 import AppKit
-import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
-import CmuxNextFeed
+import CmuxNextDaemonService
 import Foundation
+import CmuxNextFeedClient
 
-/// The app's feed (plans/cmux-next/feed.md): one `FeedModel` mirroring the
-/// user's `FeedDO` through `CloudFeedSource`. It starts once the cmux account
-/// is signed in (the Stack session token is the bearer until install tokens
-/// exist) and reports the app's active state as presence for the owner's
-/// push rule. View state (panel, selection, drafts) stays in this client.
-/// It also serves `feed.request` for local hook adapters: post, then wait for
-/// the owner's closed state in the mirror.
+/// The app's side of the feed (plans/cmux-next/feed-page.md): the daemon's feed client owns the
+/// mirror of the person's `FeedDO` (on the cloud lease the app gives it with `cloud-session-set`,
+/// whose origin is ``apiBaseURL``), the GitHub poller and the reports mailbox; the Feed page draws
+/// them. This keeps only what the app alone knows: its active state as presence for the owner's
+/// push rule, the GitHub setting, the update cards it posts, and `call` for the native security
+/// callers that talk to the API Worker themselves. It also hears each Cloud approval hold the owner
+/// closes (answered on any device) for ``CloudApprovalHolds``.
 @MainActor
 final class FeedService {
-    let model: FeedModel
     let apiBaseURL: URL
-    private let source: CloudFeedSource
-    private let localOwner: LocalFeedSourceAdapter
-    private let github: GitHubFeedSource
-    private let showcase: Bool
+    /// The daemon's `feed.*` ops and their change events.
+    let daemon: FeedDaemonClient
     private let auth: CloudAuth
-    /// The app's acpmux, resolved once at startup (nil: a mock agent host or no acpmux binary).
-    /// A report reply uses it as is: the reply path resolves nothing (no executable or signature
-    /// check on the main thread).
-    let acpmuxEnvironment: AcpmuxEnvironment?
     /// Whether the app is active (`AppServices.appActiveSource`), for the owner's presence; never the global `NSApp`.
     private let appActive: @MainActor () -> Bool
-    /// The reports reader; a page of a reader that a reset stopped is dropped.
-    private let reports = AcpmuxMailboxSubscription()
-    /// Wakes the current reports reader's retry wait (one per reader, so a stopped reader's end
-    /// never touches the next one's watch): its socket's changes, and app activation or wake.
-    private var reportsWake: RetryWake?
-    private var reportRows: [String: FeedReport] = [:]
-    private var started = false
-    /// The account the mirror belongs to; a sign-out or another account resets it.
-    private var account: String?
     private var observers: [MainActorObservation] = []
-    private var accountWatch: Task<Void, Never>?
-    private(set) var connection: FeedConnection = .disconnected("not started")
-    /// Owner-confirmed state of each item (never the overlay).
-    private var confirmed: [String: FeedItemState] = [:]
-    private var waiters: [String: [CheckedContinuation<Void, Never>]] = [:]
-    /// Told every owner-confirmed item (snapshot and events), never the overlay
-    /// (the agent permission feed bridge reads answers here).
-    var onConfirmedItems: (@MainActor ([FeedItem]) -> Void)?
-    private let approvalHolds: CloudApprovalHolds?  // hears each Cloud hold the owner closes (answered on any device)
+    private var tasks: [Task<Void, Never>] = []
+    private let approvalHolds: CloudApprovalHolds?
 
     /// The API Worker for this build: `CMUX_NEXT_FEED_API_URL`, else staging
     /// for development auth and production for production auth.
@@ -54,29 +31,36 @@ final class FeedService {
         auth.configuration.ownerAPIBaseURL(environment: environment)
     }
 
-    init(auth: CloudAuth, showcase: Bool = false, acpmuxEnvironment: AcpmuxEnvironment? = nil, approvalHolds: CloudApprovalHolds? = nil, appActive: @escaping @MainActor () -> Bool) {
-        (self.auth, self.approvalHolds) = (auth, approvalHolds)
-        self.showcase = showcase
-        (self.acpmuxEnvironment, self.appActive) = (acpmuxEnvironment, appActive)
+    init(auth: CloudAuth, local: DaemonService?, approvalHolds: CloudApprovalHolds? = nil, appActive: @escaping @MainActor () -> Bool) {
+        (self.auth, self.approvalHolds, self.appActive) = (auth, approvalHolds, appActive)
         apiBaseURL = Self.apiBaseURL(auth: auth)
-        // The answer's device label is the owner's record (the install); this name is only the overlay's.
-        source = CloudFeedSource(apiBaseURL: apiBaseURL, device: "Mac") { [auth] in
-            try await auth.tokens().access
-        }
-        var observe: (@MainActor (FeedSourceEvent) -> Void)?
-        localOwner = LocalFeedSourceAdapter(primary: showcase ? MockFeedSource() : source)
-        github = GitHubFeedSource(owner: localOwner)
-        model = FeedModel(source: FeedTeeSource(localOwner) { observe?($0) })
-        model.githubDetail = { [weak self] item in self?.githubDetail(for: item) }
-        observe = { [weak self] in self?.observe($0) }
-        model.onRefresh = nil
+        daemon = FeedDaemonClient(connection: { [weak local] in local?.connection })
+        guard let local else { return }
+        follow(local)
         observePresence()
-        // task-owner: FeedService.accountWatch: follows sign-in, sign-out and account switches; lives with the service.
-        accountWatch = Task { [weak self] in
-            await auth.awaitRestored()
-            for await signedIn in ObservationStream({ auth.isSignedIn ? (auth.user?.id ?? "") : nil }) {
-                self?.accountChanged(signedIn)
+    }
+
+    /// Hands the local daemon's `feed-view-changed` events to the client, and a new connection that
+    /// serves the feed as a change of everything (a reconnect lost the events meanwhile).
+    private func follow(_ local: DaemonService) {
+        let daemon = daemon
+        local.store.sideEvents.subscribe { event in
+            guard case .unknown(name: FeedDaemonClient.changedEvent, let payload) = event else { return }
+            daemon.deliver(FeedDaemonClient.change(payload))
+        }
+        // task-owner: FeedService.tasks: follows the local daemon's connection; lives with the service.
+        tasks.append(Task { [weak self, weak local] in
+            for await serving in ObservationStream({ ObservationTrigger(local?.supports(FeedDaemonClient.capability) == true ? local?.connection.map(ObjectIdentifier.init) : nil) }) {
+                guard let self, serving.value != nil else { continue }
+                daemon.setPresence(active: appActive())
+                daemon.restore() // a new daemon starts with the poller off and no update cards
+                daemon.deliver(FeedDaemonClient.Change(changed: nil))
+                self.readClosedHolds()
             }
+        })
+        daemon.observe { [weak self] change in
+            guard let ids = change.changed, !ids.isEmpty else { return }
+            self?.readHolds(ids)
         }
     }
 
@@ -87,10 +71,7 @@ final class FeedService {
         let workspace = NSWorkspace.shared.notificationCenter
         let update: @MainActor (Bool?) -> Void = { [weak self] forced in
             guard let self else { return }
-            source.setPresence(active: forced ?? self.appActive())
-            if forced == nil { source.checkAlive() }
-            // An activation or wake may find acpmux back: a reports reader past its timed retries tries again.
-            if forced != false { reportsWake?.fire() }
+            daemon.setPresence(active: forced ?? self.appActive())
         }
         func on(_ center: NotificationCenter, _ name: Notification.Name, _ forced: Bool?) -> MainActorObservation {
             MainActorObservation(name, center: center) { update(forced) }
@@ -101,193 +82,56 @@ final class FeedService {
             on(workspace, NSWorkspace.screensDidSleepNotification, false),
             on(workspace, NSWorkspace.sessionDidResignActiveNotification, false),
             on(workspace, NSWorkspace.willSleepNotification, false),
-            // After a wake the socket may be dead without an error: probe it.
             on(workspace, NSWorkspace.didWakeNotification, nil),
             on(workspace, NSWorkspace.screensDidWakeNotification, nil),
             on(workspace, NSWorkspace.sessionDidBecomeActiveNotification, nil),
         ]
     }
 
-    /// A new sign-in state: start for this account, or reset (sign-out, another account).
-    private func accountChanged(_ user: String?) {
-        guard user != account else { return }
-        if account != nil {
-            source.reset(reason: "signed out")
-            github.resetDetails()
-            resetReports()
-            started = false
+    /// The closed Cloud holds the owner already has (a launch, a reconnect).
+    private func readClosedHolds() {
+        guard let approvalHolds else { return }
+        // task-owner: one daemon read; it records what it read and ends.
+        Task { [daemon] in
+            guard let items = try? await daemon.list(state: "closed", home: "cloud") else { return }
+            approvalHolds.recordAnswered(items.lazy.filter(\.isClosed).compactMap(\.cloudHold))
         }
-        account = user
-        if user != nil, started { localOwner.reconnectPrimary() }
-        startIfSignedIn()
     }
 
-    /// Starts the mirror when signed in; the panel and requests call it again (after a sign-in).
-    func startIfSignedIn() {
-        guard !started else {
-            if auth.isSignedIn {
-                startReportsIfNeeded()
-                source.setPresence(active: appActive())
-            }
-            return
+    /// The changed items' owner state: a Cloud hold the owner closed.
+    private func readHolds(_ ids: [String]) {
+        guard let approvalHolds else { return }
+        // task-owner: one daemon read; it records what it read and ends.
+        Task { [daemon] in
+            guard let items = try? await daemon.items(ids, confirmed: true) else { return }
+            approvalHolds.recordAnswered(items.lazy.filter(\.isClosed).compactMap(\.cloudHold))
         }
-        account = auth.user?.id
-        started = true
-        model.start()
-        startReportsIfNeeded()
-        if auth.isSignedIn { source.setPresence(active: appActive()) }
     }
 
     var isSignedIn: Bool { auth.isSignedIn }
 
-    /// Posts an installed update's card (cmux or an agent CLI) through the local owner, never a
-    /// cloud session; the owner's dedupe keeps one card per version.
+    /// Posts an installed update's card (cmux or an agent CLI) through the daemon's integration
+    /// owner, never a cloud session; the owner's dedupe keeps one card per version. A card no daemon
+    /// took stays pending until one does.
     func post(update card: UpdateFeedCard) {
-        localOwner.post(card.item)
+        daemon.keepPosting(item: card.item, key: card.dedupeKey)
     }
 
+    /// Applies the user-owned GitHub connection setting to the daemon's poller.
+    func configureGitHub(enabled: Bool, pollIntervalSeconds: Double) {
+        daemon.configureGitHub(enabled: enabled, intervalSeconds: pollIntervalSeconds)
+    }
 
-    /// Live GitHub details are held by the source only while the app runs.
-    func githubDetail(for id: String) -> GitHubFeedDetail? { github.githubDetail(for: id) }
-
-    /// Cloud owners assign the final feed id. Resolve the source's in-memory
-    /// detail by URL when that id differs from the poster's provisional id.
-    func githubDetail(for item: FeedItem) -> GitHubFeedDetail? {
-        github.githubDetail(for: item.id)
-            ?? item.context.url.flatMap { url in github.githubDetails.values.first { $0.url == url } }
+    /// Waits until the owner reports the item closed, or the deadline passes; the owner's item.
+    @discardableResult
+    func waitClosed(_ id: String, until deadline: ContinuousClock.Instant) async -> FeedDaemonItem? {
+        await daemon.waitClosed(id, until: deadline)
     }
 
     func stop() {
-        accountWatch?.cancel()
-        resetReports()
-        model.stop()
-        github.stop()
-        github.resetDetails()
-        started = false
-    }
-
-    /// Applies the user-owned GitHub connection setting. The source remains
-        /// stopped until the feed owner is running and the user is signed in.
-    func configureGitHub(enabled: Bool, pollIntervalSeconds: Double) {
-        githubEnabled = enabled
-        model.githubConnectionEnabled = enabled
-        if enabled {
-            model.onRefresh = { [weak self] in
-                guard let self, self.connection == .connected else { return }
-                // task-owner: one-shot manual refresh; the source's in-flight guard owns duplicate suppression.
-                Task { @MainActor in await self.github.refresh() }
-            }
-        } else {
-            model.onRefresh = nil
-        }
-        github.setInterval(.seconds(pollIntervalSeconds))
-        if enabled {
-            startIfSignedIn()
-            if connection == .connected { github.start() }
-        } else {
-            github.stop()
-        }
-    }
-
-    private var githubEnabled = false
-
-    /// The signed-in account owns its own local alias. Using the stable auth
-    /// id keeps a second account from reading Leo's reports mailbox.
-    private var reportsRecipient: String? {
-        guard let person = auth.user?.id.trimmingCharacters(in: .whitespacesAndNewlines), !person.isEmpty else {
-            return nil
-        }
-        return "reports:\(person)"
-    }
-
-    private func resetReports() {
-        reports.stop()
-        reportsWake = nil
-        reportRows.removeAll()
-        model.replaceReports([])
-        // The next reader (another account) reads from the start: not known until its first page.
-        model.setReportsLoaded(false)
-    }
-
-    /// Reads the quiet reports alias without creating a model attachment. The
-    /// mailbox wait is event-driven; quiet delivery notifies this reader but
-    /// never wakes the sender's ACP turn. The reader runs off the main actor and
-    /// retries on the shared daemon-client path (`AcpmuxMailboxReader`): a
-    /// missing socket waits for its file-system event, a refusing one is paced.
-    private func startReportsIfNeeded() {
-        guard !reports.isRunning else { return }
-        guard auth.isSignedIn, let socketPath = acpmuxEnvironment?.socketPath, let reportsRecipient else {
-            // No reader runs, so there is nothing to read: the basket's empty state is the truth.
-            model.setReportsLoaded(true)
-            return
-        }
-        // A reader starting with nothing read (a sign-in after none) is loading until its first page.
-        if reportRows.isEmpty { model.setReportsLoaded(false) }
-        let wake = RetryWake(owner: "feed.reports.retry")
-        reportsWake = wake
-        let reader = AcpmuxMailboxReader(socketPath: socketPath, recipient: reportsRecipient, wake: wake)
-        // Stopped by resetReports (sign-out, another account, stop); a page already on its way is dropped.
-        reports.start(reader) { [weak self] page in self?.applyReports(page) }
-    }
-
-    private func applyReports(_ page: AcpmuxMailboxPage) {
-        for message in page.messages {
-            reportRows[message.id] = FeedReport(id: message.id, sender: message.sender, body: message.body, createdAt: message.createdAt)
-        }
-        // Only what the basket shows stays: a long-lived mailbox is read page by page from its start.
-        reportRows = model.replaceReports(reportRows)
-    }
-
-    private func observe(_ event: FeedSourceEvent) {
-        switch event {
-        case let .connection(state):
-            connection = state
-            if state == .connected, githubEnabled { github.start() }
-            if case .disconnected = state {
-                github.stop()
-                github.resetConditionalRequests()
-            }
-        case let .snapshot(snapshot):
-            confirmed = Dictionary(snapshot.items.map { ($0.id, $0.state) }, uniquingKeysWith: { a, _ in a })
-            approvalHolds?.recordAnswered(snapshot.items.lazy.filter(\.state.isClosed).compactMap(\.cloudHold))
-            resumeClosed()
-            onConfirmedItems?(snapshot.items)
-        case let .event(event):
-            switch event.change {
-            case let .items(items):
-                for item in items { confirmed[item.id] = item.state }
-                approvalHolds?.recordAnswered(items.lazy.filter(\.state.isClosed).compactMap(\.cloudHold))
-                onConfirmedItems?(items)
-            case let .remove(ids): for id in ids { confirmed[id] = nil }
-            }
-            resumeClosed()
-        case .settled: break
-        }
-    }
-
-    private func resumeClosed() {
-        for (id, list) in waiters where confirmed[id].map({ $0 != .open }) ?? false {
-            waiters[id] = nil
-            for waiter in list { waiter.resume() }
-        }
-    }
-
-    /// Waits until the owner reports the item closed, or the deadline passes.
-    func waitClosed(_ id: String, until deadline: ContinuousClock.Instant) async {
-        if confirmed[id].map({ $0 != .open }) ?? false { return }
-        // task-owner: FeedService.waitClosed, one-shot request deadline; resumes this waiter only.
-        let timer = Task { [weak self] in
-            // wakeup-allow: one-shot deadline of one feed request (at most 120 s), cancelled when the item closes.
-            try? await ContinuousClock().sleep(until: deadline)
-            self?.expireWaiters(id)
-        }
-        await withCheckedContinuation { waiters[id, default: []].append($0) }
-        timer.cancel()
-    }
-
-    private func expireWaiters(_ id: String) {
-        guard let list = waiters.removeValue(forKey: id) else { return }
-        for waiter in list { waiter.resume() }
+        tasks.forEach { $0.cancel() }
+        tasks = []
+        observers = []
     }
 
     /// One HTTP call to the API Worker as the signed-in user (`/v1/ops` or `/v1/read`), in its

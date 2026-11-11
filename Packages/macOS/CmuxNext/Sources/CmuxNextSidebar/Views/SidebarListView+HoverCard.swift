@@ -51,7 +51,7 @@ extension SidebarListViewComponents {
     func hoverCardGroup(at point: CGPoint) -> GroupID? {
         guard DesignSettings.shared.groupHoverCard.workspaceGroups, drag == nil, !inlineRename.isActive,
               visibleRect.contains(point), !isHiddenOrHasHiddenAncestor,
-              case .group(let id)? = displayed.row(at: point.y)?.key, groups[id] != nil, !isEmptyTree(id) else { return nil }
+              case .group(let id)? = (stuckHit(at: point) ?? displayed.row(at: point.y))?.key, groups[id] != nil, !isEmptyTree(id) else { return nil }
         return id
     }
     /// The workspaces in `id` and every group under it, in document order: the group's card counts them.

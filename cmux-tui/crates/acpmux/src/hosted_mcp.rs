@@ -45,6 +45,7 @@ pub const ORIGIN_ENV: &str = "ACPMUX_HOSTED_MCP_ORIGIN";
 const UPSTREAM_PROTOCOL: &str = "2025-06-18";
 /// One call: below `cmux mcp serve`'s own 300 s for an upstream call.
 const CALL_TIMEOUT: Duration = Duration::from_secs(280);
+// timeout: connecting to cmux's hosted MCP server; a call itself has CALL_TIMEOUT, and a failed connect is an MCP error the agent sees
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// The app bounds a mint at 25 s.
 const MINT_TIMEOUT: Duration = Duration::from_secs(35);

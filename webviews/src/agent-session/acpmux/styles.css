@@ -15,12 +15,15 @@
    color mixed toward the text by these amounts, so every theme keeps its character. The box, its edge, its hover pills and
    the context tray behind it mix into the page color, so where the page is clear (a translucent window, and the
    dev page without the bridge) they are a tint over the backdrop, and on an opaque page
-   they are the same colors as before. Text, the Send arrow, menus and the narrow-window
+   they are the same colors as before. Text, the Send arrow, the menu surface and the narrow-window
    session overlay mix into the opaque base instead, so the backdrop never thins them:
    the bridge's accent text, which AgentPaneTheme.swift sets to the page color made
    opaque (the accent is the text color). A host that sends a different accent text must
-   change this base too; without the bridge the base is the system Canvas. */
-.acpmux-shell,.ui-positioner{--acpmux-base:var(--agent-accent-text,Canvas);--acpmux-composer-bg:color-mix(in srgb,var(--agent-text) 13%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-edge:color-mix(in srgb,var(--agent-text) 18%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-placeholder:color-mix(in srgb,var(--agent-text) 34%,var(--acpmux-base));--acpmux-composer-dim:color-mix(in srgb,var(--agent-text) 56%,var(--acpmux-base));--acpmux-menu-bg:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));--acpmux-menu-hover:color-mix(in srgb,var(--agent-text) 14%,var(--acpmux-base));--acpmux-composer-hover:color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-pill-fill:color-mix(in srgb,var(--agent-text) 6%,transparent);--acpmux-pill-hover:color-mix(in srgb,var(--agent-text) 11%,transparent);--acpmux-pill-open:color-mix(in srgb,var(--agent-text) 16%,transparent);--acpmux-pill-press:color-mix(in srgb,var(--agent-text) 22%,transparent);--acpmux-pill-edge:color-mix(in srgb,var(--agent-text) 24%,transparent);--acpmux-composer-tray:color-mix(in srgb,var(--agent-text) 9%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-warning:var(--agent-status-warning);--acpmux-send-off-fg:color-mix(in srgb,var(--agent-text) 45%,transparent)}
+   change this base too; without the bridge the base is the system Canvas. A highlighted menu row
+   (--acpmux-menu-hover) is a clear text wash, never a mix into the base: the menus sit on host glass
+   (design/surface-materials.md), where an opaque row drew a solid slab, and on an opaque menu the 14%
+   wash reads as the row did before. */
+.acpmux-shell,.ui-positioner{--acpmux-base:var(--agent-accent-text,Canvas);--acpmux-composer-bg:color-mix(in srgb,var(--agent-text) 13%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-edge:color-mix(in srgb,var(--agent-text) 18%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-placeholder:color-mix(in srgb,var(--agent-text) 34%,var(--acpmux-base));--acpmux-composer-dim:color-mix(in srgb,var(--agent-text) 56%,var(--acpmux-base));--acpmux-menu-bg:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));--acpmux-menu-hover:color-mix(in srgb,var(--agent-text) 14%,transparent);--acpmux-composer-hover:color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-pill-fill:color-mix(in srgb,var(--agent-text) 6%,transparent);--acpmux-pill-hover:color-mix(in srgb,var(--agent-text) 11%,transparent);--acpmux-pill-open:color-mix(in srgb,var(--agent-text) 16%,transparent);--acpmux-pill-press:color-mix(in srgb,var(--agent-text) 22%,transparent);--acpmux-pill-edge:color-mix(in srgb,var(--agent-text) 24%,transparent);--acpmux-composer-tray:color-mix(in srgb,var(--agent-text) 9%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-warning:var(--agent-status-warning);--acpmux-send-off-fg:color-mix(in srgb,var(--agent-text) 45%,transparent)}
 /* The shared popup surface (ui/popupSurface.css) takes the pane's ink; every popup, nested submenus included, is the liquid glass (.ui-glass), whose plain and Reduce Transparency fill is the popup surface (--surface-popup, the host's --cmux-popup-surface, else the pane's menu color). */
 .acpmux-shell,.ui-positioner{--surface-popup:var(--cmux-popup-surface,var(--acpmux-menu-bg))}
 /* A menu row's highlight is the native themed menus' (Palette.menuHighlight, NSMenu.themeRows): the theme's accent (ThemeTokens.accent, --agent-accent) as a 20% wash, so labels keep their ink and a neutral theme gets a gray wash; never the system's saturated selection blue (test/pane-menu-highlight.test.ts). It sits on :root, where the theme sets --agent-accent, because ui/ContextMenu.tsx portals its menu into document.body, outside .acpmux-shell and .ui-positioner. */
@@ -380,7 +383,7 @@
 @media (prefers-contrast:more){.acpmux-queued-action:focus-visible{outline:var(--cmux-focus-ring-width,2px) solid var(--cmux-focus-ring-color,var(--agent-text));outline-offset:-1px}}
 .acpmux-queue-paused{grid-column:1/-1;display:grid;grid-template-columns:subgrid;align-items:center;min-height:24px;padding:0 6px 0 12px;box-sizing:border-box;color:var(--agent-status-warning);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-queue-paused>span{grid-column:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acpmux-queue-resume{grid-column:2;justify-self:end;height:22px;padding:0 8px;border:0;border-radius:6px;background:none;color:var(--agent-text);font:inherit}
+.acpmux-queue-resume{grid-column:2;justify-self:end;height:var(--ds-control-compact);padding:0 var(--ds-space-2);border:0;border-radius:var(--ds-radius-control);background:none;color:var(--agent-text);font:inherit}
 .acpmux-queue-resume:hover{background:var(--agent-control-hover)}
 .acpmux-queue-resume:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1px}.acpmux-hidden-label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 /* New chat (EmptyState.tsx): a centered hero, small and muted, in place of the empty transcript. */
@@ -661,7 +664,7 @@
 .acpmux-edited-title>div:first-child{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .acpmux-edited-title .acpmux-diff-counts{font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-edited-outside{color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-review-changes{flex:none;height:22px;padding:0 8px;border:0;border-radius:6px;background:transparent;box-shadow:inset 0 0 0 1px var(--agent-border);color:var(--agent-text);font:inherit;font-size:var(--text-detail);cursor:default;letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-review-changes{flex:none;height:var(--ds-control-compact);padding:0 var(--ds-space-2);border:0;border-radius:var(--ds-radius-control);background:transparent;box-shadow:inset 0 0 0 1px var(--agent-border);color:var(--agent-text);font:inherit;font-size:var(--text-detail);cursor:default;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-review-changes:hover{background:color-mix(in srgb,var(--agent-text) 6%,transparent)}
 .acpmux-edited-undo{flex:none;display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 6px;border:0;border-radius:6px;background:transparent;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:default;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-edited-undo:hover:not(:disabled){background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
@@ -896,7 +899,7 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-question-error-reason{color:var(--agent-muted)}
 .acpmux-question-skip{min-height:var(--ds-control-row);padding:0 var(--ds-space-1) 0 var(--ds-space-3);border:0;border-radius:var(--ds-radius-popup);background:color-mix(in srgb,var(--agent-text) 10%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-body);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-question-skip:hover:not(:disabled){background:color-mix(in srgb,var(--agent-text) 13%,transparent)}
-.acpmux-question-submit{display:inline-flex;align-items:center;gap:var(--ds-space-2);min-height:var(--ds-control-row);padding:0 var(--ds-space-1) 0 var(--ds-space-3);border:0;border-radius:var(--ds-radius-popup);background:var(--agent-text);color:var(--acpmux-base,var(--agent-accent-text,Canvas));font:inherit;font-size:var(--text-body);font-weight:var(--weight-regular);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-question-submit{display:inline-flex;align-items:center;gap:var(--ds-space-2);min-height:var(--ds-control-row);padding:0 var(--ds-space-1) 0 var(--ds-space-3);border:0;border-radius:var(--ds-radius-control);background:var(--agent-text);color:var(--acpmux-base,var(--agent-accent-text,Canvas));font:inherit;font-size:var(--text-body);font-weight:var(--weight-regular);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-question-submit:hover:not(:disabled){background:color-mix(in srgb,var(--agent-text) 88%,var(--acpmux-base,Canvas))}
 /* The card's keys as outlined keycaps, one per key, after the label: the permission card's (Esc, ⌘ ↩). */
 .acpmux-question-keys{display:inline-flex;align-items:center;gap:var(--grid-half-step)}
@@ -957,7 +960,7 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-secret-card-row{display:flex;align-items:center;gap:4px}
 .acpmux-secret-card-field{flex:1;min-width:0;height:28px;padding:0 8px;box-sizing:border-box;border:0;border-radius:6px;background:var(--agent-page-bg,var(--acpmux-base));box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);color:var(--agent-text);font:inherit;outline:none}
 .acpmux-secret-card-field::placeholder{color:var(--acpmux-composer-dim)}
-.acpmux-secret-card-action{flex:none;height:26px;padding:0 10px;border:0;border-radius:6px;background:none;color:var(--agent-text);font:inherit;cursor:default}
+.acpmux-secret-card-action{flex:none;height:var(--ds-control-row);padding:0 var(--ds-space-3);border:0;border-radius:var(--ds-radius-control);background:none;color:var(--agent-text);font:inherit;font-size:var(--text-control);cursor:default}
 .acpmux-secret-card-action:disabled{color:var(--acpmux-composer-dim);cursor:default}
 .acpmux-secret-card-action:not(:disabled):hover{background:var(--acpmux-composer-hover)}
 .acpmux-secret-card-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
@@ -999,7 +1002,7 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-permission-ask .acpmux-permission-buttons{display:flex;flex-wrap:wrap;justify-content:flex-start;align-items:center;gap:var(--ds-space-2);margin:0;padding:var(--ds-space-3) var(--ds-space-4) var(--ds-space-4)}
 /* Deny keeps the leading edge (and any other option before it), the allows the trailing one, as a pair. */
 .acpmux-permission-ask .acpmux-permission-allows{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:var(--ds-space-2);margin-inline-start:auto;max-width:100%}
-.acpmux-permission-ask .acpmux-permission-buttons button{display:inline-flex;align-items:center;flex:none;max-width:100%;min-height:var(--ds-control-row);box-sizing:border-box;border:0;border-radius:var(--ds-radius-popup);padding:var(--ds-space-1) var(--ds-space-3);white-space:nowrap;background:color-mix(in srgb,var(--agent-text) 10%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-body);font-weight:var(--weight-regular);line-height:20px;letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-permission-ask .acpmux-permission-buttons button{display:inline-flex;align-items:center;flex:none;max-width:100%;min-height:var(--ds-control-row);box-sizing:border-box;border:0;border-radius:var(--ds-radius-control);padding:var(--ds-space-1) var(--ds-space-3);white-space:nowrap;background:color-mix(in srgb,var(--agent-text) 10%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-body);font-weight:var(--weight-regular);line-height:20px;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-permission-ask .acpmux-permission-buttons button:hover{background:color-mix(in srgb,var(--agent-text) 13%,transparent)}
 .acpmux-permission-ask .acpmux-permission-buttons button.acpmux-permission-primary{background:var(--agent-text);color:var(--acpmux-base,var(--agent-accent-text,Canvas))}
 .acpmux-permission-ask .acpmux-permission-buttons button.acpmux-permission-primary:hover{background:color-mix(in srgb,var(--agent-text) 88%,var(--acpmux-base,Canvas))}

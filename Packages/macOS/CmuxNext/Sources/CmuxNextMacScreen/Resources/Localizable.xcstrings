@@ -1,66 +1,6 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "macScreen.home.devicesFailed": {
-      "comment": "Mac Screen home, Your Devices: the device hub could not be reached or the device list not read; a Try Again button follows.",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعذر الوصول إلى مركز الأجهزة لتحميل أجهزتك."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Der Gerätehub war nicht erreichbar, deine Geräte konnten nicht geladen werden."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couldn’t reach the device hub to load your devices."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se ha podido conectar con el centro de dispositivos para cargar tus dispositivos."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossible de joindre le hub d’appareils pour charger vos appareils."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "デバイスハブに接続できず、デバイスを読み込めませんでした。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "기기 허브에 연결할 수 없어 기기를 불러올 수 없습니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法连接到设备中心以载入你的设备。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無法連線到裝置中樞以載入你的裝置。"
-          }
-        }
-      }
-    },
     "devices.access": {
       "extractionState": "manual",
       "localizations": {
@@ -33195,6 +33135,12 @@
             "state": "needs_review",
             "value": "另一台 Mac 结束了会话。"
           }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "另一部 Mac 結束了工作階段。"
+          }
         }
       }
     },
@@ -33319,6 +33265,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "与另一台 Mac 的连接已断开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "與另一部 Mac 的連線已中斷。"
           }
         }
       }
@@ -33445,6 +33397,12 @@
             "state": "needs_review",
             "value": "cmux 无法启动屏幕查看器。"
           }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 無法啟動螢幕檢視器。"
+          }
         }
       }
     },
@@ -33569,6 +33527,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "另一台 Mac 尚未批准会话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "另一部 Mac 尚未核准工作階段。"
           }
         }
       }
@@ -33695,6 +33659,12 @@
             "state": "needs_review",
             "value": "直连"
           }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "直連"
+          }
         }
       }
     },
@@ -33819,6 +33789,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "直连（本地网络）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "直連（區域網路）"
           }
         }
       }
@@ -33945,6 +33921,12 @@
             "state": "needs_review",
             "value": "中继"
           }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "中繼"
+          }
         }
       }
     },
@@ -34070,6 +34052,12 @@
             "state": "needs_review",
             "value": "会话无法连接到另一台 Mac。"
           }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作階段無法連線到另一部 Mac。"
+          }
         }
       }
     },
@@ -34194,6 +34182,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "屏幕查看器已停止。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "螢幕檢視器已停止。"
           }
         }
       }
@@ -34980,6 +34974,66 @@
           "stringUnit": {
             "state": "translated",
             "value": "已可僅檢視。允許輔助使用即可完全控制。"
+          }
+        }
+      }
+    },
+    "macScreen.home.devicesFailed": {
+      "comment": "Mac Screen home, Your Devices: the device hub could not be reached or the device list not read; a Try Again button follows.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر الوصول إلى مركز الأجهزة لتحميل أجهزتك."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Gerätehub war nicht erreichbar, deine Geräte konnten nicht geladen werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t reach the device hub to load your devices."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se ha podido conectar con el centro de dispositivos para cargar tus dispositivos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de joindre le hub d’appareils pour charger vos appareils."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイスハブに接続できず、デバイスを読み込めませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기 허브에 연결할 수 없어 기기를 불러올 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法连接到设备中心以载入你的设备。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法連線到裝置中樞以載入你的裝置。"
           }
         }
       }

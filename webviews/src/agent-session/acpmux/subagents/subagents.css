@@ -1861,8 +1861,8 @@ button.cv-subagent > :last-child {
    (or it has keyboard focus); tucked, the hat leaves only a faint up chevron at the same place on the
    composer's top edge, in the accent while something runs, which brightens on hover. The control has
    no wide slab behind it (Leo, 2026-11-05: "the Tuck is a little bit ugly"): its compact glass
-   control and short bridge keep the buttons' wide hit areas while joining the composer hairline, as
-   Codex, ChatGPT and VS Code draw a divider's collapse control. */
+   control keeps the buttons' wide hit areas and sits on the composer's hairline, which runs up to its
+   rim on each side ("The line stops at the hat" below), as Codex draws a divider's collapse control. */
 .acpmux-running-tray[data-tucks] {
   position: relative;
 }
@@ -1948,9 +1948,8 @@ button.cv-subagent > :last-child {
   width: var(--acpmux-tray-pull-tab-width);
   height: 20px;
 }
-/* The tab's compact control floats over the composer's hairline. The bridge remains visible on both
-   sides of the glass control, so the line meets the bar instead of stopping short; the hit strip
-   (where it takes clicks) stays put. */
+/* The tab's compact control floats over the composer's hairline; the hit strip (where it takes
+   clicks) stays put. */
 .acpmux-tray-pull__tab,
 .acpmux-tray-pull + .acpmux-composer {
   --acpmux-tray-pull-tab-width: 96px;
@@ -1977,33 +1976,12 @@ button.cv-subagent > :last-child {
   transform: translateY(calc(-1 * var(--acpmux-tray-pull-lift)));
   transition: background-color var(--cmux-motion-micro, 120ms) var(--cv-actions-ease), box-shadow var(--cmux-motion-micro, 120ms) var(--cv-actions-ease);
 }
-/* A quiet bridge ties the hat to the composer's hairline: one device pixel in the shared glass edge,
-   8px out from each side of the pill, so the resting hat is visible without becoming a second card.
-   It hangs off the pill, so it moves out with the pill's width on the same clock and never runs
-   through the pill behind the chevron or the count. */
-.acpmux-tray-pull__hat::before,
-.acpmux-tray-pull__hat::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  width: var(--ds-space-2);
-  height: var(--cmux-hairline);
-  background: var(--glass-edge, color-mix(in srgb, var(--agent-muted) 45%, transparent));
-  transform: translateY(-50%);
-  transition: background-color var(--cmux-motion-micro, 120ms) var(--cv-actions-ease), opacity var(--cmux-motion-micro, 120ms) var(--cv-actions-ease);
-  opacity: 0.85;
-}
-.acpmux-tray-pull__hat::before {
-  right: 100%;
-}
-.acpmux-tray-pull__hat::after {
-  left: 100%;
-}
-.acpmux-tray-pull__tab:focus-visible > .acpmux-tray-pull__hat::before,
-.acpmux-tray-pull__tab:focus-visible > .acpmux-tray-pull__hat::after {
-  background: var(--agent-accent);
-  opacity: 1;
-}
+/* No line of the hat's own beside the pill (Leo, 2026-11-11: "did this line behind the count box get
+   removed yet?"). Its two 8px stubs hung at the pill's middle, which the pill's lift puts 2px over
+   the card's line, so beside the pill a second, shorter line ran parallel to the card's and read as
+   a line behind the count, poking out on both sides. The card's own line already runs up to the pill's rim
+   (below), so the pill and that line are the one shape; keyboard focus is the pill's outline.
+   test/composer-hat-line-gap.test.ts measures that nothing is drawn beside the pill over the line. */
 .acpmux-tray-pull__tab:hover > .acpmux-tray-pull__hat,
 .acpmux-tray-pull__tab:has([data-popup-open]) > .acpmux-tray-pull__hat {
   background: color-mix(in srgb, var(--glass-surface, Canvas) 30%, transparent);
@@ -2072,42 +2050,88 @@ button.cv-subagent > :last-child {
    glass rim i mean there's a line in the midle"). The pill floats over the top edge of the part under
    it, and its glass is clear enough that the composer's hairline and lit rim read straight through
    its middle. The part under the hat leaves a gap in that line exactly the pill's width, so the line
-   runs up to the pill's rim on each side and never behind it; the pill's glass, rim and bridges are
+   runs up to the pill's rim on each side and never behind it; the pill's glass and rim are
    unchanged. The gap is the pill's own width, worked out from the same tokens: the control's width
    and, while the slot shows, the 4px gap and the mark (the dot, or one tabular digit of the count's
-   own type per character, `data-mark`, TrayPullTab.tsx), so `ch` here is the count's. It moves on
-   the slot's clock, so the gap grows and shrinks with the pill, and lands at once where the slot's
-   width does (Reduce Motion, motion off). Its centre is the tab's (left, middle or right). The card
-   keeps its fill and shadow; only its ring and rim move to a layer of their own, as under a queue
-   (composerLocation.css), and that layer leaves out the strip the pill covers, down to the pill's
-   foot, so the sheen under the edge ends at the pill's rim too. A queue or a location strip on top
-   leaves out its top hairline the same width. Only the part the pill sits on does: with a note or
-   the former strip's kept room above the card, the pill floats over that and the card keeps its
-   whole line. test/composer-hat-line-gap.test.ts measures the pixels through the pill. */
+   own type per character, `data-mark`, TrayPullTab.tsx). The card keeps its fill and shadow; only
+   its ring and rim move to a layer of their own, as under a queue (composerLocation.css), and that
+   layer leaves out the strip the pill covers, down to the pill's foot, so the sheen under the edge
+   ends at the pill's rim too. A queue or a location strip on top leaves out its top hairline the
+   same width. Only the part the pill sits on does: with a note or the former strip's kept room above
+   the card, the pill floats over that and the card keeps its whole line.
+   test/composer-hat-line-gap.test.ts measures the pixels through the pill.
+
+   Where: the pill's centre is the tab's, in the tab's column (the composer's content box): its
+   middle, or 12px plus half the tab in from the column's left or right. The part under it need not
+   span that column (a narrow card or queue reaches 8px past it, composerLocation.css; Codex's
+   location strip sits 22px inside it, composerLook.css), so each part says how far in from the
+   column's edges it sits (--acpmux-part-inset-left and -right, the same values its margins take)
+   and the gap is placed in that part's own box from them. Its width: the slot's gap and the mark's
+   digits are registered (below) and move on the slot's clock on the composer, so every part's gap
+   (the card's layer, a queue, a strip) grows and shrinks with the pill in one transition, and lands
+   at once where the slot's width does (Reduce Motion, motion off). Each part turns the digits into
+   width in the count's type: the card's layer takes the count's type, so its `ch` is the count's;
+   a queue (body type) and a strip (detail type) scale their own `ch` by the count's 11px over
+   theirs, both on the interface scale. */
+@property --acpmux-tray-pull-gap-pad {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+@property --acpmux-tray-pull-gap-digits {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
 .acpmux-tray-pull + .acpmux-composer {
-  --acpmux-tray-pull-gap-mark: 0px;
-  --acpmux-tray-pull-gap-at: 50%;
-  --acpmux-tray-pull-gap-width: calc(var(--acpmux-tray-pull-control-width) + var(--acpmux-tray-pull-gap-mark));
+  --acpmux-tray-pull-gap-pad: 0px;
+  --acpmux-tray-pull-gap-digits: 0;
+  /* The pill's centre in the column: `along` of the column's width, plus `shift`. */
+  --acpmux-tray-pull-gap-along: 0.5;
+  --acpmux-tray-pull-gap-shift: 0px;
+}
+/* Only once the pill is drawn (TrayPullTab.tsx data-drawn): a tab that mounts showing a count, or
+   the composer that meets it, takes the pill's width at once, as the slot does. */
+.acpmux-tray-pull[data-drawn] + .acpmux-composer {
+  transition:
+    --acpmux-tray-pull-gap-pad var(--agent-motion-move) var(--agent-ease-out),
+    --acpmux-tray-pull-gap-digits var(--agent-motion-move) var(--agent-ease-out);
+}
+:root:is([data-cmux-motion="reduced"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-agent-motion="off"])
+  .acpmux-tray-pull
+  + .acpmux-composer {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-tray-pull[data-drawn] + .acpmux-composer {
+    transition: none;
+  }
+}
+.acpmux-tray-pull[data-mark] + .acpmux-composer {
+  --acpmux-tray-pull-gap-pad: var(--ds-space-1);
 }
 .acpmux-tray-pull[data-mark="dot"] + .acpmux-composer {
-  --acpmux-tray-pull-gap-mark: calc(var(--ds-space-1) + var(--acpmux-tray-pull-dot));
+  --acpmux-tray-pull-gap-pad: calc(var(--ds-space-1) + var(--acpmux-tray-pull-dot));
 }
 .acpmux-tray-pull[data-mark="1"] + .acpmux-composer {
-  --acpmux-tray-pull-gap-mark: calc(var(--ds-space-1) + 1ch);
+  --acpmux-tray-pull-gap-digits: 1;
 }
 .acpmux-tray-pull[data-mark="2"] + .acpmux-composer {
-  --acpmux-tray-pull-gap-mark: calc(var(--ds-space-1) + 2ch);
+  --acpmux-tray-pull-gap-digits: 2;
 }
 .acpmux-tray-pull[data-mark="3"] + .acpmux-composer {
-  --acpmux-tray-pull-gap-mark: calc(var(--ds-space-1) + 3ch);
+  --acpmux-tray-pull-gap-digits: 3;
 }
 .acpmux-tray-pull[data-side="left"] + .acpmux-composer {
-  --acpmux-tray-pull-gap-at: calc(var(--ds-space-3, 12px) + var(--acpmux-tray-pull-tab-width) / 2);
+  --acpmux-tray-pull-gap-along: 0;
+  --acpmux-tray-pull-gap-shift: calc(var(--ds-space-3, 12px) + var(--acpmux-tray-pull-tab-width) / 2);
 }
 .acpmux-tray-pull[data-side="right"] + .acpmux-composer {
-  --acpmux-tray-pull-gap-at: calc(100% - var(--ds-space-3, 12px) - var(--acpmux-tray-pull-tab-width) / 2);
+  --acpmux-tray-pull-gap-along: 1;
+  --acpmux-tray-pull-gap-shift: calc(-1 * (var(--ds-space-3, 12px) + var(--acpmux-tray-pull-tab-width) / 2));
 }
-/* Everything but the gap: the line left of it, the line right of it, and the part below the band. */
+/* Everything but the gap, in the part's own box: the line left of it, the line right of it, and the
+   part below the band. 100% is the part's width; the column is that and its two insets. */
 :root:not([data-top-strip])
   .acpmux-tray-pull
   + .acpmux-composer:not(:has(> .acpmux-composer-remote-note))
@@ -2119,10 +2143,19 @@ button.cv-subagent > :last-child {
 .acpmux-tray-pull
   + .acpmux-composer:not(:has(> .acpmux-composer-queue, > .acpmux-composer-strip, > .acpmux-composer-strip-placeholder, > .acpmux-composer-remote-note))
   > .acpmux-composer-box::before {
+  --acpmux-tray-pull-gap-width: calc(
+    var(--acpmux-tray-pull-control-width) + var(--acpmux-tray-pull-gap-pad) + var(--acpmux-tray-pull-gap-digits) *
+      var(--acpmux-tray-pull-gap-ch, 1ch)
+  );
+  --acpmux-tray-pull-gap-at: calc(
+    var(--acpmux-tray-pull-gap-along) * (100% + var(--acpmux-part-inset-left, 0px) + var(--acpmux-part-inset-right, 0px)) +
+      var(--acpmux-tray-pull-gap-shift) - var(--acpmux-part-inset-left, 0px)
+  );
   --acpmux-tray-pull-gap-mask: linear-gradient(#000 0 0), linear-gradient(#000 0 0), linear-gradient(#000 0 0);
   --acpmux-tray-pull-gap-size:
-    calc(var(--acpmux-tray-pull-gap-at) - var(--acpmux-tray-pull-gap-width) / 2) var(--acpmux-tray-pull-gap-depth),
-    calc(100% - var(--acpmux-tray-pull-gap-at) - var(--acpmux-tray-pull-gap-width) / 2) var(--acpmux-tray-pull-gap-depth),
+    max(0px, calc(var(--acpmux-tray-pull-gap-at) - var(--acpmux-tray-pull-gap-width) / 2)) var(--acpmux-tray-pull-gap-depth),
+    max(0px, calc(100% - var(--acpmux-tray-pull-gap-at) - var(--acpmux-tray-pull-gap-width) / 2))
+      var(--acpmux-tray-pull-gap-depth),
     100% calc(100% - var(--acpmux-tray-pull-gap-depth));
 }
 /* The ring and rim layer: from the card's top edge to the pill's foot (the tab's top, -8px, plus the
@@ -2156,8 +2189,8 @@ button.cv-subagent > :last-child {
   }
 }
 /* A queue (or, with none, a location strip) on top: its top hairline only, so its fill stays. Its
-   text keeps its own type, so a count's `ch` there is the queue's digit: within a pixel or two of
-   the pill's, under the pill's own rim. */
+   text keeps its own type, so it scales its `ch` to the count's: the count's caption (11px) over the
+   queue's body (13px, styles.css) or the strip's detail (12px, composerLocation.css). */
 :root:not([data-top-strip])
   .acpmux-tray-pull
   + .acpmux-composer:not(:has(> .acpmux-composer-remote-note))
@@ -2167,6 +2200,18 @@ button.cv-subagent > :last-child {
   + .acpmux-composer:not(:has(> .acpmux-composer-queue, > .acpmux-composer-remote-note))
   > .acpmux-composer-strip {
   --acpmux-tray-pull-gap-depth: calc(2 * var(--cmux-hairline, 0.5px));
+}
+:root:not([data-top-strip])
+  .acpmux-tray-pull
+  + .acpmux-composer:not(:has(> .acpmux-composer-remote-note))
+  > .acpmux-composer-queue {
+  --acpmux-tray-pull-gap-ch: calc(1ch * 11 / 13);
+}
+:root:not([data-top-strip])
+  .acpmux-tray-pull
+  + .acpmux-composer:not(:has(> .acpmux-composer-queue, > .acpmux-composer-remote-note))
+  > .acpmux-composer-strip {
+  --acpmux-tray-pull-gap-ch: calc(1ch * 11 / 12);
 }
 :root:not([data-top-strip])
   .acpmux-tray-pull
@@ -2187,28 +2232,6 @@ button.cv-subagent > :last-child {
   mask-position: 0 0, 100% 0, 0 100%;
   -webkit-mask-size: var(--acpmux-tray-pull-gap-size);
   mask-size: var(--acpmux-tray-pull-gap-size);
-}
-/* The card's layer moves its gap on the slot's clock. A queue or strip keeps its own transitions
-   (its height's, composerStates.css), so its gap takes the new width at once. */
-.acpmux-tray-pull
-  + .acpmux-composer:not(:has(> .acpmux-composer-queue, > .acpmux-composer-strip, > .acpmux-composer-strip-placeholder, > .acpmux-composer-remote-note))
-  > .acpmux-composer-box::before {
-  transition:
-    -webkit-mask-size var(--agent-motion-move) var(--agent-ease-out),
-    mask-size var(--agent-motion-move) var(--agent-ease-out);
-}
-:root:is([data-cmux-motion="reduced"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-agent-motion="off"])
-  .acpmux-tray-pull
-  + .acpmux-composer:not(:has(> .acpmux-composer-queue, > .acpmux-composer-strip, > .acpmux-composer-strip-placeholder, > .acpmux-composer-remote-note))
-  > .acpmux-composer-box::before {
-  transition: none;
-}
-@media (prefers-reduced-motion: reduce) {
-  .acpmux-tray-pull
-    + .acpmux-composer:not(:has(> .acpmux-composer-queue, > .acpmux-composer-strip, > .acpmux-composer-strip-placeholder, > .acpmux-composer-remote-note))
-    > .acpmux-composer-box::before {
-    transition: none;
-  }
 }
 
 /* Tucked, the tab still says what needs the person: a dot while something waits on them, else a
@@ -2235,10 +2258,6 @@ button.cv-subagent > :last-child {
 .acpmux-tray-pull[data-running] .acpmux-tray-pull__hat > svg {
   color: var(--agent-accent);
   opacity: 0.8;
-}
-.acpmux-tray-pull[data-running] .acpmux-tray-pull__hat::before,
-.acpmux-tray-pull[data-running] .acpmux-tray-pull__hat::after {
-  background: color-mix(in srgb, var(--agent-accent) calc(62% * var(--glass-rim, 1)), transparent);
 }
 .acpmux-tray-pull__tab:hover .acpmux-tray-pull__hat > svg,
 .acpmux-tray-pull__tab:has([data-popup-open]) .acpmux-tray-pull__hat > svg,

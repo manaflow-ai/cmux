@@ -26,6 +26,8 @@ impl PtySurface {
         mux.output_store.append(&terminal_id, &self.journal_generation, bytes, history);
     }
 
+    /// Journals an accepted geometry change without a wait: callers hold the
+    /// geometry and parser locks (`Mux::journal_terminal_resize`).
     pub(super) fn journal_geometry(&self, geometry: PtyGeometry) {
         let (Some(terminal_id), Some(mux)) = (self.terminal_public_id.clone(), self.mux.upgrade())
         else {

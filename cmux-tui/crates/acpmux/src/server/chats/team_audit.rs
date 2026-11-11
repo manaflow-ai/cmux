@@ -274,11 +274,78 @@ async fn write_new(dir: &Path, name: &str, body: &[u8], limit: usize) -> Result<
     Err(format!("{name} and {} numbered copies already exist in {}", limit - 1, dir.display()))
 }
 
+/// The CSV with every cell a spreadsheet would read as a formula made text: a cell starting with
+/// `=`, `+`, `-`, `@` or a tab (a quoted one also with a carriage return) gets a leading `'`, the
+/// usual CSV injection defence, so a session title or person name like `=HYPERLINK(...)` opens as
+/// text in a spreadsheet app. A plain number (`-12.5`) stays a number. Quoting is RFC 4180's: a quoted cell may hold commas, line breaks and `""`.
+fn defuse_formulas(body: &[u8]) -> Vec<u8> {
+    fn is_number(cell: &[u8]) -> bool {
+        let digits = cell.strip_prefix(b"-").or_else(|| cell.strip_prefix(b"+")).unwrap_or(cell);
+        let mut parts = digits.splitn(2, |b| *b == b'.');
+        let whole = parts.next().unwrap_or_default();
+        let fraction = parts.next();
+        !whole.is_empty()
+            && whole.iter().all(u8::is_ascii_digit)
+            && fraction.is_none_or(|f| !f.is_empty() && f.iter().all(u8::is_ascii_digit))
+    }
+    /// A cell that starts with `first` (its whole text `cell`) would be read as a formula.
+    fn risky(first: u8, cell: &[u8], quoted: bool) -> bool {
+        match first {
+            b'=' | b'@' | b'\t' => true,
+            b'\r' => quoted,
+            b'+' | b'-' => !is_number(cell),
+            _ => false,
+        }
+    }
+    let mut out = Vec::with_capacity(body.len() + 64);
+    let (mut at_start, mut quoted) = (true, false);
+    let mut rest = body;
+    while let Some((&byte, after)) = rest.split_first() {
+        if at_start {
+            at_start = false;
+            if byte == b'"' {
+                quoted = true;
+                out.push(b'"');
+                let end = after.iter().position(|b| *b == b'"').unwrap_or(after.len());
+                let cell = after.get(..end).unwrap_or(after);
+                if let Some(&first) = cell.first()
+                    && risky(first, cell, true)
+                {
+                    out.push(b'\'');
+                }
+                rest = after;
+                continue;
+            }
+            let end =
+                rest.iter().position(|b| matches!(b, b',' | b'\r' | b'\n')).unwrap_or(rest.len());
+            if risky(byte, rest.get(..end).unwrap_or(rest), false) {
+                out.push(b'\'');
+            }
+        }
+        if quoted {
+            if byte == b'"' {
+                if after.first() == Some(&b'"') {
+                    out.extend_from_slice(b"\"\"");
+                    rest = after.get(1..).unwrap_or_default();
+                    continue;
+                }
+                quoted = false;
+            }
+        } else if matches!(byte, b',' | b'\r' | b'\n') {
+            at_start = true;
+        }
+        out.push(byte);
+        rest = after;
+    }
+    out
+}
+
 async fn save_csv(body: &[u8], disposition: Option<&str>) -> Value {
     let Some(dir) = dirs::download_dir().or_else(dirs::home_dir) else {
         return failed("no Downloads folder");
     };
-    match write_new(&dir, &suggested_name(disposition), body, CSV_NAMES).await {
+    let body = defuse_formulas(body);
+    match write_new(&dir, &suggested_name(disposition), &body, CSV_NAMES).await {
         Ok(path) => json!({"status": "saved", "path": path.to_string_lossy()}),
         Err(message) => failed(message),
     }
@@ -389,6 +456,28 @@ mod tests {
             assert_eq!(std::fs::read_to_string(path).unwrap(), "theirs");
         }
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 3);
+    }
+
+    /// CMUX-284: the platform's CSV went to Downloads as it came, so a cell a teammate controls (a
+    /// session title, a name) starting with `=`, `+`, `-` or `@` ran as a formula when opened.
+    #[test]
+    fn a_saved_csv_opens_formulas_as_text() {
+        let body = b"person,title,cost,note\r\n\
+alice,=HYPERLINK(\"http://x\"),-12.5,ok\r\n\
+bob,\"=1+1, \"\"quoted\"\"\",+3,@SUM(A1)\r\n\
+carol,-2+3,\"\r=x\",\tlead\n\
+dave,,\"plain, text\",+cmd|' /C calc'!A0\n\
+eve,\"multi\nline\",7,";
+        let want = b"person,title,cost,note\r\n\
+alice,'=HYPERLINK(\"http://x\"),-12.5,ok\r\n\
+bob,\"'=1+1, \"\"quoted\"\"\",+3,'@SUM(A1)\r\n\
+carol,'-2+3,\"'\r=x\",'\tlead\n\
+dave,,\"plain, text\",'+cmd|' /C calc'!A0\n\
+eve,\"multi\nline\",7,";
+        assert_eq!(String::from_utf8_lossy(&defuse_formulas(body)), String::from_utf8_lossy(want));
+        // A CSV with nothing risky is the same bytes.
+        let plain = b"a,b\n\"x, y\",-1\n";
+        assert_eq!(defuse_formulas(plain), plain.to_vec());
     }
 
     #[test]

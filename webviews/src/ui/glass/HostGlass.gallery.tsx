@@ -19,8 +19,16 @@ type Look = "before" | "clear" | "rim" | "veil";
  * content on no fill, its content on the page's own glass, or nothing). */
 type Frame = { label: string; app: boolean; page: "content" | "page-glass" | "none"; opacity?: number };
 /** How a surface opens and closes: the base (content waits for the App's answer), the page's glass
- * first, or content and glass together (ships). */
-type Order = "wait" | "page-first" | "together" | "close-trailing" | "close-page-glass" | "close-instant";
+ * first, content and glass sent together (which the App shows as glass first), or the content first
+ * and its glass a hold later (ships); and the three ways one closes. */
+type Order =
+  | "wait"
+  | "page-first"
+  | "together"
+  | "content-first"
+  | "close-trailing"
+  | "close-page-glass"
+  | "close-instant";
 /** The surface: Session Info's panel, or the model menu with its own page veil (% of the theme
  * surface); or an open and close as frames. */
 type Props = { look: Look; scheme: Scheme; menuVeil?: number; order?: Order };
@@ -38,10 +46,17 @@ const ORDERS: Record<Order, Frame[]> = {
     { label: "Answer lands", app: true, page: "content" },
     { label: "Close", app: false, page: "none" },
   ],
+  // On screen in the App: its glass commits at once, the page's frame presents two frames later.
   together: [
-    { label: "Mount", app: true, page: "content" },
-    { label: "Page busy (260 ms)", app: true, page: "content" },
-    { label: "Answer lands", app: true, page: "content" },
+    { label: "Report (frame 0)", app: true, page: "none" },
+    { label: "Frame 1", app: true, page: "none" },
+    { label: "Content presents", app: true, page: "content" },
+    { label: "Close", app: false, page: "none" },
+  ],
+  "content-first": [
+    { label: "Content presents", app: false, page: "content" },
+    { label: "Hold (2 frames)", app: false, page: "content" },
+    { label: "Report: glass under", app: true, page: "content" },
     { label: "Close", app: false, page: "none" },
   ],
   // The close (Leo, 2026-11-09, of the This Mac/Cloud/Remote and Bypass permissions menus: "What the heck is
@@ -297,8 +312,12 @@ export default componentEntry<Props>({
       props: { look: "clear", scheme: "dark", order: "page-first" },
     },
     "open-together": {
-      note: "Ships: the content and the App's glass in the same frame, the way a native menu opens; the answer only confirms. On close both go in the same frame.",
+      note: "Before (Leo, 2026-11-09, on the empty glass box before the This Mac, Cloud and permission menus): the report goes out in the frame that first paints the content, but the App's glass shows at its next commit and the page's frame presents through Chromium's remote layer two frames later, so the glass shows empty first.",
       props: { look: "clear", scheme: "dark", order: "together" },
+    },
+    "open-content-first": {
+      note: "Ships: the content shows first on the page's in-place blur, and its box goes to the App once that content has been on screen for two frames, so the App's glass lands under content already there. The answer only confirms; the deadline starts at the report.",
+      props: { look: "clear", scheme: "dark", order: "content-first" },
     },
     "close-trailing": {
       note: "Before (Leo, 2026-11-09: 'What the heck is this?'): the menu's rows fade for 80 ms in the page while the App's glass, drawn in another process from the page's reports, trails them (a pick keeps the App busy as the menu closes), and the blur under the glass stays whole until the fade ends: an empty glass box where the menu was.",
@@ -312,9 +331,9 @@ export default componentEntry<Props>({
       note: "Variant: no close fade for a glass menu; rows, glass and blur go in one frame. Never an empty box, but it drops the close animation Leo asked for on 2026-10-24.",
       props: { look: "clear", scheme: "dark", order: "close-instant" },
     },
-    "open-together-light": {
+    "open-content-first-light": {
       note: "Ships, light theme.",
-      props: { look: "clear", scheme: "light", order: "together" },
+      props: { look: "clear", scheme: "light", order: "content-first" },
     },
     veil: {
       note: "The App's glass plus a 20% theme veil from the page: the wallpaper is calmer under the text, and the glass is denser than every native popover's.",

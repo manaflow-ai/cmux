@@ -375,3 +375,98 @@ each app does not pay it.
 5. The Features tab leaves the store; settings stay in Settings.
 6. No titlebar slot for apps; Priority View's bell becomes the section header.
 7. One budget ladder (Slowed, Paused, Off) for store apps and for the user's own code.
+8. Every setup change is a generation, and cmux can always start in safe mode (section 12).
+9. No layout providers; a palette source is an ordinary app (section 12, item 20).
+
+## 12. What Linux distros, tiling window managers and ricing teach us
+
+Source: Lawrence, 2026-11-10: "what are the best distros doing? What are the best sort of tiling,
+window manager, customization things doing that we could do? What are the bad things that they
+necessarily have to do that we don't have to follow? What are the, like, terrible lessons that
+they've learned that we can preemptively guard against?" The survey behind this section, with
+sources, is cmuxterm-hq#8750. This section takes or rejects each of its 22 proposals.
+
+The short answer: the three places and their budgets (sections 1 to 6) already cover most of what
+the Linux desktop learned the hard way. What cmux lacks is the layer distros are best at: getting
+back to a working setup. A bad theme, settings file or app can't be undone in one step today, and
+nothing starts cmux without them.
+
+### 12.1 The 22 proposals
+
+Verdicts: **exists** (cmux does this today; **partly exists** names the part that doesn't), **take** (new work, step in 12.4), **changed** (taken
+in another form), **rejected**.
+
+| # | Proposal | Verdict | Where, or why |
+| --- | --- | --- | --- |
+| 1 | **Generations.** Every theme, settings or app change is a numbered, atomic setup you can go back to, from the launcher too. | take | Step 9. A generation is the content hash of the resolved `cmux.json`, the theme file, the `local/customize` tree digest, and each installed app's approval (the module store already records digest and commit per install, `module-store-threat-model.md` T16, T17) with its on or off state and granted scopes. Going back restores that install state too. An app's own storage is data, not setup: it stays as it is, so a rollback never loses what an app saved. `cmux generations list`, `switch N`, `rollback`. The last 20 are kept. |
+| 2 | **Safe mode and bisect.** A held key, or two crashes in a row, starts with no apps and the stock theme; bisect finds the bad app by halving. | take | Step 10. Today the fallback is per mount (R5 and the section 3 budgets; the section 6 ladder is step 4). Safe mode is the same rule for the whole launch: Option held at launch, or two crashes within 10 minutes, starts with every app and `local/customize` off and the stock theme. A banner offers Turn Back On, Go Back One Generation, and Find the Problem (bisect over installed apps, one relaunch per half). |
+| 3 | **Validate before apply.** A setup that fails its schema or its load is never applied; the last good one keeps running and the error names the line. | changed | Settings already refuse bad values (`settings.invalid`, `settings-react.md`) and app manifests are schema-checked. Step 11 makes it one rule for every file a person edits by hand: a `cmux.json`, theme file or customize manifest that fails to parse leaves the last good generation running, and the error names file and line. |
+| 4 | **One declarative profile, shared as a link** that previews on the real window first. | take | Step 12. A profile is a generation exported: theme, layout, settings, pinned app ids and versions. It holds data only; apps in it install through the normal consent sheet. Opening a link previews on the real window, then applies as a new generation. |
+| 5 | **Portable profiles.** No absolute paths, a per-machine layer, secrets only as keychain references, a secret scan before sharing. | take | Step 12. Export refuses an absolute path or a secret value, and names the key. Per-machine values (fonts that aren't installed, display sizes) go in a local layer that is never exported. |
+| 6 | **Immutable base, overlays on top.** First-party UI is never patched; removing every overlay gives the stock app. | exists | R5 and R7: apps draw only in the three places, through interfaces, and the native view is the fallback. |
+| 7 | **A stable, versioned SDK, never a raw ABI.** | exists, plus a rule | Interfaces are versioned (`cmux.section/1`), JS runs in the QuickJS sandbox with declared scopes, and the DSL has a fixed vocabulary (decision 3.4). New rule: an interface major stays supported for 12 months after its successor ships, and every deprecation ships a migration in `cmux ext` and a warning in `cmux ext dev`. |
+| 8 | **Compatibility testing.** Every listed app runs against each nightly and breakage is flagged before release. | changed | Not in cmux CI (no new CI jobs, Lawrence 2026-10-23). The registry runs each listed app's own tests against each nightly on its side and marks the listing "not checked with this version" on failure. Step 14. |
+| 9 | **One push-based event bus**, no polling, no timers under 1 s, no per-tick process spawns. | exists | `cmux.live` rereads only on `<family>.changed`, and `cmux.timer.every` is clamped to 1 s (section 3). Running a command (`pane.run`, `workspace.run`) needs the `workspace:execute` scope the person approved and runs in a terminal; it isn't a data source. Missing: a GitHub change event (cmux#40249's fourth item). |
+| 10 | **Reactive widget SDK**: a widget is a function of signals and patches in place. | exists | The DSL and `materialize.ts`: one changed row sends one `update` op (section 10's test). |
+| 11 | **Curated, signed registry**, built by us from a tagged commit; sideloading is a separate, visibly different path. | changed | The git install path already pins a reviewed commit and digest, binds the publisher to the repo owner and refuses silent updates (threat model T5 to T27). Verified native servers are signed per platform. Step 14 adds the listed tier: the registry builds each version from its tagged commit and refuses an upload whose digest differs. A sideloaded app keeps the consent sheet and carries a visible "not reviewed" mark. |
+| 12 | **No install-time code**, no dependency resolution on the user's machine, no extension packs; reject invisible and bidi Unicode. | exists, plus a check | Install never checks out or runs anything (T9, T18), and a module is one digested tree with no dependency field. New: step 11 refuses bidi controls and invisible characters in an app's JS and manifest strings (T13 covers file names only). |
+| 13 | **Permission re-consent** on an update that widens scopes; publishers use 2FA and trusted publishing. | exists, plus registry | Updates never apply silently and list added scopes and origins (T22, T23). Publisher 2FA and publishing from CI with provenance are registry rules, step 14. |
+| 14 | **Automatic snapshot before each install or update**, one-click undo. | take | Falls out of step 9: every install, update or removal is its own generation, labelled "Before installing X". |
+| 15 | **One theme schema**, import and export of the common 16-color scheme format, and a lint against raw colors in app UI. | changed | `ThemeTokens.derive` is the one token model, and theme files carry it (cmux#40235). Take the 16-color scheme import and export (step 13). The raw-color check is a warning in `cmux ext dev`, not a CI lint. |
+| 16 | **Palette from the wallpaper**, held to the contrast floors. | take | Step 13: accent, glass tint and terminal ANSI from the background image, through `ThemeTokens.derive`'s contrast floors. |
+| 17 | **Motion tokens**: every animation reads a named curve and duration from the theme; apps declare motion and never drive frames. | exists | Every animation goes through a motion gate (`motion-DESIGN.md`), tokens live in `motion.md`, and apps can't set frame-level animations (decision 3.4). What a theme file can't set yet is tracked in cmuxterm-hq#8758. |
+| 18 | **Performance budgets per app**, shown, with lazy activation and throttling past budget. | partly exists, plus display | The per-mount budgets in section 3 exist; the batch-rate budget and the Slowed and Paused ladder are step 4 (next). R1 means an unused place costs nothing. New: the App Store's Installed list shows each app's start time, memory and updates per minute (step 10), so the slow one is found without bisecting. |
+| 19 | **Named feature flags**, honoured by every app. | changed | Settings are already named, schema-checked keys on every surface. Apps read a short list of global ones (Reduce Motion, glass, compact) as a signal, rather than a second flag system. |
+| 20 | **Out-of-process providers** for layouts and palette sources. | rejected for layout | The app host is already out of process, so a palette source is just an app. A layout program would sit on the resize path, which is per frame (R3), and layout is the person's state in the layout document (5.2). Revisit when someone asks for a layout cmux can't express. |
+| 21 | **Built-in capture**: the setup in a clean demo state as an image and a short clip; shared pieces record their lineage. | take, later | After step 12. A shared profile records what it was forked from. |
+| 22 | **One docs page per extension point**, each with a template that runs on first save. | exists, in progress | `cmux ext new` and `cmux ext dev` (cmux#40242), templates and the ideas page (cmux#40247), the `cmux-customization` skill. Each interface in `cmux-app-host/interfaces/` gets its own page. |
+
+### 12.2 What they have to do that we don't
+
+Each Linux desktop program is its own project, so they pay costs cmux doesn't have to pay:
+
+- **Twenty config formats.** We own every surface: one settings file and one schema.
+- **Theming each program by hand.** One token set feeds native chrome, web pages, terminals and
+  agent panes.
+- **Plugins that link against the compositor.** Apps see a versioned interface in a sandbox, never
+  our memory (R2, item 7).
+- **Shell scripts polled every second for bar widgets.** Data is pushed (item 9).
+- **Packaging as code run as root.** An app is data plus sandboxed code; install runs nothing
+  (item 12).
+- **A black screen on a broken config.** The native app always draws; a failed app shows its native
+  fallback (R5), and launch can fall back to safe mode (item 2).
+- **Log out to see a change.** Themes and sidebar parts already apply live.
+- **Fixing paths by hand when copying someone's dotfiles.** Profiles are portable by schema
+  (item 5).
+
+### 12.3 Their worst lessons, and the guard for each
+
+| What went wrong there | Guard here |
+| --- | --- |
+| Compositor plugins break on every release and get pinned to one version | Versioned interfaces with a 12-month window, registry checks against nightly (items 7, 8) |
+| A desktop shell's move to ES modules broke nearly every extension at once, because extensions patched its internals | No access to internals; deprecations ship a migration (item 7) |
+| Polling widgets spawn processes several times a second and drain the battery | Pushed data, a 1 s timer floor, the batch-rate budget (section 3) |
+| Malware shipped through an unreviewed package repository (July 2025) | Listed tier built and checked by the registry; sideloads marked (item 11) |
+| Worms spread through package install scripts and stolen publish tokens (2025) | No install-time code, publishing from CI with 2FA (items 12, 13) |
+| A trusted editor extension pushed a malicious update hidden in invisible Unicode, spread through extension packs | Updates need approval and list new reach; invisible and bidi characters refused; no packs (items 12, 13) |
+| A long-trusted maintainer hid a backdoor in release tarballs that weren't in git (2024) | The registry builds from the tagged commit itself; git installs read the tree, never an upload (items 11, 12) |
+| Dotfile repos leak API keys | Export refuses secrets and absolute paths (item 5) |
+| Users can't find which of their extensions is slow | Per-app cost in the Installed list, bisect in safe mode (items 2, 18) |
+| A config error crashes the session at login | Generations, safe mode, validate before apply (items 1 to 3) |
+
+### 12.4 Steps
+
+These continue section 9's table.
+
+| # | Step | Owner | State |
+| --- | --- | --- | --- |
+| 9 | Generations: hash, keep 20, `cmux generations list / switch / rollback`, a generation before every install, update and removal | app platform | next |
+| 10 | Safe mode at launch (Option held, or two crashes in 10 minutes), bisect over installed apps, per-app cost in the Installed list | app platform | after 9 |
+| 11 | One validate-before-apply rule for `cmux.json`, theme files and customize manifests, naming file and line; refuse bidi and invisible characters in app code and manifests | settings lead, app platform | next |
+| 12 | Profiles: export a generation as data, portable (no absolute paths or secrets, per-machine layer), share as a link that previews before applying | app platform | after 9 |
+| 13 | Import and export of the common 16-color scheme format; palette from the background image through `ThemeTokens.derive` | theme owner | can start now |
+| 14 | Registry listed tier: build from the tagged commit, publish from CI with 2FA, check listed apps against each nightly | registry owner | after the store trim (step 7) |
+
+Generations, safe mode and profiles each need an iPhone row in `cmux-next-ios/verify/parity-mac.md`
+when they ship: the phone lists generations and can go back one. Safe mode itself is "not from a
+phone" (it is how the Mac app starts).

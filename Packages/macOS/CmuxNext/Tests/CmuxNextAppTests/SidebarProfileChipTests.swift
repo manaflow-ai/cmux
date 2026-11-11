@@ -77,6 +77,30 @@ import Testing
         #expect(badge.superview == nil)
     }
 
+    /// A long app health line with the update button showing still leaves the bottom spaces strip its
+    /// active dot and a full "+" (Codex at fd18923: the line squeezed the strip to 2 pt).
+    @Test func aLongHealthLineLeavesTheSpacesStripRoom() async throws {
+        let h = await make(width: 240)
+        defer { h.window.close() }
+        h.sidebar.spacesPosition = .bottom
+        h.sidebar.model.profiles = [SidebarProfile(id: ProfileKey("work"), name: "Work", color: .blue),
+                                    SidebarProfile(id: ProfileKey("home"), name: "Home", color: .green)]
+        h.sidebar.model.activeProfileID = ProfileKey("work")
+        h.sidebar.showUpdateAvailable("Update Available")
+        let line = NSTextField(labelWithString: String(repeating: "Session service: Not responding ", count: 4))
+        h.sidebar.healthIndicator = line
+        h.settle()
+        let bar = h.sidebar.profileBar
+        #expect(!bar.isHidden && line.frame.width > 0, "both show")
+        #expect(bar.frame.width >= 2 * Metrics.roomDotSlot, "the strip keeps two slots: \(bar.frame)")
+        let plus = try #require(bar.slotRects().last)
+        #expect(bar.plusIsDrawn && plus.width >= Metrics.roomDotSlot - 0.5, "a full \"+\": \(plus)")
+        #expect(bar.dotIsDrawn(at: 0), "the active space shows")
+        #expect(h.frame(of: line).maxX <= h.frame(of: bar).minX + 0.5, "the line ends before the strip")
+        #expect(h.frame(of: bar).maxX <= h.frame(of: h.sidebar.updateAvailableButton).minX + 0.5, "the strip ends before the update button")
+        h.sidebar.healthIndicator = nil
+    }
+
     /// Signed in, the avatar alone shows at rest; hovering it says the email (Leo 2026-10-21).
     @Test func theSignedInAvatarSaysTheEmailOnHover() async throws {
         let h = await make(width: 240)
