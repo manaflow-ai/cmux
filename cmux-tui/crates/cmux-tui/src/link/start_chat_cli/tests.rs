@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 
 use super::ledger::{LIMIT, Ledger, Send, WORKSPACE_LIMIT};
 use super::pick::{self, Candidate, Destination};
-use super::trust::trusted_at;
+use super::trust::{level_at, trusted_at};
 use super::{
     Ensure, Flags, Keys, Lease, StartCopy, ensure_answer, github_repo, import, made_no_machine,
     origin_url, percent_segment, pin, plan, plan_with, remote_name, setup_state, too_broad,
@@ -649,6 +649,49 @@ fn a_copy_answers_whether_this_macs_acpmux_trusts_the_chats_folder() {
     let failed = StartCopy { key: key(), ..copy }
         .run(&ledger, &|_: &Path, _: &Path, _: &str| Err(("sync_failed".into(), "no".into())));
     assert!(failed.get("source_trusted").is_none(), "a failed copy answers no trust: {failed}");
+}
+
+/// Live journey (2026-11-10): `cmux chat --on vm:new --from-folder` from a folder this Mac had never
+/// trusted leased a machine, copied the folder, and only then was refused "… is not a trusted folder on
+/// chat-…. Trust it on that machine". The copy is trusted there only when this Mac trusts the folder, so
+/// `trust` reads this Mac's answer before any machine is taken: the App refuses the start here, with the fix
+/// on this Mac. Unreadable trust answers `trust_unreadable`, never a level the App would refuse on.
+#[test]
+fn trust_reads_this_macs_level_before_any_machine() {
+    let dir = scratch();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let project = root.join("paint");
+    std::fs::create_dir_all(&project).unwrap();
+    let record = root.join("trust.json");
+    let paths = acpmux::trust::Paths {
+        claude_json: root.join("claude.json"),
+        codex_config: root.join("codex.toml"),
+        record: record.clone(),
+        agent_home: None,
+        cmux_worktrees: None,
+        peer_scratch: None,
+    };
+    let folder = project.to_string_lossy().into_owned();
+    let unknown = level_at(&paths, &folder);
+    assert_eq!(unknown["ok"], json!(true), "{unknown}");
+    assert_eq!(unknown["level"], json!("unknown"), "{unknown}");
+    assert_eq!(unknown["folder"], json!(folder));
+    std::fs::write(&record, json!({ (folder.clone()): "trusted" }).to_string()).unwrap();
+    assert_eq!(level_at(&paths, &folder)["level"], json!("trusted"));
+    std::fs::write(&record, json!({ (folder.clone()): "untrusted" }).to_string()).unwrap();
+    assert_eq!(level_at(&paths, &folder)["level"], json!("untrusted"));
+    std::fs::write(&record, "not json").unwrap();
+    let unreadable = level_at(&paths, &folder);
+    assert_eq!(unreadable["ok"], json!(false), "{unreadable}");
+    assert_eq!(unreadable["error_code"], json!("trust_unreadable"));
+
+    // Usage: an absolute folder and an absolute acpmux home, each once.
+    let flags = |args: &[&str]| {
+        Flags::parse(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap()
+    };
+    assert!(super::trust::cli(&flags(&["--folder", "paint", "--acpmux-home", "/h"])).is_none());
+    assert!(super::trust::cli(&flags(&["--folder", "/w/paint", "--acpmux-home", "h"])).is_none());
+    assert!(super::trust::cli(&flags(&["--folder", "/w/paint"])).is_none());
 }
 
 #[test]
