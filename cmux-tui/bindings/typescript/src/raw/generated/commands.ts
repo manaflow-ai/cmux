@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 9d88d3afa94e64070cf0b6e3fb4a6ade1d1706f82f616bc7118bde93c30195ba. */
+/* cmux-tui mux protocol 12, IR 171330201d11c2429081f13ed3be4a8847c540a74f0391d1b9804ad004e870f5. */
 
 
 import type * as T from "./types.js";
@@ -1107,6 +1107,8 @@ export interface CreateWorkspaceRequest extends CmuxRequestBase {
   cmd: "create-workspace";
   "expected_generation"?: (string) | null;
   "expected_revision"?: (bigint) | null;
+  /** The workspace's first tab, made in the same request: {kind: "browser"} with the fields of new-frontend-browser-tab except pane, workspace, split and after. A first tab that cannot be made takes the workspace back; a replayed create replays a keyed tab and makes no second unkeyed one. The reply's first_tab is new-frontend-browser-tab's reply. */
+  "first_tab"?: (T.WorkspaceFirstTab) | null;
   "key"?: (string) | null;
   "mutation_id"?: (string) | null;
   "name"?: (string) | null;
@@ -1787,6 +1789,8 @@ export interface NewFrontendBrowserTabRequest extends CmuxRequestBase {
   "split"?: (T.ConversationTabSplit) | null;
   "title"?: (string) | null;
   "url": string;
+  /** Instead of pane: the tab goes in this workspace's active pane, or is the first tab of an empty workspace (no terminal is made for it to replace). Refused with split. */
+  "workspace"?: (T.Id) | null;
 }
 export type NewFrontendBrowserTabResult = T.JsonValue;
 

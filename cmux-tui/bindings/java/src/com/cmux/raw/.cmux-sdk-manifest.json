@@ -772,8 +772,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "e6f1949edb05a195cf8e33289be474c959da022674c94866618a3e5643f68471",
-      "size": 82815
+      "sha256": "e6da29bbb08c47d331d730788181458c5db6b1a4ceace4a9bdd8c6f1e6ad8c2f",
+      "size": 82931
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1187,8 +1187,8 @@
     },
     {
       "path": "CreateWorkspaceRequest.java",
-      "sha256": "47d11d6e3dea7da0b281b3147704be392f4041c3af311e323c8327dece14fc8e",
-      "size": 5638
+      "sha256": "85604c98b5130ea461d49753d2169a096a7cdfaa9a641faf77e2ad10f31e81e6",
+      "size": 6693
     },
     {
       "path": "CursorStyle.java",
@@ -1987,8 +1987,8 @@
     },
     {
       "path": "NewFrontendBrowserTabRequest.java",
-      "sha256": "5e3cad2e4cc12d678fa2b9f9d04f99e7dd06f440947050f896f6b65c0db1973e",
-      "size": 10122
+      "sha256": "f89ff90201525730679573ad7314920f7aa5062686ca339322cc529fca182821",
+      "size": 10999
     },
     {
       "path": "NewPaneRequest.java",
@@ -2202,7 +2202,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "98f3781b45ed33237c3af85449747bf046ea5173e2d98c9d923c7401750b861d",
+      "sha256": "903d95f3b364550c83c8dd32d6daf90b44fecc2f615a4e799ed3dd64be62e4ac",
       "size": 8000
     },
     {
@@ -3651,14 +3651,24 @@
       "size": 7454
     },
     {
+      "path": "WorkspaceFirstTab.java",
+      "sha256": "1643662637dc96d07e48a8fc05c6c0d8320179016e62b9f3628b4806e23526ba",
+      "size": 609
+    },
+    {
+      "path": "WorkspaceFirstTabBrowser.java",
+      "sha256": "b7c0fb1dd4768ce5fd895255491182e751e4ef1f6fb97276496a7a0337e5c933",
+      "size": 8149
+    },
+    {
       "path": "WorkspaceMovedEvent.java",
       "sha256": "b2778e7b77085090f2aaf43c4efdd22e851b8ba4d2fbbd8ac6ee4c154f4e89be",
       "size": 7434
     },
     {
       "path": "WorkspaceMutationResult.java",
-      "sha256": "9c45d5bbbab0b805195c8455499f1aa6803c2fca605caa17367b7a121aed875c",
-      "size": 8092
+      "sha256": "29717d8b6bc23e25b3f954a81f371a6b1d4daefe2132361f0ca5df840be8efaa",
+      "size": 8878
     },
     {
       "path": "WorkspacePresentationChangedEvent.java",
@@ -3692,7 +3702,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "9d88d3afa94e64070cf0b6e3fb4a6ade1d1706f82f616bc7118bde93c30195ba",
+  "ir_sha256": "171330201d11c2429081f13ed3be4a8847c540a74f0391d1b9804ad004e870f5",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

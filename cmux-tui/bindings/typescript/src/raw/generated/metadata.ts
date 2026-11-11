@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 9d88d3afa94e64070cf0b6e3fb4a6ade1d1706f82f616bc7118bde93c30195ba. */
+/* cmux-tui mux protocol 12, IR 171330201d11c2429081f13ed3be4a8847c540a74f0391d1b9804ad004e870f5. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "9d88d3afa94e64070cf0b6e3fb4a6ade1d1706f82f616bc7118bde93c30195ba" as const;
+export const SDK_IR_SHA256 = "171330201d11c2429081f13ed3be4a8847c540a74f0391d1b9804ad004e870f5" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1197,7 +1197,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 7,
     "capability": "workspace-registry-v1",
-    "fields": {},
+    "fields": {
+      "first_tab": {
+        "since": null,
+        "capability": "workspace-first-tab-v1"
+      }
+    },
     "stream": null,
     "constraints": []
   },
@@ -2033,6 +2038,10 @@ export const COMMAND_METADATA = {
       "split": {
         "since": null,
         "capability": "frontend-browser-tab-split-v1"
+      },
+      "workspace": {
+        "since": null,
+        "capability": "frontend-browser-tab-workspace-v1"
       }
     },
     "stream": null,
@@ -15661,6 +15670,114 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "WorkspaceFirstTab": {
+    "kind": "tagged_union",
+    "tag": "kind",
+    "variants": {
+      "browser": {
+        "additional_properties": false,
+        "fields": {
+          "activate": {
+            "default": true,
+            "nullable": false,
+            "presence": "optional",
+            "type": {
+              "kind": "scalar",
+              "name": "boolean"
+            }
+          },
+          "cols": {
+            "default": null,
+            "nullable": true,
+            "presence": "optional",
+            "type": {
+              "kind": "scalar",
+              "name": "uint16"
+            }
+          },
+          "engine": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          },
+          "favicon_url": {
+            "default": null,
+            "nullable": true,
+            "presence": "optional",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          },
+          "idempotency_key": {
+            "default": null,
+            "nullable": true,
+            "presence": "optional",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          },
+          "kind": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "literal",
+              "value": "browser"
+            }
+          },
+          "owner": {
+            "default": null,
+            "nullable": true,
+            "presence": "optional",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          },
+          "profile_id": {
+            "default": null,
+            "nullable": true,
+            "presence": "optional",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          },
+          "rows": {
+            "default": null,
+            "nullable": true,
+            "presence": "optional",
+            "type": {
+              "kind": "scalar",
+              "name": "uint16"
+            }
+          },
+          "title": {
+            "default": null,
+            "nullable": true,
+            "presence": "optional",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          },
+          "url": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          }
+        },
+        "kind": "object"
+      }
+    }
+  },
   "WorkspaceMutationResult": {
     "additional_properties": false,
     "fields": {
@@ -15682,6 +15799,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "name": "string"
           },
           "kind": "array"
+        }
+      },
+      "first_tab": {
+        "description": "create-workspace with first_tab (workspace-first-tab-v1): the new-frontend-browser-tab reply for the workspace's first tab.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
         }
       },
       "generation": {
@@ -21099,6 +21225,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint64"
           }
         },
+        "first_tab": {
+          "capability": "workspace-first-tab-v1",
+          "default": null,
+          "description": "The workspace's first tab, made in the same request: {kind: \"browser\"} with the fields of new-frontend-browser-tab except pane, workspace, split and after. A first tab that cannot be made takes the workspace back; a replayed create replays a keyed tab and makes no second unkeyed one. The reply's first_tab is new-frontend-browser-tab's reply.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "WorkspaceFirstTab"
+          }
+        },
         "key": {
           "constraints": [
             {
@@ -24086,6 +24223,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "workspace": {
+          "capability": "frontend-browser-tab-workspace-v1",
+          "default": null,
+          "description": "Instead of pane: the tab goes in this workspace's active pane, or is the first tab of an empty workspace (no terminal is made for it to replace). Refused with split.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
           }
         }
       },
