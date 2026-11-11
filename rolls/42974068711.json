@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42974068711",
+  "recorded_at": "2026-11-11T06:49:31Z",
+  "reason": "cmux-tui 976dabca06f1 changes the image's cmux-tui (pinned 67ad42ac9af2)",
+  "dry_run": false,
+  "cmux_tui": "976dabca06f101a8ac446fa80176389e0706bc94",
+  "fixes": [
+    {
+      "sha": "976dabca06f101a8ac446fa80176389e0706bc94",
+      "mergedAt": "2026-11-11T06:26:30Z",
+      "subject": "cmux-next: regenerate action-catalog.json; Rust swift_parity drops Swift's null run-time case subtitle/symbol (#41115)"
+    },
+    {
+      "sha": "2a182db4e5aa19a7ae4e525901f85d8597bb1b6a",
+      "mergedAt": "2026-11-11T06:24:15Z",
+      "subject": "test(cmux-tui output store): the idle redraw test leaves out the slow request log (#40849)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T06:49:31Z",
+    "snapshot_id": "sh-2a0b636f7bc04b80a3e695668dc44c60",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42974068711): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d42cc56c36947e328bb23f85b5e8259147731b73",
+    "image": "cloud-native-auto-976dabca-42974068711-1",
+    "revision": "ci-42974068711-1",
+    "at": "2026-11-11T06:49:31Z"
+  },
+  "rolled_back": false
+}
