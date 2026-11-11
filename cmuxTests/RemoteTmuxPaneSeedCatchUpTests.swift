@@ -184,4 +184,59 @@ extension RemoteTmuxPaneSeedTransportTests {
         #expect(next.id != firstSeed)
         #expect(next.dropsPreCaptureOutput)
     }
+
+    /// A reconnect seeds only a few panes at a time, so a pause during one finds panes still
+    /// queued for their seed. Their backlog must not be drawn while they wait, and the seed they
+    /// get drops their output up to its capture, as a catch-up seed does.
+    @Test func aCatchUpDropsTheBacklogOfPanesQueuedForTheirReconnectSeed() throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+        let paneCount = RemoteTmuxControlConnection.maximumConcurrentReconnectPaneSeeds + 1
+        fixture.connection.windowsByID = Dictionary(uniqueKeysWithValues: (1...paneCount).map {
+            windowId in
+            (
+                windowId,
+                RemoteTmuxWindow(
+                    id: windowId,
+                    width: 80,
+                    height: 24,
+                    layout: RemoteTmuxLayoutNode(
+                        width: 80, height: 24, x: 0, y: 0, content: .pane(windowId + 10)
+                    )
+                )
+            )
+        })
+        let queuedPane = paneCount + 10
+        var rendered: [Int: Int] = [:]
+        var seeds: [Int: RemoteTmuxPaneSeed] = [:]
+        let token = fixture.connection.addObserver(
+            onPaneOutput: { paneId, data in rendered[paneId, default: 0] += data.count },
+            onPaneSeed: { paneId, seed in seeds[paneId] = seed }
+        )
+        defer { fixture.connection.removeObserver(token) }
+
+        fixture.connection.reseedAfterReconnect()
+        #expect(fixture.connection.pendingReconnectPaneIDs == [queuedPane])
+        fixture.connection.requestCatchUpAfterFallingBehind()
+        #expect(fixture.connection.pendingPaneSeeds[queuedPane] == nil)
+        #expect(fixture.connection.pendingReconnectPaneIDs == [queuedPane])
+
+        fixture.connection.handleMessageForTesting(
+            .output(paneId: queuedPane, data: Data("stale backlog".utf8))
+        )
+        #expect(rendered[queuedPane] == nil, "a pane queued for its reconnect seed drew the backlog")
+
+        finishPendingCommands(
+            on: fixture.connection,
+            captureRows: ["current screen"],
+            paneHeight: 24,
+            startingAt: 400
+        )
+        let seed = try #require(seeds[queuedPane])
+        #expect(seed.restartsLiveStream)
+        #expect(seed.discardedOutput.isEmpty)
+        #expect(Self.occurrences(of: "current screen", in: seed.snapshot) == 1)
+        #expect(!fixture.connection.isCatchingUpAfterFallingBehind)
+        #expect(fixture.connection.pendingReconnectPaneIDs.isEmpty)
+    }
 }
