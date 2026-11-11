@@ -38,12 +38,7 @@ pub(super) async fn handle(
             hub.wait_logs().await;
             let mut a: Add = serde_json::from_value(params.clone())
                 .map_err(|e| RpcError::invalid_params(e.to_string()))?;
-            if a.match_text.as_ref().is_some_and(|m| m.len() > crate::hub::MAX_MATCH_BYTES) {
-                return Err(RpcError::invalid_params(format!(
-                    "match is at most {} bytes: a watch on a peer chat keeps that much of each long reply's end to find a match across replies",
-                    crate::hub::MAX_MATCH_BYTES
-                )));
-            }
+            crate::hub::validate_match(a.match_text.as_deref())?;
             if a.once == Some(false) {
                 return Err(RpcError::invalid_params("recurring watches are not supported yet"));
             }

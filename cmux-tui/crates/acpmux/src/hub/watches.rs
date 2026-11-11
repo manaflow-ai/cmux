@@ -112,9 +112,21 @@ impl Watches {
     pub fn open(&self, path: &Path) {
         let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         inner.saved = match std::fs::read(path)
-            .and_then(|b| serde_json::from_slice(&b).map_err(std::io::Error::other))
+            .and_then(|b| serde_json::from_slice::<Saved>(&b).map_err(std::io::Error::other))
         {
-            Ok(saved) => saved,
+            Ok(mut saved) => {
+                // A watch saved before `match` was capped keeps its wake, with the match cut.
+                for w in saved.watches.values_mut() {
+                    if crate::hub::cap_match(&mut w.match_text) {
+                        tracing::warn!(
+                            "watch {}: saved match past {} bytes, cut to that",
+                            w.id,
+                            crate::hub::MAX_MATCH_BYTES
+                        );
+                    }
+                }
+                saved
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Saved::default(),
             Err(e) => {
                 let bad = path.with_extension(format!("json.bad-{}", crate::store::now_ms()));
