@@ -16,6 +16,9 @@ pub enum Refusal {
     /// The user did not enable a folder harness on the host's sheet
     /// (`_acpmux/harness_enable`; the host decides, see `Facts::harness_enable`).
     HarnessNotConfirmed,
+    /// A frame of a click-only method that needs a gesture came without the
+    /// person's click (`policy.json` `click_only`, [`crate::gesture::Gesture`]).
+    GestureRequired,
 }
 
 impl Refusal {
@@ -30,6 +33,7 @@ impl Refusal {
             Refusal::McpServersRefused => "transport.mcp_servers_refused",
             Refusal::SessionNotInPane => "transport.session_not_in_pane",
             Refusal::HarnessNotConfirmed => "transport.harness_not_confirmed",
+            Refusal::GestureRequired => "transport.gesture_required",
         }
     }
 
@@ -45,6 +49,7 @@ impl Refusal {
             Refusal::McpServersRefused,
             Refusal::SessionNotInPane,
             Refusal::HarnessNotConfirmed,
+            Refusal::GestureRequired,
         ]
         .into_iter()
         .find(|r| r.code() == code)

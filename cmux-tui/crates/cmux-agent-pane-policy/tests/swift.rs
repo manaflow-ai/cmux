@@ -148,3 +148,35 @@ fn the_gesture_rules_are_the_macos_hosts() {
         .collect();
     assert_eq!(rust, swift, "policy.json gesture_rules vs AcpmuxPaneMethods.gestureRules");
 }
+
+/// The click rule: the methods the Swift host answers only on a fresh click
+/// (`answerAllowed`'s `answers`) are policy.json `click_only`, which the
+/// frame check refuses without a click (tests/click_only.rs).
+#[test]
+fn the_click_only_methods_are_the_macos_hosts() {
+    let swift: BTreeSet<String> = strings(&block(
+        &read("AcpmuxPaneMethods.swift"),
+        "static func answerAllowed(_ method: String?, _ gestures: AgentPaneUserGestures) -> Bool {",
+        "\n    }",
+    ))
+    .into_iter()
+    .collect();
+    assert!(!swift.is_empty(), "AcpmuxPaneMethods.answerAllowed names no method");
+    assert_eq!(policy().click_only, swift, "policy.json click_only vs answerAllowed");
+}
+
+/// How old a click may be when it answers: policy.json `click_window_ms` is
+/// the Swift host's `AgentPaneUserGestures.answerWindow` (seconds).
+#[test]
+fn the_click_window_is_the_macos_hosts() {
+    let text = read("AgentPaneUserGestures.swift");
+    let declaration = "public static let answerWindow: TimeInterval = ";
+    let at = text.find(declaration).unwrap_or_else(|| panic!("{declaration} not found"));
+    let value = text[at + declaration.len()..].lines().next().unwrap_or("").trim();
+    let seconds: f64 = value.parse().unwrap_or_else(|e| panic!("answerWindow {value}: {e}"));
+    assert_eq!(
+        policy().click_window_ms as f64,
+        seconds * 1000.0,
+        "policy.json click_window_ms vs AgentPaneUserGestures.answerWindow"
+    );
+}

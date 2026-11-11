@@ -36,6 +36,12 @@
 //!   a question's `_acpmux/permission_respond` may carry `answers`, checked by
 //!   [`answers::breaks_answers_rule`] against `policy.json` `question_answers`,
 //!   the same rule as the Swift host's);
+//! - the person's gesture: the host records it from its own input events,
+//!   times it (`policy.json` `click_window_ms`) and tells the check which
+//!   one it holds ([`Gesture`]: none, a key, a click). The check refuses an
+//!   answer method (`policy.json` `click_only`) that needs a gesture unless
+//!   the host holds a click; the host spends the click on a frame whose facts
+//!   say `needs_click` (`AgentPaneUserGestures.hasFreshAnswerGesture`);
 //! - gesture tickets, records and the mode confirmation sheet
 //!   (`AgentPaneUserGestures`, `AgentPaneModeConfirmation`), and the folder
 //!   harness sheet (`confirmHarnessEnable`: the user's Enable, the confirmed
@@ -74,4 +80,5 @@ pub use frame::{
     Decision, RefusalNote, Refused, allowlist_check, allowlist_decision, refusal_frame,
     refusal_frame_noted,
 };
+pub use gesture::Gesture;
 pub use sessions::PaneSessions;
