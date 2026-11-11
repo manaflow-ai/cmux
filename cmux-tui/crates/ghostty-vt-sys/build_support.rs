@@ -553,6 +553,16 @@ pub fn osVersionMin(tag: std.Target.Os.Tag) ?std.Target.Query.OsVersion {
     }
 
     #[test]
+    fn mirror_only_proxy_refuses_every_scheme_in_both_cases() {
+        // Zig's HTTP client reads lower- and upper-case http, https and all proxies.
+        for scheme in ["http_proxy", "https_proxy", "all_proxy"] {
+            assert!(PROXY_VARS.contains(&scheme));
+            assert!(PROXY_VARS.contains(&scheme.to_uppercase().as_str()));
+        }
+        assert_eq!(NO_ROUTE_PROXY, "http://127.0.0.1:9");
+    }
+
+    #[test]
     fn zig_env_global_cache_reads_zon_and_json() {
         let zon = ".{\n    .zig_exe = \"/opt/zig/zig\",\n    .global_cache_dir = \"/home/runner/.cache/zig\",\n}\n";
         assert_eq!(zig_env_global_cache(zon), Some(PathBuf::from("/home/runner/.cache/zig")));
