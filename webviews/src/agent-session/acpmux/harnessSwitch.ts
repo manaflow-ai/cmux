@@ -281,13 +281,16 @@ export class HarnessSwitch {
   /// heldOptions.ts), held as a pick during the switch is: applied before the first prompt.
   switchTo(
     harness: string,
-    folder?: string,
+    folder?: string | null,
     options: { deferred?: boolean; model?: string; options?: Readonly<Record<string, string>> } = {},
   ): Promise<string | undefined> {
     const previous = this.intent;
     const port = this.port;
     const shownSession = port?.shown();
-    const cwd = folder ?? previous?.cwd ?? shownSession?.cwd;
+    // `null`: a new chat with no folder (startFolderModel newChatFolder). acpmux's host fills it; an
+    // earlier start's folder never carries over, so one refused folder (a tab's inherited `~`) never
+    // becomes the folder of the next start, of this agent or another (cmux#40938).
+    const cwd = folder === null ? undefined : (folder ?? previous?.cwd ?? shownSession?.cwd);
     const held = Object.entries(options.options ?? {});
     if (previous && previous.harness === harness && previous.phase !== "failed" && previous.cwd === cwd) {
       if (options.model) void this.pickModel(options.model);

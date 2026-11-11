@@ -10,6 +10,31 @@ import { rememberWorktreeSetup, type WorktreeSetupStart } from "./worktreeSetupS
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
+/// What a pane's new chat starts with (``newChatFolder``): `inherited` is the tab's own folder (a
+/// fresh workspace's tab sits at `~`), `startFolder` the chat's start folder (the host's, or a pick
+/// the host took), `fresh` whether no chat is shown yet.
+export type NewChatFolderInputs = {
+  cwd?: string;
+  inherited?: string;
+  startFolder?: string;
+  fresh: boolean;
+};
+
+/// The folder a new chat starts in, for every start the pane makes (`chat.new`: the agent row, a
+/// harness or model pick in the chips, the slash command list, Enter, a page script), and every
+/// agent alike (decision 1 above; cmux#40938). The folder the caller names, unless that is only the
+/// tab's inherited folder; else the chat's start folder. The inherited folder is a terminal's folder:
+/// a chat never starts there by itself, so a tab at `~` never makes a chat start in the home folder,
+/// which the relay refuses until the person answered the home question ("This folder is outside the
+/// folders this pane may use"). Once they did, `~` is the start folder and is used.
+/// `null`: the new chat has no folder; the host fills it (the workspace's folder, else its private
+/// agent-home folder), never the folder of an earlier start. `undefined`: a shown chat's switch,
+/// which keeps that chat's folder (harnessSwitch.ts).
+export function newChatFolder({ cwd, inherited, startFolder, fresh }: NewChatFolderInputs): string | null | undefined {
+  if (cwd && (cwd !== inherited || cwd === startFolder)) return cwd;
+  return fresh ? (startFolder ?? null) : undefined;
+}
+
 /// A picked folder that waits for the user: `home` asks (Use Home Folder), `root` is refused.
 export type FolderAsk = { cwd: string; reason: "home" | "root" };
 
