@@ -57,10 +57,7 @@ priority = 50
 # s of 4 s; terminal #8 created in 1.05 s of 1 s, 100 closes in 10.4 s of 10
 # s, a restart with 60 terminals answering in 5.3 s; 2026-11-04 census run
 # 41882425209: a person's chat tab under busy sessions p95 394 ms of 200 ms,
-# its idle baseline 16 ms of about 9 ms; 2026-11-11 `workspace_registry::`
-# runs, steps 221af250c12e and its PR head: a kind backfill's first read 115
-# ms of 316 ms and 118 of 354 ms for all of them, where the test wants a
-# third or less, and it passes alone, step bfc8eba14d91). The terminal tests wait
+# its idle baseline 16 ms of about 9 ms). The terminal tests wait
 # on F_FULLFSYNC, which macOS runs one at a time for the whole device, so
 # every other test daemon's commits queue in front of theirs. They run in the
 # timing-alone group and take every test thread, so no other test runs beside
@@ -80,7 +77,6 @@ filter = '''
 | (binary_id(cmux-tui::terminal_host_recovery) & test(=close_path::closing_one_hundred_terminals_updates_the_tree_at_once_and_ends_every_host))
 | (binary_id(cmux-tui::terminal_host_recovery) & test(=restart_with_many_live_terminals_answers_within_budget))
 | (binary_id(cmux-tui-core) & test(=state::group_update_latency_tests::a_persons_requests_answer_while_busy_sessions_saturate_the_registry))
-| (binary_id(cmux-tui-core) & test(=workspace_registry::session_journal::tests::a_synth_registrys_first_kind_read_is_bounded_while_its_backfill_is_unfinished))
 '''
 test-group = 'timing-alone'
 threads-required = 'num-test-threads'
