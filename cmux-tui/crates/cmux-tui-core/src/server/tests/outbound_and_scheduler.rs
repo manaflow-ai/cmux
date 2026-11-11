@@ -749,6 +749,7 @@ fn blocking_wait_cannot_overtake_input_queued_behind_a_clear_barrier() {
             request: Request { id: Some(json!(id)), cmd, remote_line: None },
             retained_bytes: 0,
             _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
+            slow_log: None,
         });
     }
 
@@ -787,6 +788,7 @@ fn guarded_browser_pointer_input_overtakes_an_unrelated_clear_barrier() {
             request: Request { id: Some(json!(1)), cmd, remote_line: None },
             retained_bytes: 0,
             _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
+            slow_log: None,
         });
 
         assert_eq!(

@@ -120,6 +120,9 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// only one machine is listed, titled "Projects" (the sidebar list sets
     /// it). One list (the default) never shows it (cx-mdo0).
     public var showsSoleMachineHeader = false
+    /// One list draws a quiet "Workspaces" heading over its workspace rows, as the Codex sidebar heads its list
+    /// "Recents" (`sidebar.listHeading`, https://github.com/manaflow-ai/cmux/issues/39956). A label only: no fold, no menu, no drop.
+    public var headsWorkspaceList = false
     /// One workspace list (`sidebar.groupByComputer` off): machine sections
     /// show no header and no gap between them, and a row of a computer other
     /// than this Mac names it (and a failed connection) in its machine mark,

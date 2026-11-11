@@ -206,7 +206,7 @@ final class SidebarIconView: NSView {
         renditions.onStyleChange = { [weak self] in self?.faviconStyleChanged() }
         let drawing = performWithTheme {
             renditions.drawing(favicon, side: faviconSide, scale: backingScale,
-                               ground: SidebarFaviconRenditions.groundLuminance(Palette.sidebarBackground))
+                               ground: SidebarFaviconRenditions.groundLuminance(SidebarStyle.ground))
         }
         faviconDrawing = drawing
         inkKey = "favicon|\(UInt(bitPattern: ObjectIdentifier(favicon.image).hashValue))|\(drawing.treatment)"

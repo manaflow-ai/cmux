@@ -122,6 +122,20 @@ const capPausedMachines = machines.map((machine) =>
     : machine,
 ) as CloudMachine[];
 
+// A paused machine exactly as staging's cloud.machine.get answered it (sleep-keeps probe, run 42823810342), only its
+// ids and name changed: the paused rate is the backend's own (cmux-platform Cost.ts), not a fixture's guess.
+const stagingPaused: CloudMachine = {
+  ...structuredClone(buildCache!),
+  id: "vm_staging_paused",
+  name: "sleeps-when-idle",
+  size: { cpu: 2, memory_mb: 4096, disk_mb: 16_384 },
+  status: "paused",
+  hourly_rate_usd: 0.1322,
+  paused_hourly_rate_usd: 0.001376,
+  running_since: null,
+  revision: "1",
+};
+
 export default cloudPageEntry({
   id: "pages.cloud",
   title: "Cloud",
@@ -201,6 +215,12 @@ export default cloudPageEntry({
       machines,
       snapshots,
       ports: samplePorts,
+    },
+    "paused-price-staging": {
+      note: "A paused machine with the paused rate staging sends: the row and detail say what the pause costs a month.",
+      action: "select-machine",
+      machines: [stagingPaused, apiDev!],
+      snapshots,
     },
     "spend-cap-near": {
       note: "The team is near its spending cap: a dismissible warning with the spend, and team spend in Usage.",

@@ -118,7 +118,8 @@ and look at it beside the others, with Reduce Motion on.
 
 ## The performance rules, and what checks them
 
-`bun run check:theme-slots` reads `slots.json` and fails a variant that breaks one of these:
+`bun run check:theme-slots` reads `slots.json` and fails a variant that breaks one of these (the
+no-breathing row is the webviews test lane's):
 
 | rule | what it means | how it's checked |
 | --- | --- | --- |
@@ -126,6 +127,7 @@ and look at it beside the others, with Reduce Motion on.
 | zero JS per frame | no `requestAnimationFrame`, `setInterval`, `setTimeout`, `requestIdleCallback`, `.animate(` or page clock in the variant's `source`: the motion is CSS, so its main-thread cost per frame is zero by construction | the variant's `source` |
 | tokens only | durations are `var()`s of the motion tokens in `slots.json` (`--cmux-motion-*`, `--cmux-spinner-period`, the loop periods); easings are `--cmux-ease-*`, `linear` or `steps()`; no `ms`/`s` literal, not even in a custom property | every `animation*`/`transition*` declaration and custom property |
 | reduced motion | every animation is inside `@media (prefers-reduced-motion: no-preference)` and under the motion gate; what is written outside is the still frame | the variant's `styles` |
+| no breathing | no mark fades, blinks or pulses forever (an infinite loop whose keyframes move `opacity`, `visibility` or `scale`); a loop moves a mark from place to place instead, like `blocks` and `counting-dots` | `webviews/test/no-breathing-dots.test.ts`, over every shipped stylesheet |
 | fixed box | the same block size as the line, and a mark whose inline size never changes while it runs | review, and the gallery's layout-shift gate |
 | stops | the slot is drawn only while the turn thinks with no step named; a hidden page pauses every loop | the slot's placement (Thinking.tsx), `data-cmux-page-hidden` |
 
