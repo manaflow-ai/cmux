@@ -201,7 +201,7 @@ extension LinkRouting {
     public nonisolated static let signInPagesDefault = true
     /// `browser.openPullRequestsInGitHubPage`.
     public nonisolated static let pullRequestsInGitHubPagePath = ["browser", "openPullRequestsInGitHubPage"]
-    public nonisolated static let pullRequestsInGitHubPageDefault = true
+    public nonisolated static let pullRequestsInGitHubPageDefault = false
     /// `browser.openTerminalLinksInCmuxBrowser`: Classic's key: read when browser.openLinksInCmuxBrowser is absent (EffectiveSettings copies it over), never written by Settings. Listed so MDM profiles and team policies written for it still apply.
     public nonisolated static let legacyOpenPath = ["browser", "openTerminalLinksInCmuxBrowser"]
     public nonisolated static let legacyOpenDefault = true

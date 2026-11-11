@@ -9,7 +9,9 @@
  * "sent"), and checks every page frame with one call
  * (cmux_agent_pane_policy_check). Default deny: a frame the policy does not
  * allow is refused. Every function may run on any thread at once. ABI
- * version 1.
+ * version 2 (1 had no "is_known_allow", "pick", "own_prompt_id" or
+ * "canonical_digest" op, no "path_keys" in "policy" and no detail or reason
+ * in "refusal_frame").
  *
  * Return codes: 0 OK, 1 NO_SHAPE (filter_reply only), -1 a null pointer,
  * -2 invalid input (not UTF-8, not the JSON the op takes), -3 an unknown op,
@@ -66,16 +68,22 @@ int32_t cmux_agent_pane_policy_filter_reply(const uint8_t *method, size_t method
                                             CmuxAgentPaneBytes *out);
 
 /* One JSON op; request is a JSON object (or empty for {}); *out gets the
- * reply object. pane may be NULL for "policy", "refusal_frame" and
- * "raw_id"; the others need it.
+ * reply object. pane may be NULL for "policy", "refusal_frame", "raw_id",
+ * "pick", "own_prompt_id" and "canonical_digest"; the others need it.
  *   add {session} -> {}               sent {method, id?, handoff?, owned?} -> {}
  *   contains {session} -> {contains}  is_unstarted -> {unstarted}
  *   question_keys {permission} -> {keys: [..]|null}
  *   is_deny {permission, option} -> {deny}
+ *   is_known_allow {permission, option} -> {allow}
  *   policy -> {initialize, maximum_frame_bytes, gesture_ticket_key,
- *              reply_shape_methods, question_answers, starting, handoff_records}
- *   refusal_frame {id, code, method?, root_requested?} -> {frame}
- *   raw_id {value} -> {id: raw|null} */
+ *              reply_shape_methods, question_answers, starting, handoff_records,
+ *              path_keys}
+ *   refusal_frame {id, code, method?, root_requested?, detail?, reason?} -> {frame}
+ *   raw_id {value} -> {id: raw|null}
+ *   pick {method?, params?} -> {pick: {method: m|null, params: {..}|null}}
+ *     (the pick a gesture ticket is bound to; params null: no match)
+ *   own_prompt_id {id} -> {id}
+ *   canonical_digest {value} -> {digest: hex|null} */
 int32_t cmux_agent_pane_policy_call(const CmuxAgentPanePolicy *pane, const char *op,
                                     const uint8_t *request, size_t request_len,
                                     CmuxAgentPaneBytes *out);

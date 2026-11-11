@@ -15154,7 +15154,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "home.saveFlightRecording",
-      "main_menu" : "debug",
+      "main_menu" : null,
       "mcp" : "devOnly",
       "palette" : "offered",
       "palette_section" : {
@@ -15211,7 +15211,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "home.agentMessagePlayground",
-      "main_menu" : "debug",
+      "main_menu" : null,
       "mcp" : "devOnly",
       "palette" : "offered",
       "palette_section" : {
@@ -15262,7 +15262,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "home.mcpConnectPlayground",
-      "main_menu" : "debug",
+      "main_menu" : null,
       "mcp" : "devOnly",
       "palette" : "offered",
       "palette_section" : {
@@ -15311,7 +15311,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "home.compareTablePlayground",
-      "main_menu" : "debug",
+      "main_menu" : null,
       "mcp" : "devOnly",
       "palette" : "offered",
       "palette_section" : {
@@ -15348,7 +15348,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "home.chiefTeleportPlayground",
-      "main_menu" : "debug",
+      "main_menu" : null,
       "mcp" : "devOnly",
       "palette" : "offered",
       "palette_section" : {
@@ -36394,11 +36394,6 @@
           "kind" : "string",
           "name" : "login",
           "required" : false
-        },
-        {
-          "kind" : "string",
-          "name" : "model",
-          "required" : false
         }
       ],
       "cli" : "offered",
@@ -38810,7 +38805,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "appearance.glass.lens.toggle",
-      "main_menu" : "debug",
+      "main_menu" : null,
       "mcp" : "devOnly",
       "palette" : "offered",
       "palette_section" : {
@@ -38903,7 +38898,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "debug.tabBarPlayground",
-      "main_menu" : "debug",
+      "main_menu" : null,
       "mcp" : "devOnly",
       "palette" : "offered",
       "palette_section" : {
@@ -38934,7 +38929,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "debug.allThemesPlayground",
-      "main_menu" : "debug",
+      "main_menu" : null,
       "mcp" : "devOnly",
       "palette" : "offered",
       "palette_section" : {
@@ -38965,7 +38960,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "debug.sidebarStatesPlayground",
-      "main_menu" : "debug",
+      "main_menu" : null,
       "mcp" : "devOnly",
       "palette" : "offered",
       "palette_section" : {
@@ -38996,7 +38991,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "debug.viewWindow",
-      "main_menu" : "debug",
+      "main_menu" : null,
       "mcp" : "devOnly",
       "palette" : "offered",
       "palette_section" : {
@@ -39046,7 +39041,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "debug.projection",
-      "main_menu" : "debug",
+      "main_menu" : null,
       "mcp" : "devOnly",
       "palette" : "offered",
       "palette_section" : {
@@ -39081,7 +39076,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "debug.projection.runTest",
-      "main_menu" : "debug",
+      "main_menu" : null,
       "mcp" : "devOnly",
       "palette" : "offered",
       "palette_section" : {
@@ -39112,7 +39107,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "debug.actionLatencyHUD",
-      "main_menu" : "debug",
+      "main_menu" : null,
       "mcp" : "devOnly",
       "palette" : "offered",
       "palette_section" : {
@@ -46955,6 +46950,44 @@
       "palette_suggested" : null,
       "title" : "Never Float Hidden Sidebar",
       "title_key" : "action.sidebar.floatOnHover.off",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "sidebar toggle-custom",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "b",
+        "modifiers" : [
+          "ctrl",
+          "opt",
+          "cmd"
+        ]
+      },
+      "id" : "sidebar.custom.toggle",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Toggle Custom Sidebar",
+      "title_key" : "action.sidebar.custom.toggle",
       "title_table" : "SidebarSectionActions"
     },
     {
@@ -56403,14 +56436,27 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "sidebar.custom.toggle",
+              "kind" : "action",
+              "order" : 13,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 13
+              "order" : 14
             },
             {
               "enabled_when" : "can_perform",
               "id" : "sidebar.layout.reset",
               "kind" : "action",
-              "order" : 14,
+              "order" : 15,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -61861,14 +61907,6 @@
     {
       "name" : "sidebarUpdateCard",
       "source" : "CmuxNextSidebar\/Views\/SidebarUpdateCardView.swift"
-    },
-    {
-      "name" : "debugSidebarToggleIcon",
-      "source" : "CmuxNextApp\/Windows\/SidebarToggleIconMenu.swift"
-    },
-    {
-      "name" : "debugStatusIconSet",
-      "source" : "CmuxNextApp\/Windows\/StatusIconSetMenu.swift"
     },
     {
       "name" : "homeBackground",

@@ -1,20 +1,17 @@
 // One conversation in the Messages list: a row (avatar, name and tag, time, a two-line preview, the
 // unread dot in the gutter) or a pinned tile (a big avatar with the name under it and its unread
 // dot), as the native list (MessagesLab's sidebar) draws them. The avatar is the participant's
-// picture or their initials; a group shows up to three members. A Chief's avatar is plain: no
-// working or waiting mark, only the unread dot (HomeChiefAvatarPlainTests). A teammate with no DM
-// yet is a row of its own (avatar and name); a swiped row slides over its actions (swipe.ts).
+// picture or their initials; a group shows up to three members; a Chief working shows a quiet mark.
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { DrivenRow } from "../../../ui/DrivenList";
 import { useAvatarPicture } from "../../home-channels/avatars";
 import { graphemePrefix, initials } from "../../../ui/initials";
 import type { HomeParticipant } from "../../home-channels/types";
-import type { ListItem, TeammateItem } from "./model";
-import { SWIPE_BUTTON, type SwipeAction } from "./swipe";
+import type { ListItem } from "./model";
 
 export function ListAvatar({ item, size }: { item: ListItem; size: number }) {
   if (item.peer || item.members.length <= 1) {
-    return <PersonAvatar participant={item.peer ?? item.members[0]} name={item.title} size={size} />;
+    return <PersonAvatar participant={item.peer ?? item.members[0]} name={item.title} size={size} state={item.state} />;
   }
   // A group: its first three members, overlapping on one disc's footprint.
   const members = item.members.slice(0, 3);
@@ -30,7 +27,17 @@ export function ListAvatar({ item, size }: { item: ListItem; size: number }) {
   );
 }
 
-function PersonAvatar({ participant, name, size }: { participant?: HomeParticipant; name: string; size: number }) {
+function PersonAvatar({
+  participant,
+  name,
+  size,
+  state,
+}: {
+  participant?: HomeParticipant;
+  name: string;
+  size: number;
+  state?: ListItem["state"];
+}) {
   const picture = useAvatarPicture(participant?.id);
   const agent = participant?.kind === "agent";
   const style = { width: size, height: size, "--hm-avatar-size": `${size}px` } as CSSProperties;
@@ -45,6 +52,7 @@ function PersonAvatar({ participant, name, size }: { participant?: HomeParticipa
       ) : (
         graphemePrefix(initials(participant?.name ?? name), size >= 24 ? 2 : 1)
       )}
+      {state && <span className={`hm-state-mark ${state}`} />}
     </span>
   );
 }
@@ -73,8 +81,6 @@ export function ListRow({
   separator,
   events,
   dragging,
-  swipeX = 0,
-  settling = false,
 }: {
   item: ListItem;
   top: number;
@@ -86,9 +92,6 @@ export function ListRow({
   separator: boolean;
   events: ItemEvents;
   dragging: boolean;
-  /** The row's swipe offset (right positive), and whether it is settling (open, closed). */
-  swipeX?: number;
-  settling?: boolean;
 }) {
   return (
     <DrivenRow
@@ -97,8 +100,8 @@ export function ListRow({
       aria-selected={selected}
       aria-label={item.label}
       data-list-row={item.id}
-      className={`hm-row${compact ? " compact" : ""}${selected ? " selected" : ""}${item.unread ? " unread" : ""}${item.muted ? " muted" : ""}${separator ? " separated" : ""}${dragging ? " dragging" : ""}${swipeX ? " swiped" : ""}${settling ? " settling" : ""}`}
-      style={{ transform: `translate(${swipeX}px, ${top}px)`, height, "--hm-disc": `${avatar + 8}px` } as CSSProperties}
+      className={`hm-row${compact ? " compact" : ""}${selected ? " selected" : ""}${item.unread ? " unread" : ""}${item.muted ? " muted" : ""}${separator ? " separated" : ""}${dragging ? " dragging" : ""}`}
+      style={{ transform: `translateY(${top}px)`, height }}
       onPick={(event) => events.onClick(item.id, event)}
       onPointerDown={(event) => events.onPointerDown(item.id, false, event)}
       onPointerEnter={() => events.onHover(item.id)}
@@ -120,115 +123,6 @@ export function ListRow({
         </>
       )}
     </DrivenRow>
-  );
-}
-
-/** A team member with no DM yet: their avatar and name. Choosing them starts the DM. */
-export function TeammateRow({
-  item,
-  top,
-  height,
-  compact,
-  avatar,
-  onPick,
-}: {
-  item: TeammateItem;
-  top: number;
-  height: number;
-  compact: boolean;
-  avatar: number;
-  onPick(item: TeammateItem): void;
-}) {
-  return (
-    <DrivenRow
-      kind="option"
-      aria-selected={false}
-      aria-label={item.label}
-      data-teammate-row={item.person.id}
-      className={`hm-row teammate${compact ? " compact" : ""}`}
-      style={{ transform: `translateY(${top}px)`, height }}
-      onPick={() => onPick(item)}
-    >
-      <span className="hm-row-avatar">
-        <PersonAvatar participant={item.person} name={item.title} size={avatar} />
-      </span>
-      {compact ? (
-        <span className="hm-tile-name">{item.title}</span>
-      ) : (
-        <span className="hm-row-head">
-          <span className="hm-row-name">{item.title}</span>
-        </span>
-      )}
-    </DrivenRow>
-  );
-}
-
-/** The actions behind a swiped row, sharing the revealed width (each `SWIPE_BUTTON` wide once open). */
-export function SwipeStrip({
-  top,
-  height,
-  offset,
-  open,
-  settling,
-  actions,
-  labels,
-  onAction,
-}: {
-  top: number;
-  height: number;
-  offset: number;
-  open: boolean;
-  settling: boolean;
-  actions: readonly SwipeAction[];
-  labels: Record<SwipeAction, string>;
-  onAction(action: SwipeAction): void;
-}) {
-  const width = open ? actions.length * SWIPE_BUTTON : Math.abs(offset);
-  const leading = offset > 0;
-  return (
-    <div
-      className={`hm-swipe-strip${leading ? " leading" : " trailing"}${settling ? " settling" : ""}`}
-      style={{ transform: `translateY(${top}px)`, height, width }}
-    >
-      {actions.map((action) => (
-        <button
-          key={action}
-          type="button"
-          className={`hm-swipe-action ${action}`}
-          aria-label={labels[action]}
-          title={labels[action]}
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={(event) => {
-            event.stopPropagation();
-            onAction(action);
-          }}
-        >
-          <SwipeGlyph action={action} />
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function SwipeGlyph({ action }: { action: SwipeAction }) {
-  return (
-    <svg
-      width="20"
-      height="20"
-      viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      {action === "delete" ? (
-        <path d="M4 6h12M8 6V4.5h4V6M5.5 6l.8 9.5h7.4l.8-9.5M8.5 9v4M11.5 9v4" />
-      ) : (
-        <path d="M3.5 6h13v8.5h-13zM3.5 6 10 11l6.5-5" />
-      )}
-    </svg>
   );
 }
 

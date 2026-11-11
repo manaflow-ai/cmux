@@ -173,6 +173,10 @@ install click.
   Put it back on purpose with `cmux apps place 'local/customize#cmux.section/1' --region bottom`.
 - `implements["cmux.session.info.section/1"]` is its one Session Info section; its
   render function gets `{ session_id, cwd, branch?, harness? }` as its argument.
+- Show or hide it in one step: Toggle Custom Sidebar (Cmd+Shift+P, Ctrl+Opt+Cmd+B, the
+  sidebar's right-click Options menu, or `cmux sidebar toggle-custom`). It flips the app's
+  hidden flag, which cmux keeps across relaunches; with no customize folder it writes the
+  starter template and the view appears.
 - Scopes: read scopes (`integration:github:read`) are granted at install. Others
   (`actions:run`, `net:<host>`) need the person to turn them on in Settings > Apps.
 - Script errors: `cmux raw command --request-json '{"cmd":"apps-logs","app":"local/customize"}'`.
