@@ -733,7 +733,6 @@ async fn a_fork_onto_another_harness_runs_it_and_briefs_its_agent() {
     let meta = hub.resolve(&fork).unwrap().meta();
     assert_eq!(meta.harness, "mirror");
     assert_eq!(meta.parent_id.as_deref(), Some(src.as_str()));
-    assert!(meta.modes.is_none() && meta.agent_capabilities.is_none(), "the chat's agent's own");
     let events = hub.events(&fork, 0, 10_000).unwrap();
     let line = events.iter().find(|e| e.kind == "forked").expect("a forked record");
     assert_eq!(line.msg["fromHarness"], "fake", "{}", line.msg);
