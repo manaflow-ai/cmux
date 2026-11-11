@@ -9955,9 +9955,9 @@ class FailedViewIsTheOnlyReader(unittest.TestCase):
                 "    head_crash = {status for _, _, status in step_owners(head_view.job, '', step_names=None)}"),
                 None, "compare_window: calls step_owners"),
             "judge reads a log": (mutated(
-                "        got = read_head(repo, base, sha, name, job, github, run_reads, base_runs)",
+                "        got = read_head(repo, base, sha, name, job, github, run_reads, evidence)",
                 "        head_log = github.log(repo, job)\n"
-                "        got = read_head(repo, base, sha, name, job, github, run_reads, base_runs)"),
+                "        got = read_head(repo, base, sha, name, job, github, run_reads, evidence)"),
                 None, "judge: reads a raw log"),
             "a new unlisted reader": (self.SOURCE + "\n\ndef new_errors(job, head_log):\n    return head_log\n",
                                       None, "new_errors: takes a raw log"),

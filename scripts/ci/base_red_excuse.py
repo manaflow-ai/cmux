@@ -1982,13 +1982,15 @@ def compile_receipt(repo: str, sha: str) -> dict | None:
     return receipt
 
 
-def inherited_compile_red(repo: str, base: str, sha: str, name: str, github) -> str:
+def inherited_compile_red(repo: str, base: str, sha: str, name: str, github,
+                          evidence: "Evidence | None" = None) -> str:
     """The audit line excusing NAME's compile red at SHA when the head's fleet receipt and its merge-base's both read
-    "fail", else Refused. When the receipts host is unreachable, GitHub decides (github_compile_red)."""
+    "fail", else Refused. When the receipts host is unreachable, GitHub decides (github_compile_red, over EVIDENCE's
+    commits)."""
     try:
         head = compile_receipt(repo, sha)
     except ReceiptUnreachable as down:
-        return github_compile_red(repo, base, sha, name, github, down)
+        return github_compile_red(repo, base, sha, name, github, down, evidence)
     if (head or {}).get("state") != "fail":
         raise Refused(f"'{name}': the compile receipt of {sha[:12]} is {(head or {}).get('state') or 'missing'}, not "
                       "a fail: no verdict to compare with the base")
@@ -1999,7 +2001,7 @@ def inherited_compile_red(repo: str, base: str, sha: str, name: str, github) -> 
     try:
         at_base = compile_receipt(repo, merge_base)
     except ReceiptUnreachable as down:
-        return github_compile_red(repo, base, sha, name, github, down)
+        return github_compile_red(repo, base, sha, name, github, down, evidence)
     if (at_base or {}).get("state") != "fail":
         raise Refused(f"'{name}': the compile receipt of {sha[:12]} is a fail, and its merge-base {merge_base[:12]} "
                       f"on {base} reads {(at_base or {}).get('state') or 'no receipt'}: the red is this head's")
@@ -2080,12 +2082,14 @@ def compile_pass_status_at(repo: str, sha: str, github) -> tuple[dict | None, di
                   f"{COMPILE_PASS_STATUS} verdict; too many statuses to tell whether it passed")
 
 
-def github_compile_red(repo: str, base: str, sha: str, name: str, github, down: Refused) -> str:
+def github_compile_red(repo: str, base: str, sha: str, name: str, github, down: Refused,
+                       evidence: "Evidence | None" = None) -> str:
     """inherited_compile_red's question asked of GitHub while the receipts host is unreachable (DOWN): the audit line
     excusing NAME's compile red at SHA when GitHub's cmux-next/compile at SHA reads a real compile fail and the same
     status at the merge-base (else the newest of the BASE_STATUS_COMMITS newest BASE commits with one completed) reads
     the same fail, else Refused naming why. Reads: one status, one compare, at most BASE_STATUS_COMMITS + 2 more; no
-    wait and no retry, so a GitHub that cannot answer refuses too."""
+    wait and no retry, so a GitHub that cannot answer refuses too. The base commits are EVIDENCE's
+    (Evidence.status_commits: a stacked parent's head alone)."""
     why = f"the receipts host is unreachable ({down})"
     log_decider(f"'{name}' at {sha[:12]}: {why}; GitHub decides")
     head = compile_status_at(repo, sha, github) or {}
@@ -2098,9 +2102,8 @@ def github_compile_red(repo: str, base: str, sha: str, name: str, github, down: 
     merge_base = (diff.get("merge_base_commit") or {}).get("sha") or ""
     if not re.fullmatch(r"[0-9a-f]{40}", merge_base):
         raise Refused(f"'{name}': {why}, and GitHub names no merge-base of {sha[:12]} with {base}")
-    candidates = [merge_base] + [commit.get("sha") or "" for commit in
-                                 github.json(f"repos/{repo}/commits?sha={base}&per_page={BASE_STATUS_COMMITS}") or []
-                                 if (commit.get("sha") or "") != merge_base]
+    evidence = evidence or Evidence(repo, base, github)
+    candidates = [merge_base] + [commit for commit in evidence.status_commits() if commit != merge_base]
     for commit in candidates:
         found = compile_status_at(repo, commit, github)
         if found is None or found.get("state") == "pending":
@@ -2287,9 +2290,10 @@ FAST_GATES_STATUS = "cmux-next/fast-gates"
 
 
 def status_job(repo: str, sha: str, name: str, github, base: str | None = None,
-               suites: SuiteChecks | None = None) -> dict | str | None:
+               suites: SuiteChecks | None = None, evidence: "Evidence | None" = None) -> dict | str | None:
     """The completed Actions job behind commit status NAME on SHA, or None when SHA has no status NAME. A red
-    status no Actions job gave (Vercel's) is the audit line of base_status when BASE shares it, else refused."""
+    status no Actions job gave (Vercel's) is the audit line of base_status when BASE (EVIDENCE's) shares it, else
+    refused."""
     statuses = github.json(f"repos/{repo}/commits/{sha}/status?per_page=100").get("statuses") or []
     # The combined status lists the newest per context.
     status = next((found for found in statuses if found.get("context") == name), None)
@@ -2318,7 +2322,7 @@ def status_job(repo: str, sha: str, name: str, github, base: str | None = None,
                               "answers, or once the Mac Release compile passes at this head")
             return f"ignored '{name}': it gave no compile verdict, but {proof} compiled {sha} and passed"
         # Its target_url is the source run, with no job of this name (inherited_compile_red).
-        return inherited_compile_red(repo, base, sha, name, github)
+        return inherited_compile_red(repo, base, sha, name, github, evidence)
     url = status.get("target_url") or ""
     match = re.fullmatch(r"https://github\.com/" + re.escape(repo) + r"/actions/runs/(\d+)(?:/job/\d+)?/?", url)
     if match:
@@ -2344,7 +2348,8 @@ def status_job(repo: str, sha: str, name: str, github, base: str | None = None,
                           f"{found.get('conclusion')}; nothing to compare with the base")
         return found
     if not match and base and state in ("failure", "error"):
-        return base_status(repo, base, name, state, status.get("description") or "", github, sha=sha)
+        return base_status(repo, base, name, state, status.get("description") or "", github, sha=sha,
+                           evidence=evidence)
     where = f"run {match[1]} (its target_url)" if match else f"any run that tested {sha}"
     raise Refused(f"'{name}': a status ({state}: {status.get('description') or 'no description'}) with no job "
                   f"'{job_name}' in {where} to compare with the base")
@@ -2657,21 +2662,28 @@ def vercel_not_built(repo: str, base: str, sha: str | None, name: str, descripti
             f"{VERCEL_TREE} files")
 
 
-def base_status(repo: str, base: str, name: str, state: str, description: str, github, *, sha: str | None = None) -> str:
-    """The audit line excusing jobless status NAME (STATE, DESCRIPTION) when the base has the same, else Refused."""
+def base_status(repo: str, base: str, name: str, state: str, description: str, github, *, sha: str | None = None,
+                evidence: "Evidence | None" = None) -> str:
+    """The audit line excusing jobless status NAME (STATE, DESCRIPTION) when the base has the same, else Refused. The
+    base commits are EVIDENCE's (Evidence.status_commits: a stacked parent's head alone)."""
     if not description:
         raise Refused(f"'{name}': a status ({state}) with no description and no job: nothing to compare with the base")
-    for commit in github.json(f"repos/{repo}/commits?sha={base}&per_page={BASE_STATUS_COMMITS}") or []:
-        statuses = github.json(f"repos/{repo}/commits/{commit['sha']}/status?per_page=100").get("statuses") or []
+    evidence = evidence or Evidence(repo, base, github)
+    commits = evidence.status_commits()
+    for commit in commits:
+        statuses = github.json(f"repos/{repo}/commits/{commit}/status?per_page=100").get("statuses") or []
         found = next((found for found in statuses if found.get("context") == name), None)
         if found is None:
             continue
         if (found.get("state"), found.get("description") or "") != (state, description):
             if line := vercel_not_built(repo, base, sha, name, description, found, github):
                 return line
-            raise Refused(f"'{name}': a status ({state}: {description}) with no job, and {base} {commit['sha']} has "
+            raise Refused(f"'{name}': a status ({state}: {description}) with no job, and {base} {commit} has "
                           f"it {found.get('state')}: {found.get('description') or 'no description'}")
-        return f"excused '{name}': base {commit['sha']} status {state} \"{description}\""
+        return f"excused '{name}': base {commit} status {state} \"{description}\""
+    if evidence.parent is not None:
+        raise Refused(f"'{name}': a status ({state}: {description}) with no job, and {base} is {evidence.where()}, "
+                      f"which has no status '{name}' to compare with")
     raise Refused(f"'{name}': a status ({state}: {description}) with no job, and none of the {BASE_STATUS_COMMITS} "
                   f"newest {base} commits has a status '{name}' to compare with")
 
@@ -3133,7 +3145,8 @@ def derived_status_line(repo: str, name: str, sha: str, parts: list[Part], audit
 
 def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *, base: str | None = None,
               excused: list[str] | None = None, suites: SuiteChecks | None = None,
-              ignored: list[str] | None = None, seen: dict | None = None) -> list[dict]:
+              ignored: list[str] | None = None, seen: dict | None = None,
+              evidence: "Evidence | None" = None) -> list[dict]:
     """Failed head jobs; a check that is a jobless status red the base shares adds its line to EXCUSED, and a cancelled
     job a newer run of its workflow passed adds its line to IGNORED (superseding_check)."""
     jobs: dict[int, dict] = {}
@@ -3207,7 +3220,8 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
         aggregate_runs = []
         for name in checks:
             if name not in latest:
-                if (job := status_job(repo, sha, name, github, base if excused is not None else None, suites)) is None:
+                if (job := status_job(repo, sha, name, github, base if excused is not None else None, suites,
+                                      evidence)) is None:
                     raise Refused(f"{name}: has not run on exact head {sha}")
                 if isinstance(job, str):
                     excused.append(job)
@@ -3263,13 +3277,11 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
     return [dict(job, status_contexts=contexts[key]) if key in contexts else job for key, job in jobs.items()]
 
 
-def tip_suite_verdicts(repo: str, base: str, workflow, name: str, github, base_jobs: dict[int, list[dict] | None],
-                       suites: SuiteChecks | None = None):
-    """(run, job) for each completed suite run of BASE with a verdict for job NAME, newest first, read lazily."""
-    # Every status, so a first run's same-tree run is seen while it still queues or runs (TREE_JOBS).
-    listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}&event=workflow_dispatch"
-                         f"&per_page={BASE_RUNS_PAGE}")
-    runs = listed.get("workflow_runs") or []
+def tip_suite_verdicts(repo: str, workflow, name: str, github, base_jobs: dict[int, list[dict] | None],
+                       evidence: "Evidence", suites: SuiteChecks | None = None):
+    """(run, job) for each completed suite run of EVIDENCE's base with a verdict for job NAME, newest first, read
+    lazily (Evidence.dispatches: none for a stacked parent)."""
+    runs = evidence.dispatches(workflow)
     deferred = deferred_first_runs(runs) if name in TREE_JOBS else set()
     suites = suites or SuiteChecks(github)
     candidates = [run for index, run in enumerate(runs)
@@ -3287,16 +3299,17 @@ def tip_suite_verdicts(repo: str, base: str, workflow, name: str, github, base_j
             yield run, found
 
 
-def base_verdicts(repo: str, base: str, workflow, name: str, github, base_runs: dict, base_jobs: dict,
+def base_verdicts(repo: str, workflow, name: str, github, evidence: "Evidence", base_jobs: dict,
                   job_reads: dict, suites: SuiteChecks | None = None):
     """(run, job) for each completed BASE run with a verdict for job NAME, newest first, read lazily: the window of
     BASE_RUNS_PAGE runs (at most BASE_JOB_READS job lists per workflow), then, for a SUITE_JOBS job, the base's
     dispatches (tip_suite_verdicts). A base push run's Mac job is often cancelled by the next push, or refused by a
     mini, so a run with no verdict for the job is passed over. BASE_JOBS[run] is None for a run counted toward
-    BASE_JOB_READS whose job list was not read, since its check suite showed no verdict for a job read so far."""
+    BASE_JOB_READS whose job list was not read, since its check suite showed no verdict for a job read so far. Every
+    run is EVIDENCE's (Evidence: the base's, or a stacked parent's at its head)."""
     seen: set[int] = set()
     suites = suites or SuiteChecks(github)
-    runs = base_runs[workflow]
+    runs = evidence.runs(workflow)
     for index, candidate_run in enumerate(runs):
         if never_carries(candidate_run, name) or cancelled_tier_without_verdict(suites, runs, index, name):
             continue
@@ -3314,7 +3327,7 @@ def base_verdicts(repo: str, base: str, workflow, name: str, github, base_runs: 
             seen.add(candidate_run["id"])
             yield candidate_run, found
     if name in SUITE_JOBS:
-        for run, found in tip_suite_verdicts(repo, base, workflow, name, github, base_jobs, suites):
+        for run, found in tip_suite_verdicts(repo, workflow, name, github, base_jobs, evidence, suites):
             if run["id"] not in seen:
                 seen.add(run["id"])
                 yield run, found
@@ -4240,24 +4253,22 @@ def first_base_verdict(repo: str, runs: list[dict], name: str, github, base_jobs
     return None
 
 
-def prior_base_verdict(repo: str, base: str, workflow, name: str, merge_base: str, when: str, github,
-                       base_jobs: dict, suites: SuiteChecks | None = None) -> tuple[dict, dict] | None:
+def prior_base_verdict(repo: str, workflow, name: str, merge_base: str, when: str, github,
+                       base_jobs: dict, evidence: "Evidence", suites: SuiteChecks | None = None
+                       ) -> tuple[dict, dict] | None:
     """(run, job NAME) of BASE's verdict for NAME on WORKFLOW at the merge-base: the newest completed run that tested
     the merge-base itself (whenever it was created: a push run starts after its commit, #41117's review F3), and only
     when it has none, the newest that tested a commit before it, of the STEP_PRIOR_RUNS runs created at or before the
     merge-base's commit time WHEN. A run whose check suite shows no verdict for NAME costs no job read (may_hold, as
     base_verdicts reads them): a base's runs mix pushes, the base tier and DEV daily dispatches, and only some carry a
     job (cmux#40984's 'cmux-next generated files'). At most STEP_PRIOR_JOB_READS job lists in all; None when none is
-    found."""
+    found. Every run is EVIDENCE's (Evidence.queried)."""
     suites = suites or SuiteChecks(github)
     reads = [0]
 
     def listed(query: str) -> list[dict]:
-        found = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}&{query}"
-                            f"&per_page={STEP_PRIOR_RUNS}")
-        return sorted((run for run in (found.get("workflow_runs") if isinstance(found, dict) else None) or []
-                       if isinstance(run, dict) and run.get("event") not in ("pull_request", "pull_request_target")
-                       and run.get("status") == "completed" and run.get("conclusion") != "skipped"
+        return sorted((run for run in evidence.queried(workflow, query, STEP_PRIOR_RUNS)
+                       if run.get("status") == "completed" and run.get("conclusion") != "skipped"
                        and not never_carries(run, name)),
                       key=lambda run: run.get("created_at") or "", reverse=True)
 
@@ -4278,8 +4289,8 @@ def prior_base_verdict(repo: str, base: str, workflow, name: str, merge_base: st
 
 def fixed_on_base_by_step(repo: str, base: str, sha: str, name: str, job: dict, view: "FailedView | Unplaced",
                           workflow_info: dict, base_run: dict, base_job: dict, github, *, merge_bases: dict,
-                          base_jobs: dict, run_reads: dict, others: list[dict], suites: SuiteChecks | None = None,
-                          base_workflow=None) -> str:
+                          base_jobs: dict, run_reads: dict, others: list[dict], evidence: "Evidence",
+                          suites: SuiteChecks | None = None, base_workflow=None) -> str:
     """The audit line for red head JOB (VIEW: its failed_view; WORKFLOW_INFO: its run) when each of its failing steps
     is fixed on base by the rule above, BASE_RUN and BASE_JOB being the base's newest verdict for it, from
     BASE_WORKFLOW (the head's own workflow when None; a BASE_WORKFLOW_FOR caller's otherwise, whose runs then give the
@@ -4318,7 +4329,7 @@ def fixed_on_base_by_step(repo: str, base: str, sha: str, name: str, job: dict, 
         raise Refused(f"{base}'s newest verdict for it, run {base_run['id']}, {stale}, not at or after the merge-base")
     if not re.fullmatch(r"\d{4}-\d\d-\d\dT[\d:]+Z", when):
         raise Refused(f"the merge-base {merge_base[:12]} came back without its commit time")
-    prior = prior_base_verdict(repo, base, base_workflow, name, merge_base, when, github, base_jobs, suites)
+    prior = prior_base_verdict(repo, base_workflow, name, merge_base, when, github, base_jobs, evidence, suites)
     if prior is None:
         raise Refused(f"no {base} verdict for it at or before the merge-base {merge_base[:12]} shows the red was the "
                       f"base's (of the {STEP_PRIOR_RUNS} newest runs created before it, read the job lists of up to "
@@ -4912,10 +4923,10 @@ class FixedOnBase(Refused):
 WS_CHECK_KINDS = ("pass", "base_red", "fixed_on_base", "head_only", "base_stale")
 
 
-def ws_check(repo: str, base: str, sha: str, github) -> list[str]:
+def ws_check(repo: str, base: str, sha: str, github, evidence: "Evidence | None" = None) -> list[str]:
     """Audit lines excusing SHA's red ws-check status, one per failing test; Refused (with a line per test) else, and
     FixedOnBase for a red the base has fixed since the PR's merge-base. The verdict is ws_check_red's."""
-    verdict = ws_check_red(repo, base, sha, github)
+    verdict = ws_check_red(repo, base, sha, github, evidence)
     if verdict["kind"] in ("pass", "base_red"):
         return verdict["audit"]
     raise (FixedOnBase if verdict["kind"] == "fixed_on_base" else Refused)(verdict["message"])
@@ -4935,10 +4946,11 @@ def ws_check_fix(repo: str, merge_base: str, tip: str, commits: list[str], githu
     return fix
 
 
-def ws_check_red(repo: str, base: str, sha: str, github) -> dict:
+def ws_check_red(repo: str, base: str, sha: str, github, evidence: "Evidence | None" = None) -> dict:
     """The one verdict on SHA's ws-check status against BASE: {"kind" (one of WS_CHECK_KINDS), "fix" (the fixing base
     commit, for "fixed_on_base", else ""), "message" (what a refusal says), "audit" (the lines an excuse prints)}.
-    Refused when a status or log cannot be read, or the head has no result: never guessed."""
+    Refused when a status or log cannot be read, or the head has no result: never guessed. The base commits are
+    EVIDENCE's (Evidence.status_commits: a stacked parent's head alone)."""
     kind, head = ws_check_verdict(repo, sha, github)
     if kind == "none":
         raise Refused(f"'{WS_CHECK}' has no result on {sha}: {head['why']}; never excused, wait for its verdict")
@@ -4949,8 +4961,7 @@ def ws_check_red(repo: str, base: str, sha: str, github) -> dict:
     units = ws_check_units(head["steps"])
     diff = github.json(f"repos/{repo}/compare/{base}...{sha}?per_page=1")
     merge_base = ((diff.get("merge_base_commit") or {}).get("sha")) or ""
-    commits = [commit["sha"] for commit in github.json(f"repos/{repo}/commits?sha={base}&per_page={WS_CHECK_COMMITS}")
-               or [] if isinstance(commit, dict) and isinstance(commit.get("sha"), str)]
+    commits = (evidence or Evidence(repo, base, github)).status_commits(WS_CHECK_COMMITS)
     verdicts = ((commit, *ws_check_verdict(repo, commit, github)) for commit in commits)
     verdicts = (found for found in verdicts if found[1] != "none")
     newest = next(verdicts, None)
@@ -5077,7 +5088,8 @@ def ws_check_red(repo: str, base: str, sha: str, github) -> dict:
 
 
 def list_base_runs(repo: str, base: str, workflow, github, base_runs: dict) -> None:
-    """BASE_RUNS[WORKFLOW] (a workflow id or file name): its BASE runs, newest first, read once per judge."""
+    """BASE_RUNS[WORKFLOW] (a workflow id or file name): its BASE runs, newest first, read once per judge. Read only
+    through Evidence.runs, which reads a stacked parent's runs instead."""
     if workflow in base_runs:
         return
     # Every status: a job's verdict is final once the job completes, so a base run still running its slower jobs
@@ -5389,13 +5401,12 @@ def gallery_run_results(repo: str, run: dict, github) -> list[str] | None:
 
 
 def gallery_fallback(repo: str, base: str, workflow, base_sha: str, github,
-                     base_runs: dict) -> tuple[str, list[str]] | str:
+                     evidence: "Evidence") -> tuple[str, list[str]] | str:
     """("SHA12 (run R)", its shards' health.json) for the newest gallery health run of a commit in BASE_SHA's
     first-parent chain (first_parent_chain) with a whole verdict, or why there is none."""
     chain = first_parent_chain(repo, base_sha, github)
-    list_base_runs(repo, base, workflow, github, base_runs)
     by_sha: dict[str, list[dict]] = {}
-    for run in base_runs[workflow]:
+    for run in evidence.runs(workflow):
         if run.get("status") == "completed" and run.get("conclusion") in VERDICTS:
             by_sha.setdefault(tested_sha(run), []).append(run)
     reads = 0
@@ -5413,7 +5424,7 @@ def gallery_fallback(repo: str, base: str, workflow, base_sha: str, github,
 
 
 def gallery_crash_verdict(repo: str, base: str, name: str, job: dict, head_log: str, workflow_info: dict,
-                          github, base_runs: dict) -> str | None:
+                          github, evidence: "Evidence") -> str | None:
     """The audit line for gallery health shard JOB (NAME) whose base replay crashed loading the base
     (gallery_replay_crash), judged per state against an older base verdict (gallery_fallback); None for any other
     job or red. Raises Refused when a red state is not red the same way there, or nothing could be judged."""
@@ -5429,7 +5440,7 @@ def gallery_crash_verdict(repo: str, base: str, name: str, job: dict, head_log: 
     if head is None:
         raise Refused(f"{said}, and its own {GALLERY_ARTIFACT}{shard.group(1)} artifact is not readable")
     head_text = github.artifact_file(repo, head["id"], GALLERY_HEALTH)
-    fallback = gallery_fallback(repo, base, workflow_info["workflow_id"], base_sha, github, base_runs)
+    fallback = gallery_fallback(repo, base, workflow_info["workflow_id"], base_sha, github, evidence)
     if isinstance(fallback, str):
         raise Refused(f"{said}; {fallback}: fix the base, then re-run it")
     where, texts = fallback
@@ -5468,12 +5479,11 @@ WEB_TEST_STEPS = {"replay": frozenset({"Re-run the change's reds alone on the he
                   "shard": frozenset({"Test webviews"})}
 
 
-def web_base_runs(repo: str, base: str, workflow, github, base_runs: dict):
-    """(run, its red webview shard jobs) for each of BASE's newest webview runs of WORKFLOW that gave every shard a
-    verdict, newest first, read lazily: the window above. An all-green run is yielded and ends it."""
-    list_base_runs(repo, base, workflow, github, base_runs)
+def web_base_runs(repo: str, workflow, github, evidence: "Evidence"):
+    """(run, its red webview shard jobs) for each of EVIDENCE's newest webview runs of WORKFLOW that gave every shard
+    a verdict, newest first, read lazily: the window above. An all-green run is yielded and ends it."""
     reads, count, newest = 0, 0, None
-    for run in base_runs[workflow]:
+    for run in evidence.runs(workflow):
         if run.get("status") == "completed" and run.get("conclusion") in ("cancelled", "skipped"):
             continue  # a superseded coalesced run: no shard of it ran
         if reads >= WEB_BASE_JOB_READS:
@@ -5495,7 +5505,7 @@ def web_base_runs(repo: str, base: str, workflow, github, base_runs: dict):
 
 
 def web_test_verdict(repo: str, base: str, name: str, job: dict, head_log: str, workflow_info: dict, github,
-                     base_runs: dict) -> str | None:
+                     evidence: "Evidence") -> str | None:
     """The audit line for a red webview test job NAME (WEB_TEST_JOB) judged per test against the base's newest webview
     runs (the rule above); None for any other job, or a head shard whose log names no failing webview test (judged by
     its name as before). Raises Refused when a test is not red on the base the same way, or nothing could be judged."""
@@ -5529,7 +5539,7 @@ def web_test_verdict(repo: str, base: str, name: str, job: dict, head_log: str, 
     unread: list[str] = []  # why a base log could not be read, named in the refusal
 
     def windows():
-        for run, red in web_base_runs(repo, base, workflow, github, base_runs):
+        for run, red in web_base_runs(repo, workflow, github, evidence):
             if not red:
                 green.append(run)
                 return
@@ -5569,7 +5579,7 @@ CUT_SHORT = frozenset({"cancelled", "timed_out"})
 
 
 def cut_short_web_verdict(repo: str, base: str, name: str, job: dict, github, run_reads: dict,
-                          base_runs: dict) -> str | None:
+                          evidence: "Evidence") -> str | None:
     """The audit line excusing cancelled or timed-out head shard NAME, every red file of which is red on BASE's
     webview runs; None when it is not such a shard or its log names no red file (the caller refuses it as no verdict).
     Raises Refused when a red file is not red on the base, or the run crashed or timed a file out."""
@@ -5593,7 +5603,7 @@ def cut_short_web_verdict(repo: str, base: str, name: str, job: dict, github, ru
     unread: list[str] = []
 
     def windows():
-        for run, red in web_base_runs(repo, base, workflow, github, base_runs):
+        for run, red in web_base_runs(repo, workflow, github, evidence):
             if not red:
                 green.append(run)
                 return
@@ -5634,7 +5644,7 @@ class Head(NamedTuple):
 
 
 def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_reads: dict,
-              base_runs: dict) -> Head:
+              evidence: "Evidence") -> Head:
     """The one reader of red head JOB's raw log for judge(), which reads only its failed_view. Raw, it is read only
     by gates that refuse (a runner refusal at setup, a generated files, summary or no-verdict line, a crash or a run
     cut short), by the verdicts that are not a comparison of its lines with a base's (a no-verdict compile another
@@ -5666,7 +5676,7 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
         # A pull-request-only job: the fleet's receipts at the merge-base are its base verdict. When they do not
         # excuse it, the job is compared with base runs, as before.
         try:
-            return Head(inherited_compile_red(repo, base, sha, name, github))
+            return Head(inherited_compile_red(repo, base, sha, name, github, evidence))
         except Refused:
             pass
     view = failed_view(job, head_log, step_names=names, base=False)
@@ -5689,8 +5699,8 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
                       + " (a crash, a cut-short run or a failure no parser names is never a base red)")
 
     def per_test(workflow_info: dict) -> str | None:
-        return (gallery_crash_verdict(repo, base, name, job, head_log, workflow_info, github, base_runs)
-                or web_test_verdict(repo, base, name, job, head_log, workflow_info, github, base_runs))
+        return (gallery_crash_verdict(repo, base, name, job, head_log, workflow_info, github, evidence)
+                or web_test_verdict(repo, base, name, job, head_log, workflow_info, github, evidence))
     return Head(None, view, chromium_without_diagnostics, per_test,
                 unplaced_signature(job, head_log) if view is UNPLACED else None)
 
@@ -5754,22 +5764,103 @@ def stacked_parent(repo: str, base: str, github, cache: dict) -> StackedParent |
     return cache[key]
 
 
-def stacked_parent_runs(repo: str, workflow, parent: StackedParent, github, base_runs: dict) -> None:
-    """BASE_RUNS[WORKFLOW]: the completed runs of WORKFLOW at PARENT's head (its pull_request or push runs), newest
-    first, in place of the base branch's own (list_base_runs then reads nothing)."""
-    listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?head_sha={parent.head}&per_page=100")
-    base_runs[workflow] = sorted(
-        (run for run in (listed.get("workflow_runs") if isinstance(listed, dict) else None) or []
-         if isinstance(run, dict) and run.get("head_sha") == parent.head
-         and run.get("event") in ("pull_request", "push") and run.get("status") == "completed"
-         and run.get("conclusion") != "skipped"),
-        key=lambda run: run.get("created_at") or "", reverse=True)
+# One evidence source per judge (cmux#41235's review, dep-fleet-6, 2026-11-11): the stacked-parent rule above was
+# applied only where judge() compares a job by name, and every other verdict path read base runs on its own. F1: the
+# web replay and cut-short shard verdicts returned before stacked_parent was asked, so a child's web red inherited
+# from its lane parent was compared with the lane branch's own runs (it has none) and refused. F2: base_verdicts added
+# the branch's workflow_dispatch runs (tip_suite_verdicts) after the parent's had been kept to its head's pull_request
+# and push runs, so a dispatch at the parent's sha could supply an excuse. So judge chooses the source once, before
+# any path runs (evidence_source), and passes it to every verdict path: each reads runs, dispatches and base statuses
+# through it alone, and none can reach the branch's own runs while a parent is chosen.
+PARENT_EVENTS = frozenset({"pull_request", "push"})  # a stacked parent's checks at its head; never a dispatch
+
+
+class Evidence:
+    """Where one judge reads every base verdict. With no parent, BASE's own runs (list_base_runs: every event but a
+    pull request's), its dispatches (tip_suite_verdicts) and its commits' statuses (base_status). With a parent (a
+    StackedParent), that PR's completed pull_request and push runs at its head and nothing else: no dispatch, no other
+    run or commit of the branch. The parent is BASE's stacked_parent, asked on the first read any path makes (CACHE
+    keeps it per judge), so a judge with nothing to compare reads none; each workflow's list is read once per judge."""
+
+    def __init__(self, repo: str, base: str, github, cache: dict | None = None):
+        self.repo, self.base, self.github = repo, base, github
+        self.cache = {} if cache is None else cache
+        self.listed: dict[int | str, list[dict]] = {}  # by workflow id, or file name (a BASE_WORKFLOW_FOR caller)
+
+    @property
+    def parent(self) -> StackedParent | None:
+        """BASE's stacked parent (stacked_parent), or None; Refused as stacked_parent refuses."""
+        return stacked_parent(self.repo, self.base, self.github, self.cache)
+
+    def allows(self, run) -> bool:
+        """Whether RUN can be this source's evidence at all (its event, and for a parent its head)."""
+        if not isinstance(run, dict):
+            return False
+        if self.parent is None:
+            return run.get("event") not in ("pull_request", "pull_request_target")
+        return (run.get("head_sha") == self.parent.head and run.get("event") in PARENT_EVENTS
+                and run.get("status") == "completed")
+
+    def runs(self, workflow) -> list[dict]:
+        """WORKFLOW's runs, newest first: the base's window (list_base_runs), or the parent's at its head."""
+        if workflow not in self.listed:
+            if self.parent is None:
+                list_base_runs(self.repo, self.base, workflow, self.github, self.listed)
+            else:
+                listed = self.github.json(f"repos/{self.repo}/actions/workflows/{workflow}/runs?"
+                                          f"head_sha={self.parent.head}&per_page=100")
+                self.listed[workflow] = sorted(
+                    (run for run in (listed.get("workflow_runs") if isinstance(listed, dict) else None) or []
+                     if self.allows(run) and run.get("conclusion") != "skipped"),
+                    key=lambda run: run.get("created_at") or "", reverse=True)
+        return self.listed[workflow]
+
+    def queried(self, workflow, query: str, per_page: int) -> list[dict]:
+        """WORKFLOW's runs a QUERY (`head_sha=...`, `created=...`) asks of the base, every one this source allows;
+        for a parent, its runs at its head (runs), which the caller filters by the same query's terms."""
+        if self.parent is not None:
+            return list(self.runs(workflow))
+        found = self.github.json(f"repos/{self.repo}/actions/workflows/{workflow}/runs?branch={self.base}&{query}"
+                                 f"&per_page={per_page}")
+        return [run for run in (found.get("workflow_runs") if isinstance(found, dict) else None) or []
+                if self.allows(run)]
+
+    def dispatches(self, workflow) -> list[dict]:
+        """The base's workflow_dispatch runs of WORKFLOW (every status, so a first run's same-tree run is seen while
+        it still queues or runs: TREE_JOBS); none for a parent, whose verdict is its PR's own checks (F2)."""
+        if self.parent is not None:
+            return []
+        listed = self.github.json(f"repos/{self.repo}/actions/workflows/{workflow}/runs?branch={self.base}"
+                                  f"&event=workflow_dispatch&per_page={BASE_RUNS_PAGE}")
+        return (listed.get("workflow_runs") if isinstance(listed, dict) else None) or []
+
+    def status_commits(self, per_page: int = BASE_STATUS_COMMITS) -> list[str]:
+        """The commits whose statuses are base statuses (base_status, github_compile_red, ws_check_red), newest first:
+        the base's PER_PAGE newest, or the parent's head alone."""
+        if self.parent is not None:
+            return [self.parent.head]
+        listed = self.github.json(f"repos/{self.repo}/commits?sha={self.base}&per_page={per_page}") or []
+        return [commit["sha"] for commit in listed if isinstance(commit, dict) and isinstance(commit.get("sha"), str)]
+
+    def where(self) -> str:
+        """The source as a refusal names it."""
+        if self.parent is None:
+            return self.base
+        return f"PR #{self.parent.number}'s head {self.parent.head[:12]}"
+
+
+def evidence_source(repo: str, base: str, github, cache: dict) -> Evidence:
+    """The one Evidence for a judge of a red into BASE: its stacked parent's (stacked_parent) when BASE heads one,
+    else BASE's own, told on its first read (Evidence.parent)."""
+    return Evidence(repo, base, github, cache)
 
 
 def stacked_parent_verdicts(name: str, base: str, parent: StackedParent, verdicts):
-    """VERDICTS (base_verdicts' (run, job) pairs) at PARENT's head only, so no older run of the branch (a dispatch,
-    say) stands in; Refused when there is none: the parent's head has no completed verdict for job NAME."""
-    found = [(run, job) for run, job in verdicts if tested_sha(run) == parent.head]
+    """VERDICTS (base_verdicts' (run, job) pairs, all read from the parent's Evidence) at PARENT's head only, of its
+    PR's own events, so no other run of the branch (a dispatch, say) stands in; Refused when there is none: the
+    parent's head has no completed verdict for job NAME."""
+    found = [(run, job) for run, job in verdicts
+             if tested_sha(run) == parent.head and run.get("event") in PARENT_EVENTS]
     if not found:
         raise Refused(f"'{name}': {base} is PR #{parent.number}'s head; its head {parent.head[:12]} has no completed "
                       "run of this workflow with a verdict for it to compare with; re-check once it has")
@@ -5804,18 +5895,20 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         raise Refused(f"purpose {purpose!r} is not one of {', '.join(PURPOSES)}; nothing was judged")
     github = rate_limit_aware(github)
     audit: list[str] = []
-    base_runs: dict[int | str, list[dict]] = {}  # by workflow id, or file name for a base caller (BASE_WORKFLOW_FOR)
     base_jobs: dict[int, list[dict] | None] = {}
     job_reads: dict[int | str, int] = {}
     suites = SuiteChecks(github)
     merge_bases: dict[str, str] = {}
     run_reads: dict = {}  # head_jobs' SEEN: the head's check runs, each run's workflow, each head's run list
     load_rollups(repo, base, github)
+    # Where every base verdict below is read, chosen once, before any path (Evidence: the base's own, or a stacked
+    # parent's head), and passed to each, so no path reads runs on its own (cmux#41235's review, F1 and F2).
+    evidence = evidence_source(repo, base, github, run_reads)
     checks = list(checks)
     if repo in WS_CHECK_REPOS and (WS_CHECK in checks or not (runs or checks)):
         # Its one gate is a commit status judged per test (WS_CHECK); with no run or check named it is the one.
         checks = [name for name in checks if name != WS_CHECK]
-        audit.extend(ws_check(repo, base, sha, github))
+        audit.extend(ws_check(repo, base, sha, github, evidence))
         if not (runs or checks):
             return audit
     derived: dict[str, list[Part]] = {}
@@ -5831,7 +5924,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         # run or check that was named and shows no failed job is still refused below.
         return audit or [f"no red run or check named on {sha}: no failure to excuse"]
     jobs = head_jobs(repo, sha, runs, checks, github, base=base, excused=audit, suites=suites, ignored=audit,
-                     seen=run_reads)
+                     seen=run_reads, evidence=evidence)
     if not jobs and not audit:
         # A red run or check with no failed job to show has nothing the base can excuse.
         raise Refused("no failed job found on the head to compare with the base")
@@ -5847,13 +5940,13 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                          "failed only on base reds (excused above)")
             continue
         if job.get("conclusion") != "failure":
-            if (cut := cut_short_web_verdict(repo, base, name, job, github, run_reads, base_runs)) is not None:
+            if (cut := cut_short_web_verdict(repo, base, name, job, github, run_reads, evidence)) is not None:
                 audit.append(cut)
                 continue
             raise Refused(f"'{name}' is {job.get('conclusion')}: it has no verdict to compare with the base; re-run it")
         if refused_at_setup(job):
             raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
-        got = read_head(repo, base, sha, name, job, github, run_reads, base_runs)
+        got = read_head(repo, base, sha, name, job, github, run_reads, evidence)
         if got.audit is not None:
             audit.append(got.audit)
             continue
@@ -5907,13 +6000,10 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if (per_test := got.per_test(workflow_info)) is not None:
             audit.append(per_test)
             continue
-        if (parent := stacked_parent(repo, base, github, run_reads)) is not None:
-            # A lane base heading an open PR: its verdicts are that PR's at its head (stacked_parent).
-            stacked_parent_runs(repo, workflow, parent, github, base_runs)
-        list_base_runs(repo, base, workflow, github, base_runs)
         # The newest base run where this job has a verdict decides whether it is red on the base.
-        verdicts = base_verdicts(repo, base, workflow, name, github, base_runs, base_jobs, job_reads, suites)
-        if parent is not None:
+        verdicts = base_verdicts(repo, workflow, name, github, evidence, base_jobs, job_reads, suites)
+        if (parent := evidence.parent) is not None:
+            # A lane base heading an open PR: its verdicts are that PR's at its head (stacked_parent).
             verdicts = stacked_parent_verdicts(name, base, parent, verdicts)
             audit.append(f"base for '{name}': {base} is open PR #{parent.number}'s head {parent.head[:12]}; its "
                          "checks there are the base verdicts below")
@@ -5924,14 +6014,13 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             # The PR run's workflow has no base verdict at or after the merge-base: the workflow that runs the same
             # called job on base pushes may (BASE_WORKFLOW_FOR). Its verdict decides only when it is at or after the
             # merge-base, or when the PR's workflow has none at all; else the stale one below refuses as before.
-            list_base_runs(repo, base, caller, github, base_runs)
-            pushed = base_verdicts(repo, base, caller, name, github, base_runs, base_jobs, job_reads, suites)
+            pushed = base_verdicts(repo, caller, name, github, evidence, base_jobs, job_reads, suites)
             pushed_run, pushed_job = next(pushed, (None, None))
             if pushed_run is not None and (
                     base_run is None or before_merge_base(repo, base, sha, pushed_run, github, merge_bases) is None):
                 base_run, base_job, verdicts, base_workflow = pushed_run, pushed_job, pushed, caller
         if base_run is None:
-            dispatch = base_dispatch(repo, base, workflow_info, base_runs[workflow], github)
+            dispatch = base_dispatch(repo, base, workflow_info, evidence.runs(workflow), github)
             raise Refused(f"'{name}': no {base} run of its workflow has a verdict for it to compare with "
                           f"(read the {BASE_RUNS_PAGE} newest, up to {BASE_JOB_READS} job lists, "
                           f"and its tip suite runs)" + (f": {dispatch}" if dispatch else ""))
@@ -5947,7 +6036,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                               f"reruns CI), never for a land (purpose {purpose or 'land'})")
             return fixed_on_base_by_step(repo, base, sha, name, job, view, workflow_info, base_run, base_job, github,
                                          merge_bases=merge_bases, base_jobs=base_jobs, run_reads=run_reads,
-                                         others=jobs, suites=suites, base_workflow=base_workflow)
+                                         others=jobs, evidence=evidence, suites=suites,
+                                         base_workflow=base_workflow)
         if base_job.get("conclusion") != "failure":
             try:
                 audit.append(fixed_on_base(repo, base, sha, name, view, base_run, github))
@@ -5963,7 +6053,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 if got.unplaced is not None and (only := pr_only_step_verdict(
                         repo, base, name, got.unplaced,
                         [(base_run, base_job, UnplacedSignature(Counter(), Counter(), Counter()))],
-                        base_runs[workflow], base_jobs, github)) is not None:
+                        evidence.runs(workflow), base_jobs, github)) is not None:
                     audit.append(only)
                     pr_only.add((job.get("run_id"), name))
                     continue
@@ -5975,7 +6065,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                     except Refused as green_why:
                         why = Refused(f"{why}; green since: {green_why}")
                 if (stale := before_merge_base(repo, base, sha, base_run, github, merge_bases)) is not None:
-                    dispatch = base_dispatch(repo, base, workflow_info, base_runs[workflow], github)
+                    dispatch = base_dispatch(repo, base, workflow_info, evidence.runs(workflow), github)
                     raise Refused(f"'{name}' has no {base} verdict at or after this PR's merge-base yet: the newest, "
                                   f"a pass in run {base_run['id']}, {stale}; re-check once a {base} run at or after "
                                   "the merge-base has a verdict for it" + (f": {dispatch}" if dispatch else "")
@@ -6025,7 +6115,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                         if (run is None or found.get("conclusion") != "failure"
                                 or (newest and created(run)
                                     and newest - created(run) > timedelta(hours=BASE_WINDOW_HOURS))):
-                            if (only := pr_only_step_verdict(repo, base, name, mine, seen, base_runs[workflow],
+                            if (only := pr_only_step_verdict(repo, base, name, mine, seen, evidence.runs(workflow),
                                                              base_jobs, github)) is not None:
                                 audit.append(only + (f"; {aside}" if aside is not None else ""))
                                 pr_only.add((job.get("run_id"), name))
@@ -6118,8 +6208,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.ws_check_verdict:
             if args.repo not in WS_CHECK_REPOS:
                 raise Refused(f"{args.repo} has no '{WS_CHECK}' status to judge")
-            audit = [json.dumps(ws_check_red(args.repo, args.base, args.sha, rate_limit_aware(GitHub())),
-                                sort_keys=True)]
+            github = rate_limit_aware(GitHub())
+            audit = [json.dumps(ws_check_red(args.repo, args.base, args.sha, github,
+                                             evidence_source(args.repo, args.base, github, {})), sort_keys=True)]
         else:
             audit = judge(args.repo, args.base, args.sha, args.run, GitHub(), checks=args.check,
                           flake_state=test_reds.load_flake_state(args.flake_state, fetch=True), purpose=args.purpose)
