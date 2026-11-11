@@ -264,7 +264,7 @@ struct ChatComposer: View {
     }
 
     private var placeholder: String {
-        placeholderOverride ?? (!store.hasTurns ? "Ask \(store.summary.agentName)" : "Reply to \(store.summary.agentName)")
+        placeholderOverride ?? (store.isNewChat ? "Ask \(store.summary.agentName)" : "Reply to \(store.summary.agentName)")
     }
 
     /// Expands the capsule, then focuses the field once it exists.

@@ -2673,6 +2673,7 @@ mod digest_reader;
 pub(crate) mod kind_read;
 #[cfg(test)]
 pub(crate) mod kind_read_tests;
+mod live_terminal;
 pub(crate) mod reducer_records;
 use digest_reader::DigestReader;
 #[cfg(test)]
