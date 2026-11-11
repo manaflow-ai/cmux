@@ -1672,6 +1672,9 @@ function TranscriptView({
     flow?: number;
     /// The chat the rows flow in: another chat ends the flow.
     flowSession?: string;
+    /// While rows flow from their top: the row the reader looks at, where it showed in the view,
+    /// and the thread's padding that keeps it there (`holdFlow`).
+    hold?: { row: HTMLElement; at: number; pad: number; first: number };
   }>({
     at: Number.NEGATIVE_INFINITY,
     live: false,
@@ -2246,25 +2249,72 @@ function TranscriptView({
     });
   }, []);
   /// Where a flowing drag's rows hang from (`FLOW_CLASS`): the latest mounted row's placed bottom
-  /// while the view follows it, else the first mounted row's placed top. Set again by every commit
-  /// while the rows flow, so a row that arrives or mounts during the drag moves the anchor with it.
-  /// False when the mounted rows cannot flow (more than one range, a held row, a fold riding, rows
-  /// in the thread that are not the placed ones).
+  /// while the view follows it down a chat taller than the view, else the first mounted row's
+  /// placed top, with `holdFlow` keeping the row the reader looks at where it shows. A chat the
+  /// view holds whole (scrolled to 0) hangs from its top too: from its bottom, rows that grew as it
+  /// narrowed went up past the thread's top, where nothing can scroll to them (#41170 F1). Set again
+  /// by every commit while the rows flow, so a row that arrives or mounts during the drag moves the
+  /// anchor with it. A placement over a live resize's partial estimate flows too: its mounted rows
+  /// sit where it placed them, and the settle places every row again (#41170 F2). False when the
+  /// mounted rows cannot flow (more than one range, a held row, a fold riding, rows in the thread
+  /// that are not the placed ones).
   const anchorFlow = useCallback((): boolean => {
     const placed = lastPlaced.current;
     const threadNode = thread.current;
-    if (!placed || !threadNode || placed.held.length > 0 || placed.last <= placed.first) return false;
-    if (foldRide.current?.riding || placed.partial) return false;
-    if (threadNode.querySelectorAll(":scope > .acpmux-row").length !== placed.last - placed.first) return false;
+    const scroller = ref.current;
+    if (!placed || !threadNode || !scroller || placed.held.length > 0 || placed.last <= placed.first) return false;
+    if (foldRide.current?.riding) return false;
+    const mounted = threadNode.querySelectorAll<HTMLElement>(":scope > .acpmux-row");
+    if (mounted.length !== placed.last - placed.first) return false;
     const geometry = placed.layout.geometry;
-    const end = followingRef.current;
-    const at = end
-      ? geometry.topAt(placed.last - 1) + geometry.heightAt(placed.last - 1)
-      : geometry.topAt(placed.first);
-    threadNode.style.setProperty(end ? "--acpmux-flow-end" : "--acpmux-flow-start", `${THREAD_TOP + at}px`);
-    threadNode.style.removeProperty(end ? "--acpmux-flow-start" : "--acpmux-flow-end");
+    const end = followingRef.current && scroller.scrollTop > 0;
+    const live = liveResize.current;
+    if (end) {
+      live.hold = undefined;
+      const at = geometry.topAt(placed.last - 1) + geometry.heightAt(placed.last - 1);
+      threadNode.style.setProperty("--acpmux-flow-end", `${THREAD_TOP + at}px`);
+      threadNode.style.removeProperty("--acpmux-flow-start");
+    } else {
+      // The same mounted rows under the same held row keep the padding `holdFlow` gave them.
+      if (live.hold?.row.isConnected && live.hold.first === placed.first && threadNode.classList.contains(FLOW_CLASS))
+        return true;
+      // The row to hold: the one held so far while it is still mounted, else the first the view
+      // shows, read where it shows now (before this sets the rows' padding).
+      if (!live.hold?.row.isConnected) {
+        const view = scroller.getBoundingClientRect().top;
+        live.hold = undefined;
+        for (const row of mounted) {
+          const box = row.getBoundingClientRect();
+          if (box.bottom <= view) continue;
+          live.hold = { row, at: box.top - view, pad: 0, first: placed.first };
+          break;
+        }
+      }
+      const pad = THREAD_TOP + geometry.topAt(placed.first);
+      if (live.hold) Object.assign(live.hold, { pad, first: placed.first });
+      threadNode.style.setProperty("--acpmux-flow-start", `${pad}px`);
+      threadNode.style.removeProperty("--acpmux-flow-end");
+    }
     threadNode.classList.toggle(FLOW_END_CLASS, end);
     return true;
+  }, []);
+  /// Keeps the held row (`anchorFlow`) where the view showed it: rows above it that rewrapped taller
+  /// or shorter take their difference from the thread's padding, so what the reader looks at holds
+  /// still under the drag instead of drifting and snapping back once the width holds. One read of
+  /// one row's box: in a ResizeObserver callback the layout is already clean. Never below 0: at the
+  /// chat's top the rows above grow down.
+  const holdFlow = useCallback(() => {
+    const hold = liveResize.current.hold;
+    const threadNode = thread.current;
+    const scroller = ref.current;
+    if (liveResize.current.flow === undefined || !hold || !threadNode || !scroller) return;
+    if (!hold.row.isConnected) return;
+    const shift = hold.row.getBoundingClientRect().top - scroller.getBoundingClientRect().top - hold.at;
+    if (Math.abs(shift) < 0.5) return;
+    const pad = Math.max(0, hold.pad - shift);
+    if (pad === hold.pad) return;
+    hold.pad = pad;
+    threadNode.style.setProperty("--acpmux-flow-start", `${pad}px`);
   }, []);
   // A live drag's rows go into normal flow from where they were placed, so the browser rewraps
   // them at each width in its own layout pass, with no React pass and no height read (Leo,
@@ -2274,7 +2324,9 @@ function TranscriptView({
     thread.current!.classList.add(FLOW_CLASS);
     liveResize.current.flow = rowWidthRef.current;
     liveResize.current.flowSession = sessionIdRef.current;
-  }, [anchorFlow]);
+    // The rows' first frame in flow keeps the held row where it showed.
+    holdFlow();
+  }, [anchorFlow, holdFlow]);
   // The rows leave the flow and are placed at the width that holds, measured before the frame
   // paints, in this one task: no frame draws them at their old places at the new width.
   /// Reads every mounted row at the committed width, placing again only for a height that changed.
@@ -2296,6 +2348,7 @@ function TranscriptView({
       if (from === undefined) return;
       live.flow = undefined;
       live.flowSession = undefined;
+      live.hold = undefined;
       const threadNode = thread.current;
       threadNode?.classList.remove(FLOW_CLASS, FLOW_END_CLASS);
       threadNode?.style.removeProperty("--acpmux-flow-end");
@@ -2318,6 +2371,7 @@ function TranscriptView({
     const live = liveResize.current;
     if (live.flow !== undefined) {
       if (live.flowSession !== sessionId || !anchorFlow()) endFlow(true);
+      else holdFlow();
       return;
     }
     if (readAfterSettle.current && !renderedFlowing.current) {
@@ -2331,6 +2385,7 @@ function TranscriptView({
       const live = liveResize.current;
       clearTimeout(live.timer);
       live.flow = undefined;
+      live.hold = undefined;
     },
     [],
   );
@@ -2648,12 +2703,15 @@ function TranscriptView({
     // transcript at its old offset and caught up a frame later.
     const observer = new ResizeObserver(() => {
       noteQueue();
+      // Flowing rows rewrapped in the layout this callback follows: hold the reader's row first,
+      // while that layout is still clean to read.
+      holdFlow();
       flushSync(() => measure(true));
     });
     observer.observe(node);
     measure(false);
     return () => observer.disconnect();
-  }, [noteQueue, startFlow, endFlow]);
+  }, [noteQueue, startFlow, endFlow, holdFlow]);
   const previousLayout = useRef<PlacedLayout | null>(null);
   const previousRows = useRef<readonly AcpmuxRow[]>(rows);
   const previousViewport = useRef({ height, width, dockSpace, dockCard });
