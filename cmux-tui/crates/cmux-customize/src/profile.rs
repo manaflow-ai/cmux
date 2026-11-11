@@ -245,8 +245,10 @@ impl Customize {
                 )));
             }
             if cmux_config::schema::accepts(row, value, &Default::default()).is_err() {
+                // The key says where to look; the refused value (which may be
+                // a credential under the wrong key) stays in the file.
                 return Err(Error::Profile(format!(
-                    "the setting {key} does not take the value {value}"
+                    "the profile's value for {key} is not one that setting accepts"
                 )));
             }
         }
@@ -276,8 +278,10 @@ impl Customize {
             }
             for (key, value) in &profile.settings {
                 let Some(row) = schema.row(key) else { continue };
-                text = jsonc::set(&text, &row.path, value)
-                    .map_err(|error| Error::Profile(format!("your settings file: {error}")))?;
+                text = jsonc::set(&text, &row.path, value).map_err(|error| {
+                    let why = redact::text(&error.to_string());
+                    Error::Profile(format!("your settings file: {why}"))
+                })?;
             }
             files.insert(SETTINGS.to_owned(), text.clone().into_bytes());
             Some(text)
@@ -335,8 +339,15 @@ impl Customize {
 fn read_profile(path: &std::path::Path) -> Result<Profile, Error> {
     let text = std::fs::read_to_string(path)
         .map_err(|error| Error::Profile(format!("{}: {error}", path.display())))?;
+    // Where it stops reading, never what it read there: the parser's own
+    // message quotes the value it did not expect.
     serde_json::from_str::<Profile>(&text).map_err(|error| {
-        Error::Profile(format!("{}: not a cmux profile ({error})", path.display()))
+        Error::Profile(format!(
+            "{}: not a cmux profile (line {}, column {})",
+            path.display(),
+            error.line(),
+            error.column()
+        ))
     })
 }
 
