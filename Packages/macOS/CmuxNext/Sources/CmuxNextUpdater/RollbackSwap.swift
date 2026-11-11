@@ -76,16 +76,20 @@ nonisolated public struct RollbackSwap {
         try files.createDirectory(at: home, withIntermediateDirectories: true)
         try files.moveItem(at: folder.appending(path: backup, directoryHint: .isDirectory), to: target.bundle)
         // The moves gave every item a new ctime, so the seal taken before the swap no longer matches and a
-        // later Go back would refuse it as changed (cmux#41013 review). The seal is taken again, and signed,
-        // only for a record the key vouched for before the swap: the bundle went out and back by our own
-        // renames, so what it vouched for still holds.
+        // later Go back would refuse it as changed (cmux#41013 review). The bundle sat in the app's place
+        // between the swap and the refusal, where anything could change it: it gets the full check of every
+        // file again before it is sealed and signed. A bundle that fails it keeps no record, so a later Go
+        // back checks every file at the click (and refuses it).
+        let recordFile = home.appending(path: KeptVersionStore.recordName)
         if var record = targetRecord {
-            let key = store.recordKey()
-            if record.seal != nil, record.isAuthentic(key: key) {
-                record.seal = KeptSeal(bundle: target.bundle)
-                record.sign(key: key)
+            if record.seal != nil, record.isAuthentic(key: store.recordKey()) {
+                record.seal(target.bundle, check: .full, fullCheck: store.teamID, key: store.recordKey())
+                if record.seal == nil {
+                    try? files.removeItem(at: recordFile)
+                    return
+                }
             }
-            try? record.save(to: home.appending(path: KeptVersionStore.recordName))
+            try? record.save(to: recordFile)
         }
         // 4. The running build is running again: its copy's folder (only its record now) goes.
         try? files.removeItem(at: keptRunningFolder)

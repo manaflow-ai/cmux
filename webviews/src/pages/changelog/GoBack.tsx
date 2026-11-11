@@ -78,7 +78,8 @@ export function GoBack({
       () => setState({ kind: "failed", message: strings.t("updates.goBack.failed") }),
     );
   };
-  const busy = now.kind === "going";
+  // The host's word counts too: a card opened while a go-back runs starts busy (cmux#41013 review).
+  const busy = now.kind === "going" || (fixedState === undefined && running);
   const entry = goBack ? (
     <button
       type="button"

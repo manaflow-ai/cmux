@@ -101,6 +101,46 @@ import Testing
         #expect(UpdateDropBack.confirmation(kept).body == UpdaterStrings.rollbackConfirmBody)
     }
 
+    /// A rollback whose quit was refused puts the running build back (RollbackSwap.undo). The kept build sat
+    /// in the app's place meanwhile, so undo checks every file again before it seals and signs it; one
+    /// changed then keeps no record, and a later Go back checks it in full (cmux#41013 review).
+    @Test func undoChecksTheKeptBuildAgainBeforeSealingIt() throws {
+        let root = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let full = Counter()
+        let store = KeptVersionStore(root: root.appending(path: "versions"), teamID: { bundle in
+            full.add()
+            let script = try? String(contentsOf: bundle.appending(path: "Contents/Resources/app.js"), encoding: .utf8)
+            return script == "ok()" ? "TEAM" : nil
+        }, quickTeamID: { _ in "TEAM" }, recordKey: { Self.key })
+        let app = root.appending(path: "Applications/cmux.app", directoryHint: .isDirectory)
+        try Self.makeBundle(at: app, build: "200")
+        let old = root.appending(path: "a/cmux.app", directoryHint: .isDirectory)
+        try Self.makeBundle(at: old, build: "100")
+        try store.keep(bundle: old, build: "100", limit: 2)
+        let target = try #require(store.list(teams: false).first)
+        let file = target.bundle.deletingLastPathComponent().appending(path: KeptVersionStore.recordName)
+        let record = KeptRecord.read(from: file)
+
+        // Unchanged while it ran: sealed and signed again, so going back again needs no full check.
+        try RollbackSwap.perform(current: app, currentBuild: "200", target: target, store: store, limit: 2)
+        try RollbackSwap.undo(current: app, runningBuild: "200", target: target, targetRecord: record, store: store)
+        let again = try #require(store.list(teams: false).first { $0.build == "100" })
+        #expect(store.stillSealed(again))
+        let checks = full.value
+        #expect(store.checkedTeam(of: again) == "TEAM")
+        #expect(full.value == checks, "a clean undo leaves a trusted seal")
+
+        // Changed while it ran: no record, so the next Go back checks every file and refuses it.
+        let record2 = KeptRecord.read(from: file)
+        try RollbackSwap.perform(current: app, currentBuild: "200", target: again, store: store, limit: 2)
+        try Data("evil()".utf8).write(to: app.appending(path: "Contents/Resources/app.js"))
+        try RollbackSwap.undo(current: app, runningBuild: "200", target: again, targetRecord: record2, store: store)
+        #expect(KeptRecord.read(from: file) == nil, "a bundle that fails the check keeps no record")
+        let changed = try #require(store.list(teams: false).first { $0.build == "100" })
+        #expect(store.checkedTeam(of: changed) == nil)
+    }
+
     @Test func theSwapRefusesABundleChangedAfterTheCheck() throws {
         let root = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: root) }
