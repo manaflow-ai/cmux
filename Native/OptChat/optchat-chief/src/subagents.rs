@@ -1048,13 +1048,19 @@ impl Spawner {
             .map(|_| crate::workspaces::new_key());
         // Its workspace's name, also its name on an approval card it is in.
         let name = crate::workspaces::title(task);
+        // A Claude subagent under the goal runs on Opus 5.5 unless the spawn
+        // or the engine named a model (goal.rs).
+        let model = s.model.clone().or_else(|| {
+            self.goal_for(admitted.family, peer.is_some())
+                .then(|| crate::goal::MODEL.to_owned())
+        });
         let spec = SessionSpec {
             name: format!("{}-{id}", s.prefix),
             cwd: s.cwd.clone(),
             harness: admitted.profile.clone(),
             // The spawn floor (`Brain::spawn_policy`) wins over the setting.
             policy: floor.unwrap_or(&s.policy).to_owned(),
-            model: s.model.clone(),
+            model,
             effort: s.effort.clone(),
             preset: s.preset.clone(),
             tags: {
@@ -1183,18 +1189,37 @@ impl Spawner {
         })?;
         let (tx, rx) = channel();
         let prompt_id = format!("{PROMPT_PREFIX}sub:{id}:{}", now_ms());
+        // goal.rs: a Claude subagent here gets its task, then `/goal`, the
+        // prompt the Chief follows (its end is the report). acpmux runs a
+        // session's prompts in order, so the goal turn starts after the task.
+        let goal = self.goal_for(admitted.family, peer.is_some());
         self.trace.emit(
             "subagent.start",
-            json!({"id": id, "spawn": spawn, "session": session, "peer": peer, "prompt_id": prompt_id, "harness": s.harness, "harness_profile": admitted.profile, "harness_kind": admitted.kind, "harness_argv0": admitted.argv0, "ms": began.elapsed().as_millis() as u64}),
+            json!({"id": id, "spawn": spawn, "session": session, "peer": peer, "prompt_id": prompt_id, "harness": s.harness, "harness_profile": admitted.profile, "harness_kind": admitted.kind, "harness_argv0": admitted.argv0, "goal": goal, "ms": began.elapsed().as_millis() as u64}),
         );
-        self.agents.start_prompt(
-            &session,
-            crate::prompt::subagent_blocks(view, task),
-            &prompt_id,
-            tx,
-        )?;
+        let hold_id = goal.then(|| format!("{PROMPT_PREFIX}sub:{id}:task:{}", now_ms()));
+        if let Some(hold_id) = &hold_id {
+            let mut blocks = crate::prompt::subagent_blocks(view, task);
+            blocks.push(crate::goal::hold_block());
+            let (hold_tx, _hold_rx) = channel();
+            self.agents
+                .start_prompt(&session, blocks, hold_id, hold_tx)?;
+            self.agents.start_prompt(
+                &session,
+                vec![json!({"type": "text", "text": crate::goal::command()})],
+                &prompt_id,
+                tx,
+            )?;
+        } else {
+            self.agents.start_prompt(
+                &session,
+                crate::prompt::subagent_blocks(view, task),
+                &prompt_id,
+                tx,
+            )?;
+        }
         let _ = self.to_brain(Input::SubagentPrompted { id: id.to_owned() });
-        self.forward_answer(id, &session, &prompt_id, rx);
+        self.forward_answer(id, &session, &prompt_id, hold_id, rx);
         // The chat replays its history when the tab attaches, so the
         // workspace can follow the prompt.
         let Some(workspaces) = &self.workspaces else {
@@ -1338,6 +1363,16 @@ impl Spawner {
         )
     }
 
+    /// Whether a subagent of `family` starts under `/goal` (goal.rs): the
+    /// goal is on for this host and the person did not set
+    /// `chief.subagentGoal: false`; only Claude Code here runs the command.
+    fn goal_for(&self, family: crate::acpmux::Family, on_peer: bool) -> bool {
+        self.goal
+            && !on_peer
+            && family == crate::acpmux::Family::Claude
+            && crate::goal::on(self.user_document().as_ref())
+    }
+
     /// The person's settings document (cmux-next.json), read now.
     fn user_document(&self) -> Option<serde_json::Value> {
         match &self.user_settings {
@@ -1384,6 +1419,7 @@ impl Spawner {
         id: &str,
         session: &str,
         prompt_id: &str,
+        hold_id: Option<String>,
         rx: std::sync::mpsc::Receiver<TurnSignal>,
     ) {
         let tx = self
@@ -1402,7 +1438,13 @@ impl Spawner {
                         let Some(folder) = start.as_mut() else {
                             continue;
                         };
-                        match first_turn_start(&*agents, &session, &prompt_id, folder) {
+                        match first_turn_start(
+                            &*agents,
+                            &session,
+                            &prompt_id,
+                            hold_id.as_deref(),
+                            folder,
+                        ) {
                             None => {}
                             Some(ours) => {
                                 start = None;
@@ -2439,15 +2481,23 @@ pub fn recover_launch(
 /// (acpmux's `turn_started` after that prompt's `user_message`),
 /// Some(false) when it is another's, None while none has started (or the
 /// events could not be read: the next signal reads them again).
+/// The goal's hold prompt (`hold`, goal.rs) runs first: its turn is
+/// passed over, so the followed prompt's start still counts.
 fn first_turn_start(
     agents: &dyn AgentPort,
     session: &str,
     prompt_id: &str,
+    hold: Option<&str>,
     folder: &mut TurnFolder,
 ) -> Option<bool> {
     let events = agents.events(session, folder.seq()).ok()?;
     events.iter().find_map(|e| {
         folder.apply(e).into_iter().find_map(|out| match out {
+            TurnOutput::Started { turn, .. }
+                if hold.is_some() && turn.prompt_id.as_deref() == hold =>
+            {
+                None
+            }
             TurnOutput::Started { turn, .. } => Some(turn.prompt_id.as_deref() == Some(prompt_id)),
             _ => None,
         })
