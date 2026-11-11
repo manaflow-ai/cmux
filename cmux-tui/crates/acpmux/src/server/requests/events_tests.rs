@@ -234,3 +234,18 @@ fn a_stubbed_reply_chunk_says_whether_its_whole_text_matched() {
     let page = watch_page(&log, json!({"match": "never said"}));
     assert_eq!(page["events"][0]["msg"]["_meta"]["acpmux"]["omitted"]["matched"], false);
 }
+
+/// Codex review of #40885, F1: `_acpmux/events` took a `match` of any length, and every stub keeps
+/// that much of its text's ends, so one multi-megabyte pattern defeated the page bounds. A match
+/// past `MAX_MATCH_BYTES` is refused, as `watch_add` refuses it.
+#[test]
+fn a_match_past_the_cap_is_refused() {
+    let hub = hard_stopped();
+    let pattern = "m".repeat(4 << 20);
+    let err = handle(&hub, method::MUX_EVENTS, &json!({"sessionId": "c", "match": pattern}), None)
+        .expect_err("a 4 MiB match was taken");
+    assert!(err.message.contains("match is at most"), "{}", err.message);
+    // The longest one taken still reads.
+    let longest = "m".repeat(crate::hub::MAX_MATCH_BYTES);
+    handle(&hub, method::MUX_EVENTS, &json!({"sessionId": "c", "match": longest}), None).unwrap();
+}
