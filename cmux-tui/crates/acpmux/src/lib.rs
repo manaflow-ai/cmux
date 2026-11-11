@@ -121,6 +121,7 @@ pub mod listener_record;
 pub mod live_models;
 pub mod local_stream;
 pub mod login_env;
+pub mod lossy_lines;
 pub(crate) mod machine_info;
 pub mod machine_tunnel;
 pub mod machine_wake;
@@ -201,6 +202,8 @@ pub(crate) mod ssh_forward;
 pub mod stats;
 pub(crate) mod stderr;
 pub mod store;
+#[cfg(test)]
+mod stress;
 pub mod subagent_call;
 pub mod subagent_notice;
 pub mod subagents;

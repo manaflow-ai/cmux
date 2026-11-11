@@ -126,6 +126,7 @@ impl Translator {
                         self.compacting.store(false, Ordering::SeqCst);
                         self.turn_output.store(false, Ordering::SeqCst);
                         *self.prompt_echo.lock().await = Some(uuid);
+                        self.prompt_queued.store(false, Ordering::SeqCst);
                         self.cancelled.store(false, Ordering::SeqCst);
                         self.step_stopped.store(false, Ordering::SeqCst);
                         let mut pending = self.pending.lock().await;

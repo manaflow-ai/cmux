@@ -1,3 +1,4 @@
+import type { ChipFace } from "./chipFace";
 // The composer's model picker's props, the combos it lands, and its height bounds (ModelPicker.tsx).
 import type { AcpmuxSnapshot } from "./model";
 import type { Choice, Combo } from "./composerPickerModel";
@@ -32,6 +33,10 @@ export type ModelPickerProps = {
   switching?: { harness: string; name: string; mark?: string };
   /// The chip's secondary text after the model: the chosen effort, when it is not the default.
   detail?: string;
+  /// The chip's logo, name and effort as one value (chipFace.ts). When given, it is what the chip
+  /// draws (a switch to another harness still draws that harness); `label`, `detail` and
+  /// `detailShort` then only feed the menu.
+  face?: ChipFace;
   /// How much of the context window the chat has used ("42% of context used"), shown in the
   /// chip's tooltip: the controls row draws no context ring (hq#1957 item 15 compact row).
   usage?: string;
