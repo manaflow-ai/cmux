@@ -559,7 +559,7 @@ STILL_READS = {
 }
 
 
-class RealGateMutations(unittest.TestCase):
+class RealStepMutation:
     """Strip the release gate from a real signing step of coderouter-release.yml and give it an escape form: the
     detector must name it, and the same step with its real gate restored must pass."""
 
@@ -586,6 +586,9 @@ class RealGateMutations(unittest.TestCase):
                 self.assertIn(self.STEP, found[0])
                 self.assertEqual(self.mutate(run, keep_gate=True), [], label)
 
+
+
+class RealGateMutations(RealStepMutation, unittest.TestCase):
     def test_every_gh_api_write_form_without_the_real_gate_is_named(self) -> None:
         self.assert_escape_caught(GH_API_WRITE_ESCAPES)
 
@@ -596,6 +599,104 @@ class RealGateMutations(unittest.TestCase):
         for label, run in STILL_READS.items():
             with self.subTest(label):
                 self.assertEqual(self.mutate(run, keep_gate=False), [], f"{label}: {run!r}")
+
+# cmux#41121 F2: with --sign or -s, codesign signs and -v only means verbose.
+CODESIGN_SIGNING_ESCAPES = {
+    "-v before --sign": "codesign -v --force --sign \"$IDENTITY\" bin",
+    "--verify with --sign": "codesign --verify --sign - bin",
+    "-s then -v": "codesign -s \"$IDENTITY\" -v bin",
+    "-d with --sign=": "codesign -d --force --sign=\"$IDENTITY\" bin",
+    "-dv with -s": "codesign -dv -s \"$IDENTITY\" bin",
+    "--display with -fs": "codesign --display -fs \"$IDENTITY\" bin",
+    "-vv with a keychain": "codesign -vv --keychain \"$KEYCHAIN\" --options runtime --sign \"$IDENTITY\" bin",
+}
+CODESIGN_READS = {
+    "-v": "codesign -v bin", "--verify --strict --deep": "codesign --verify --strict --deep bin",
+    "-dvvv": "codesign -dvvv bin", "-vvv --deep": "codesign -vvv --deep --strict bin",
+    "-dv --verbose=4": "codesign -dv --verbose=4 bin", "-d --entitlements": "codesign -d --entitlements :- bin",
+}
+
+
+def workflow(jobs: str, env: str = "") -> dict:
+    return workflow_jobs.document(f"on: workflow_call\n{env}jobs:\n{jobs}")
+
+
+PUBLISH_JOB = "  p:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: gh release upload v1 x\n"
+HARMLESS_JOB = "  h:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo hi\n"
+SIGN_JOB = "  s:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: ./sign.sh\n"
+
+
+def call(callee: str, extra: str = "", name: str = "c") -> str:
+    return f"  {name}:\n    uses: ./.github/workflows/{callee}\n{extra}"
+
+
+SECRET = "${{ secrets.SIGNING_KEY }}"
+# cmux#41121 F3: a reusable workflow call reaches signing material or a publish below its first level.
+NESTED_CALL_ESCAPES = {
+    "a publish two levels down": {"outer.yml": workflow(call("inner.yml")), "inner.yml": workflow(PUBLISH_JOB)},
+    "a publish three levels down": {"outer.yml": workflow(call("middle.yml")), "middle.yml": workflow(call("inner.yml")),
+                                    "inner.yml": workflow(PUBLISH_JOB)},
+    "a callee job-level env secret": {"outer.yml": workflow(SIGN_JOB.replace("    steps:", f"    env:\n      KEY: {SECRET}\n    steps:"))},
+    "a callee workflow-level env secret": {"outer.yml": workflow(SIGN_JOB, f"env:\n  KEY: {SECRET}\n")},
+    "a nested callee job-level env secret": {
+        "outer.yml": workflow(call("inner.yml")),
+        "inner.yml": workflow(SIGN_JOB.replace("    steps:", f"    env:\n      KEY: {SECRET}\n    steps:"))},
+    "a nested callee step-level env secret": {
+        "outer.yml": workflow(call("inner.yml")),
+        "inner.yml": workflow(SIGN_JOB + f"        env:\n          KEY: {SECRET}\n")},
+    "a nested callee workflow-level env secret": {"outer.yml": workflow(call("inner.yml")),
+                                                  "inner.yml": workflow(SIGN_JOB, f"env:\n  KEY: {SECRET}\n")},
+    "a callee passing a secret in with:": {"outer.yml": workflow(call("inner.yml", f"    with:\n      key: {SECRET}\n")),
+                                           "inner.yml": workflow(HARMLESS_JOB)},
+    "a callee passing a secret in secrets:": {
+        "outer.yml": workflow(call("inner.yml", f"    secrets:\n      KEY: {SECRET}\n")), "inner.yml": workflow(HARMLESS_JOB)},
+    "a callee passing secrets: inherit": {"outer.yml": workflow(call("inner.yml", "    secrets: inherit\n")),
+                                          "inner.yml": workflow(HARMLESS_JOB)},
+    "a publish behind a call cycle": {"outer.yml": workflow(call("inner.yml")),
+                                      "inner.yml": workflow(call("outer.yml") + PUBLISH_JOB)},
+}
+NESTED_CALL_HARMLESS = {
+    "a harmless chain": {"outer.yml": workflow(call("inner.yml")), "inner.yml": workflow(call("leaf.yml")),
+                         "leaf.yml": workflow(HARMLESS_JOB)},
+    "a harmless cycle": {"outer.yml": workflow(call("inner.yml")), "inner.yml": workflow(call("outer.yml") + HARMLESS_JOB)},
+    "a callee passing GITHUB_TOKEN": {
+        "outer.yml": workflow(call("inner.yml", "    secrets:\n      token: ${{ secrets.GITHUB_TOKEN }}\n")),
+        "inner.yml": workflow(HARMLESS_JOB)},
+}
+
+
+class CodesignAndNestedCallMutations(RealStepMutation, unittest.TestCase):
+    def test_codesign_that_signs_is_named_whatever_verify_or_display_flag_it_also_has(self) -> None:
+        self.assert_escape_caught(CODESIGN_SIGNING_ESCAPES)
+
+    def test_codesign_that_only_verifies_or_displays_stays_unnamed(self) -> None:
+        for label, run in CODESIGN_READS.items():
+            with self.subTest(label):
+                self.assertEqual(self.mutate(run, keep_gate=False), [], f"{label}: {run!r}")
+
+    def call_mutation(self, callees: Mapping[str, dict], keep_gate: bool) -> list[str]:
+        """Add a call to outer.yml to the real coderouter-release.yml, with the real `release` job's gate or without
+        it."""
+        documents = {**load_real(), **callees}
+        document = documents["coderouter-release.yml"]
+        gate = document["jobs"]["release"]["if"]
+        self.assertTrue(gated(gate, POLICY), "the real release job lost its gate")
+        caller = {"uses": "./.github/workflows/outer.yml", "if": gate if keep_gate else "github.repository_owner == 'manaflow-ai'"}
+        document["jobs"]["escape"] = caller
+        return problems("coderouter-release.yml", document, POLICY, documents)
+
+    def test_a_reusable_workflow_call_is_followed_to_every_depth_and_reads_of_signing_material(self) -> None:
+        for label, callees in NESTED_CALL_ESCAPES.items():
+            with self.subTest(label):
+                found = self.call_mutation(callees, keep_gate=False)
+                self.assertEqual(len(found), 1, f"{label} escaped the detector: {found}")
+                self.assertIn("escape", found[0])
+                self.assertEqual(self.call_mutation(callees, keep_gate=True), [], label)
+
+    def test_a_harmless_reusable_workflow_chain_or_cycle_needs_no_gate(self) -> None:
+        for label, callees in NESTED_CALL_HARMLESS.items():
+            with self.subTest(label):
+                self.assertEqual(self.call_mutation(callees, keep_gate=False), [], label)
 
 
 if __name__ == "__main__":
