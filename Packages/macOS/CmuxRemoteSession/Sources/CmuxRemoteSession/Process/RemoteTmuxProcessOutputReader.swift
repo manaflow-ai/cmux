@@ -60,6 +60,17 @@ public final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
         self.maxReadChunkBytes = max(1, maxReadChunkBytes)
     }
 
+    /// Finishes a reader whose last reference went away before a queued ``close()`` ran. Those
+    /// blocks hold the reader weakly, so they find nothing to finish, and a paused reader would
+    /// otherwise release its suspended read source, which Dispatch traps on.
+    deinit {
+        guard !closed else { return }
+        source?.cancel()
+        if sourceSuspended { source?.resume() }
+        continuation.finish()
+        pauseContinuation.finish()
+    }
+
     /// Starts reading `handle` on the reader's queue. The descriptor is made nonblocking.
     public func attach(to handle: FileHandle) {
         let fileDescriptor = handle.fileDescriptor
@@ -111,6 +122,7 @@ public final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
         _ = fcntl(fileDescriptor, F_SETFL, flags | O_NONBLOCK)
     }
 
+    /// Whether the consumer holds a full window of chunks or bytes.
     private var atBound: Bool {
         pendingChunks >= maxPendingChunks || pendingBytes >= maxPendingBytes
     }

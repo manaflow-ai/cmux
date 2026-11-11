@@ -12,16 +12,19 @@ public struct RemoteTmuxFIFO<Element>: Sequence {
     var storage: [Element] = []
     var head = 0
 
+    /// Creates an empty queue.
     public init() {}
 
     public var count: Int { storage.count - head }
     public var isEmpty: Bool { head == storage.count }
     public var first: Element? { isEmpty ? nil : storage[head] }
 
+    /// Adds `element` at the back.
     public mutating func append(_ element: Element) {
         storage.append(element)
     }
 
+    /// Adds `elements` at the back, in order.
     public mutating func append<S: Sequence>(contentsOf elements: S) where S.Element == Element {
         storage.append(contentsOf: elements)
     }
@@ -50,6 +53,7 @@ public struct RemoteTmuxFIFO<Element>: Sequence {
         compactIfMostlyDead()
     }
 
+    /// Removes every element.
     public mutating func removeAll() {
         storage.removeAll()
         head = 0
@@ -60,6 +64,7 @@ public struct RemoteTmuxFIFO<Element>: Sequence {
         storage[head..<(head + Swift.min(Swift.max(0, maxLength), count))]
     }
 
+    /// Iterates the live elements, oldest first.
     public func makeIterator() -> ArraySlice<Element>.Iterator {
         storage[head...].makeIterator()
     }

@@ -20,6 +20,7 @@ public struct RemoteTmuxCatchUpCoordinator: Equatable, Sendable {
     /// Panes whose output is dropped until their next seed starts.
     public private(set) var panesAwaitingSeed: Set<Int> = []
 
+    /// Creates a coordinator with no request and nothing to wait on.
     public init() {}
 
     /// A catch-up is still waiting on tmux.

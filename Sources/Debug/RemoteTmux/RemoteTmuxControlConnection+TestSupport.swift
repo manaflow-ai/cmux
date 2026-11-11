@@ -6,10 +6,12 @@ extension RemoteTmuxControlConnection {
         stdinWriter = writer
     }
 
+    /// Handles `message` as if the parser had just produced it.
     func handleMessageForTesting(_ message: RemoteTmuxControlMessage) {
         handle(message)
     }
 
+    /// The commands awaiting a reply, oldest first.
     var pendingCommandKindsForTesting: [RemoteTmuxControlCommandKind] {
         Array(pendingCommands)
     }

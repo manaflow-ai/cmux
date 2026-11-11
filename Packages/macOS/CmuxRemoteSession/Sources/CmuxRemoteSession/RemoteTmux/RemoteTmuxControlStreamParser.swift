@@ -38,6 +38,7 @@ public struct RemoteTmuxControlStreamParser {
     private var blockLines: [String] = []
     private var blockBufferedBytes = 0
 
+    /// Creates a parser with the given limits on one line and on one command block.
     public init(
         maxBufferedLineBytes: Int = 1_048_576,
         maxCommandBlockBytes: Int = Self.defaultMaximumCommandBlockBytes
@@ -155,6 +156,7 @@ public struct RemoteTmuxControlStreamParser {
     /// `%output %`, the start of every pane output line.
     private static let outputPanePrefix: [UInt8] = Array("%output %".utf8)
 
+    /// Parses one complete line, without its newline, into the messages it ends.
     private mutating func parse(lineBytes rawBytes: [UInt8]) -> [RemoteTmuxControlMessage] {
         var bytes = rawBytes
         var prefixMessages: [RemoteTmuxControlMessage] = []
@@ -249,6 +251,7 @@ public struct RemoteTmuxControlStreamParser {
         return prefixMessages + [parseNotification(line)]
     }
 
+    /// Discards buffered input and reports a stream that can no longer be parsed.
     private mutating func streamError(_ reason: String) -> RemoteTmuxControlMessage {
         buffer.removeAll(keepingCapacity: false)
         inBlock = false
@@ -282,6 +285,7 @@ public struct RemoteTmuxControlStreamParser {
         return .output(paneId: paneId, data: unescapeOutput(bytes[(i + 1)...]))
     }
 
+    /// Parses a `%` notification line outside a command block.
     private func parseNotification(_ line: String) -> RemoteTmuxControlMessage {
         if line == "%exit" || line.hasPrefix("%exit ") {
             let reason = line == "%exit" ? nil : String(line.dropFirst("%exit ".count))

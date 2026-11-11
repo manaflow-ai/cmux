@@ -18,6 +18,8 @@ extension RemoteTmuxControlConnection {
     nonisolated static let maximumPendingPaneSeedBytes =
         maximumPendingPaneSeedDeliveryBytes * maximumConcurrentReconnectPaneSeeds
 
+    /// Starts a seed for `paneId` and returns its ID, or nil when the seed budget can't hold its
+    /// reset prefix. A pane a catch-up is waiting on gives the seed to that catch-up.
     func beginPaneSeed(
         paneId: Int,
         clearScrollback: Bool,
@@ -67,10 +69,7 @@ extension RemoteTmuxControlConnection {
     /// retained for exactly-once catch-up.
     func absorbPaneOutputIntoPendingSeed(paneId: Int, data: Data) -> Bool {
         guard !data.isEmpty, pendingPaneSeeds[paneId]?.isEmpty == false else { return false }
-        if pendingPaneSeeds[paneId]![0].dropsPreCaptureOutput,
-           !pendingPaneSeeds[paneId]![0].isCaptureInstalled {
-            return true
-        }
+        if pendingPaneSeeds[paneId]![0].dropsLiveOutput { return true }
         let nextCount = pendingPaneSeeds[paneId]![0].bufferedLiveByteCount + data.count
         guard nextCount <= Self.maximumPendingPaneSeedLiveBytes else {
             recoverPaneSeedBudget(paneId: paneId, event: "pane-seed-backpressure")
@@ -80,21 +79,19 @@ extension RemoteTmuxControlConnection {
         // "pane-seed-total-backpressure"; recovering again here would enqueue a
         // second clear-scrollback reseed for the same overflow.
         guard reservePendingPaneSeedBytes(data.count, paneId: paneId) else { return true }
-        pendingPaneSeeds[paneId]![0].bufferedLiveByteCount = nextCount
-        if pendingPaneSeeds[paneId]![0].isCaptureInstalled {
-            Self.appendCoalesced(data, to: &pendingPaneSeeds[paneId]![0].catchUpOutput)
-        } else {
-            Self.appendCoalesced(data, to: &pendingPaneSeeds[paneId]![0].discardedOutput)
-        }
+        pendingPaneSeeds[paneId]![0].retainLiveOutput(data)
         return true
     }
 
+    /// Sends a pane's live output to observers, unless a pending seed absorbs it or a catch-up
+    /// is dropping it until the pane's seed starts.
     func routePaneOutput(paneId: Int, data: Data) {
         guard !absorbPaneOutputIntoPendingSeed(paneId: paneId, data: data),
               !catchUp.dropsOutput(forPane: paneId) else { return }
         observers.emitPaneOutput(paneId, data)
     }
 
+    /// Delivers a seed once tmux reports the pane's state after its capture.
     func finishPaneSeed(paneId: Int, seedID: UUID, state: Data) {
         guard var seeds = pendingPaneSeeds[paneId], seeds.first?.id == seedID else { return }
         let completed = seeds.removeFirst()
@@ -118,6 +115,8 @@ extension RemoteTmuxControlConnection {
         )
     }
 
+    /// Handles an error reply to one of a seed's commands: drops the seed when its pane is gone,
+    /// and reconnects when the capture boundary can no longer be trusted.
     func failPaneSeedCommand(_ kind: CommandKind, errorLines: [String]) {
         let paneId: Int
         let seedID: UUID
@@ -195,6 +194,7 @@ extension RemoteTmuxControlConnection {
         }
     }
 
+    /// Forgets every pending seed and the catch-up, for a control stream that is going away.
     func discardPendingPaneSeeds() {
         pendingPaneSeeds.removeAll(keepingCapacity: false)
         pendingPaneSeedByteCount = 0
@@ -206,6 +206,7 @@ extension RemoteTmuxControlConnection {
         catchUp.reset()
     }
 
+    /// Drops the seeds of panes no longer in the topology.
     func discardPendingPaneSeeds(keeping livePanes: Set<Int>) {
         let removedSeedIDs = pendingPaneSeeds
             .filter { !livePanes.contains($0.key) }
@@ -226,6 +227,7 @@ extension RemoteTmuxControlConnection {
         startRequestedCatchUp()
     }
 
+    /// Drops every seed of one pane, releasing their budget.
     func discardPendingPaneSeeds(paneId: Int) {
         let removedSeeds = pendingPaneSeeds.removeValue(forKey: paneId) ?? []
         let removedSeedIDs = removedSeeds.map(\.id)
@@ -239,6 +241,8 @@ extension RemoteTmuxControlConnection {
         startRequestedCatchUp()
     }
 
+    /// Runs the follow-ups of a seed that left ``pendingPaneSeeds``: a deferred repaint, the
+    /// reconnect barrier, and a catch-up kept while this seed was pending.
     private func completePaneSeedLifecycle(paneId: Int, seedID: UUID) {
         let gatesReconnectReady = pendingReconnectSeedIDs.contains(seedID)
         let completedVisibleRepaint = pendingPaneVisibleRepaintSeedIDs[paneId] == seedID
@@ -263,12 +267,14 @@ extension RemoteTmuxControlConnection {
         return repaintPaneVisibleScreen(paneId: paneId)
     }
 
+    /// Removes a seed from the reconnect barrier and starts the next queued reconnect seed.
     func resolveReconnectSeed(_ seedID: UUID) {
         guard pendingReconnectSeedIDs.remove(seedID) != nil else { return }
         pumpReconnectPaneSeeds()
         notifyReconnectReadyIfSeedBatchDrained()
     }
 
+    /// Tells observers the reconnect is ready once every reconnect seed has finished.
     func notifyReconnectReadyIfSeedBatchDrained() {
         guard connectionState == .connected,
               pendingReconnectSeedIDs.isEmpty,
@@ -280,6 +286,7 @@ extension RemoteTmuxControlConnection {
         observers.notifyReconnectReady()
     }
 
+    /// Starts queued reconnect seeds while fewer than the concurrent limit are in flight.
     func pumpReconnectPaneSeeds() {
         guard connectionState == .connected else { return }
         while pendingReconnectSeedIDs.count < Self.maximumConcurrentReconnectPaneSeeds,
@@ -303,14 +310,6 @@ extension RemoteTmuxControlConnection {
 
     private func paneIsLive(_ paneId: Int) -> Bool {
         windowsByID.values.contains { $0.paneIDsInOrder.contains(paneId) }
-    }
-
-    private static func appendCoalesced(_ data: Data, to chunks: inout [Data]) {
-        if chunks.isEmpty {
-            chunks.append(data)
-        } else {
-            chunks[chunks.index(before: chunks.endIndex)].append(data)
-        }
     }
 
     /// Recovers one pane after the producer ran out of seed budget.
@@ -365,6 +364,7 @@ extension RemoteTmuxControlConnection {
         }
     }
 
+    /// Reserves `count` bytes of seed budget for `paneId`, recovering the pane when it can't.
     private func reservePendingPaneSeedBytes(_ count: Int, paneId: Int) -> Bool {
         guard count >= 0, count <= pendingPaneSeedByteLimit else {
             record("pane-seed-reservation-too-large %\(paneId)")
@@ -380,6 +380,7 @@ extension RemoteTmuxControlConnection {
         return true
     }
 
+    /// Returns `count` bytes to the seed budget and retries any recovery the budget blocked.
     func releasePendingPaneSeedBytes(_ count: Int) {
         pendingPaneSeedByteCount = max(0, pendingPaneSeedByteCount - count)
         schedulePaneSeedBudgetRecoveryIfNeeded()

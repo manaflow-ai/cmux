@@ -1,9 +1,5 @@
+import CmuxRemoteSession
 import Foundation
-
-enum RemoteTmuxPaneSeedKind: Equatable {
-    case fullHistory
-    case visibleRepaint
-}
 
 /// One authoritative pane snapshot and the live-stream bytes around its tmux
 /// command-result boundary.
