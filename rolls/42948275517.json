@@ -1,0 +1,87 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42948275517",
+  "recorded_at": "2026-11-11T02:53:47Z",
+  "reason": "cmux-tui 0517ee38e02f changes the image's cmux-tui (pinned f7e19f9fabb2)",
+  "dry_run": false,
+  "cmux_tui": "0517ee38e02f47df3925a7b6e3762b80033b9f8f",
+  "fixes": [
+    {
+      "sha": "0517ee38e02f47df3925a7b6e3762b80033b9f8f",
+      "mergedAt": "2026-11-10T18:30:32-08:00",
+      "subject": "Settings: the daemon reports its settings file in settings.snapshot and keeps it across a restart (#40958)"
+    },
+    {
+      "sha": "d6609ddb98b9bd7f2fe48b6662851783095fc6c9",
+      "mergedAt": "2026-11-10T18:22:29-08:00",
+      "subject": "acpmux: a chat's open reads its prompts from their copies, not its whole log (#40573)"
+    },
+    {
+      "sha": "b24a418a8928a36ec653b8ad8dd3076d4bf3096c",
+      "mergedAt": "2026-11-10T18:13:30-08:00",
+      "subject": "cmux-tui: the idle-loop test fails when the loop ends before its channel"
+    },
+    {
+      "sha": "99810477cad3c4efb40d6c6006a9e79dc784ac20",
+      "mergedAt": "2026-11-10T18:13:29-08:00",
+      "subject": "cmux-tui: the idle frontend loop waits for an event, not a 250 ms tick"
+    },
+    {
+      "sha": "0212efe541e5b5bb6a8617b1d53f7b7c10f943dc",
+      "mergedAt": "2026-11-10T18:13:27-08:00",
+      "subject": "cmux-tui-core: a request after the shutdown began is refused as not executed"
+    },
+    {
+      "sha": "d2d1b11354399f1e9e2018df8444af81f12162b7",
+      "mergedAt": "2026-11-10T18:13:26-08:00",
+      "subject": "cmux-tui-core: test that a request after the shutdown began is refused as not executed"
+    },
+    {
+      "sha": "a7b1568bd0d6d3e94d586fd110815c56784bcf46",
+      "mergedAt": "2026-11-10T18:13:24-08:00",
+      "subject": "acpmux: a log record never joins a line a crash or a failed write cut off"
+    },
+    {
+      "sha": "3e383e4751e0561b1c540525f5752450f3697ce4",
+      "mergedAt": "2026-11-10T18:13:22-08:00",
+      "subject": "acpmux: test that a log record after a torn line is not lost"
+    },
+    {
+      "sha": "8c67eea246ed9fbbf1912f20cc907a07bb5be722",
+      "mergedAt": "2026-11-10T18:13:20-08:00",
+      "subject": "acpmux: a permission policy a newer build wrote loads as ask, not as a failed config"
+    },
+    {
+      "sha": "d392a8c32e73d3ffdf73346bcf596d74101944e2",
+      "mergedAt": "2026-11-10T18:13:19-08:00",
+      "subject": "acpmux: test that a permission policy from a newer build does not stop the daemon"
+    },
+    {
+      "sha": "df81f0cc7c0052f354b165e44ec4d21d2b7736ea",
+      "mergedAt": "2026-11-10T18:13:17-08:00",
+      "subject": "acpmux: cleaning up a dead host never removes a newer host's record"
+    },
+    {
+      "sha": "b7bbfbc28e91c3ea2a1decac96c383e192173c80",
+      "mergedAt": "2026-11-10T18:13:16-08:00",
+      "subject": "acpmux: test that cleaning up a dead host spares the newer host of its chat"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T02:53:47Z",
+    "snapshot_id": "sh-d0eb7853fa0a4f759c9a07d100b9be72",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42948275517): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "95319b9aaff81ff0a23fd76b49aebf68b4981861",
+    "image": "cloud-native-auto-0517ee38-42948275517-1",
+    "revision": "ci-42948275517-1",
+    "at": "2026-11-11T02:53:47Z"
+  },
+  "rolled_back": false
+}
