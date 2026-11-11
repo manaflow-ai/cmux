@@ -786,22 +786,25 @@ _JAVASCRIPT_CLOSERS = {"(": ")", "[": "]", "{": "}", "<": ">"}
 
 def _javascript_angle_is_type_parameters(source: str, index: int) -> Optional[bool]:
     """Whether the `<` at INDEX opens a generic arrow's type parameters, the way TypeScript reads a .tsx file: the
-    list closes with `>`, then a parenthesized parameter list, then `=>` or a `:` return type. A slash token the lexer
+    list closes with `>`, then a parenthesized parameter list, then `=>` or a `:` return type. A token the lexer
     cannot resolve inside the `<...>` makes it no type parameter list (a type holds no regex and no division:
     `<Tile extends {...p} />` is a tag); one inside the parameter list makes the answer None (where the list closes
     is undecided).
 
-    The text within reach is read by the lexer itself, as TypeScript (no JSX in a type or a parameter list), so a
-    `//`, `/*`, quote or bracket inside a regex, string, template or comment there is that literal's text: in
-    `<T extends U>(x = /[//]/) => x` the regex's `//` hides no `)`. Only its code tokens count as brackets."""
-    window = source[index : index + _JAVASCRIPT_TYPE_LOOKAHEAD]
-    executable, comments, unresolved = _lexical_positions_and_unresolved(window, ".ts")
+    The text within reach after the `<` is read by the lexer itself, as .tsx, so a `//`, `/*`, quote or bracket inside
+    a regex, string, template, comment or JSX element there is that literal's text: in `<T extends U>(x = /[//]/) => x`
+    the regex's `//` hides no `)`, and in `(x = <div></div>)` the closing tag's slash opens no regex. Only code tokens
+    count as brackets, and `<` and `>` only inside the type parameter list (a type holds no comparison and no JSX):
+    in the parameter list they compare (`${a < b}`) or delimit JSX, and close nothing."""
+    # The `<` itself is left out (a blank in its place keeps the offsets): read, it would ask this lookahead again.
+    window = " " + source[index + 1 : index + _JAVASCRIPT_TYPE_LOOKAHEAD]
+    executable, comments, unresolved = _lexical_positions_and_unresolved(window, ".tsx")
     first_unresolved = min(unresolved, default=len(window))
 
-    def balanced_end(start: int) -> Optional[int]:
-        # Just past the code bracket that closes the one at START; -1 when it is not within reach, or None when an
-        # unresolved slash comes first.
-        stack = [_JAVASCRIPT_CLOSERS[window[start]]]
+    def balanced_end(start: int, closer: str, angles: bool) -> Optional[int]:
+        # Just past the code bracket CLOSER that closes the one at START; -1 when it is not within reach, or None
+        # when an unresolved token comes first.
+        stack = [closer]
         position = start + 1
         while position < len(window):
             if position == first_unresolved:
@@ -812,6 +815,8 @@ def _javascript_angle_is_type_parameters(source: str, index: int) -> Optional[bo
             elif window.startswith("=>", position):
                 position += 2  # a function type's arrow closes no `<`
                 continue
+            elif character in "<>" and not angles:
+                pass
             elif character in _JAVASCRIPT_CLOSERS:
                 stack.append(_JAVASCRIPT_CLOSERS[character])
             elif character == stack[-1]:
@@ -826,13 +831,13 @@ def _javascript_angle_is_type_parameters(source: str, index: int) -> Optional[bo
             position += 1
         return position
 
-    close = balanced_end(0)
+    close = balanced_end(0, ">", True)
     if close is None or close < 0:
         return False
     params = skip_trivia(close)
     if not window.startswith("(", params):
         return False
-    params_end = balanced_end(params)
+    params_end = balanced_end(params, ")", False)
     if params_end is None or params_end < 0:
         return None if params_end is None else False
     return window.startswith(("=>", ":"), skip_trivia(params_end))
