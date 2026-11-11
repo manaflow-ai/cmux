@@ -34,10 +34,15 @@ The upload job then `needs: [app-source, review-gate]` with `if: always() && ...
 `blocking` output is the number of blocking findings.
 
 A called or dispatched run (a submission) fails on any blocker. A direct
-feat-cmux-next push or pull request run judges the whole app at that commit,
-not the change that started it, so it reports the same ranked list in its
-summary and `blocking` output but stays green: until the app is ready, every
-app push would otherwise be red.
+feat-cmux-next push or pull request run reports the same ranked list and
+`blocking` output, and fails only on a blocker that is not in
+`known-blockers.json`: the blockers the app already had when this started
+(run 43002601165), each with the fix that owns it. So a change that breaks
+the reviewer's path is red on its own pull request, before it merges, instead
+of being found by App Review. A fix removes its entry (the report lists the
+known blockers it no longer sees); nothing is ever added to get a change past
+the gate. The agent reviewer pass is a model's judgement and can differ run to
+run, so it is listed on every run but fails only a submission.
 
 ## Checks
 
@@ -57,8 +62,8 @@ XCUITest cannot judge (live provider sheets, a live Chief reply, a confirmed
 deletion, a fold, iPad multitasking) is printed as a `GATE-NOTE` and listed as
 a warning.
 
-It runs on every feat-cmux-next push that touches the app and on pull requests
-that change the gate. When App Review rejects us anyway, add the rejection and
+It runs on every feat-cmux-next push and pull request that touches the app
+(one macOS job, about 45 minutes). When App Review rejects us anyway, add the rejection and
 its new detector to `rejection-history.json` in the fix's PR.
 
 Run the lint locally (no build needed):

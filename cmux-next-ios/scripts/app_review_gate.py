@@ -17,7 +17,10 @@ Two subcommands:
 
   report  Merge lint JSON, xcresult test outcomes and `asc validate` JSON into
           one ranked Markdown list (blocking first). Exit 1 when anything
-          blocks. This is the list nothing is submitted past.
+          blocks. This is the list nothing is submitted past. With
+          --known-blockers (a push or pull request), exit 1 only when a
+          blocker is new: one not in known-blockers.json, the app's blockers
+          at the time it was written, each owned by a fix in flight.
 
 The NEXT app sells nothing (no StoreKit), so there are no plan, subscription or
 restore rules; an outside purchase link is still a 3.1.1 rejection, so that one
@@ -80,6 +83,12 @@ REVIEW_DIR = "cmux-next-ios/AppStoreReview"
 METADATA_DIR = "cmux-next-ios/AppStoreReview/metadata"
 SCREENSHOTS_DIR = "cmux-next-ios/AppStoreReview/screenshots/en-US"
 HISTORY_FILE = "cmux-next-ios/AppStoreReview/rejection-history.json"
+# Blockers the app already had when pushes and pull requests started failing on
+# new ones; a fix removes its entry, and nothing is ever added to dodge a red.
+KNOWN_BLOCKERS_FILE = "cmux-next-ios/AppStoreReview/known-blockers.json"
+# The agent pass is a model's judgement: it can say something different on the
+# same build, so it informs every run and fails only a submission.
+UNPINNED_SOURCES = ("agent reviewer pass",)
 # The public App Store build: project.yml's AppStore configuration, bundle
 # com.cmux.app (the record the classic app used; NEXT replaces it as an update).
 APPSTORE_CONFIG = "AppStore"
@@ -960,6 +969,35 @@ def xcresult_findings(path: Path) -> list[dict]:
     return out
 
 
+def blocker_key(f: dict) -> str:
+    """A blocker's identity across runs: what failed and where, never the
+    on-screen dump or a line number that moves with every edit."""
+    where = re.sub(r":\d+$", "", str(f.get("where", "")))
+    if f.get("rule") == "uitest.failed":
+        # "AppReviewGateUITests/testX(): detail" -> the test, per device.
+        return f"uitest.failed|{where}|{str(f.get('message', '')).split(': ', 1)[0]}"
+    return f"{f.get('rule', '')}|{where}"
+
+
+def read_known_blockers(path: Path) -> tuple[set[str], list[dict]]:
+    body, unreadable = read_input(path, "known blockers")
+    if body is None:
+        return set(), unreadable
+    try:
+        return {str(entry["key"]) for entry in body["blockers"]}, []
+    except (KeyError, TypeError) as error:
+        return set(), [{"rule": "input.unreadable", "guideline": "2.1", "severity": "blocker", "source": "known blockers",
+                        "message": f"{path.name} has no blockers[].key list ({error})", "where": str(path)}]
+
+
+def ratchet(findings: list[dict], known: set[str]) -> tuple[list[dict], list[str]]:
+    """New blockers (fail this change) and known ones no longer seen (fixed:
+    remove them from known-blockers.json)."""
+    pinned = [f for f in findings if f["severity"] == "blocker" and f.get("source") not in UNPINNED_SOURCES]
+    seen = {blocker_key(f) for f in pinned}
+    return [f for f in pinned if blocker_key(f) not in known], sorted(known - seen)
+
+
 def render(findings: list[dict], lint: dict | None, asc: list[dict] | None, tests: list[str]) -> str:
     findings = sorted(findings, key=lambda f: (SEVERITY_ORDER.get(f["severity"], 9), f.get("guideline", ""), f.get("rule", "")))
     blockers = [f for f in findings if f["severity"] == "blocker"]
@@ -1044,7 +1082,25 @@ def cmd_report(args: argparse.Namespace) -> int:
                              "source": "reviewer-path suite",
                              "message": f"no {family} suite result reached the report: the reviewer path is unjudged there",
                              "where": family})
+    known: set[str] | None = None
+    if args.known_blockers:
+        known, unreadable = read_known_blockers(Path(args.known_blockers))
+        findings += unreadable
     md = render(findings, lint, asc, tests)
+    new: list[dict] | None = None
+    if known is not None:
+        new, fixed = ratchet(findings, known)
+        lines = ["", "### New in this change", ""]
+        if new:
+            lines.append(f"**{len(new)} new blocking** (not in `{KNOWN_BLOCKERS_FILE}`): this change makes the app "
+                         "fail App Review where it passed. Fix it; never add it to that file to get past this.")
+            lines += [f"- `{blocker_key(f)}`: {str(f['message'])[:300]}" for f in new]
+        else:
+            lines.append("No new blocker: every blocker above was already known.")
+        if fixed:
+            lines += ["", f"Fixed here or not seen this run (remove from `{KNOWN_BLOCKERS_FILE}` once fixed):"]
+            lines += [f"- `{key}`" for key in fixed]
+        md += "\n".join(lines)
     if args.out:
         Path(args.out).write_text(md + "\n")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
@@ -1052,6 +1108,8 @@ def cmd_report(args: argparse.Namespace) -> int:
         with open(summary, "a") as fh:
             fh.write(md + "\n")
     print(md)
+    if new is not None:
+        return 1 if new else 0
     return 1 if any(f["severity"] == "blocker" for f in findings) else 0
 
 
@@ -1082,6 +1140,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="a missing --lint result is a blocker: the gate fails closed")
     report.add_argument("--expect-device", action="append", default=[],
                         help="a device family (iphone, ipad) whose suite result must be present")
+    report.add_argument("--known-blockers",
+                        help="known-blockers.json: fail only on a blocker not listed there (a push or pull request)")
     report.add_argument("--out")
     version = sub.add_parser("version")
     version.add_argument("--source-root", default=".")
