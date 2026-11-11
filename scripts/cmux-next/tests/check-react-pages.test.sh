@@ -46,4 +46,18 @@ printf 'settings\tpage\ta full tab page\ngone\tdebt\twas a bar\n' > "$repo/scrip
 python3 -I "$check" "$repo" >/dev/null 2>"$tmp/err" || fail "a stale row failed"
 grep -q "gone has no directory" "$tmp/err" || fail "a stale row gave no note"
 
+# The Command Palette's target takes no web view: an import or a web view type fails; a comment does not.
+printf 'settings\tpage\ta full tab page\n' > "$repo/scripts/cmux-next/react-pages.tsv"
+palette="$repo/Packages/macOS/CmuxNext/Sources/CmuxNextPalette"
+mkdir -p "$palette"
+printf 'import AppKit\n// A WKWebView is not allowed here.\nfinal class Row: NSView {}\n' > "$palette/Row.swift"
+python3 -I "$check" "$repo" >/dev/null || fail "a palette file with a comment about web views was refused"
+printf 'import AppKit\npublic import WebKit\n' > "$palette/Preview.swift"
+if python3 -I "$check" "$repo" >/dev/null 2>&1; then fail "a palette file that imports WebKit passed"; fi
+printf 'import AppKit\nfinal class Preview: NSView { var page: PageWebView? }\n' > "$palette/Preview.swift"
+if python3 -I "$check" "$repo" >/dev/null 2>"$tmp/err"; then fail "a palette file with a PageWebView passed"; fi
+grep -q "Preview.swift:2: the Command Palette is Swift" "$tmp/err" || fail "the palette finding does not name the line"
+rm "$palette/Preview.swift"
+python3 -I "$check" "$repo" >/dev/null || fail "the palette without a web view was refused"
+
 echo "check-react-pages: ok"

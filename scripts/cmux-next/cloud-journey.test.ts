@@ -1755,8 +1755,9 @@ except MemoryError:
   test("a line of many escapes that spell no key is read in linear time", () => {
     const dir = mkdtempSync(join(tmpdir(), "key-probe-escapes-"));
     const file = join(dir, "strings.json");
-    // 20,000 escaped spaces on one line: each was a reading of the whole line, minutes in all.
-    writeFileSync(file, `{"s": "${"\\u0020".repeat(20_000)}"}\n`);
+    // 400,000 escaped spaces on one line: each was a reading of the whole line, then a search back to its start
+    // (4.7 s at this size, four times that at twice it). Then a key after 20,000 short lines of escapes, on its own line.
+    writeFileSync(file, `{"s": "${"\\u0020".repeat(400_000)}"}\n` + `{"s": "${"\\u0020".repeat(50)}"}\n`.repeat(20_000) + `MISTRAL_API_KEY=Ab3Qx7Hw4Kd9Lm2Px7Zq8\n`);
     const script = `
 import importlib.util, json, sys, time
 spec = importlib.util.spec_from_file_location("probe", sys.argv[1])
@@ -1769,8 +1770,8 @@ print(json.dumps({"hits": hits, "s": time.monotonic() - t0}))
     try {
       const r = spawnSync("python3", ["-I", "-c", script, KEY_PROBE_PY, file], { encoding: "utf8" });
       const answer = JSON.parse(r.stdout || "{}");
-      expect(answer.hits).toEqual([]);
-      expect(answer.s).toBeLessThan(0.5);
+      expect(answer.hits).toEqual([[20_002, "MISTRAL_API_KEY"]]);
+      expect(answer.s).toBeLessThan(1.5);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
