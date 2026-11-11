@@ -49,6 +49,13 @@ import "../../src/agent-session/acpmux/markdownField.css";
 const query = new URLSearchParams(location.search);
 const arm = query.get("arm");
 if (arm) globalThis.cmuxExperiments = { "follow-motion": arm };
+// PROBE (never lands): `arms=id:arm,id:arm` pins any experiment arm for this page.
+const probeArms = query.get("arms");
+if (probeArms)
+  globalThis.cmuxExperiments = {
+    ...globalThis.cmuxExperiments,
+    ...Object.fromEntries(probeArms.split(",").map((pair) => pair.split(":") as [string, string])),
+  };
 if (query.get("motion") === "off") {
   document.documentElement.dataset.agentMotion = "off";
   document.documentElement.dataset.cmuxMotion = "off";
