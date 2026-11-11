@@ -179,6 +179,10 @@ pub(super) enum AppCommand {
     Renderers {
         params: Value,
     },
+    /// `app renderers profile`: `renderers.profile` on one page (app/renderers.rs).
+    RendererProfile {
+        params: Value,
+    },
     /// Local settings completion/schema/validation (`app/settings.rs`).
     Settings(settings::Command),
     /// `browser right <verb>` (app/right.rs): `browser.page.right` names the
@@ -955,6 +959,9 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         }
         AppCommand::Renderers { params } => {
             return Ran::Done(renderers::run(global, stream, params));
+        }
+        AppCommand::RendererProfile { params } => {
+            return Ran::Done(renderers::run_profile(global, stream, params));
         }
         AppCommand::Settings(command) => return Ran::Done(command.run(global)),
         AppCommand::Right { params, then } => return right::run(global, stream, params, *then),

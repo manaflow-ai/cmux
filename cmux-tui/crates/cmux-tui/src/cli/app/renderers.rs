@@ -19,8 +19,14 @@ use super::{AppCommand, GlobalArgs, Options, UsageError};
 /// The app samples CPU over at most 1.5 s and answers within its 4 s deadline.
 const TIMEOUT: Duration = Duration::from_secs(6);
 
+/// The app profiles for at most 30 s and answers within its 45 s deadline.
+const PROFILE_TIMEOUT: Duration = Duration::from_secs(50);
+
 /// `rest` starts with `renderers`.
 pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
+    if rest.get(1).map(String::as_str) == Some("profile") {
+        return parse_profile(rest);
+    }
     let options = Options::parse(&rest[1..], &["interval-ms"], &[])?;
     let mut params = Map::new();
     if let Some(value) = options.value("interval-ms") {
@@ -32,6 +38,64 @@ pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
         params.insert("interval_ms".into(), json!(milliseconds));
     }
     Ok(AppCommand::Renderers { params: Value::Object(params) })
+}
+
+/// `cmux app renderers profile --browser <id> [--seconds <n>]`: one cmux page's
+/// JS heap after GC, its Chromium counters and, with `--seconds`, a CPU
+/// profile file (`renderers.profile`, off unless the app's hidden defaults key
+/// `CMUXPageProfiler` is set).
+fn parse_profile(rest: &[String]) -> Result<AppCommand, UsageError> {
+    let options = Options::parse(&rest[2..], &["browser", "seconds"], &[])?;
+    let messages = &crate::localization::catalog().app_control;
+    let usage = || UsageError::new(messages.scope_usage.replace("{scope}", "app"));
+    let mut params = Map::new();
+    let browser: u64 = options.value("browser").ok_or_else(usage)?.parse().map_err(|_| usage())?;
+    params.insert("browser".into(), json!(browser));
+    if let Some(value) = options.value("seconds") {
+        let seconds: u64 = value.parse().map_err(|_| usage())?;
+        params.insert("seconds".into(), json!(seconds));
+    }
+    Ok(AppCommand::RendererProfile { params: Value::Object(params) })
+}
+
+/// Calls `renderers.profile` and prints its answer.
+pub(super) fn run_profile(global: &GlobalArgs, stream: &mut UnixStream, params: Value) -> i32 {
+    match super::wait::request(global, stream, "renderers.profile", &params, Some(PROFILE_TIMEOUT))
+    {
+        Ok(Ok(report)) => {
+            super::super::wire::print_local_success(&with_profile_file(report), global.output)
+        }
+        Ok(Err(mut error)) => {
+            if super::error_code(&error) == Some("method_not_found") {
+                super::skew::annotate(stream, "renderers.profile", &mut error);
+            }
+            super::super::wire::print_local_error(&error, global.output, 1)
+        }
+        Err(error) => super::super::wire::print_local_error(&error, global.output, 3),
+    }
+}
+
+/// Moves the answer's `cpu_profile` (V8's profile JSON) to a `.cpuprofile` file
+/// that Chrome DevTools opens, in the temporary directory, and names it as
+/// `profile_path`; a file that cannot be written leaves `profile_error`.
+pub(super) fn with_profile_file(mut report: Value) -> Value {
+    let Some(object) = report.as_object_mut() else { return report };
+    let Some(Value::String(profile)) = object.remove("cpu_profile") else { return report };
+    let browser = object.get("browser").and_then(Value::as_i64).unwrap_or_default();
+    let name = super::super::command::random_prefixed("page")
+        .unwrap_or_else(|_| format!("page-{}", std::process::id()));
+    let path = std::env::temp_dir()
+        .join("cmux-page-profiles")
+        .join(format!("{name}-{browser}.cpuprofile"));
+    let written = path
+        .parent()
+        .map_or(Ok(()), std::fs::create_dir_all)
+        .and_then(|()| std::fs::write(&path, profile));
+    match written {
+        Ok(()) => object.insert("profile_path".into(), json!(path.display().to_string())),
+        Err(error) => object.insert("profile_error".into(), json!(error.to_string())),
+    };
+    report
 }
 
 /// Calls `renderers.list` and prints the joined rows.

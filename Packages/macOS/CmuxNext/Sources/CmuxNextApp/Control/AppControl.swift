@@ -119,6 +119,12 @@ final class AppControl {
                 let services = await MainActor.run { services }
                 return try await ResourceControl.renderers(call.params, services: services)
             }.withDeadline(.fixed(ResourceControl.renderersDeadline)),
+            // One cmux page's JS heap after GC, its counters and an optional CPU profile (Usage/PageProfiler.swift),
+            // Release too, off unless the hidden defaults key CMUXPageProfiler is set.
+            .async("renderers.profile") { [engine = services.cache.cef] call in
+                let report = await engine.pageProfileReport(browser: call.params["browser"]?.intValue, seconds: call.params["seconds"]?.intValue)
+                return try JSONValue.parse(CEFPageProfileReport.encoded(report))
+            }.withDeadline(.fixed(.seconds(45))),
             // Installed Chrome extensions, shortcuts and toolbar badges.
             .mainActor("browser.extensions") { [weak services] _ in
                 guard let services else { return .value(.null) }
