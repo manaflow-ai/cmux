@@ -174,10 +174,37 @@
   background: var(--look-control-fill-hover);
 }
 
-:root[data-settings-look="refined"] .settings .row-control .button:not(.ui-btn),
-:root[data-settings-look="refined"] .settings .segmented {
+:root[data-settings-look="refined"] .settings .row-control .button:not(.ui-btn) {
   border-color: var(--look-line);
   background: var(--look-control-fill);
+}
+
+/* A segmented control has no track (Lucas 2026-11-12: a track around a filled segment read as
+   "containers inside containers"): its choices sit side by side as muted text, and the chosen one is
+   the one control shape, the buttons' fill and edge, at the buttons' height. The others take the
+   hover fill under the pointer. */
+:root[data-settings-look="refined"] .settings .segmented {
+  gap: var(--ds-space-1);
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+}
+
+:root[data-settings-look="refined"] .settings .segment {
+  min-height: var(--ds-control-row);
+  border-radius: var(--ds-radius-md);
+  color: var(--polish-muted);
+}
+
+:root[data-settings-look="refined"] .settings .segment:hover:not([data-checked]) {
+  background: var(--look-control-fill);
+  color: var(--polish-ink);
+}
+
+:root[data-settings-look="refined"] .settings .segment[data-checked] {
+  background: var(--look-control-fill);
+  box-shadow: var(--look-control-edge);
+  color: var(--polish-ink);
 }
 
 :root[data-settings-look="refined"] .settings .ui-input[data-variant="filled"] {
@@ -204,6 +231,13 @@
   transform: none;
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 7 11' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 4 3.5 1.5 6 4M1 7l2.5 2.5L6 7'/%3E%3C/svg%3E")
     center / contain no-repeat;
+}
+
+/* Switches at Aside's size (Lucas 2026-11-12: "a bit bigger/fatter"): 20 px tall, 36 wide, so the
+   knob is 16 px, the slider knob's size, instead of the small switch's 12. */
+:root[data-settings-look="refined"] .settings .ui-switch {
+  --ui-switch-h: var(--ds-control-icon);
+  --ui-switch-w: calc(var(--ds-control-icon) * 1.8);
 }
 
 /* An off switch shows a light knob on a grey track, as the system switch and Aside's do; the dark
