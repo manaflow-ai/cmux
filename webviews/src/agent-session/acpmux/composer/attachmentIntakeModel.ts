@@ -206,19 +206,25 @@ function sizeFromHeader(file: File, done: (size: { width: number; height: number
 /// attaches whatever its size.
 const INSTANT_PREVIEW_MAX_BYTES = 4 * 1024 * 1024;
 
+/// Whether `file` may show its own picture on its loading tile (instantPreview): an image of its
+/// own bytes, not past INSTANT_PREVIEW_MAX_BYTES.
+function mayShowAtOnce(file: File | MadeFile): file is File {
+  return !isMadeFile(file) && isImageFile(file) && file.size <= INSTANT_PREVIEW_MAX_BYTES;
+}
+
+/// How long a pasted image's tile is held unseen for its own picture (instantPreview: its header,
+/// then the browser's read of its bytes): it first shows as the picture it will be, never as empty
+/// glass that the picture then fills and the chip then brightens (Leo, 2026-11-11: "this 3 stage
+/// attachment thing is still there"). One whose picture does not come by then shows as glass.
+const PICTURE_WAIT_MS = 250;
+
 /// `file`'s own picture as a `data:` URL (a cmux page's CSP allows `img-src data:`, not `blob:`),
 /// encoded by the browser off the main thread (FileReader); undefined for one that is not an image,
 /// past INSTANT_PREVIEW_MAX_BYTES, whose header gives no size, or whose pixels pass the limit its
 /// preview is held to (imageWork.ts MAX_DECODE_PIXELS: a small file can decode to gigabytes), or that
 /// cannot be read here (a test's DOM). Such a tile shows its kind's glyph until its preview is made.
 export async function instantPreview(file: File | MadeFile): Promise<string | undefined> {
-  if (
-    isMadeFile(file) ||
-    !isImageFile(file) ||
-    file.size > INSTANT_PREVIEW_MAX_BYTES ||
-    typeof FileReader === "undefined"
-  )
-    return undefined;
+  if (!mayShowAtOnce(file) || typeof FileReader === "undefined") return undefined;
   const size = await imageSize(file).catch(() => undefined);
   if (!size?.width || !size.height || size.width * size.height > MAX_DECODE_PIXELS) return undefined;
   return new Promise((resolve) => {
@@ -382,15 +388,20 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// failed chip whose file `given` is, read again under its id (Retry): it keeps its place in the
   /// strip and in the text, and its node there draws what the read makes.
   /// Pending image `id`'s header answered `size` (undefined: it gave none by the frame): its tile shows.
+  /// `held`: its own picture is still coming (PICTURE_WAIT_MS), so the size is kept and the tile
+  /// stays unseen.
   const [sized] = useState(
-    () => (id: string, size: { width: number; height: number } | undefined) =>
-      setPending((chips) =>
-        chips.some((chip) => chip.id === id && (chip.sizing || (size && !chip.size)))
-          ? chips.map((chip) =>
-              chip.id === id ? { ...chip, sizing: false, ...(size && !chip.size ? { size } : {}) } : chip,
-            )
-          : chips,
-      ),
+    () =>
+      (id: string, size: { width: number; height: number } | undefined, held = false) =>
+        setPending((chips) =>
+          chips.some((chip) => chip.id === id && ((chip.sizing && !held) || (size && !chip.size)))
+            ? chips.map((chip) =>
+                chip.id === id
+                  ? { ...chip, sizing: held && Boolean(chip.sizing), ...(size && !chip.size ? { size } : {}) }
+                  : chip,
+              )
+            : chips,
+        ),
   );
   const [intake] = useState<Intake>(() => async (given, uploads = false, kind, again, needs = false) => {
     if (given.length === 0) return;
@@ -415,7 +426,11 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     // Each image's own picture, on its tile while the tile still loads.
     files.forEach((file, index) => {
       const id = shown[index]!.id;
-      if (shown[index]!.sizing) sizeFromHeader(file, (size) => sized(id, size));
+      // One that may show its own picture is held for it, not only for its header.
+      const waits = Boolean(shown[index]!.sizing) && mayShowAtOnce(file);
+      // timeout: a picture that does not come in time must not hold its tile unseen.
+      const deadline = waits ? setTimeout(() => sized(id, undefined), PICTURE_WAIT_MS) : undefined;
+      if (shown[index]!.sizing) sizeFromHeader(file, (size) => sized(id, size, waits));
       // A capture the page makes (Attach Screenshot) has no bytes yet: its shape once it has.
       else if (isMadeFile(file) && isImageFile(file))
         void file.file.then(
@@ -423,10 +438,16 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
           () => {},
         );
       void instantPreview(file).then((preview) => {
-        if (!preview) return;
+        clearTimeout(deadline);
+        // No picture: the tile shows as it would have once its header answered.
+        if (!preview) {
+          if (waits) sized(id, undefined);
+          return;
+        }
+        // The picture and the tile in one render: its first frame shown is the picture.
         setPending((chips) =>
           chips.some((chip) => chip.id === id && !chip.failed && !chip.preview)
-            ? chips.map((chip) => (chip.id === id ? { ...chip, preview } : chip))
+            ? chips.map((chip) => (chip.id === id ? { ...chip, preview, sizing: false } : chip))
             : chips,
         );
       });
