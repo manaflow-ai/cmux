@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Fail only on the guard steps a change turns red; report the base's own reds as warnings.
 
-    guards_new_reds.py [--label NAME] [--flaky FILE] [--head-rerun FILE] HEAD_RESULTS BASE_RESULTS
-    guards_new_reds.py --new-files [--flaky FILE] HEAD_RESULTS BASE_RESULTS
+    guards_new_reds.py [--label NAME] [--flaky FILE] [--base-again FILE]... [--head-rerun FILE] HEAD_RESULTS BASE_RESULTS
+    guards_new_reds.py --new-files [--flaky FILE] [--base-again FILE]... HEAD_RESULTS BASE_RESULTS
     guards_new_reds.py [--label NAME] --tip HEAD_RESULTS
     guards_new_reds.py --red-steps HEAD_RESULTS
 
@@ -21,6 +21,13 @@ webviews_test_results.py's per-test results.
 whose verdict flipped by itself on recent base pushes). A red the base replay passed that is in
 it is a warning, never the change's: one passing replay on the base proves nothing about a test
 that fails now and then there. A missing or unreadable file lists nothing.
+
+--base-again names the results of another replay on the base (webviews_test_results.py, {name: passed}); give it once
+per replay. A red the first replay passed that another one fails by name is a warning (kind `flaky`), never the
+change's: the base both passed and failed it. cmux#41254 (run 43006460063) was charged with the webkit stream-row
+overlap test because attempt 2's one base replay passed it (overlapFrames 0); attempt 3's failed it (overlapFrames 1).
+A file red without naming the test (a timeout) says nothing about it; a missing or unreadable file names nothing.
+ci-web.yml replays the files of the reds a compare would still charge, at most two more times (its base_again).
 
 --new-files prints, one a line, the file of each red this compare would charge to the change (the part of a
 webview test name before " > "), and exits 0. ci-web.yml re-runs those files alone on the head.
@@ -88,9 +95,9 @@ def main(argv: list[str]) -> int:
         for step in red_steps(load(argv[1]) or {}):
             print(step)
         return 0
-    label, flaky, tip, new_files, rerun = "Guard", set(), False, False, None
+    label, flaky, tip, new_files, rerun, again = "Guard", set(), False, False, None, []
     while argv and (argv[0] in ("--tip", "--new-files")
-                    or (len(argv) > 2 and argv[0] in ("--label", "--flaky", "--head-rerun"))):
+                    or (len(argv) > 2 and argv[0] in ("--label", "--flaky", "--head-rerun", "--base-again"))):
         if argv[0] == "--tip":
             tip, argv = True, argv[1:]
             continue
@@ -101,6 +108,8 @@ def main(argv: list[str]) -> int:
             label = argv[1]
         elif argv[0] == "--flaky":
             flaky = flaky_names(argv[1])
+        elif argv[0] == "--base-again":
+            again.append(load(argv[1]) or {})
         else:
             rerun = load(argv[1]) or {}
         argv = argv[2:]
@@ -126,8 +135,10 @@ def main(argv: list[str]) -> int:
         print(f"no base results in {argv[1]}: every red step counts as this change's")
         base = {}
     red = sorted(step for step, ok in head.items() if not ok and base.get(step, True))
-    new = [step for step in red if step not in flaky]
-    flaked = [step for step in red if step in flaky]
+    # Another base replay that fails the step by name: the base passed and failed it, so it flakes there.
+    flapped = {step for step in red if any(found.get(step) is False for found in again)}
+    new = [step for step in red if step not in flaky and step not in flapped]
+    flaked = [step for step in red if step in flaky or step in flapped]
     if new_files:
         for file in sorted({test_file(step) for step in new}):
             print(file)
@@ -150,7 +161,9 @@ def main(argv: list[str]) -> int:
     for step in old:
         print(f"::warning title={label} red on the base too::{step}")
     for step in flaked:
-        where = "passed again alone on the head" if step in passed_again else "flaky on the base"
+        where = ("passed again alone on the head" if step in passed_again
+                 else "passed and failed on the base's replays" if step in flapped and step not in flaky
+                 else "flaky on the base")
         print(f"::warning title={label} {where}::{step}")
     for step in new:
         print(f"::error title={label} red on this change::{step}")
