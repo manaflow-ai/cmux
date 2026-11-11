@@ -4,10 +4,10 @@
 //!
 //! A terminal's output reader applies the host's (or the PTY's) output to the
 //! daemon's terminal and hands it to the attached views. The same output can
-//! change durable facts: the shell's directory (OSC 7), the progress and
-//! program status (OSC 9;4, OSC 7501), the command and prompt facts, and
-//! "last output", pushed at most every 5 s while the terminal prints
-//! (`terminal_activity.rs`). Each is a resource commit under the workspace
+//! change durable facts: the shell's directory (OSC 7), a program status
+//! record's state (OSC 7501) and the command and prompt facts. (The OSC 9;4
+//! progress and "last output", pushed at most every 5 s while the terminal
+//! prints, are live facts with no commit: `terminal_live.rs`.) Each is a resource commit under the workspace
 //! registry lock, and so is a notification the output posts (OSC 9, 777, 99)
 //! or a bell's attention mark. The reader made them itself, between two
 //! output frames. Under load the registry lock waits up to 1.5 s, and the next

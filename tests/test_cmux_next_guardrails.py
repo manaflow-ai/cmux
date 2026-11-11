@@ -2348,7 +2348,8 @@ class HookTests(Fixture):
         checks = [p for p in tracked if "/" not in p[len("scripts/cmux-next/"):]
                   or p.startswith(("scripts/cmux-next/lint/", "scripts/cmux-next/arch_rules/"))]
         for relative in ("scripts/git-hooks", "scripts/install-git-hooks.sh", "scripts/web_lint_prepush.py",
-                         "scripts/ci/base_merge_warning.py", "scripts/ci/github_release_download.py", "scripts/web-lint.sh",
+                         "scripts/ci/base_merge_warning.py", "scripts/ci/github_release_download.py",
+                         "scripts/ci/deadline_http.py", "scripts/web-lint.sh",
                          "scripts/merge-xcstrings.py",
                          "scripts/merge-pbxproj.py", "scripts/merge-baseline.py", "scripts/merge-daemon-capabilities.py", "scripts/merge-insertions.py",
                          "scripts/ci/merge_main_resolver.py", "scripts/ci/validate_test_execution_registry.py",

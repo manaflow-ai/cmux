@@ -143,6 +143,7 @@ jobs:
             scripts/cmux-next/media/tour.py
             release-notes/next/highlights
             release-notes/next/clips
+            scripts/ci/warm_distance.py
           sparse-checkout-cone-mode: false
 
       - name: Decide whether this pull request gets a tour

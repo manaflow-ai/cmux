@@ -20,18 +20,31 @@ pub(super) fn handle_connection_frame(
 ) -> bool {
     // Keep an idle shutdown requester connected until owner cleanup closes
     // the transport, so lifecycle clients receive authoritative completion.
-    // A pipelined message after the acknowledgement must not reach parsing or
-    // dispatch; returning false makes the connection loop close that client.
+    // A message after the shutdown began (an accepted `shutdown-daemon`, or a
+    // SIGTERM at an update, logout or reboot) must not reach dispatch: it
+    // gets the pending handoff's refusal (`daemon_shutdown_pending`, "request
+    // was not executed") so its client can send it again to the next daemon
+    // without typing anything twice, and returning false makes the connection
+    // loop close that client once the refusal is written. A close with no
+    // answer left the client unable to tell whether its input arrived.
     if mux.daemon_shutdown_requested() || mux.daemon_handoff_committed() {
+        let _ = pending_handoff::reject_message_during_pending_handoff(message, writer);
         return false;
     }
+    // The slow request log's record of this line, from here to its reply written
+    // (diagnostics/request_log.rs). It ends on this thread, or travels with the queued request.
+    let _slow_log = mux.connection_stats().request_log().map(|log| {
+        log.begin(client, mux.control_clients.log_labels(client), &writer.open, message)
+    });
     if matches!(transport, ClientTransport::Remote) || mux.is_remote_client(client) {
         return remote_relay::handle_frame(mux, client, message, writer);
     }
+    // The hooks below that ask what the line is share its one JSON parse.
+    let line = line_value::LineValue::new(message);
     // A carrier stream's signed role, stamped by the session host before the person's first
     // byte (carrier_role.rs).
     #[cfg(unix)]
-    if let Some(keep_open) = carrier_role::try_handle(mux, client, message, writer) {
+    if let Some(keep_open) = carrier_role::try_handle(mux, client, &line, writer) {
         return keep_open;
     }
     // A phone's channel reaches only what hostd's Cloud ACP adapter sends (phone_carrier.rs).
@@ -51,6 +64,14 @@ pub(super) fn handle_connection_frame(
     // An older client's line, upgraded to this daemon's API revision before
     // any parse (server/api_revision_wire.rs); borrowed unchanged otherwise.
     let upgraded = writer.api_revision.upgrade_request(message);
+    let upgraded_line;
+    let line = match &upgraded {
+        std::borrow::Cow::Borrowed(_) => &line,
+        std::borrow::Cow::Owned(text) => {
+            upgraded_line = line_value::LineValue::new(text);
+            &upgraded_line
+        }
+    };
     let message: &str = &upgraded;
     // A remote device never names an incognito workspace's objects (#31210).
     if let Some(keep_open) = incognito_remote::refuse_line(mux, client, message, writer) {
@@ -62,7 +83,9 @@ pub(super) fn handle_connection_frame(
     if agent_session_attach::proxy_bound(mux, client) {
         return agent_session_attach::handle_bound(mux, client, message, writer);
     }
-    if let Some(request) = crate::resource_router::parse_resource_line(message) {
+    if let Some(request) =
+        crate::resource_router::parse_resource_line_given(message, || line.value())
+    {
         // A v2 line the catalog parse refuses may name a routed namespace
         // operation (page-router-v1): the same JSON parse decides, so every
         // spelling of the line gets one answer.
@@ -70,6 +93,9 @@ pub(super) fn handle_connection_frame(
             && let Some(keep_open) = page_router::try_handle(mux, client, message, writer)
         {
             return keep_open;
+        }
+        if let Ok(envelope) = &request {
+            crate::diagnostics::request_log::decoded_operation(envelope.operation.wire_name());
         }
         // Debug timing marks of a resource create, from the arrival of its
         // line to its reply (`CMUX_TUI_DEBUG_SPANS`; cx-b4sjc).
@@ -130,7 +156,7 @@ pub(super) fn handle_connection_frame(
         return keep_open;
     }
     #[cfg(unix)]
-    if let Some(keep_open) = cloud_repos::try_handle(mux, client, message, writer) {
+    if let Some(keep_open) = cloud_repos::try_handle(mux, client, line, writer) {
         return keep_open;
     }
     let mut request = match serde_json::from_str::<Request>(message) {
@@ -138,6 +164,7 @@ pub(super) fn handle_connection_frame(
         Err(error) => return send_bad_request(writer, message, &error),
     };
     request.remote_line = incognito_remote::line_to_recheck(mux, client, message);
+    crate::diagnostics::request_log::decoded_command();
     // Key-press flows: the reader parsed the key's line. With `daemon.send.write` on the dispatcher it separates the
     // wait in the connection's queue from the wait before the line was read (`CMUX_TRACE_FLOWS` only).
     if let Command::Send(send) = &request.cmd

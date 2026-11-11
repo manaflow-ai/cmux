@@ -61,6 +61,11 @@ export MACOSX_DEPLOYMENT_TARGET=14.0
 # Machine code only: Xcode's ld and nm cannot read a newer rustc's bitcode.
 export CARGO_PROFILE_RELEASE_LTO=off
 export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C embed-bitcode=no"
+# The SQLite that rusqlite bundles here keeps each block's size in its own header
+# instead of asking malloc_default_zone()->size(). That virtual zone follows zones[0]: the
+# app's early delegating zone, then PartitionAlloc's once CEF loads, and neither owns
+# SQLite's older blocks. A 0 there crashed nightly 4294166855401 at launch (#41049).
+export LIBSQLITE3_FLAGS="${LIBSQLITE3_FLAGS:+$LIBSQLITE3_FLAGS }-DSQLITE_WITHOUT_ZONEMALLOC"
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/cmux-app-ffi.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
