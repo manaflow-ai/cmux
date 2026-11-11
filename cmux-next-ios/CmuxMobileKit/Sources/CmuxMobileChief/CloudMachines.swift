@@ -227,6 +227,8 @@ public final class CloudMachinesModel {
 
     @ObservationIgnored private let account: @MainActor () -> AccountCloud?
     @ObservationIgnored var newKey: () -> String = { UUID().uuidString.lowercased() }
+    /// The DEBUG gallery's fixed page: it never reads the service.
+    @ObservationIgnored var skipsLoad = false
 
     public init(account: @escaping @MainActor () -> AccountCloud?) {
         self.account = account
@@ -250,6 +252,7 @@ public final class CloudMachinesModel {
     }
 
     public func load() async {
+        if skipsLoad { return }
         guard let account = account() else {
             phase = .failed(String(localized: "Sign in to cmux to see your Cloud machines."))
             return
@@ -426,3 +429,40 @@ public final class CloudMachinesModel {
         }
     }
 }
+
+#if DEBUG
+extension CloudMachinesModel {
+    /// The page with fixed machines, plan and snapshots, for screenshots
+    /// (`-cmux-mobile-recovery-gallery cloudmachines`). Its actions go nowhere.
+    public static func gallery(now: Date = .now) -> CloudMachinesModel {
+        let http = ChiefCloudHTTP(base: URL(fileURLWithPath: "/dev/null"), accessToken: { _ in "" })
+        let model = CloudMachinesModel { AccountCloud(http: http) }
+        model.skipsLoad = true
+        let ago = { (seconds: TimeInterval) in now.addingTimeInterval(-seconds) }
+        model.machines = [
+            CloudMachine(id: "vm_gallery0000000000001", name: "Build box", status: .running, size: .init(cpu: 2, memoryMB: 8192, diskMB: 16384),
+                         classic: false, createdAt: ago(86_400 * 3), lastActiveAt: ago(120), idleSeconds: 1800, error: nil, pauseReason: nil,
+                         pausedBySpendCap: false, hourlyRateUSD: 0.11, pausedHourlyRateUSD: 0.002, runningSince: ago(5400), desktop: true,
+                         evictAt: nil, keep: true),
+            CloudMachine(id: "vm_gallery0000000000002", name: "Nightly evals", status: .paused, size: .newMachine,
+                         classic: false, createdAt: ago(86_400 * 9), lastActiveAt: ago(86_400), idleSeconds: 900, error: nil, pauseReason: "idle",
+                         pausedBySpendCap: false, hourlyRateUSD: 0.06, pausedHourlyRateUSD: 0.0015, runningSince: nil, desktop: false,
+                         evictAt: now.addingTimeInterval(86_400 * 12), keep: false),
+            CloudMachine(id: "vm_gallery0000000000003", name: "Repro sandbox", status: .starting, size: .newMachine,
+                         classic: false, createdAt: ago(600), lastActiveAt: nil, idleSeconds: 0, error: nil, pauseReason: nil,
+                         pausedBySpendCap: false, hourlyRateUSD: 0.06, pausedHourlyRateUSD: nil, runningSince: nil, desktop: false,
+                         evictAt: nil, keep: false),
+        ]
+        model.plan = CloudMachinePlan(planID: "pro", maxActive: 3, maxSaved: 10, memoryOptionsMB: [4096, 8192, 16384, 32768],
+                                      lockedMemoryOptionsMB: [32768], hoursIncluded: 200, active: 2, saved: 3, hoursUsed: 41.5)
+        model.snapshots = [
+            CloudMachineSnapshot(id: "snap_gallery00000000001", machine: "vm_gallery0000000000001", name: "Before Xcode 27", sizeMB: 6144,
+                                 status: "ready", createdAt: ago(86_400 * 2), archiveOf: nil, archiveUntil: nil),
+            CloudMachineSnapshot(id: "snap_gallery00000000002", machine: "vm_gallery0000000000009", name: nil, sizeMB: 3072,
+                                 status: "ready", createdAt: ago(86_400 * 4), archiveOf: "Old staging box", archiveUntil: now.addingTimeInterval(86_400 * 26)),
+        ]
+        model.phase = .loaded
+        return model
+    }
+}
+#endif

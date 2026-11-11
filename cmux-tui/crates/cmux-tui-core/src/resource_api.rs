@@ -14,6 +14,7 @@ use std::sync::Weak;
 
 mod committed_snapshot;
 mod machines;
+pub(crate) mod scoped_get;
 mod terminal_extra;
 
 pub(crate) const MACHINE_CATALOG_READ_CAPABILITY: &str = "machine-catalog-read-v1";

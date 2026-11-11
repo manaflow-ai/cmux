@@ -66,6 +66,7 @@ mod restart;
 mod rows;
 mod session_lists;
 mod signaled_mutex;
+mod single_reads;
 mod snapshot_read;
 mod split_ratio;
 mod stack_layout;
