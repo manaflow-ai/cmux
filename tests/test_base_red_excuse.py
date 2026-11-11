@@ -5708,6 +5708,22 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "changes no app FFI input"):
             self.judge()
 
+    def test_the_rust_bindings_are_ffi_inputs(self):
+        # cmux-app-ffi reaches cmux-tui/bindings/rust through a Cargo path dependency, so check-app-ffi-pin.sh counts
+        # it (--list-inputs). A PR that changes only bindings/rust/src was told it "changes no app FFI input"
+        # (2026-11-10, after #39027 changed cmux-tui/bindings/rust; the main copy is #40136).
+        self.pr_files("cmux-tui/bindings/rust/src/generated/types.rs")
+        self.assertIn(f"only '{self.PIN}' is red", self.judge()[0])
+
+    def test_the_other_bindings_are_not_ffi_inputs(self):
+        # No crate cmux-app-ffi reaches lives there; bindings/rust-sidebar shares the bindings/rust prefix but not its
+        # folder.
+        for path in ("cmux-tui/bindings/cpp/CMakeLists.txt", "cmux-tui/bindings/python/cmux/__init__.py",
+                     "cmux-tui/bindings/rust-sidebar/src/lib.rs"):
+            self.pr_files(path)
+            with self.assertRaisesRegex(excuse.Refused, "changes no app FFI input", msg=path):
+                self.judge()
+
     # The published base pin (2026-11-07): a step-B PR's pin is a release built from a commit on the base, and its
     # app compile passed at its head against that pin.
     STEP_B = ("Packages/macOS/CmuxNext/Package.swift",
@@ -5903,24 +5919,28 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         urls = []
 
         def answer(code):
-            def urlopen(request, timeout):
+            # The release download's one HTTP call (github_release_download.py, deadline_http.stream): its stall is
+            # the per-wait timeout the caller passes, and an error status raises (raise_errors).
+            @contextlib.contextmanager
+            def stream(request, seconds=None, *, stall=None, raise_errors=False, **options):
                 url = request.full_url
-                urls.append((url, timeout, request.get_header("Authorization")))
-                if code == 200:
-                    return io.BytesIO(f"{self.STEP_B_PIN}\n".encode())
-                raise urllib.error.HTTPError(url, code, "x", {}, None)
-            return urlopen
+                urls.append((url, stall, request.get_header("Authorization")))
+                self.assertTrue(raise_errors)
+                if code != 200:
+                    raise urllib.error.HTTPError(url, code, "x", {}, None)
+                yield io.BytesIO(f"{self.STEP_B_PIN}\n".encode())
+            return unittest.mock.patch.object(module.release_download.deadline_http, "stream", stream)
 
         tag = f"cmux-app-ffi-{self.STEP_B_PIN}"
-        with unittest.mock.patch("urllib.request.urlopen", answer(200)):
+        with answer(200):
             self.assertEqual(module.ffi_release_file(REPO, tag, "SOURCE_SHA"), f"{self.STEP_B_PIN}\n")
         self.assertEqual(urls, [(f"https://github.com/{REPO}/releases/download/{tag}/SOURCE_SHA", 30, None)])
         # A 404 is GitHub's answer, not an outage: no release-assets API read follows it.
         urls.clear()
-        with unittest.mock.patch("urllib.request.urlopen", answer(404)):
+        with answer(404):
             self.assertIsNone(module.ffi_release_file(REPO, tag, "SHA256SUMS"))
         self.assertEqual(len(urls), 1)
-        with unittest.mock.patch("urllib.request.urlopen", answer(502)), \
+        with answer(502), \
                 self.assertRaisesRegex(module.Refused, "HTTP 502; the pinned release could not be read"):
             module.ffi_release_file(REPO, tag, "SOURCE_SHA")
 
@@ -5937,23 +5957,26 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         asset = f"https://api.github.com/repos/{REPO}/releases/assets/7"
         asked = []
 
-        def urlopen(request, timeout):
+        @contextlib.contextmanager
+        def stream(request, seconds=None, *, stall=None, **options):
             url = getattr(request, "full_url", request)
             auth = request.get_header("Authorization") if hasattr(request, "get_header") else None
-            asked.append((url, timeout, auth))
+            asked.append((url, stall, auth))
             if auth:  # the redirect handler copies request.headers, so the token must not be among them
                 self.assertNotIn("Authorization", request.headers)
             if url == download:
                 raise urllib.error.HTTPError(url, 503, "Service Unavailable", {}, None)
             if url == listing:
-                return io.BytesIO(json.dumps({"assets": [{"name": "SHA256SUMS", "url": asset + "0"},
-                                                         {"name": "SOURCE_SHA", "url": asset}]}).encode())
+                yield io.BytesIO(json.dumps({"assets": [{"name": "SHA256SUMS", "url": asset + "0"},
+                                                        {"name": "SOURCE_SHA", "url": asset}]}).encode())
+                return
             if url == asset:
                 self.assertEqual(request.get_header("Accept"), "application/octet-stream")
-                return io.BytesIO(f"{self.STEP_B_PIN}\n".encode())
+                yield io.BytesIO(f"{self.STEP_B_PIN}\n".encode())
+                return
             raise AssertionError(f"unexpected fetch {url}")
 
-        with unittest.mock.patch("urllib.request.urlopen", urlopen), \
+        with unittest.mock.patch.object(module.release_download.deadline_http, "stream", stream), \
                 unittest.mock.patch.dict(os.environ, {"GH_TOKEN": "t0ken"}):
             self.assertEqual(module.ffi_release_file(REPO, tag, "SOURCE_SHA"), f"{self.STEP_B_PIN}\n")
         # The token goes to api.github.com only, and never on to the asset's storage redirect (unredirected).

@@ -141,9 +141,10 @@ public final class ChiefSession {
 
     public init(backend: any ConversationBackend, identity: ChiefIdentity = .standard,
                 preferences: ChiefPreferences = ChiefPreferences(), outbox: ChiefOutbox? = nil,
-                transcripts: ConversationTranscriptCache? = nil,
+                transcripts: ConversationTranscriptCache? = nil, transcriptKey: String? = nil,
                 clock: any Clock<Duration> = ContinuousClock()) {
         self.transcripts = transcripts
+        fixedTranscriptKey = transcriptKey
         self.identity = identity
         self.clock = clock
         avatar = identity.avatar
@@ -154,7 +155,9 @@ public final class ChiefSession {
         outboxTarget = Self.target(of: backend, macID: nil, previous: nil)
         store = ConversationStore(backend: backend)
         control = (backend as? ChiefDaemonBackend)?.control
-        store.useTranscriptCache(transcripts, key: transcriptKey)
+        // `self.`: the `transcriptKey` parameter is only the fixed key; the property falls back
+        // to the outbox target (a Chief made on its backend, such as the mock at launch).
+        store.useTranscriptCache(transcripts, key: self.transcriptKey)
         refreshOutbox()
         ChiefAlerts.shared.install()
         attach()
@@ -181,6 +184,7 @@ public final class ChiefSession {
     /// The kept transcript's key: the Chief the outbox writes to. DEBUG's mock Chief (no Mac,
     /// no Cloud) keeps its own, so simulator runs show the same behavior.
     private var transcriptKey: String? {
+        if let fixedTranscriptKey { return fixedTranscriptKey }
         if let outboxTarget { return outboxTarget }
         #if DEBUG
         if backend is ChiefMockBackend { return "mock" }
@@ -192,6 +196,9 @@ public final class ChiefSession {
     /// store built again after the app comes back, or on a relaunch, shows them at once.
     public static let transcripts = ConversationTranscriptCache.inApplicationSupport("cmux-mobile-chief-transcripts")
     private let transcripts: ConversationTranscriptCache?
+    /// The kept transcript's key when the session names it (a conversation of a Mac's Home list,
+    /// which is not that Mac's Chief): nil keys it by ``outboxTarget``.
+    private let fixedTranscriptKey: String?
 
     /// Sign-out: every kept Chief conversation leaves this phone, and this session's store stops
     /// showing and keeping them (a store made by sign-out's own backend swap showed them already).
@@ -273,10 +280,10 @@ public final class ChiefSession {
     /// The failed message whose Try Again was sent (its bar goes away).
     private var retriedFailureID: String?
 
-    /// What the bar over the conversation shows: the open question first,
-    /// else Try Again for a failed newest turn not tried again yet.
+    /// What the bar over the conversation shows: why Chief is unavailable,
+    /// else Try Again for a failed newest turn not tried again yet, else the
+    /// Mac away. Open questions get no bar (see ``ChiefBarItem``).
     public var barItem: ChiefBarItem? {
-        if let question = openQuestion { return .question(question) }
         // The Mac's Chief refused or is missing (D2): say why, instead of
         // the conversation's endless first-load spinner.
         if !isConnected, let status { return .unavailable(reason: status, retrying: isReconnecting) }
@@ -507,6 +514,9 @@ public final class ChiefSession {
 
     /// The raw error of the newest failed engine read (diagnostics only).
     public private(set) var engineError: (any Error)?
+
+    /// An engine read for the composer's `/` list runs (``loadSlashSkillsIfNeeded()``).
+    @ObservationIgnored var slashSkillsLoading = false
 
     /// The waits between engine reads while one keeps failing: 2, 4, 8,
     /// 16, then every 30 s.

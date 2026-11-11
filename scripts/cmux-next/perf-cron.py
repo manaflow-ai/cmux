@@ -173,6 +173,10 @@ PARTS = [
     # The update-one bench (webviews/bench/update-one.bench.ts): one session's change at 100, 1,000 and 3,000 listed
     # sessions, its cost and its growth. Its own part, so the suite's other benches keep their 30-minute cap.
     {"name": "web-ui-scale", "where": "linux", "kind": "webui", "needs": "web-ui-scale"},
+    # The state-growth bench (webviews/bench/state-growth.bench.ts): what the pane's state layer keeps per operation
+    # that should keep nothing (sessions made and closed, chats reopened, reconnects mid-stream, a shell's output
+    # streaming), small and god side by side, after warm-up. Its own part (about 2 minutes).
+    {"name": "web-ui-growth", "where": "linux", "kind": "webui", "needs": "web-ui-growth"},
     # The chat benches on the god session (webviews/bench/godFixture.ts) beside their ordinary run, on one runner at one
     # commit: each god row, and its god_ratio row (god p95 / ordinary p95, target GOD_RATIO_MAX). Its own part: the
     # six benches take about 13 minutes.
@@ -186,6 +190,7 @@ ROW_PARTS = [
     (r"^workspace_scaling\.", "workspace-scaling"),
     (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.", "launch"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
+    (r"^webui\.state_growth\.", "web-ui-growth"),
     (r"^webui\.(god_ratio\.|[a-z0-9_]+\.god\.)", "web-ui-god"), (r"^webui\.", "web-ui"),
 ]
 # The diff-viewer budgets of scripts/benchmark-diff-viewer.sh (its env defaults), as rows where lower is better.
@@ -760,6 +765,8 @@ def linux_bench_runs(root, part="diff-viewer"):
         return {"suite": (["bun", "bench/web-ui-suite.ts"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-scale":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "update-one"], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-growth":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "state-growth"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-god":
         only = ",".join(GOD_BENCHES + [f"{b}-god" for b in GOD_BENCHES])
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", only], os.path.join(root, "webviews"), {})}
@@ -1564,6 +1571,8 @@ def supported_parts_at(sha):
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{UPDATE_ONE_BENCH}"], capture_output=True).returncode == 0
         elif need == "web-ui-god":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{GOD_FIXTURE}"], capture_output=True).returncode == 0
+        elif need == "web-ui-growth":
+            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{STATE_GROWTH_BENCH}"], capture_output=True).returncode == 0
         elif need in ("perf-gate", "launch"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
@@ -1603,6 +1612,7 @@ DIFF_LEGACY_VERSION = 1
 # The web-ui part's runner; a commit without it does not run the part. Its rows are webui.<the bench's PERF_ROW name>.
 WEBUI_SUITE = "webviews/bench/web-ui-suite.ts"
 UPDATE_ONE_BENCH = "webviews/bench/update-one.bench.ts"
+STATE_GROWTH_BENCH = "webviews/bench/state-growth.bench.ts"
 # The web-ui-god part: the benches that take FIXTURE=god (web-ui-suite.ts lists each as NAME and NAME-god) and the
 # shared fixture a commit needs for the part. A god row is webui.<prefix>.god.<rest>; its ordinary twin drops `.god`.
 GOD_FIXTURE = "webviews/bench/godFixture.ts"
