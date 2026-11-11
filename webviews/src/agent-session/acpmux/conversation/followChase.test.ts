@@ -2,6 +2,8 @@
 // within the speed limit, never past its rest, and the frame loop ends at rest. The live browser
 // behaviour at 120 Hz is in test/send-stream-motion.test.ts.
 import { expect, test } from "bun:test";
+import { MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../../motion/scale.generated";
+import { bezierAt } from "../../../ui/cubicBezier";
 import { currentChatMetrics } from "../chatDisplay";
 import {
   ARRIVAL_BURST_S,
@@ -419,4 +421,63 @@ test("in the earlier looks a row that arrived holds all of its move back, and is
   const other = fixture();
   growth.shift(other.node, -2 * line, line * 10);
   expect(other.drawn()).toBeCloseTo((2 - Math.min(2 - CHASE_HOLD_LINES, CHASE_LAND_LINES)) * line);
+});
+
+// Leo, 2026-11-11 (ask-9d22a47adb): "when the new messages come in, like the animation is just way too
+// fucking slow ... when the rest of the transcript moves up and your message comes in ... It's not
+// fast enough and it's not fucking together enough ... There should be, like, mathematical ways to
+// determine what the fuck is wrong with ours." The measure: at every frame the thread's rise has
+// played the share of its move that the bubble's entrance has of its own (the send motion, 180 ms on
+// MOTION_SEND_CURVE), and both rest in the same frame. On base a 60 px send's spring rested at
+// 258 ms and trailed the bubble's clock by up to 27 px.
+test.each([60, 100])("a send's %d px rise plays on the bubble's send clock and rests with it", (px) => {
+  const chase = createFollowChase("blocks");
+  const { node, frame, drawn, pending } = fixture();
+  expect(chase.shift(node, -px, Number.POSITIVE_INFINITY, false, false, true)).toBe(true);
+  expect(drawn()).toBeCloseTo(px);
+  let frames = 0;
+  let worst = 0;
+  while (pending() > 0 && frames < 240) {
+    const at = frame();
+    frames += 1;
+    const bubble = px * (1 - bezierAt(MOTION_SEND_CURVE, Math.min(1, (frames * 1000) / 120 / MOTION_SEND_MS)));
+    worst = Math.max(worst, Math.abs(at - bubble));
+  }
+  expect(worst).toBeLessThanOrEqual(currentChatMetrics().lineHeight / 3);
+  expect(frames).toBeLessThanOrEqual(Math.ceil((MOTION_SEND_MS * 120) / 1000));
+  expect(drawn()).toBe(0);
+});
+
+test("a long send's rise moves no frame more than a line and still rests with the bubble", () => {
+  const line = currentChatMetrics().lineHeight;
+  const chase = createFollowChase("blocks");
+  const { node, frame, drawn, pending } = fixture();
+  chase.shift(node, -300, Number.POSITIVE_INFINITY, false, false, true);
+  let previous = drawn();
+  let frames = 0;
+  while (pending() > 0) {
+    const at = frame();
+    expect(previous - at).toBeLessThanOrEqual(line + 1e-6);
+    expect(at).toBeLessThanOrEqual(previous + 1e-9);
+    previous = at;
+    frames += 1;
+  }
+  expect(frames).toBeLessThanOrEqual(Math.ceil((MOTION_SEND_MS * 120) / 1000));
+});
+
+test("the thinking row landing during a send's rise joins it and keeps its end", () => {
+  const chase = createFollowChase("blocks");
+  const { node, frame, drawn, pending } = fixture();
+  chase.shift(node, -60, Number.POSITIVE_INFINITY, false, false, true);
+  for (let index = 0; index < 8; index += 1) frame();
+  // The thinking row's room lands a pass later, as the composer's room does: not marked sent.
+  chase.shift(node, -20, 200);
+  expect(drawn()).toBeGreaterThan(20);
+  let frames = 8;
+  while (pending() > 0 && frames < 240) {
+    frame();
+    frames += 1;
+  }
+  expect(frames).toBeLessThanOrEqual(Math.ceil((MOTION_SEND_MS * 120) / 1000));
+  expect(drawn()).toBe(0);
 });
