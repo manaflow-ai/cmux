@@ -39,9 +39,11 @@ never reads the store (it has none, or its format moved on) is "not-run" for
 this arm, said in the log and in report.json's `arms`; it is never a pass of
 it and never a failure. A crash of the seeded arm fails the run as a crash of
 the first does. In the seeded arm a crash report counts only when it is of
-that launch: one that names the first arm's process (a crash while it quit,
-written seconds later) or another copy of the app is logged and kept, never
-counted. Without --arms only the empty home is launched, as before.
+that launch: one of a process that died before the seeded launch started (the
+first arm's app or a helper of it, a crash while it quit, written seconds
+later), one that names the first arm's process, or one of another copy of the
+app is logged and kept under --out's not-counted/, never counted. Without
+--arms only the empty home is launched, as before.
 
 Usage: fresh_home_launch_smoke.py (--app APP | --dmg DMG) [--seconds S]
            [--startup-timeout S] [--out DIR] [--arms empty[,seeded]]
@@ -81,6 +83,7 @@ import sys
 import tempfile
 import time
 from collections.abc import Callable
+from datetime import datetime, timezone
 from pathlib import Path
 
 PASS, FAIL, USAGE, CANNOT_RUN = 0, 1, 2, 3
@@ -107,6 +110,8 @@ EMPTY, SEEDED = "empty", "seeded"
 ARMS = (EMPTY, SEEDED)
 # The seeded arm's verdict when it launched nothing or the app never read the seeded store.
 NOT_RUN = "not-run"
+# Where --out keeps the crash reports the seeded arm found and did not count (not_of_launch says why in the log).
+NOT_COUNTED = "not-counted"
 # The seeded arm's bounds, so both arms fit in one attempt of the publish gate (launch-smoke-gate.sh, 240 s):
 # how long Home may take to render in it, and how long after launch the sync may take to read the store.
 SEEDED_STARTUP_LIMIT = 45.0
@@ -527,13 +532,58 @@ def crash_report_process(path: Path) -> dict | None:
             "path": where.group(1) if where else None}
 
 
-def not_of_launch(path: Path, pid: int, app: Path, earlier: frozenset[int]) -> str | None:
+REPORT_TIME = re.compile(r"(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)(\.\d+)? ([+-]\d{4})")
+
+
+def crash_report_time(path: Path) -> tuple[float, float] | None:
+    """When the process of a crash report died, as (epoch seconds, how many seconds later it can have been), or
+    None when the report does not say. An .ips body has `captureTime` and a .crash has a `Date/Time:` line, both
+    exact; an .ips header has `timestamp`, which macOS writes to the whole second (`12:34:56.00`), and it is all
+    there is while the body is not written in full."""
+    try:
+        text = path.read_text(errors="replace")
+    except OSError:
+        return None
+    head, _, rest = text.partition("\n")
+    stamps: list[tuple[object, float]] = []
+    try:
+        stamps.append((json.loads(rest).get("captureTime"), 0.0))
+    except (ValueError, AttributeError):
+        pass
+    try:
+        stamps.append((json.loads(head).get("timestamp"), 1.0))
+    except (ValueError, AttributeError):
+        pass
+    line = re.search(r"^Date/Time:\s+(\S.*?)\s*$", text[:8000], re.MULTILINE)
+    if line:
+        stamps.append((line.group(1), 0.0))
+    for stamp, slack in stamps:
+        found = REPORT_TIME.fullmatch(stamp) if isinstance(stamp, str) else None
+        if found is None:
+            continue
+        try:
+            when = datetime.strptime(f"{found.group(1)} {found.group(3)}", "%Y-%m-%d %H:%M:%S %z").timestamp()
+        except ValueError:
+            continue
+        return when + float(found.group(2) or 0), slack
+    return None
+
+
+def not_of_launch(path: Path, pid: int, app: Path, earlier: frozenset[int], started: float | None = None) -> str | None:
     """Why the crash report at PATH is not of the launch with PID of the app copy APP, or None when it is or can
     be. crash_reports matches by the executable's name and the file's time alone, and ReportCrash writes a report
-    some seconds after its process died: so a report of an EARLIER launch of this run (one that crashed while it
-    quit), or of another copy of the app on this host, can land while this launch is watched. A report counts
-    when it names this launch or a child of it, or another process of this run's app copy that is not of an
-    earlier launch; one that names no pid counts, as every report did before."""
+    some seconds after its process died: so a report of an EARLIER launch of this run (its app crashed while it
+    quit, or a helper of it did when its app went away), or of another copy of the app on this host, can land
+    while this launch is watched. STARTED is the wall time by which every earlier launch of this run was stopped,
+    and before which this launch had no process: a report of a process that died before it is never this
+    launch's. That time is the only thing that tells an earlier launch's orphaned helper (its parent is pid 1,
+    its path is in the same app copy) from this launch's. After it, a report counts when it names this launch or
+    a child of it, or another process of this run's app copy that is not of an earlier launch; one that names
+    neither a time nor a pid counts, as every report did before."""
+    died = crash_report_time(path) if started is not None else None
+    if died is not None and died[0] + died[1] < started:
+        return (f"its process died at {datetime.fromtimestamp(died[0], timezone.utc):%H:%M:%S}Z, "
+                f"{started - died[0]:.1f}s before this launch started")
     who = crash_report_process(path)
     if who is None or pid in (who["pid"], who["parent"]):
         return None
@@ -787,16 +837,22 @@ def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict,
     seen["home_tab"] = home_tab(seen["snapshot"])
     status, elapsed = seen["exit"], seen["seconds_up"]
 
-    # Only this launch's crash reports count here: the first arm's app was stopped a moment ago, and a report of
-    # it (a crash while it quit) would otherwise make this arm a crash of a healthy app.
+    # Only this launch's crash reports count here: the first arm's processes were stopped a moment ago, and a
+    # report of one (a crash while it quit) would otherwise make this arm a crash of a healthy app.
+    not_counted: dict[Path, str] = {}
+
     def skip(found: Path) -> str | None:
-        return not_of_launch(found, process.pid, app, launch["earlier"])
+        why = not_of_launch(found, process.pid, app, launch["earlier"], launch["earlier_stopped"])
+        if why is None:
+            not_counted.pop(found, None)
+        else:
+            not_counted[found] = why
+        return why
 
     crashes = awaited_crash_reports(launch["diagnostics"], executable, launched_wall, status is not None, skip)
-    others = [found for found in crash_reports(launch["diagnostics"], executable, launched_wall)
-              if found not in crashes]
+    others = sorted(found for found in not_counted if found not in crashes)
     for found in others:
-        log(f"note: crash report {found.name} is not counted for the seeded launch: {skip(found)}")
+        log(f"note: crash report {found.name} is not counted for the seeded launch: {not_counted[found]}")
     exceptions = sorted((sub / "h").rglob("run.exception"))
     seen["crash_reports"] = [str(path) for path in crashes]
     seen["run_exceptions"] = [str(path) for path in exceptions]
@@ -831,8 +887,12 @@ def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict,
     # The verdict stands before the evidence is kept: a copy or a log read that fails must not undo a crash.
     try:
         if launch["out"] is not None:
-            for found in [*crashes, *others, *exceptions]:
+            for found in [*crashes, *exceptions]:
                 shutil.copyfile(found, launch["out"] / found.name)
+            # Not beside the counted ones: a caller shows each report at the top of --out as this run's crash.
+            for found in others:
+                (launch["out"] / NOT_COUNTED).mkdir(exist_ok=True)
+                shutil.copyfile(found, launch["out"] / NOT_COUNTED / found.name)
         if failures:
             explain(process.pid, launched_wall, sub / "app.log", crashes, exceptions, seen["failures"], seen)
     except Exception as error:  # noqa: BLE001 - evidence only
@@ -853,7 +913,9 @@ def run_seeded(args: argparse.Namespace, root: Path, report: dict, launch: dict,
         log(f"==> seeded-home arm NOT RUN: {arm['reason']}")
         return status
     started, seen = time.monotonic(), {}
-    launch["earlier"] = frozenset({report["pid"]})
+    # The first arm stopped its app and every process of its run before it returned, so none of them died later
+    # than now, and the seeded launch has no process yet.
+    launch["earlier"], launch["earlier_stopped"] = frozenset({report["pid"]}), time.time()
     try:
         launch_seeded(args, root, launch, arm, seen)
     except Exception as error:  # noqa: BLE001 - whatever stops this arm short of a verdict never fails the run
