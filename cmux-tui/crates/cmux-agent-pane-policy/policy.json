@@ -76,8 +76,13 @@
     "_acpmux/plan/build": "always",
     "_acpmux/race/start": "always"
   },
-  "click_only": [],
-  "click_window_ms": 0,
+  "click_only": [
+    "_acpmux/permission_group_respond",
+    "_acpmux/permission_respond",
+    "_acpmux/plan/build",
+    "_acpmux/presets"
+  ],
+  "click_window_ms": 1500,
   "act_as_me_covers": ["session/prompt", "_acpmux/queue_approve"],
   "non_trusting_levels": ["untrusted", "unknown"],
   "setting_methods": ["session/set_mode", "session/set_config_option"],
