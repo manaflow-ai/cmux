@@ -482,11 +482,15 @@
     "agent-pane.composer-context#folder-favicons": [
       "menu-fit:div[aria-label=\"Folder\"]"
     ],
-    "agent-pane.composer-context#folder-long-list": [],
+    "agent-pane.composer-context#folder-long-list": [
+      "menu-fit:div[aria-label=\"Folder\"]"
+    ],
     "agent-pane.composer-context#folder-menu": [
       "menu-fit:div[aria-label=\"Folder\"]"
     ],
-    "agent-pane.composer-context#folder-pinned-search": [],
+    "agent-pane.composer-context#folder-pinned-search": [
+      "menu-fit:div[aria-label=\"Folder\"]"
+    ],
     "agent-pane.composer-context#folder-short-note": [
       "menu-fit:div[aria-label=\"Folder\"]"
     ],
