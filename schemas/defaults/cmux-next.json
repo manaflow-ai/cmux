@@ -446,7 +446,7 @@
     "setting.browser.omnibox.popupColor": null,
     "setting.browser.omnibox.popupHoverColor": null,
     "setting.browser.openLinksInCmuxBrowser": true,
-    "setting.browser.openPullRequestsInGitHubPage": true,
+    "setting.browser.openPullRequestsInGitHubPage": false,
     "setting.browser.openSignInPagesInCmux": true,
     "setting.browser.openTerminalLinksInCmuxBrowser": true,
     "setting.browser.passwords.allowExport": false,
