@@ -666,7 +666,7 @@ pub fn is_ansi_layout(input_source_id: Option<&str>, enabled_sources_recorded: b
 /// function key) after the menu search, for either delivery.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ChordAction {
-    /// Background: press the matched menu item (its index) through AX.
+    /// Press the matched menu item (its index) through AX; no key is posted.
     PressItem(usize),
     /// Post the chord as key events.
     Post,
@@ -676,8 +676,11 @@ pub enum ChordAction {
 
 /// Facts the chord decision needs (the menu search, the deny list, the
 /// keyboard layout and the Services shortcuts), so it is one tested place.
+/// The layout and Services facts are read only when the rule gets to them
+/// (`needs_key_checks`).
 #[derive(Clone, Debug)]
 pub struct ChordFacts<'a> {
+    /// Matches in menu order, up to and including the first enabled one.
     pub matches: &'a [ShortcutMatch],
     /// The menu search saw every item (no AX error, no branch cut).
     pub complete: bool,
@@ -685,7 +688,7 @@ pub struct ChordFacts<'a> {
     /// The chord has Command.
     pub command: bool,
     pub denies_any: bool,
-    /// The layout's keys are the ANSI codes posted (checked only when needed).
+    /// The layout's keys are the ANSI codes posted.
     pub ansi_layout: bool,
     /// Whether the chord is a registered Services shortcut.
     pub is_service: ServiceCheck,
@@ -698,37 +701,33 @@ pub const REFUSE_SERVICE: &str = "this shortcut runs a Service, which can hand t
 pub const REFUSE_DISABLED: &str = "the menu item for this shortcut is disabled right now";
 pub const REFUSE_BLOCKED: &str = "the menu item for this shortcut would reach an app on the Computer Use deny list";
 
-/// AppKit's routing, held to the deny list, as one rule:
-/// - Background, the first enabled match not blocked and the walk to it
-///   complete: press that item through AX (no key is posted, so nothing else
-///   can take the chord).
-/// - Nothing denied: post (in the background a disabled Command item is
-///   reported as disabled: posting it would lose the Shift).
-/// - Otherwise keys are posted while something is denied, and AppKit decides
-///   at key time which item or Service runs. So `matches` holds EVERY match
-///   the walk found, enabled or not, and the chord is refused when any of
-///   them is blocked, the walk was incomplete (bounds, a read error), the
-///   layout is not ANSI, or it is (or may be) a Services shortcut.
+/// AppKit's routing, held to the deny list, as one rule for both deliveries:
+/// - The first enabled match is not blocked: press that item through AX. No
+///   key is posted, so no Service, other item or key-time revalidation can
+///   take the chord, and nothing after it needs reading.
+/// - It is blocked, or any (disabled) match is: refuse. A posted key is
+///   revalidated at key time, so a disabled item may run then. This holds
+///   with nothing denied too (protected apps: sign-in, security prompts,
+///   cmux Remote).
+/// - Only disabled matches, in the background with Command: report it
+///   (posted, the chord would lose its Shift and reach another item).
+/// - Otherwise the key is posted: as typed with nothing denied; while
+///   something is denied only after a complete walk, on a layout whose keys
+///   are known, and when it is no Services shortcut (read).
 pub fn decide_chord(f: &ChordFacts) -> ChordAction {
-    if f.background
-        && (f.complete || !f.denies_any)
-        && let ShortcutPick::Press(i) = pick_shortcut(f.matches)
-    {
-        return ChordAction::PressItem(i);
-    }
-    if !f.denies_any {
-        // Protected apps (sign-in, security prompts, cmux Remote) are blocked
-        // with an empty deny list too.
-        if f.matches.iter().any(|m| m.blocked) {
-            return ChordAction::Refuse(REFUSE_BLOCKED);
-        }
-        if f.background && f.command && matches!(pick_shortcut(f.matches), ShortcutPick::Disabled(_)) {
-            return ChordAction::Refuse(REFUSE_DISABLED);
-        }
-        return ChordAction::Post;
+    match pick_shortcut(f.matches) {
+        ShortcutPick::Press(i) => return ChordAction::PressItem(i),
+        ShortcutPick::Blocked(_) => return ChordAction::Refuse(REFUSE_BLOCKED),
+        ShortcutPick::Disabled(_) | ShortcutPick::None => {}
     }
     if f.matches.iter().any(|m| m.blocked) {
         return ChordAction::Refuse(REFUSE_BLOCKED);
+    }
+    if f.background && f.command && !f.matches.is_empty() {
+        return ChordAction::Refuse(REFUSE_DISABLED);
+    }
+    if !needs_key_checks(f.matches, f.denies_any) {
+        return ChordAction::Post;
     }
     if !f.complete {
         return ChordAction::Refuse(REFUSE_TOO_DEEP);
@@ -743,6 +742,12 @@ pub fn decide_chord(f: &ChordFacts) -> ChordAction {
     }
 }
 
+/// Whether the rule reads the layout and the Services shortcuts: only when
+/// the key would be posted (no enabled match) while something is denied.
+pub fn needs_key_checks(matches: &[ShortcutMatch], denies_any: bool) -> bool {
+    denies_any && !matches.iter().any(|m| m.enabled || m.blocked)
+}
+
 /// Whether a chord is a Services shortcut.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ServiceCheck {
@@ -752,20 +757,3 @@ pub enum ServiceCheck {
     Unread,
 }
 
-/// The person's Services shortcuts in `defaults read pbs NSServicesStatus`
-/// output: every `key_equivalent` value (quoted values verbatim), empty ones
-/// left out.
-pub fn person_equivalents(text: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut rest = text;
-    while let Some(i) = rest.find("key_equivalent") {
-        rest = &rest[i + "key_equivalent".len()..];
-        let Some(eq) = rest.find('=') else { break };
-        // From the "=" on, the rest of this dictionary: its first value is ours.
-        let (values, _) = dump_dict_values(&rest[eq..]);
-        if let Some(v) = values.into_iter().next().filter(|v| !v.is_empty()) {
-            out.push(v);
-        }
-    }
-    out
-}

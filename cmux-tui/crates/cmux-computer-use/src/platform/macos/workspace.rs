@@ -482,62 +482,97 @@ fn launch_services_id(name: &str) -> Option<String> {
     })
 }
 
-/// The Services shortcuts the services declare (`pbs -dump`, every
-/// NSKeyEquivalent value; Command implied) as (key code, flags). Read on a
-/// background thread, refreshed every SERVICES_REFRESH; `None` until a read
-/// has succeeded (the caller refuses a chord then, fail-closed).
+/// The Services shortcuts: the services' own (`pbs -dump`, every
+/// NSKeyEquivalent value; Command implied) and the person's assignments, as
+/// (key code, flags). Read on a background thread, refreshed every
+/// SERVICES_REFRESH. A caller that finds no list it can use while a read is
+/// in flight (the first chord after start, or after SERVICES_STALE idle)
+/// waits for that read, at most SERVICES_WAIT. `None` when there is still no
+/// usable list (the caller refuses a chord then, fail-closed).
 pub fn service_shortcuts() -> Option<Vec<(u16, u64)>> {
-    use std::sync::{Mutex, OnceLock};
     use std::time::Instant;
-    struct State {
-        last: Option<(Instant, Vec<(u16, u64)>)>,
-        refreshing: bool,
-        /// When the last read failed: the next try waits SERVICES_RETRY.
-        failed_at: Option<Instant>,
-    }
-    static STATE: OnceLock<Mutex<State>> = OnceLock::new();
-    let cell = STATE.get_or_init(|| Mutex::new(State { last: None, refreshing: false, failed_at: None }));
+    let (cell, ready) = services_state();
     let mut st = cell.lock().unwrap_or_else(|e| e.into_inner());
-    let due = st.last.as_ref().is_none_or(|(at, _)| at.elapsed() > SERVICES_REFRESH)
-        && st.failed_at.is_none_or(|at| at.elapsed() > SERVICES_RETRY);
-    if due && !st.refreshing {
-        st.refreshing = true;
-        let spawned = std::thread::Builder::new().name("cu-services".into()).spawn(move || {
-            // Reset `refreshing` however the read ends (an error, a panic).
-            struct Done(&'static Mutex<State>, Option<Vec<(u16, u64)>>);
-            impl Drop for Done {
-                fn drop(&mut self) {
-                    let mut st = self.0.lock().unwrap_or_else(|e| e.into_inner());
-                    st.refreshing = false;
-                    match self.1.take() {
-                        Some(list) => {
-                            st.last = Some((Instant::now(), list));
-                            st.failed_at = None;
-                        }
-                        None => st.failed_at = Some(Instant::now()),
-                    }
-                }
-            }
-            let mut done = Done(cell, None);
-            done.1 = read_service_shortcuts();
-        });
-        if spawned.is_err() {
-            st.refreshing = false;
-        }
-    }
-    // A list stops counting only when it is older than SERVICES_STALE AND a
-    // refresh after that has failed (an idle pause alone keeps it).
+    start_services_refresh(&mut st);
     // An old list does not count while its refresh is in flight, nor after
-    // a refresh past the window failed.
-    let old = st.last.as_ref().is_some_and(|(at, _)| at.elapsed() > SERVICES_STALE);
-    let stale = old
-        && (st.refreshing || st.failed_at.is_some_and(|f| st.last.as_ref().is_some_and(|(at, _)| f > *at + SERVICES_STALE)));
-    if stale {
-        return None;
+    // a refresh past the window failed (an idle pause alone does not drop
+    // it once refreshed).
+    let usable = |st: &ServicesState| {
+        let old = st.last.as_ref().is_some_and(|(at, _)| at.elapsed() > SERVICES_STALE);
+        let failed_since = st.failed_at.is_some_and(|f| st.last.as_ref().is_some_and(|(at, _)| f > *at + SERVICES_STALE));
+        let stale = old && (st.refreshing || failed_since);
+        if stale { None } else { st.last.as_ref().map(|(_, list)| list.clone()) }
+    };
+    let deadline = Instant::now() + SERVICES_WAIT;
+    loop {
+        if let Some(list) = usable(&st) {
+            return Some(list);
+        }
+        let now = Instant::now();
+        if !st.refreshing || now >= deadline {
+            return None;
+        }
+        st = ready.wait_timeout(st, deadline - now).unwrap_or_else(|e| e.into_inner()).0;
     }
-    st.last.as_ref().map(|(_, list)| list.clone())
 }
 
+/// Starts the Services read now if one is due, so the first chord finds it
+/// done (called when a deny list is set).
+pub fn warm_service_shortcuts() {
+    let (cell, _) = services_state();
+    let mut st = cell.lock().unwrap_or_else(|e| e.into_inner());
+    start_services_refresh(&mut st);
+}
+
+struct ServicesState {
+    last: Option<(std::time::Instant, Vec<(u16, u64)>)>,
+    refreshing: bool,
+    /// When the last read failed: the next try waits SERVICES_RETRY.
+    failed_at: Option<std::time::Instant>,
+}
+
+fn services_state() -> &'static (std::sync::Mutex<ServicesState>, std::sync::Condvar) {
+    use std::sync::{Condvar, Mutex, OnceLock};
+    static STATE: OnceLock<(Mutex<ServicesState>, Condvar)> = OnceLock::new();
+    STATE.get_or_init(|| {
+        (Mutex::new(ServicesState { last: None, refreshing: false, failed_at: None }), Condvar::new())
+    })
+}
+
+fn start_services_refresh(st: &mut ServicesState) {
+    use std::time::Instant;
+    let due = st.last.as_ref().is_none_or(|(at, _)| at.elapsed() > SERVICES_REFRESH)
+        && st.failed_at.is_none_or(|at| at.elapsed() > SERVICES_RETRY);
+    if !due || st.refreshing {
+        return;
+    }
+    st.refreshing = true;
+    let spawned = std::thread::Builder::new().name("cu-services".into()).spawn(move || {
+        // Ends the read however it ends (an error, a panic), and wakes the
+        // callers waiting for it.
+        struct Done(Option<Vec<(u16, u64)>>);
+        impl Drop for Done {
+            fn drop(&mut self) {
+                let (cell, ready) = services_state();
+                let mut st = cell.lock().unwrap_or_else(|e| e.into_inner());
+                st.refreshing = false;
+                match self.0.take() {
+                    Some(list) => {
+                        st.last = Some((Instant::now(), list));
+                        st.failed_at = None;
+                    }
+                    None => st.failed_at = Some(Instant::now()),
+                }
+                ready.notify_all();
+            }
+        }
+        let mut done = Done(None);
+        done.0 = read_service_shortcuts();
+    });
+    if spawned.is_err() {
+        st.refreshing = false;
+    }
+}
 
 /// Whether the current keyboard layout is one the key codes here are written
 /// for (U.S. or ABC): the Services check maps characters to ANSI key codes,
@@ -563,9 +598,9 @@ const SERVICES_STALE: Duration = Duration::from_secs(120);
 const SERVICES_RETRY: Duration = Duration::from_secs(15);
 /// How long `pbs -dump` may take.
 const PBS_TIMEOUT: Duration = Duration::from_secs(3);
+/// How long a chord waits for a Services read in flight.
+const SERVICES_WAIT: Duration = Duration::from_secs(6);
 
-/// One read of both sources; None when `pbs -dump` failed (not run, timed
-/// out, non-zero exit, or no services at all).
 /// Runs a short command in its own process group and returns its output
 /// and whether it exited 0, or None when it did not finish within
 /// PBS_TIMEOUT (then the whole group is killed and reaped).
@@ -624,8 +659,7 @@ fn run_bounded(program: &str, args: &[&str]) -> Option<(String, bool)> {
 
 /// One read of both sources: the services' own key equivalents
 /// (`pbs -dump`, Command implied) and the person's assignments
-/// (`defaults read pbs NSServicesStatus`, Command only where they say "@").
-/// None when either read failed.
+/// (pbs's NSServicesStatus default). None when the dump failed.
 fn read_service_shortcuts() -> Option<Vec<(u16, u64)>> {
     let (dump, ok) = run_bounded("/System/Library/CoreServices/pbs", &["-dump"])?;
     if !ok || !dump.contains("NSBundlePath") {
@@ -635,14 +669,17 @@ fn read_service_shortcuts() -> Option<Vec<(u16, u64)>> {
         .iter()
         .map(|e| super::keymap::service_shortcut(e, true))
         .collect::<Option<_>>()?;
-    // No NSServicesStatus (nothing assigned) is a non-zero exit with no output.
-    let (status, ok) = run_bounded("/usr/bin/defaults", &["read", "pbs", "NSServicesStatus"])?;
-    if ok {
-        for e in super::roles::person_equivalents(&status) {
-            list.push(super::keymap::service_shortcut(&e, false)?);
+    // The person's assignments: NSServicesStatus in pbs's defaults, absent
+    // until they assign one. Read in process (a missing key is NULL, which
+    // is none assigned); Command only where they wrote "@".
+    Cf::synchronize_preferences("pbs");
+    if let Some(status) = Cf::preference("NSServicesStatus", "pbs") {
+        for entry in status.dict_values() {
+            let Some(value) = entry.get("key_equivalent").and_then(|v| v.as_string()) else { continue };
+            if !value.is_empty() {
+                list.push(super::keymap::service_shortcut(&value, false)?);
+            }
         }
-    } else if !status.trim().is_empty() {
-        return None;
     }
     Some(list)
 }

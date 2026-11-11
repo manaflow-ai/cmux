@@ -573,33 +573,56 @@ fn chords_are_held_to_the_deny_list_in_both_deliveries() {
     }
     let undo = [m("Undo", true, false)];
     let off = [m("Undo", false, false)];
-    // Background with a complete walk: the first enabled, unblocked item is pressed.
-    assert_eq!(roles::decide_chord(&ChordFacts { background: true, ansi_layout: false, is_service: S::Unread, ..base(&undo) }), A::PressItem(0));
-    // ...but not after an incomplete walk (a read error before it).
-    assert_ne!(roles::decide_chord(&ChordFacts { background: true, complete: false, ..base(&undo) }), A::PressItem(0));
-    // Posted keys, something denied: ANY blocked match refuses, enabled or not,
-    // before or after the first enabled one (AppKit revalidates at key time).
-    let later = [m("Undo", true, false), m("Open in Simulator", true, true)];
+    // The first enabled, unblocked match is pressed through AX, in both
+    // deliveries, deny list or not, whatever the walk, layout and Services
+    // say (no key is posted, so nothing else can take the chord). This is
+    // VS Code's shift+cmd+F while Spotlight's Service has the same chord.
+    for background in [false, true] {
+        for denies_any in [false, true] {
+            let f = ChordFacts {
+                background,
+                denies_any,
+                complete: false,
+                ansi_layout: false,
+                is_service: S::Match,
+                ..base(&undo)
+            };
+            assert_eq!(roles::decide_chord(&f), A::PressItem(0));
+        }
+    }
+    // Disabled matches before it do not run.
     let earlier_off = [m("Launch Simulator", false, true), m("Undo", true, false)];
-    assert_eq!(roles::decide_chord(&base(&later)), A::Refuse(roles::REFUSE_BLOCKED));
-    assert_eq!(roles::decide_chord(&base(&earlier_off)), A::Refuse(roles::REFUSE_BLOCKED));
-    // Then the walk, the layout and Services.
-    assert_eq!(roles::decide_chord(&ChordFacts { complete: false, ..base(&undo) }), A::Refuse(roles::REFUSE_TOO_DEEP));
-    assert_eq!(roles::decide_chord(&ChordFacts { ansi_layout: false, ..base(&undo) }), A::Refuse(roles::REFUSE_LAYOUT));
-    assert_eq!(roles::decide_chord(&ChordFacts { is_service: S::Match, ..base(&undo) }), A::Refuse(roles::REFUSE_SERVICE));
+    assert_eq!(roles::decide_chord(&base(&earlier_off)), A::PressItem(1));
+    // The first enabled match is blocked: refused, with nothing denied too
+    // (a protected app's item), in both deliveries.
+    let blocked = [m("Open in Simulator", true, true)];
+    for denies_any in [false, true] {
+        for background in [false, true] {
+            let f = ChordFacts { denies_any, background, ..base(&blocked) };
+            assert_eq!(roles::decide_chord(&f), A::Refuse(roles::REFUSE_BLOCKED));
+        }
+    }
+    // Only disabled matches, one blocked: a posted key is revalidated at key
+    // time, so it is refused.
+    let off_blocked = [m("Undo", false, false), m("Open in Simulator", false, true)];
+    assert_eq!(roles::decide_chord(&ChordFacts { denies_any: false, ..base(&off_blocked) }), A::Refuse(roles::REFUSE_BLOCKED));
+    // Only disabled matches, background with Command: reported as disabled.
+    for denies_any in [false, true] {
+        let f = ChordFacts { denies_any, background: true, command: true, ..base(&off) };
+        assert_eq!(roles::decide_chord(&f), A::Refuse(roles::REFUSE_DISABLED));
+    }
+    // Posted: nothing denied, as typed.
+    assert_eq!(roles::decide_chord(&ChordFacts { denies_any: false, complete: false, ansi_layout: false, is_service: S::Unread, ..base(&off) }), A::Post);
+    assert_eq!(roles::decide_chord(&ChordFacts { denies_any: false, ..base(&[]) }), A::Post);
+    // Posted while something is denied: the walk, the layout and Services.
+    assert!(roles::needs_key_checks(&off, true) && roles::needs_key_checks(&[], true));
+    assert!(!roles::needs_key_checks(&undo, true) && !roles::needs_key_checks(&off, false));
+    assert_eq!(roles::decide_chord(&ChordFacts { complete: false, ..base(&off) }), A::Refuse(roles::REFUSE_TOO_DEEP));
+    assert_eq!(roles::decide_chord(&ChordFacts { ansi_layout: false, ..base(&[]) }), A::Refuse(roles::REFUSE_LAYOUT));
+    assert_eq!(roles::decide_chord(&ChordFacts { is_service: S::Match, ..base(&[]) }), A::Refuse(roles::REFUSE_SERVICE));
     assert_eq!(roles::decide_chord(&ChordFacts { is_service: S::Unread, ..base(&off) }), A::Refuse(roles::REFUSE_SERVICES_UNREAD));
-    assert_eq!(roles::decide_chord(&base(&undo)), A::Post);
     assert_eq!(roles::decide_chord(&base(&off)), A::Post);
-    // Nothing denied: posted, whatever the walk, layout or Services say...
-    assert_eq!(roles::decide_chord(&ChordFacts { denies_any: false, complete: false, ansi_layout: false, is_service: S::Unread, ..base(&undo) }), A::Post);
-    // ...except a protected app's item (blocked with an empty deny list too).
-    assert_eq!(roles::decide_chord(&ChordFacts { denies_any: false, ..base(&later) }), A::Refuse(roles::REFUSE_BLOCKED));
-    // A disabled background Command item is reported (posted, it would lose its Shift).
-    assert_eq!(roles::decide_chord(&ChordFacts { denies_any: false, background: true, command: true, ..base(&off) }), A::Refuse(roles::REFUSE_DISABLED));
-    assert_eq!(roles::decide_chord(&ChordFacts { denies_any: false, background: true, command: false, ..base(&off) }), A::Post);
-    assert_eq!(roles::decide_chord(&ChordFacts { denies_any: false, background: false, command: true, ..base(&off) }), A::Post);
-    // Nothing denied, background: an incomplete walk still presses the item.
-    assert_eq!(roles::decide_chord(&ChordFacts { denies_any: false, background: true, complete: false, ..base(&undo) }), A::PressItem(0));
+    assert_eq!(roles::decide_chord(&base(&[])), A::Post);
 }
 
 #[test]
@@ -650,20 +673,7 @@ fn services_keys_on_non_character_keys_are_placed() {
 }
 
 #[test]
-fn person_services_shortcuts_parse_from_defaults_output() {
-    let text = r#"{
-    "(null) - Send to Raycast AI - x" =     {
-        "enabled_context_menu" = 1;
-        "key_equivalent" = "@^t";
-    };
-    "com.apple.Terminal - New Terminal at Folder - x" =     {
-        "key_equivalent" = "^~\r";
-    };
-    "com.apple.Notes - Add to Notes - x" =     {
-        "key_equivalent" = "";
-    };
-}"#;
-    assert_eq!(roles::person_equivalents(text), vec!["@^t".to_string(), "^~\r".to_string()]);
+fn person_services_shortcuts_are_placed() {
     let (t, _) = keymap::char_key('t').unwrap();
     assert_eq!(keymap::service_shortcut("@^t", false), Some((t, keymap::FLAG_COMMAND | keymap::FLAG_CONTROL)));
     assert_eq!(keymap::service_shortcut("^~\r", false), Some((keymap::KEY_RETURN, keymap::FLAG_CONTROL | keymap::FLAG_ALTERNATE)));

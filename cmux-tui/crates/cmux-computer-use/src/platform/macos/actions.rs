@@ -415,52 +415,32 @@ pub(super) fn press_keys(
     if shift {
         flags |= keymap::FLAG_SHIFT;
     }
-    // A shortcut with Command in the background: press the app's menu item
-    // with that key equivalent through accessibility. AppKit matches posted
-    // key events to menu items by the event's characters, which a synthetic
-    // event fills from the key code without Shift, so cmd+shift+t reached
-    // TextEdit as cmd+t (Show Fonts) and its menu item never ran.
-    // The key route first: a shortcut's menu item acts on the app's key
-    // window, so it is pressed only when keys would reach the target window.
+    // A chord a menu item or a Service can own (Command, Control or Option,
+    // or a function key), in either delivery: the app's menus are searched
+    // in AppKit's order. An enabled, unblocked first match is pressed through
+    // accessibility instead of posting the key: a posted chord loses its
+    // Shift (AppKit matches the event's characters, which a synthetic event
+    // fills without Shift, so cmd+shift+t reached TextEdit as cmd+t), and a
+    // posted key could be taken by a Service or a revalidated item.
+    // The key route first: a menu item acts on the app's key window, so it
+    // is pressed only when keys would reach the target window.
+    // Not covered: a plain key with no modifier (only an app that registers
+    // bare keys gives it a menu item) and items an app builds only when its
+    // menu opens or hides from AX.
     let route = d.key_route(&t, delivery)?;
-    // The deny-list checks hold for both deliveries: a foreground chord goes
-    // through the same AppKit menus and Services. Any chord a menu item or a
-    // Service can own: with Command, Control or Option, or a function key.
-    // Not covered, as before: a plain key with no modifier (it can only be a
-    // menu item's equivalent in an app that registers bare keys), and menu
-    // items an app builds only when its menu opens or hides from AX.
     use crate::keys::{Key, Modifier};
     let menu_chord = combo.modifiers.iter().any(|m| matches!(m, Modifier::Meta | Modifier::Control | Modifier::Alt))
         || matches!(combo.key, Key::F(_));
     let denies_any = d.denies_any();
-    let background = delivery == Delivery::Background;
-    let command = combo.modifiers.contains(&Modifier::Meta);
-    // With nothing denied, only a background Command chord needs the menu
-    // walk (to press its item: posted, it would lose its Shift); every other
-    // chord is posted as typed.
-    if menu_chord && (denies_any || (background && command)) {
-        // A background chord stops at the first enabled match (pressed
-        // through AX, no key posted); keys that will be posted need every
-        // match, since AppKit picks the item or Service at key time.
-        let mut walk = shortcut_matches(d, t.window.pid, combo, background);
-        let first_enabled_ok = |items: &[(Ax, roles::ShortcutMatch)], complete: bool| {
-            let m: Vec<roles::ShortcutMatch> = items.iter().map(|(_, m)| m.clone()).collect();
-            matches!(roles::pick_shortcut(&m), roles::ShortcutPick::Press(_)) && (complete || !denies_any)
-        };
-        if background && !first_enabled_ok(&walk.0, walk.1) && (denies_any || command) {
-            walk = shortcut_matches(d, t.window.pid, combo, false);
-        }
-        let (items, complete) = walk;
+    if menu_chord {
+        // The walk stops at the first enabled match: it is pressed or refused.
+        let (items, complete) = shortcut_matches(d, t.window.pid, combo, true);
         let matches: Vec<roles::ShortcutMatch> = items.iter().map(|(_, m)| m.clone()).collect();
-        let press = background && first_enabled_ok(&items, complete);
-        let ansi_layout = press || !denies_any || workspace::ansi_layout();
-        // The person's assignments (any modifiers) are read now; the
-        // services' own shortcuts (always with Command) come from the
-        // background read, needed only for a Command chord.
-        // Both the services' own shortcuts and the person's assignments come
-        // from one background read; flags are compared exactly, so a chord
-        // without Command can only match a person's assignment.
-        let is_service = if denies_any && !press && ansi_layout {
+        // The layout and Services are read only when the key would be posted
+        // while something is denied.
+        let checks = roles::needs_key_checks(&matches, denies_any) && complete;
+        let ansi_layout = !checks || workspace::ansi_layout();
+        let is_service = if checks && ansi_layout {
             match workspace::service_shortcuts() {
                 None => roles::ServiceCheck::Unread,
                 Some(list) if keymap::is_service_shortcut(code, flags, &list) => roles::ServiceCheck::Match,
@@ -469,8 +449,15 @@ pub(super) fn press_keys(
         } else {
             roles::ServiceCheck::NoMatch
         };
-        let facts =
-            roles::ChordFacts { matches: &matches, complete, background, command, denies_any, ansi_layout, is_service };
+        let facts = roles::ChordFacts {
+            matches: &matches,
+            complete,
+            background: delivery == Delivery::Background,
+            command: combo.modifiers.contains(&Modifier::Meta),
+            denies_any,
+            ansi_layout,
+            is_service,
+        };
         match roles::decide_chord(&facts) {
             roles::ChordAction::PressItem(i) => {
                 items[i].0.perform("AXPress").map_err(|e| ax_error(e, "press the shortcut's menu item"))?;
