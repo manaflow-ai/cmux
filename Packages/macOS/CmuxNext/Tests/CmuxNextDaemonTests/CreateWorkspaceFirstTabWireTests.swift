@@ -14,7 +14,10 @@ struct CreateWorkspaceFirstTabWireTests {
         let tab = WorkspaceFirstBrowserTab(url: "https://example.com/", engine: .cef, title: "Example", profileID: "default", idempotencyKey: "tab-key")
         let request = CreateWorkspaceRequest(name: "web", key: Self.key, firstTab: tab, mutation: nil)
         let value = try JSONDecoder().decode(JSONValue.self, from: WireCoding.encodeRequest(request, id: 7))
-        guard case .object(let fields) = value else { return Issue.record("not an object: \(value)") }
+        guard case .object(let fields) = value else {
+            Issue.record("not an object: \(value)")
+            return
+        }
         #expect(fields["cmd"] == .string("create-workspace"))
         #expect(fields["key"] == .string(Self.key.rawValue))
         #expect(fields["first_tab"] == .object([
@@ -27,7 +30,10 @@ struct CreateWorkspaceFirstTabWireTests {
     @Test func aPlainCreateSendsNoFirstTab() throws {
         let request = CreateWorkspaceRequest(name: nil, key: Self.key, mutation: nil)
         let value = try JSONDecoder().decode(JSONValue.self, from: WireCoding.encodeRequest(request, id: 8))
-        guard case .object(let fields) = value else { return Issue.record("not an object: \(value)") }
+        guard case .object(let fields) = value else {
+            Issue.record("not an object: \(value)")
+            return
+        }
         #expect(fields["first_tab"] == nil)
     }
 
