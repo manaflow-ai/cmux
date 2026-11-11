@@ -7,6 +7,7 @@ carries the side label. A busy side label remains queued for the rescue budget.
 """
 from __future__ import annotations
 
+import datetime as dt
 import contextlib
 import importlib.util
 import io
@@ -1945,6 +1946,24 @@ class SingleHostRoute(unittest.TestCase):
         self.assertEqual(placement.route_wait(SIDE, two, seen), 12.0)
         self.assertEqual(placement.route_wait(SIDE, two, placement.cascade.Seen(waits={})), 0.0)
         self.assertIsNone(placement.route_wait(SIDE, two, None))
+
+    def test_route_wait_reads_the_gates_when_the_snapshot_is_stale(self):
+        # 2026-11-10: the janitor snapshot was late while glaeda's gates showed 55 jobs queued on the side label,
+        # the oldest 21 hours; the stale snapshot alone voided the reading, so no dead end was seen.
+        two = [*self.one_host(SIDE), runner("cmux10s-mac-mini-glaeda-4", busy=True)]
+        now = dt.datetime(2026, 11, 10, 21, 30, tzinfo=dt.timezone.utc)
+        gates = {"gates": {"labels": {SIDE: {"queued": 55, "oldest_queued_s": 76022, "as_of": "2026-11-10T21:22:15Z"}}}}
+        seen = placement.cascade.Seen(waits={}, owned={SIDE: 1267.0}, stale=True, snapshot=gates, observed_at=now)
+        self.assertEqual(placement.route_wait(SIDE, two, seen), 1267.0)
+        # A gates reading as late as the janitor proves nothing either: its wait keeps aging after a drain.
+        late = placement.cascade.Seen(waits={}, owned={SIDE: 1267.0}, stale=True, snapshot=gates,
+                                      observed_at=now + dt.timedelta(hours=2))
+        self.assertIsNone(placement.route_wait(SIDE, two, late))
+        # A stale snapshot with no gates reading for the route still proves nothing.
+        self.assertIsNone(placement.route_wait(SIDE, two, placement.cascade.Seen(
+            waits={}, owned={SIDE: 1267.0}, stale=True, snapshot={"gates": {"labels": {}}})))
+        self.assertIsNone(placement.route_wait(SIDE, two, placement.cascade.Seen(waits={}, owned={SIDE: 12.0},
+                                                                                stale=True)))
 
     def test_no_reserved_route_names_a_busy_single_host_label(self):
         fast, fresh, gateway = ("glaeda-fast-light-xcode-26.6", "glaeda-dev-std-xcode-26.6",

@@ -1013,13 +1013,27 @@ class Rerun(unittest.TestCase):
                          none_placed(**{SMALL: ("cmux-scheme-compile",)}))
         self.assertEqual(cascade.place(self.rerun(), (), {LARGE: 0, SMALL: 10}, waiting).jobs, none_placed())
 
+    def test_the_rescues_attempt_3_is_placed_afresh_too(self):
+        # cmux#40330's run 42858473381: attempt 2 was placed at 17:32Z while Blacksmith 6 vCPU was stalled, so its
+        # fast tier stayed on the owned side label and waited hours. The rescue's attempt 3 (owned_pool_rescue's
+        # re-placement after OWNED_REPLACE_MINUTES) reads what is free when it starts, as attempt 2 does.
+        live, waiting = {LARGE: 0, SMALL: 5}, {LARGE: 0, SMALL: 0}
+        values = self.rerun(GITHUB_RUN_ATTEMPT="3")
+        self.assertTrue(cascade.bot_rerun(values))
+        self.assertTrue(cascade.bot_rerun(self.rerun(GITHUB_RUN_ATTEMPT="3", GITHUB_TRIGGERING_ACTOR="cmux-bot[bot]")))
+        self.assertEqual(cascade.skipped(values), "")
+        result = cascade.place(values, (), live, waiting)
+        self.assertEqual(result.jobs, none_placed(**{LARGE: ("cmux-scheme-compile",)}))
+        self.assertIn("the rescue's re-run (attempt 3) is placed afresh", result.why)
+        self.assertEqual(cascade.LAST_PLACED_ATTEMPT, 3)
+
     def test_a_persons_rerun_and_later_attempts_keep_their_route(self):
         free = {LARGE: 0, SMALL: 0}
-        for attempt, actor in (("2", "teamleaderleo"), ("3", BOT), ("2", "")):
+        for attempt, actor in (("2", "teamleaderleo"), ("4", BOT), ("3", "teamleaderleo"), ("2", "")):
             with self.subTest(attempt=attempt, actor=actor):
                 overrides = self.rerun(GITHUB_RUN_ATTEMPT=attempt, GITHUB_TRIGGERING_ACTOR=actor)
                 self.assertFalse(cascade.bot_rerun(overrides))
-                # Attempt 3 by the bot too: it is the rescue's last overflow attempt, not a fresh placement.
+                # Attempt 4 by the bot too: it is the rescue's last overflow attempt, not a fresh placement.
                 self.assertEqual(cascade.skipped(overrides), "a person re-run keeps its own route")
                 self.assertEqual(cascade.place(overrides, (), free, free).jobs, none_placed())
 
@@ -1048,16 +1062,16 @@ class Rerun(unittest.TestCase):
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         job = workflow["jobs"]["macos-placement"]
         own, shared = job["env"]["CMUX_NEXT_SIDE_ROUTE"], workflow["env"]["CMUX_NEXT_SIDE_ROUTE"]
-        for attempt, actor, expected in (("1", "teamleaderleo", SIDE), ("2", BOT, SIDE),
-                                         ("2", "teamleaderleo", SMALL), ("3", BOT, SMALL)):
+        for attempt, actor, expected in (("1", "teamleaderleo", SIDE), ("2", BOT, SIDE), ("3", BOT, SIDE),
+                                         ("2", "teamleaderleo", SMALL), ("4", BOT, SMALL)):
             with self.subTest(attempt=attempt, actor=actor):
                 context = self.route_context(attempt, actor)
                 self.assertEqual(evaluate(own, context), expected)
                 # Every other case is the workflow's route, which the Mac jobs restate.
-                if (attempt, actor) != ("2", BOT):
+                if (attempt, actor) not in (("2", BOT), ("3", BOT)):
                     self.assertEqual(evaluate(own, context), evaluate(shared, context))
-                # The job itself runs on attempt 1 and the bot's attempt 2.
-                self.assertIn("github.run_attempt == 2 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)",
+                # The job itself runs on attempt 1 and the bot's attempts 2 and 3.
+                self.assertIn("github.run_attempt <= 3 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)",
                               job["if"])
         place = next(step for step in job["steps"] if step.get("id") == "place")
         self.assertEqual(place["env"]["SIDE_LABEL"], "${{ env.CMUX_NEXT_SIDE_ROUTE }}")
@@ -1203,7 +1217,7 @@ class Rerun(unittest.TestCase):
         context["inputs"] = {"dev_daily": True}
         for attempt, actor, expected in (("1", "teamleaderleo", "cmux-scheme-compile"),
                                          ("2", BOT, "cmux-scheme-compile"), ("2", "teamleaderleo", ""),
-                                         ("3", BOT, "")):
+                                         ("3", BOT, "cmux-scheme-compile"), ("4", BOT, "")):
             with self.subTest(attempt=attempt, actor=actor):
                 context["github"].update(run_attempt=attempt, triggering_actor=actor)
                 self.assertEqual(evaluate(fresh, context), expected)
@@ -1357,7 +1371,7 @@ class Wiring(unittest.TestCase):
             # The attempt the placement ran in: by default where it really runs (attempt 1, the bot's
             # attempt 2); any other attempt carries attempt 1's job and outputs.
             "placed_attempt": placed if placed is not None else (
-                attempt if attempt == "1" or attempt == "2" and actor == BOT else "1")}}}
+                attempt if attempt == "1" or attempt in ("2", "3") and actor == BOT else "1")}}}
         return context
 
     def test_attempt_1_takes_the_blacksmith_slot_the_placement_found(self):
@@ -1439,7 +1453,7 @@ class Wiring(unittest.TestCase):
         for outputs in ({}, {"large": " release-compile "}, {"small": " release-compile "}, {"runner": ""}):
             self.assertEqual(evaluate(runner_env, push(**outputs)), evaluate(runs_on, push(**outputs)))
         self.assertEqual(evaluate(runs_on, self.context("2", BOT, retry=SMALL, runner="")), SMALL)
-        self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=SMALL)), SIDE)
+        self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=SMALL, placed="2")), SIDE)
         # Release compile never targets the dedicated nightly runner.
         self.assertNotIn("CI_NIGHTLY_NEXT_TRUSTED_RUNNER", self.jobs["release-compile"]["runs-on"])
         self.assertNotIn("CI_NIGHTLY_NEXT_TRUSTED_RUNNER", self.jobs["release-compile"]["env"]["CMUX_NEXT_RUNNER"])
@@ -1620,12 +1634,17 @@ class Wiring(unittest.TestCase):
                 expected_without_retry = LARGE if name == "fast-tier" else SIDE
                 # The bot's attempt 2, placed afresh, takes its retry label; an earlier reading never.
                 self.assertEqual(evaluate(runs_on, self.context("2", BOT, retry=SMALL, runner="")), SMALL)
-                self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=SMALL)), expected_without_retry)
+                # The bot's attempt 3 (the rescue's re-placement of a long wait) is placed afresh like attempt 2.
+                self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=SMALL, runner="")), SMALL)
+                # The bot's attempt 3 that re-runs failed jobs (a refusal) carries attempt 2's placement.
+                self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=SMALL, placed="2")),
+                                 expected_without_retry)
                 self.assertEqual(evaluate(runs_on, self.context("2", BOT, retry=SMALL, runner="", placed="1")), SIDE if name == "fast-tier" else expected_without_retry)
                 # With no slot or a carried placement, preserve the base's
                 # owned queue rather than bypassing Blacksmith exclusions.
-                self.assertEqual(evaluate(runs_on, self.context("3", BOT)), expected_without_retry)
-                self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry="")), expected_without_retry)
+                self.assertEqual(evaluate(runs_on, self.context("3", BOT, placed="2")), expected_without_retry)
+                self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry="", placed="2")),
+                                 expected_without_retry)
 
     def test_retry_runner_is_limited_to_the_placement_retry_set(self):
         runs_on = self.jobs["release-compile"]["runs-on"]
