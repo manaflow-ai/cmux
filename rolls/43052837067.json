@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43052837067",
+  "recorded_at": "2026-11-11T16:01:35Z",
+  "reason": "cmux-tui 3f18ecfe7506 changes the image's cmux-tui (pinned bd2624f0295c)",
+  "dry_run": false,
+  "cmux_tui": "3f18ecfe7506df738decec8f227f881d3477f55a",
+  "fixes": [
+    {
+      "sha": "3f18ecfe7506df738decec8f227f881d3477f55a",
+      "mergedAt": "2026-11-11T07:37:03-08:00",
+      "subject": "acpmux: make the folder-instructions swap hook per test thread (#41350)"
+    },
+    {
+      "sha": "9eff58865d2e906d3694ba252cd59e1e973cd9a8",
+      "mergedAt": "2026-11-11T06:58:14-08:00",
+      "subject": "acpmux: leave out repeated command lists from a restarted agent's initialize answers (#41247)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T16:01:35Z",
+    "snapshot_id": "sh-f5ebd5cc61ff4a8f821a9aa77093d011",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43052837067): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "104e33eb9fc1335e8c02d916771252079aa5fa42",
+    "image": "cloud-native-auto-3f18ecfe-43052837067-1",
+    "revision": "ci-43052837067-1",
+    "at": "2026-11-11T16:01:35Z"
+  },
+  "rolled_back": false
+}
