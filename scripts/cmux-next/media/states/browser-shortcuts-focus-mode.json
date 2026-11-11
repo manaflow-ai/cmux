@@ -1,0 +1,182 @@
+{
+ "title": "Browser shortcuts: cmux keys win over a page unless focus mode is on",
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Open the page in a Chromium tab",
+   "cmux": [
+    "browser",
+    "profile",
+    "open",
+    "data:text/html;charset=utf-8,%3C%21doctype%20html%3E%3Cmeta%20charset%3Dutf-8%3E%3Ctitle%3EPage%20that%20takes%20Cmd-B%3C/title%3E%0A%3Cstyle%3Ebody%7Bfont%3A20px%20-apple-system%3Bmargin%3A40px%3Bbackground%3ACanvas%3Bcolor%3ACanvasText%7Db%7Bfont-size%3A44px%7D%3C/style%3E%0A%3Cp%3ELike%20Linear%3A%20this%20page%20calls%20preventDefault%20on%20Cmd-B.%3C/p%3E%3Cp%3ECmd-B%20reached%20the%20page%3A%20%3Cb%20id%3Dn%3E0%3C/b%3E%20times%3C/p%3E%0A%3Cscript%3Elet%20n%3D0%3BaddEventListener%28%27keydown%27%2Ce%3D%3E%7Bif%28e.metaKey%26%26e.key%3D%3D%3D%27b%27%29%7Be.preventDefault%28%29%3Bdocument.getElementById%28%27n%27%29.textContent%3D%2B%2Bn%7D%7D%2Ctrue%29%3C/script%3E",
+    "--profile",
+    "default",
+    "--engine",
+    "cef"
+   ],
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "Focus before any key",
+   "rpc": {
+    "method": "debug.focus",
+    "params": {}
+   },
+   "shot": false
+  },
+  {
+   "title": "A Chromium page that takes Cmd-B for itself has the keyboard; the sidebar shows",
+   "wait": 0.5
+  },
+  {
+   "title": "Cmd-B in the page",
+   "rpc": {
+    "method": "debug.key",
+    "params": {
+     "key": "b",
+     "modifiers": [
+      "cmd"
+     ],
+     "target": "page"
+    }
+   },
+   "wait": 1.2,
+   "shot": false
+  },
+  {
+   "title": "Last key interception",
+   "rpc": {
+    "method": "debug.key",
+    "params": {
+     "last": true
+    }
+   },
+   "shot": false
+  },
+  {
+   "title": "Focus after Cmd-B",
+   "rpc": {
+    "method": "debug.focus",
+    "params": {}
+   },
+   "shot": false
+  },
+  {
+   "title": "After Cmd-B, focus mode off: cmux toggles the sidebar (Before: the page took it, count 1)",
+   "wait": 0.3
+  },
+  {
+   "title": "Cmd-B again shows the sidebar",
+   "rpc": {
+    "method": "debug.key",
+    "params": {
+     "key": "b",
+     "modifiers": [
+      "cmd"
+     ],
+     "target": "page"
+    }
+   },
+   "wait": 1.2,
+   "shot": false
+  },
+  {
+   "title": "Opt-Cmd-Return in the page",
+   "rpc": {
+    "method": "debug.key",
+    "params": {
+     "key": "return",
+     "modifiers": [
+      "cmd",
+      "option"
+     ],
+     "target": "page"
+    }
+   },
+   "wait": 1.2,
+   "shot": false
+  },
+  {
+   "title": "Last key interception after Opt-Cmd-Return",
+   "rpc": {
+    "method": "debug.key",
+    "params": {
+     "last": true
+    }
+   },
+   "shot": false
+  },
+  {
+   "title": "Focus after Opt-Cmd-Return",
+   "rpc": {
+    "method": "debug.focus",
+    "params": {}
+   },
+   "shot": false
+  },
+  {
+   "title": "After Opt-Cmd-Return: browser focus mode is on (badge in the address bar)",
+   "wait": 0.3
+  },
+  {
+   "title": "Cmd-B in focus mode",
+   "rpc": {
+    "method": "debug.key",
+    "params": {
+     "key": "b",
+     "modifiers": [
+      "cmd"
+     ],
+     "target": "page"
+    }
+   },
+   "wait": 1.2,
+   "shot": false
+  },
+  {
+   "title": "Focus after Cmd-B in focus mode",
+   "rpc": {
+    "method": "debug.focus",
+    "params": {}
+   },
+   "shot": false
+  },
+  {
+   "title": "Focus mode on: Cmd-B reaches the page, the sidebar stays",
+   "wait": 0.3
+  },
+  {
+   "title": "Opt-Cmd-Return leaves focus mode",
+   "rpc": {
+    "method": "debug.key",
+    "params": {
+     "key": "return",
+     "modifiers": [
+      "cmd",
+      "option"
+     ],
+     "target": "page"
+    }
+   },
+   "wait": 1.2,
+   "shot": false
+  },
+  {
+   "title": "Focus after leaving focus mode",
+   "rpc": {
+    "method": "debug.focus",
+    "params": {}
+   },
+   "shot": false
+  },
+  {
+   "title": "Focus mode off again: the badge is gone",
+   "wait": 0.3
+  }
+ ]
+}
