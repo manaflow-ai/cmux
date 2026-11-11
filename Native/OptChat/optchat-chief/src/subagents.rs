@@ -519,6 +519,9 @@ pub struct Spawner {
     /// The user's settings file read at each spawn for the sidebar rules
     /// (sidebar_choice.rs); None: the one `agent_memory::settings` finds.
     user_settings: Option<PathBuf>,
+    /// A Claude subagent here works under `/goal` until its task is done
+    /// (goal.rs), unless the person turned it off; off in a bare Spawner.
+    goal: bool,
 }
 
 impl Spawner {
@@ -551,7 +554,15 @@ impl Spawner {
             engine_file: None,
             families: BTreeMap::new(),
             user_settings: None,
+            goal: false,
         }
+    }
+
+    /// Claude subagents here start under `/goal` (goal.rs) and on Opus 5.5
+    /// when nothing names their model.
+    pub fn with_goal(mut self, goal: bool) -> Spawner {
+        self.goal = goal;
+        self
     }
 
     /// Reads the sidebar rules from `path` instead of the user's cmux-next.json.
