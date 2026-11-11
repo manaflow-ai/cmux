@@ -101,9 +101,11 @@ await requireBrowserLane("agent-pane-send-raised.test.ts", async () => {
               getComputedStyle(placeholder).visibility !== "hidden" &&
               placeholder.getClientRects().length > 0,
           });
+          // raf-read: every frame of the send (below).
           if (performance.now() - start < ms) requestAnimationFrame(tick);
           else (window as unknown as { __raised: { done: boolean } }).__raised.done = true;
         };
+        // raf-read: the send is the behavior; each frame is read as that frame is drawn.
         requestAnimationFrame(tick);
       },
       { sent, ms },
