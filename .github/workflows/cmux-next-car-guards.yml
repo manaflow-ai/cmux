@@ -13,7 +13,11 @@ name: cmux-next car guards
 #          Swift reds are never excused
 #   mac    focused Swift test targets, one build per package, on a CI Mac (never cosmic-gray
 #          or air-blue); runs only when the plan selects Swift tests
-# A pull request that changes the car guards runs them on itself (base = its merge base).
+# A pull request runs them on itself (base = its merge base) when it changes the car guards,
+# or cmux-tui's crates or CmuxNext's sources and tests: the PR's own swift test and cargo jobs
+# run a fixed registry (fast-tier.json) or skip pull requests, so before this a PR's own new
+# tests never ran before it landed (cmux#41448: a new cmux-tui CLI test and a new
+# CmuxNextAppTests test, neither run by its PR CI).
 on:
   workflow_call:
     inputs:
@@ -74,6 +78,13 @@ on:
       - scripts/ci/focused_tests.py
       - scripts/ci/focused-tests-extra.json
       - tests/test_car_guards.py
+      # The PR's own focused tests (focused_tests.py): its Rust crates, its CmuxNext targets.
+      - cmux-tui/crates/**
+      - cmux-tui/Cargo.toml
+      - cmux-tui/Cargo.lock
+      - Packages/macOS/CmuxNext/Package.swift
+      - Packages/macOS/CmuxNext/Sources/**
+      - Packages/macOS/CmuxNext/Tests/**
 
 permissions:
   contents: read
