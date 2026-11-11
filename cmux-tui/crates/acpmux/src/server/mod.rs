@@ -149,6 +149,11 @@ impl MessageNoticeBook {
 }
 
 pub struct Conn {
+    /// The owner of this connection's own tasks (each request it sent, a reply waiting for room),
+    /// a child of the hub's scope. A request a client sent before it hung up still runs to its
+    /// end (a `--no-wait` send is accepted), so the connection's end does not cancel them; the
+    /// hub's shutdown does, and joins them.
+    scope: cmux_scope::Scope,
     pub id: String,
     /// The listener this connection came in on.
     pub origin: Origin,
@@ -681,7 +686,7 @@ impl Conn {
                 let (out, notices) = (self.out.clone(), self.notices.clone());
                 let pending = self.outbound_pending_controls.clone();
                 pending.fetch_add(1, Ordering::AcqRel);
-                tokio::spawn(async move {
+                self.scope.spawn_named("conn-reply-waits-for-room", async move {
                     if out.send(line).await.is_ok() && notices.load(Ordering::SeqCst) != seen {
                         let _ = out.send(lag()).await;
                     }
@@ -1609,6 +1614,7 @@ async fn serve_connection_from(
     let dual_principal = (wire.is_some() && auth == ConnAuth::PeerToken && device.is_none())
         .then_some(dual_requests::PEER_LINK);
     let conn = Arc::new(Conn {
+        scope: hub.scope.child("acpmux conn"),
         id: uuid::Uuid::now_v7().to_string(),
         origin,
         auth,
@@ -1758,9 +1764,10 @@ async fn serve_connection_from(
                 // the copy read first runs it and the other answers with its answer.
                 let dual = dual_requests::key_for(conn.dual_principal, &m, params.as_ref())
                     .and_then(dual_requests::admit);
+                let owner = conn.clone();
                 let hub = hub.clone();
                 let conn = conn.clone();
-                tokio::spawn(async move {
+                owner.scope.spawn_named("conn-request", async move {
                     let _slot = slot;
                     let first = match dual_requests::before_run(dual).await {
                         Ok(first) => first,

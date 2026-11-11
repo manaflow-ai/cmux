@@ -52,6 +52,7 @@ import json
 import os
 import re
 import sys
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.error import URLError
@@ -240,6 +241,9 @@ class Result:
         self.sites: dict = {}
         self.crashes: list = []
         self.truncated: list = []
+        # read_bun's failures, each once per result that failed it (a `(fail)` line, an unhandled error): a test that
+        # fails twice is not one that fails once (failed_tests).
+        self.counts: Counter = Counter()
 
 
 class Verdict:
@@ -382,6 +386,53 @@ def failed_names(lines: list[str]) -> set[str]:
     return found
 
 
+# A runner's own word that tests failed, whatever names them: a whole-log comparison (base_red_excuse.py's unplaced
+# one) that reads such a line and no failing test from the same runner has nothing to tell one failure from another,
+# so it must not stand (cmux#41158's review F1: two different bun failures, no name read, the same `expect()`
+# headline, were one red). Bun's (its ` N fail` count, the wrapper's `FAIL file` line, a `(fail)` result) are told
+# apart from the others, whose names failed_names reads.
+BUN_FAILED_COUNT = re.compile(r"^\s*[1-9]\d* fail$")
+FAILURE_MARKERS = (
+    re.compile(r"^test result: FAILED\."),  # cargo test
+    re.compile(r"^FAILED \((?:failures|errors)=\d"),  # unittest
+    re.compile(r"^=+ .*\b\d+ failed\b.*=+$"),  # pytest
+    re.compile(r"Executed \d+ tests?, with [1-9]\d* failures?"),  # XCTest
+    re.compile(r"^✘ Test run with \d+ tests?\b.*\bfailed\b"),  # Swift Testing
+)
+
+
+def failed_tests(lines: list[str], unnamed: list | None = None) -> Counter:
+    """The failing tests LINES name, counted, by the one parser every reader shares: failed_names' (once per line that
+    names one; an xcresult `FAILED:` line and an entry under xcodebuild's `Failing tests:` are two lines, each
+    counted: cmux#41158's review F2) and read_bun's `FILE > TEST` (once per result that failed it). LINES are a
+    step's output (lines_of). With UNNAMED, each runner line that says tests failed (FAILURE_MARKERS, bun's) where
+    that runner's failing tests went unnamed is added to it."""
+    counted: Counter = Counter()
+    listing = False
+    for text in lines:
+        if text.startswith(TAP_MARKER):
+            continue
+        if listing:
+            if match := XCODEBUILD_FAILED.match(text):
+                counted[match.group(1)] += 1
+                continue
+            listing = False
+        if text.strip() == XCODEBUILD_FAILING:
+            listing = True
+            continue
+        counted.update(failed_names([text]))
+    bun = Result()
+    read_bun(lines, bun)
+    if unnamed is not None:
+        if not counted:
+            unnamed.extend(text for text in lines if any(marker.search(text) for marker in FAILURE_MARKERS))
+        if not bun.counts:
+            unnamed.extend(text for text in lines if BUN_FAILED_COUNT.match(text)
+                           or ((match := BUN_RESULT.match(text)) and match.group(1) == "FAIL"))
+    counted.update(bun.counts)
+    return counted
+
+
 def issue_sites(lines: list[str]) -> dict:
     """The files each display-named failure in LINES recorded an issue in (ISSUE_SITE)."""
     found: dict = {}
@@ -521,9 +572,11 @@ def read_bun(lines: list[str], result: Result) -> None:
     added = None  # the diagnostic the last result line added, which its timeout note replaces
     pending = False  # an unhandled error whose block is being read: recorded when it ends
 
-    def fail(name: str, message: str) -> str | None:
+    def fail(name: str, message: str, counted: bool = True) -> str | None:
         result.failed.add(name)
         result.ran = True
+        if counted:
+            result.counts[name] += 1
         if message and message not in diagnostics.setdefault(name, []):
             diagnostics[name].append(message)
             return message
@@ -564,6 +617,7 @@ def read_bun(lines: list[str], result: Result) -> None:
             for name in [name for name in result.failed if name.startswith(run_file + " > ")]:
                 result.failed.discard(name)
                 diagnostics.pop(name, None)
+                result.counts.pop(name, None)
             result.passed = {name for name in result.passed if not name.startswith(run_file + " > ")}
         elif match := BUN_TEST.match(text):
             result.ran, open_run, last = True, True, None
@@ -603,7 +657,7 @@ def read_bun(lines: list[str], result: Result) -> None:
             if added is not None:
                 diagnostics[last].remove(added)
             added = None
-            fail(last, f"timed out after {match.group(1)}ms")
+            fail(last, f"timed out after {match.group(1)}ms", counted=False)  # the same result, its diagnostic
         elif BUN_COUNT.match(text):
             if unhandled:
                 fail(f"{file} > unhandled error" if file else "unhandled error", "")

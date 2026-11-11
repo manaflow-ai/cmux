@@ -225,6 +225,46 @@ struct AgentPaneCloudMachineRequestTests {
         #expect(account[1] is NSNull)
     }
 
+    /// The reply names the active team with its id and lists the account's teams, so the page never
+    /// names a team the account is no longer in (webviews TeamTag.tsx `activeTeamFromReply`).
+    @Test func theListNamesTheActiveTeamAndTheAccountsTeams() async throws {
+        let machines = AgentPaneCloudMachines()
+        machines.list = {
+            .init(signedIn: true, loaded: true, machines: [],
+                  team: .init(id: "t1", name: "cmux", personal: false),
+                  teams: [.init(id: "t0", name: "Personal", personal: true), .init(id: "t1", name: "cmux", personal: false)])
+        }
+        let reply = await AgentPaneCloudMachineRequest.list.reply(machines, gestures: AgentPaneUserGestures())
+        #expect(JSONSerialization.isValidJSONObject(reply))
+        let value = try #require(reply["value"] as? [String: Any])
+        let team = try #require(value["team"] as? [String: Any])
+        #expect(team["id"] as? String == "t1" && team["name"] as? String == "cmux" && team["personal"] as? Bool == false)
+        let teams = try #require(value["teams"] as? [[String: Any]])
+        #expect(teams.compactMap { $0["id"] as? String } == ["t0", "t1"])
+        #expect(teams.first?["personal"] as? Bool == true)
+        // Signed out: neither.
+        machines.list = { .init(signedIn: false, loaded: false, machines: [], teams: [.init(id: "t0", name: "Personal", personal: true)]) }
+        let out = try #require(await AgentPaneCloudMachineRequest.list.reply(machines, gestures: AgentPaneUserGestures())["value"] as? [String: Any])
+        #expect(out["team"] == nil && out["teams"] == nil)
+    }
+
+    /// A picker's read re-reads the account's teams at most once per `teamsAge`, so a team the
+    /// account was removed from leaves the Cloud face without a relaunch.
+    @Test func aPickerReadReReadsTheTeamsAtMostOncePerAge() async {
+        let machines = AgentPaneCloudMachines()
+        let start = ContinuousClock.now
+        @MainActor final class Reads { var count = 0 }
+        let reads = Reads()
+        let read: @MainActor () async -> Void = { reads.count += 1 }
+        #expect(machines.readTeamsIfOld(now: start, read: read))
+        #expect(!machines.readTeamsIfOld(now: start.advanced(by: .seconds(30)), read: read))
+        #expect(machines.readTeamsIfOld(now: start.advanced(by: AgentPaneCloudMachines.teamsAge + .seconds(1)), read: read))
+        // A clock that went back (another instant's read) never holds the next read off.
+        #expect(machines.readTeamsIfOld(now: start, read: read))
+        for _ in 0..<50 where reads.count < 3 { await Task.yield() }
+        #expect(reads.count == 3)
+    }
+
     private actor NoHost: AgentPaneHostProviding {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
