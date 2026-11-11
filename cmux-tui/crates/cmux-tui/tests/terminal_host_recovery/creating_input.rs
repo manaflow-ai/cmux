@@ -394,3 +394,144 @@ fn a_line_typed_in_a_starting_pane_the_person_closed_never_runs() {
     assert_eq!(closed["ok"], true, "{closed}");
     assert!(!typed_line_ran.exists(), "the typed line ran after the close");
 }
+
+/// Only the connection that sent the creation can cancel its input: the cancel of another
+/// connection answers `cancelled: false` and changes nothing, so the queue is still written.
+#[test]
+fn another_connection_cannot_cancel_a_creations_input() {
+    let harness =
+        RecoveryHarness::start_with_host_ready_delay("creating-input-cancel-owner", 1_000);
+    let pane = first_pane(&harness, "creating-cancel-owner");
+    let terminal_id = creating_terminal(7);
+    let mut creator = Connection::open(&harness.socket);
+    creator.send(serde_json::json!({
+        "id": 10, "cmd": "split", "pane": pane, "dir": "right", "terminal_id": terminal_id,
+    }));
+    let queued = queue(&mut creator, 20, &terminal_id, "AB");
+    assert_eq!(queued["data"]["queued"], true, "{queued}");
+    let mut other = Connection::open(&harness.socket);
+    let queued = other.call(serde_json::json!({
+        "id": 30, "cmd": "send", "terminal_id": terminal_id, "text": "CD",
+    }));
+    assert_eq!(queued["data"]["queued"], true, "{queued}");
+    let refused = other.call(serde_json::json!({
+        "id": 31, "cmd": "cancel-creating-input", "terminal_id": terminal_id,
+    }));
+    assert_eq!(refused["ok"], true, "{refused}");
+    assert_eq!(refused["data"]["cancelled"], false, "{refused}");
+
+    let created = creator.reply(&serde_json::json!(10));
+    assert_eq!(created["ok"], true, "{created}");
+    let surface = created["data"]["surface"].as_u64().unwrap();
+    let screen = wait_for_screen(&harness.socket, surface, "ABCD");
+    assert_eq!(screen.matches("ABCD").count(), 1, "the queue was written once, in order: {screen}");
+    for connection in [&creator, &other] {
+        assert!(
+            connection.notices.iter().all(|n| n["event"] != "terminal-input-unclaimed"),
+            "{:?}",
+            connection.notices
+        );
+    }
+}
+
+/// After its creator cancelled, the id takes no input. Bytes another connection queued go back
+/// to it (`cancelled`); the creator's are dropped. A key sent by the id, before the commit or
+/// after the late commit, is refused (`input.cancelled`) and never reaches the terminal the
+/// commit made live.
+#[test]
+fn a_cancelled_creation_refuses_input_by_its_id_after_the_commit() {
+    let harness = RecoveryHarness::start_with_host_ready_delay("creating-input-cancel-late", 1_000);
+    let pane = first_pane(&harness, "creating-cancel-late");
+    let terminal_id = creating_terminal(8);
+    let mut app = Connection::open(&harness.socket);
+    app.send(serde_json::json!({
+        "id": 10, "cmd": "split", "pane": pane, "dir": "right", "terminal_id": terminal_id,
+    }));
+    let queued = queue(&mut app, 20, &terminal_id, "DROPPED");
+    assert_eq!(queued["data"]["queued"], true, "{queued}");
+    let mut other = Connection::open(&harness.socket);
+    let queued = other.call(serde_json::json!({
+        "id": 30, "cmd": "send", "terminal_id": terminal_id, "text": "THEIRS",
+    }));
+    assert_eq!(queued["data"]["queued"], true, "{queued}");
+
+    for id in [21, 22] {
+        let cancelled = app.call(serde_json::json!({
+            "id": id, "cmd": "cancel-creating-input", "terminal_id": terminal_id,
+        }));
+        assert_eq!(cancelled["data"]["cancelled"], true, "{cancelled}");
+    }
+    let notice = other.unclaimed();
+    assert_eq!(notice["reason"], "cancelled", "{notice}");
+    assert_eq!(base64_text(&notice), "THEIRS");
+    let early = app.call(serde_json::json!({
+        "id": 23, "cmd": "send", "terminal_id": terminal_id, "text": "EARLY",
+    }));
+    assert_eq!(early["ok"], false, "{early}");
+    assert_eq!(early["error_code"], "input.cancelled", "{early}");
+
+    let created = app.reply(&serde_json::json!(10));
+    assert_eq!(created["ok"], true, "{created}");
+    let surface = created["data"]["surface"].as_u64().unwrap();
+    for (connection, id) in [(&mut app, 24), (&mut other, 32)] {
+        let late = connection.call(serde_json::json!({
+            "id": id, "cmd": "send", "terminal_id": terminal_id, "text": "LATE",
+        }));
+        assert_eq!(late["ok"], false, "{late}");
+        assert_eq!(late["error_code"], "input.cancelled", "{late}");
+    }
+    // The terminal is live and takes input by surface; none of the other bytes are on it.
+    let live = app.call(serde_json::json!({
+        "id": 25, "cmd": "send", "surface": surface, "text": "MARK",
+    }));
+    assert_eq!(live["ok"], true, "{live}");
+    let screen = wait_for_screen(&harness.socket, surface, "MARK");
+    assert!(screen.contains("MARK"), "the live terminal took no input: {screen}");
+    for refused in ["DROPPED", "THEIRS", "EARLY", "LATE"] {
+        assert!(!screen.contains(refused), "{refused} reached the terminal: {screen}");
+    }
+    assert!(
+        app.notices.iter().all(|n| n["event"] != "terminal-input-unclaimed"),
+        "{:?}",
+        app.notices
+    );
+}
+
+/// A cancel that arrives after the commit, while the creation's queue is not written yet, still
+/// drops it: the flush that runs writes nothing more.
+#[test]
+fn a_cancel_during_the_flush_drops_the_rest_of_the_queue() {
+    // The flush starts a second and a half after the commit; the cancel arrives in between.
+    let mut harness = RecoveryHarness::start_unstarted("creating-input-cancel-flush");
+    harness.host_ready_delay_ms = Some(1_000);
+    harness.extra_env.push(("CMUX_TUI_TEST_CREATING_INPUT_FLUSH_DELAY_MS".into(), "1500".into()));
+    harness.restart();
+    let pane = first_pane(&harness, "creating-cancel-flush");
+    let terminal_id = creating_terminal(9);
+    let mut app = Connection::open(&harness.socket);
+    app.send(serde_json::json!({
+        "id": 10, "cmd": "split", "pane": pane, "dir": "right", "terminal_id": terminal_id,
+    }));
+    let queued = queue(&mut app, 20, &terminal_id, "QUEUED");
+    assert_eq!(queued["data"]["queued"], true, "{queued}");
+    let created = app.reply(&serde_json::json!(10));
+    assert_eq!(created["ok"], true, "{created}");
+    let surface = created["data"]["surface"].as_u64().unwrap();
+    let cancelled = app.call(serde_json::json!({
+        "id": 21, "cmd": "cancel-creating-input", "terminal_id": terminal_id,
+    }));
+    assert_eq!(cancelled["data"]["cancelled"], true, "{cancelled}");
+    // Input by surface waits for the flush to end, then is written.
+    let live = app.call(serde_json::json!({
+        "id": 22, "cmd": "send", "surface": surface, "text": "MARK",
+    }));
+    assert_eq!(live["ok"], true, "{live}");
+    let screen = wait_for_screen(&harness.socket, surface, "MARK");
+    assert!(screen.contains("MARK"), "the live terminal took no input: {screen}");
+    assert!(!screen.contains("QUEUED"), "the cancelled queue was written: {screen}");
+    assert!(
+        app.notices.iter().all(|n| n["event"] != "terminal-input-unclaimed"),
+        "{:?}",
+        app.notices
+    );
+}

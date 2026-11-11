@@ -1173,7 +1173,7 @@ fn the_creating_input_flush_keeps_input_that_may_have_been_written() {
     let pty = surface.as_pty().expect("a terminal");
     let terminal_id = surface.terminal_host_identity().expect("a hosted terminal").terminal_id;
     let generation =
-        mux.begin_creating_input(&terminal_id).expect("no live terminal has the id yet");
+        mux.begin_creating_input(&terminal_id, 7).expect("no live terminal has the id yet");
     let given_back = Arc::new(Mutex::new(Vec::new()));
     for bytes in [&b"a"[..], &b"b"[..]] {
         let given_back = given_back.clone();

@@ -290,6 +290,9 @@ fn dispatch_command(
             cmd_panes::apply_layout(mux, actor, workspace, name, layout, cols, rows)
         }
         Command::Send(params) => cmd_terminal_io::send(mux, client, writer, params),
+        Command::CancelCreatingInput { terminal_id } => {
+            creating_input::cancel(mux, client, &terminal_id)
+        }
         Command::ReadScreen { surface } => cmd_terminal_io::read_screen(mux, surface),
         Command::ClearHistory { surface, fallback_key } => {
             cmd_terminal_io::clear_history(mux, surface, fallback_key)

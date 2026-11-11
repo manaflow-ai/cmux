@@ -1665,6 +1665,8 @@ Authority is the same as for a live `send {surface}`: a local connection may que
 a remote relay connection may not send in either form (the relay refuses `send` before it is parsed).
 After the queue was written, `terminal_id` writes to the live terminal at once. An empty payload writes
 nothing but still fails with `unknown terminal` for an id that is neither live nor creating.
+After the creator's [`cancel-creating-input`](#cancel-creating-input) (`creating-input-cancel-v1`), input by
+`terminal_id` fails with error code `input.cancelled` and nothing is queued or written.
 
 Result:
 
@@ -1679,6 +1681,7 @@ Errors:
 | `unknown surface <id>` | Surface id does not exist |
 | `unknown terminal <id>` | `terminal_id` names no live or creating terminal |
 | `input.overflow` (error code) | The request would take the creating terminal's queue over 65536 bytes; nothing was queued |
+| `input.cancelled` (error code) | The creator cancelled the input of the creation of `terminal_id` (`cancel-creating-input`); nothing was queued or written |
 | `browser surface does not support PTY/VT socket commands` | Surface is a browser |
 | base64 decode error | `bytes` is not valid standard base64 |
 | IO error string | PTY write fails |
@@ -1701,6 +1704,60 @@ Example:
 ```json
 {"id":3,"cmd":"send","surface":1,"text":"ls\r"}
 {"id":3,"ok":true,"data":{}}
+```
+
+### cancel-creating-input
+
+| Field | Value |
+| --- | --- |
+| name | `cancel-creating-input` |
+| status | implemented |
+| since | protocol 12 with `creating-input-cancel-v1` |
+
+Cancels the input of a creation that is still in flight: the person closed a pane or tab that was still
+starting, so nothing that was typed in it may reach the shell of the new terminal. `terminal_id` is the
+host terminal id (32 hex digits) the caller named in its `split`, `new-pane`, `new-pane-right` or
+`new-tab` (see [`send`](#send), `terminal-input-while-creating-v1`).
+
+Only the connection that sent the creation can cancel its input. For it:
+
+- The bytes it queued for the id are dropped. It gets no `terminal-input-unclaimed` event for them (a
+  client gives such bytes to the terminal that has focus, which is the wrong terminal here).
+- The bytes other connections queued for the id go back to them in one `terminal-input-unclaimed` event
+  each, with `reason` `cancelled`.
+- From then on, `send` with this `terminal_id` fails with error code `input.cancelled` on every
+  connection: until the creation ends, and for 10 seconds after a creation that committed. So a key that
+  arrives late cannot reach the terminal the commit made live.
+- When the commit already started to write the queue, the bytes not yet written are not written.
+
+The creation itself is not stopped: it commits or fails as without the cancel, and its reply is the same.
+The caller closes the new terminal when the reply names it (`close-tabs`). Input by `surface` to the
+committed terminal is not refused.
+
+The result is `{cancelled:false}`, and nothing changes, when the caller did not send a creation of the id,
+when the id is not creating, and when the creation's queue was already written or given back. A second
+cancel by the creator answers `{cancelled:true}`.
+
+Authority: control, local connections. A remote relay connection cannot send it (it is not on the relay
+allowlist), and it names no surface, pane or workspace: it acts only on the caller's own creation.
+
+Params: required `terminal_id:string`.
+
+Result:
+
+```text
+object{cancelled:boolean}
+```
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `bad request: ...` | A malformed `terminal_id`, or wrong JSON type |
+
+```json
+{"id":7,"cmd":"cancel-creating-input","terminal_id":"51000000000040008000000000000001"}
+{"id":7,"ok":true,"data":{"cancelled":true}}
 ```
 
 ### read-screen

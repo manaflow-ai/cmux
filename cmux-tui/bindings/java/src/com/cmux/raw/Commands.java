@@ -30,6 +30,7 @@ public final class Commands {
     public static final CommandMetadata BROWSER_RELOAD = new CommandMetadata("browser-reload", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata BROWSER_WHEEL = new CommandMetadata("browser-wheel", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata BROWSER_WHEEL_GUARDED = new CommandMetadata("browser-wheel-guarded", Authority.FRONTEND, 10, "browser-pointer-frame-guard-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CANCEL_CREATING_INPUT = new CommandMetadata("cancel-creating-input", Authority.CONTROL, 12, "creating-input-cancel-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CHIEF_INSPECT = new CommandMetadata("chief-inspect", Authority.LOCAL_ADMIN, 12, "chief-inspect-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CHIEF_WORK = new CommandMetadata("chief-work", Authority.FRONTEND, 12, "chief-work-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLEAR_HISTORY = new CommandMetadata("clear-history", Authority.CONTROL, 9, "clear-history-v1", StreamKind.NONE, Map.ofEntries(Map.entry("fallback_key", 9L)), Map.ofEntries(Map.entry("fallback_key", "clear-history-key-v1")));
@@ -334,6 +335,7 @@ public final class Commands {
         values.put("browser-reload", BROWSER_RELOAD);
         values.put("browser-wheel", BROWSER_WHEEL);
         values.put("browser-wheel-guarded", BROWSER_WHEEL_GUARDED);
+        values.put("cancel-creating-input", CANCEL_CREATING_INPUT);
         values.put("chief-inspect", CHIEF_INSPECT);
         values.put("chief-work", CHIEF_WORK);
         values.put("clear-history", CLEAR_HISTORY);

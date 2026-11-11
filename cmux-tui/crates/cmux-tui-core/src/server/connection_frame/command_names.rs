@@ -70,6 +70,7 @@ impl Command {
             Self::ExportLayout { .. } => "export-layout",
             Self::ApplyLayout { .. } => "apply-layout",
             Self::Send(..) => "send",
+            Self::CancelCreatingInput { .. } => "cancel-creating-input",
             Self::ReadScreen { .. } => "read-screen",
             Self::ClearHistory { .. } => "clear-history",
             Self::ReadScrollback { .. } => "read-scrollback",

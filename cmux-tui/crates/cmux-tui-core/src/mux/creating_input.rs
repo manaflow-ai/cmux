@@ -15,6 +15,15 @@
 //! the client can give them to the terminal that has focus. Clients send keys to the new
 //! terminal at once and never hold or replay them.
 //!
+//! The connection that sent a creation can cancel its input (`cancel-creating-input`,
+//! `creating-input-cancel-v1`, [`Mux::cancel_creating_input`]): the person closed the pane that
+//! was still starting, so a line typed in it must never reach a shell. The creation itself is not
+//! stopped. The caller's queued bytes are dropped with no notice (given back, the client would
+//! type them in the terminal that has focus); bytes other connections queued go back to them
+//! (`reason: "cancelled"`). The id then refuses input (`input.cancelled`): until the creation
+//! ends, and when it committed for the expiry time after that, so a key sent by the id late cannot
+//! reach the terminal the commit made live before its creator closes it.
+//!
 //! A terminal whose surviving host is being adopted (after an update's handoff or a crash, each
 //! host adopts on its own thread after the new owner answers) takes input the same way: it is
 //! listed as adopting but has no live surface yet, and its input was refused as `unknown
@@ -48,6 +57,9 @@ struct QueuedInput {
 
 struct CreatingTerminal {
     generation: u64,
+    /// The connection whose creation named the id, the only one that may cancel its input. `None`
+    /// for the queue of an adoption.
+    owner: Option<u64>,
     queued: Vec<QueuedInput>,
     bytes: usize,
     expiry_started: bool,
@@ -56,14 +68,43 @@ struct CreatingTerminal {
     /// The queue belongs to the adoption of a surviving host, not to a creation: the adoption's
     /// end writes it or gives it back.
     adopting: bool,
+    /// The owner cancelled the creation's input ([`Mux::cancel_creating_input`]): the queue was
+    /// dropped, nothing more is written and input for the id is refused.
+    cancelled: bool,
+    /// A cancelled creation committed: the entry refuses input for the id until this time, then
+    /// it is forgotten (by the next input for the id, the next creation or the next cancel).
+    forget_at: Option<Instant>,
+}
+
+impl CreatingTerminal {
+    fn new(generation: u64, owner: Option<u64>, adopting: bool) -> Self {
+        Self {
+            generation,
+            owner,
+            queued: Vec::new(),
+            bytes: 0,
+            expiry_started: false,
+            flushing: false,
+            adopting,
+            cancelled: false,
+            forget_at: None,
+        }
+    }
+
+    /// Whether a queue of this terminal can still be written: input sent by another path waits
+    /// for it. A cancelled creation has none once no flush of it runs.
+    fn may_write_a_queue(&self) -> bool {
+        !self.cancelled || self.flushing
+    }
 }
 
 /// The creating terminals of one daemon, keyed by host terminal id (32 hex).
 #[derive(Default)]
 pub(crate) struct CreatingInputs {
     terminals: Mutex<HashMap<String, CreatingTerminal>>,
-    /// How many terminals are creating: the map's length, stored under its lock after each change. A key reads it
-    /// with no lock and takes the lock only while a terminal is creating (R-DAEMON-STATE stage S1).
+    /// How many terminals have a queue that can still be written (every entry of the map but a cancelled creation
+    /// with no flush running), stored under its lock after each change. A key reads it with no lock and takes the
+    /// lock only while a terminal is creating (R-DAEMON-STATE stage S1).
     creating: AtomicUsize,
     ended: Condvar,
     next_generation: AtomicU64,
@@ -78,7 +119,41 @@ impl CreatingInputs {
         creating: CreatingTerminal,
     ) {
         terminals.insert(terminal_id.to_string(), creating);
-        self.creating.store(terminals.len(), Ordering::Release);
+        self.recount(terminals);
+    }
+
+    /// Stores the count of terminals whose queue can still be written; the caller holds the lock.
+    fn recount(&self, terminals: &HashMap<String, CreatingTerminal>) {
+        let creating = terminals.values().filter(|creating| creating.may_write_a_queue()).count();
+        self.creating.store(creating, Ordering::Release);
+    }
+
+    /// Forgets the cancelled creations whose refusal time is over; the caller holds the lock.
+    fn forget_cancelled(&self, terminals: &mut HashMap<String, CreatingTerminal>, now: Instant) {
+        terminals.retain(|_, creating| creating.forget_at.is_none_or(|at| now < at));
+        self.recount(terminals);
+    }
+
+    /// The connection that cancelled the input of `terminal_id`'s creation, when one did.
+    fn cancelled_by(&self, terminal_id: &str) -> Option<u64> {
+        let terminals = self.terminals.lock().unwrap_or_else(PoisonError::into_inner);
+        let creating = terminals.get(terminal_id).filter(|creating| creating.cancelled)?;
+        creating.owner
+    }
+
+    /// Whether input for `terminal_id` is refused: its creator cancelled the creation's input and
+    /// the refusal time is not over. An entry whose time is over is forgotten here.
+    fn refuses_input(
+        &self,
+        terminals: &mut HashMap<String, CreatingTerminal>,
+        terminal_id: &str,
+    ) -> bool {
+        let Some(creating) = terminals.get(terminal_id) else { return false };
+        if creating.forget_at.is_some_and(|at| Instant::now() >= at) {
+            self.remove(terminals, terminal_id);
+            return false;
+        }
+        creating.cancelled
     }
 
     /// Removes the creating terminal `terminal_id` (its queue was written or given back); the count follows, under
@@ -89,7 +164,7 @@ impl CreatingInputs {
         terminal_id: &str,
     ) -> Option<CreatingTerminal> {
         let removed = terminals.remove(terminal_id);
-        self.creating.store(terminals.len(), Ordering::Release);
+        self.recount(terminals);
         removed
     }
 }
@@ -122,9 +197,33 @@ impl fmt::Display for InputOverflow {
 
 impl std::error::Error for InputOverflow {}
 
-/// The `error_code` of a refused input (`input.overflow`).
+/// `write_terminal_input` refused bytes for a terminal whose creator cancelled the creation's
+/// input (`cancel-creating-input`); nothing was queued or written.
+#[derive(Debug)]
+pub(crate) struct InputCancelled;
+
+impl fmt::Display for InputCancelled {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("the input of this terminal's creation was cancelled")
+    }
+}
+
+impl std::error::Error for InputCancelled {}
+
+/// The `error_code` of a refused input (`input.overflow`, `input.cancelled`).
 pub(crate) fn error_code(error: &anyhow::Error) -> Option<String> {
-    error.downcast_ref::<InputOverflow>().map(|_| "input.overflow".to_string())
+    if error.downcast_ref::<InputOverflow>().is_some() {
+        return Some("input.overflow".to_string());
+    }
+    error.downcast_ref::<InputCancelled>().map(|_| "input.cancelled".to_string())
+}
+
+/// The give-back reason of a queue whose creation did not end within the expiry.
+const EXPIRED: &str = "expired";
+
+/// [`CREATING_INPUT_EXPIRY`], or the test's shorter one.
+fn creating_input_expiry() -> Duration {
+    env_millis(EXPIRY_OVERRIDE_ENV).unwrap_or(CREATING_INPUT_EXPIRY)
 }
 
 fn env_millis(name: &str) -> Option<Duration> {
@@ -132,11 +231,12 @@ fn env_millis(name: &str) -> Option<Duration> {
 }
 
 impl Mux {
-    /// A creation that names `terminal_id` was received: input for the id is queued from now on.
-    /// Returns the generation the creation must end, or `None` when it does not own the id's
-    /// queue: a live terminal already has the id (a refused or replayed create: input goes to
-    /// it), or an earlier creation of the id is still in flight and owns it.
-    pub(crate) fn begin_creating_input(&self, terminal_id: &str) -> Option<u64> {
+    /// A creation that names `terminal_id` was received from connection `owner`: input for the id
+    /// is queued from now on, and only `owner` may cancel it. Returns the generation the creation
+    /// must end, or `None` when it does not own the id's queue: a live terminal already has the
+    /// id (a refused or replayed create: input goes to it), or an earlier creation of the id is
+    /// still in flight (or was cancelled a moment ago) and owns it.
+    pub(crate) fn begin_creating_input(&self, terminal_id: &str, owner: u64) -> Option<u64> {
         let inputs = &self.creating_inputs;
         // The live check and the insert are one step under the creating lock. The check reads the
         // session state (lane off, or a poisoned state; lock order: creating, then state) or, on the
@@ -147,25 +247,48 @@ impl Mux {
         // order, by the creation's finish or by the next input on another path
         // (`wait_for_creating_input_flush`), or given back, as any queue.
         let mut terminals = inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
+        inputs.forget_cancelled(&mut terminals, Instant::now());
         if terminals.contains_key(terminal_id)
             || self.live_surface_for_terminal(terminal_id).is_some()
         {
             return None;
         }
         let generation = inputs.next_generation.fetch_add(1, Ordering::Relaxed);
-        inputs.insert(
-            &mut terminals,
-            terminal_id,
-            CreatingTerminal {
-                generation,
-                queued: Vec::new(),
-                bytes: 0,
-                expiry_started: false,
-                flushing: false,
-                adopting: false,
-            },
-        );
+        let creating = CreatingTerminal::new(generation, Some(owner), false);
+        inputs.insert(&mut terminals, terminal_id, creating);
         Some(generation)
+    }
+
+    /// `cancel-creating-input`: connection `client` cancels the input of the creation of
+    /// `terminal_id` that it sent. True when it owns a creation of the id that has not ended or
+    /// whose queue is still being written (also when it cancelled it before). Its own queued
+    /// bytes are dropped, with no notice; other connections get theirs back (`"cancelled"`).
+    /// From now on the creation writes nothing and input for the id is refused
+    /// ([`InputCancelled`]): the end of the creation keeps that for the expiry time when it
+    /// committed. A flush that runs loses the rest of its queue; the write it is in is not
+    /// recalled. False, and nothing changes, for another connection, an adoption's queue, an
+    /// unknown id, and a creation whose queue was already written or given back.
+    pub(crate) fn cancel_creating_input(&self, terminal_id: &str, client: u64) -> bool {
+        let inputs = &self.creating_inputs;
+        let mut terminals = inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
+        inputs.forget_cancelled(&mut terminals, Instant::now());
+        let Some(creating) = terminals.get_mut(terminal_id) else { return false };
+        if creating.owner != Some(client) {
+            return false;
+        }
+        if creating.cancelled {
+            return true;
+        }
+        creating.cancelled = true;
+        creating.bytes = 0;
+        let mut others = std::mem::take(&mut creating.queued);
+        others.retain(|input| input.client != client);
+        inputs.recount(&terminals);
+        // The expiry of the dropped queue ends, and input that waits for a flush looks again.
+        inputs.ended.notify_all();
+        drop(terminals);
+        give_back(terminal_id, others, "cancelled");
+        true
     }
 
     /// Write input to the terminal with host id `terminal_id`: queued while it is being created
@@ -179,8 +302,11 @@ impl Mux {
         notice: UnclaimedNotice,
     ) -> anyhow::Result<TerminalInputTarget> {
         {
-            let mut terminals =
-                self.creating_inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
+            let inputs = &self.creating_inputs;
+            let mut terminals = inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
+            if inputs.refuses_input(&mut terminals, terminal_id) {
+                return Err(InputCancelled.into());
+            }
             if let Some(creating) = terminals.get_mut(terminal_id) {
                 return self.queue_input(terminal_id, creating, client, bytes, paste, notice);
             }
@@ -241,6 +367,9 @@ impl Mux {
     ) -> anyhow::Result<Option<Arc<Surface>>> {
         let inputs = &self.creating_inputs;
         let mut terminals = inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
+        if inputs.refuses_input(&mut terminals, terminal_id) {
+            return Err(InputCancelled.into());
+        }
         if !terminals.contains_key(terminal_id) {
             if let Some(surface) = self.live_surface_for_terminal(terminal_id) {
                 return Ok(Some(surface));
@@ -249,18 +378,8 @@ impl Mux {
                 anyhow::bail!("unknown terminal {terminal_id}");
             }
             let generation = inputs.next_generation.fetch_add(1, Ordering::Relaxed);
-            inputs.insert(
-                &mut terminals,
-                terminal_id,
-                CreatingTerminal {
-                    generation,
-                    queued: Vec::new(),
-                    bytes: 0,
-                    expiry_started: false,
-                    flushing: false,
-                    adopting: true,
-                },
-            );
+            let adopting = CreatingTerminal::new(generation, None, true);
+            inputs.insert(&mut terminals, terminal_id, adopting);
         }
         let Some(creating) = terminals.get_mut(terminal_id) else {
             anyhow::bail!("unknown terminal {terminal_id}");
@@ -302,7 +421,8 @@ impl Mux {
     /// commit made the surface live but its flush has not started, or a creation that never
     /// ended left it) is written now, on this thread: the surface is live, so its creation
     /// committed. A queue being written is waited for, bounded by the expiry. Returns at once
-    /// when no terminal is creating. The caller holds no mux lock.
+    /// when no terminal is creating, and for a creation whose input was cancelled (it writes
+    /// nothing more). The caller holds no mux lock.
     pub(crate) fn wait_for_creating_input_flush(&self, surface: &Surface) {
         let inputs = &self.creating_inputs;
         // No terminal is creating, so no queue can be ahead of this input: the count says so with no lock
@@ -319,7 +439,7 @@ impl Mux {
         let deadline = Instant::now() + CREATING_INPUT_EXPIRY;
         while let Some(creating) = terminals.get(&identity.terminal_id) {
             let now = Instant::now();
-            if now >= deadline {
+            if now >= deadline || !creating.may_write_a_queue() {
                 return;
             }
             if !creating.flushing {
@@ -339,7 +459,9 @@ impl Mux {
 
     /// The creation of `terminal_id` (generation `generation`) ended. Its queue goes to the live
     /// terminal in order, or back to its senders (`failure` names why; also when no live
-    /// terminal has the id). A stale generation, or a flush already running, does nothing.
+    /// terminal has the id). A stale generation, or a flush already running, does nothing. A
+    /// creation whose input was cancelled writes nothing: its entry goes when it failed, and
+    /// stays for the expiry time when it committed, so input sent by the id late is refused.
     pub(crate) fn finish_creating_input(
         &self,
         terminal_id: &str,
@@ -350,6 +472,22 @@ impl Mux {
         let mut terminals = inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
         let Some(creating) = terminals.get_mut(terminal_id) else { return };
         if creating.generation != generation || creating.flushing {
+            return;
+        }
+        if creating.cancelled {
+            // The expiry of the dropped queue is not the end of the creation, and a second end of
+            // a committed creation changes nothing: the entry keeps refusing input.
+            if failure == Some(EXPIRED) || creating.forget_at.is_some() {
+                return;
+            }
+            let committed =
+                failure.is_none() && self.live_surface_for_terminal(terminal_id).is_some();
+            if committed {
+                creating.forget_at = Some(Instant::now() + creating_input_expiry());
+            } else {
+                inputs.remove(&mut terminals, terminal_id);
+            }
+            inputs.ended.notify_all();
             return;
         }
         let live =
@@ -366,11 +504,20 @@ impl Mux {
             std::thread::sleep(delay);
         }
         let mut clients = Vec::new();
-        loop {
+        'flush: loop {
             let batch = {
                 let mut terminals = inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
                 // A flushing entry stays until this loop removes it.
                 let Some(creating) = terminals.get_mut(terminal_id) else { break };
+                if creating.cancelled {
+                    // Cancelled while this flush ran: the rest of the queue was dropped. The
+                    // creation committed, so the entry refuses input for the expiry time.
+                    creating.flushing = false;
+                    creating.forget_at = Some(Instant::now() + creating_input_expiry());
+                    inputs.recount(&terminals);
+                    inputs.ended.notify_all();
+                    break;
+                }
                 if creating.queued.is_empty() {
                     inputs.remove(&mut terminals, terminal_id);
                     inputs.ended.notify_all();
@@ -380,6 +527,15 @@ impl Mux {
                 std::mem::take(&mut creating.queued)
             };
             for (index, input) in batch.iter().enumerate() {
+                // Cancelled while this batch is written: the bytes not yet written are not
+                // written (a typed line must not get its Return). The creator's are dropped;
+                // the others go back to their senders. The next turn ends the flush.
+                if let Some(owner) = inputs.cancelled_by(terminal_id) {
+                    let rest: Vec<_> =
+                        batch.into_iter().skip(index).filter(|i| i.client != owner).collect();
+                    give_back(terminal_id, rest, "cancelled");
+                    continue 'flush;
+                }
                 let written = if input.paste {
                     surface.write_paste(&input.bytes)
                 } else {
@@ -392,12 +548,16 @@ impl Mux {
                     eprintln!(
                         "cmux-tui: queued input for terminal {terminal_id} not written: {error}"
                     );
-                    let later = {
+                    let (later, cancelled_by) = {
                         let mut terminals =
                             inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
                         let creating = inputs.remove(&mut terminals, terminal_id);
                         inputs.ended.notify_all();
-                        creating.map(|creating| creating.queued).unwrap_or_default()
+                        match creating {
+                            Some(creating) if creating.cancelled => (Vec::new(), creating.owner),
+                            Some(creating) => (creating.queued, None),
+                            None => (Vec::new(), None),
+                        }
                     };
                     let first_given_back = if crate::surface::input_may_be_written(&error) {
                         index.saturating_add(1)
@@ -406,6 +566,8 @@ impl Mux {
                     };
                     let mut rest: Vec<_> = batch.into_iter().skip(first_given_back).collect();
                     rest.extend(later);
+                    // The creator cancelled meanwhile: its bytes are dropped, never given back.
+                    rest.retain(|input| Some(input.client) != cancelled_by);
                     return give_back(terminal_id, rest, "write-failed");
                 }
                 if !clients.contains(&input.client) {
@@ -420,8 +582,7 @@ impl Mux {
 
     /// Give a creating terminal's input back when its creation has not ended by the expiry.
     fn start_creating_input_expiry(self: &Arc<Self>, terminal_id: &str, generation: u64) {
-        let expiry = env_millis(EXPIRY_OVERRIDE_ENV).unwrap_or(CREATING_INPUT_EXPIRY);
-        let deadline = Instant::now() + expiry;
+        let deadline = Instant::now() + creating_input_expiry();
         let mux = Arc::downgrade(self);
         let terminal_id = terminal_id.to_string();
         let spawned =
@@ -432,7 +593,7 @@ impl Mux {
                 // Wakes when any creation ends, or at the deadline: a bounded wait, not a poll.
                 loop {
                     if terminals.get(&terminal_id).is_none_or(|creating| {
-                        creating.generation != generation || creating.flushing
+                        creating.generation != generation || creating.flushing || creating.cancelled
                     }) {
                         return;
                     }
@@ -447,7 +608,7 @@ impl Mux {
                         .0;
                 }
                 drop(terminals);
-                mux.finish_creating_input(&terminal_id, generation, Some("expired"));
+                mux.finish_creating_input(&terminal_id, generation, Some(EXPIRED));
             });
         if let Err(error) = spawned {
             eprintln!("cmux-tui: no expiry for creating terminal input: {error}");

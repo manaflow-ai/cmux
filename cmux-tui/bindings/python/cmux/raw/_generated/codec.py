@@ -246,6 +246,8 @@ MODEL_BY_PATH = {
     'commands/browser-reload/request': models.BrowserReloadRequest,
     'commands/browser-wheel/request': models.BrowserWheelRequest,
     'commands/browser-wheel-guarded/request': models.BrowserWheelGuardedRequest,
+    'commands/cancel-creating-input/request': models.CancelCreatingInputRequest,
+    'commands/cancel-creating-input/result': models.CancelCreatingInputResult,
     'commands/chief-inspect/request': models.ChiefInspectRequest,
     'commands/chief-inspect/result': models.ChiefInspectResult,
     'commands/chief-work/request': models.ChiefWorkRequest,
