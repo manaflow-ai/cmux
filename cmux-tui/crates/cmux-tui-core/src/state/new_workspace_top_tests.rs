@@ -97,3 +97,40 @@ fn a_create_under_top_is_first_in_the_document_when_home_is_not_first_in_the_per
     );
     mux.shutdown();
 }
+
+/// The app's Cmd-N under `top`, seeded as `CmdNTopInGroupFramesTests` does: each create names the
+/// window's current workspace and `top` (`create-workspace {places_by_setting, current, placement}`);
+/// the new one is first in the document whatever the current workspace is.
+#[test]
+fn top_creates_naming_the_current_workspace_go_first_in_the_document() {
+    use crate::state::personal_order::{ClientCurrent, with_client_current};
+    use crate::user_settings::NewWorkspacePlacement;
+    let _top = NewWorkspacePlacement::Top.set_for_test();
+    let session = Session::new("new-doc-top-client-current");
+    let mux = session.open();
+    let key_of = |id: &str| {
+        mux.with_state(|state| {
+            state.workspaces.iter().find(|item| item.public_id.as_str() == id).unwrap().key.clone()
+        })
+    };
+    let made = |name: &str, current: Option<String>, placement: NewWorkspacePlacement| {
+        with_client_current(Some(ClientCurrent { current, placement: Some(placement) }), || {
+            empty_workspace(&mux, name)
+        })
+    };
+    let w0 = made("w0", None, NewWorkspacePlacement::AfterCurrent);
+    let w1 = made("w1", Some(key_of(&w0)), NewWorkspacePlacement::Top);
+    let w2 = made("w2", Some(key_of(&w1)), NewWorkspacePlacement::Top);
+    let w3 = made("w3", Some(key_of(&w2)), NewWorkspacePlacement::Top);
+    let ids = [w0.as_str(), w1.as_str(), w2.as_str(), w3.as_str()];
+    assert_eq!(document_order(&mux, &ids), [w3.as_str(), w2.as_str(), w1.as_str(), w0.as_str()]);
+    let w4 = made("w4", Some(key_of(&w0)), NewWorkspacePlacement::Top);
+    let w5 = made("w5", None, NewWorkspacePlacement::Top);
+    let ids = [w0.as_str(), w1.as_str(), w2.as_str(), w3.as_str(), w4.as_str(), w5.as_str()];
+    assert_eq!(
+        document_order(&mux, &ids),
+        [w5.as_str(), w4.as_str(), w3.as_str(), w2.as_str(), w1.as_str(), w0.as_str()],
+        "a top create naming a current workspace is not first in the document (w0..w5 = {ids:?})"
+    );
+    mux.shutdown();
+}
