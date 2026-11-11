@@ -15,7 +15,8 @@
 //! The daemon writes it as [`KEY`] in `_meta.acpmux`, before the outbox keeps the send or a peer
 //! gets it, so a peer daemon's own check reaches the receiver; one a client wrote is dropped,
 //! as `sender_harness::CHECKED_KEY` is. The receiving daemon puts it on the `unverified`
-//! provenance as `program: {name, path?}` ([`PROVENANCE_KEY`]). It says which program, as this
+//! provenance as `program: {name, path?, host?}` ([`PROVENANCE_KEY`]); `host` is the checking
+//! daemon's own machine, never the send's `cliHost` claim. It says which program, as this
 //! machine's kernel reports it; it proves no agent or person and grants nothing.
 
 use serde_json::{Map, Value, json};
@@ -155,7 +156,13 @@ fn program_of(argv: &[String]) -> Step {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-c" | "-" => return Step::Up,
-            "-e" | "-p" | "--eval" | "--print" if !shell => return Step::Up,
+            // `bash -lc CODE`, `sh -ec CODE`: a cluster of a shell's short options with `c` in it.
+            cluster if shell && short_cluster(cluster, 'c') => return Step::Up,
+            // `perl -E CODE`, `perl -le CODE`, `node -pe CODE`.
+            cluster if !shell && (short_cluster(cluster, 'e') || short_cluster(cluster, 'E')) => {
+                return Step::Up;
+            }
+            "-p" | "--eval" | "--print" if !shell => return Step::Up,
             // `bash -o pipefail script`: the option's value is no script.
             "-o" | "-O" | "+o" if shell => {
                 args.next();
@@ -175,6 +182,15 @@ fn program_of(argv: &[String]) -> Step {
         }
     }
     Step::Up
+}
+
+/// `-lc`, `-euc`: one `-` and letters, `flag` among them.
+fn short_cluster(arg: &str, flag: char) -> bool {
+    arg.strip_prefix('-').is_some_and(|rest| {
+        !rest.starts_with('-')
+            && rest.contains(flag)
+            && rest.chars().all(|c| c.is_ascii_alphabetic())
+    })
 }
 
 /// `{name, path?}` for a well-formed name, else nothing; a path that does not fit is left out.
@@ -201,10 +217,26 @@ fn one_line(value: &str) -> bool {
         })
 }
 
-/// A carried program, with only the fields [`find`] writes and each still well formed.
+/// A carried program, with only the fields [`find`] and [`stamp`] write and each still well formed.
 pub fn sanitized(value: &Value) -> Option<Value> {
     let name = value.get("name").and_then(Value::as_str)?;
-    found(name, value.get("path").and_then(Value::as_str))
+    let mut out = found(name, value.get("path").and_then(Value::as_str))?;
+    if let (Some(host), Some(fields)) =
+        (value.get("host").and_then(Value::as_str).and_then(host_label), out.as_object_mut())
+    {
+        fields.insert("host".into(), json!(host));
+    }
+    Some(out)
+}
+
+/// A host name as the program's record keeps it: its first label (`cosmic-gray` of
+/// `cosmic-gray.local`), letters, digits, `-` and `_`, at most 64 characters.
+fn host_label(host: &str) -> Option<&str> {
+    let label = host.split('.').next()?.trim();
+    (!label.is_empty()
+        && label.len() <= 64
+        && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+    .then_some(label)
 }
 
 /// The daemon's look at a send's program, beside `sender_harness::stamp_checked`: `peer_pid` is
@@ -219,8 +251,20 @@ pub async fn stamp(prompt: &mut Value, peer_pid: Option<u32>, carried: bool, unp
         mux.remove(KEY);
     }
     let (Some(pid), true) = (peer_pid, unproven) else { return };
-    let Some(program) = tokio::task::spawn_blocking(move || find(lookup, pid)).await.ok().flatten()
-    else {
+    let Some(program) = tokio::task::spawn_blocking(move || {
+        find(lookup, pid).map(|mut program| {
+            // The machine whose kernel was read: this daemon's own name, never the send's
+            // `cliHost` claim, so a peer's receiver can say where the program ran.
+            let host = crate::host_pressure::host_name();
+            if let (Some(host), Some(fields)) = (host_label(&host), program.as_object_mut()) {
+                fields.insert("host".into(), json!(host));
+            }
+            program
+        })
+    })
+    .await
+    .ok()
+    .flatten() else {
         return;
     };
     let Some(fields) = prompt.as_object_mut() else { return };

@@ -1065,15 +1065,15 @@ test("a malformed program is ignored: the card is an unverified sender's", () =>
   expect(read?.kind === "message" && read.message.program).toEqual({ name: "tool" });
 });
 
-test("a program a peer daemon checked names the machine its send claimed", () => {
+test("a program a peer daemon checked names the machine that daemon read it on, never the claimed one", () => {
   const provenance = {
     kind: "unverified",
     to: "s-1",
     transport: "peer",
     verified: false,
-    claimed: { cliHost: "build-box" },
+    claimed: { cliHost: "claimed-box" },
     forwardedBy: { host: "build-box" },
-    program: { name: "stall-reconciler" },
+    program: { name: "stall-reconciler", host: "build-box" },
   };
   const read = incomingPrompt("lane-a idle 40m", { _meta: { provenance }, client: "acpmux-peer#01a16e@build-box" });
   expect(read?.kind === "message" && read.message).toMatchObject({
@@ -1083,7 +1083,7 @@ test("a program a peer daemon checked names the machine its send claimed", () =>
     unverified: true,
   });
   // A host that does not read as one is no host.
-  const odd = { ...provenance, claimed: { cliHost: "two words" } };
+  const odd = { ...provenance, program: { name: "stall-reconciler", host: "two words" } };
   const plain = incomingPrompt("lane-a idle 40m", { _meta: { provenance: odd } });
   expect(plain?.kind === "message" && plain.message.program).toEqual({ name: "stall-reconciler" });
 });

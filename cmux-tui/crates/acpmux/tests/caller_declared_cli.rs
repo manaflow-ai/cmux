@@ -292,9 +292,12 @@ fn an_unverified_send_names_the_program_the_daemon_saw_run_it() {
     );
     let forged = user_message(&mut reader, &rx, "forged-words");
     assert_eq!(forged.pointer("/_meta/provenance/kind"), Some(&json!("unverified")), "{forged}");
-    assert_ne!(
+    // The daemon names what it saw (this test's own binary), never the name the client wrote.
+    let own = std::env::current_exe().unwrap();
+    let own = own.file_name().and_then(|n| n.to_str()).unwrap();
+    assert_eq!(
         forged.pointer("/_meta/provenance/program/name"),
-        Some(&json!("trusted-tool")),
+        Some(&json!(own)),
         "a client's own program is dropped: {forged}"
     );
 }

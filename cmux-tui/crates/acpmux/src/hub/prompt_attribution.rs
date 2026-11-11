@@ -56,7 +56,7 @@ pub(crate) fn unverified_line(claimed: Option<&str>) -> String {
 }
 
 /// The opening line ahead of a prompt whose program the daemon saw (`sender_program.rs`), on
-/// `host` when a peer daemon passed it on.
+/// `host`, the machine that daemon read it on.
 pub(crate) fn checked_program_line(program: &str, host: Option<&str>) -> String {
     match host {
         Some(host) => format!(
@@ -213,9 +213,12 @@ pub(super) fn mark(params: &mut Value, sender: Option<&str>, provenance: Option<
             .pointer(&format!("/{}/name", crate::sender_program::PROVENANCE_KEY))
             .and_then(Value::as_str);
         let line = match program {
-            Some(program) => {
-                checked_program_line(program, p.pointer("/claimed/cliHost").and_then(Value::as_str))
-            }
+            // The host the checking daemon wrote, never the send's `cliHost` claim.
+            Some(program) => checked_program_line(
+                program,
+                p.pointer(&format!("/{}/host", crate::sender_program::PROVENANCE_KEY))
+                    .and_then(Value::as_str),
+            ),
             None => unverified_line(claimed_name(p)),
         };
         blocks.insert(first, text_block(line));
@@ -322,8 +325,9 @@ mod tests {
             "From a program that calls itself hermes@box, not the person:"
         );
         // The program the daemon saw send it names it, and the host a peer passed it on from.
-        let checked = json!({"kind": "unverified", "program": {"name": "next-autoland"},
-                             "claimed": {"cliHost": "build-box"}});
+        let checked = json!({"kind": "unverified",
+                             "program": {"name": "next-autoland", "host": "build-box"},
+                             "claimed": {"cliHost": "elsewhere"}});
         let mut params = json!({"sessionId": "s", "prompt": [{"type": "text", "text": "hi"}]});
         mark(&mut params, None, Some(&checked));
         assert_eq!(

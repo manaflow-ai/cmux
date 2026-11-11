@@ -165,15 +165,14 @@ export default componentEntry<Props>({
       verified?.kind === "message" ? verified.message : undefined,
     ]);
     // A fleet tool's `acpmux send` with no session token: acpmux names the program it saw run the
-    // send (incomingMessage.ts `senderProgram`), on the machine the send named; beside it, one with
+    // send (incomingMessage.ts `senderProgram`), on the machine the checking daemon read it on; beside it, one with
     // no program, still an unverified sender.
     const unverified = { kind: "unverified", to: "s-1", transport: "unix", verified: false };
     const program = incomingPrompt("Merged #23727 (squash, pinned at 4be1c0d).", {
       _meta: {
         provenance: {
           ...unverified,
-          claimed: { cliHost: "build-box" },
-          program: { name: "next-autoland", path: "/Users/cmux/Projects/leo-workspace/tools/next-autoland" },
+          program: { name: "next-autoland", path: "/Users/me/tools/next-autoland", host: "build-box" },
         },
       },
     });

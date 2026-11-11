@@ -100,7 +100,7 @@ export type IncomingMessage = {
   /// message names no one): the line draws a subtle marker by the name, never words in it.
   unverified?: true;
   /// The program acpmux saw run the send of an `unverified` prompt (`program`, sender_program.rs),
-  /// and the machine the send claimed (`claimed.cliHost`): the card names the program, and its mark
+  /// and the machine the checking daemon read it on (`program.host`): the card names the program, and its mark
   /// says acpmux checked it, still no agent it proved.
   program?: SenderProgram;
   /// The sender's model and thinking effort when the message names them (`fromModel`,
@@ -133,8 +133,9 @@ export type SenderProgram = { name: string; path?: string; host?: string };
 
 /// The program an `unverified` provenance names, or none when it is malformed: a name of one line
 /// and at most 64 characters (code points, as acpmux counts them), a path of at most 256 bytes
-/// (sender_program.rs `MAX_NAME_CHARS`, `MAX_PATH_BYTES`). The host is only the send's claim
-/// (`claimed.cliHost`), read as `cliHost` reads one.
+/// (sender_program.rs `MAX_NAME_CHARS`, `MAX_PATH_BYTES`). The host is the one the checking
+/// daemon wrote (`program.host`, its own machine), never the send's `claimed.cliHost`, which
+/// proves nothing.
 export function senderProgram(provenance: Record<string, unknown> | undefined): SenderProgram | undefined {
   const program = provenance?.program as Record<string, unknown> | undefined;
   if (!program || typeof program !== "object" || Array.isArray(program)) return undefined;
@@ -147,11 +148,8 @@ export function senderProgram(provenance: Record<string, unknown> | undefined): 
     new TextEncoder().encode(program.path).length <= 256
       ? program.path.trim()
       : undefined;
-  const claimed = provenance?.claimed as Record<string, unknown> | undefined;
   const host =
-    typeof claimed?.cliHost === "string" && /^[A-Za-z0-9._-]{1,64}$/.test(claimed.cliHost)
-      ? claimed.cliHost
-      : undefined;
+    typeof program.host === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(program.host) ? program.host : undefined;
   return { name, ...(path && { path }), ...(host && { host }) };
 }
 

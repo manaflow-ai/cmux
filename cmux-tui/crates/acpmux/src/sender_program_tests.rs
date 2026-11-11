@@ -118,3 +118,30 @@ fn inline_code_is_told_from_a_shells_options() {
     let table = [proc(5, 4, &["acpmux"]), proc(4, 1, &["bash", "-o", "pipefail", "/t/sweep"])];
     assert_eq!(find(of(&table), 5).unwrap()["name"], "sweep");
 }
+
+#[test]
+fn a_cluster_with_inline_code_names_nothing_and_its_parent_is_read() {
+    // Codex runs a command as `bash -lc CODE`; the code is never taken for a script.
+    let table = [
+        proc(9, 8, &["acpmux", "send"]),
+        proc(8, 7, &["bash", "-lc", "cd /repo && acpmux send x hi"]),
+        proc(7, 1, &["codex"]),
+    ];
+    assert_eq!(find(of(&table), 9), None);
+    let table = [
+        proc(9, 8, &["acpmux"]),
+        proc(8, 7, &["sh", "-euc", "acpmux send x hi"]),
+        proc(7, 1, &["/usr/bin/python3", "/t/stall-reconciler"]),
+    ];
+    assert_eq!(find(of(&table), 9).unwrap()["name"], "stall-reconciler");
+    let table = [proc(9, 8, &["acpmux"]), proc(8, 1, &["perl", "-le", "system 'acpmux'"])];
+    assert_eq!(find(of(&table), 9), None);
+}
+
+#[test]
+fn a_carried_host_is_one_plain_label() {
+    let program = |host: &str| sanitized(&json!({"name": "t", "host": host}));
+    assert_eq!(program("cosmic-gray.local").unwrap()["host"], "cosmic-gray");
+    assert!(program("a b").unwrap().get("host").is_none());
+    assert!(program("").unwrap().get("host").is_none());
+}
