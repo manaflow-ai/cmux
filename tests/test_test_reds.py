@@ -741,26 +741,56 @@ class UnnamedFailuresAreReadOnceForEveryConsumer(unittest.TestCase):
 class BunCountsTheIdentitiesItKeeps(unittest.TestCase):
     """#41222's review F1 (test_reds.py:508): "Two identical `(fail)` recap entries followed by `2 fail` produce one
     identity because `read_bun` deduplicates them, but `recap == 2` prevents an unnamed marker." The count is set
-    against the failures read_bun keeps, never the recap's lines."""
+    against the failures read_bun keeps, never the recap's lines. And at 6719ba22: "Count identities with
+    multiplicity: a name failing twice is 2." A recap title counts as often as the recap lists it, less the results
+    of its run that named it."""
 
     def unnamed(self, lines):
         return reds.unnamed_failures(lines)
 
-    def test_two_recap_lines_of_one_title_are_one_identity(self):
+    def test_two_recap_lines_of_one_title_are_two_failures_of_it(self):
         lines = bun_invocation(recap=["a > one", "a > one"], fail=2)
         found = reds.Result()
         reds.read_bun(lines, found)
-        self.assertEqual(found.counts, Counter({"a > one": 1}))
-        self.assertEqual(self.unnamed(lines), [" 2 fail"])
-        self.assertTrue(reds.read(log(*lines)).truncated)
+        self.assertEqual(found.counts, Counter({"a > one": 2}))
+        self.assertEqual(self.unnamed(lines), [])
+        self.assertEqual(reds.read(log(*lines)).truncated, [])
+        # A count above what the recap names is still unnamed.
+        self.assertEqual(self.unnamed(bun_invocation(recap=["a > one", "a > one"], fail=3)), [" 3 fail"])
 
-    def test_a_recap_that_repeats_the_results_names_them(self):
-        for lines in (bun_invocation(results=["a > one", "a > two"], recap=["a > one", "a > two"]),
-                      bun_invocation(results=["a > one", "a > one"], recap=["a > one", "a > one"]),
-                      bun_invocation(results=["a > one"], recap=["a > one", "a > two"], fail=2),
-                      bun_invocation(recap=["a > one", "a > two"], fail=2)):
+    def test_a_recap_that_repeats_the_results_names_them_once_each(self):
+        for lines, counts in (
+                (bun_invocation(results=["a > one", "a > two"], recap=["a > one", "a > two"]),
+                 {"test/a.test.ts > a > one": 1, "test/a.test.ts > a > two": 1}),
+                (bun_invocation(results=["a > one", "a > one"], recap=["a > one", "a > one"]),
+                 {"test/a.test.ts > a > one": 2}),
+                (bun_invocation(results=["a > one"], recap=["a > one", "a > two"], fail=2),
+                 {"test/a.test.ts > a > one": 1, "a > two": 1}),
+                (bun_invocation(recap=["a > one", "a > two"], fail=2), {"a > one": 1, "a > two": 1})):
             with self.subTest(lines=lines):
+                found = reds.Result()
+                reds.read_bun(lines, found)
+                self.assertEqual(found.counts, Counter(counts))
                 self.assertEqual(self.unnamed(lines), [])
+
+
+class PassingStepsPrintNoUnnamedFailure(unittest.TestCase):
+    """#41244's review F1: "read_bun keeps unnamed markers from passing steps, so a passing negative-case step printing
+    "(fail)" and "2 fail" makes judge() refuse an unrelated inherited red." A step that passed (passed_steps) prints no
+    red's marker."""
+
+    def test_a_passing_steps_bun_count_is_not_unnamed(self):
+        passing = ["##[group]Run bun test test/negative.test.ts", "shell: /usr/bin/bash -e {0}", "##[endgroup]",
+                   *bun_invocation(results=["a > one"], fail=2)]
+        failing = ["##[group]Run cargo test", "shell: /usr/bin/bash -e {0}", "##[endgroup]",
+                   "test tests::reconnects ... FAILED",
+                   "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out",
+                   "##[error]Process completed with exit code 101."]
+        found = reds.read(log(*passing, *failing))
+        self.assertEqual((found.unnamed, found.truncated), ([], []))
+        # Printed by the failed step, the same count is the red's own.
+        found = reds.read(log(*failing[:3], *bun_invocation(results=["a > one"], fail=2), *failing[3:]))
+        self.assertEqual(found.unnamed, [" 2 fail"])
 
 
 class BunRetrySupersedesItsCount(unittest.TestCase):

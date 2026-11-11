@@ -1355,6 +1355,19 @@ def signature(view: "FailedView | Unplaced") -> tuple[set[str], set[str], set[st
     return steps, tests, {error for _, error in step_errors(view)}
 
 
+def owned_unnamed(own: "test_reds.Result", view: "FailedView | Unplaced") -> "test_reds.Result":
+    """OWN (test_reds.read of a red's raw log) with its failures no parser names read from VIEW's failed sections
+    alone, when VIEW is placed: a step that passed is never this red's, whatever it printed (#41244's review F1, the
+    rule of #41241: evidence from passing steps never counts). An unplaced log keeps the whole log's reading."""
+    if view is UNPLACED:
+        return own
+    own.truncated = [why for why in own.truncated if not why.startswith(test_reds.UNNAMED_WHY)]
+    own.unnamed = test_reds.read(view_text(view)).unnamed
+    if own.unnamed:
+        own.truncated.append(test_reds.unnamed_why(own.unnamed))
+    return own
+
+
 def step_errors(view: FailedView) -> set[tuple[str, str]]:
     """(the name of the step that printed it, the error line with numbers masked) for each error line of VIEW
     (failed_view) signature() reads. judge() excuses a head error only when a base printed it from a failed step of
@@ -3922,6 +3935,16 @@ def compare_window(repo: str, base: str, name: str, head: tuple, head_view: Fail
     for kind, head, seen in compared:
         if missing := sorted(head - seen):
             raise Refused(f"'{name}': {kind} not on {base} {runs}: {'; '.join(missing)[:600]}")
+    # A failing test as often as the head fails it, on one verdict (#41222's review F1 at 6719ba22: a name failing
+    # twice is two failures, so a head failing it twice is not a base that failed it once). Each test may be on its own
+    # verdict of the window (the per-test window); a quarantined flake is the base's however often it fails.
+    times = test_reds.failed_tests(test_reds.lines_of(head_text))
+    if often := {test: n for test, n in times.items() if n > 1 and test not in known}:
+        most = Counter()
+        for _, view, *_ in window:
+            most |= test_reds.failed_tests(test_reds.lines_of(view_text(view)))
+        if fewer := sorted(f"{test} x{n} (at most x{most[test]})" for test, n in often.items() if most[test] < n):
+            raise Refused(f"'{name}': failing tests more often than on any of {base} {runs}: {'; '.join(fewer)[:600]}")
     # The failed steps by name compared above; here by identity: each head failed step's (name, conclusion), as often
     # as the head has it (#41158's review F1: a cancelled step is not a failed one, and a step that failed twice is not
     # the base's one failure), all on ONE base verdict of the window, each verdict compared alone. #41166's review F1:
@@ -5009,6 +5032,8 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
     # A webview replay's log holds the merge parent's run too: only its head part can crash or be cut short as
     # the head's (test_reds.web_head_part; cmux#34111's replay (2), whose merge parent timed out a file).
     own = test_reds.read(test_reds.web_head_part(head_log) if WEB_TEST_JOB.fullmatch(name) else head_log)
+    if not WEB_TEST_JOB.fullmatch(name):
+        own = owned_unnamed(own, view)
     if own.crashes or (own.truncated and not chromium_without_diagnostics):
         raise Refused(f"'{name}': " + "; ".join(own.crashes + own.truncated[:1])[:800]
                       + " (a crash, a cut-short run or a failure no parser names is never a base red)")

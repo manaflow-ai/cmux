@@ -442,6 +442,14 @@ def unnamed_failures(lines: list[str]) -> list[str]:
     return runner_unnamed(lines) + bun.unnamed
 
 
+UNNAMED_WHY = "its log reports more failing tests than it names"
+
+
+def unnamed_why(unnamed: list[str]) -> str:
+    """The truncated reason read() gives a log with UNNAMED failures (unnamed_failures)."""
+    return f"{UNNAMED_WHY} ({unnamed[0][:200]}), so no failure can be told from another"
+
+
 def runner_unnamed(lines: list[str]) -> list[str]:
     """unnamed_failures of every runner but bun, whose count read_bun sets against the identities it keeps."""
     found: list[str] = []
@@ -646,7 +654,7 @@ def bun_diagnostic(said: list, where: str = "") -> str:
     return f"{said} at {where}" if said and where else said
 
 
-def read_bun(lines: list[str], result: Result) -> None:
+def read_bun(lines: list[str], result: Result, unowned: frozenset = frozenset()) -> None:
     """`bun test`'s failures into `result`: each named `FILE > TEST` under its file's header (webviews_test_results.py's
     names), or `TEST` when the recap is all that names it, with its diagnostics (bun_diagnostic, or its timeout; every
     distinct one when the name fails more than once) as its message. An unhandled error between tests is a failure
@@ -654,8 +662,14 @@ def read_bun(lines: list[str], result: Result) -> None:
     (`bun test v…`, a file header or a result) and reached the next invocation (`bun test v…`, the wrapper's retry) or
     the log's end with no count was cut short, wherever it sits in the log. Each ` N fail` above the failures this
     reading kept from its invocation goes to `result.unnamed` (unnamed_failures), as does the wrapper's `FAIL file`
-    when no bun line names a failure at all; the wrapper's retry drops the attempt it supersedes, count and all."""
+    when no bun line names a failure at all; the wrapper's retry drops the attempt it supersedes, count and all.
+    A recap title is counted as often as the recap lists it, less the results of its invocation that named it: a
+    title that failed twice and is named only in the recap is two failures (#41222's review F1 at 6719ba22).
+    UNOWNED holds the indexes of LINES a step that passed printed: a marker there is never this red's (#41244's review
+    F1; #41241: evidence from passing steps never counts)."""
     file, said, where, last, recap, unhandled, open_run = "", [], "", None, False, False, False
+    results: Counter = Counter()  # this invocation's `(fail)` results by title (bun's `describe > test`)
+    recapped: Counter = Counter()  # this invocation's recap lines by title
     kept = 0  # the failures this invocation recorded under an identity (fail, counted): what its ` N fail` must match
     marked: list = []  # (the file of its run, the ` N fail` line that counts more failures than its run kept)
     any_named = False  # a `(fail)` result or an unhandled error anywhere
@@ -686,15 +700,25 @@ def read_bun(lines: list[str], result: Result) -> None:
                  bun_diagnostic(said, where))
             pending, said, where, block = False, [], "", False
 
+    def recap_failures() -> None:
+        """Each recap title as often as the recap lists it beyond its invocation's results, as `TEST` (no file)."""
+        for title, listed in recapped.items():
+            for _ in range(listed - results[title]):
+                fail(title, "")
+        results.clear()
+        recapped.clear()
+
     def end_run(why: str) -> None:
         nonlocal open_run
         if open_run:
             result.truncated.append(f"a bun test run printed no ` N pass` / ` N fail` summary before {why}")
         open_run = False
 
-    for text in lines:
+    for at, text in enumerate(lines):
         if SWIFT_TEST_SUMMARY_FIXTURE.search(text):
             continue
+        if BUN_RUN.match(text) or text == WEB_RETRY:
+            recap_failures()
         if BUN_RUN.match(text) or BUN_FILE.match(text) or text == WEB_RETRY or BUN_TEST.match(text) or \
                 BUN_UNHANDLED.match(text) or BUN_COUNT.match(text):
             flush()
@@ -731,9 +755,9 @@ def read_bun(lines: list[str], result: Result) -> None:
             if match.group(1) == "fail" and not recap:
                 last = f"{file} > {name}" if file else name
                 added = fail(last, bun_diagnostic(said, where))
-            elif match.group(1) == "fail" and not any(key == name or key.endswith(" > " + name) for key in result.failed):
-                last = name  # failed before its file's header printed
-                fail(last, "")
+                results[name] += 1
+            elif match.group(1) == "fail":
+                recapped[name] += 1  # counted at the run's end (recap_failures), beyond what its results named
             said, where, block = [], "", False
         elif BUN_UNHANDLED.match(text):
             unhandled = any_named = True
@@ -741,7 +765,8 @@ def read_bun(lines: list[str], result: Result) -> None:
             # Its run's end, whatever block it follows: an assertion block never holds the count (unnamed_failures).
             if unhandled:
                 fail(f"{file} > unhandled error" if file else "unhandled error", "")
-            if int(text.split()[0]) > kept:
+            recap_failures()
+            if int(text.split()[0]) > kept and at not in unowned:
                 marked.append((run_file, text))
             file, said, where, last, recap, unhandled, open_run = "", [], "", None, False, False, False
             block, kept = False, 0
@@ -770,10 +795,12 @@ def read_bun(lines: list[str], result: Result) -> None:
             added = None
             fail(last, f"timed out after {match.group(1)}ms", counted=False)  # the same result, its diagnostic
     flush()
+    recap_failures()
     end_run("the log ended")
     result.unnamed.extend(said_line for _, said_line in marked)
     if not any_named:
-        result.unnamed.extend(text for text in lines if (match := BUN_RESULT.match(text)) and match.group(1) == "FAIL")
+        result.unnamed.extend(text for n, text in enumerate(lines)
+                              if (match := BUN_RESULT.match(text)) and match.group(1) == "FAIL" and n not in unowned)
     for name, found in diagnostics.items():
         if found:
             # Like web_failures: several diagnostics for one name are all compared, none dropped, in sorted order so
@@ -900,15 +927,15 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
     if running > sum(1 for text in lines if text.startswith("test result: ")):
         result.truncated.append("a cargo test binary printed no `test result:` line")
     if bun:
-        read_bun(lines, result)
+        # A step that passed printed no red's marker (#41244's review F1): its lines are no bun count's either.
+        read_bun(lines, result, frozenset(at for at, n in enumerate(kept) if n in passed))
     # A failure no parser names (unnamed_failures), read here, in the reading every consumer goes through (classify,
     # classify_any, judge()'s read_head, next_batch's expand_job), never per consumer (#41222's review F1). A passing
     # step's lines are no red's (#40542), so its summaries are not read.
     result.unnamed = runner_unnamed([every[n] for n in kept if n not in passed
                                      and not SWIFT_TEST_SUMMARY_FIXTURE.search(every[n])]) + result.unnamed
     if result.unnamed:
-        result.truncated.append(f"its log reports more failing tests than it names ({result.unnamed[0][:200]}), so "
-                                "no failure can be told from another")
+        result.truncated.append(unnamed_why(result.unnamed))
     if crashed:
         who = named or crashed_tests(stack, started) or ["the test process"]
         signal = f"signal {signals[0]}" if signals else "no signal named"

@@ -8409,7 +8409,8 @@ COMPARATORS = ("signature", "step_errors", "compare_window", "crash_signals", "r
 VIEW_COMPARATORS = frozenset({
     "signature", "step_errors", "section_lines", "compare_window", "crash_signals", "ratchet_red",
     "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "quarantined_only",
-    "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text", "fixed_on_base_by_step", "step_evidence"})
+    "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text", "fixed_on_base_by_step", "step_evidence",
+    "owned_unnamed"})
 # The only readers of step_owners: failed_view (every comparator's) and failed_steps_log (what a comment shows, never
 # compared).
 STEP_OWNERS_READERS = frozenset({"failed_view", "failed_steps_log"})
@@ -9352,6 +9353,32 @@ class UnnamedFailureRefusedInTheSharedReading(unittest.TestCase):
         self.assertIn("reports more failing tests than it names", err.getvalue())
 
 
+class PassingStepsNamePassingStepsOnly(unittest.TestCase):
+    """#41244's review F1: "read_bun keeps unnamed markers from passing steps, so a passing negative-case step printing
+    "(fail)" and "2 fail" makes judge() refuse an unrelated inherited red. Filter Bun's unnamed markers by step
+    ownership, the same rule as #41241". read_head and next_batch's expand_job read a placed red's unnamed failures
+    from its failed sections alone (owned_unnamed)."""
+
+    NEGATIVE = ["bun test v1.3.0", "test/negative.test.ts:", "error: expect(received).toBe(expected)",
+                "(fail) negative > reports a red [1.00ms]", " 0 pass", " 2 fail"]
+
+    def head(self, step):
+        """KIT's red with NEGATIVE printed, in log order, by STEP: the passing build step or the failed test step."""
+        lines = kit_lines()
+        at = 1 if step == KIT_BUILD else len(lines) - 1
+        return framed_log(lines[:at] + [(step, 5 if step == KIT_BUILD else 19, line) for line in self.NEGATIVE]
+                          + lines[at:], KIT)
+
+    def test_a_passing_steps_bun_count_never_refuses_the_inherited_red(self):
+        github = KitFixedOnBaseGitHub()
+        github.logs[1] = self.head(KIT_BUILD)
+        self.assertIn("fixed on base", excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)[0])
+        # Printed by the failed step, the same count is the red's own.
+        github.logs[1] = self.head(KIT_STEP)
+        with self.assertRaisesRegex(excuse.Refused, "reports more failing tests than it names .* 2 fail"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+
 class BunRecapAndRetryCounts(unittest.TestCase):
     """#41222's review F1 (test_reds.py:508): "Two identical `(fail)` recap entries followed by `2 fail` produce one
     identity because `read_bun` deduplicates them, but `recap == 2` prevents an unnamed marker. I reproduced `judge()`
@@ -9373,12 +9400,23 @@ class BunRecapAndRetryCounts(unittest.TestCase):
         return excuse.judge(REPO, "feat-cmux-next", HEAD, [10],
                             UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, head, base))
 
-    def test_f1_duplicate_recap_titles_are_one_identity_placed_and_whole(self):
-        for path in (self.placed, self.whole):
+    def test_f1_duplicate_recap_titles_are_two_failures_placed_and_whole(self):
+        # #41222's review F1 at 6719ba22: "a head with 2 failures is excused against a base with 1 ... Count identities
+        # with multiplicity: a name failing twice is 2." Refused against one; the same twice on the base is excused.
+        for path, why in ((self.placed, "more often than on any of .*a > one x2 \\(at most x1\\)"),
+                          (self.whole, "failing tests are not .*more on this head: a > one")):
             with self.subTest(path=path.__name__):
-                with self.assertRaisesRegex(excuse.Refused, r"more failing tests than it names \(\s*2 fail\)"):
+                with self.assertRaisesRegex(excuse.Refused, why):
                     path(self.HEAD_RECAP, self.BASE_RECAP)
+                self.assertTrue(path(self.HEAD_RECAP, self.HEAD_RECAP)[0].startswith("excused "))
                 self.assertTrue(path(self.BASE_RECAP, self.BASE_RECAP)[0].startswith("excused "))
+
+    def test_a_result_failing_twice_is_not_the_bases_one_failure_placed(self):
+        # The same rule for a name its results print twice: the placed path compared the window by name alone.
+        twice = bun_lines(results=["a > one", "a > one"])
+        with self.assertRaisesRegex(excuse.Refused, "more often than on any of .*a > one x2 \\(at most x1\\)"):
+            self.placed(twice, bun_lines(results=["a > one"]))
+        self.assertTrue(self.placed(twice, twice)[0].startswith("excused "))
 
     def test_f2_a_fully_named_retry_is_judged_alone_placed_and_whole(self):
         for path in (self.placed, self.whole):

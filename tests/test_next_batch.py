@@ -978,6 +978,32 @@ class BaseReds(unittest.TestCase):
                         stack)
         self.assertEqual(stack - base, stack)
 
+    def test_a_passing_steps_bun_count_is_not_the_reds_own(self):
+        """#41244's review F1: a passing negative-case step's `(fail)` and ` 2 fail` keyed an unrelated red as the job's
+        own. expand_job reads a placed red's unnamed failures from its failed sections alone (owned_unnamed)."""
+        controller = self.controller()
+        def at(second):
+            return f"2026-10-19T03:02:{second:02d}Z"
+        steps = [{"number": 1, "name": "Set up job", "status": "completed", "conclusion": "success",
+                  "started_at": at(0), "completed_at": at(1)},
+                 {"number": 2, "name": "Negative cases", "status": "completed", "conclusion": "success",
+                  "started_at": at(2), "completed_at": at(4)},
+                 {"number": 3, "name": "Run tests", "status": "completed", "conclusion": "failure",
+                  "started_at": at(5), "completed_at": at(9)},
+                 {"number": 4, "name": "Complete job", "status": "completed", "conclusion": "success",
+                  "started_at": at(9), "completed_at": at(9)}]
+        negative = ["bun test v1.3.0", "test/negative.test.ts:", "(fail) negative > reports a red [1.00ms]",
+                    " 0 pass", " 2 fail"]
+        text = "\n".join(["2026-10-19T03:02:00.5Z Current runner version: '2.338.2'",
+                          "2026-10-19T03:02:02.5Z ##[group]Run negative cases", "2026-10-19T03:02:02.6Z ##[endgroup]",
+                          *(f"2026-10-19T03:02:03.5Z {line}" for line in negative),
+                          "2026-10-19T03:02:05.5Z ##[group]Run tests", "2026-10-19T03:02:05.6Z ##[endgroup]",
+                          "2026-10-19T03:02:06.5Z \u2718 Test alpha() recorded an issue at A.swift:1:2: x"]) + "\n"
+        controller.gh.gh.return_value = log_of(text)
+        keys = controller.expand_job("cmux-next swift test", 8, {"steps": steps}, base=False)
+        self.assertIn("cmux-next swift test: test alpha()", keys)
+        self.assertFalse([key for key in keys if "never a base red" in key], keys)
+
     def test_a_non_test_jobs_crash_signal_still_keys_its_failure(self):
         controller = self.controller()
         steps = [{"name": "Build", "conclusion": "failure"}]

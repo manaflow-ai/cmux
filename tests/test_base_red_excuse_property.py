@@ -49,6 +49,7 @@ CONCLUSIONS = ("failure",) * 6 + ("cancelled",) * 2 + ("timed_out",) + ("success
 RUNNERS = ("swift", "xctest", "xcresult", "listing", "cargo", "unittest", "pytest", "bun")
 XC_FAMILY = frozenset({"xctest", "xcresult", "listing"})
 NAMES = ("alpha", "beta", "gamma")
+NON_VACUOUS_SEEDS = 20  # the fewest seeds over which the excuse count must be above zero
 
 
 def setUpModule():
@@ -81,18 +82,10 @@ def final_failures(block: dict) -> list:
 
 def final_identities(block: dict) -> list:
     """(runner, identity, named) of each of BLOCK's final failures, as its log can tell them. A bun recap that alone
-    names its failures prints `(fail) pane > NAME`, no file: two failures of one title there are one identity, so each
-    after the first is a failure no line tells apart (#41222's review F1)."""
-    found, seen = [], set()
-    for runner, name, ok in final_failures(block):
-        if runner == "bun" and block.get("recap") == "only":
-            ident = f"pane > {name}"
-            found.append((runner, ident, ok and ident not in seen))
-            if ok:
-                seen.add(ident)
-        else:
-            found.append((runner, key(runner, name), ok))
-    return found
+    names its failures prints `(fail) pane > NAME`, no file: each line is one failure of that title, so a title listed
+    twice is two failures of it (#41222's review F1 at 6719ba22: "a name failing twice is 2")."""
+    return [(runner, f"pane > {name}" if runner == "bun" and block.get("recap") == "only" else key(runner, name), ok)
+            for runner, name, ok in final_failures(block)]
 
 
 def truth(steps: list) -> tuple[Counter, Counter, list]:
@@ -390,7 +383,11 @@ def violations(case: dict, said: str) -> list[str]:
     sides = [truth(entry["steps"]) for entry in reds]
     if case["placed"]:
         one = [n for n, (theirs, _, _) in enumerate(sides) if not keys - theirs]
-        tests_ok = not set(named) - set().union(*(set(t) for _, t, _ in sides))
+        # Each failing test on some verdict of the window, as often as the head fails it (#41222's review F1).
+        most = Counter()
+        for _, tests, _ in sides:
+            most |= tests
+        tests_ok = not named - most
     else:
         one = [n for n, (theirs, tests, _) in enumerate(sides) if not keys - theirs and not named - tests]
         tests_ok = True
@@ -437,8 +434,10 @@ class ExcuseIdentityProperty(unittest.TestCase):
                 for line in [line for line in found if line.split("): ", 1)[1].startswith(kind)][:3]:
                     print("  " + line, file=sys.stderr)
         self.assertEqual(len(found), 0, "\n".join(found[:5]))
-        # Not vacuous: the generator makes heads the base does excuse.
-        self.assertGreater(excused, count // 20)
+        # Not vacuous: the generator makes heads the base does excuse. Only over enough seeds to hold: a single-seed
+        # replay (BASE_RED_PROPERTY_SEEDS=1) of a seed judge() rightly refuses excuses nothing (#41222's review F2).
+        if count >= NON_VACUOUS_SEEDS:
+            self.assertGreater(excused, count // 20)
 
 
 class GeneratorIsSound(unittest.TestCase):
