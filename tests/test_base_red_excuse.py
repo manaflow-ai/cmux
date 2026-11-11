@@ -3027,7 +3027,7 @@ class WebviewTestReplayPerTest(unittest.TestCase):
         gh.logs[1] = gh.logs[1].replace("re-running alone on the head:", "re-running alone on the head:\n"
                                         "2026-11-08T09:30:06Z ##[group]TIMEOUT test/x.test.ts\n2026-11-08T09:30:06Z "
                                         "##[endgroup]\n2026-11-08T09:30:06Z TIMEOUT test/x.test.ts (limit 120s)")
-        with self.assertRaisesRegex(excuse.Refused, "a crash or a cut-short run is never a base red"):
+        with self.assertRaisesRegex(excuse.Refused, "a cut-short run or a failure no parser names is never a base red"):
             self.judge(gh)
 
     def test_a_test_that_passed_again_alone_on_the_head_is_no_longer_charged(self):
@@ -3576,6 +3576,123 @@ class OtherRepoRollups(unittest.TestCase):
     def test_rollups_not_read_are_refused(self):
         with self.assertRaisesRegex(excuse.Refused, "not read from its workflows"):
             excuse.rollups(HQ)
+
+
+# hq#9249 (2026-11-11): a child PR into lane/rerun-guard-fixed-on-base, the head of open PR hq#9226 at d755d38b.
+# Its 'Skill policy tests' (run 42988800012) failed the LaunchAgent step exactly as the parent's head did (run
+# 42985609913); the lane branch has no run of its own, so it was refused as "no lane/... run ... to compare with".
+LANE = "lane/rerun-guard-fixed-on-base"
+PARENT_SHA = "d755d38ba189a2c4c853ad5b5b2596cf6b3ea9e0"
+LAUNCHAGENT_STEP = "Shared clone maintenance LaunchAgent runs the compaction daily"
+LAUNCHAGENT_RED = ("AssertionError: ['/bin/bash', '/home/runner/Library/Application Support/cmuxterm-hq/"
+                   "shared-clone-maintenance/scripts/shared-clone-maintenance.sh', '/x/a&b/repo']",
+                   "FAIL: plist content", "##[error]Process completed with exit code 1.")
+
+
+def parent_pull(number=9226, sha=PARENT_SHA, ref=LANE, repo=HQ):
+    return {"number": number, "state": "open", "head": {"ref": ref, "sha": sha, "repo": {"full_name": repo}}}
+
+
+class StackedParentGitHub(HQGitHub):
+    """hq#9249's shape: head run 10 (Skill policy tests red, its rollup Skill documentation tests red) into LANE, the
+    head of open PR #9226 whose run 30 at PARENT_SHA has the same 'Skill policy tests' red. LANE has no push run."""
+
+    def __init__(self):
+        super().__init__()
+        del self.jobs[2]
+        self.base_runs = []
+        self.jobs[1] = failed_job(1, 10, HEAD, name="Skill policy tests", step=LAUNCHAGENT_STEP)
+        self.logs[1] = log("Skill policy tests", LAUNCHAGENT_STEP, *LAUNCHAGENT_RED)
+        self.jobs[2] = failed_job(2, 30, PARENT_SHA, name="Skill policy tests", step=LAUNCHAGENT_STEP)
+        self.logs[2] = log("Skill policy tests", LAUNCHAGENT_STEP, *LAUNCHAGENT_RED)
+        self.pulls = [parent_pull()]
+        self.tip = PARENT_SHA
+        self.parent_runs = [{"id": 30, "event": "pull_request", "head_branch": LANE, "head_sha": PARENT_SHA,
+                             "status": "completed", "conclusion": "failure", "workflow_id": 7,
+                             "created_at": "2026-11-11T08:40:00Z"}]
+
+    def blob(self, repo, ref, path):
+        self.blobs.append((repo, ref, path))
+        return SKILLS_YML
+
+    def json(self, route, *, paginate=False):
+        if route.startswith(f"repos/{HQ}/pulls?"):
+            self.routes.append(route)
+            assert f"head=manaflow-ai:{LANE}" in route and "state=open" in route, route
+            return copy.deepcopy(self.pulls)
+        if route == f"repos/{HQ}/branches/{LANE}":
+            self.routes.append(route)
+            return {"name": LANE, "commit": {"sha": self.tip}}
+        if route.startswith(f"repos/{HQ}/actions/workflows/7/runs?head_sha="):
+            self.routes.append(route)
+            sha = route.split("head_sha=", 1)[1].split("&", 1)[0]
+            return {"workflow_runs": [copy.deepcopy(run) for run in self.parent_runs if run["head_sha"] == sha]}
+        if route.startswith(f"repos/{HQ}/actions/workflows/7/runs?branch={LANE}"):
+            self.routes.append(route)
+            return {"workflow_runs": []}  # a lane branch has no push or dispatch run of its own
+        return super().json(route, paginate=paginate)
+
+
+class StackedChildIntoLaneParent(unittest.TestCase):
+    """A child PR into a lane branch that heads an open PR is judged by that parent PR's checks at its head
+    (stacked_parent): identity-keyed, as any base verdict; anything less refuses."""
+
+    def setUp(self):
+        self.gh = StackedParentGitHub()
+        patch = unittest.mock.patch.object(excuse, "_REPO_ROLLUPS", {})
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def judge(self):
+        return excuse.judge(HQ, LANE, HEAD, [10], self.gh)
+
+    def test_hq9249_a_red_the_parents_head_has_too_is_excused(self):
+        lines = "\n".join(self.judge())
+        self.assertIn("excused 'Skill policy tests'", lines)
+        self.assertIn(f"open PR #9226's head {PARENT_SHA[:12]}", lines)
+        self.assertIn(f"repos/{HQ}/actions/workflows/7/runs?head_sha={PARENT_SHA}&per_page=100", self.gh.routes)
+
+    def test_a_child_red_the_parents_head_does_not_have_is_refused(self):
+        self.gh.logs[1] = log("Skill policy tests", LAUNCHAGENT_STEP, *LAUNCHAGENT_RED[:1],
+                              "FAIL: launchd label", LAUNCHAGENT_RED[2])
+        with self.assertRaisesRegex(excuse.Refused, "'Skill policy tests'.*not on lane/rerun-guard-fixed-on-base"):
+            self.judge()
+
+    def test_a_green_parent_job_makes_the_red_the_childs_own(self):
+        self.gh.jobs[2] = dict(self.gh.jobs[2], conclusion="success",
+                               steps=[dict(step, conclusion="success") for step in self.gh.jobs[2]["steps"]])
+        with self.assertRaisesRegex(excuse.Refused, "passed on .*PR #9226 at its head d755d38ba189.*own"):
+            self.judge()
+
+    def test_a_parent_head_with_no_completed_run_is_refused(self):
+        for runs in ([], [dict(self.gh.parent_runs[0], status="in_progress", conclusion=None)]):
+            with self.subTest(runs=runs):
+                self.gh.parent_runs = runs
+                with self.assertRaisesRegex(excuse.Refused, "PR #9226's head; its head d755d38ba189 has no completed"):
+                    self.judge()
+
+    def test_a_branch_that_moved_past_its_prs_head_is_refused(self):
+        self.gh.tip = "c" * 40
+        with self.assertRaisesRegex(excuse.Refused, "tip cccccccccccc is not that PR's head d755d38ba189"):
+            self.judge()
+
+    def test_two_open_prs_headed_by_the_branch_judge_as_before(self):
+        # Ambiguous: no parent is chosen, and the lane branch's own (absent) runs refuse as they always did.
+        self.gh.pulls = [parent_pull(), parent_pull(number=9300)]
+        with self.assertRaisesRegex(excuse.Refused, f"no {LANE} run of its workflow has a verdict"):
+            self.judge()
+
+    def test_a_fork_or_other_ref_is_no_parent(self):
+        for pull in (parent_pull(repo="someone/cmuxterm-hq"), parent_pull(ref="lane/other")):
+            with self.subTest(pull=pull):
+                self.gh.pulls = [pull]
+                with self.assertRaisesRegex(excuse.Refused, f"no {LANE} run of its workflow has a verdict"):
+                    excuse.judge(HQ, LANE, HEAD, [10], self.gh)
+
+    def test_an_integration_base_never_reads_a_parent(self):
+        self.assertIsNone(excuse.stacked_parent(HQ, "main", self.gh, {}))
+        self.assertIsNone(excuse.stacked_parent(REPO, "feat-cmux-next", self.gh, {}))
+        self.assertFalse(any("/pulls?" in route for route in self.gh.routes))
 
 
 SOURCE_FAKE_GH = """#!/usr/bin/env python3
@@ -4932,6 +5049,60 @@ class KitFixedOnBaseGitHub(FixedOnBaseGitHub):
         return self.files[path]
 
 
+class TrackedTree:
+    """This checkout's tree as the classifier reads a tree at a sha: every path git tracks, its text from the working
+    tree when it is checked out, else from the index. A sparse checkout leaves whole folders (cmux-next-ios among
+    them) out of the working tree, so a reader of the working tree alone sees a cargo root the code under test reaches
+    as missing. Nothing here names a root: whatever the code discovers, the tree serves."""
+
+    def __init__(self, root: Path):
+        self.root = root
+        out = subprocess.run(["git", "-C", str(root), "ls-files", "-s", "-z"], capture_output=True, check=True).stdout
+        self.blobs = {}
+        for entry in out.decode().split("\0"):
+            if entry:
+                meta, path = entry.split("\t", 1)
+                mode, blob, _stage = meta.split()
+                if mode != "160000":  # a submodule has no text here
+                    self.blobs[path] = blob
+        self.cache: dict[str, str] = {}
+
+    def __contains__(self, path: str) -> bool:
+        return path in self.blobs
+
+    def files(self, under: str, suffix: str = "") -> list[str]:
+        return sorted(p for p in self.blobs if p.startswith(f"{under}/") and p.endswith(suffix))
+
+    def texts(self, paths) -> dict[str, str]:
+        """{path: its text} of the tracked PATHS, the ones not checked out read in one `git cat-file --batch`."""
+        missing = [p for p in paths if p in self.blobs and p not in self.cache and not (self.root / p).is_file()]
+        for path in paths:
+            if path in self.blobs and path not in self.cache and path not in missing:
+                self.cache[path] = (self.root / path).read_text(errors="replace")
+        if missing:
+            out = subprocess.run(["git", "-C", str(self.root), "cat-file", "--batch"], check=True, capture_output=True,
+                                 input="".join(f"{self.blobs[p]}\n" for p in missing).encode()).stdout
+            at = 0
+            for path in missing:
+                end = out.index(b"\n", at)
+                size = int(out[at:end].split()[2])
+                self.cache[path] = out[end + 1:end + 1 + size].decode(errors="replace")
+                at = end + 1 + size + 1
+        return {p: self.cache[p] for p in paths if p in self.cache}
+
+    def text(self, path: str) -> str | None:
+        return self.texts([path]).get(path)
+
+    def write(self, dest: Path, under: list[str], suffixes: tuple[str, ...]) -> Path:
+        """DEST holding every tracked file below UNDER that ends in one of SUFFIXES: a tree a reader of files
+        (cargo_test_verdict.crate_inputs) walks as it walks a full checkout."""
+        paths = sorted({p for d in under for p in self.files(d) if p.endswith(suffixes)})
+        for path, text in self.texts(paths).items():
+            (dest / path).parent.mkdir(parents=True, exist_ok=True)
+            (dest / path).write_text(text)
+        return dest
+
+
 class PackageFixedOnBase(unittest.TestCase):
     """A package job red on a head whose diff cannot reach the package, fixed on the base after its merge-base."""
 
@@ -5125,17 +5296,23 @@ class PackageFixedOnBase(unittest.TestCase):
         spec.loader.exec_module(cargo)
         reads = package["reads"] + excuse.GUARD_READS_DEFAULT
         github = KitFixedOnBaseGitHub(files={})
+        # The fake serves this checkout's whole tree, read the way the classifier reads a sha's tree (TrackedTree):
+        # the cargo roots and crates are the ones cargo_crates discovers, so a new root needs no list here.
+        tree = TrackedTree(ROOT)
 
-        def checkout(repo, ref, path):
-            if not (ROOT / path).is_file():
+        def served(repo, ref, path):
+            text = tree.text(path)
+            if text is None:
                 raise excuse.Refused(f"{repo}@{ref}: {path} is not a text file GitHub served")
-            return (ROOT / path).read_text()
-        github.blob = checkout
+            return text
+        github.blob = served
         crates = sorted(excuse.cargo_crates(REPO, HEAD, package["cargo_lock"], github))
         self.assertIn("cmux-tui/crates/cmux-wg", crates)
         self.assertNotIn("cmux-tui/crates/cmux-agent-pane-policy", crates)
+        built = tree.write(Path(tempfile.mkdtemp()), crates + [cargo.WORKSPACE], (".rs", "Cargo.toml"))
+        self.addCleanup(shutil.rmtree, built)
         for crate in crates:
-            dirs, files = cargo.crate_inputs(ROOT, crate)
+            dirs, files = cargo.crate_inputs(built, crate)
             for path in [f"{d}/Cargo.toml" for d in dirs] + files:
                 with self.subTest(path=path):
                     self.assertTrue(any(excuse.touches(path, read) for read in reads), path)
@@ -5143,13 +5320,15 @@ class PackageFixedOnBase(unittest.TestCase):
         # time, which no manifest shows): every one that exists must be a declared read.
         literal = re.compile(r'"((?:[\w.-]+/)+[\w.-]+)"')
         for root in ("cmux-next-ios/CmuxMobileKit", "Packages/Shared", "Packages/iOS", "vendor"):
-            for source in sorted((ROOT / root).rglob("*.swift")):
-                if root != "cmux-next-ios/CmuxMobileKit" and "Tests" in source.relative_to(ROOT).parts:
-                    continue  # the job runs the kit's own tests; the packages it reaches build only their sources
-                for found in literal.finditer(source.read_text(errors="replace")):
+            sources = [source for source in tree.files(root, ".swift")
+                       if root == "cmux-next-ios/CmuxMobileKit" or "Tests" not in source.split("/")]
+            # the job runs the kit's own tests; the packages it reaches build only their sources
+            self.assertTrue(sources, f"{root} has no Swift in this tree")
+            for source, text in tree.texts(sources).items():
+                for found in literal.finditer(text):
                     path = found.group(1)
-                    if (ROOT / path).is_file():
-                        with self.subTest(path=path, source=source.relative_to(ROOT).as_posix()):
+                    if path in tree:
+                        with self.subTest(path=path, source=source):
                             self.assertTrue(any(excuse.touches(path, read) for read in reads), path)
         self.assertEqual(excuse.package_reads(REPO, HEAD, package, github), package["reads"])
 
@@ -8853,7 +9032,7 @@ VIEW_COMPARATORS = frozenset({
     "signature", "step_errors", "section_lines", "compare_window", "crash_signals", "ratchet_red",
     "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "quarantined_only",
     "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text", "fixed_on_base_by_step", "step_evidence",
-    "unnamed_tests", "step_unnamed"})
+    "owned_unnamed"})
 # The only readers of step_owners: failed_view (every comparator's) and failed_steps_log (what a comment shows, never
 # compared).
 STEP_OWNERS_READERS = frozenset({"failed_view", "failed_steps_log"})
@@ -9177,8 +9356,8 @@ class PrOnlyStepsAreExcusedByAnotherBaseJob(unittest.TestCase):
 
     def test_a_head_log_that_says_tests_failed_unnamed_is_the_prs_own(self):
         # #41253's review: a runner line saying tests failed with none named could hide a red no test ID matches.
-        # #41222's count check (reported against named) refuses it first, before the PR-only step reading is reached.
-        with self.assertRaisesRegex(excuse.Refused, "names none|reports more failed tests than it names"):
+        # The shared reading (test_reds.read, #41244) refuses it first, before the PR-only step reading is reached.
+        with self.assertRaisesRegex(excuse.Refused, "names none|a failure no parser names is never a base red"):
             self.judge(PrOnlyStepGitHub(menu=PrOnlyStepGitHub.MENU + (" 1 fail",)))
 
     def test_a_stale_shared_check_without_an_excused_host_is_not_excused_by_it(self):
@@ -9377,7 +9556,7 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
                        "FAILED (failures=1)", "Executed 4 tests, with 1 failure (0 unexpected) in 0.2 (0.3) seconds"):
             with self.subTest(marker=marker):
                 said = ["error: expect(received).toBe(expected)", marker]
-                with self.assertRaisesRegex(excuse.Refused, "reports more failed tests than it names"):
+                with self.assertRaisesRegex(excuse.Refused, "reports more failing tests than it names"):
                     self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, said, said))
 
     def test_a_base_that_fails_more_is_not_enough_either(self):
@@ -9901,9 +10080,123 @@ class EveryReportedFailureIsNamed(unittest.TestCase):
         self.assertTrue(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)[0].startswith("excused "))
 
     def test_whole_log(self):
-        with self.assertRaisesRegex(excuse.Refused, "reports more failed tests than it names .*test result: FAILED"):
+        with self.assertRaisesRegex(excuse.Refused, "reports more failing tests than it names .*test result: FAILED"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10],
                          UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, self.CARGO, self.CARGO))
+
+
+def bun_lines(results=(), recap=(), fail=None):
+    """One bun invocation of test/a.test.ts: RESULTS printed in the run, a recap of RECAP titles, ` N fail`."""
+    out = ["bun test v1.3.0", "test/a.test.ts:"]
+    for title in results:
+        out += ["error: expect(received).toBe(expected)", f"(fail) {title} [1.00ms]"]
+    if recap:
+        out += [f"{len(recap)} test{'s' if len(recap) != 1 else ''} failed:", *(f"(fail) {t}" for t in recap)]
+    return out + [" 0 pass", f" {len(results) if fail is None else fail} fail"]
+
+
+class UnnamedFailureRefusedInTheSharedReading(unittest.TestCase):
+    """#41222's review, earlier F1: "Move the refusal into the shared path every consumer goes through ... Cover each
+    entry point (classify, read, expand_job)". test_reds.read() records a failure no parser names as results that are
+    not whole, so read_head refuses it for every judge() path (placed, whole-log, fixed on base, per step, quarantine,
+    per-test), and the command line with it; next_batch's expand_job keys it as the job's own
+    (tests/test_next_batch.py)."""
+
+    UNNAMED = ["test src/lib.rs - parse (line 3) ... FAILED",
+               "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s"]
+
+    def test_the_fixed_on_base_path(self):
+        github = KitFixedOnBaseGitHub()
+        self.assertIn("fixed on base", excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)[0])
+        github.logs[1] = framed_log(kit_lines(*((KIT_STEP, 19, line) for line in self.UNNAMED)), KIT)
+        with self.assertRaisesRegex(excuse.Refused, "reports more failing tests than it names .*test result: FAILED"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_the_command_line(self):
+        github = KitFixedOnBaseGitHub()
+        github.logs[1] = framed_log(kit_lines(*((KIT_STEP, 19, line) for line in self.UNNAMED)), KIT)
+        err = io.StringIO()
+        with unittest.mock.patch.object(excuse, "GitHub", lambda: github), \
+                unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None), \
+                contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            code = excuse.main(["--repo", REPO, "--base", "feat-cmux-next", "--sha", HEAD, "--run", "10"])
+        self.assertEqual(code, 1, err.getvalue())
+        self.assertIn("reports more failing tests than it names", err.getvalue())
+
+
+class PassingStepsNamePassingStepsOnly(unittest.TestCase):
+    """#41244's review F1: "read_bun keeps unnamed markers from passing steps, so a passing negative-case step printing
+    "(fail)" and "2 fail" makes judge() refuse an unrelated inherited red. Filter Bun's unnamed markers by step
+    ownership, the same rule as #41241". read_head and next_batch's expand_job read a placed red's unnamed failures
+    from its failed sections alone (owned_unnamed)."""
+
+    NEGATIVE = ["bun test v1.3.0", "test/negative.test.ts:", "error: expect(received).toBe(expected)",
+                "(fail) negative > reports a red [1.00ms]", " 0 pass", " 2 fail"]
+
+    def head(self, step):
+        """KIT's red with NEGATIVE printed, in log order, by STEP: the passing build step or the failed test step."""
+        lines = kit_lines()
+        at = 1 if step == KIT_BUILD else len(lines) - 1
+        return framed_log(lines[:at] + [(step, 5 if step == KIT_BUILD else 19, line) for line in self.NEGATIVE]
+                          + lines[at:], KIT)
+
+    def test_a_passing_steps_bun_count_never_refuses_the_inherited_red(self):
+        github = KitFixedOnBaseGitHub()
+        github.logs[1] = self.head(KIT_BUILD)
+        self.assertIn("fixed on base", excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)[0])
+        # Printed by the failed step, the same count is the red's own.
+        github.logs[1] = self.head(KIT_STEP)
+        with self.assertRaisesRegex(excuse.Refused, "reports more failing tests than it names .* 2 fail"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+
+class BunRecapAndRetryCounts(unittest.TestCase):
+    """#41222's review F1 (test_reds.py:508): "Two identical `(fail)` recap entries followed by `2 fail` produce one
+    identity because `read_bun` deduplicates them, but `recap == 2` prevents an unnamed marker. I reproduced `judge()`
+    excusing this against a one-failure base in both comparison paths." And F2 (test_reds.py:493): "A first attempt
+    reporting two failures while naming one remains refused after a fully named retry matching the base"."""
+
+    HEAD_RECAP = bun_lines(recap=["a > one", "a > one"], fail=2)
+    BASE_RECAP = bun_lines(recap=["a > one"], fail=1)
+    RETRIED = bun_lines(results=["a > one"], fail=2) + ["--- retry, alone ---"] + bun_lines(results=["a > one"])
+    # The base's file failed twice too, named both times: the whole-log comparison counts both attempts' error lines.
+    BASE_ONE = bun_lines(results=["a > one"]) + ["--- retry, alone ---"] + bun_lines(results=["a > one"])
+
+    def placed(self, head, base):
+        github = FakeGitHub()
+        github.logs[1], github.logs[2] = log(SWIFT, TEST_STEP, *head), log(SWIFT, TEST_STEP, *base)
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def whole(self, head, base):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10],
+                            UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, head, base))
+
+    def test_f1_duplicate_recap_titles_are_two_failures_placed_and_whole(self):
+        # #41222's review F1 at 6719ba22: "a head with 2 failures is excused against a base with 1 ... Count identities
+        # with multiplicity: a name failing twice is 2." Refused against one; the same twice on the base is excused.
+        for path, why in ((self.placed, "more often than on any of .*a > one x2 \\(at most x1\\)"),
+                          (self.whole, "failing tests are not .*more on this head: a > one")):
+            with self.subTest(path=path.__name__):
+                with self.assertRaisesRegex(excuse.Refused, why):
+                    path(self.HEAD_RECAP, self.BASE_RECAP)
+                self.assertTrue(path(self.HEAD_RECAP, self.HEAD_RECAP)[0].startswith("excused "))
+                self.assertTrue(path(self.BASE_RECAP, self.BASE_RECAP)[0].startswith("excused "))
+
+    def test_a_result_failing_twice_is_not_the_bases_one_failure_placed(self):
+        # The same rule for a name its results print twice: the placed path compared the window by name alone.
+        twice = bun_lines(results=["a > one", "a > one"])
+        with self.assertRaisesRegex(excuse.Refused, "more often than on any of .*a > one x2 \\(at most x1\\)"):
+            self.placed(twice, bun_lines(results=["a > one"]))
+        self.assertTrue(self.placed(twice, twice)[0].startswith("excused "))
+
+    def test_f2_a_fully_named_retry_is_judged_alone_placed_and_whole(self):
+        for path in (self.placed, self.whole):
+            with self.subTest(path=path.__name__):
+                self.assertTrue(path(self.RETRIED, self.BASE_ONE)[0].startswith("excused "))
+                unnamed_retry = bun_lines(results=["a > one"]) + ["--- retry, alone ---"] + bun_lines(
+                    results=["a > one"], fail=2)
+                with self.assertRaisesRegex(excuse.Refused, "more failing tests than it names"):
+                    path(unnamed_retry, self.BASE_ONE)
 
 
 class GuardCrashIsNotItsFinding(unittest.TestCase):
