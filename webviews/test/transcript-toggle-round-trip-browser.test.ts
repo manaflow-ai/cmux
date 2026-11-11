@@ -19,10 +19,9 @@
 // before the first, within a pixel. (A toggle that starts open, the latest run, is shut first: a
 // close at the latest row pins the bottom and moves the rows above once, by design.)
 //
-//
-// The running-turn case tests the `runs` arm of live-turn-work, not the shipped `line` arm: its "Ran 2
-// commands" line is a finished run of a turn that still runs, which only `runs` draws
-// (support/liveTurnRuns.ts). The other cases use ended turns and take the shipped arms.
+// In the running-turn case the "Ran 2 commands" kind tests the `runs` arm of live-turn-work, not the
+// shipped `line` arm: that line is a finished run of a turn that still runs, which only `runs` draws
+// (support/liveTurnRuns.ts). The other kinds and cases take the shipped arms.
 //
 // Real Chromium and WebKit from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -442,7 +441,7 @@ await requireBrowserLane("transcript-toggle-round-trip-browser.test.ts", async (
         },
       ];
       for (const kind of liveCases) {
-        const page = await open(browsers[name]!, undefined, true);
+        const page = await open(browsers[name]!, undefined, kind.row === "run-b");
         await page.evaluate(() => (window as unknown as { __touchDock(queued: boolean): void }).__touchDock(false));
         let extra = 0;
         await page.evaluate(

@@ -15,7 +15,6 @@
 // - The clicked line opens and stays open through every streamed update.
 // - It stays on the pixel it was clicked at, and the run's header with it: the view stops following.
 //
-//
 // This file tests the `runs` arm of live-turn-work, not the shipped `line` arm: the run it clicks is a
 // finished run of a turn that still runs, which only `runs` draws (support/liveTurnRuns.ts).
 //

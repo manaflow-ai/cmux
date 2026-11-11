@@ -50,6 +50,7 @@ async function render(node: ReactNode): Promise<HTMLElement> {
   return container;
 }
 
+const armsBefore = globalThis.cmuxExperiments;
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   resetTranscriptDisclosure();
@@ -61,6 +62,7 @@ afterEach(async () => {
     else scope[key] = value;
   }
   saved.clear();
+  globalThis.cmuxExperiments = armsBefore;
 });
 
 const calls = (kind = "execute"): AcpmuxActivity[] =>
@@ -386,6 +388,9 @@ for (const agentFamily of ["claude", "codex"])
     }`, async () => {
       const { mixedToolTurnFixture } = await import("./mixedToolRunFixture");
       const { turnView } = await import("./turns");
+      // A running turn's finished calls in sight are the `runs` look of live-turn-work, the earlier
+      // one (cmux#38339). The shipped `line` look draws none (test/live-turn-one-line.test.ts).
+      if (working) globalThis.cmuxExperiments = { ...armsBefore, "live-turn-work": "runs" };
       const projected = turnView(mixedToolTurnFixture(working), new Set(["worked-mixed-prompt"]), {
         agentFamily,
         working,

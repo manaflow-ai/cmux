@@ -20,9 +20,10 @@
 // CMUX_TRANSCRIPT_SPACING_LOG=1 logs every row's lines and every measured gap; with FAST_CHECKS_OUT
 // set, each variant's capture is written there.
 //
-// This file tests the `runs` arm of live-turn-work, not the shipped `line` arm: the last call and the
-// "Sent to" lines it measures are finished calls of a turn that still runs, which only `runs` draws
-// (support/liveTurnRuns.ts).
+// Three status variants (working-bottom, reply-received, status-prompt) test the `runs` arm of
+// live-turn-work, not the shipped `line` arm: the last call and the "Sent to" lines they measure are
+// finished calls of a turn that still runs, which only `runs` draws (support/liveTurnRuns.ts). The
+// all-kinds and notes-live variants take the shipped arms.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -46,6 +47,8 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
   ];
   const LOG = process.env.CMUX_TRANSCRIPT_SPACING_LOG === "1";
   const STATUS_VARIANTS = [...new Set(TRANSCRIPT_STATUS_ROWS.map((row) => row.variant))];
+  /// The variants whose marks are finished calls of a turn that still runs (support/liveTurnRuns.ts).
+  const LIVE_RUNS_VARIANTS = new Set<string>(["working-bottom", "reply-received", "status-prompt"]);
 
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -164,7 +167,7 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
     await page.addInitScript(() => {
       globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "claude-turn-fold": "runs" };
     });
-    await pinLiveTurnRuns(page);
+    if (LIVE_RUNS_VARIANTS.has(variant)) await pinLiveTurnRuns(page);
     const port = (vite!.httpServer!.address() as { port: number }).port;
     await page.goto(
       `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width: 1100, theme, reducedMotion: "true", exp: "background-turn-look", arm: "line" })}`,

@@ -181,6 +181,8 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     for (let attempt = 1; ; attempt++) {
       const warm = await browser.newPage();
       try {
+        // The same look as the pages under test (it also passed with no pin: shards of 3aff677f6a5f).
+        await pinLiveTurnRuns(warm);
         await warm.goto(url());
         await warm.getByText("build-acpmux.sh").first().waitFor({ timeout: 25_000 });
         await warm.close();
