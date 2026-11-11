@@ -80,6 +80,8 @@ export class HostDO extends DurableObject<Env> {
   private replicaWire: ReplicaWire | undefined
   /** The last `relay.dropped` notice per sender and reason (in memory: a wake may send one more). */
   private readonly notices = new Map<string, number>()
+  /** The relay host status clients were last told (in memory: a wake may tell them once more). */
+  private toldHost: "online" | "offline" | undefined
   /** The object's clock; a field so tests can move it (test/host-do-liveness.test.ts). */
   clock: () => number = () => Date.now()
 
@@ -276,9 +278,15 @@ export class HostDO extends DurableObject<Env> {
     return this.ctx.getWebSockets(HOST_TAG).some((s) => s.readyState === WebSocket.READY_STATE_OPEN)
   }
 
-  /** Every relay client learns whether the host is there now. */
+  /**
+   * Every relay client learns whether the host is there now, once per change: a socket's close runs
+   * from the alarm (closeDead) and again from its close event, and a replaced host's close changes nothing.
+   */
   private broadcastHost(): void {
-    const frame = JSON.stringify({ t: "relay.host", status: this.hostOnline() ? "online" : "offline" })
+    const status = this.hostOnline() ? "online" : "offline"
+    if (status === this.toldHost) return
+    this.toldHost = status
+    const frame = JSON.stringify({ t: "relay.host", status })
     for (const ws of this.ctx.getWebSockets()) {
       const a = ws.deserializeAttachment() as Attachment | null
       if (a?.role === "client" && ws.readyState === WebSocket.READY_STATE_OPEN) sendQuietly(ws, frame)

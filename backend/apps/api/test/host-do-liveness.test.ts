@@ -3,6 +3,7 @@ import { env, exports } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
 import { STALE_AFTER_MS, STALE_CODE } from "../src/host-do.ts"
 import { post, signedInWithInstall } from "./cloud-bind-support.ts"
+import { fireAlarm } from "./setup/alarm.ts"
 
 /**
  * HostDO liveness (cmuxterm-hq docs/handbook/connections-and-lifetimes.md): a peer that vanishes
@@ -30,10 +31,25 @@ const watch = (ws: WebSocket) => {
   const binaries: Array<Uint8Array> = []
   let closed: { code: number; reason: string } | undefined
   let wake: (() => void) | undefined
+  // Binary data may arrive as an ArrayBuffer, a view or a Blob: each is read into bytes, in order.
+  let pending = Promise.resolve()
+  const bytesOf = async (d: unknown): Promise<Uint8Array> => {
+    if (d instanceof ArrayBuffer) return new Uint8Array(d.slice(0))
+    if (ArrayBuffer.isView(d)) return new Uint8Array(d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength))
+    if (d instanceof Blob) return new Uint8Array(await d.arrayBuffer())
+    throw new Error(`binary message of type ${Object.prototype.toString.call(d)}`)
+  }
   ws.addEventListener("message", (e) => {
-    if (typeof e.data === "string") texts.push(e.data === "pong" ? { t: "pong" } : JSON.parse(e.data))
-    else binaries.push(new Uint8Array(e.data as ArrayBuffer))
-    wake?.()
+    if (typeof e.data === "string") {
+      texts.push(e.data === "pong" ? { t: "pong" } : JSON.parse(e.data))
+      wake?.()
+      return
+    }
+    const data = e.data as unknown
+    pending = pending.then(async () => {
+      binaries.push(await bytesOf(data))
+      wake?.()
+    })
   })
   ws.addEventListener("close", (e) => {
     closed = { code: e.code, reason: e.reason }
@@ -79,7 +95,8 @@ const onFakeClock = async (stub: DurableObjectStub, start: number) => {
   return clock
 }
 
-const runAlarm = (stub: DurableObjectStub) => runInDurableObject(stub, async (i) => i.alarm())
+/** Runs the alarm as the runtime does: the scheduled one is taken first (setup/alarm.ts). */
+const runAlarm = (stub: DurableObjectStub) => fireAlarm(stub)
 const socketState = (stub: DurableObjectStub, tag: string) => runInDurableObject(stub, async (_i, state) => state.getWebSockets(tag).map((s) => s.readyState))
 const OPEN = 1
 
