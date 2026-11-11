@@ -200,6 +200,64 @@ fn persistent_reader_observes_commits_on_an_independent_connection() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// Registry connections keep their statements compiled
+/// (`REGISTRY_STATEMENT_CACHE_CAPACITY`). A reused statement must read the
+/// latest commit, never the snapshot of its previous run: a long-lived
+/// reader (the fanout's, the roster's) and the writer each run the same
+/// statements again after every commit here.
+#[test]
+fn reused_statements_read_every_later_commit() {
+    let root = std::env::temp_dir().join(format!("cmux-journal-cached-{}", new_uuid_v4()));
+    let registry = WorkspaceRegistry::open(&root, "cached").unwrap();
+    let database_path = registry.session_journal_database_path().unwrap();
+    let reader = SessionJournalReader::open(&database_path).unwrap();
+    let workspace_id = format!("ws_{}", "2".repeat(32));
+    let result = serde_json::json!({"workspace_id":workspace_id});
+    for revision in 1..=6_u64 {
+        let db = registry.connection.get();
+        let tx = db.unchecked_transaction().unwrap();
+        tx.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+            [revision.to_string()],
+        )
+        .unwrap();
+        append_resource_journal_record(
+            &tx,
+            revision,
+            revision - 1,
+            "cached-test",
+            &format!("cached-commit-{revision}"),
+            if revision % 2 == 0 { "workspace.focus" } else { "workspace.rename" },
+            None,
+            &result,
+            &serde_json::json!([]),
+        )
+        .unwrap();
+        tx.commit().unwrap();
+        drop(db);
+
+        assert_eq!(registry.session_journal_head().unwrap(), revision);
+        assert_eq!(reader.head().unwrap(), revision);
+        let page = reader.after(revision - 1, 10).unwrap();
+        assert_eq!(page.head_sequence, revision);
+        assert_eq!(
+            page.records.iter().map(|record| record.sequence).collect::<Vec<_>>(),
+            [revision]
+        );
+        let (focused, reached) =
+            reader.kinds_after(0, revision, |kind| kind == "workspace.focus", 100).unwrap();
+        assert_eq!(reached, revision);
+        assert_eq!(
+            focused.iter().map(|record| record.sequence).collect::<Vec<_>>(),
+            (1..=revision).filter(|sequence| sequence % 2 == 0).collect::<Vec<_>>(),
+            "the kind read after commit {revision}"
+        );
+    }
+    drop(reader);
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn archived_segment_metadata_is_verified_before_replay() {
     let registry = WorkspaceRegistry::in_memory("segment-integrity").unwrap();
