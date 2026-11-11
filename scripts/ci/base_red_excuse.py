@@ -635,6 +635,11 @@ SHA = re.compile(rf"(?P<artifact>\b{ARTIFACT}{NAMED}[0-9a-f]{{40}}\b)"
 NO_VERDICT = re.compile(r"^##\[error\]\s*(?:cmux-next/compile is not a pass for \S+ \((?!fail\))|"
                         r"could not post the (?:pending|handoff|overflow handoff) status|could not post the fallback's verdict|"
                         r"bad head sha |No build-fleet verdict for `)")
+# An advisory workflow (its name ends "(advisory)", as merge_hold's ADVISORY_WORKFLOW reads it) gates nothing. One
+# that runs on pull requests only, fleet-test-compile.yml, never has a feat-cmux-next run, so each of its reds was
+# refused as "no feat-cmux-next run of its workflow has a verdict" and held the merge (#39022, 2026-11-11). With no
+# base verdict such a red is excused, named in the audit; with one it is compared like any other check.
+ADVISORY_WORKFLOW = re.compile(r"\(advisory\)\s*$", re.IGNORECASE)
 # The jobs that can end without a verdict: an unreadable log of one is never comparable either.
 NO_VERDICT_JOBS = frozenset({"cmux-next fleet Release compile", "cmux-next app compile (build fleet)"})
 # The shared generated-files check only reads the verdict produced by the Swift or daemon job that built
@@ -3876,6 +3881,11 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             if pushed_run is not None and (
                     base_run is None or before_merge_base(repo, base, sha, pushed_run, github, merge_bases) is None):
                 base_run, base_job, verdicts = pushed_run, pushed_job, pushed
+        if base_run is None and ADVISORY_WORKFLOW.search(str(workflow_info.get("name") or "")):
+            # Why: ADVISORY_WORKFLOW (a pull-request-only advisory check never has a base verdict)
+            audit.append(f"excused '{name}': its workflow '{workflow_info.get('name')}' is advisory and gates "
+                         f"nothing, and no {base} run of it has a verdict to compare with")
+            continue
         if base_run is None:
             dispatch = base_dispatch(repo, base, workflow_info, base_runs[workflow], github)
             raise Refused(f"'{name}': no {base} run of its workflow has a verdict for it to compare with "
