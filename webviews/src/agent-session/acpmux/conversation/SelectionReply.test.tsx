@@ -395,3 +395,28 @@ test("a backward drag that lets go deep in the blank space before a paragraph: t
   const target = selectionReplyTarget(doc)!;
   expect({ left: target.left, top: target.top }).toEqual({ left: 100, top: 240 });
 });
+
+// Review of #41519: a drag let go deep below an agent's reply ends the range in the next row, a
+// person's right-aligned bubble. The chip's column is the reply's, where the selected text is.
+const REPLY_THEN_PROMPT = `<div data-row-id="answer"><div class="cv-md" id=answer-md><p id=first>Retry only on 429 and 503.</p></div></div>
+<div data-row-id="prompt"><div class="cv-md" id=prompt-md><p id=second>Thanks.</p></div></div>`;
+
+test("a drag let go deep in the next message: the chip keeps the selected text's column", () => {
+  const doc = mount(REPLY_THEN_PROMPT);
+  const view = doc.defaultView! as unknown as { Element: typeof Element };
+  const boxes: Record<string, Rect> = {
+    first: { left: 100, right: 820, top: 200, bottom: 222 },
+    "answer-md": { left: 100, right: 820, top: 200, bottom: 222 },
+    second: { left: 700, right: 820, top: 260, bottom: 282 },
+    "prompt-md": { left: 700, right: 820, top: 260, bottom: 282 },
+  };
+  view.Element.prototype.getBoundingClientRect = function (this: Element) {
+    const box = boxes[this.id] ?? { left: 0, right: 0, top: 0, bottom: 0 };
+    return { ...box, width: box.right - box.left, height: box.bottom - box.top } as DOMRect;
+  };
+  selectAcross(doc, [
+    { left: 148, right: 308, top: 200, bottom: 222 },
+    { left: 700, right: 700, top: 260, bottom: 282 },
+  ]);
+  expect(selectionReplyTarget(doc)!.column).toEqual({ left: 100, right: 820 });
+});
