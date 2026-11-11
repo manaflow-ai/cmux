@@ -135,7 +135,7 @@ final class AcpmuxPermissionFeedBridge {
         } else {
             logger.error("feed bridge: no person challenge or no key for this daemon; phone answers stay refused")
         }
-        line.send(Data(acpmuxRequest: 3, method: "_acpmux/watch", params: ["enabled": true]))
+        line.send(.acpmuxFeedWatch)
     }
 
     private func lost(_ line: AcpmuxCheckedLine) {
@@ -178,12 +178,12 @@ final class AcpmuxPermissionFeedBridge {
         if let id = (message["id"] as? NSNumber)?.intValue {
             if id == 1 {
                 if let connection { initialized(message["result"] as? [String: Any], on: connection) }
-            } else if id == 2 {
-                let person = (message["result"] as? [String: Any])?["person"] as? Bool ?? false
-                if !person { logger.error("feed bridge: acpmux refused the person proof; phone answers stay refused") }
-            } else if id == 3, let result = message["result"] as? [String: Any] {
+            } else if id == 2, (message["result"] as? [String: Any])?["person"] as? Bool != true {
+                logger.error("feed bridge: acpmux refused the person proof; phone answers stay refused")
+            } else if id == 3, message["result"] != nil {
                 backoff.reset()
-                // Prompts that were pending before this connection.
+                connection?.send(.acpmuxPendingSessions)
+            } else if id == 4, let result = message["result"] as? [String: Any] { // pending before this connection
                 for summary in result["sessions"] as? [[String: Any]] ?? []
                     where (summary["pendingPermissions"] as? NSNumber)?.intValue ?? 0 > 0 {
                     if let session = summary["sessionId"] as? String { Task { await self.postPending(of: session) } }
