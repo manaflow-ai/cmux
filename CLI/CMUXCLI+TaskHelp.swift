@@ -394,6 +394,8 @@ extension CMUXCLI {
         """
     }
 
+    /// The usage lines listed under the remote topic of the task-oriented help: account and
+    /// cloud machine commands, then the ssh, mosh and remote tmux commands.
     private var remoteCommandsHelp: String {
         return """
         auth <status|login|logout|team>

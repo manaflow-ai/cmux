@@ -782,6 +782,7 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
         ).rendered
     }
 
+    /// The local program this profile launches: the broker's wrapper when brokered, otherwise `et`.
     func executablePath() -> String { broker?.executable ?? executable }
 
     /// The local argv that opens the control stream: the `et` client, or the broker's wrapper
