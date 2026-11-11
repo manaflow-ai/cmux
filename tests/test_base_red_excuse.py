@@ -11267,6 +11267,99 @@ ADVERSARIAL = {
 }
 
 
+
+# The known-bad versions each ADVERSARIAL case must fail, frozen verbatim: the readers a review found super-linear.
+def frozen_per_path_normalise_error(text: str) -> str:
+    """normalise_error before d86380cdbed: a str.replace per kept path over the whole line, N^2 in a line's paths."""
+    kept: list = []
+    said = excuse._sub_shas(text.replace("##[error]", "").strip(), keep=kept)
+    said = excuse.test_reds.volatile(said)
+
+    def keep_path(match):
+        kept.append(match[0])
+        return excuse._marker(len(kept) - 1)
+    said = excuse.FILE_NAME.sub(keep_path, said)
+    said = re.sub(r"\d+", "#", said)
+    for index, id_ in enumerate(kept):
+        said = said.replace(excuse._marker(index), id_)
+    return said
+
+
+def frozen_unbounded_normalise_error(text: str) -> str:
+    """normalise_error at 61a7aa848d8: every `\0letters\0` decoded, a forged one too, N^2 in its letters."""
+    kept: list = []
+    said = excuse._sub_shas(text.replace("##[error]", "").strip(), keep=kept)
+    said = excuse.test_reds.volatile(said)
+
+    def keep_path(match):
+        kept.append(match[0])
+        return excuse._marker(len(kept) - 1)
+    said = excuse.FILE_NAME.sub(keep_path, said)
+    said = re.sub(r"\d+", "#", said)
+
+    def restore(match):
+        index = excuse._marker_index(match[1])
+        return kept[index] if index < len(kept) else match[0]
+    return excuse.MARKER.sub(restore, said) if kept else said
+
+
+# The greedy OSC body #41382's review F1 found: it reads to the next BEL or ST from every unterminated `ESC ]`.
+GREEDY_OSC = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
+
+
+def _frozen_mapper():
+    import bench_aligned_starts  # scripts/ci, on sys.path above
+    return unittest.mock.patch.object(excuse, "_aligned_starts", bench_aligned_starts.frozen_aligned_starts)
+
+
+KNOWN_BAD = {
+    "the unbounded marker decode": lambda: unittest.mock.patch.object(
+        excuse, "normalise_error", frozen_unbounded_normalise_error),
+    "the per-path replace": lambda: unittest.mock.patch.object(excuse, "normalise_error", frozen_per_path_normalise_error),
+    "the frozen quadratic mapper": _frozen_mapper,
+    "the greedy OSC": lambda: _patch_ansi(),
+}
+
+
+def _patch_ansi():
+    stack = contextlib.ExitStack()
+    stack.enter_context(unittest.mock.patch.object(excuse.test_reds, "ANSI", GREEDY_OSC))
+    stack.enter_context(unittest.mock.patch.object(excuse, "ANSI", GREEDY_OSC))
+    return stack
+
+
+# Which known-bad version each ADVERSARIAL case must fail (AdversarialCasesReachTheirPath).
+KNOWN_BAD_OF = {
+    "base_red_excuse.normalise_error, one forged marker (\\0 z...z \\0)": "the unbounded marker decode",
+    "base_red_excuse.normalise_error, many forged markers": "the unbounded marker decode",
+    "base_red_excuse.normalise_error, a forged marker among many paths": "the per-path replace",
+    "base_red_excuse.unplaced_signature, a forged marker in an error line": "the unbounded marker decode",
+    "base_red_excuse.step_owners, same-second step headers": "the frozen quadratic mapper",
+    "base_red_excuse.failed_steps_log, same-second step headers": "the frozen quadratic mapper",
+    "test_reds.log_lines, CSI introducers": "the greedy OSC",
+}
+
+
+class AdversarialCasesReachTheirPath(unittest.TestCase):
+    """#41399's review F1 (dep-fleet-6): "both mapper scaling cases pass **UNKNOWN, so _aligned_starts returns at once
+    (no workflow headers) and never reaches the expensive path. Putting back the frozen quadratic mapper still passes
+    all four checks. ... The general rule for AdversarialInputsScale: each case has to prove it reaches the path it
+    times. Add a self-check per entry that runs the known-bad version (the frozen quadratic mapper, the greedy OSC,
+    the unbounded marker decode) and asserts the case fails it. Then a fixture that skips the hot path can't pass."
+    Each ADVERSARIAL case, with its known-bad version (KNOWN_BAD_OF) patched in, must fail growth_failure at 10x."""
+
+    def test_every_case_names_its_known_bad_version(self):
+        self.assertEqual(set(KNOWN_BAD_OF), set(ADVERSARIAL), "an ADVERSARIAL case with no known-bad version")
+        self.assertLessEqual(set(KNOWN_BAD_OF.values()), set(KNOWN_BAD))
+
+    def test_every_case_fails_its_known_bad_version(self):
+        for label, (n, build) in ADVERSARIAL.items():
+            with self.subTest(entry=label, known_bad=KNOWN_BAD_OF.get(label)):
+                with KNOWN_BAD[KNOWN_BAD_OF[label]]():
+                    failure = growth_failure(build, n, ADVERSARIAL_FACTORS[0], label, attempts=1, ceiling=60)
+                self.assertIsNotNone(failure, f"{label}: {KNOWN_BAD_OF[label]} scales linearly on this case, so the "
+                                              "case never reaches the path it times")
+
 class AdversarialInputsScale(unittest.TestCase):
     """#41220's follow-up (dep-fleet-6): "F1 follow-up (base_red_excuse.py:1082): a forged marker (a NUL, many 'z',
     then a NUL) makes _marker_index decode an ever-growing integer, which is quadratic: 160k letters take 5 s of CPU.
