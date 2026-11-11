@@ -435,10 +435,9 @@ export default async function DeeplinkPage({
           </div>
         ) : null}
 
-        {canOpen ? <AutoOpen href={href} /> : null}
-
         {canOpen ? (
           <div className="mb-6 flex flex-wrap gap-3">
+            <AutoOpen href={href} />
             <a
               href={href}
               className="inline-flex items-center rounded-full bg-foreground px-5 py-2.5 text-[15px] font-medium transition-opacity hover:opacity-85"
