@@ -723,12 +723,17 @@ fn the_cursor_shows_a_refusal_and_a_wait_for_the_person() {
     let paused = ev.iter().position(|e| matches!(e, CursorEvent::Paused { .. })).expect("paused");
     let refused = ev
         .iter()
-        .position(|e| matches!(e, CursorEvent::Refused { reason, .. } if reason == "You're in control"))
+        .position(
+            |e| matches!(e, CursorEvent::Refused { reason, .. } if reason == "You're in control"),
+        )
         .expect("refused");
     assert!(paused < refused);
     assert!(!ev.iter().any(|e| matches!(e, CursorEvent::Typing { .. })), "{ev:?}");
     let v = serde_json::to_value(&ev[refused]).unwrap();
-    assert_eq!((v["kind"].as_str(), v["reason"].as_str()), (Some("refused"), Some("You're in control")));
+    assert_eq!(
+        (v["kind"].as_str(), v["reason"].as_str()),
+        (Some("refused"), Some("You're in control"))
+    );
 }
 
 #[test]
@@ -745,7 +750,11 @@ fn a_batch_step_that_fails_says_why() {
     let result = &out.body["results"][0];
     assert_eq!(result["ok"], false, "{:?}", out.body);
     let message = result["message"].as_str().unwrap_or_default();
-    assert!(message.contains("nonsense"), "the step's error text reaches the agent: {:?}", out.body);
+    assert!(
+        message.contains("nonsense"),
+        "the step's error text reaches the agent: {:?}",
+        out.body
+    );
 }
 
 #[test]
@@ -755,7 +764,10 @@ fn the_menu_guard_follows_the_deny_list_as_settings_change() {
     let guard = d.menu_guard.lock().unwrap().clone().expect("the engine sets a menu guard");
     assert!(!guard.denies_any());
     assert!(!guard.app_blocked("com.apple.Terminal", "Terminal"));
-    e.set_config(PolicyConfig { denied_apps: vec!["com.apple.Terminal".into()], ..PolicyConfig::default() });
+    e.set_config(PolicyConfig {
+        denied_apps: vec!["com.apple.Terminal".into()],
+        ..PolicyConfig::default()
+    });
     assert!(guard.denies_any());
     assert!(guard.app_blocked("com.apple.Terminal", "Terminal"));
     assert!(!guard.app_blocked("com.apple.TextEdit", "TextEdit"));

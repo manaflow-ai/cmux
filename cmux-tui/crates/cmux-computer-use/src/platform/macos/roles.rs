@@ -327,7 +327,10 @@ pub fn menu_name_candidates(title: &str) -> Vec<&str> {
 /// Whether a submenu is a launch list: under the Apple menu (Recent Items:
 /// apps, documents, servers) or the app menu (Services), or one where most
 /// items name installed apps (Open With in any app and any language).
-pub fn is_launch_list(ctx: &MenuItemContext, resolve: &dyn Fn(&str) -> Option<Vec<String>>) -> bool {
+pub fn is_launch_list(
+    ctx: &MenuItemContext,
+    resolve: &dyn Fn(&str) -> Option<Vec<String>>,
+) -> bool {
     if ctx.depth < 2 {
         return false;
     }
@@ -335,7 +338,10 @@ pub fn is_launch_list(ctx: &MenuItemContext, resolve: &dyn Fn(&str) -> Option<Ve
         return true;
     }
     let named: Vec<&String> = ctx.siblings.iter().filter(|t| !t.trim().is_empty()).collect();
-    let apps = named.iter().filter(|t| resolve(menu_app_name(t).0).is_some_and(|ids| !ids.is_empty())).count();
+    let apps = named
+        .iter()
+        .filter(|t| resolve(menu_app_name(t).0).is_some_and(|ids| !ids.is_empty()))
+        .count();
     named.len() >= 2 && apps * 2 >= named.len()
 }
 
@@ -372,7 +378,9 @@ pub fn menu_item_blocked(
         }
     }
     let ids = resolve(name).unwrap_or_default();
-    guard.denies_any() && is_launch_list(ctx, resolve) && (ids.is_empty() || version || ids.len() > 1)
+    guard.denies_any()
+        && is_launch_list(ctx, resolve)
+        && (ids.is_empty() || version || ids.len() > 1)
 }
 
 /// Why pressing a menu-bar element is refused, if it is: one that opens a
@@ -389,6 +397,10 @@ pub struct ShortcutMatch {
     pub title: String,
     pub enabled: bool,
     pub blocked: bool,
+    /// Its title was read and held to the deny list and the protected apps.
+    /// An unchecked match is blocked while something is denied; with nothing
+    /// denied it is never pressed (the key is posted, as Codex does).
+    pub checked: bool,
 }
 
 /// What a shortcut does, given its matches in menu order (depth-first).
@@ -409,21 +421,16 @@ pub enum ShortcutPick {
 /// (a later item must not run in its place).
 pub fn pick_shortcut(matches: &[ShortcutMatch]) -> ShortcutPick {
     if let Some((i, m)) = matches.iter().enumerate().find(|(_, m)| m.enabled) {
-        return if m.blocked { ShortcutPick::Blocked(m.title.clone()) } else { ShortcutPick::Press(i) };
+        return if m.blocked {
+            ShortcutPick::Blocked(m.title.clone())
+        } else {
+            ShortcutPick::Press(i)
+        };
     }
     match matches.first() {
         Some(m) => ShortcutPick::Disabled(m.title.clone()),
         None => ShortcutPick::None,
     }
-}
-
-/// Whether a chord the menu search did not find may still be posted as key
-/// events: yes, unless it is a registered Services shortcut while any app is
-/// denied (AppKit would run that service, which can hand the selection to a
-/// denied app). Page shortcuts (a web app's cmd+shift+7) are posted, as
-/// Codex does.
-pub fn unmatched_chord_allowed(is_service_shortcut: bool, denies_any: bool) -> bool {
-    !(is_service_shortcut && denies_any)
 }
 
 /// Every value of each NSKeyEquivalent dictionary in `pbs -dump` output
@@ -440,44 +447,126 @@ pub fn service_equivalents(dump: &str) -> Vec<String> {
         let after = after.trim_start();
         // Only a dictionary value: "{ ... }".
         let Some(body_start) = after.strip_prefix('{') else { continue };
-        let Some(close) = body_start.find('}') else { break };
-        for entry in body_start[..close].split(';') {
-            let Some((_, value)) = entry.split_once('=') else { continue };
-            let value = unescape_dump(value.trim().trim_matches('"'));
+        let (values, consumed) = dump_dict_values(body_start);
+        for value in values {
             if is_key_equivalent(&value) && !out.contains(&value) {
                 out.push(value);
             }
         }
-        rest = &body_start[close..];
+        rest = &body_start[consumed..];
     }
     out
 }
 
-/// "\Uf704" in a property-list dump is U+F704.
-fn unescape_dump(s: &str) -> String {
-    let mut out = String::new();
-    let mut rest = s;
-    while let Some(i) = rest.find("\\U") {
-        out.push_str(&rest[..i]);
-        let hex = rest.get(i + 2..i + 6).unwrap_or("");
-        match u32::from_str_radix(hex, 16).ok().and_then(char::from_u32) {
-            Some(c) if hex.len() == 4 => {
-                out.push(c);
-                rest = &rest[i + 6..];
+/// The values of one old-style plist dictionary body (after its "{"), with
+/// quoted strings read whole (";", "}" and escapes inside them), and how
+/// many bytes it took up to and including the closing "}".
+fn dump_dict_values(body: &str) -> (Vec<String>, usize) {
+    let mut values = Vec::new();
+    let mut in_value = false;
+    // An unquoted value's text, trimmed when stored.
+    let mut bare = String::new();
+    // A quoted value, verbatim (spaces, \t and \r are keys).
+    let mut quoted: Option<String> = None;
+    let mut chars = body.char_indices();
+    let take = |bare: &mut String, quoted: &mut Option<String>, values: &mut Vec<String>| {
+        match quoted.take() {
+            Some(q) => values.push(q),
+            None if !bare.trim().is_empty() => values.push(bare.trim().to_string()),
+            None => {}
+        }
+        bare.clear();
+    };
+    while let Some((i, c)) = chars.next() {
+        match c {
+            '"' => {
+                let mut q = String::new();
+                while let Some((_, ch)) = chars.next() {
+                    match ch {
+                        '\\' => match chars.next().map(|(_, e)| e) {
+                            Some('"') => q.push('"'),
+                            Some('\\') => q.push('\\'),
+                            Some('n') => q.push('\n'),
+                            Some('t') => q.push('\t'),
+                            Some('a') => q.push('\u{7}'),
+                            Some('b') => q.push('\u{8}'),
+                            Some('f') => q.push('\u{c}'),
+                            Some('r') => q.push('\r'),
+                            Some('v') => q.push('\u{b}'),
+                            Some('U') => {
+                                let hex: String = chars.clone().take(4).map(|(_, h)| h).collect();
+                                match u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32) {
+                                    Some(x) if hex.len() == 4 => {
+                                        q.push(x);
+                                        for _ in 0..4 {
+                                            chars.next();
+                                        }
+                                    }
+                                    _ => q.push('U'),
+                                }
+                            }
+                            Some(d @ '0'..='7') => {
+                                let mut n = d.to_digit(8).unwrap_or(0);
+                                for _ in 0..2 {
+                                    match chars.clone().next() {
+                                        Some((_, o @ '0'..='7')) => {
+                                            n = n * 8 + o.to_digit(8).unwrap_or(0);
+                                            chars.next();
+                                        }
+                                        _ => break,
+                                    }
+                                }
+                                if let Some(x) = char::from_u32(n) {
+                                    q.push(x);
+                                }
+                            }
+                            Some(other) => q.push(other),
+                            None => {}
+                        },
+                        '"' => break,
+                        other => q.push(other),
+                    }
+                }
+                if in_value {
+                    quoted = Some(q);
+                }
             }
-            _ => {
-                out.push_str(&rest[i..i + 2]);
-                rest = &rest[i + 2..];
+            '=' => {
+                in_value = true;
+                bare.clear();
+                quoted = None;
+            }
+            ';' => {
+                if in_value {
+                    take(&mut bare, &mut quoted, &mut values);
+                }
+                in_value = false;
+                bare.clear();
+            }
+            '}' => {
+                // A last entry may have no trailing ";".
+                if in_value {
+                    take(&mut bare, &mut quoted, &mut values);
+                }
+                return (values, i + 1);
+            }
+            other => {
+                if quoted.is_none() {
+                    bare.push(other);
+                }
             }
         }
     }
-    out.push_str(rest);
-    out
+    (values, body.len())
 }
 
-/// Modifier marks and exactly one key.
+/// Modifier marks and exactly one key. When every character is a mark
+/// ("@$"), the last one is the key ("$" with Command).
 pub fn is_key_equivalent(value: &str) -> bool {
-    value.chars().filter(|c| !matches!(c, '$' | '^' | '~' | '@')).count() == 1
+    let keys = value.chars().filter(|c| !matches!(c, '$' | '^' | '~' | '@')).count();
+    // One key; or marks only, the last being the key (a single "@" is the
+    // "@" key, Command implied).
+    keys == 1 || (keys == 0 && !value.is_empty())
 }
 
 /// Whether background keys may go to the target window: it is the key
@@ -566,4 +655,176 @@ pub fn breadth_first<N>(
         }
     }
     (slots, truncated)
+}
+
+/// How much of the ANSI key codes in keymap.rs a keyboard layout keeps.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Layout {
+    /// Every character key (U.S., ABC and their variants).
+    Ansi,
+    /// The letters and the unshifted digits; punctuation and the shifted
+    /// digits differ (British: Shift-3 is £, # is Option-3).
+    LettersDigits,
+    /// Unknown, or letters elsewhere (German, French, Dvorak).
+    Other,
+}
+
+/// The layout from its input source ID. With no current layout recorded,
+/// only a default install (no enabled input sources recorded either) counts
+/// as U.S.; anything else is unknown and fails closed.
+pub fn layout_of(input_source_id: Option<&str>, enabled_sources_recorded: bool) -> Layout {
+    match input_source_id {
+        None if !enabled_sources_recorded => Layout::Ansi,
+        None => Layout::Other,
+        Some(
+            "com.apple.keylayout.US"
+            | "com.apple.keylayout.ABC"
+            | "com.apple.keylayout.USExtended"
+            | "com.apple.keylayout.USInternational-PC"
+            | "com.apple.keylayout.Australian"
+            | "com.apple.keylayout.Canadian",
+        ) => Layout::Ansi,
+        Some(
+            "com.apple.keylayout.British"
+            | "com.apple.keylayout.British-PC"
+            | "com.apple.keylayout.Irish"
+            | "com.apple.keylayout.IrishExtended",
+        ) => Layout::LettersDigits,
+        Some(_) => Layout::Other,
+    }
+}
+
+/// Whether the Services check can place `key` on `layout`: arrows, function
+/// keys, Return, Tab, Space, Escape, Delete and the navigation keys have the
+/// same codes on every layout; letters and unshifted digits need their ANSI
+/// positions; other characters need the whole ANSI layout.
+pub fn layout_places(key: &crate::keys::Key, shift: bool, layout: Layout) -> bool {
+    use crate::keys::Key;
+    match key {
+        Key::Char(c) if c.is_ascii_alphabetic() => layout != Layout::Other,
+        Key::Char(c) if c.is_ascii_digit() => {
+            layout == Layout::Ansi || (layout == Layout::LettersDigits && !shift)
+        }
+        Key::Char(_) => layout == Layout::Ansi,
+        _ => true,
+    }
+}
+
+/// What to do with a key chord (any with Command, Control or Option, or a
+/// function key) after the menu search, for either delivery.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ChordAction {
+    /// Press the matched menu item (its index) through AX; no key is posted.
+    PressItem(usize),
+    /// Post the chord as key events.
+    Post,
+    /// Refuse, with why.
+    Refuse(&'static str),
+}
+
+/// Facts the chord decision needs (the menu search, the deny list, the
+/// keyboard layout and the Services shortcuts), so it is one tested place.
+/// The layout and Services facts are read only when the rule gets to them
+/// (`needs_key_checks`).
+#[derive(Clone, Debug)]
+pub struct ChordFacts<'a> {
+    /// Matches in menu order: every one in the foreground, up to and
+    /// including the first enabled one in the background.
+    pub matches: &'a [ShortcutMatch],
+    /// The menu search saw every item (no AX error, no branch cut).
+    pub complete: bool,
+    pub background: bool,
+    pub denies_any: bool,
+    /// The Services check can place this chord's key on the current layout
+    /// (`layout_places`).
+    pub layout_known: bool,
+    /// Whether the chord is a registered Services shortcut.
+    pub is_service: ServiceCheck,
+}
+
+pub const REFUSE_TOO_DEEP: &str = "this app's menus could not all be read to check this shortcut against the Computer Use deny list; use the app's menu items in the tree";
+pub const REFUSE_LAYOUT: &str = "this shortcut cannot be checked against the Computer Use deny list on this keyboard layout; use the app's menu items in the tree";
+pub const REFUSE_SERVICES_UNREAD: &str = "the Services shortcuts could not be read yet; try again in a moment, or use the app's menu items in the tree";
+pub const REFUSE_SERVICE: &str = "this shortcut runs a Service, which can hand the selection to an app on the Computer Use deny list; use the app's menu items in the tree";
+pub const REFUSE_BLOCKED: &str =
+    "the menu item for this shortcut would reach an app on the Computer Use deny list";
+
+/// AppKit's routing, held to the deny list. AppKit offers a key to the key
+/// view's performKeyEquivalent first (web content, editors), then to the
+/// menus (the first enabled item with the equivalent, revalidated at key
+/// time), then to Services. A posted chord keeps its Shift on every route
+/// (see press_keys).
+/// - Foreground: post the key, as the person's key would go, when posting is
+///   safe: no match is blocked and, while something is denied, the walk was
+///   complete, the layout places the key and no Services shortcut has it.
+///   Otherwise fall through to the rules below, which press the app's item
+///   instead when one can be pressed (so a Service on the same chord cannot
+///   run).
+/// - The first enabled match is not blocked: press that item through AX
+///   (disabled matches before it, blocked or not, do not run). No key is
+///   posted, so no Service, other item or key-time revalidation can take it.
+///   The background always does this: a background window's key view does
+///   not handle key equivalents the way the key window's does.
+/// - The first enabled match is blocked: refuse.
+/// - No enabled match, but a disabled one is blocked: refuse (it may be
+///   revalidated at key time). This holds with nothing denied too (protected
+///   apps: sign-in, security prompts, cmux Remote).
+/// - Otherwise the key is posted: as typed with nothing denied; while
+///   something is denied only after a complete walk, when the layout places
+///   the key, and when it is no Services shortcut (read).
+///
+/// With nothing denied an incomplete walk is posted: what it may miss is a
+/// protected app's item (sign-in, security prompts, cmux Remote) deep in a
+/// menu with a key equivalent of its own; none is known, and refusing would
+/// refuse every unmatched chord in an app with deep menus.
+pub fn decide_chord(f: &ChordFacts) -> ChordAction {
+    let any_blocked = f.matches.iter().any(|m| m.blocked);
+    let checks_pass = |f: &ChordFacts| {
+        !f.denies_any || (f.complete && f.layout_known && f.is_service == ServiceCheck::NoMatch)
+    };
+    if !f.background && !any_blocked && checks_pass(f) {
+        return ChordAction::Post;
+    }
+    match pick_shortcut(f.matches) {
+        ShortcutPick::Press(i) if !f.matches[i].checked => return ChordAction::Post,
+        ShortcutPick::Press(i) => return ChordAction::PressItem(i),
+        ShortcutPick::Blocked(_) => return ChordAction::Refuse(REFUSE_BLOCKED),
+        ShortcutPick::Disabled(_) | ShortcutPick::None => {}
+    }
+    if any_blocked {
+        return ChordAction::Refuse(REFUSE_BLOCKED);
+    }
+    if !f.denies_any {
+        return ChordAction::Post;
+    }
+    if !f.complete {
+        return ChordAction::Refuse(REFUSE_TOO_DEEP);
+    }
+    if !f.layout_known {
+        return ChordAction::Refuse(REFUSE_LAYOUT);
+    }
+    match f.is_service {
+        ServiceCheck::Unread => ChordAction::Refuse(REFUSE_SERVICES_UNREAD),
+        ServiceCheck::Match => ChordAction::Refuse(REFUSE_SERVICE),
+        ServiceCheck::NoMatch => ChordAction::Post,
+    }
+}
+
+/// Whether the rule reads the layout and the Services shortcuts: while
+/// something is denied and no match is blocked, for a foreground chord
+/// (which is posted when they pass) and for a background one with no
+/// enabled match (pressed otherwise).
+pub fn needs_key_checks(matches: &[ShortcutMatch], denies_any: bool, background: bool) -> bool {
+    denies_any
+        && !matches.iter().any(|m| m.blocked)
+        && (!background || !matches.iter().any(|m| m.enabled))
+}
+
+/// Whether a chord is a Services shortcut.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ServiceCheck {
+    NoMatch,
+    Match,
+    /// The Services shortcuts have not been read.
+    Unread,
 }

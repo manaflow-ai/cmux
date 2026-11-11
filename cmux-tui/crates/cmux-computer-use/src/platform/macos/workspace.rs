@@ -323,22 +323,24 @@ impl NamesIndex {
             let folders = folder_times();
             if st.built.is_none() || folders != st.folders {
                 st.building = true;
-                let spawned = std::thread::Builder::new().name("cu-app-names".into()).spawn(move || {
-                    // Reset `building` however the build ends (a panic too).
-                    struct Done(&'static NamesIndex);
-                    impl Drop for Done {
-                        fn drop(&mut self) {
-                            self.0.state.lock().unwrap_or_else(|e| e.into_inner()).building = false;
+                let spawned =
+                    std::thread::Builder::new().name("cu-app-names".into()).spawn(move || {
+                        // Reset `building` however the build ends (a panic too).
+                        struct Done(&'static NamesIndex);
+                        impl Drop for Done {
+                            fn drop(&mut self) {
+                                self.0.state.lock().unwrap_or_else(|e| e.into_inner()).building =
+                                    false;
+                            }
                         }
-                    }
-                    let _done = Done(self);
-                    let map = std::sync::Arc::new(build_name_index());
-                    let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
-                    st.generation += 1;
-                    st.built = Some(map);
-                    st.folders = folders;
-                    st.answers.clear();
-                });
+                        let _done = Done(self);
+                        let map = std::sync::Arc::new(build_name_index());
+                        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                        st.generation += 1;
+                        st.built = Some(map);
+                        st.folders = folders;
+                        st.answers.clear();
+                    });
                 if spawned.is_err() {
                     st.building = false;
                 }
@@ -350,7 +352,9 @@ impl NamesIndex {
     fn answer(&self, key: &str, generation: u64) -> Option<Vec<String>> {
         let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         match st.answers.get(key) {
-            Some((g, at, ids)) if *g == generation && at.elapsed() < ANSWER_TTL => Some(ids.clone()),
+            Some((g, at, ids)) if *g == generation && at.elapsed() < ANSWER_TTL => {
+                Some(ids.clone())
+            }
             Some(_) => {
                 st.answers.remove(key);
                 None
@@ -428,7 +432,10 @@ fn build_name_index() -> std::collections::HashMap<String, Vec<String>> {
                 {
                     // One level of subfolders (Setapp, Adobe, Chrome Apps).
                     paths.extend(
-                        inner.flatten().map(|e| e.path()).filter(|p| p.extension().and_then(|e| e.to_str()) == Some("app")),
+                        inner
+                            .flatten()
+                            .map(|e| e.path())
+                            .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("app")),
                     );
                 }
             }
@@ -438,11 +445,16 @@ fn build_name_index() -> std::collections::HashMap<String, Vec<String>> {
                 let Some(p) = path.to_str().and_then(Cf::string) else { continue };
                 let p_obj: *const AnyObject = p.ptr().cast();
                 // SAFETY: +bundleWithPath: takes an NSString; nil or an NSBundle.
-                let bundle: Option<Retained<AnyObject>> = unsafe { msg_send![bundle_cls, bundleWithPath: p_obj] };
+                let bundle: Option<Retained<AnyObject>> =
+                    unsafe { msg_send![bundle_cls, bundleWithPath: p_obj] };
                 let Some(bundle) = bundle else { continue };
-                let Some(id) = ns_string(unsafe { msg_send![&*bundle, bundleIdentifier] }) else { continue };
+                let Some(id) = ns_string(unsafe { msg_send![&*bundle, bundleIdentifier] }) else {
+                    continue;
+                };
                 // The localized display name, without .app (-displayNameAtPath:).
-                if let Some(display) = ns_string(unsafe { msg_send![&*fm, displayNameAtPath: p_obj] }) {
+                if let Some(display) =
+                    ns_string(unsafe { msg_send![&*fm, displayNameAtPath: p_obj] })
+                {
                     add(display.strip_suffix(".app").unwrap_or(&display), &id);
                 }
                 for key in [c"CFBundleDisplayName", c"CFBundleName"] {
@@ -472,104 +484,235 @@ fn launch_services_id(name: &str) -> Option<String> {
         let n_obj: *const AnyObject = n.ptr().cast();
         // SAFETY: -fullPathForApplication: takes an NSString and returns nil
         // or an NSString path.
-        let path: Option<Retained<AnyObject>> = unsafe { msg_send![&*ws, fullPathForApplication: n_obj] };
+        let path: Option<Retained<AnyObject>> =
+            unsafe { msg_send![&*ws, fullPathForApplication: n_obj] };
         let path = path?;
         let bundle_cls = class(c"NSBundle").ok()?;
         // SAFETY: +bundleWithPath: takes an NSString; -bundleIdentifier returns nil or an NSString.
-        let bundle: Option<Retained<AnyObject>> = unsafe { msg_send![bundle_cls, bundleWithPath: &*path] };
+        let bundle: Option<Retained<AnyObject>> =
+            unsafe { msg_send![bundle_cls, bundleWithPath: &*path] };
         let bundle = bundle?;
         ns_string(unsafe { msg_send![&*bundle, bundleIdentifier] })
     })
 }
 
-/// The registered Services shortcuts as (key code, flags): those the
-/// services declare (`pbs -dump`, every NSKeyEquivalent value) and those the
-/// person assigned (pbs NSServicesStatus key_equivalent). Read on a
-/// background thread, refreshed every SERVICES_REFRESH; `None` until a read
-/// has succeeded (the caller refuses a chord then, fail-closed).
+/// The Services shortcuts: the services' own (`pbs -dump`, every
+/// NSKeyEquivalent value; Command implied) and the person's assignments, as
+/// (key code, flags). Read on a background thread, refreshed every
+/// SERVICES_REFRESH. A caller that finds no list it can use while a read is
+/// in flight (the first chord after start, or after SERVICES_STALE idle)
+/// waits for that read, at most SERVICES_WAIT. `None` when there is still no
+/// usable list (the caller refuses a chord then, fail-closed).
 pub fn service_shortcuts() -> Option<Vec<(u16, u64)>> {
-    use std::sync::{Mutex, OnceLock};
     use std::time::Instant;
-    struct State {
-        last: Option<(Instant, Vec<(u16, u64)>)>,
-        refreshing: bool,
-    }
-    static STATE: OnceLock<Mutex<State>> = OnceLock::new();
-    let cell = STATE.get_or_init(|| Mutex::new(State { last: None, refreshing: false }));
+    let (cell, ready) = services_state();
     let mut st = cell.lock().unwrap_or_else(|e| e.into_inner());
-    let due = st.last.as_ref().is_none_or(|(at, _)| at.elapsed() > SERVICES_REFRESH);
-    if due && !st.refreshing {
-        st.refreshing = true;
-        let spawned = std::thread::Builder::new().name("cu-services".into()).spawn(move || {
-            // Reset `refreshing` however the read ends (an error, a panic).
-            struct Done(&'static Mutex<State>, Option<Vec<(u16, u64)>>);
-            impl Drop for Done {
-                fn drop(&mut self) {
-                    let mut st = self.0.lock().unwrap_or_else(|e| e.into_inner());
-                    st.refreshing = false;
-                    if let Some(list) = self.1.take() {
-                        st.last = Some((Instant::now(), list));
-                    }
-                }
-            }
-            let mut done = Done(cell, None);
-            done.1 = read_service_shortcuts();
-        });
-        if spawned.is_err() {
-            st.refreshing = false;
+    start_services_refresh(&mut st);
+    // An old list does not count while its refresh is in flight, nor after
+    // a refresh past the window failed (an idle pause alone does not drop
+    // it once refreshed).
+    let usable = |st: &ServicesState| {
+        let old = st.last.as_ref().is_some_and(|(at, _)| at.elapsed() > SERVICES_STALE);
+        let failed_since = st
+            .failed_at
+            .is_some_and(|f| st.last.as_ref().is_some_and(|(at, _)| f > *at + SERVICES_STALE));
+        let stale = old && (st.refreshing || failed_since);
+        if stale { None } else { st.last.as_ref().map(|(_, list)| list.clone()) }
+    };
+    let deadline = Instant::now() + SERVICES_WAIT;
+    loop {
+        if let Some(list) = usable(&st) {
+            return Some(list);
         }
+        let now = Instant::now();
+        if !st.refreshing || now >= deadline {
+            return None;
+        }
+        st = ready.wait_timeout(st, deadline - now).unwrap_or_else(|e| e.into_inner()).0;
     }
-    st.last.as_ref().map(|(_, list)| list.clone())
+}
+
+/// Starts the Services read now if one is due, so the first chord finds it
+/// done (called when a deny list is set).
+pub fn warm_service_shortcuts() {
+    let (cell, _) = services_state();
+    let mut st = cell.lock().unwrap_or_else(|e| e.into_inner());
+    start_services_refresh(&mut st);
+}
+
+struct ServicesState {
+    last: Option<(std::time::Instant, Vec<(u16, u64)>)>,
+    refreshing: bool,
+    /// When the last read failed: the next try waits SERVICES_RETRY.
+    failed_at: Option<std::time::Instant>,
+}
+
+fn services_state() -> &'static (std::sync::Mutex<ServicesState>, std::sync::Condvar) {
+    use std::sync::{Condvar, Mutex, OnceLock};
+    static STATE: OnceLock<(Mutex<ServicesState>, Condvar)> = OnceLock::new();
+    STATE.get_or_init(|| {
+        (
+            Mutex::new(ServicesState { last: None, refreshing: false, failed_at: None }),
+            Condvar::new(),
+        )
+    })
+}
+
+fn start_services_refresh(st: &mut ServicesState) {
+    use std::time::Instant;
+    let due = st.last.as_ref().is_none_or(|(at, _)| at.elapsed() > SERVICES_REFRESH)
+        && st.failed_at.is_none_or(|at| at.elapsed() > SERVICES_RETRY);
+    if !due || st.refreshing {
+        return;
+    }
+    st.refreshing = true;
+    let spawned = std::thread::Builder::new().name("cu-services".into()).spawn(move || {
+        // Ends the read however it ends (an error, a panic), and wakes the
+        // callers waiting for it.
+        struct Done(Option<Vec<(u16, u64)>>);
+        impl Drop for Done {
+            fn drop(&mut self) {
+                let (cell, ready) = services_state();
+                let mut st = cell.lock().unwrap_or_else(|e| e.into_inner());
+                st.refreshing = false;
+                match self.0.take() {
+                    Some(list) => {
+                        st.last = Some((Instant::now(), list));
+                        st.failed_at = None;
+                    }
+                    None => st.failed_at = Some(Instant::now()),
+                }
+                ready.notify_all();
+            }
+        }
+        let mut done = Done(None);
+        done.0 = read_service_shortcuts();
+    });
+    if spawned.is_err() {
+        st.refreshing = false;
+    }
+}
+
+/// How far the current keyboard layout keeps the ANSI key codes the Services
+/// check maps characters to (roles::layout_of): on another layout it cannot
+/// tell which physical key a service uses. This is the person's current
+/// layout setting; an app with a per-document
+/// input source can differ (a later TIS/UCKeyTranslate check would cover it).
+pub fn keyboard_layout() -> super::roles::Layout {
+    // A long-lived process caches another app's preferences until it
+    // synchronizes them: re-read HIToolbox's on every check, so a switch
+    // from U.S. to German after launch is seen.
+    Cf::synchronize_preferences("com.apple.HIToolbox");
+    let id = Cf::preference("AppleCurrentKeyboardLayoutInputSourceID", "com.apple.HIToolbox")
+        .and_then(|v| v.as_string());
+    // CFPreferences gives no read error: a missing key and a failed read are
+    // both NULL. Nothing recorded counts as a default (U.S.) install only
+    // when HIToolbox has no preferences file at all; one that exists but
+    // gave nothing, or cannot be checked, fails closed.
+    let recorded = || {
+        let Some(home) = std::env::var_os("HOME") else { return true };
+        let file =
+            std::path::Path::new(&home).join("Library/Preferences/com.apple.HIToolbox.plist");
+        !matches!(std::fs::symlink_metadata(file), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
+    };
+    let enabled = Cf::preference("AppleEnabledInputSources", "com.apple.HIToolbox").is_some()
+        || (id.is_none() && recorded());
+    super::roles::layout_of(id.as_deref(), enabled)
 }
 
 /// How often the Services shortcuts are re-read.
 const SERVICES_REFRESH: Duration = Duration::from_secs(30);
+/// A list is dropped after this many refresh periods without a good read.
+const SERVICES_STALE: Duration = Duration::from_secs(120);
+/// How long to wait after a failed read before trying again.
+const SERVICES_RETRY: Duration = Duration::from_secs(15);
 /// How long `pbs -dump` may take.
 const PBS_TIMEOUT: Duration = Duration::from_secs(3);
+/// How long a chord waits for a Services read in flight: a little more than
+/// the read's worst case (PBS_TIMEOUT for the output, PBS_TIMEOUT for the exit).
+const SERVICES_WAIT: Duration = Duration::from_secs(7);
 
-/// One read of both sources; None when `pbs -dump` failed (not run, timed
-/// out, non-zero exit, or no services at all).
-fn read_service_shortcuts() -> Option<Vec<(u16, u64)>> {
+/// Runs a short command in its own process group and returns its output
+/// and whether it exited 0, or None when it did not finish within
+/// PBS_TIMEOUT (then the whole group is killed and reaped).
+fn run_bounded(program: &str, args: &[&str]) -> Option<(String, bool)> {
     use std::io::Read;
-    let mut child = std::process::Command::new("/System/Library/CoreServices/pbs")
-        .arg("-dump")
+    use std::os::unix::process::CommandExt;
+    // Its own process group, so a timeout kills it and anything it started
+    // (a grandchild holding the pipe would keep the reader alive).
+    let mut child = std::process::Command::new(program)
+        .args(args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
+        .process_group(0)
         .spawn()
         .ok()?;
-    let mut stdout = child.stdout.take()?;
-    let reader = std::thread::spawn(move || {
+    let group = child.id() as i32;
+    let kill_group = |child: &mut std::process::Child| {
+        // SAFETY: plain syscall; group is the child's own process group.
+        unsafe { libc::killpg(group, libc::SIGKILL) };
+        let _ = child.wait();
+    };
+    let Some(mut stdout) = child.stdout.take() else {
+        kill_group(&mut child);
+        return None;
+    };
+    // The output is read on a thread and handed over a channel: one bounded
+    // recv_timeout. Then the exit status, bounded too.
+    let (tx, rx) = mpsc::channel::<Option<String>>();
+    let reader = std::thread::Builder::new().name("cu-pbs-read".into()).spawn(move || {
         let mut out = String::new();
-        stdout.read_to_string(&mut out).ok().map(|_| out)
+        let _ = tx.send(stdout.read_to_string(&mut out).ok().map(|_| out));
     });
-    let started = std::time::Instant::now();
-    let status = loop {
+    let out = match reader {
+        Ok(_) => rx.recv_timeout(PBS_TIMEOUT).ok().flatten(),
+        Err(_) => None,
+    };
+    let Some(out) = out else {
+        kill_group(&mut child);
+        return None;
+    };
+    let deadline = std::time::Instant::now() + PBS_TIMEOUT;
+    loop {
         match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if started.elapsed() < PBS_TIMEOUT => std::thread::sleep(Duration::from_millis(20)), // bounded poll of a child process
+            Ok(Some(status)) => return Some((out, status.success())),
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(10)); // bounded wait for an exiting child
+            }
             _ => {
-                let _ = child.kill();
-                let _ = child.wait();
+                kill_group(&mut child);
                 return None;
             }
         }
-    };
-    let dump = reader.join().ok().flatten()?;
-    if !status.success() || !dump.contains("NSBundlePath") {
+    }
+}
+
+/// One read of both sources: the services' own key equivalents
+/// (`pbs -dump`, Command implied) and the person's assignments
+/// (pbs's NSServicesStatus default). None when the dump failed.
+fn read_service_shortcuts() -> Option<Vec<(u16, u64)>> {
+    let (dump, ok) = run_bounded("/System/Library/CoreServices/pbs", &["-dump"])?;
+    if !ok || !dump.contains("NSBundlePath") {
         return None;
     }
-    let mut equivalents = super::roles::service_equivalents(&dump);
-    // The person's own assignments (System Settings > Keyboard > Shortcuts > Services).
+    let mut list: Vec<(u16, u64)> = super::roles::service_equivalents(&dump)
+        .iter()
+        .map(|e| super::keymap::service_shortcut(e, true))
+        .collect::<Option<_>>()?;
+    // The person's assignments: NSServicesStatus in pbs's defaults, absent
+    // until they assign one. Read in process (a missing key is NULL, which
+    // is none assigned); Command only where they wrote "@".
+    Cf::synchronize_preferences("pbs");
     if let Some(status) = Cf::preference("NSServicesStatus", "pbs") {
         for entry in status.dict_values() {
-            if let Some(value) = entry.get("key_equivalent").and_then(|v| v.as_string())
-                && super::roles::is_key_equivalent(&value)
-                && !equivalents.contains(&value)
-            {
-                equivalents.push(value);
+            let Some(value) = entry.get("key_equivalent").and_then(|v| v.as_string()) else {
+                continue;
+            };
+            if !value.is_empty() {
+                list.push(super::keymap::service_shortcut(&value, false)?);
             }
         }
     }
-    Some(equivalents.iter().filter_map(|e| super::keymap::service_shortcut(e)).collect())
+    Some(list)
 }

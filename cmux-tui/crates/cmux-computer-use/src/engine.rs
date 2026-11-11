@@ -114,7 +114,8 @@ struct PolicyMenuGuard(Arc<RwLock<PolicyConfig>>);
 impl crate::desktop::MenuGuard for PolicyMenuGuard {
     fn app_blocked(&self, id: &str, name: &str) -> bool {
         let config = self.0.read().unwrap_or_else(std::sync::PoisonError::into_inner);
-        policy::is_blocked(&config, &TargetApp { id: id.to_string(), name: name.to_string() }).is_some()
+        policy::is_blocked(&config, &TargetApp { id: id.to_string(), name: name.to_string() })
+            .is_some()
     }
     fn denies_any(&self) -> bool {
         !self.0.read().unwrap_or_else(std::sync::PoisonError::into_inner).denied_apps.is_empty()
@@ -1327,8 +1328,9 @@ impl Engine {
         state["captures"] = json!(captures);
         let config = self.config();
         if self.still_allowed(&config, ctx, window_id, app).is_ok()
-            && let Ok(mut tree) =
-                self.desktop.ui_tree(window_id, TreeOptions { menus: false, ..TreeOptions::default() })
+            && let Ok(mut tree) = self
+                .desktop
+                .ui_tree(window_id, TreeOptions { menus: false, ..TreeOptions::default() })
         {
             // The capture just recorded this window's geometry for the session.
             let seen = lock(&self.seen)

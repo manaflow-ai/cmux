@@ -255,7 +255,11 @@ fn macos_desktop_smoke() {
 fn shortcuts_match_menu_items_by_char_and_modifiers() {
     use crate::keys::KeyCombo;
     let m = |combo: &str, ch: Option<&str>, vk: Option<i64>, mods: i64| {
-        keymap::menu_item_matches(&KeyCombo::parse(combo).unwrap(), ch, vk, mods)
+        keymap::menu_item_matches(
+            &KeyCombo::parse(combo).unwrap(),
+            &keymap::menu_item_key(ch, vk, None),
+            mods,
+        )
     };
     // TextEdit's Make Plain Text is ⇧⌘T: AX reports "T" with the Shift bit.
     assert!(m("cmd+shift+t", Some("T"), None, keymap::MENU_SHIFT));
@@ -297,7 +301,11 @@ fn stepping_targets_take_numbers_and_percentages() {
 struct PolicyGuard(crate::policy::PolicyConfig);
 impl MenuGuard for PolicyGuard {
     fn app_blocked(&self, id: &str, name: &str) -> bool {
-        crate::policy::is_blocked(&self.0, &crate::policy::TargetApp { id: id.into(), name: name.into() }).is_some()
+        crate::policy::is_blocked(
+            &self.0,
+            &crate::policy::TargetApp { id: id.into(), name: name.into() },
+        )
+        .is_some()
     }
     fn denies_any(&self) -> bool {
         !self.0.denied_apps.is_empty()
@@ -319,7 +327,13 @@ fn resolve(name: &str) -> Option<Vec<String>> {
     })
 }
 
-fn blocked_in(guard: &PolicyGuard, top: Option<usize>, depth: usize, siblings: &[&str], title: &str) -> bool {
+fn blocked_in(
+    guard: &PolicyGuard,
+    top: Option<usize>,
+    depth: usize,
+    siblings: &[&str],
+    title: &str,
+) -> bool {
     let siblings: Vec<String> = siblings.iter().map(|s| s.to_string()).collect();
     let ctx = roles::MenuItemContext { title, top_index: top, depth, siblings: &siblings };
     roles::menu_item_blocked(guard, &ctx, &resolve)
@@ -335,31 +349,55 @@ fn a_denied_app_is_never_reachable_through_menus_in_any_language() {
     // A document or an unknown entry there could open in a denied app.
     assert!(blocked_in(&guard, Some(0), 2, &recent, "notizen.txt"));
     // German app menu > Dienste (Services): every entry, while any app is denied.
-    assert!(blocked_in(&guard, Some(1), 2, &["Neues Terminal beim Ordner", "Notiz erstellen"], "Notiz erstellen"));
+    assert!(blocked_in(
+        &guard,
+        Some(1),
+        2,
+        &["Neues Terminal beim Ordner", "Notiz erstellen"],
+        "Notiz erstellen"
+    ));
     // Öffnen mit (Open With), in a File menu: a list of apps, found by its items.
     let open_with = ["TextEdit (Standard)", "Terminal", "Vorschau", "Andere …"];
     assert!(blocked_in(&guard, Some(3), 2, &open_with, "Terminal"));
     assert!(!blocked_in(&guard, Some(3), 2, &open_with, "TextEdit (Standard)"));
     assert!(!blocked_in(&guard, Some(3), 2, &open_with, "Vorschau"));
     // Apple menu "Systemeinstellungen…" launches a denied app: blocked by the app it names.
-    assert!(blocked_in(&guard, Some(0), 1, &["Über diesen Mac", "Systemeinstellungen…", "Sperren"], "Systemeinstellungen…"));
+    assert!(blocked_in(
+        &guard,
+        Some(0),
+        1,
+        &["Über diesen Mac", "Systemeinstellungen…", "Sperren"],
+        "Systemeinstellungen…"
+    ));
     assert!(blocked_in(&guard, Some(0), 1, &[], "System Settings…"));
     // macOS adds a note after the name: still the same app.
     assert!(blocked_in(&guard, Some(0), 1, &[], "System Settings…, 1 update"));
     assert!(blocked_in(&guard, Some(0), 1, &[], "Systemeinstellungen …, 1 Update"));
-    assert_eq!(roles::menu_name_candidates("System Settings…, 1 update"), vec!["System Settings…, 1 update", "System Settings"]);
+    assert_eq!(
+        roles::menu_name_candidates("System Settings…, 1 update"),
+        vec!["System Settings…, 1 update", "System Settings"]
+    );
     // The rest of the Apple menu stays reachable (the person allows it).
-    for t in ["Über diesen Mac", "Bildschirm sperren", "Ruhezustand", "Abmelden …", "Sofort beenden …"] {
+    for t in
+        ["Über diesen Mac", "Bildschirm sperren", "Ruhezustand", "Abmelden …", "Sofort beenden …"]
+    {
         assert!(!blocked_in(&guard, Some(0), 1, &[], t), "{t}");
     }
     // Same-name apps: one denied copy blocks the name; a version suffix in a launch list is ambiguous.
     assert!(blocked_in(&guard, Some(3), 2, &["Ghostty", "Xcode (16.4)"], "Ghostty"));
-    assert!(blocked_in(&guard, Some(3), 2, &["Ghostty", "Xcode (16.4)", "Xcode (17.0)"], "Xcode (16.4)"));
+    assert!(blocked_in(
+        &guard,
+        Some(3),
+        2,
+        &["Ghostty", "Xcode (16.4)", "Xcode (17.0)"],
+        "Xcode (16.4)"
+    ));
     // Ordinary menus are untouched, also when an item happens to be in a submenu.
     assert!(!blocked_in(&guard, Some(2), 1, &["Sichern", "Drucken …"], "Sichern"));
     assert!(!blocked_in(&guard, Some(4), 2, &["Fett", "Kursiv", "Unterstrichen"], "Fett"));
     // With an empty deny list only protected apps are blocked.
-    let open = PolicyGuard(crate::policy::PolicyConfig { denied_apps: vec![], ..Default::default() });
+    let open =
+        PolicyGuard(crate::policy::PolicyConfig { denied_apps: vec![], ..Default::default() });
     assert!(!blocked_in(&open, Some(0), 2, &recent, "Terminal"));
     assert!(!blocked_in(&open, Some(1), 2, &["Notiz erstellen"], "Notiz erstellen"));
     assert_eq!(roles::menu_app_name("Xcode (16.4)"), ("Xcode", true));
@@ -371,19 +409,23 @@ fn a_denied_app_is_never_reachable_through_menus_in_any_language() {
 #[test]
 fn shortcuts_run_the_first_enabled_item_as_appkit_does() {
     use roles::{ShortcutMatch as M, ShortcutPick as P};
-    let m = |t: &str, enabled: bool, blocked: bool| M { title: t.into(), enabled, blocked };
+    let m = |t: &str, enabled: bool, blocked: bool| M {
+        title: t.into(),
+        enabled,
+        blocked,
+        checked: true,
+    };
     assert_eq!(roles::pick_shortcut(&[]), P::None);
     assert_eq!(roles::pick_shortcut(&[m("A", false, false), m("B", true, false)]), P::Press(1));
     assert_eq!(roles::pick_shortcut(&[m("A", false, false)]), P::Disabled("A".into()));
     // A blocked first enabled match refuses: a later item must not run in its place.
-    assert_eq!(roles::pick_shortcut(&[m("Svc", true, true), m("B", true, false)]), P::Blocked("Svc".into()));
+    assert_eq!(
+        roles::pick_shortcut(&[m("Svc", true, true), m("B", true, false)]),
+        P::Blocked("Svc".into())
+    );
     // A blocked disabled item is passed over like any disabled one.
     assert_eq!(roles::pick_shortcut(&[m("Svc", false, true), m("B", true, false)]), P::Press(1));
-    // A chord no menu item has is posted (a web app's cmd+shift+7), unless it
-    // is a registered Services shortcut while some app is denied.
-    assert!(roles::unmatched_chord_allowed(false, true));
-    assert!(!roles::unmatched_chord_allowed(true, true));
-    assert!(roles::unmatched_chord_allowed(true, false));
+    // Unmatched chords: see chords_are_held_to_the_deny_list_in_both_deliveries.
 }
 
 #[test]
@@ -423,7 +465,8 @@ fn the_menu_walk_is_breadth_first_within_budget_and_depth() {
             _ => vec![],
         }
     };
-    let (slots, truncated) = roles::breadth_first(0u32, 100, 10, |n, _| (*n != 4).then(|| kids(*n)));
+    let (slots, truncated) =
+        roles::breadth_first(0u32, 100, 10, |n, _| (*n != 4).then(|| kids(*n)));
     let order: Vec<u32> = slots.iter().map(|s| s.node).collect();
     assert_eq!(order, vec![0, 1, 2, 3, 5, 6]);
     assert!(!truncated);
@@ -475,29 +518,42 @@ fn services_shortcuts_are_read_from_the_pasteboard_server_dump() {
     "#;
     assert_eq!(roles::service_equivalents(dump2), vec!["@$E".to_string(), "@\u{f704}".to_string()]);
     let (f1, _) = keymap::key_code(&Key::F(1)).unwrap();
-    assert_eq!(keymap::service_shortcut("@\u{f704}"), Some((f1, keymap::FLAG_COMMAND)));
+    assert_eq!(keymap::service_shortcut("@\u{f704}", true), Some((f1, keymap::FLAG_COMMAND)));
     assert!(roles::is_key_equivalent("$^@C"));
     assert!(!roles::is_key_equivalent("New Workspace"));
     let (b, _) = keymap::char_key('b').unwrap();
     let (c, _) = keymap::char_key('c').unwrap();
     // "B" is ⇧⌘B (a capital means Shift; Command is implied).
-    assert_eq!(keymap::service_shortcut("B"), Some((b, keymap::FLAG_COMMAND | keymap::FLAG_SHIFT)));
     assert_eq!(
-        keymap::service_shortcut("$^@C"),
+        keymap::service_shortcut("B", true),
+        Some((b, keymap::FLAG_COMMAND | keymap::FLAG_SHIFT))
+    );
+    assert_eq!(
+        keymap::service_shortcut("$^@C", true),
         Some((c, keymap::FLAG_COMMAND | keymap::FLAG_SHIFT | keymap::FLAG_CONTROL))
     );
-    assert_eq!(keymap::service_shortcut("@"), None);
-    let services = vec![keymap::service_shortcut("B").unwrap()];
+    // A lone "@" is a key now (see marker_only_and_escaped_services_keys_parse).
+    let services = vec![keymap::service_shortcut("B", true).unwrap()];
     assert!(keymap::is_service_shortcut(b, keymap::FLAG_COMMAND | keymap::FLAG_SHIFT, &services));
     assert!(!keymap::is_service_shortcut(b, keymap::FLAG_COMMAND, &services));
     let (seven, _) = keymap::char_key('7').unwrap();
-    assert!(!keymap::is_service_shortcut(seven, keymap::FLAG_COMMAND | keymap::FLAG_SHIFT, &services));
+    assert!(!keymap::is_service_shortcut(
+        seven,
+        keymap::FLAG_COMMAND | keymap::FLAG_SHIFT,
+        &services
+    ));
 }
 
 #[test]
 fn shifted_punctuation_matches_its_menu_item() {
     use crate::keys::KeyCombo;
-    let m = |combo: &str, ch: &str, mods: i64| keymap::menu_item_matches(&KeyCombo::parse(combo).unwrap(), Some(ch), None, mods);
+    let m = |combo: &str, ch: &str, mods: i64| {
+        keymap::menu_item_matches(
+            &KeyCombo::parse(combo).unwrap(),
+            &keymap::menu_item_key(Some(ch), None, None),
+            mods,
+        )
+    };
     // Zoom In as AX reports it: AXMenuItemCmdChar "+", AXMenuItemCmdModifiers 0
     // (Command only); the "+" itself means shift+=.
     assert!(m("cmd++", "+", 0));
@@ -511,6 +567,10 @@ fn shifted_punctuation_matches_its_menu_item() {
     assert!(m("cmd+t", "T", 0));
     assert!(!m("cmd+t", "T", keymap::MENU_SHIFT));
     assert!(m("cmd+shift+t", "T", keymap::MENU_SHIFT));
+    // An upper-case chord letter is a Shift chord, as the keys it posts are
+    // (key_codes) and as xdotool resolves "super+T": both paths agree.
+    assert!(m("cmd+T", "T", keymap::MENU_SHIFT));
+    assert!(!m("cmd+T", "T", 0));
     // "?" (Help) is shift+/.
     assert!(m("cmd+?", "?", 0));
     assert!(m("cmd+shift+/", "?", 0));
@@ -520,10 +580,292 @@ fn shifted_punctuation_matches_its_menu_item() {
 fn menu_items_fail_closed_while_the_app_name_index_builds() {
     let guard = PolicyGuard(crate::policy::PolicyConfig::default());
     let pending = |_: &str| -> Option<Vec<String>> { None };
-    let ctx = roles::MenuItemContext { title: "TextEdit", top_index: Some(0), depth: 2, siblings: &[] };
+    let ctx =
+        roles::MenuItemContext { title: "TextEdit", top_index: Some(0), depth: 2, siblings: &[] };
     assert!(roles::menu_item_blocked(&guard, &ctx, &pending));
-    let open = PolicyGuard(crate::policy::PolicyConfig { denied_apps: vec![], ..Default::default() });
+    let open =
+        PolicyGuard(crate::policy::PolicyConfig { denied_apps: vec![], ..Default::default() });
     assert!(!roles::menu_item_blocked(&open, &ctx, &pending));
+}
+
+#[test]
+fn the_services_check_knows_which_keys_each_layout_places() {
+    use roles::Layout as L;
+    for id in
+        ["com.apple.keylayout.US", "com.apple.keylayout.ABC", "com.apple.keylayout.Australian"]
+    {
+        assert_eq!(roles::layout_of(Some(id), true), L::Ansi);
+    }
+    assert_eq!(roles::layout_of(Some("com.apple.keylayout.British"), true), L::LettersDigits);
+    assert_eq!(roles::layout_of(Some("com.apple.keylayout.British-PC"), true), L::LettersDigits);
+    assert_eq!(roles::layout_of(Some("com.apple.keylayout.German"), true), L::Other);
+    assert_eq!(roles::layout_of(Some("com.apple.keylayout.Dvorak"), true), L::Other);
+    // Nothing recorded: U.S. only on a default install; otherwise fail closed.
+    assert_eq!(roles::layout_of(None, false), L::Ansi);
+    assert_eq!(roles::layout_of(None, true), L::Other);
+    // Keys with the same code on every layout are placed on any layout,
+    // German and Dvorak included: alt+left, cmd+left, F5, ctrl+return.
+    for key in [
+        Key::Left,
+        Key::Right,
+        Key::Up,
+        Key::Down,
+        Key::F(5),
+        Key::Return,
+        Key::Tab,
+        Key::Space,
+        Key::Escape,
+        Key::Delete,
+        Key::Backspace,
+        Key::Home,
+        Key::End,
+        Key::PageUp,
+        Key::PageDown,
+    ] {
+        for shift in [false, true] {
+            assert!(roles::layout_places(&key, shift, L::Other), "{key:?}");
+        }
+    }
+    // Letters: ANSI and British; not German (Y and Z swap) or Dvorak.
+    let e = Key::Char('e');
+    assert!(
+        roles::layout_places(&e, false, L::Ansi)
+            && roles::layout_places(&e, true, L::LettersDigits)
+    );
+    assert!(!roles::layout_places(&e, false, L::Other));
+    // Digits: unshifted on British; shifted (Shift-3 is £ there) only on ANSI.
+    let three = Key::Char('3');
+    assert!(roles::layout_places(&three, false, L::LettersDigits));
+    assert!(!roles::layout_places(&three, true, L::LettersDigits));
+    assert!(roles::layout_places(&three, true, L::Ansi));
+    // Punctuation: only on ANSI.
+    let hash = Key::Char('\\');
+    assert!(roles::layout_places(&hash, false, L::Ansi));
+    assert!(!roles::layout_places(&hash, false, L::LettersDigits));
+}
+
+#[test]
+fn the_services_dump_parser_reads_quoted_values_whole() {
+    let dump = r#"NSKeyEquivalent = { default = "@;"; de = "$@}"; fr = "@\""; };
+        NSKeyEquivalent = { default = "@K"; };"#;
+    let got = roles::service_equivalents(dump);
+    assert!(got.contains(&"@;".to_string()), "{got:?}");
+    assert!(got.contains(&"$@}".to_string()), "{got:?}");
+    assert!(got.contains(&"@K".to_string()), "{got:?}");
+    // Escaped quote and backslash decode to one character each.
+    assert!(got.contains(&"@\"".to_string()), "{got:?}");
+    let got = roles::service_equivalents(r#"NSKeyEquivalent = { default = "@\\"; de = "$@X" };"#);
+    assert!(got.contains(&"@\\".to_string()), "{got:?}");
+    // The last entry has no ";" before "}".
+    assert!(got.contains(&"$@X".to_string()), "{got:?}");
+    let got = roles::service_equivalents(r#"NSKeyEquivalent = { default = "@\101"; };"#);
+    assert_eq!(got, vec!["@A".to_string()]);
+}
+
+#[test]
+fn chords_are_held_to_the_deny_list_in_both_deliveries() {
+    use roles::{ChordAction as A, ChordFacts, ServiceCheck as S, ShortcutMatch as M};
+    let m = |t: &str, enabled: bool, blocked: bool| M {
+        title: t.into(),
+        enabled,
+        blocked,
+        checked: true,
+    };
+    fn base(matches: &[M]) -> ChordFacts<'_> {
+        ChordFacts {
+            matches,
+            complete: true,
+            background: true,
+            denies_any: true,
+            layout_known: true,
+            is_service: S::NoMatch,
+        }
+    }
+    let undo = [m("Undo", true, false)];
+    let off = [m("Undo", false, false)];
+    // Foreground: posted whenever posting is safe, so the key view (a web
+    // page's cmd+F, cmd+K) sees it first, as with the person's key.
+    let fg = |m| ChordFacts { background: false, ..base(m) };
+    assert_eq!(roles::decide_chord(&fg(&undo)), A::Post);
+    assert_eq!(
+        roles::decide_chord(&ChordFacts {
+            denies_any: false,
+            complete: false,
+            layout_known: false,
+            is_service: S::Unread,
+            ..fg(&undo)
+        }),
+        A::Post
+    );
+    // ...and the app's item is pressed when posting is not safe: a Service
+    // has the chord (VS Code's shift+cmd+F, Spotlight's Service), the walk is
+    // incomplete, the layout cannot place it, or another match is blocked.
+    let later_blocked = [m("Undo", true, false), m("Open in Simulator", true, true)];
+    for f in [
+        ChordFacts { is_service: S::Match, ..fg(&undo) },
+        ChordFacts { is_service: S::Unread, ..fg(&undo) },
+        ChordFacts { complete: false, ..fg(&undo) },
+        ChordFacts { layout_known: false, ..fg(&undo) },
+        ChordFacts { denies_any: false, ..fg(&later_blocked) },
+        fg(&later_blocked),
+    ] {
+        assert_eq!(roles::decide_chord(&f), A::PressItem(0), "{f:?}");
+    }
+    // Foreground with no enabled match: the background rules (refused when
+    // a Service has it).
+    assert_eq!(
+        roles::decide_chord(&ChordFacts { is_service: S::Match, ..fg(&[]) }),
+        A::Refuse(roles::REFUSE_SERVICE)
+    );
+    assert!(
+        roles::needs_key_checks(&undo, true, false) && !roles::needs_key_checks(&undo, true, true)
+    );
+    assert!(
+        !roles::needs_key_checks(&later_blocked, true, false)
+            && !roles::needs_key_checks(&undo, false, false)
+    );
+    // Background: the first enabled, unblocked match is pressed through AX,
+    // deny list or not, whatever the walk, layout and Services say (no key
+    // is posted, so nothing else can take the chord).
+    for denies_any in [false, true] {
+        let f = ChordFacts {
+            denies_any,
+            complete: false,
+            layout_known: false,
+            is_service: S::Match,
+            ..base(&undo)
+        };
+        assert_eq!(roles::decide_chord(&f), A::PressItem(0));
+    }
+    // Disabled matches before it do not run, blocked or not.
+    let earlier_off = [m("Launch Simulator", false, true), m("Undo", true, false)];
+    assert_eq!(roles::decide_chord(&base(&earlier_off)), A::PressItem(1));
+    // The first enabled match is blocked: refused, with nothing denied too
+    // (a protected app's item).
+    let blocked = [m("Open in Simulator", true, true)];
+    for denies_any in [false, true] {
+        assert_eq!(
+            roles::decide_chord(&ChordFacts { denies_any, ..base(&blocked) }),
+            A::Refuse(roles::REFUSE_BLOCKED)
+        );
+    }
+    // Only disabled matches, one blocked: a posted key is revalidated at key
+    // time, so it is refused.
+    let off_blocked = [m("Undo", false, false), m("Open in Simulator", false, true)];
+    for denies_any in [false, true] {
+        assert_eq!(
+            roles::decide_chord(&ChordFacts { denies_any, ..base(&off_blocked) }),
+            A::Refuse(roles::REFUSE_BLOCKED)
+        );
+    }
+    // Only disabled matches, none blocked (cmd+c with nothing selected), or
+    // none at all (cmd+shift+t where no item has it): posted like the
+    // person's key once the checks pass; a posted chord keeps its Shift.
+    for matches in [&off[..], &[]] {
+        assert_eq!(roles::decide_chord(&base(matches)), A::Post);
+        // Nothing denied: posted as typed, whatever the walk, layout or Services say.
+        let f = ChordFacts {
+            denies_any: false,
+            complete: false,
+            layout_known: false,
+            is_service: S::Unread,
+            ..base(matches)
+        };
+        assert_eq!(roles::decide_chord(&f), A::Post);
+        // Something denied: the walk, the layout and Services, in that order.
+        assert!(
+            roles::needs_key_checks(matches, true, true)
+                && !roles::needs_key_checks(matches, false, true)
+        );
+        assert_eq!(
+            roles::decide_chord(&ChordFacts { complete: false, ..base(matches) }),
+            A::Refuse(roles::REFUSE_TOO_DEEP)
+        );
+        assert_eq!(
+            roles::decide_chord(&ChordFacts { layout_known: false, ..base(matches) }),
+            A::Refuse(roles::REFUSE_LAYOUT)
+        );
+        assert_eq!(
+            roles::decide_chord(&ChordFacts { is_service: S::Match, ..base(matches) }),
+            A::Refuse(roles::REFUSE_SERVICE)
+        );
+        assert_eq!(
+            roles::decide_chord(&ChordFacts { is_service: S::Unread, ..base(matches) }),
+            A::Refuse(roles::REFUSE_SERVICES_UNREAD)
+        );
+    }
+    assert!(!roles::needs_key_checks(&undo, true, true));
+}
+
+#[test]
+fn marker_only_and_escaped_services_keys_parse() {
+    assert!(roles::is_key_equivalent("@$"));
+    assert!(roles::is_key_equivalent("@"));
+    let (four, _) = keymap::char_key('4').unwrap();
+    assert_eq!(
+        keymap::service_shortcut("@$", true),
+        Some((four, keymap::FLAG_COMMAND | keymap::FLAG_SHIFT))
+    );
+    // \U0041 decodes to "A"; quoted content is verbatim, so "@\r", "\t",
+    // " " and a lone "@" are keys and kept.
+    let got = roles::service_equivalents(
+        r#"NSKeyEquivalent = { default = "@\U0041"; a = "@\r"; b = "\t"; c = " "; d = "@"; e = "@$\r"; };"#,
+    );
+    for want in ["@A", "@\r", "\t", " ", "@", "@$\r"] {
+        assert!(got.contains(&want.to_string()), "{want:?} in {got:?}");
+    }
+    assert_eq!(
+        keymap::service_shortcut("@$\r", true),
+        Some((keymap::KEY_RETURN, keymap::FLAG_COMMAND | keymap::FLAG_SHIFT))
+    );
+    assert_eq!(keymap::service_shortcut(" ", true), Some((49, keymap::FLAG_COMMAND)));
+    // A lone "@" (a service's own key) is the "@" key, Command implied.
+    let (two, _) = keymap::char_key('2').unwrap();
+    assert_eq!(
+        keymap::service_shortcut("@", true),
+        Some((two, keymap::FLAG_COMMAND | keymap::FLAG_SHIFT))
+    );
+    // \\U is decoded once: "\\\\U0041" is a backslash then "U0041".
+    let got = roles::service_equivalents(r#"NSKeyEquivalent = { default = "\\U0041"; };"#);
+    assert!(got.is_empty(), "{got:?}");
+}
+
+#[test]
+fn services_keys_on_non_character_keys_are_placed() {
+    let code = |k: Key| keymap::key_code(&k).unwrap().0;
+    let cmd = keymap::FLAG_COMMAND;
+    let alt = keymap::FLAG_ALTERNATE;
+    assert_eq!(keymap::service_shortcut("~\u{7f}", true), Some((code(Key::Backspace), cmd | alt)));
+    assert_eq!(keymap::service_shortcut("\u{1b}", true), Some((code(Key::Escape), cmd)));
+    assert_eq!(keymap::service_shortcut("\u{f702}", true), Some((code(Key::Left), cmd)));
+    assert_eq!(keymap::service_shortcut("\u{f72d}", true), Some((code(Key::PageDown), cmd)));
+    assert_eq!(keymap::service_shortcut("\u{f728}", true), Some((code(Key::Delete), cmd)));
+    assert_eq!(keymap::service_shortcut("\u{f717}", true), Some((code(Key::F(20)), cmd)));
+    // F21..F24 (no Mac key) are placed where no chord lands, not dropped.
+    assert_eq!(keymap::service_shortcut("\u{f71b}", true), Some((keymap::NO_KEY, cmd)));
+    // Help is placed on its own key (no chord cmux sends uses it); a key no
+    // posted chord can produce (a non-ANSI letter, Insert) is placed at
+    // NO_KEY, not dropped and not a failed read.
+    assert_eq!(keymap::service_shortcut("\u{f746}", true), Some((114, cmd)));
+    assert_eq!(keymap::service_shortcut("\u{f727}", true), Some((keymap::NO_KEY, cmd)));
+    assert_eq!(keymap::service_shortcut("@\u{f6}", false), Some((keymap::NO_KEY, cmd)));
+    // The person's assignments carry Command only where they say "@".
+    let (t, _) = keymap::char_key('t').unwrap();
+    assert_eq!(keymap::service_shortcut("^~t", false), Some((t, keymap::FLAG_CONTROL | alt)));
+    assert_eq!(keymap::service_shortcut("@t", false), Some((t, cmd)));
+}
+
+#[test]
+fn person_services_shortcuts_are_placed() {
+    let (t, _) = keymap::char_key('t').unwrap();
+    assert_eq!(
+        keymap::service_shortcut("@^t", false),
+        Some((t, keymap::FLAG_COMMAND | keymap::FLAG_CONTROL))
+    );
+    assert_eq!(
+        keymap::service_shortcut("^~\r", false),
+        Some((keymap::KEY_RETURN, keymap::FLAG_CONTROL | keymap::FLAG_ALTERNATE))
+    );
 }
 
 #[test]
@@ -532,4 +874,90 @@ fn a_missing_core_foundation_value_is_none_not_a_crash() {
     // release NULL (CFRelease(NULL) traps and took down the worker).
     assert!(sys::Cf::created(std::ptr::null()).is_none());
     assert!(sys::Cf::preference("cmuxNoSuchKey", "com.apple.HIToolbox").is_none());
+    assert!(sys::Cf::preference("NSServicesStatus", "cmux.no.such.domain").is_none());
+}
+
+#[test]
+fn menu_items_on_non_character_keys_are_matched() {
+    use crate::keys::KeyCombo;
+    let m = |combo: &str, ch: Option<&str>, vk: Option<i64>, glyph: Option<i64>| {
+        keymap::menu_item_matches(
+            &KeyCombo::parse(combo).unwrap(),
+            &keymap::menu_item_key(ch, vk, glyph),
+            0,
+        )
+    };
+    // Finder's Move to Trash as AX reports it on macOS 26.6: the character is
+    // a backspace control character, with the key code and the glyph.
+    assert!(m("cmd+backspace", Some("\u{8}"), Some(51), Some(23)));
+    // Only the glyph, or only the control character.
+    assert!(m("cmd+backspace", None, None, Some(0x17)));
+    assert!(m("cmd+backspace", Some("\u{8}"), None, None));
+    assert!(m("cmd+left", None, None, Some(0x64)));
+    assert!(m("cmd+return", None, None, Some(0x0B)));
+    assert!(m("cmd+f5", None, None, Some(0x73)));
+    // Not another key, and never a printable character's item.
+    assert!(!m("cmd+delete", Some("\u{8}"), Some(51), Some(23)));
+    assert!(!m("cmd+h", Some("\u{8}"), Some(51), Some(23)));
+    assert!(m("cmd+h", Some("H"), None, None));
+}
+
+#[test]
+fn every_way_ax_reports_a_non_character_key_is_matched_or_fails_closed() {
+    use crate::keys::KeyCombo;
+    let key = |ch: Option<&str>, vk: Option<i64>, glyph: Option<i64>| {
+        keymap::menu_item_key(ch, vk, glyph)
+    };
+    let m = |combo: &str, k: &keymap::MenuItemKey| {
+        keymap::menu_item_matches(&KeyCombo::parse(combo).unwrap(), k, 0)
+    };
+    // Space comes as " ".
+    assert!(m("cmd+space", &key(Some(" "), None, None)));
+    // Option instead of Command is another chord.
+    assert!(!m("alt+space", &key(Some(" "), None, None)));
+    // Function-key characters (U+F700-F8FF) are keys, not printable: cmd+up
+    // (Finder's Enclosing Folder), F5, Home, Forward Delete.
+    assert!(m("cmd+up", &key(Some("\u{f700}"), None, None)));
+    assert!(m("cmd+f5", &key(Some("\u{f708}"), None, None)));
+    assert!(m("cmd+home", &key(Some("\u{f729}"), None, None)));
+    assert!(m("cmd+delete", &key(Some("\u{f728}"), None, None)));
+    assert!(!m("cmd+down", &key(Some("\u{f700}"), None, None)));
+    // Keypad Enter is 76 by character and by glyph alike.
+    assert_eq!(key(Some("\u{3}"), None, None).codes, vec![76]);
+    assert_eq!(key(None, None, Some(0x04)).codes, vec![76]);
+    // F16-F19 glyphs.
+    assert!(m("cmd+f16", &key(None, None, Some(0x8F))));
+    assert!(m("cmd+f19", &key(None, None, Some(0x92))));
+    // Sources that disagree: either one matches (the check fails closed).
+    let both = key(Some("\u{8}"), Some(117), None);
+    assert!(m("cmd+backspace", &both) && m("cmd+delete", &both));
+    // A key equivalent no table places is reported, not dropped: an unknown
+    // glyph, a control character with no key (backtab), two characters.
+    assert!(key(None, None, Some(0x05)).unplaceable);
+    assert!(key(Some("\u{19}"), None, None).unplaceable);
+    assert!(key(Some("ab"), None, None).unplaceable);
+    // No key equivalent at all, and glyph 0 ("no glyph").
+    assert!(key(None, None, None).is_empty() && key(Some(""), None, Some(0)).is_empty());
+    // A letter keeps matching by its character; its virtual key is not used.
+    let copy = key(Some("C"), Some(8), None);
+    assert!(m("cmd+c", &copy) && copy.codes.is_empty() && !copy.unplaceable);
+}
+
+#[test]
+fn an_unchecked_match_is_never_pressed() {
+    use roles::{ChordAction as A, ChordFacts, ServiceCheck as S, ShortcutMatch as M};
+    // Its title could not be read, so it was not held to the protected apps;
+    // with nothing denied (where it is not marked blocked) the key is posted.
+    let unchecked = [M { title: String::new(), enabled: true, blocked: false, checked: false }];
+    for background in [false, true] {
+        let f = ChordFacts {
+            matches: &unchecked,
+            complete: false,
+            background,
+            denies_any: false,
+            layout_known: true,
+            is_service: S::NoMatch,
+        };
+        assert_eq!(roles::decide_chord(&f), A::Post);
+    }
 }
