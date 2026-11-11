@@ -76,6 +76,17 @@ fn acpmux(scratch: &Path, home: &Path, args: &[&str]) -> Output {
     daemon_env::acpmux(scratch).env("HOME", home).args(args).output().unwrap()
 }
 
+/// `acpmux <args>` as [`acpmux`] does, in the locale `lang`.
+fn acpmux_in(scratch: &Path, home: &Path, lang: &str, args: &[&str]) -> Output {
+    daemon_env::acpmux(scratch)
+        .env("HOME", home)
+        .env("LC_ALL", lang)
+        .env("LANG", lang)
+        .args(args)
+        .output()
+        .unwrap()
+}
+
 fn said(output: &Output) -> String {
     format!(
         "{}{}",
@@ -147,6 +158,18 @@ async fn w7f_a_named_branch_worktree_is_removed_with_its_branch_and_refuses_unsa
     assert!(said(&refused).contains("uncommitted"), "{}", said(&refused));
     assert!(said(&refused).contains("--discard"), "{}", said(&refused));
     assert!(wt_a.join("notes.txt").exists());
+    // In a Japanese locale the refusal is Japanese, and still names --discard.
+    let japanese = acpmux_in(&scratch, &home, "ja_JP.UTF-8", &["worktree", "remove", "r6a"]);
+    assert_eq!(japanese.status.code(), Some(1), "{}", said(&japanese));
+    assert!(said(&japanese).contains("コミットされていない変更"), "{}", said(&japanese));
+    assert!(said(&japanese).contains("--discard"), "{}", said(&japanese));
+    let bad = ["new", "-n", "r6x", "--worktree", repo_root, "--branch", "a..b", "-d", "hi"];
+    let bad_ja = acpmux_in(&scratch, &home, "ja_JP.UTF-8", &bad);
+    assert!(!bad_ja.status.success(), "{}", said(&bad_ja));
+    assert!(said(&bad_ja).contains("ブランチ名"), "{}", said(&bad_ja));
+    let bad_en = acpmux(&scratch, &home, &bad);
+    assert!(said(&bad_en).contains("is no branch name"), "{}", said(&bad_en));
+    assert!(wt_a.join("notes.txt").exists());
 
     // --discard removes it and the branch cmux made; the project folder stays for r6b.
     let removed = acpmux(&scratch, &home, &["worktree", "remove", "r6a", "--discard", "--json"]);
@@ -154,6 +177,8 @@ async fn w7f_a_named_branch_worktree_is_removed_with_its_branch_and_refuses_unsa
     let value: Value = serde_json::from_slice(&removed.stdout).unwrap();
     assert_eq!(value["root"], link_a, "{value}");
     assert_eq!(value["branchDeleted"], true, "{value}");
+    // The main checkout as it was typed (on macOS the temp folder is a link into /private).
+    assert_eq!(value["mainRoot"], repo_root, "{value}");
     assert!(!wt_a.exists());
     assert_eq!(git(&repo, &["branch", "--list", "r6a"]), "");
     assert!(noindex.join("proj").is_dir());

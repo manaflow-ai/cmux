@@ -1057,3 +1057,137 @@ fn w7f_worktree_help_names_branch_and_discard_in_english_and_japanese() {
     let japanese = help("workspace", "ja_JP.UTF-8");
     assert!(japanese.contains("(--branch <branch> なら"), "{japanese}");
 }
+
+/// W7-F (lead decision 2026-11-11): `cmux git --help` and `cmux workspace
+/// --help` are Japanese in a Japanese locale, all of them, not only their
+/// worktree paragraphs; the command lines stay as they are typed.
+#[test]
+fn w7f_git_and_workspace_help_are_all_japanese_in_a_japanese_locale() {
+    let help = |scope: &str, lang: &str| {
+        let output = Command::new(bin())
+            .args([scope, "--help"])
+            .env("LC_ALL", lang)
+            .env("LC_MESSAGES", lang)
+            .env("LANG", lang)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        String::from_utf8(output.stdout).unwrap()
+    };
+    let english = help("git", "C");
+    let japanese = help("git", "ja_JP.UTF-8");
+    for prose in [
+        "status prints the branch",
+        "branches lists local branches",
+        "commit and push run git as in your terminal",
+        "comments are the diff page's review comments",
+        "Without one, the current directory.",
+    ] {
+        assert!(english.contains(prose), "{prose}: {english}");
+        assert!(!japanese.contains(prose), "{prose} is still English: {japanese}");
+    }
+    assert!(japanese.contains("  cmux git worktree remove [TARGET] [--discard]"), "{japanese}");
+    assert!(japanese.contains("コミットとプッシュ"), "{japanese}");
+    let english = help("workspace", "C");
+    let japanese = help("workspace", "ja_JP.UTF-8");
+    for prose in [
+        "close with --others, --to-right, --to-left or --all closes",
+        "<selector> is an id",
+        "Workspace groups and rooms are",
+    ] {
+        assert!(english.contains(prose), "{prose}: {english}");
+        assert!(!japanese.contains(prose), "{prose} is still English: {japanese}");
+    }
+    assert!(japanese.contains("  cmux workspace <selector> close --remove-worktree [--discard]"));
+    assert!(japanese.contains("セレクター"), "{japanese}");
+}
+
+/// `git_cli` from `cwd` as a shell in it would run it: `PWD` is the folder as
+/// the person typed it (a link), the process's directory is what it resolves to.
+fn git_cli_typed(server: &HeadlessServer, typed: &std::path::Path, args: &[&str]) -> Output {
+    Command::new(bin())
+        .current_dir(typed)
+        .env("PWD", typed)
+        .args(["--json", "--socket"])
+        .arg(&server.socket)
+        .arg("git")
+        .args(args)
+        .env("LC_ALL", "C")
+        .env_remove("CMUX_TUI_SOCKET")
+        .env_remove("CMUX_TUI_TERMINAL_ID")
+        .output()
+        .unwrap()
+}
+
+/// W7-F path rule (lead decision 2026-11-11): cmux prints the folders the
+/// person typed, not what their links resolve to. The repository is reached
+/// through a link (`link -> real`, as `/tmp -> /private/tmp` on macOS); the
+/// main checkout and the worktree are printed under the link in create,
+/// status, apply and remove, and `worktree apply` still finds the main
+/// checkout and applies there.
+#[test]
+fn w7f_main_root_is_printed_as_typed_and_apply_still_finds_the_main_checkout() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-w7f-typed-{}-{:x}",
+        std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let real = root.join("real");
+    fs::create_dir_all(real.join("home/.cmux/worktrees")).unwrap();
+    fs::create_dir_all(real.join("project")).unwrap();
+    let link = root.join("link");
+    symlink(&real, &link).unwrap();
+    let home = link.join("home");
+    let repo = link.join("project");
+    let server = HeadlessServer::start_with_options(
+        "w7f-typed-path",
+        None,
+        None,
+        &[("HOME", home.to_str().unwrap())],
+    );
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "user.name", "cmux test"]);
+    git(&repo, &["config", "user.email", "cmux@example.invalid"]);
+    git(&repo, &["config", "commit.gpgsign", "false"]);
+    fs::write(repo.join("a.txt"), "one\n").unwrap();
+    git(&repo, &["add", "a.txt"]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    let typed_repo = repo.to_str().unwrap();
+
+    let created = git_cli_typed(
+        &server,
+        &repo,
+        &["worktree", "create", "--name", "chat", "--idempotency-key", "c1"],
+    );
+    assert_success(&created);
+    let value = json_output(&created)["value"].clone();
+    let worktree = home.join(".cmux/worktrees/project/chat");
+    assert_eq!(value["main_root"], typed_repo, "create: {value}");
+    assert_eq!(value["root"], worktree.to_str().unwrap(), "create: {value}");
+
+    let status = git_cli_typed(&server, &worktree, &["status"]);
+    assert_success(&status);
+    let status = json_output(&status);
+    assert_eq!(status["worktree"]["main_root"], typed_repo, "status: {status}");
+
+    fs::write(worktree.join("a.txt"), "two\n").unwrap();
+    let applied =
+        git_cli_typed(&server, &worktree, &["worktree", "apply", "--idempotency-key", "a1"]);
+    assert_success(&applied);
+    let value = json_output(&applied)["value"].clone();
+    assert_eq!(value["main_root"], typed_repo, "apply: {value}");
+    assert_eq!(fs::read_to_string(repo.join("a.txt")).unwrap(), "two\n", "apply: {value}");
+
+    git(&repo, &["checkout", "-q", "--", "a.txt"]);
+    let removed = git_cli_typed(
+        &server,
+        &worktree,
+        &["worktree", "remove", "--discard", "--idempotency-key", "r1"],
+    );
+    assert_success(&removed);
+    let value = json_output(&removed)["value"].clone();
+    assert_eq!(value["main_root"], typed_repo, "remove: {value}");
+    assert_eq!(value["root"], worktree.to_str().unwrap(), "remove: {value}");
+    assert!(!worktree.exists());
+    let _ = fs::remove_dir_all(&root);
+}
