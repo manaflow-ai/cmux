@@ -337,6 +337,36 @@ impl Hub {
         // The bound route last: it owns the provider variables (routes.rs).
         let account_home = self.apply_route(meta, forking, profile, &mut p.env).await?;
         p.argv = self.resolved_launcher_argv(p.argv);
+        // Codex on a cmux Cloud machine: the image's own-or-team rule, as its launcher applies it
+        // (codex_cloud_auth.rs). A bound route owns the provider instead.
+        if crate::codex_app_server::is_profile_launch(&p.argv)
+            && !p.env.contains_key(crate::routes::NAME_KEY)
+        {
+            let env = p.env.clone();
+            let var = move |k: &str| {
+                env.get(k)
+                    .cloned()
+                    .or_else(|| crate::login_env::var(k))
+                    .or_else(|| std::env::var(k).ok())
+                    .filter(|v| !v.is_empty())
+            };
+            let home = var("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
+            let root = self.vm_marker_root();
+            #[cfg(unix)]
+            let broker = matches!(crate::codex_auth_file::read(), Ok(Some(_)));
+            #[cfg(not(unix))]
+            let broker = false;
+            let inputs =
+                crate::codex_cloud_auth::Inputs { root: &root, home: &home, var: &var, broker };
+            if let Some(reason) =
+                crate::codex_cloud_auth::own_reason(&inputs, crate::codex_cloud_auth::host_resolves)
+                    .await
+            {
+                tracing::info!(session = %meta.id, reason, "codex on this Cloud machine uses its own sign-in");
+                let cmux_config = inputs.cmux_config();
+                crate::codex_cloud_auth::apply(&mut p.argv, &mut p.env, &var, cmux_config);
+            }
+        }
         p.env.remove(crate::agent::REMOTE_ENV_POLICY_KEY);
         if meta.remote_origin {
             // Validate every executable after expansion and launcher

@@ -356,9 +356,12 @@ const LANE_STEP_CHARS: usize = 240;
 const LANE_SCAN_CHARS: usize = 4096;
 
 /// Set the summary's derived fields: its status dot and its lane.
+/// A summary that is not an object (a peer's bad row) is left as it is.
 pub fn decide(summary: &mut Value) {
-    summary["indicator"] = status_indicator(summary).map_or(Value::Null, Value::from);
-    summary["lane"] = lane(summary);
+    let indicator = status_indicator(summary).map_or(Value::Null, Value::from);
+    summary.set("indicator", indicator);
+    let lane = lane(summary);
+    summary.set("lane", lane);
 }
 
 /// The summary's `lastMessage`, one sidebar line: the last line of words in
@@ -577,6 +580,8 @@ impl Hub {
             queued: session.queued(),
             // A turn failed: the prompts that waited behind it wait for a client to resume them.
             queue_paused: session.queue_paused(),
+            // A daemon start holds its queue until a person opens it (`protected_hold.rs`).
+            person_hold: self.person_hold(session),
             // Its queued prompt waits for a run slot of its parent (`subsession_runs.rs`).
             waits_for_slot: self.waits_for_slot(&m),
             // An agent start under way (`lifecycle.rs` holds `spawn_lock` until the agent answered
@@ -722,6 +727,10 @@ impl Hub {
         // The branch its folder has checked out now (`git_watch.rs`); null on
         // a detached HEAD or outside a repository.
         summary.set("gitBranch", json!(self.git_branch_now(&m)));
+        // A cold-archived chat's preview (`cold_archive.rs`): the list draws it without its log.
+        if let Some(cold) = &m.cold {
+            summary.set("coldArchive", json!(cold));
+        }
         if let Some(dirs) = super::additional_dirs::acp_value(&m) {
             summary.set(super::additional_dirs::FIELD, dirs);
         }

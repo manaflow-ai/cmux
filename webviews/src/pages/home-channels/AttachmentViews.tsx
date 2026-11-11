@@ -556,6 +556,8 @@ function TrayItem({ item, strings, onRemove }: { item: PendingAttachment; string
         type="button"
         className="hc-tray-remove"
         aria-label={strings.format("attach.remove", item.file.name)}
+        // The prompt keeps the keyboard: Cmd-Z right after brings the file back.
+        onMouseDown={(event) => event.preventDefault()}
         onClick={onRemove}
       >
         <HomeIcon name="close" />

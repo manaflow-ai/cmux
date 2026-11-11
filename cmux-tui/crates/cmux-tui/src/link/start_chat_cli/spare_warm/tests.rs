@@ -558,3 +558,77 @@ fn a_warm_that_answers_a_machine_a_reserve_already_copies_onto_gives_no_second_c
     let warm = call(r#"{"account":"user_a"}"#, &owner);
     assert_eq!((warm["machine"].clone(), warm.get("copy")), (json!(MACHINE), None));
 }
+
+#[test]
+fn an_installed_warm_copy_is_the_starts_login_receipt() {
+    let dir = tempfile::tempdir().unwrap();
+    let call = |request: &str, now| {
+        run(&flags(request), dir.path(), now, &mut stdin(Some(TEAM)).as_bytes(), &owner).unwrap()
+    };
+    let asked = |account: &str, machine: &str, provider: &str, now| {
+        receipt(dir.path(), account, machine, provider, now)["installed"] == json!(true)
+    };
+    assert_eq!(call(r#"{"account":"user_a"}"#, 1_000_000)["copy"]["machine"], json!(MACHINE));
+    // The copy is still in flight: no receipt yet, so the start checks as before (and waits on it).
+    assert!(!asked("user_a", MACHINE, "claude", 1_000_100));
+    // A copy that ended without installing is no receipt.
+    let finished = format!(r#"{{"account":"user_a","finished":"{MACHINE}"}}"#);
+    assert_eq!(call(&finished, 1_000_200)["finished"], json!(true));
+    assert!(!asked("user_a", MACHINE, "claude", 1_000_300));
+    // The App reports it installed: that ends the copy, and a Claude start onto it skips its login check.
+    let installed = format!(r#"{{"account":"user_a","installed":"{MACHINE}"}}"#);
+    assert_eq!(call(&installed, 1_000_400), json!({"ok": true, "finished": true}));
+    assert!(!copy_in_flight(dir.path(), MACHINE, 1_000_500));
+    assert!(asked("user_a", MACHINE, "claude", 1_000_500));
+    // Only that account, that machine, the copied provider, and within the receipt's life.
+    assert!(!asked("user_b", MACHINE, "claude", 1_000_500));
+    assert!(!asked("user_a", "vm_ffffffffffffffffffff", "claude", 1_000_500));
+    assert!(!asked("user_a", MACHINE, "codex", 1_000_500));
+    assert!(!asked("", MACHINE, "claude", 1_000_500));
+    assert!(asked("user_a", MACHINE, "claude", 1_000_400 + RECEIPT_MS - 1));
+    assert!(!asked("user_a", MACHINE, "claude", 1_000_400 + RECEIPT_MS));
+}
+
+#[test]
+fn a_newer_copy_in_flight_holds_the_receipt_until_it_ends() {
+    let dir = tempfile::tempdir().unwrap();
+    let call = |request: &str, now| {
+        run(&flags(request), dir.path(), now, &mut stdin(Some(TEAM)).as_bytes(), &no_call).unwrap()
+    };
+    let installed = format!(r#"{{"account":"user_a","installed":"{MACHINE}"}}"#);
+    call(&installed, 1_000_000);
+    assert_eq!(
+        receipt(dir.path(), "user_a", MACHINE, "claude", 1_000_100)["installed"],
+        json!(true)
+    );
+    // An abandoned copy re-answered by a claim: in flight again, so no receipt while it runs.
+    assert!(call(&claimed(MACHINE), 1_000_200).get("copy").is_some());
+    assert_eq!(
+        receipt(dir.path(), "user_a", MACHINE, "claude", 1_000_300)["installed"],
+        json!(false)
+    );
+    // Reported installed again: one receipt, renewed.
+    call(&installed, 1_000_400);
+    assert_eq!(read(dir.path()).installed.len(), 1);
+    assert_eq!(read(dir.path()).installed[0].at, 1_000_400);
+    assert_eq!(
+        receipt(dir.path(), "user_a", MACHINE, "claude", 1_000_500)["installed"],
+        json!(true)
+    );
+}
+
+#[test]
+fn a_receipt_question_goes_through_the_cli_with_no_credential() {
+    let dir = tempfile::tempdir().unwrap();
+    let ledger = dir.path().join("ledger.json");
+    let installed = format!(r#"{{"account":"user_a","installed":"{MACHINE}"}}"#);
+    run(&flags(&installed), dir.path(), now_ms(), &mut stdin(Some(TEAM)).as_bytes(), &no_call)
+        .unwrap();
+    let ask = format!(
+        r#"{{"account":"user_a","loginReceipt":{{"machine":"{MACHINE}","provider":"claude"}}}}"#
+    );
+    assert_eq!(
+        cli("warm-spare", &flags(&ask), &ledger),
+        Some(json!({"ok": true, "installed": true}))
+    );
+}

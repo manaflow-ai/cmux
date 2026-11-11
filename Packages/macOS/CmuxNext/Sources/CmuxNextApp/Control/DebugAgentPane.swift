@@ -14,7 +14,7 @@ import WebKit
 /// one). Never changes app or window focus; `open_menu` moves focus inside
 /// the page to the menu's button, as a click does.
 ///
-/// `action`: `seed_rows` (`count`, default 5000; `fixture: "worked-turn"`
+/// `action`: `seed_rows` (`count`, default 5000; `fixture: "link"`/`"github-link"`, linkFixture.ts; `"worked-turn"`
 /// seeds a turn that edits three files instead, for the changes view, and `"short"` one-line
 /// turns answered "ok N", for the thread minimap's density, and `"incoming"` received agent
 /// messages, for the received-message card, and `"shared"` a shared chat, for chat multiplayer's
@@ -67,14 +67,14 @@ enum DebugAgentPane {
         "load_seed": "loadSeed", "load_run": "loadRun", "layout_watch": "layoutWatch", "idle_probe": "idleProbe",
     ]
 
-    /// The chat verbs drive the chat as a person does, so each records a user gesture first (as
-    /// `click` delivers a real click): the relay then treats a folder the verb names, a send, a
-    /// pick or an answer as the user's, and automation reaches what a person sees (the trust
-    /// question, not `transport.path_outside_roots`; cx-nn3e P0b). Measuring verbs record none.
+    /// The chat verbs drive the chat as a person does, so each records a user gesture first: the
+    /// relay treats a folder the verb names, a send, a pick or an answer as the user's (the trust
+    /// question, not `transport.path_outside_roots`; cx-nn3e P0b). `answer_permission` records a click,
+    /// as Allow once is one (cx-ocdz: an answer needs a fresh click). Measuring verbs record none.
     static let userVerbs: Set<String> = ["new_chat", "send_prompt", "select_session", "answer_permission", "pick_folder", "compose_send", "run_mode"]
 
     static func actAsUser(_ action: String, gestures: AgentPaneUserGestures) {
-        if userVerbs.contains(action) { gestures.record() }
+        if userVerbs.contains(action) { gestures.record(click: action == "answer_permission") }
     }
 
     /// Runs `fn(...args)` on the page and returns its result as JSON text. A page still loading

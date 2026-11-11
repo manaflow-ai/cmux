@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileDesign
+import CmuxMobileMarkdown
 import CmuxSpinner
 import SwiftUI
 import UIKit
@@ -85,7 +86,7 @@ struct ChiefLiveReplyText: View {
     let text: String
     var body: some View {
         ChiefLiveReplyViewport {
-            Text(text)
+            Text(ChiefMarkdownBold.attributed(text))
                 .font(.body)
                 .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -194,10 +195,15 @@ struct ChiefLiveDetailRow: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 if !detail.text.isEmpty {
+                    // A long press opens Copy / Select Text (CMUX-33): `.textSelection` took the
+                    // press and selected the whole detail, with no range.
                     Text(detail.text)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                        .contextMenu {
+                            Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = detail.text }
+                            Button("Select Text", systemImage: "selection.pin.in.out") { SelectableTextView(detail.text).present() }
+                        }
                 }
             }
             if detail.isRunning {

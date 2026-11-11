@@ -131,11 +131,14 @@ top, so a block copies between the two:
 }
 ```
 
-- cmux ships an example, Harbor (`Resources/theme-files/harbor.json` in the app): the
-  sidebar's own glass, the terminal font, a painting behind the window and the pane
-  background, each through the keys below. It is in the Theme File list as `harbor`;
-  copy it to `~/.config/cmux/themes/harbor.json` to edit it (your file of the same
-  name wins over the shipped one).
+- cmux ships examples (`Resources/theme-files/` in the app), each in the Theme File
+  list by name: `harbor` (the sidebar's own glass, the terminal font, a painting
+  behind the window and the pane background), `classic-desktop` (gray chrome, hard
+  edges, no motion), `phosphor` (green on black), `claude-desktop` (cream and clay)
+  and `charcoal` (a dark chat app). To ask for a look, start from the closest one:
+  copy it to `~/.config/cmux/themes/<name>.json` to edit it (your file of the same
+  name wins over the shipped one). Steps and the undo path for people:
+  [theme-recipes.md](../../docs/cmux-next/theme-recipes.md).
 - A background picture may sit beside the theme: `"appearance.background":
   "file:harbor.jpg"` (or `folder:walls`, or `file:~/Pictures/x.png`) resolves against
   `~/.config/cmux/themes`, so a theme and its pictures move as one folder.
@@ -170,6 +173,10 @@ install click.
   Put it back on purpose with `cmux apps place 'local/customize#cmux.section/1' --region bottom`.
 - `implements["cmux.session.info.section/1"]` is its one Session Info section; its
   render function gets `{ session_id, cwd, branch?, harness? }` as its argument.
+- Show or hide it in one step: Toggle Custom Sidebar (Cmd+Shift+P, Ctrl+Opt+Cmd+B, the
+  sidebar's right-click Options menu, or `cmux sidebar toggle-custom`). It flips the app's
+  hidden flag, which cmux keeps across relaunches; with no customize folder it writes the
+  starter template and the view appears.
 - Scopes: read scopes (`integration:github:read`) are granted at install. Others
   (`actions:run`, `net:<host>`) need the person to turn them on in Settings > Apps.
 - Script errors: `cmux raw command --request-json '{"cmd":"apps-logs","app":"local/customize"}'`.

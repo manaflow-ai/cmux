@@ -137,16 +137,21 @@ fn disconnect_client_with_notice(
         mux.remove_size_client_from_attached_surfaces(client, record.attached.keys().copied());
         record
     };
+    mux.activity.disconnect(client);
     mux.unbind_conversation_principal(client);
     #[cfg(unix)]
     mux.forget_cloud_token_client(client);
     mux.release_cloud_conversation_client(client);
+    mux.feed_connection_closed(client);
     // Provider capabilities are valid only for the control connection that
     // published them. Release before announcing detachment so waiters can
     // never observe a stale target after the owning client is gone.
     mux.unregister_browser_provider(client);
     #[cfg(unix)]
     mux.image_pastes.disconnect(client);
+    // Its shell mode commands get a hangup, as a closed terminal sends (`shell_runs.rs`).
+    #[cfg(unix)]
+    mux.shell_runs.client_left(client);
     if let Some(owner @ BrowserPointerOwner::Client(_)) = record.browser_pointer_owner {
         // Pointer commands do not require a frame-stream attachment, so any
         // browser worker may own this negotiated client. Disconnects are rare;

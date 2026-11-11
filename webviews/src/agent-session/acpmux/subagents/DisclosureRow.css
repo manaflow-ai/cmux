@@ -42,9 +42,15 @@
   margin-inline-start: calc(-1 * var(--ds-space-1));
 }
 /* A line that opens a chat (`.cv-disclosure__open`) ends at its status; its chevron is the panel's
-   own toggle right after it. */
+   own toggle right after it. Only its name chip opens the chat and lights under the pointer
+   (AgentTag.css); the line draws no plate of its own. The chip takes the room the name needs, cut
+   only at the line's edge, not at AgentTag.css's 40%. */
 .cv-disclosure__open {
   flex: 0 1 auto;
+}
+.cv-disclosure__open > .cv-agent-tag {
+  flex: 0 1 auto;
+  max-width: none;
 }
 .cv-disclosure__line > .cv-disclosure__toggle.is-chevron {
   flex: none;
@@ -58,9 +64,7 @@
   color: var(--cv-text-muted);
 }
 .cv-disclosure__toggle:hover,
-.cv-disclosure__toggle:focus-visible,
-.cv-disclosure__open:hover,
-.cv-disclosure__open:focus-visible {
+.cv-disclosure__toggle:focus-visible {
   background: color-mix(in srgb, var(--cv-text) 6%, transparent);
 }
 .cv-disclosure__icon {

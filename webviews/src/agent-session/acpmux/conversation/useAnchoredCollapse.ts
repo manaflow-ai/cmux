@@ -56,6 +56,9 @@ export type AnchoredCollapse = {
   /// Opens or closes it. Given the click (a row's `onClick`), only a deliberate one (`deliberateClick`).
   /// True when it did: a wrapper that does more on a click (notes it, moves focus) does it only then.
   toggle: (event?: unknown) => boolean;
+  /// Whether `event` is a deliberate click (`deliberateClick`), using up the header's press as
+  /// `toggle` does: for a row that acts on the click later (it waits on a read, then `setOpen`).
+  deliberate: (event?: unknown) => boolean;
   setOpen: (open: boolean) => void;
   /// The ref for the line the reader clicks: it stays where it is drawn while the body opens or closes.
   headerRef: (node: HTMLElement | null) => void;
@@ -175,17 +178,20 @@ export function useAnchoredCollapse(options: AnchoredCollapseOptions = {}): Anch
   const fold = useFold(open, options.animates ?? foldPlays, options.fadeIn ?? true);
   const header = useRef<HTMLElement | null>(null);
   // Where the pointer last pressed the header, for `deliberateClick`; the listener lives as long as
-  // the header is mounted.
-  const press = useRef<Press | undefined>(undefined);
+  // the header is mounted. A ref reattach keeps the press: a caller's inline ref (CommandRow's) detaches
+  // and reattaches at every render, and a streamed render between a press and its release must not
+  // turn a drag into a click. The press holds the node it landed on and counts only while that node is
+  // still the header, so a header that went (a row that draws its toggle elsewhere) leaves no stale
+  // press behind. The next press replaces it, and the toggle clears it.
+  const press = useRef<(Press & { on: HTMLElement }) | undefined>(undefined);
   const unlisten = useRef<(() => void) | undefined>(undefined);
   const headerRef = useCallback((node: HTMLElement | null) => {
     unlisten.current?.();
     unlisten.current = undefined;
-    press.current = undefined;
     header.current = node;
     if (!node) return;
     const note = (event: PointerEvent) => {
-      press.current = event.button === 0 ? { x: event.clientX, y: event.clientY } : undefined;
+      press.current = event.button === 0 ? { x: event.clientX, y: event.clientY, on: node } : undefined;
     };
     node.addEventListener("pointerdown", note, { passive: true });
     unlisten.current = () => node.removeEventListener("pointerdown", note);
@@ -213,15 +219,19 @@ export function useAnchoredCollapse(options: AnchoredCollapseOptions = {}): Anch
     },
     [stopKeeping],
   );
+  const deliberate = useCallback((event?: unknown) => {
+    const noted = press.current;
+    press.current = undefined;
+    const pressed = noted && noted.on === header.current ? noted : undefined;
+    return deliberateClick(event, header.current, pressed);
+  }, []);
   const toggle = useCallback(
     (event?: unknown) => {
-      const pressed = press.current;
-      press.current = undefined;
-      if (!deliberateClick(event, header.current, pressed)) return false;
+      if (!deliberate(event)) return false;
       setOpen(!latest.current.open);
       return true;
     },
-    [setOpen],
+    [deliberate, setOpen],
   );
   useLayoutEffect(() => {
     const keep = pendingKeep.current;
@@ -233,6 +243,7 @@ export function useAnchoredCollapse(options: AnchoredCollapseOptions = {}): Anch
     open,
     present: fold.present,
     toggle,
+    deliberate,
     setOpen,
     headerRef,
     bodyProps: {

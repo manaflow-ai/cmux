@@ -134,6 +134,8 @@ class ResourceStream(Generic[ValueT], AsyncIterator[StreamItem[ValueT]]):
         ):
             raise ValueError("stream timeout must be finite and greater than zero")
         async with self._next_lock:
+            if self._closed:
+                raise StopAsyncIteration
             loop = asyncio.get_running_loop()
             future = loop.run_in_executor(
                 self._executor,

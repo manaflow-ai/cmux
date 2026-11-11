@@ -1361,7 +1361,12 @@ impl Hub {
             self.append(session, "mux", "inbox", msg);
             self.note_delegator(session, provenance);
         }
+        // `resent`: a resend of one it holds or a notice carries, not a message kept now
+        // (`sender_harness::on_kept` writes no claim for it).
         let mut accepted = json!({"sessionId": session.id, "promptId": prompt_id, "queued": true, "inbox": true, "threadId": thread});
+        if !fresh {
+            accepted.set("resent", json!(true));
+        }
         if held {
             accepted.set(crate::cli::output::HELD_IN_INBOX, json!(true));
         }
@@ -1488,13 +1493,18 @@ impl Hub {
         }
     }
 
-    /// Whether a turn is still coming for session `id` with nothing more sent: a message this
-    /// daemon's outbox has not delivered to it yet, or its inbox's ([`turn_coming`]). A wait for
-    /// its turn's end does not answer with the idle state from before (`server/wait.rs`).
+    /// Whether a turn is still coming for session `id` with nothing more sent: a prompt queued
+    /// behind its turn that is not held aside (between a turn's end and the next one's start no
+    /// turn runs), a message this daemon's outbox has not delivered to it yet, or its inbox's
+    /// ([`turn_coming`]). A wait for its turn's end does not answer with the idle state from
+    /// before (`server/wait.rs`).
     pub(crate) fn work_coming(&self, id: &str) -> bool {
         let Ok(session) = self.resolve(id) else { return false };
         if session.id != id {
             return false;
+        }
+        if session.meta().status != SessionStatus::Closed && super::queue::queue_waits(&session) {
+            return true;
         }
         let name = session.meta().name;
         let named = |target: &str| {

@@ -47,8 +47,10 @@ fn the_terminal_revision_read_does_not_wait_for_the_registry_lock() {
     let _ = std::fs::remove_dir_all(root);
 }
 
-/// A terminal's progress report (OSC 9;4, program status) republishes that
-/// one terminal. It read the whole session topology (every screen, pane,
+/// A terminal's durable edge (a command, a prompt, a program status record's
+/// state or kind) republishes that one terminal with one commit; an OSC 9;4
+/// progress or a repeated report commits nothing (`terminal_live.rs`). The
+/// commit read the whole session topology (every screen, pane,
 /// tab and browser) under the registry lock to find the terminal's own
 /// tabs (`terminal_progress.rs:18`: 9.6 % of the registry hold time on
 /// Austin's day, mean 5.4 ms, max 2 s).

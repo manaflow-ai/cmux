@@ -10,6 +10,7 @@ mod deferred_input;
 mod docked_workspaces;
 mod graphics_pointer;
 mod host_input;
+mod idle_wait;
 mod machine_sidebar;
 mod menus_browser;
 mod mux_recovery;
@@ -25,6 +26,7 @@ mod shortcuts_menus;
 mod sidebar_agent_status;
 mod surface_attach;
 mod tab_close_selection;
+mod tab_titles;
 mod viewport_history;
 
 use super::{

@@ -1,0 +1,37 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "manaflow-ai/clock",
+  "name": "Clock",
+  "version": "1.0.0",
+  "description": "A New Tab widget: the time and the date, with optional seconds and a 12 or 24 hour clock.",
+  "publisher": { "name": "cmux examples", "url": "https://cmux.dev" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "GPL-3.0-or-later",
+  "icon": { "symbol": "clock" },
+  "categories": ["samples"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "implements": {
+    "cmux.newtab.widget/1": {
+      "export": "renderClock",
+      "title": "Clock",
+      "symbol": "clock",
+      "options": { "size": "small" }
+    }
+  },
+  "settings": {
+    "type": "object",
+    "properties": {
+      "showSeconds": { "type": "boolean", "title": "Show seconds", "default": false },
+      "hourCycle": {
+        "type": "string",
+        "title": "Clock",
+        "enum": ["system", "12h", "24h"],
+        "default": "system"
+      }
+    }
+  },
+  "activation": ["onInterface:cmux.newtab.widget/1"],
+  "files": ["dist/"]
+}
