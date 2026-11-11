@@ -236,7 +236,8 @@ export function refreshCloudMachines(call: Call = postNative): Promise<void> {
         const list = cloudMachinesFromReply(reply);
         keepSignedIn(signedIn);
         publishAccount(signedIn);
-        publishTeam(signedIn ? activeTeamFromReply((reply as { team?: unknown } | null | undefined)?.team) : undefined);
+        const answer = reply as { team?: unknown; teams?: unknown } | null | undefined;
+        publishTeam(signedIn ? activeTeamFromReply(answer?.team, answer?.teams) : undefined);
         publish(list);
       }
     })

@@ -26,7 +26,7 @@ pub(crate) mod machine_update;
 mod mesh;
 mod paired_streams;
 mod process_exit;
-// `cmux link seed plan`; `cmux link seed push|clone|pull` is [`seed_cli`].
+// `cmux link seed plan`; `cmux link seed push|clone|pull|move` is [`seed_cli`].
 #[cfg_attr(not(test), allow(dead_code))]
 mod seed;
 mod seed_cli;
@@ -128,8 +128,10 @@ pub(crate) fn run(args: &[String]) -> i32 {
         return sync_cli::run(&args[1..]);
     }
     if args.first().map(String::as_str) == Some("seed") {
-        if matches!(args.get(1).map(String::as_str), Some("push" | "clone" | "pull" | "copy-rest"))
-        {
+        if matches!(
+            args.get(1).map(String::as_str),
+            Some("push" | "clone" | "pull" | "move" | "copy-rest")
+        ) {
             return seed_cli::run(args.get(1..).unwrap_or_default());
         }
         return seed::run(&args[1..]);

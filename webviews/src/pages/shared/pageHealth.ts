@@ -16,6 +16,10 @@
 //   over a newer file. Editors that keep their own draft (the agent chat composer, composerDraft.ts)
 //   never opt in; a scroller whose page follows its rows itself (the agent transcript,
 //   `SHOWN_SCROLLER_ATTRIBUTE`) is left alone too.
+// - Unsaved edits: an editor whose text nothing has saved yet marks itself (or an ancestor) with
+//   `[data-cmux-unsaved-edits]`. While one is in the document each beat says `edits: true`, and an
+//   input that marks or clears one beats at once, so a page that hangs right after the edit is still
+//   held: the host never reloads or restarts such a page by itself.
 // - Fault injection: `window.__cmuxHealthInject({fault: "hang"})` busy-loops the page for real, for
 //   the host's fault-injection tests. It exists only when the host set `__cmuxHealthInjectAllowed`
 //   before page code ran; no other page gets the function.
@@ -30,6 +34,19 @@ export const HEARTBEAT_MS = 2000;
 /** The fault-injection push, and the flag the host sets at document start to allow it. */
 export const HEALTH_INJECT_NAME = "__cmuxHealthInject";
 export const HEALTH_INJECT_ALLOWED_NAME = "__cmuxHealthInjectAllowed";
+/** Marks an editor (or an ancestor) holding text nothing has saved yet; the host keeps the page. */
+export const UNSAVED_EDITS_ATTRIBUTE = "data-cmux-unsaved-edits";
+/** Marks (or clears) the whole document as holding unsaved edits: a file page whose text is not on disk
+ * yet (edited, saving, or its save failed). Synchronous, so the beat after the input sees it. */
+export function markUnsavedEdits(unsaved: boolean, doc: Document | undefined = globalThis.document): void {
+  const root = doc?.documentElement;
+  if (!doc || !root || root.hasAttribute(UNSAVED_EDITS_ATTRIBUTE) === unsaved) return;
+  root.toggleAttribute(UNSAVED_EDITS_ATTRIBUTE, unsaved);
+  // An edit with no `input` event (a keymap command: undo, a moved line) still beats at once.
+  doc.dispatchEvent(new (doc.defaultView ?? globalThis).Event(UNSAVED_EDITS_EVENT));
+}
+/** Sent on the document when ``markUnsavedEdits`` flips the mark. */
+export const UNSAVED_EDITS_EVENT = "cmux-unsaved-edits";
 /** sessionStorage key prefix; the page's URL follows. */
 export const KEPT_STATE_PREFIX = "cmux.page.kept:";
 /** How many frames a restore waits for its scroller and field to appear (about 2 s). */
@@ -98,10 +115,13 @@ export function installPageHealth(client: HealthClient, doc: Document = document
     if (timer !== undefined) view.clearInterval(timer);
     timer = undefined;
   };
+  let edits = false;
+  const holdsEdits = () => doc.querySelector(`[${UNSAVED_EDITS_ATTRIBUTE}]`) !== null;
   const beat = () => {
     save();
     if (client.holding) return;
-    client.call(PAGE_HEARTBEAT_OP, { handled }).catch((error: unknown) => {
+    edits = holdsEdits();
+    client.call(PAGE_HEARTBEAT_OP, edits ? { handled, edits } : { handled }).catch((error: unknown) => {
       // An app without the op will never take one: stop for this document (stop condition).
       if ((error as { code?: unknown } | null)?.code !== "cmux.protocol.unknown_op") return;
       refused = true;
@@ -119,6 +139,12 @@ export function installPageHealth(client: HealthClient, doc: Document = document
     beat();
     timer = view.setInterval(beat, HEARTBEAT_MS);
   };
+  // After the input's render (its mark is set or cleared by then), not at the next beat.
+  const editChanged = () => {
+    if (!refused && doc.visibilityState === "visible" && holdsEdits() !== edits) beat();
+  };
+  view.addEventListener("input", () => view.setTimeout(editChanged, 0), { capture: true, passive: true });
+  doc.addEventListener(UNSAVED_EDITS_EVENT, editChanged);
   doc.addEventListener("visibilitychange", follow);
   view.addEventListener("pagehide", () => {
     stop();

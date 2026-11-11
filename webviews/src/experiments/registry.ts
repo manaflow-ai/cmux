@@ -15,6 +15,7 @@ import { tableActionsPlace } from "../agent-session/acpmux/conversation/tableAct
 import { expandRowLook } from "../agent-session/acpmux/conversation/expandRow.experiment";
 import { selectionReplyWrap } from "../agent-session/acpmux/conversation/selectionReplyWrap.experiment";
 import { backgroundReactionLook } from "../agent-session/acpmux/conversation/backgroundReaction.experiment";
+import { backgroundTurnLook } from "../agent-session/acpmux/conversation/backgroundTurnLook.experiment";
 import { cloudStartLook } from "../agent-session/acpmux/cloudStart.experiment";
 import { cloudStartComposerLook } from "../agent-session/acpmux/cloudStartComposer.experiment";
 import { cloudProgressLook } from "../pages/cloud-progress/cloudProgress.experiment";
@@ -40,6 +41,7 @@ import { startedSessionCards } from "../agent-session/acpmux/started/startedSess
 import { finishedTaskLook } from "../agent-session/acpmux/conversation/taskLine.experiment";
 import { claudeTurnFold } from "../agent-session/acpmux/conversation/claudeTurnFold.experiment";
 import { commandLabelLook } from "../agent-session/acpmux/conversation/commandLabel.experiment";
+import { liveTurnWork } from "../agent-session/acpmux/conversation/liveTurnWork.experiment";
 import { turnFoldReplies } from "../agent-session/acpmux/conversation/turnFoldReplies.experiment";
 import { turnFoldSteered } from "../agent-session/acpmux/conversation/turnFoldSteered.experiment";
 import { workedForMessages } from "../agent-session/acpmux/conversation/workedForMessages.experiment";
@@ -82,6 +84,7 @@ import { followMotion } from "../agent-session/acpmux/conversation/followMotion.
 import { timeHoverWording } from "../agent-session/acpmux/conversation/timeHoverWording.experiment";
 import { timeHoverDate } from "../agent-session/acpmux/conversation/timeHoverDate.experiment";
 import { fieldGrowthMotion } from "../agent-session/acpmux/composer/fieldGrowth.experiment";
+import { composerDockMotion } from "../agent-session/acpmux/composer/dockMotion.experiment";
 import { teamAudit } from "../agent-session/acpmux/teamAudit/teamAudit.experiment";
 import type { Experiment } from "./experiment";
 
@@ -98,6 +101,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   finishedTaskLook,
   claudeTurnFold,
   commandLabelLook,
+  liveTurnWork,
   turnFoldReplies,
   turnFoldSteered,
   workedForMessages,
@@ -128,6 +132,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   expandRowLook,
   selectionReplyWrap,
   backgroundReactionLook,
+  backgroundTurnLook,
   cloudStartLook,
   cloudProgressLook,
   cloudStartAskLook,
@@ -172,6 +177,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   sendStopMorph,
   sendMenuLook,
   fieldGrowthMotion,
+  composerDockMotion,
   teamAudit,
 ];
 

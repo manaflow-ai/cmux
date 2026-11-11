@@ -87,6 +87,15 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
             </div>
           )}
           <Storefront store={store} state={snap} strings={strings} />
+          {/* The last machine went to an archive: its Restore stays reachable from the storefront. */}
+          {snap.auth.signedIn && snap.rows.length === 0 && (
+            <ArchiveList
+              archives={snap.archives}
+              strings={strings}
+              disabled={!signedIn}
+              onRestore={(snapshot) => void store.restoreArchive(snapshot)}
+            />
+          )}
         </>
       );
     const selected = snap.rows.find((row) => row.id === snap.selection);

@@ -14,8 +14,8 @@ public import CmuxNextSettings
 /// answers late, and a deadline there failed requests on a healthy app and
 /// daemon. It waits while the daemon connection lives (the App's barrier asks
 /// with no deadline; the connection ends only when the daemon process is
-/// gone). `limit` counts from its answer. A barrier that fails says nothing ran
-/// (`unavailable`, `not_run`), which the CLI asks again for.
+/// gone). `limit` counts from its answer. A barrier that fails says the app did not get to
+/// the request (`unavailable`, `state: "not_run"`), which the CLI asks again for.
 extension ControlRouter {
     func readBarrier(_ after: JSONValue, method: String, limit: Duration) async throws -> ControlSnapshot {
         let sequence: UInt64

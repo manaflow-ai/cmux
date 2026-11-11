@@ -3,18 +3,20 @@
 //! allowlist step ([`allowlist_check`]), the session scope, the params rule
 //! (P1), the prompt block `_meta` strip, the gesture ticket strip, the facts
 //! the host decides on (gesture, path check, attach, scope credit, setting),
+//! the click rule (a click-only method that needs a gesture is refused
+//! unless the host holds a click, [`Gesture`]; Swift `answerAllowed`),
 //! and last the LocalApp token into the first frame. It returns the checked
 //! object: the host sends a fresh serialization of it ([`encode`]), never the
 //! page's bytes.
 //!
-//! What it does not do (host state, see the crate docs): redeem tickets, ask
-//! for gestures, check paths against the roots, spend scope credit, map
-//! request ids.
+//! What it does not do (host state, see the crate docs): redeem tickets,
+//! record or spend gestures, check paths against the roots, spend scope
+//! credit, map request ids.
 
 use crate::data::policy;
 use crate::error::Refusal;
 use crate::frame::{Refused, allowlist_check, contains, raw_id, with_local_app_token};
-use crate::gesture::{PermissionOptions, needs_gesture};
+use crate::gesture::{Gesture, PermissionOptions, is_click_only, needs_click, needs_gesture};
 use crate::params::{
     breaks_params_rule, requested_setting, session_refusal, stripping_prompt_meta,
     take_gesture_ticket,
@@ -43,14 +45,18 @@ pub struct FrameState<'a> {
     /// The connection is a chat on another machine (`AgentPaneTransport
     /// .remoteWire`): its `session/new` starts no session on this Mac.
     pub remote_wire: bool,
+    /// The person's gesture the host holds for this frame. No default: a
+    /// host says which, and [`Gesture::None`] refuses every click-only
+    /// frame that needs a gesture.
+    pub gesture: Gesture,
     pub scope: &'a dyn PaneScope,
     pub options: &'a PermissionOptions,
 }
 
 /// The pick a gesture ticket is bound to (`AgentPaneGesturePick`): the method
 /// and the scalar params but `sessionId` and `_meta`; `params` is None when a
-/// param is an object or a list. A session/prompt picks its promptId, and a
-/// permission answer its session, permission and option.
+/// param is an object or a list. A session/prompt picks its promptId, a Cloud
+/// start its key, and a permission answer its session, permission and option.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GesturePick {
     pub method: Option<String>,
@@ -59,33 +65,56 @@ pub struct GesturePick {
 
 impl GesturePick {
     pub fn new(method: Option<&str>, params: &Map<String, Value>) -> Self {
+        let method_name = method.map(str::to_owned);
         // A session/prompt picks only its `_meta.acpmux.promptId` (its blocks
-        // are no pick).
+        // are no pick), as the prompt's own id: without a hand-off turn's
+        // `handoff-<turn>-` (Swift `AgentPaneHandoffPrompt.ownID`).
         if method == Some("session/prompt") {
             let id =
                 params.get("_meta").and_then(|m| m.get("acpmux")).and_then(|a| a.get("promptId"));
-            let params = id
+            let params = id.and_then(Value::as_str).map(|id| {
+                BTreeMap::from([(
+                    "promptId".to_owned(),
+                    Value::String(own_prompt_id(id).to_owned()),
+                )])
+            });
+            return GesturePick { method: method_name, params };
+        }
+        // A Cloud start picks only its send's `key` (its task, folder and
+        // attachments are no pick); without a string key it picks nothing
+        // (Swift `AgentPaneGesturePick`, #34487).
+        if method == Some("cloud.startChat") {
+            let params = params
+                .get("key")
                 .and_then(Value::as_str)
-                .map(|id| BTreeMap::from([("promptId".to_owned(), Value::String(id.to_owned()))]));
-            return GesturePick { method: method.map(str::to_owned), params };
+                .map(|key| BTreeMap::from([("key".to_owned(), Value::String(key.to_owned()))]));
+            return GesturePick { method: method_name, params };
         }
         // A permission answer's pick names its session too (the ticket binds
-        // the prompt); one with answers picks nothing (AgentPaneGesturePick).
+        // the prompt), and a question's answers and annotations by the sha256
+        // of their canonical JSON (Swift `AgentPaneGesturePick`; a null one is
+        // no key, one that is not an object or has no digest picks nothing).
         if method == Some("_acpmux/permission_respond") {
             let text = |key: &str| params.get(key).and_then(Value::as_str);
-            let params = match (text("sessionId"), text("permissionId"), text("optionId")) {
-                (Some(session), Some(permission), Some(option))
-                    if !params.contains_key("answers") =>
-                {
-                    Some(BTreeMap::from([
-                        ("sessionId".to_owned(), Value::String(session.to_owned())),
-                        ("permissionId".to_owned(), Value::String(permission.to_owned())),
-                        ("optionId".to_owned(), Value::String(option.to_owned())),
-                    ]))
-                }
-                _ => None,
+            let (Some(session), Some(permission), Some(option)) =
+                (text("sessionId"), text("permissionId"), text("optionId"))
+            else {
+                return GesturePick { method: method_name, params: None };
             };
-            return GesturePick { method: method.map(str::to_owned), params };
+            let mut pick = BTreeMap::from([
+                ("sessionId".to_owned(), Value::String(session.to_owned())),
+                ("permissionId".to_owned(), Value::String(permission.to_owned())),
+                ("optionId".to_owned(), Value::String(option.to_owned())),
+            ]);
+            for key in ["answers", "annotations"] {
+                let Some(value) = params.get(key).filter(|v| !v.is_null()) else { continue };
+                let digest = value.is_object().then(|| crate::canonical::canonical_digest(value));
+                let Some(Some(digest)) = digest else {
+                    return GesturePick { method: method_name, params: None };
+                };
+                pick.insert(key.to_owned(), Value::String(digest));
+            }
+            return GesturePick { method: method_name, params: Some(pick) };
         }
         let mut scalars = BTreeMap::new();
         for (key, value) in params {
@@ -93,11 +122,46 @@ impl GesturePick {
                 continue;
             }
             if value.is_object() || value.is_array() {
-                return GesturePick { method: method.map(str::to_owned), params: None };
+                return GesturePick { method: method_name, params: None };
             }
-            scalars.insert(key.clone(), value.clone());
+            scalars.insert(key.clone(), as_double(value));
         }
-        GesturePick { method: method.map(str::to_owned), params: Some(scalars) }
+        GesturePick { method: method_name, params: Some(scalars) }
+    }
+
+    /// The pick as JSON, `{"method": m|null, "params": {..}|null}`: the
+    /// layout of [`Facts::to_json`]'s `pick` and of `tests/cases/picks.json`.
+    pub fn to_json(&self) -> Value {
+        serde_json::json!({"method": self.method, "params": self.params})
+    }
+}
+
+/// A number as Swift's `AgentPaneJSONScalar.number(Double)` holds it, so
+/// `1` and `1.0` pick the same; every other scalar as it is.
+fn as_double(value: &Value) -> Value {
+    match value.as_f64() {
+        Some(f) if value.is_number() => {
+            serde_json::Number::from_f64(f).map_or(Value::Null, Value::Number)
+        }
+        _ => value.clone(),
+    }
+}
+
+/// A prompt's own id: `id` without one hand-off turn's `handoff-<turn>-`
+/// (`turn` 1 to 15 ASCII digits, no leading 0, something after it); an id
+/// under two labels is its own id as it is (Swift `AgentPaneHandoffPrompt
+/// .ownID`), so a ticket for `handoff-2-x` never allows it.
+pub fn own_prompt_id(id: &str) -> &str {
+    fn stripped(id: &str) -> Option<&str> {
+        let (turn, own) = id.strip_prefix("handoff-")?.split_once('-')?;
+        let digits = (1..=15).contains(&turn.len())
+            && !turn.starts_with('0')
+            && turn.bytes().all(|b| b.is_ascii_digit());
+        (digits && !own.is_empty()).then_some(own)
+    }
+    match stripped(id) {
+        Some(own) if stripped(own).is_none() => own,
+        _ => id,
     }
 }
 
@@ -131,6 +195,20 @@ pub struct Facts {
     pub pick: Option<GesturePick>,
     pub session_id: Option<String>,
     pub needs_gesture: bool,
+    /// The gesture the frame needs is a click (`policy.json` `click_only`):
+    /// the check passed it only because the host holds one
+    /// ([`FrameState::gesture`]). One click answers one time: the host
+    /// spends the click that it named, and its gesture grant, on this frame,
+    /// and holds no click after it until the person clicks again. (The
+    /// Swift transport spends its grant only and keeps the click's time;
+    /// a host on this check must not copy that.) A `ticket` in the facts is
+    /// still the host's to redeem; for such a frame the ticket holds the
+    /// grant, so the host spends only the click. The ticket does not stand
+    /// in for the click: a host that spends the click when it gives the
+    /// ticket gets a refuse for the ticketed frame (see the difference note
+    /// in [`check_frame`]).
+    /// Implies `needs_gesture`.
+    pub needs_click: bool,
     pub needs_path_check: bool,
     pub setting: Option<Setting>,
     /// An attach of a session that is not the pane's yet.
@@ -176,12 +254,12 @@ impl Facts {
                 "session_id": s.session_id, "config_id": s.config_id, "value": s.value, "asked": asked,
             })
         });
-        let pick =
-            self.pick.as_ref().map(|p| serde_json::json!({"method": p.method, "params": p.params}));
+        let pick = self.pick.as_ref().map(GesturePick::to_json);
         serde_json::json!({
             "is_first": self.is_first, "method": self.method, "page_id": self.page_id,
             "ticket": self.ticket, "other_meta": self.other_meta, "pick": pick,
             "session_id": self.session_id, "needs_gesture": self.needs_gesture,
+            "needs_click": self.needs_click,
             "needs_path_check": self.needs_path_check, "setting": setting,
             "attach_session": self.attach_session, "foreign_source": self.foreign_source,
             "handoff_id": self.handoff_id, "harness_enable": self.harness_enable,
@@ -285,6 +363,28 @@ pub fn check_frame(text: &str, state: &FrameState<'_>) -> Checked {
         }
         facts.ticket = taken.ticket;
         facts.needs_gesture = needs_gesture(&frame, |p, o| state.options.is_deny(p, o));
+        // The click rule. An answer goes on the person's click only: a
+        // gesture that typing left does not answer. A click-only method
+        // with no gesture rule (a fault in policy.json) needs a click on
+        // each frame, so it is never free.
+        let click_only = method.as_deref().is_some_and(is_click_only);
+        let ruled = method.as_deref().is_some_and(|m| p.gesture_rules.contains_key(m));
+        facts.needs_click = needs_click(click_only, ruled, facts.needs_gesture);
+        facts.needs_gesture |= facts.needs_click;
+        // DIFFERENCE TO THE SWIFT HOST: a ticket is no click here, so a
+        // click-only frame with a ticket and no click is refused. The Swift
+        // host passes such a frame on its ticket alone, in two cases: it
+        // gave the ticket after a click, or for the person's Return key on
+        // a question (`reserveGesture`, `takeQuestionKeyTicket`). This check
+        // refuses both, so on a host that uses it a question is answered by
+        // a click, not by Return. The move of the Swift host onto this
+        // check must bring those ticket rules with it (tests/click_only.rs
+        // `a_ticket_is_no_click_which_differs_from_the_swift_host`).
+        if facts.needs_click && state.gesture != Gesture::Click {
+            let refused =
+                Refused { refusal: Refusal::GestureRequired, method, request_id: facts.page_id };
+            return Checked::Refuse { refused, spend: carried };
+        }
         facts.needs_path_check = needs_path_check(&frame);
         if method.as_deref() == Some("_acpmux/attach")
             && let Some(session) = params.get("sessionId").and_then(Value::as_str)

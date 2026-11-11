@@ -24,6 +24,10 @@ const NOTE_EVERY: Duration = Duration::from_secs(5);
 /// its control server takes as long as it takes, never a fixed two tries.
 const RECONNECT_FIRST_WAIT: Duration = Duration::from_millis(200);
 const RECONNECT_MAX_WAIT: Duration = Duration::from_secs(2);
+/// How long after a dropped connection the app's socket may stay missing or refusing, retried with the doubling
+/// waits above, before the app counts as quit: a control server that restarts slowly still heals, and a quit app
+/// fails here, not at the request's whole deadline.
+const RECONNECT_GONE_LIMIT: Duration = Duration::from_secs(5);
 
 /// `run::request_with_retry` with progress notes while it waits; a transport
 /// failure is the `app.transport` error to print, typed by [`timed_out`]
@@ -47,28 +51,42 @@ pub(super) fn request(
     // A dropped connection (the app restarted its control server, or closed
     // it under load) is healed: a new connection, the same request, with
     // backoff until the deadline. A keyed run carries its idempotency key, so
-    // the app replays or joins it.
+    // the app replays or joins it. Only a dropped connection is healed: any
+    // other failure, and a socket that cannot come back (permission, not the
+    // app), fails at once; a socket gone past RECONNECT_GONE_LIMIT is an app
+    // that quit, not one restarting.
     let mut wait = RECONNECT_FIRST_WAIT;
+    let (mut dropped_at, mut unreachable) = (None::<Instant>, None::<Value>);
     while let Err(error) = &response {
-        if timeout.is_some_and(|timeout| *error == timeout_message(timeout))
-            || !safe_to_resend(method, params)
-        {
+        if !super::is_dropped(error) || !safe_to_resend(method, params) {
             break;
         }
+        let dropped = *dropped_at.get_or_insert_with(Instant::now);
         let left = deadline.saturating_duration_since(Instant::now());
         if left.is_zero() {
             break;
         }
         std::thread::sleep(wait.min(left));
         wait = (wait * 2).min(RECONNECT_MAX_WAIT);
-        match super::connect_command(global) {
-            Ok(fresh) => *stream = fresh,
-            // The control server is not back yet: wait again (the last error stays the answer).
-            Err(_) => continue,
+        match super::connect_command_or_wait(global) {
+            Ok(fresh) => (*stream, dropped_at, unreachable) = (fresh, None, None),
+            Err(failure) => {
+                let stays = !failure.may_pass || dropped.elapsed() >= RECONNECT_GONE_LIMIT;
+                unreachable = Some(failure.error);
+                if stays {
+                    break;
+                }
+                // The control server is not back yet: wait again.
+                continue;
+            }
         }
         response = super::run::request_with_retry_until(stream, method, params, timeout, deadline);
     }
     let waited = progress.finish();
+    // The app's socket did not come back: that is the answer (`app.unreachable`), not the dropped connection.
+    if let (Err(_), Some(failure)) = (&response, unreachable) {
+        return Err(failure);
+    }
     response.map_err(|error| match timeout {
         Some(timeout) if error == timeout_message(timeout) => {
             let socket = command_socket(global).ok().map(|socket| socket.path);

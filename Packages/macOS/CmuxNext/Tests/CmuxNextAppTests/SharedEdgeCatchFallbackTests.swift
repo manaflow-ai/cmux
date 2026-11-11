@@ -13,9 +13,10 @@ import Testing
 /// - a clamped press (the whole strip slides by more than a pane's minimum, b1 near its minimum): once the pointer takes
 ///   the split off the clamp's spring, the split goes where the pointer puts it while b2's far edge still slides, so b2
 ///   could show a negative width;
-/// - a pane whose size spring could carry it further under its rest size than a pane's minimum: b1 shrinks fast (its
-///   divider flies toward B's left edge) when B's edge is pressed, and the drag then takes B to its minimum. Rule C
-///   keeps each edge's spring through a drag, so b1 would show a negative width.
+/// - a pane whose size spring shows it further under its rest size than a pane's minimum: b1 shows far under its rest
+///   width (its divider springs back from near B's left edge) when B's edge is pressed, and the drag then takes B to
+///   its minimum. Rule C keeps each edge's spring through a drag, so b1 would show a negative width. (A speed alone
+///   cannot make this state now: no spring passes its target, `SpringParameters.admitted(velocity:distance:)`.)
 /// The press moves nothing on screen; the motion then lands with every shared edge in place and no negative size.
 @MainActor
 @Suite(.closesItsWindows)
@@ -78,7 +79,7 @@ struct SharedEdgeCatchFallbackTests {
         #expect(negative.isEmpty, "\(negative.count) frames show a negative size (first 12):\n\(negative.prefix(12).joined(separator: "\n"))")
     }
 
-    @Test func aPressWhoseDragCouldCarryAPaneUnderZeroBySpeedTakesTheOldDrag() throws {
+    @Test func aPressWhoseDragCouldCarryAPaneUnderZeroByItsLeftoverTakesTheOldDrag() throws {
         // A wide B split in half: b1's own spring keeps it far above zero; only a drag that takes its rest width to its
         // minimum could take it under.
         let rig = Rig(widths: (0.15, 0.7, 0.15), ratio: 0.5)
@@ -89,28 +90,20 @@ struct SharedEdgeCatchFallbackTests {
         let screen = try rig.screen
         let minimum = rig.root.context.style.minimumPaneSize.width
         let b1 = try #require(screen.paneFrames["b1"]).targetRect.width
-        // The speed whose spring path dips 320 pt under its start: further than b1's minimum, less than b1's width
-        // (a spring is linear: the dip is in proportion to the speed).
-        let spring = Motion.panes.policy.spring(screen.motionState.frameSpring)
-        var probe = SpringValue(0)
-        probe.velocity = -1000
-        var dip: CGFloat = 0
-        for _ in 0..<400 {
-            probe.step(max(spring.response, 0.05) / 40, parameters: spring)
-            dip = min(dip, probe.value)
-        }
-        try #require(dip < -1, "the panes' spring does not move: dip \(dip) pt")
-        let speed = -1000 * 320 / abs(dip)
-        try #require(320 > minimum && 320 < b1 - 40, "b1 is \(b1) pt wide, its minimum \(minimum) pt")
-        try rig.moveLine(by: -0.5, speed: speed)
+        // b1 shows 320 pt under its rest width and grows back: further under than b1's minimum, less than b1's width.
+        // The leftover, not a speed: an edge's speed away from its place is dropped at the next step, and one toward it
+        // never takes the edge past its place (`SpringParameters.admitted`).
+        let under: CGFloat = 320
+        try #require(under > minimum && under < b1 - 40, "b1 is \(b1) pt wide, its minimum \(minimum) pt")
+        try rig.moveLine(by: -under, speed: 0)
 
         let column = try #require(rig.model.screens.first?.layout.columns.first { $0.id == "B" })
-        // B's edge in to B's minimum in one move while b1 still shrinks fast: b2's right edge from b1's left edge.
+        // B's edge in to B's minimum in one move while b1 still shows under its rest width: b2's right edge from b1's left edge.
         try rig.drag(.columnEdge("B"), dragged: "b2", moves: 1, step: -1500, floor: column.minimumSize(style: rig.root.context.style).width,
                      edges: edges) { view, pointer in
             let keptRuleC = try rig.screen.activeDrag?.sharedEdges
             #expect(keptRuleC == false,
-                    "the press kept rule C though b1's spring could carry it \(Rig.pt(abs(dip) * abs(speed) / 1000)) pt under its rest width")
+                    "the press kept rule C though b1 shows \(Rig.pt(under)) pt under its rest width")
             view.mouseUp(with: rig.event(.leftMouseUp, pointer))
             rig.root.syncWithModel()
             rig.check(edges, "release")

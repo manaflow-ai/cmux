@@ -233,7 +233,43 @@ env:
   NIGHTLY_NEXT_BROWSER_DATA_IMPORT: full
 
 jobs:
+  # Fails the run in minutes when a label its jobs would wait on has no online runner, instead of every job sitting
+  # queued for hours (2026-11-10: CI_NIGHTLY_MINI named cmux-lawrence-2-light, whose runners went offline at 00:45Z;
+  # the nightly sat queued for 3+ h). It must not run on the label it judges, so it takes GitHub-hosted Ubuntu, holds
+  # no secret and reads only vars.CI_RUNNER_STATE (scripts/ci/nightly_runner_preflight.py). It never cancels anything;
+  # an unreadable or stale census lets the run go on. A failure files the nightly's failure incident with the job's
+  # token (report-nightly-failure never runs then). hq docs/handbook/runner-var-points-at-dead-host.md.
+  runner-preflight:
+    permissions:
+      issues: write # a failure opens or updates the nightly's failure incident (notify() in the script)
+    if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '' && inputs.nightly_next_post_publish == '')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
+    timeout-minutes: 3
+    steps:
+      - name: Check out the preflight
+        if: github.repository == 'manaflow-ai/cmux'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          sparse-checkout: |
+            /scripts/ci/nightly_runner_preflight.py
+            /scripts/ci/deadline_http.py
+          sparse-checkout-cone-mode: false
+      - name: Every routing label has an online runner
+        if: github.repository == 'manaflow-ai/cmux'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          CI_NIGHTLY_MINI: ${{ vars.CI_NIGHTLY_MINI }}
+          CI_NIGHTLY_MINI_BUILDER: ${{ vars.CI_NIGHTLY_MINI_BUILDER }}
+          CI_NIGHTLY_ONLY_RUNNER: ${{ vars.CI_NIGHTLY_ONLY_RUNNER }}
+          NIGHTLY_SCHEDULE: ${{ github.event.schedule }}
+        run: python3 scripts/ci/nightly_runner_preflight.py
+
   decide:
+    needs: runner-preflight
     environment:
       name: ci-routing-agent
       deployment: false
@@ -314,9 +350,11 @@ jobs:
             /scripts/ci/portable_job_placement.py
             /scripts/ci/pr_runner_pool.py
             /scripts/ci/github_spend.py
+            /scripts/ci/deadline_http.py
             /scripts/ci/side_lane_placement.py
             /scripts/ci/next_macos_cascade.py
             /scripts/ci/simple_pool_picker.py
+            /scripts/ci/warm_distance.py
           sparse-checkout-cone-mode: false
 
       - name: Decide whether a nightly build is needed
@@ -956,7 +994,10 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux'
     # Holds only the release App credentials (CMUX_RELEASE_APP_*).
     environment: nightly-next-promote
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && vars.CI_NIGHTLY_SIGN_RUNNER || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}
+    # Ends on the nightly slot's label as a literal, never vars.CI_NIGHTLY_NEXT_BUILD_RUNNER: main's
+    # repository-variable check (scripts/ci/signing_runner_variables.py) holds a variable a signing job
+    # reads to blacksmith-*/ubuntu-*, and that variable names an owned Mac (#26450).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && vars.CI_NIGHTLY_SIGN_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 130 || 10 }}
     permissions:
       contents: read
@@ -1024,6 +1065,7 @@ jobs:
             scripts/ci/signing-runner-claim.sh
             scripts/ci/glaeda-signing-hooks.txt
             .github/release-surface.txt
+            scripts/ci/nightly_next_fix_forward.py
           sparse-checkout-cone-mode: false
 
       - name: Decide the promotion
@@ -1154,7 +1196,7 @@ jobs:
     # was given to release-surface-ack on this run; guard.approvedBy() reads it.
     environment: nightly-next-promote
     # Retired (if: false). Should it run again: promote-nightly-next's route and the whole Mac, never GitHub-hosted.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && vars.CI_NIGHTLY_SIGN_RUNNER || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && vars.CI_NIGHTLY_SIGN_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 130 || 10 }}
     permissions:
       contents: read
@@ -1293,6 +1335,21 @@ jobs:
         name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      # One macOS SDK for the whole job: the SDK of the Xcode "Select Xcode" chose. A tool that runs cc
+      # or c++ with no SDK (a cargo build script, npm's node-gyp) otherwise takes xcrun's default SDK. On
+      # a macOS 27 Mac with Command Line Tools 27 that is MacOSX27.0.sdk, which the Xcode 26.6 linker
+      # cannot read ("unknown architecture arm64e.x1-macos", runs 42775849251 and 42804411758). The
+      # script is here, not in a file: a sign stage runs this workflow on an older build tree. Zig:
+      # scripts/build-ghostty-cli-helper.sh removes SDKROOT for its own zig build. The step runs
+      # right after the Xcode selection, with its `if:`; tests/test_nightly_job_sdkroot.py runs it.
+      - &select-xcode-sdk
+        name: Select the SDK of the selected Xcode
+        shell: bash
+        run: |
+          SDKROOT="$(env -u SDKROOT xcrun --sdk macosx --show-sdk-path)" || SDKROOT=""
+          [ -d "$SDKROOT" ] || { echo "::error title=No macOS SDK::xcrun named no macOS SDK for DEVELOPER_DIR=${DEVELOPER_DIR:-unset} (got '$SDKROOT')"; exit 1; }
+          echo "SDKROOT=$SDKROOT" | tee -a "$GITHUB_ENV"
+
       - name: Compute Xcode compilation cache key
         id: compilation-cache-key
         run: |
@@ -1430,6 +1487,7 @@ jobs:
         run: bash scripts/ci/nightly-steps/refresh-test-admission-paths.sh
 
       - *select-xcode
+      - *select-xcode-sdk
 
       - name: Compute the DerivedData seed fingerprint
         id: compilation-cache-key
@@ -1621,6 +1679,17 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           submodules: recursive
+
+      # *select-xcode-sdk with the `if:` of this job's build steps (a resumed run builds nothing).
+      # Zig only: no Xcode is selected here, so this is the SDK of the host's default Xcode.
+      - &select-xcode-sdk-unless-resumed
+        name: Select the SDK of the selected Xcode
+        if: inputs.nightly_next_unsigned_run == ''
+        shell: bash
+        run: |
+          SDKROOT="$(env -u SDKROOT xcrun --sdk macosx --show-sdk-path)" || SDKROOT=""
+          [ -d "$SDKROOT" ] || { echo "::error title=No macOS SDK::xcrun named no macOS SDK for DEVELOPER_DIR=${DEVELOPER_DIR:-unset} (got '$SDKROOT')"; exit 1; }
+          echo "SDKROOT=$SDKROOT" | tee -a "$GITHUB_ENV"
 
       # The helper and the classic ghostty tree take the default Zig (PATH,
       # CMUX_ZIG); the source archive's libghostty-vt tree (ghostty-next,
@@ -2245,8 +2314,28 @@ jobs:
           started=$SECONDS
           retry git -c protocol.version=2 fetch --no-tags --no-recurse-submodules origin "$BUILD_SHA"
           echo "fetched $BUILD_SHA in $((SECONDS - started)) s"
+          # One runner can have the builder and the signing label, so the signer or a deltas job may
+          # have left this clone sparse; checkout and reset then keep its files out of the tree (run
+          # 42833135477: "Select Xcode", .xcode-version missing). Take the setting out of both config
+          # files (a full actions/checkout leaves .git/config's `true` in force) and the skip-worktree
+          # bits out of the index. Not `git sparse-checkout disable`: it first writes the old tree.
+          git_dir="${GITHUB_WORKSPACE:?}/.git"
+          for key in core.sparseCheckout core.sparseCheckoutCone index.sparse; do
+            git config --local --unset-all "$key" || true
+            if [ -f "$git_dir/config.worktree" ]; then git config --file "$git_dir/config.worktree" --unset-all "$key" || true; fi
+          done
+          rm -f "${git_dir:?}/info/sparse-checkout"
+          hidden=$(git ls-files -t | grep -c '^S ' || true)
+          if [ "$hidden" -gt 0 ]; then
+            echo "the kept clone was sparse ($hidden files out of the tree): checking out the whole tree"
+            git ls-files -z | git update-index -z --no-skip-worktree --stdin
+          fi
           git -c core.hooksPath=/dev/null checkout -q --force --detach "$BUILD_SHA"
           git update-ref refs/remotes/origin/nightly-warm-base "$BUILD_SHA"
+          # Go writes its module cache read-only; a clone whose acpmux build ran before
+          # tailnet-go.sh set -modcacherw still has one, and git clean cannot remove it
+          # (run 42940891027: "failed to remove .build/go-path/pkg/mod/...: Permission denied").
+          chmod -R u+w .build/go-path 2>/dev/null || true
           git clean -ffdxq -e /cmux-tui/target/ -e /Native/OptChat/optchat-chief/target/ -e /cmux-next-ios/rust/target/
           git reset -q --hard "$BUILD_SHA"
           git submodule sync -q --recursive
@@ -2268,6 +2357,7 @@ jobs:
       - name: Select Xcode
         if: inputs.nightly_next_unsigned_run == ''
         run: ./scripts/select-ci-xcode.sh
+      - *select-xcode-sdk-unless-resumed
 
       # A persistent owned mini keeps the workspace between jobs. Checkout's
       # clean drops untracked output; remove the daemon handoff here too.
@@ -3895,6 +3985,7 @@ jobs:
           CMUX_PARSE_ROOT="$PWD" "$checker" "$workflow"
 
       - *select-xcode
+      - *select-xcode-sdk
       - name: Download prepared app
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -4664,6 +4755,7 @@ jobs:
       # nightly-next's license check reads ghostty-next/build.zig.zon.
       - *legacy-route-shared-5
       - *select-xcode
+      - *select-xcode-sdk
 
       - name: Download signed app
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -4772,6 +4864,7 @@ jobs:
       # ghostty-next/build.zig.zon.
       - *legacy-route-shared-5
       - *select-xcode
+      - *select-xcode-sdk
       # A parallel-range read: one download-artifact stream took a p50 of 89 s
       # and up to 446 s here (run 41481821056, 7.4 of the job's 9 minutes). download-artifact takes over
       # when it fails.
@@ -4984,6 +5077,7 @@ jobs:
         run: ./scripts/ci/check-bash32-parse.sh .github/workflows/nightly.yml
 
       - *select-xcode
+      - *select-xcode-sdk
       - *set-up-node
 
       - name: Install create-dmg
@@ -5063,6 +5157,7 @@ jobs:
 
       - *legacy-route-shared-5
       - *select-xcode
+      - *select-xcode-sdk
 
       - name: Download the recovered variant
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -5228,8 +5323,10 @@ jobs:
             scripts/ci/cmux_next_media_runner.py
             scripts/ci/pr_runner_pool.py
             scripts/ci/github_spend.py
+            scripts/ci/deadline_http.py
             scripts/ci/nightly-steps/visual-gate-resolve-mode.sh
             scripts/ci/nightly-steps/visual-gate-pick-runner.sh
+            scripts/ci/warm_distance.py
           sparse-checkout-cone-mode: false
 
       - name: Resolve the visual gate mode
@@ -5294,6 +5391,7 @@ jobs:
           submodules: recursive
 
       - *select-xcode
+      - *select-xcode-sdk
 
       - name: Check the states
         run: python3 scripts/cmux-next/visual-gate/capture_states.py --check scripts/cmux-next/visual-gate/states
@@ -6441,6 +6539,7 @@ jobs:
       # its own checkout (cone mode keeps the root files).
       - name: Select Xcode
         run: ./.publish-tooling/scripts/select-ci-xcode.sh
+      - *select-xcode-sdk
       - name: Download published variant
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -6516,6 +6615,22 @@ jobs:
     steps:
       - *hold-the-whole-mac
 
+      # The kept clone remembers the last checkout's sparse mode. After the signer's pattern checkout
+      # (core.sparseCheckout=true, no cone setting) git reads the cone request below as the one pattern
+      # `scripts`, so the root .xcode-version stays out and Select Xcode fails here (runs 42819750253,
+      # 42829570644: no deltas). The warm checkout's manual sparse test runs this step.
+      - &forget-kept-sparse-mode
+        name: Forget the kept clone's sparse-checkout mode
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: |
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          [ -d "$ws/.git" ] || exit 0
+          for key in core.sparseCheckout core.sparseCheckoutCone index.sparse extensions.worktreeConfig; do
+            git -C "$ws" config --local --unset-all "$key" 2>/dev/null || true
+          done
+          rm -f "$ws/.git/config.worktree" "$ws/.git/info/sparse-checkout"
+
       # Only scripts/ (and, by cone mode, the root .xcode-version) is read from it, so it is sparse: a full
       # clone took 96 s of the whole-Mac hold (run 42033609306, 14:11:49-14:13:25Z).
       - &legacy-route-shared-3
@@ -6560,6 +6675,7 @@ jobs:
       - *wait-through-github-api-rate-l
 
       - *select-xcode
+      - *select-xcode-sdk
       - name: Download published variant
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -6658,6 +6774,7 @@ jobs:
       # First, before any checkout or secret: the whole mini (glaeda's exclusive class), as the signing jobs.
       - *hold-the-whole-mac
       - *clean-owned-workdir
+      - *forget-kept-sparse-mode
       - *legacy-route-shared-3
       - name: Checkout publication tooling at the workflow commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

@@ -238,19 +238,6 @@ extension AppearanceSettingsSchema {
                 default: .bool(AnimationKindsSetting.newWorkspaceDefault),
                 keywords: ["motion", "animation", "workspace", "sidebar"]
             ),
-            SettingDescriptor(
-                AnimationKindsSetting.bouncePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.ui.animations.bounce", "Animation Bounce"),
-                help: SettingsText.keyed("settings.ui.animations.bounce.help", "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce."),
-                kind: .choice([
-                    SettingChoice(MotionBounce.none.rawValue, SettingsText.keyed("settings.choice.none", "None")),
-                    SettingChoice(MotionBounce.subtle.rawValue, SettingsText.keyed("settings.choice.subtle", "Subtle")),
-                ]),
-                default: .string(AnimationKindsSetting.bounceDefault.rawValue),
-                keywords: ["motion", "spring", "bounce"]
-            ),
         ]
     }
 }

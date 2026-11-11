@@ -14,6 +14,7 @@ import {
   CloudActions,
   CloudOps,
   HostActions,
+  CONFIRMED_ACTIONS,
   NATIVE_ACTIONS,
   type CloudMachine,
   type CloudPlan,
@@ -137,6 +138,12 @@ export class MockCloudProvider implements PageClient {
    * with `details.resource: "machines"` and `details.free_up` (`freeUp`, the platform's pick).
    */
   machinesCap?: number;
+  /**
+   * The running machines the platform's reports call idle. A create at the running-machines limit
+   * pauses the one used longest ago and goes on (cmux-platform Room.ts); with none, it is refused
+   * with the person's running machines in `details.busy`.
+   */
+  idle: string[] = [];
   /** The machine the cap refusal names to free (`details.free_up`), or null for none. */
   freeUp: { machine: string; name: string | null; reason: string } | null = null;
   /** Automatic cleanup as `cloud.plan.get` answers it (`retention`); undefined: a server without it. */
@@ -376,7 +383,7 @@ export class MockCloudProvider implements PageClient {
   }
 
   /** The backend's plan checks before any provider call (contract 1.5). */
-  private checkPlan(memoryMb: unknown, activeDelta: number): void {
+  private checkPlan(memoryMb: unknown, activeDelta: number, room = false): CloudMachine | undefined {
     if (this.planRequired)
       throw pageError(CloudErrors.planRequired, "Cloud machines need a paid plan", false, { plan: "pro" });
     if (typeof memoryMb === "number" && this.account.plan.locked_memory_options_mb.includes(memoryMb))
@@ -415,12 +422,27 @@ export class MockCloudProvider implements PageClient {
         free_up: this.freeUp,
         plan: this.liftingPlan,
       });
-    if (activeDelta > 0 && usage.active + activeDelta > limits.max_active)
+    if (activeDelta > 0 && usage.active + activeDelta > limits.max_active) {
+      const used = (machine: CloudMachine) => machine.last_active_at ?? machine.created_at;
+      const running = this.machines.filter((machine) => machine.status === "running").sort((a, b) => used(a) - used(b));
+      const idle = room ? running.find((machine) => this.idle.includes(machine.id)) : undefined;
+      if (idle) {
+        const paused: CloudMachine = { ...idle, status: "paused", revision: String(Number(idle.revision) + 1) };
+        this.emitUpsert(paused);
+        return paused;
+      }
       throw pageError(CloudErrors.quotaExceeded, `this plan allows ${limits.max_active} active machines`, false, {
         limit: limits.max_active,
         used: usage.active,
         plan: this.liftingPlan,
+        ...(room
+          ? {
+              resource: "active",
+              busy: running.map(({ id, name, last_active_at }) => ({ machine: id, name, last_active_at })),
+            }
+          : {}),
       });
+    }
   }
 
   private create(name: unknown, memoryMb: unknown): MachineResult {
@@ -513,10 +535,11 @@ export class MockCloudProvider implements PageClient {
         if (typeof p.from_snapshot === "string" && !this.snapshots.some((s) => s.id === p.from_snapshot))
           throw notFound(`no snapshot ${p.from_snapshot}`);
         // The backend's order: the plan checks first, then the image.
-        this.checkPlan(size.memory_mb, 1);
+        const paused = this.checkPlan(size.memory_mb, 1, true);
         if (this.noSnapshotConfigured)
           throw pageError(CloudErrors.noSnapshotConfigured, "no machine image is configured yet", false);
-        return this.create(p.name, size.memory_mb);
+        const created = this.create(p.name, size.memory_mb);
+        return paused ? { ...created, made_room: { machine: paused } } : created;
       }
       case CloudOps.machineRename:
         only(p, ["machine", "name"]);
@@ -714,7 +737,10 @@ export class MockCloudProvider implements PageClient {
     // A transfer answers `running` at once; its end is a `file.transfer.changed` event.
     if ((action === CloudOps.filePush || action === CloudOps.filePull) && !this.holdTransfers)
       queueMicrotask(() => this.finishTransfers());
-    return { confirmed: true, ...(result as object) };
+    // A confirmed op answers under `value`, as the host's runConfirmed does; the others flat.
+    return CONFIRMED_ACTIONS.has(action)
+      ? { confirmed: true, value: result }
+      : { confirmed: true, ...(result as object) };
   }
 }
 

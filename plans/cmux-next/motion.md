@@ -64,14 +64,17 @@ would do it, spring curves", "proper physics". Design:
 
 - Physics: `SpringValue.step` is the closed-form damped harmonic
   oscillator (under-, critically and over-damped), exact at any frame rate,
-  retargetable with its velocity. `SpringParameters(duration:bounce:)` is
-  SwiftUI's `Spring(duration:bounce:)`.
+  retargetable. A step starts with no more velocity than cannot pass the
+  target: toward the target and at most omega x the distance left
+  (`SpringParameters.admitted`; a rect by edge, `AnimatedFrame`), so a
+  release or a new target under a moving value stops on its place.
 - One source (hq-1d D2, Lawrence: "decouple from swift app as much as
   possible"): the tokens live in the spec's design-tokens.json `motion`
-  (springs, fades, loops, speed, settle thresholds, the structural set, the
-  bounce and the per-kind defaults). cmux-tui/crates/cmux-motion reads them
-  at build time (build.rs) and owns the closed-form step
-  (`SpringValue::solve`, `advance_spring`), the structural bounce rule
+  (springs, fades, loops, speed, settle thresholds and the per-kind
+  defaults; every spring's damping is 1 there and in the Swift app since
+  2026-11-10, and build.rs refuses a damping under 1). cmux-tui/crates/cmux-motion
+  reads them at build time (build.rs) and owns the closed-form step
+  (`SpringValue::solve`, `advance_spring`), the speed rule
   (`MotionPolicy::spring`) and the switches (`AnimationSwitches`,
   `set_animation_switches`); cmux-app-ffi exposes them to macOS as
   `cmux_motion_*` (include/cmux_motion_ffi.h). Until the app's FFI pin
@@ -83,9 +86,10 @@ would do it, spring curves", "proper physics". Design:
   `FrameScheduler`. The tab strips, the layout (panes, dividers, columns,
   screens, drop zones) step on it with the same `dt` and it goes idle with
   the last spring (`debug.motion` `display_links` is 0 at rest).
-- Bounce: structural tokens (`move`, `appear`, `disappear`) are critically
-  damped by default (never past the target); `ui.animations.bounce`
-  "subtle" gives them bounce `motion.spring.subtleBounce` (0.15).
+- No bounce (Lawrence 2026-11-10; motion-first-principles-DESIGN.md,
+  principle 5): every spring token is critically damped and never passes its
+  target. `ui.animations.bounce` is a retired key
+  (schemas/settings/retired-keys.json): an old file that sets it still loads.
 - Per kind, under `ui.animationSpeed`: `ui.paneAnimations` (pane layout,
   rule 9) and `ui.animations.newWorkspace` off by default (Lawrence
   2026-10-14: no big animations by default), `ui.animations.newTab` on
@@ -95,7 +99,7 @@ would do it, spring curves", "proper physics". Design:
   Off applies that change in one step; true opts into its spring. cmux-motion
   `MotionKind` / `AnimationSwitches` carry exactly these three keys
   (`MotionKind::config_path`). Palette: Toggle New Tab / New Workspace
-  Animations, Use Bouncy Animations, Use Animations Without Bounce.
+  Animations.
 - Reduce Motion: no movement and no crossfade standing in for it; chrome
   takes its new places in one step (the tab strip and sidebar crossfades are
   gone).
@@ -113,7 +117,7 @@ would do it, spring curves", "proper physics". Design:
   pointer's speed, a column edge's from rest (resize-modifiers.md; the fling snap and
   `motion.divider.releaseProjection` went 2026-11-03: no hold or jump in a drag,
   FRAME OWNER REFACTOR KEYS).
-  A split (Cmd-D, Cmd-Shift-D) moves on its own `split` spring (0.11 s since 2026-11-08, damping 0.95; Lawrence
+  A split (Cmd-D, Cmd-Shift-D) moves on its own `split` spring (0.085 s, damping 1 since 2026-11-10; Lawrence
   2026-10-19: "resize all of them while adding a new one"), and the even sizing of its chain
   shows in the key's frame with the split (`LayoutModel.showSplitSizing`), not after the
   daemon's reply: one target, one motion (split-spring-animation/DESIGN.md).
@@ -246,6 +250,11 @@ stops (0.25 pt and 2 pt/s). Both are simulated at 120 Hz with the same spring
 code the app runs; the measured column comes from `debug.motion` on tag
 nxmot (MacBook Pro, 120 Hz).
 
+Since 2026-11-10 every token's damping is 1 (no bounce in any motion): a row
+below with a lower damping, or an overshoot, shows the value before that, and
+its times are of that value. `MotionTunables.springDefaults` has the values the
+app runs.
+
 | Token | Response / damping | Visible end | Rest | Used by |
 | --- | --- | --- | --- | --- |
 | `move` | 0.15 / 1.00 | 183 ms | 258 ms | tab reflow and reorder, sidebar row moves, inserts (a row grows in its own slot) and removals (it shrinks in place), all on this one spring (cx-bqm6), pane and divider frames (ratio, equalize, unzoom), sidebar drag gap |
@@ -255,7 +264,6 @@ nxmot (MacBook Pro, 120 Hz).
 | `disappear` | 0.11 / 1.00 | 133 ms | 200 ms | tab close (width to 0), group collapse, sidebar hide (timed equivalent), browser toolbar hide |
 | `settle` | 0.22 / 0.85 | 175 ms | 342 ms | release after drag: tab drop, drag ghost landing, sidebar row drop (carries pointer velocity; 0.8 pt overshoot on 200 pt) |
 | `scroll` | 0.22 / 0.90 | 208 ms | 267 ms | tab strip reveal, strip column reveal, wheel notch, trackpad fling snap |
-| `screen` | 0.22 / 0.90 | 208 ms | 267 ms | none since 2026-11-10: a screen switch has no animation (rule 9); the token stays for its index in the cmux-motion C ABI |
 | `track` | 0.12 / 0.90 | 117 ms | 167 ms | drop-zone highlight, drag ghost jumps between targets |
 | `selection` | 0.15 / 0.90 | 142 ms | 200 ms | page info toggle (the sidebar selection does not animate, SIDEBAR-SELECTION-NO-TRAVEL-ANIMATION) |
 | `panel` | 0.18 / 0.85 | 142 ms | 283 ms | hover card slide |
@@ -313,16 +321,16 @@ not change. Loops keep their period (they show state, not transitions).
   Apple's default `Spring(duration:bounce: 0)`. The long sub-pixel tail of
   critical damping is paid with a shorter response instead of a lower
   damping: `move` 0.15 s ends visibly at 183 ms (120 Hz), inside the 200 ms
-  budget the GPUI motion tests hold (225 ms tolerance). `ui.animations.bounce`
-  "subtle" (0.15, damping 0.85) is opt-in. Release, scroll and overlay
-  springs keep 0.85 to 0.9.
+  budget the GPUI motion tests hold (225 ms tolerance). Release, scroll and
+  overlay springs are critically damped too since 2026-11-10 (no bounce in
+  any motion); the opt-in `ui.animations.bounce` "subtle" is gone.
 - Response 0.15 to 0.22 s. Apple's system defaults (`.smooth` / `.snappy`
   at 0.5 s perceptual duration, NSAnimationContext 0.25 s) suit consumer
   apps; a tab strip is used hundreds of times an hour. Our `move` ends
   visibly at 183 ms, with a spring's continuity: an interrupted move
   retargets instead of restarting.
-- `scroll` is a spring with stiffness 800 (response 0.222 s) and 0.9
-  damping; damping 1 leaves a slow sub-pixel tail.
+- `scroll` is a spring with response 0.2 s and damping 1 (0.9 until
+  2026-11-10; it passed its target by 0.15% of the travel).
 - Hover in 0.08 s and focus in 0.1 s: fast enough to read as instant
   feedback, slow enough that sweeping the pointer across tabs does not
   strobe. Press states have no animation.
@@ -372,7 +380,7 @@ rest).
 | Browser progress line | CATransaction 0.2 s | `move` (timed equivalent) | 200 ms | 192 ms | - |
 | strip column scroll (reveal, wheel, fling) | display-link spring 0.42/0.96 | `scroll` | 458 / 592 ms | 208 / 267 ms | 366-377 ms (reveal of a full-width column; rest is longer for long travel) |
 | Screen switch | display-link spring 0.38/0.92 | `screen` | 367 / 475 ms | 208 / 267 ms | 244-249 ms (until 2026-11-10; now one frame, no animation, rule 9) |
-| Splits (Cmd-D, Cmd-Shift-D) | one frame | `split` (0.11 / 0.95 since 2026-11-08; 0.28 from 2026-10-19, was `move`): the new pane grows from the far edge of the pane it split while its whole even chain makes room on the same spring, and the divider slides in from that edge (cx-f6i7, split-spring-animation) | 0 | 77 ms (95%) / 175 ms (700 pt) | - |
+| Splits (Cmd-D, Cmd-Shift-D) | one frame | `split` (0.085 / 1; 0.11 / 0.95 from 2026-11-08; 0.28 from 2026-10-19, was `move`): the new pane grows from the far edge of the pane it split while its whole even chain makes room on the same spring, and the divider slides in from that edge (cx-f6i7, split-spring-animation) | 0 | 77 ms (95%) / 175 ms (700 pt) | - |
 | Pane close, move | one frame | one frame (unchanged) | 0 | 0 | - |
 | Pane ratio, equalize, width presets, pane zoom | display-link spring 0.34/0.88 | `move` | 292 / 483 ms | 192 / 250 ms | 258 ms (column width preset) |
 | Drop-zone overlay | display-link spring 0.20/0.90 | `track` | 192 / 250 ms | 117 / 167 ms | - |

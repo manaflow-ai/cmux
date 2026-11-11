@@ -235,6 +235,11 @@ pub const CAPABILITIES: &[Capability] = &[
     },
     // Every Claude workflow of this daemon's chats, duplicates marked (`hub/workflow_index.rs`).
     Capability { id: "workflows-index-v1", wire: &[method::MUX_WORKFLOWS] },
+    // `$/cancel_request` is honored (`request_cancel.rs`): the request is answered with -32800
+    // (RequestCancelled) at once, its slot freed, and the cancel goes on to the agent or peer
+    // it waited on; the late answer is dropped. A daemon without it accepts the notification
+    // and does nothing, so a client waits for the answer or its own deadline there.
+    Capability { id: "cancel-request-v1", wire: &[method::CANCEL_REQUEST] },
     // Answer an agent's offer to start a session (`offer_mcp.rs`).
     Capability { id: "session-offers-v1", wire: &[method::MUX_OFFER_RESPOND] },
     // Reconnect a Claude Code chat's MCP server (`hub/tools.rs`).
@@ -262,6 +267,8 @@ pub const CAPABILITIES: &[Capability] = &[
     },
     // The person's Accept or Dismiss on what a chat learned (`server/memory_inbox.rs`).
     Capability { id: "memory-inbox-v1", wire: &[method::MUX_MEMORY_RESOLVE] },
+    // The rewrite a chat that took several corrections offers (`server/prompt_coach.rs`).
+    Capability { id: "prompt-coach-v1", wire: &[method::MUX_PROMPT_COACH] },
     // An agent CLI's own sign-in on this machine, for a chat's sign-in card (`agent_login.rs`).
     Capability {
         id: "agent-login-v1",

@@ -115,7 +115,8 @@ class CloudChatProofFailureEvidenceTests(unittest.TestCase):
             # LaunchServices does not pass the caller's environment: the socket must be an --env of open.
             open_args = (tmp_path / "open-args").read_text().splitlines()
             self.assertIn("CMUX_NEXT_SOCKET_PATH=/tmp/cmux-debug-ccp-test.sock", open_args)
-            self.assertIn("CMUX_SOCKET_PATH=/tmp/cmux-debug-ccp-test.sock", open_args)
+            # CMUX_SOCKET_PATH marks another cmux and makes the app strip CMUX_NEXT_SOCKET_PATH.
+            self.assertNotIn("CMUX_SOCKET_PATH=/tmp/cmux-debug-ccp-test.sock", open_args)
             text = evidence.read_text()
             self.assertNotIn(CONTEXT, text)
             self.assertNotIn(CONTEXT, done.stdout)

@@ -78,3 +78,64 @@ test("a capture from another chat plays nothing and draws nothing of it", async 
   expect(thread.hasAttribute("data-turn-end-folding")).toBe(false);
   dom.window.close();
 });
+
+test("a long fold keeps every 120 Hz frame under the bound, at the duration cap too", async () => {
+  // Review of #40350 (F1): at the 720 ms cap a 274 px fold on the settle's curve moved 19.34 px in
+  // its first 120 Hz frame, past the two thirds of a line turn-transition-jumps.test.ts holds every
+  // transition's frames to.
+  const { turnEndFoldTiming } = await import("./turnEndFold");
+  const { bezierAt, parseBezier } = await import("../../../ui/cubicBezier");
+  const { currentChatMetrics } = await import("../chatDisplay");
+  const { ARRIVAL_FRAME_LINES } = await import("./followChase");
+  const { MOTION_SETTLE, MOTION_SETTLE_MS } = await import("../../../motion/scale.generated");
+  const line = currentChatMetrics().lineHeight;
+  const frame = 1000 / 120;
+  for (const px of [100, 274, 500, 800]) {
+    const { ms, easing } = turnEndFoldTiming(px, MOTION_SETTLE_MS, MOTION_SETTLE);
+    const curve = parseBezier(easing);
+    expect(curve).toBeDefined();
+    // The fold resolves fast: never past four settles for these moves.
+    expect(ms).toBeLessThanOrEqual(4 * MOTION_SETTLE_MS + frame);
+    const drawn = (t: number) => px * bezierAt(curve!, Math.min(1, t / ms));
+    expect(drawn(frame)).toBeLessThanOrEqual(ARRIVAL_FRAME_LINES * line + 1e-6);
+    for (let t = frame; t < ms + frame; t += frame)
+      expect(drawn(t) - drawn(t - frame)).toBeLessThanOrEqual(ARRIVAL_FRAME_LINES * line + 1e-6);
+    expect(drawn(ms)).toBeCloseTo(px, 6);
+  }
+  // A short fold keeps the settle as it is.
+  expect(turnEndFoldTiming(40, MOTION_SETTLE_MS, MOTION_SETTLE)).toEqual({
+    ms: MOTION_SETTLE_MS,
+    easing: MOTION_SETTLE,
+  });
+});
+
+test("the fold's curve search keeps the timings it found before", async () => {
+  // Review of #40627 (F1): the search ran about 33k curve reads for 274 px. Made constant cost, it
+  // still picks the same length and curve.
+  const { turnEndFoldTiming } = await import("./turnEndFold");
+  const { MOTION_SETTLE, MOTION_SETTLE_MS } = await import("../../../motion/scale.generated");
+  const timing = (px: number) => turnEndFoldTiming(px, MOTION_SETTLE_MS, MOTION_SETTLE);
+  expect(timing(100)).toEqual({ ms: 372, easing: MOTION_SETTLE });
+  expect(timing(274)).toEqual({ ms: 720, easing: "cubic-bezier(0.198, 0.854, 0.38, 0.927)" });
+  expect(timing(800)).toEqual({ ms: 720, easing: "cubic-bezier(0.306, 0.437, 0.609, 0.719)" });
+  expect(timing(2000)).toEqual({ ms: 1222, easing: "cubic-bezier(0.333, 0.333, 0.667, 0.667)" });
+});
+
+test("the fold's curve search for a 2000 px move stays under half a millisecond", async () => {
+  // Review of #40627 (F1): the search ran synchronously in the placement pass, 9.6 ms for 274 px and
+  // 12.9 ms for 800 px, past the 8.33 ms of a 120 Hz frame it protects. Each run is cold (the memo
+  // forgotten), after a warm-up; the median keeps a slow runner's stray pause out.
+  const fold = (await import("./turnEndFold")) as typeof import("./turnEndFold") & {
+    clearTurnEndFoldMemo?: () => void;
+  };
+  const { MOTION_SETTLE, MOTION_SETTLE_MS } = await import("../../../motion/scale.generated");
+  const run = (px: number) => {
+    fold.clearTurnEndFoldMemo?.();
+    const start = performance.now();
+    fold.turnEndFoldTiming(px, MOTION_SETTLE_MS, MOTION_SETTLE);
+    return performance.now() - start;
+  };
+  for (let index = 0; index < 5; index += 1) run(2000);
+  const runs = Array.from({ length: 21 }, () => run(2000)).sort((a, b) => a - b);
+  expect(runs[10]!).toBeLessThan(0.5);
+});

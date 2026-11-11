@@ -68,6 +68,9 @@ pub(crate) struct SignaledMutex<T> {
     interactive_streak: AtomicUsize,
     /// Plain lockers waiting for `value`.
     plain_waiters: AtomicUsize,
+    /// Plain acquisitions so far (test probe, [`plain_turns_ahead_on_this_thread`]).
+    #[cfg(test)]
+    plain_turns: std::sync::atomic::AtomicU64,
     /// Contention record with `#[track_caller]` attribution, reported by
     /// `server-stats` so lock convoys are visible without external sampling.
     stats: crate::diagnostics::LockStats,
@@ -82,6 +85,8 @@ impl<T> SignaledMutex<T> {
             interactive_waiters: AtomicUsize::new(0),
             interactive_streak: AtomicUsize::new(0),
             plain_waiters: AtomicUsize::new(0),
+            #[cfg(test)]
+            plain_turns: std::sync::atomic::AtomicU64::new(0),
             stats: crate::diagnostics::LockStats::new(),
         }
     }
@@ -99,6 +104,8 @@ impl<T> SignaledMutex<T> {
     ) -> SignaledMutexGuard<'a, T> {
         let waited = waited_from.elapsed();
         self.stats.acquired(site, waited, blocker);
+        #[cfg(test)]
+        REGISTRY_LOCKS_TAKEN.with(|taken| taken.set(taken.get() + 1));
         SignaledMutexGuard {
             value: Some(value),
             owner: self,
@@ -116,8 +123,17 @@ impl<T> SignaledMutex<T> {
         let site = std::panic::Location::caller();
         let waited_from = Instant::now();
         let blocker = self.stats.wait_started();
-        let locked =
-            if in_interactive_scope() { self.lock_interactive() } else { self.lock_plain() };
+        let interactive = in_interactive_scope();
+        #[cfg(test)]
+        let turns_before = self.plain_turns.load(Ordering::Acquire);
+        let locked = if interactive { self.lock_interactive() } else { self.lock_plain() };
+        // Read with the lock held: each plain turn counted since `turns_before` took the lock in front of this
+        // take (a plain take counts itself once, which is not in front of it).
+        #[cfg(test)]
+        PLAIN_TURNS_AHEAD.with(|ahead| {
+            let turns = self.plain_turns.load(Ordering::Acquire).saturating_sub(turns_before);
+            ahead.set(ahead.get() + turns.saturating_sub(u64::from(!interactive)));
+        });
         match locked {
             Ok(value) => Ok(self.guard(value, site, waited_from, blocker)),
             Err(error) => {
@@ -158,6 +174,9 @@ impl<T> SignaledMutex<T> {
         };
         self.interactive_streak.store(0, Ordering::Release);
         self.plain_waiters.fetch_sub(1, Ordering::AcqRel);
+        // With the lock held, so a waiter that takes the lock next reads this turn.
+        #[cfg(test)]
+        self.plain_turns.fetch_add(1, Ordering::AcqRel);
         locked
     }
 
@@ -265,6 +284,22 @@ impl<T> SignaledMutex<T> {
             }
         }
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    static PLAIN_TURNS_AHEAD: Cell<u64> = const { Cell::new(0) };
+}
+
+/// How many plain lockers took the registry lock in front of this thread's own takes, summed over its takes (test
+/// hook): for each `lock` call, the plain acquisitions between the call and its return. The holder at the call
+/// is not a turn in front (at most one such hold per take); a plain locker that has the lock at the call and
+/// has not counted itself yet can add 1 to that take. Only `lock` counts: `try_lock` and `lock_until` do not. A
+/// test proves with it that a person's request does not queue behind a crowd of writers by counting turns, with
+/// no timing: a wait in wall time grows with the host's load, a place in the queue does not.
+#[cfg(test)]
+pub(crate) fn plain_turns_ahead_on_this_thread() -> u64 {
+    PLAIN_TURNS_AHEAD.with(Cell::get)
 }
 
 /// The workspace registry is the only production `SignaledMutex`. Lock
@@ -408,6 +443,18 @@ thread_local! {
     static STATE_LOCKS_TAKEN: Cell<u64> = const { Cell::new(0) };
 }
 
+#[cfg(test)]
+thread_local! {
+    static REGISTRY_LOCKS_TAKEN: Cell<u64> = const { Cell::new(0) };
+}
+
+/// How many times this thread has taken the workspace registry lock (test hook): a test proves a read never takes
+/// the writer's lock by counting, with no timing (REGISTRY WAL, the snapshot read).
+#[cfg(test)]
+pub(crate) fn registry_locks_taken_on_this_thread() -> u64 {
+    REGISTRY_LOCKS_TAKEN.with(Cell::get)
+}
+
 /// How many times this thread has taken the mux state lock (test hook): a test proves a path never takes the session
 /// lock by counting, with no timing (TYPING UNDER LOAD F4).
 #[cfg(test)]
@@ -516,7 +563,8 @@ impl StateMutex {
     }
 
     /// The state lock if it is free now (the accept loop, which never waits
-    /// for it). A try cannot deadlock, so it skips the rank check `lock` makes.
+    /// for it, and the snapshot reader that builds, `resource_api/committed_snapshot.rs`).
+    /// A try cannot deadlock, so it skips the rank check `lock` makes.
     #[track_caller]
     pub(crate) fn try_lock(&self) -> TryLockResult<StateGuard<'_>> {
         let site = std::panic::Location::caller();

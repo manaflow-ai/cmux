@@ -1722,50 +1722,6 @@
             "workspace",
             "sidebar"
           ]
-        },
-        {
-          "key": "ui.animations.bounce",
-          "name": "bounce",
-          "title": {
-            "key": "settings.ui.animations.bounce",
-            "text": "Animation Bounce"
-          },
-          "help": {
-            "key": "settings.ui.animations.bounce.help",
-            "text": "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce."
-          },
-          "kind": "choice",
-          "swift_owner": {
-            "type": "AnimationKindsSetting",
-            "prefixed": true
-          },
-          "swift_enum": {
-            "name": "MotionBounce",
-            "generated": false,
-            "module": "CmuxNextDesign"
-          },
-          "choices": [
-            {
-              "value": "none",
-              "title": {
-                "key": "settings.choice.none",
-                "text": "None"
-              }
-            },
-            {
-              "value": "subtle",
-              "title": {
-                "key": "settings.choice.subtle",
-                "text": "Subtle"
-              }
-            }
-          ],
-          "default": "none",
-          "keywords": [
-            "motion",
-            "spring",
-            "bounce"
-          ]
         }
       ]
     },

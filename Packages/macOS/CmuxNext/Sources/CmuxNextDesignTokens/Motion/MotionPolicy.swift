@@ -16,8 +16,6 @@ public import Foundation
 public nonisolated struct MotionPolicy: Sendable, Equatable {
     public var speed: MotionSpeed
     public var reduceMotion: Bool
-    /// `ui.animations.bounce`: structural springs bounce or not.
-    public var bounce: MotionBounce
     /// The kinds turned on one by one (`ui.animations.*` true).
     public var enabledKinds: Set<MotionKind>
     public var liveResize: Bool
@@ -30,13 +28,12 @@ public nonisolated struct MotionPolicy: Sendable, Equatable {
     /// with the master switch only (reports, the debug window).
     public var category: MotionCategory?
 
-    public init(speed: MotionSpeed, reduceMotion: Bool, bounce: MotionBounce = .none,
+    public init(speed: MotionSpeed, reduceMotion: Bool,
                 enabledKinds: Set<MotionKind> = [], liveResize: Bool = false,
                 animationsEnabled: Bool = true, disabledCategories: Set<MotionCategory> = [],
                 category: MotionCategory? = nil) {
         self.speed = speed
         self.reduceMotion = reduceMotion
-        self.bounce = bounce
         self.enabledKinds = enabledKinds
         self.liveResize = liveResize
         self.animationsEnabled = animationsEnabled
@@ -72,14 +69,10 @@ public nonisolated struct MotionPolicy: Sendable, Equatable {
 
     /// The spring for `token` at this speed. Callers still snap when
     /// `animatesMovement` is false; `off` returns the `fast` spring so a
-    /// caller that steps anyway never divides by zero.
+    /// caller that steps anyway never divides by zero. No spring passes its
+    /// target (`MotionSpring.base`).
     public func spring(_ token: MotionSpring) -> SpringParameters {
-        var base = token.base
-        if token.isStructural {
-            // Bounce none: critically damped (never past the target); subtle: SwiftUI bounce.
-            base = bounce == .subtle ? base.withBounce(MotionTunables.subtleBounce.value)
-                : SpringParameters(response: base.response, dampingFraction: max(base.dampingFraction, 1))
-        }
+        let base = token.base
         return speed == .off ? base : base.scaled(by: speed.timeScale)
     }
 

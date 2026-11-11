@@ -198,7 +198,11 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     };
     let cursor = cursor.filter(|c| !c.is_empty());
     let one_page = cursor.is_some();
-    let read = ls_pages::read(params, cursor, plan, step, fetch).await?;
+    let read = crate::cli::slow_notice::noted(
+        "the session list",
+        ls_pages::read(params, cursor, plan, step, fetch),
+    )
+    .await?;
     let mut sessions = read.rows;
     // A peer's row comes without its tools (`ls_tools.rs`): each is read from the peer, for
     // the views that print them.

@@ -63,3 +63,12 @@ WireGuard handshakes, and splices link channels to the cmux-tui socket
 Every screen: simulator recording on iOS 26 and 27, frame split, side-by-side
 with the matching reference capture, Instruments hitch check for scrolling and
 transitions. Evidence goes in `cmux-next-ios/verify/evidence/<date>/`.
+
+## Performance bar: instant lists
+
+Home and agent chats must load near-instantly and cost the same in a god session
+(5,000 Home rows, a 50,000-record chat) as in a small one. The bench and its
+rules (targets, the 1.2x small-vs-god ratio, how to run it and add a metric):
+[`design/instant-perf.md`](design/instant-perf.md). Any change to Home, the chat
+store or the acpmux source runs it: `swift test --package-path
+cmux-next-ios/CmuxMobileKit --filter CmuxMobileInstantPerfTests`.

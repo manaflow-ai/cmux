@@ -66,9 +66,12 @@ public nonisolated struct CloudMoveCLI: Sendable {
         public var socket: String
         public var local: String
         public var remote: String
+        /// Machine to machine: the source machine's link socket, and `local` is its folder there;
+        /// `seedLocal` is this Mac's folder a Move to Cloud seeded it from, whose record follows.
+        public var fromSocket: String?, seedLocal: String?
 
-        public init(pull: Bool, socket: String, local: String, remote: String) {
-            (self.pull, self.socket, self.local, self.remote) = (pull, socket, local, remote)
+        public init(pull: Bool, socket: String, local: String, remote: String, fromSocket: String? = nil, seedLocal: String? = nil) {
+            (self.pull, self.socket, self.local, self.remote, self.fromSocket, self.seedLocal) = (pull, socket, local, remote, fromSocket, seedLocal)
         }
     }
 
@@ -272,21 +275,32 @@ public nonisolated struct CloudMoveCLI: Sendable {
         return (read.answer, (copy?.chat ?? "", copy?.folder ?? "", copy?.copied ?? false, copy?.sourceTrusted ?? false))
     }
 
+    /// `cmux link start-chat trust`: the level this Mac's acpmux (home `acpmuxHome`) answers for `folder`
+    /// (`trusted`, `untrusted` or `unknown`), read before any machine is taken: a start's copy is trusted on its
+    /// machine only when this Mac trusts the folder. Nil when it could not be read (the start goes on, as before).
+    public func startChatTrust(folder: String, acpmuxHome: String) async -> String? {
+        struct Call: Encodable { var verb = "start-chat-trust"; var folder: String, acpmuxHome: String }
+        return try? await run(Call(folder: folder, acpmuxHome: acpmuxHome), reading: "start-chat-trust").trust?.level
+    }
+
     /// What Rust read of one run.
     private struct Read: Decodable {
         struct Copy: Decodable { var chat: String, folder: String, copied: Bool, sourceTrusted: Bool }
+        struct Trust: Decodable { var level: String? }
         var answer: Answer
         var plan: StartChatPlan?
         var copy: Copy?
+        var trust: Trust?
         /// The reservation's answer object, as JSON.
         var object: Data?
 
-        enum CodingKeys: String, CodingKey { case answer, plan, copy, object }
+        enum CodingKeys: String, CodingKey { case answer, plan, copy, trust, object }
         init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             answer = try container.decode(Answer.self, forKey: .answer)
             plan = try container.decodeIfPresent(StartChatPlan.self, forKey: .plan)
             copy = try container.decodeIfPresent(Copy.self, forKey: .copy)
+            trust = try container.decodeIfPresent(Trust.self, forKey: .trust)
             object = try container.decodeIfPresent(JSONValue.self, forKey: .object).flatMap { try? JSONEncoder().encode($0) }
         }
 

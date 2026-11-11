@@ -49,6 +49,9 @@ OUR_LABELS = {NIGHTLY_ONLY, NIGHTLY_SLOT, SIGNING_SLOT, HOSTED}
 # override): an upload with the release App key that held the whole signing Mac.
 HOSTED_SECRET_JOBS = ('sentry-dsyms-nightly', 'sign-release-notes', 'publish-release-notes', 'publish-nightly-reel',
                       'publish-nightly-next-github')
+# The secret-free runner preflight ahead of decide: it judges the routing labels, so it never waits on one of them
+# (test_nightly_owned_minis_only.HOSTED_PREFLIGHT_JOBS has its reason).
+HOSTED_PREFLIGHT_JOBS = ('runner-preflight',)
 # On our minis for nightly-next only; classic and RC keep GitHub-hosted Ubuntu, as their release uploads may wait out
 # the rate limit for 360 min (test_nightly_owned_minis_only.NIGHTLY_NEXT_ONLY_OWNED).
 NIGHTLY_NEXT_ONLY_OWNED = ('republish-nightly-deltas',)
@@ -259,6 +262,30 @@ class NightlyTrustedRouting(unittest.TestCase):
                                  'ubuntu-24.04')
         self.assertEqual(DOC['jobs']['decide']['environment'], {"name": "ci-routing-agent", "deployment": False})
 
+    def test_no_signing_job_reads_an_owned_runner_variable(self):
+        # main's "CI repository variables" check (scripts/ci/signing_runner_variables.py on main) reads this
+        # branch's workflows and holds every variable a signing job's runs-on reads to blacksmith-*/ubuntu-*.
+        # These variables name owned Macs, so a signing job that reads one turns that check red on main
+        # (#26450: promote-nightly-next fell back to vars.CI_NIGHTLY_NEXT_BUILD_RUNNER). Such a job ends on
+        # the owned label as a literal instead. Signing job: main's rule, a signing secret or a release environment.
+        signing_secret = re.compile(
+            r"secrets(\.|\[\s*(format\(\s*)?\\?['\"])(APPLE_|ASC_API_|IOS_|SPARKLE_|NIGHTLY_SPARKLE_|CMUX_RELEASE_APP_"
+            r"|CONTENT_SIGNING_)", re.IGNORECASE)
+        release_environment = re.compile(
+            r"\b(release|release-next|content-signing|nightly-next-promote|release-surface-ack)\b")
+        owned = re.compile(r"vars(?:\.|\[\s*['\"])(CI_NIGHTLY_NEXT_BUILD_RUNNER|CI_SIDE_LANE_RUNNER)\b", re.IGNORECASE)
+        found = []
+        for path in sorted((ROOT / '.github/workflows').glob('*.y*ml')):
+            document = yaml.load(path.read_text(encoding='utf-8'), Loader=yaml.BaseLoader)
+            for name, job in ((document or {}).get('jobs') or {}).items() if isinstance(document, dict) else ():
+                if not isinstance(job, dict):
+                    continue
+                signing = (signing_secret.search(json.dumps(job))
+                           or release_environment.search(json.dumps(job.get('environment') or '')))
+                if signing and owned.search(str(job.get('runs-on', ''))):
+                    found.append(f'{path.name}:{name}')
+        self.assertEqual(found, [])
+
     def test_only_the_nightly_routes_read_the_next_build_runner(self):
         readers = sorted(path.name for path in (ROOT / '.github/workflows').glob('*.y*ml')
                          if 'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER' in path.read_text()
@@ -269,10 +296,10 @@ class NightlyTrustedRouting(unittest.TestCase):
         # the std pool (test_nightly_sign_runner.py OWNED_ONLY_JOBS); the early native jobs
         # (build-nightly-inputs, the Ghostty helper) fall back to the nightly slot.
         # The secret-bearing jobs and their pickers end on the signer's label instead (SIGNING_SLOT);
-        # promote-nightly-next keeps its earlier route (a main dispatch, which the signer refuses), and its retired
-        # (if: false) acked twin shares it.
-        self.assertEqual(uses, ['build-nightly-ghostty-cli-helper', 'build-nightly-inputs',
-                                'promote-nightly-next', 'promote-nightly-next-acked', 'verify-final-dmg-nightly',
+        # promote-nightly-next keeps its earlier route (a main dispatch, which the signer refuses) but ends on the
+        # nightly slot's label as a literal, and its retired (if: false) acked twin shares it
+        # (test_no_signing_job_reads_an_owned_runner_variable).
+        self.assertEqual(uses, ['build-nightly-ghostty-cli-helper', 'build-nightly-inputs', 'verify-final-dmg-nightly',
                                 'verify-recovered-nightly-next', 'verify-signed-nightly'])
         steps = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('steps', '')))
         # The verify jobs' owned pick (pick-nightly-sign-runner) offers the same labels as the build's; its
@@ -451,7 +478,7 @@ class NightlyTrustedRouting(unittest.TestCase):
                                    'github.ref': 'refs/heads/nightly-next',
                                    'vars.CI_CLOUD_OVERFLOW_SAVED': '{"probe":"x"}',
                                    'needs.prepare-nightly-variant-primary.result': primary}
-                        allowed = {HOSTED} if name in HOSTED_SECRET_JOBS else OUR_LABELS - {HOSTED}
+                        allowed = {HOSTED} if name in HOSTED_SECRET_JOBS or name in HOSTED_PREFLIGHT_JOBS else OUR_LABELS - {HOSTED}
                         with self.subTest(job=name, runner=runner, attempt=attempt, primary=primary):
                             self.assertIn(evaluate(parse_expression(source), context), allowed)
                         if name in NIGHTLY_NEXT_ONLY_OWNED:
