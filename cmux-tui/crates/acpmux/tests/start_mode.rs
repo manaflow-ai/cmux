@@ -1544,3 +1544,40 @@ async fn a_remote_chat_keeps_its_entrys_launch_through_an_unchanged_reload() {
     assert!(marked.is_empty(), "an unchanged entry respawns no remote chat: {marked:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// cmux-tui's start of a chat on the person's own Cloud VM with their mode pick (`agent-session-start`
+/// `mode`, cmux-tui-core `agent_session_start.rs`) reaches this daemon over its unix socket, which
+/// is never the person, in exactly these shapes; the review of cmux#41005 (F3) asked that they be
+/// proven against this gate, not a fake. A pick that does not ask is named to `session/new` with no
+/// policy: the person's start level (full access) starts in it, and a mode no chat starts in there
+/// (Accept Edits) is refused for the person, so cmux-tui starts the chat asking instead. An asking
+/// pick starts under policy `ask` and is set with `session/set_mode`, which needs no person; a
+/// wider set on that chat is still refused.
+#[tokio::test]
+async fn the_cloud_owner_start_shapes_pass_the_real_person_gate() {
+    let dir = home("cloud-owner-start", json!({"defaultPermissionMode": "fullAccess"}));
+    let daemon = hub(&dir);
+    let mut tui = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+    let named = |mode: &str| {
+        json!({"cwd": dir.join("work"), "mcpServers": [],
+            "_meta": {"acpmux": {"harness": "claude", "mode": mode}}})
+    };
+    let r = tui.call("session/new", named("bypassPermissions")).await;
+    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(tui.mode(&id).await, "bypassPermissions", "{r}");
+    let r = tui.call("session/new", named("acceptEdits")).await;
+    assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{r}");
+    let asking = json!({"cwd": dir.join("work"), "mcpServers": [],
+        "_meta": {"acpmux": {"harness": "claude", "policy": "ask"}}});
+    let r = tui.call("session/new", asking).await;
+    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(tui.mode(&id).await, "default", "{r}");
+    let r = tui.call("session/set_mode", json!({"sessionId": id, "modeId": "plan"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(tui.mode(&id).await, "plan");
+    let r =
+        tui.call("session/set_mode", json!({"sessionId": id, "modeId": "bypassPermissions"})).await;
+    assert!(r.get("error").is_some(), "an asking chat is never widened by this connection: {r}");
+    assert_eq!(tui.mode(&id).await, "plan");
+    let _ = std::fs::remove_dir_all(&dir);
+}

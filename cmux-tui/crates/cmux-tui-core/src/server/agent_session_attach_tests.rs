@@ -174,6 +174,10 @@ pub(super) struct Fixture {
     pub(super) accept_after: Option<Duration>,
     /// acpmux's Cloud mobile floor for a phone's start (agent_session_start_phone_tests.rs).
     pub(super) phone: Option<PhoneFloor>,
+    /// With [`Fixture::phone`], the modes acpmux's start gate refuses a `session/new` that names
+    /// one (`_meta.acpmux.mode`) for this connection, which is never the person
+    /// (`permission.person_required`); a named mode it takes is the session's.
+    pub(super) refused_start_modes: &'static [&'static str],
     /// When set, `_acpmux/harnesses` answers this long after it is asked: a starting acpmux
     /// holds its catalog until its login shell read ends (`Hub::harnesses_reply`).
     pub(super) catalog_after: Option<Duration>,
@@ -305,6 +309,19 @@ fn serve(
             "acp.trust.get" | "acp.trust.set" if fixture.start_folder_trusted.is_some() => {
                 Some(json!({"cwd": params["cwd"], "decided": true,
                     "level": if fixture.start_folder_trusted == Some(true) { "trusted" } else { "untrusted" }}))
+            }
+            "session/new"
+                if fixture.phone.is_some()
+                    && params.pointer("/_meta/acpmux/mode").and_then(Value::as_str).is_some() =>
+            {
+                let mode = params["_meta"]["acpmux"]["mode"].as_str().unwrap_or_default();
+                Some(if fixture.refused_start_modes.contains(&mode) {
+                    json!({FAKE_ERROR: "the person must approve this mode",
+                        FAKE_ERROR_DATA: {"reason": "permission.person_required"}})
+                } else {
+                    *fixture.phone.as_ref().unwrap().mode.lock().unwrap() = mode.to_owned();
+                    json!({"sessionId": SESSION, "_meta": {"acpmux": {"harness": "claude"}}})
+                })
             }
             "session/new" if fixture.start_folder_trusted.is_some() => Some(json!({
                 "sessionId": SESSION, "_meta": {"acpmux": {"harness": "claude"}},

@@ -13,6 +13,7 @@ import { highestMode } from "./harnessModes";
 import { keptStartAnswer } from "./startMode";
 import type { ComposerAttachment } from "./attachments";
 import type { AcpmuxSnapshot } from "./model";
+import type { SwitchView } from "./harnessSwitch";
 
 /// What the page hands the host. `home`: the chat has no project folder on this Mac, so nothing is
 /// copied and the chat starts in the machine's own home folder (cloudStartFolder).
@@ -58,14 +59,22 @@ export function cloudStartFolder(project: string | undefined): { cwd: string } |
 /// `agent-session-start-mode-v1`), as this Mac would have (Leo, 2026-11-11, on the asking mode a
 /// Cloud chat started in: "but shouldnt the user be allowed to just go through with stuff?"). None
 /// when the chip names none (acpmux sets none): the machine's own start applies.
+///
+/// `held`: the pick a harness switch holds for the chat (harnessSwitch.ts `intent.config.mode`) and
+/// the harness it is for, read from the switch itself: a summary drawn for a harness with no
+/// cached modes carries no mode, and a held Manual pick then went as the start level (Bypass
+/// permissions; review of cmux#41005, F1). A held pick always wins.
 export function cloudStartMode(
   snapshot: Pick<AcpmuxSnapshot, "summary" | "catalog">,
   harness: string | undefined,
   cwd: string | undefined,
+  held?: { harness: string; mode?: string },
 ): { mode: string; harness: string } | Record<string, never> {
   const summary = snapshot.summary;
   const chat = harness ?? summary?.harness;
   if (!chat || summary?.sessionId) return {};
+  const pick = held?.harness === chat ? held.mode : undefined;
+  if (pick) return { mode: pick, harness: chat };
   const picked = summary?.harness === chat ? summary.modes?.currentModeId : undefined;
   const kept = keptStartAnswer(chat, cwd);
   const family =
@@ -73,6 +82,14 @@ export function cloudStartMode(
     snapshot.catalog.find((entry) => entry.id === chat)?.family;
   const mode = picked ?? (kept === undefined ? highestMode(family, chat)?.id : kept?.modeId);
   return mode ? { mode, harness: chat } : {};
+}
+
+/// The mode pick a harness switch holds (`cloudStartMode`'s `held`), with its harness; none without
+/// a live switch.
+export function heldSwitchMode(view: SwitchView): { harness: string; mode?: string } | undefined {
+  const intent = view.intent;
+  if (!intent || intent.phase === "failed") return undefined;
+  return { harness: intent.harness, ...(intent.config.mode ? { mode: intent.config.mode } : {}) };
 }
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;

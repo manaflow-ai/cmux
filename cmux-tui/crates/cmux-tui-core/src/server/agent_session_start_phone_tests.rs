@@ -169,8 +169,8 @@ impl Phone {
 }
 
 /// Leo, 2026-11-11, on the asking mode a Cloud chat started in: "but shouldnt the user be allowed
-/// to just go through with stuff?". On their own Cloud VM the chat starts in the mode they picked,
-/// with no `ask` policy holding it to an asking one.
+/// to just go through with stuff?". On their own Cloud VM a pick that does not ask is named to
+/// acpmux's `session/new`, whose own start gate authorizes it, with no `ask` policy holding it.
 #[test]
 fn the_owners_start_on_their_cloud_vm_runs_the_mode_they_picked() {
     let mut owner = connect("owner-picks-bypass", false, true, "claude", "default", false);
@@ -178,7 +178,53 @@ fn the_owners_start_on_their_cloud_vm_runs_the_mode_they_picked() {
     assert_eq!(started["ok"], json!(true), "{started}");
     assert_eq!(*owner.mode.lock().unwrap(), "bypassPermissions");
     let new = session_new(&owner);
+    assert_eq!(new["params"]["_meta"]["acpmux"]["mode"], json!("bypassPermissions"), "{new}");
     assert!(new["params"]["_meta"]["acpmux"].get("policy").is_none(), "{new}");
+}
+
+/// The Cloud review of cmux#41005 (F2): an asking pick never runs under a policy of the VM's or
+/// the harness's that approves its questions; it starts under `ask`, as every other start does.
+#[test]
+fn an_asking_pick_starts_under_the_ask_policy() {
+    let mut owner = connect("owner-picks-plan", false, true, "claude", "acceptEdits", false);
+    let started = owner.start_in("plan");
+    assert_eq!(started["ok"], json!(true), "{started}");
+    assert_eq!(*owner.mode.lock().unwrap(), "plan");
+    let frames: Vec<Value> =
+        std::iter::from_fn(|| owner.fake.frames.recv_timeout(Duration::from_millis(300)).ok())
+            .collect();
+    let new = frames.iter().find(|frame| frame["method"] == "session/new").expect("session/new");
+    assert_eq!(new["params"]["_meta"]["acpmux"]["policy"], json!("ask"), "{new}");
+    assert!(new["params"]["_meta"]["acpmux"].get("mode").is_none(), "{new}");
+    assert!(frames.iter().any(|frame| frame["method"] == "session/set_mode"), "{frames:?}");
+}
+
+/// The Cloud review of cmux#41005 (F3): a wider pick acpmux's start gate refuses for the person
+/// (Accept Edits, a mode no chat starts in there) starts the chat asking, as before: it is never
+/// set past the gate.
+#[test]
+fn a_wider_pick_the_start_gate_refuses_starts_the_chat_asking() {
+    let fixture = Fixture { refused_start_modes: &["acceptEdits"], ..Fixture::default() };
+    let floor = PhoneFloor {
+        strict: true,
+        family: "claude",
+        mode: Arc::new(Mutex::new("default".to_owned())),
+        stuck: false,
+        table_gate: None,
+    };
+    let mut owner = connect_fixture("owner-gate-refuses", false, floor, fixture);
+    let started = owner.start_in("acceptEdits");
+    assert_eq!(started["ok"], json!(true), "{started}");
+    assert_eq!(*owner.mode.lock().unwrap(), "default");
+    let frames: Vec<Value> =
+        std::iter::from_fn(|| owner.fake.frames.recv_timeout(Duration::from_millis(300)).ok())
+            .collect();
+    let starts: Vec<&Value> =
+        frames.iter().filter(|frame| frame["method"] == "session/new").collect();
+    assert_eq!(starts.len(), 2, "{frames:?}");
+    assert_eq!(starts[0]["params"]["_meta"]["acpmux"]["mode"], json!("acceptEdits"));
+    assert_eq!(starts[1]["params"]["_meta"]["acpmux"]["policy"], json!("ask"));
+    assert!(!frames.iter().any(|frame| frame["method"] == "session/set_mode"), "{frames:?}");
 }
 
 #[test]

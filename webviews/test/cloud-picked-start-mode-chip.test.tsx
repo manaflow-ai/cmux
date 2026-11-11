@@ -189,6 +189,40 @@ test("before acpmux ever answered, the chip and the send both name the harness's
   expect(cloudStartMode(snapshot, undefined, FOLDER)).toEqual({ mode: highest.id, harness: "claude" });
 });
 
+/// The review of cmux#41005 (F1): a harness with no cached modes draws a switch's summary with no
+/// mode, so the held Manual pick was lost and the send named the start level (Bypass permissions).
+test("a held Manual pick goes as Manual though the harness has no cached modes", async () => {
+  const { cloudStartMode, heldSwitchMode } = await import("../src/agent-session/acpmux/cloudRun");
+  const { applySwitch, HarnessSwitch } = await import("../src/agent-session/acpmux/harnessSwitch");
+  const { rememberStartMode } = await import("../src/agent-session/acpmux/startMode");
+  rememberStartMode("claude", FOLDER, { modeId: "bypassPermissions", name: "Bypass permissions" });
+  const harnessSwitch = new HarnessSwitch();
+  harnessSwitch.connect({
+    turnRunning: () => false,
+    shown: () => undefined,
+    create: () => new Promise<string | undefined>(() => undefined),
+    leave: () => undefined,
+    open: async () => undefined,
+    send: async () => undefined,
+    setModel: async () => undefined,
+    setMode: async () => undefined,
+    setConfig: async () => undefined,
+    discard: () => undefined,
+    prewarm: () => undefined,
+    prewarmSupported: () => false,
+  });
+  void harnessSwitch.switchTo("claude", FOLDER, { deferred: true });
+  expect(harnessSwitch.pickMode("default")).toBe(true);
+  const raw = await newChat(true);
+  const drawn = applySwitch(raw, harnessSwitch.view());
+  expect(drawn.summary?.modes?.currentModeId).toBeUndefined();
+  expect(cloudStartMode(drawn, "claude", FOLDER, heldSwitchMode(harnessSwitch.view()))).toEqual({
+    mode: "default",
+    harness: "claude",
+  });
+  harnessSwitch.cancel();
+});
+
 test("a Cloud send that switches to a team keeps the placeholder chip", async () => {
   await render({ ...(await newChat(true)), startsOnTeamCloud: true } as Snapshot);
   expect(chipText()).toBe("Mode");

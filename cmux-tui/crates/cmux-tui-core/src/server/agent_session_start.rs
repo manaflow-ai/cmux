@@ -733,34 +733,45 @@ fn start_and_bind(
     if !folder_trusted(&trust, params.harness.as_deref()) {
         return Err(Refusal::UntrustedFolder);
     }
-    // The person's pick of the chat's mode, on their own Cloud VM only (not a phone's start): the
-    // start names no policy, so acpmux starts the chat as on the person's Mac, and the pick is set
-    // below. Anywhere else the policy is `ask`.
+    // The person's pick of the chat's mode, on their own Cloud VM only (not a phone's start). A
+    // pick that asks before acting starts under policy `ask`, as every other start does, so no
+    // policy of the VM or the harness answers its questions; the pick is set once the agent is up.
+    // A pick that does not ask (Bypass permissions) is named to acpmux's `session/new` with no
+    // policy: acpmux's own start gate authorizes it for this connection, which is never the person,
+    // only where it is the mode a chat with no mode starts in there (the person's start level,
+    // `hub/start_gate.rs` `names_start_level`). A wider pick it refuses for the person starts the
+    // chat asking, as before.
     let picked = params.mode.as_deref().filter(|_| owner_cloud && !phone);
-    let mut meta = if picked.is_some() { json!({}) } else { json!({"policy": "ask"}) };
-    if let Some(harness) = &params.harness {
-        meta.insert("harness", json!(harness));
-    }
-    if let Some(model) = &params.model {
-        meta.insert("model", json!(model));
-    }
-    // The workspace of the tab, read here and never taken from the client:
-    // acpmux gives the session that workspace's display (none without it).
-    if let Some(workspace) = mux.surface_workspace_key(params.surface) {
-        meta.insert("workspaceId", json!(workspace));
-    }
+    let wide = picked.filter(|mode| !asks_before_acting(&table, &family, mode));
     // The folder acpmux checked (its canonical path), so a symlink changed
     // after the trust answer cannot move the agent elsewhere.
     let cwd = trust.get("cwd").and_then(Value::as_str).ok_or(Refusal::UntrustedFolder)?;
-    let new = json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": meta}});
+    let new = |wide: Option<&str>| {
+        let mut meta = match wide {
+            Some(mode) => json!({"mode": mode}),
+            None => json!({"policy": "ask"}),
+        };
+        if let Some(harness) = &params.harness {
+            meta.insert("harness", json!(harness));
+        }
+        if let Some(model) = &params.model {
+            meta.insert("model", json!(model));
+        }
+        // The workspace of the tab, read here and never taken from the client:
+        // acpmux gives the session that workspace's display (none without it).
+        if let Some(workspace) = mux.surface_workspace_key(params.surface) {
+            meta.insert("workspaceId", json!(workspace));
+        }
+        json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": meta}})
+    };
     timings.checks = Some(ms_since(checks));
     let spawn = Instant::now();
     // acpmux goes on spawning the agent after a start stops waiting: a session it makes later is
     // bound to no tab, so it ends as soon as its answer comes.
-    let created = link
-        .call_while_alive_or_late(
+    let session_new = |params: Value| {
+        link.call_while_alive_or_late(
             "session/new",
-            new,
+            params,
             START_PATIENCE,
             until,
             LATE_SESSION_GRACE,
@@ -771,9 +782,17 @@ fn start_and_bind(
                 }
             },
         )
-        .map_err(Refusal::of);
+    };
+    let mut created = session_new(new(wide));
+    let refused_for_person = matches!(&created, Err(LinkError::Rpc(_, data))
+        if data.get("reason").and_then(Value::as_str) == Some(PERSON_REQUIRED));
+    if wide.is_some() && refused_for_person {
+        created = session_new(new(None));
+    }
+    // The pick set once the agent is up: none when the start fell back to asking.
+    let picked = if wide.is_some() && refused_for_person { None } else { picked };
     timings.session_new = Some(ms_since(spawn));
-    let created = created?;
+    let created = created.map_err(Refusal::of)?;
     let settle = Instant::now();
     let session = created
         .get("sessionId")
@@ -789,7 +808,7 @@ fn start_and_bind(
     let family = if phone {
         settle_phone_mode(link, until, &session).map_err(end)?
     } else if let Some(mode) = picked {
-        set_picked_mode(link, until, &session, mode).map_err(end)?
+        set_picked_mode(link, until, &session, mode, &table).map_err(end)?
     } else if owner_cloud {
         session_family(link, until, &session).map_err(end)?
     } else {
@@ -879,46 +898,54 @@ fn session_family(link: &AcpmuxLink, until: Instant, session: &str) -> Result<St
         .ok_or(Refusal::Refused)
 }
 
+/// acpmux's refusal of a start only the person may make (`hub/person.rs` `REASON`).
+const PERSON_REQUIRED: &str = "permission.person_required";
+
+/// Whether `mode` asks before acting for `family`: one of the family's asking modes in acpmux's
+/// `_acpmux/web_modes` `table`, or the Codex bridge's `ask` and `read-only` (acpmux
+/// `hub/start_mode.rs` `NARROW_MODES`), which the table leaves out because it refuses Codex for the
+/// Web. A mode named here starts under policy `ask`, which holds it whatever it is.
+fn asks_before_acting(table: &Value, family: &str, mode: &str) -> bool {
+    let listed = table
+        .pointer(&format!("/families/{}", family.replace('~', "~0").replace('/', "~1")))
+        .and_then(Value::as_array)
+        .is_some_and(|modes| modes.iter().any(|asking| asking.as_str() == Some(mode)));
+    listed || (family == "codex" && matches!(mode, "ask" | "read-only"))
+}
+
 /// The person's pick of a new chat's `mode` on their own Cloud VM (`agent-session-start-mode-v1`):
 /// set unless the session already runs it. When the agent does not take it, the chat runs no wider
-/// than the person asked or asks before acting: it is kept when the mode it runs is the pick or one
-/// of its family's asking modes (acpmux's `_acpmux/web_modes`; no mode counts as asking), else it
-/// moves to its family's asking default ([`settle_asking_mode`]), else it is refused (the caller
-/// ends it). Returns the session's family.
+/// than the person asked or asks before acting: it is kept when the mode it runs is the pick or
+/// asks before acting ([`asks_before_acting`] against `table`, the start's `_acpmux/web_modes`;
+/// no mode counts as asking), else it moves to its family's asking default
+/// ([`settle_asking_mode`]), else it is refused (the caller ends it). Returns the session's family.
 fn set_picked_mode(
     link: &AcpmuxLink,
     until: Instant,
     session: &str,
     mode: &str,
+    table: &Value,
 ) -> Result<String, Refusal> {
     let read = || {
         ask(link, until, "_acpmux/web_modes", json!({"sessionId": session})).map_err(Refusal::of)
     };
-    let table = read()?;
-    let family = table
+    let running =
+        |table: &Value| table.pointer("/session/mode").and_then(Value::as_str).map(str::to_owned);
+    let now = read()?;
+    let family = now
         .pointer("/session/family")
         .and_then(Value::as_str)
         .filter(|family| !family.is_empty())
         .map(str::to_owned)
         .ok_or(Refusal::Refused)?;
-    let running =
-        |table: &Value| table.pointer("/session/mode").and_then(Value::as_str).map(str::to_owned);
-    if running(&table).as_deref() == Some(mode) {
+    if running(&now).as_deref() == Some(mode) {
         return Ok(family);
     }
     // Its answer is not the word: the mode the session runs after it is.
     let _ = ask(link, until, "session/set_mode", json!({"sessionId": session, "modeId": mode}));
-    let table = read()?;
-    let asking = |runs: &str| {
-        !refused_family(&table, &family)
-            && table
-                .pointer(&format!("/families/{}", family.replace('~', "~0").replace('/', "~1")))
-                .and_then(Value::as_array)
-                .is_some_and(|modes| modes.iter().any(|asking| asking.as_str() == Some(runs)))
-    };
-    match running(&table) {
-        Some(runs) if runs == mode || asking(&runs) => Ok(family),
-        None if !refused_family(&table, &family) => Ok(family),
+    match running(&read()?) {
+        Some(runs) if runs == mode || asks_before_acting(table, &family, &runs) => Ok(family),
+        None if !refused_family(table, &family) => Ok(family),
         _ => settle_asking_mode(link, until, session),
     }
 }
