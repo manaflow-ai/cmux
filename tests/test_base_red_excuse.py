@@ -213,6 +213,30 @@ def frame_legacy(job, text):
 UNKNOWN = {"step_names": excuse.STEP_NAMES_UNKNOWN}
 
 
+def scaling_ratio(build, n, repeats=3):
+    """How a cost grows, with no wall-clock bound (#41236's review: a 0.04 s step failed a 0.5 s bound in a full run
+    on a loaded host). BUILD(size) makes the inputs and returns the call to time; the call runs REPEATS times at N
+    and at 4N in this process, and the answer is (best at 4N / best at N, best at N, best at 4N), in this process's
+    CPU seconds, so other processes' turns count on neither side. Linear gives about 4, quadratic about 16: a test
+    asserts well under quadratic (SCALING_LIMIT) and picks N so the N case is far above the timer's resolution."""
+    import time
+
+    best = {}
+    for size in (n, 4 * n):
+        run = build(size)
+        took = []
+        for _ in range(repeats):
+            began = time.process_time()
+            run()
+            took.append(time.process_time() - began)
+        best[size] = min(took)
+    return best[4 * n] / max(best[n], 1e-9), best[n], best[4 * n]
+
+
+# The most a 4x larger input may cost relative to the smaller one: linear is about 4, quadratic about 16.
+SCALING_LIMIT = 8
+
+
 def placed_signature(job, text, base=False):
     """excuse.signature of a fixture written before lines were placed by step order, framed as the job-log endpoint
     serves it (frame_legacy) so step_owners places it: a log it does not place has no signature (excuse.UNPLACED)."""
@@ -7544,32 +7568,41 @@ class StepOwnership(unittest.TestCase):
     def test_ten_thousand_step_starts_are_placed_in_linear_time(self):
         # LW#4181's Codex P2: a log with 10,000 `##[group]Run` lines took 21.6 s to place (each start rescanned every
         # block after it), and hq#8962's F2: 10,000 named steps took 0.62 s (each header rescanned every step's times).
-        # Placing is one pass: 10,000 unnamed steps and 10,000 named steps, each with its header in its own second,
-        # and one step printing 10,000 headers (not one to one, so nothing is placed), each in well under half a
-        # second.
-        import time
-
-        def shape(named):
-            steps = [(f"Case {n}" if named else f"Run case {n}", "failure" if n == 7_000 else "success",
-                      10 + n, 10 + n) for n in range(10_000)]
+        # Placing is one pass: unnamed steps and named steps, each with its header in its own second, and one step
+        # printing that many headers (not one to one, so nothing is placed). Each is placed right at N and 4N (2,500
+        # and 10,000 steps; 10,000 and 40,000 headers in one step), and 4N costs well under quadratic in N
+        # (scaling_ratio). No wall-clock bound: a loaded host broke the 0.5 s one in a full run (#41236's review). No
+        # _aligned_starts cost is in it: with no workflow headers (UNKNOWN) that reading returns at once
+        # (AlignedStartsIsLinear times it).
+        def shape(named, count):
+            red = count * 7 // 10
+            steps = [(f"Case {n}" if named else f"Run case {n}", "failure" if n == red else "success",
+                      10 + n, 10 + n) for n in range(count)]
             lines = [(name, start, f"##[group]Run case {n}") for n, (name, _, start, _) in enumerate(steps)]
-            lines.insert(7_001, (steps[7_000][0], 10 + 7_000 + 0.7, NEW_RED))
+            lines.insert(red + 1, (steps[red][0], 10 + red + 0.7, NEW_RED))
             lines.insert(3, (steps[2][0], 12.7, NEGATIVE_CASE))
             return steps, lines
-        one = [("Build", "success", 3, 5), ("Tests", "failure", 20, 40)]
-        flood = [("Build", 3, "##[group]Run make"), ("Build", 4, NEGATIVE_CASE),
-                 *(("Tests", 20 + n / 1000, f"##[group]Run case {n}") for n in range(10_000)), ("Tests", 39, NEW_RED)]
-        for label, (steps, text), want in (("10,000 unnamed steps", shape(False), (excuse.FAILED, excuse.PASSED)),
-                                           ("10,000 named steps", shape(True), (excuse.FAILED, excuse.PASSED)),
-                                           ("one step's 10,000 headers", (one, flood), (excuse.AMBIGUOUS,) * 2)):
-            job, log_text = {"steps": framed_steps(steps)}, framed_log(text)
-            started = time.perf_counter()
-            owned = excuse.step_owners(job, log_text, **UNKNOWN)
-            took = time.perf_counter() - started
-            said = {excuse.lines_of(line)[0]: status for line, _, status in owned}
+
+        def flood(count):
+            return ([("Build", "success", 3, 5), ("Tests", "failure", 20, 40)],
+                    [("Build", 3, "##[group]Run make"), ("Build", 4, NEGATIVE_CASE),
+                     *(("Tests", 20 + n / 1000, f"##[group]Run case {n}") for n in range(count)),
+                     ("Tests", 39, NEW_RED)])
+        for label, make, n, want in (
+                ("unnamed steps", lambda count: shape(False, count), 2_500, (excuse.FAILED, excuse.PASSED)),
+                ("named steps", lambda count: shape(True, count), 2_500, (excuse.FAILED, excuse.PASSED)),
+                ("one step's headers", flood, 10_000, (excuse.AMBIGUOUS,) * 2)):  # cheaper per header: more of them
             with self.subTest(shape=label):
-                self.assertEqual((said[NEW_RED], said[NEGATIVE_CASE]), want)
-                self.assertLess(took, 0.5, f"step_owners took {took:.2f} s for {label}")
+                def build(count):
+                    steps, text = make(count)
+                    job, log_text = {"steps": framed_steps(steps)}, framed_log(text)
+                    owned = excuse.step_owners(job, log_text, **UNKNOWN)
+                    said = {excuse.lines_of(line)[0]: status for line, _, status in owned}
+                    self.assertEqual((said[NEW_RED], said[NEGATIVE_CASE]), want, f"{count:,} {label}")
+                    return lambda: excuse.step_owners(job, log_text, **UNKNOWN)
+                ratio, small, large = scaling_ratio(build, n)
+                self.assertLess(ratio, SCALING_LIMIT, f"step_owners for {label}: {small:.4f} CPU s at {n:,}, "
+                                f"{large:.4f} at {4 * n:,} ({ratio:.1f}x for 4x the input; linear is about 4)")
 
     def test_every_case_has_its_test(self):
         self.assertEqual({name[5:] for name in dir(self) if name.startswith("test_")} & STEP_OWNERSHIP.keys(),
@@ -10069,13 +10102,18 @@ class AlignedStartsIsLinear(unittest.TestCase):
         args = self.bench.reading_inputs(job, log_text)
         return excuse._aligned_starts(*args, names), self.bench.frozen_aligned_starts(*args, names)
 
-    def test_twenty_thousand_same_second_headers_over_ten_steps_in_under_a_second(self):
-        import time
-        job, log_text, names = self.bench.same_second_case(20_000, 10)
-        began = time.perf_counter()
-        found = excuse._aligned_starts(*self.bench.reading_inputs(job, log_text), names)
-        self.assertLess(time.perf_counter() - began, 1.0)
-        self.assertIsNone(found)  # every header fits every step: ambiguous
+    def test_same_second_headers_over_ten_steps_cost_linear_in_the_headers(self):
+        # 5,000 and 20,000 same-second headers over 10 steps, each ambiguous, the larger well under quadratic in the
+        # smaller (scaling_ratio, no wall-clock bound: #41236's review). Linear here: about 0.025 and 0.1 CPU s;
+        # 478a15d7's quadratic reading: about 28 and 449 s.
+        def build(headers):
+            job, log_text, names = self.bench.same_second_case(headers, 10)
+            args = self.bench.reading_inputs(job, log_text)
+            self.assertIsNone(excuse._aligned_starts(*args, names))  # every header fits every step: ambiguous
+            return lambda: excuse._aligned_starts(*args, names)
+        ratio, small, large = scaling_ratio(build, 5_000)
+        self.assertLess(ratio, SCALING_LIMIT, f"_aligned_starts: {small:.4f} CPU s at 5,000 headers, {large:.4f} at "
+                        f"20,000 ({ratio:.1f}x for 4x the input; linear is about 4)")
 
     def test_the_real_logs_read_the_same(self):
         fixtures = ROOT / "tests/fixtures/base_red_excuse_step_mapping"
