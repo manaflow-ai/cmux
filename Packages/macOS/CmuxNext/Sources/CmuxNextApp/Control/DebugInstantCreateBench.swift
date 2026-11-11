@@ -90,7 +90,7 @@ enum DebugInstantCreateBench {
             }
             let placement = services.linkOpener.placement
             services.linkOpener.placement = { .splitRight }
-            githubShown.withLock { [opened = WebPageTab.openGitHub(url, from: pane, services: services)] in $0.append("opened:\(opened.map(String.init) ?? "nil")") }
+            githubShown.withLock { [opened = WebPageTab.openGitHub(url, from: pane, services: services, explicit: true)] in $0.append("opened:\(opened.map(String.init) ?? "nil")") }
             services.linkOpener.placement = placement
         } else if command == .diffRight, let folder = params["folder"]?.stringValue, let pane = controller.content?.focusedPane {
             // task-owner: one bench open of the folder's diff tab in the pane (as `openDiffViewer`); ends when it opens or is refused
