@@ -476,6 +476,8 @@ fn save(path: &Path, saved: &Saved) -> anyhow::Result<()> {
 /// Test seam: called on the saving thread between a save's home check and its write, with
 /// whether the check passed. `tests/lost_home_writes.rs` holds the text thread's save there
 /// while it replaces the home, so the order its race depends on is the test's, not the clock's.
+// test-hook-allow: one process per test: only tests/lost_home_writes.rs sets it, once, and its
+// isolated() runs each test in a process of its own
 #[doc(hidden)]
 pub static SAVE_CHECKED: std::sync::OnceLock<fn(bool)> = std::sync::OnceLock::new();
 
