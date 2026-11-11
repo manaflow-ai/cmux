@@ -1069,6 +1069,16 @@
             "kind": "primitive",
             "name": "decimal"
           }
+        },
+        "live": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          },
+          "description": "Opaque. Only in the session.events cursors of a connection that sent the capability session-live-cursor-v1 in set-client-info: the position of the live terminal facts the client has. Send the cursor back whole; a resume then sends only the terminals whose live facts changed after it."
         }
       },
       "extra": false
