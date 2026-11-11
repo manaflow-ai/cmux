@@ -23,7 +23,7 @@ import Testing
     @Test func aFailedReadOnALiveLinkSaysWhy() throws {
         let bar = try #require(HomeConnectionBar.make(offline: false, problem: "Timed out.", retrying: false, hasRows: false, macName: "Studio"))
         #expect(bar.kind == .failed)
-        #expect(bar.title == "Couldn't load Studio's Home")
+        #expect(bar.title == "Couldn't load Home from Studio")
         #expect(bar.detail.hasPrefix("Timed out."))
         #expect(!bar.detail.contains("last list"))
     }
@@ -33,5 +33,11 @@ import Testing
         let bar = try #require(HomeConnectionBar.make(offline: false, problem: nil, retrying: true, hasRows: true, macName: "Studio"))
         #expect(bar.kind == .retrying)
         #expect(bar.title == "Reconnecting to Studio…")
+    }
+
+    @Test func aRetryOfAFailedReadSaysItLoadsNotReconnects() throws {
+        let bar = try #require(HomeConnectionBar.make(offline: false, problem: "Timed out.", retrying: true, reconnecting: false,
+                                                      hasRows: true, macName: "Studio"))
+        #expect(bar.title == "Loading Home from Studio…")
     }
 }

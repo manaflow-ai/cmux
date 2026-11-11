@@ -33,7 +33,9 @@ final class HomeMacDisconnectedUITests: XCTestCase {
 
         // Non-blocking: the kept rows still open.
         row.tap()
-        XCTAssertTrue(app.navigationBars.buttons.firstMatch.waitForExistence(timeout: 10), "a kept row opens")
+        // Home's own toolbar (Compose) leaves when the conversation opens over it.
+        let compose = app.buttons["home.compose"]
+        XCTAssertTrue(compose.waitForNonExistence(timeout: 10), "a kept row opens its conversation\n\(app.debugDescription)")
         attach(app, "2-row-opened")
     }
 
