@@ -171,30 +171,91 @@ pub(in crate::cli) fn reported_by_agent(record: &Value) -> bool {
     !matches!(record.get("source").and_then(Value::as_str), Some("plugin" | "detected"))
 }
 
-/// The state word of the newest report the agent in `terminal` gave of
-/// itself: its own daemon agent records ([`reported_by_agent`]: hooks or
-/// the socket, not the screen-detection plugin) and its program status
-/// records (OSC 7501 with an `app`), compared by `updated_at_ms`. `None`
-/// when it gave none, as an agent without hooks does.
-pub(in crate::cli) fn own_report_state<'a>(
-    terminal: &'a Value,
-    agents: &'a [Value],
-) -> Option<&'a str> {
+/// The agent's harness of a daemon agent record (`extra.agent`, else
+/// `agent`), canonical (`claude-code` is `claude`).
+fn record_harness(record: &Value) -> Option<String> {
+    let raw = record.pointer("/extra/agent").or_else(|| record.get("agent"))?.as_str()?;
+    Some(super::super::agent_vocabulary::harness_name(raw))
+}
+
+/// The harness session a daemon agent record belongs to, when it says.
+fn record_session(record: &Value) -> Option<&str> {
+    record
+        .pointer("/extra/agent_session_id")
+        .or_else(|| record.get("agent_session_id"))
+        .and_then(Value::as_str)
+}
+
+/// The state of the newest report the `harness` agent in `terminal` gave
+/// of itself in its live session, or `None` when it gave none there:
+/// - its own daemon agent records ([`reported_by_agent`]: hooks or the
+///   socket, not the screen-detection plugin) of that harness and of the
+///   session of the terminal's newest record of that harness; records of
+///   an earlier agent or session never count;
+/// - its program status records (OSC 7501 whose `app` is that harness),
+///   only when newer than that newest own record.
+///
+/// An own record that says the session ended (`done`) is `Ended`.
+pub(in crate::cli) fn own_report_state(
+    terminal: &Value,
+    agents: &[Value],
+    harness: &str,
+) -> Option<AgentState> {
     let id = terminal.get("id").and_then(Value::as_str)?;
-    let records = agents
+    let harness = super::super::agent_vocabulary::harness_name(harness);
+    let at = |record: &Value| record.get("updated_at_ms").and_then(number).unwrap_or(0);
+    let same = |record: &&Value| {
+        record.get("terminal_id").and_then(Value::as_str) == Some(id)
+            && record_harness(record).as_deref() == Some(harness.as_str())
+    };
+    let live = agents.iter().filter(same).max_by_key(|record| at(record)).and_then(record_session);
+    let own = agents
         .iter()
-        .filter(|record| record.get("terminal_id").and_then(Value::as_str) == Some(id))
-        .filter(|record| reported_by_agent(record));
-    let statuses = terminal
+        .filter(same)
+        .filter(|record| reported_by_agent(record))
+        .filter(|record| live.is_none_or(|live| record_session(record) == Some(live)))
+        .max_by_key(|record| at(record))?;
+    let own_state = match own.get("state").and_then(Value::as_str)? {
+        "done" => AgentState::Ended,
+        word => AgentState::from_record(word)?,
+    };
+    if own_state == AgentState::Ended {
+        return Some(own_state);
+    }
+    let status = terminal
         .pointer("/extra/program_status")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter(|record| record.get("app").and_then(text).is_some());
-    records
-        .chain(statuses)
-        .max_by_key(|record| record.get("updated_at_ms").and_then(number).unwrap_or(0))
-        .and_then(|record| record.get("state").and_then(Value::as_str))
+        .filter(|record| {
+            let app = record.get("app").and_then(Value::as_str);
+            app.map(super::super::agent_vocabulary::harness_name).as_deref()
+                == Some(harness.as_str())
+        })
+        .filter(|record| at(record) > at(own))
+        .max_by_key(|record| at(record));
+    match status {
+        Some(status) => {
+            status.get("state").and_then(Value::as_str).and_then(AgentState::from_record)
+        }
+        None => Some(own_state),
+    }
+}
+
+/// Whether the hooks cmux installs for `harness` report its dialogs: one
+/// of them asks for approval (cmux-tui-core
+/// `agent_hook_event_requests_approval`: Claude's and Codex's
+/// `PermissionRequest`, shown as `blocked`), and none is a `Notification`
+/// that ends a turn (Copilot-compatible runtimes, idle while a dialog
+/// waits). Derived from the installed hooks and their mapping, so it
+/// cannot drift from what the hooks do.
+pub(in crate::cli) fn hooks_report_dialogs(harness: &str) -> bool {
+    let notification_ends_turn = |source: &str, event: &str| {
+        event.eq_ignore_ascii_case("notification")
+            && cmux_tui_core::agent_hook_event_completes_turn(source, event)
+    };
+    harness_hooks_report(harness, cmux_tui_core::agent_hook_event_requests_approval)
+        && !harness_hooks_report(harness, notification_ends_turn)
 }
 
 /// Whether the hooks cmux installs for `harness` (any alias,

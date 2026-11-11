@@ -306,12 +306,14 @@ pub(in crate::cli) fn dialog_json(kind: &str, msg: Option<&str>, screen: &str) -
 /// are the daemon's agent records of that terminal.
 ///
 /// A `blocked` that only a screen guess gives (the screen-detection plugin)
-/// is `None` when the agent's own newest report
-/// (`roster::own_report_state`) says it is no longer blocked and the
-/// bottom rows of `screen` show its input box with no dialog options and no
-/// startup dialog: the plugin can read a screen just before the agent
-/// redraws it and then not read it again. Without an own report (an agent
-/// with no hooks), or when that report says blocked, the block holds.
+/// is `None` only when all of these hold: the harness's hooks report its
+/// dialogs (`roster::hooks_report_dialogs`), the newest own report of that
+/// agent's live session (`roster::own_report_state`) is idle or working,
+/// and the bottom rows of `screen` show its input box with no dialog
+/// options and no startup dialog. The plugin can read a screen just before
+/// the agent redraws it and then not read it again. Otherwise the block
+/// holds: an agent whose hooks report no dialog, or no own report, never
+/// ends it.
 pub(in crate::cli) fn blocked_dialog(
     terminal: &Value,
     agents: &[Value],
@@ -322,11 +324,13 @@ pub(in crate::cli) fn blocked_dialog(
         return None;
     }
     let screen_guess = matches!(row.source.as_str(), "plugin" | "detected");
-    let own_report_ended = roster::own_report_state(terminal, agents)
-        .and_then(roster::AgentState::from_record)
-        .is_some_and(|state| state != roster::AgentState::Blocked);
-    if screen_guess
-        && own_report_ended
+    let own_report_ended = screen_guess
+        && roster::hooks_report_dialogs(&row.harness)
+        && matches!(
+            roster::own_report_state(terminal, agents, &row.harness),
+            Some(roster::AgentState::Idle | roster::AgentState::Working)
+        );
+    if own_report_ended
         && readiness::composer_visible(&bottom_rows(screen).join("\n"))
         && options(screen).is_empty()
         && readiness::startup_dialog(screen).is_none()

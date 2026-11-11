@@ -503,6 +503,22 @@ pub fn agent_hook_event_starts_session(source: &str, native_event: &str) -> bool
     semantic_kind(source, native_event, &Map::new()) == "agent.session.started"
 }
 
+/// Whether `source`'s native hook event `native_event` asks the person to
+/// approve an action (`agent.approval.requested`, which the roster shows as
+/// `blocked`): Claude's and Codex's `PermissionRequest`. A harness none of
+/// whose hooks does never reports the permission dialogs it shows.
+pub fn agent_hook_event_requests_approval(source: &str, native_event: &str) -> bool {
+    semantic_kind(source, native_event, &Map::new()) == "agent.approval.requested"
+}
+
+/// Whether `source`'s native hook event `native_event` ends a turn
+/// (`agent.turn.completed`, which the roster shows as `idle`): Claude's
+/// `Stop`, and the `Notification` of Copilot-compatible runtimes, which also
+/// fires while a dialog waits.
+pub fn agent_hook_event_completes_turn(source: &str, native_event: &str) -> bool {
+    semantic_kind(source, native_event, &Map::new()) == "agent.turn.completed"
+}
+
 fn semantic_kind(
     source: &str,
     native_event: &str,
