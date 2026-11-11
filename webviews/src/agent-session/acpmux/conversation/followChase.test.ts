@@ -387,6 +387,8 @@ test("a chase whose first frame comes long after it was asked for (a covered vie
       for (const arrived of [false, true])
         for (const [lateMs, glides] of [
           [1000, false],
+          // FRAMELESS_MS itself is a covered stretch: "150 ms or more".
+          [150, false],
           [60, true],
         ] as const) {
           const chase = createFollowChase(arm);
