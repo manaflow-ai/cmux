@@ -796,10 +796,19 @@ fn shortcut_matches(
                 continue;
             };
             let key = keymap::menu_item_key(cmd_char.as_deref(), virtual_key, glyph);
-            // A key equivalent this walk cannot place could be the chord:
-            // while something is denied, the walk is then incomplete.
-            if key.unplaceable && d.denies_any() {
-                complete = false;
+            // While something is denied, a key equivalent this walk cannot
+            // place could be the chord, unless its Option, Control and
+            // Command already rule it out; and a key with no modifiers
+            // reported cannot be compared at all. Either makes the walk
+            // incomplete.
+            if d.denies_any() && !key.is_empty() {
+                match mods {
+                    Some(m) if key.unplaceable && keymap::menu_mods_match(combo, m) => {
+                        complete = false;
+                    }
+                    None => complete = false,
+                    Some(_) => {}
+                }
             }
             if !key.is_empty() && keymap::menu_item_matches(combo, &key, mods.unwrap_or(0)) {
                 let enabled = match node.attr("AXEnabled") {
@@ -813,7 +822,7 @@ fn shortcut_matches(
                 let (title, blocked, checked) = match text(&node, "AXTitle") {
                     Ok(t) => {
                         let t = t.unwrap_or_default();
-                        let blocked = d.menu_item_blocked(&node);
+                        let blocked = d.menu_item_blocked_titled(&node, &t);
                         (t, blocked, true)
                     }
                     // A title that cannot be read cannot be checked: blocked

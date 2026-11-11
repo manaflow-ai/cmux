@@ -201,6 +201,9 @@ pub struct MenuItemKey {
     /// The item has a key equivalent this table cannot place (a source it
     /// cannot map): the caller treats the walk as incomplete.
     pub unplaceable: bool,
+    /// The key's character itself means Shift (backtab, U+0019, is
+    /// shift+Tab).
+    pub implied_shift: bool,
 }
 
 impl MenuItemKey {
@@ -229,6 +232,7 @@ pub fn menu_item_key(
             }
             (Some(c), None) => {
                 special_char = true;
+                key.implied_shift = c == '\u{19}';
                 match special_char_code(c) {
                     Some(code) => key.codes.push(code),
                     None => key.unplaceable = true,
@@ -284,6 +288,17 @@ fn glyph_key_code(glyph: i64) -> Option<u16> {
     })
 }
 
+/// Whether a menu item's Option, Control and Command (AXMenuItemCmdModifiers)
+/// are the chord's: an item that differs there can never be the chord,
+/// whatever its key.
+pub fn menu_mods_match(combo: &crate::keys::KeyCombo, menu_mods: i64) -> bool {
+    let has = |m: Modifier| combo.modifiers.contains(&m);
+    let wanted = (if has(Modifier::Alt) { MENU_OPTION } else { 0 })
+        | (if has(Modifier::Control) { MENU_CONTROL } else { 0 })
+        | (if has(Modifier::Meta) { 0 } else { MENU_NO_COMMAND });
+    menu_mods & (MENU_OPTION | MENU_CONTROL | MENU_NO_COMMAND) == wanted
+}
+
 /// Whether a menu item's key equivalent is `combo`. `item` is the item's
 /// key from menu_item_key (AppKit reports a letter upper-case, with Shift
 /// in the modifiers).
@@ -293,14 +308,10 @@ pub fn menu_item_matches(
     menu_mods: i64,
 ) -> bool {
     let has = |m: Modifier| combo.modifiers.contains(&m);
-    // Option, Control and Command must be the same.
-    let wanted = (if has(Modifier::Alt) { MENU_OPTION } else { 0 })
-        | (if has(Modifier::Control) { MENU_CONTROL } else { 0 })
-        | (if has(Modifier::Meta) { 0 } else { MENU_NO_COMMAND });
-    if menu_mods & (MENU_OPTION | MENU_CONTROL | MENU_NO_COMMAND) != wanted {
+    if !menu_mods_match(combo, menu_mods) {
         return false;
     }
-    let menu_shift = menu_mods & MENU_SHIFT != 0;
+    let menu_shift = menu_mods & MENU_SHIFT != 0 || item.implied_shift;
     match (&combo.key, item.printable) {
         (Key::Char(c), Some(i)) => {
             // Compare the physical key and Shift. AppKit stores Zoom In as "+"
@@ -337,11 +348,11 @@ pub fn is_special_char(c: char) -> bool {
 /// in key equivalents (NSEvent's function-key characters), or None.
 pub fn special_char_code(c: char) -> Option<u16> {
     Some(match c as u32 {
-        0x7F | 0x08 => 51,  // Delete (backspace)
-        0x1B => 53,         // Escape
-        0x03 => 76,         // Enter (keypad)
-        0x0D => KEY_RETURN, // Return
-        0x09 => KEY_TAB,
+        0x7F | 0x08 => 51,                                            // Delete (backspace)
+        0x1B => 53,                                                   // Escape
+        0x03 => 76,                                                   // Enter (keypad)
+        0x0D => KEY_RETURN,                                           // Return
+        0x09 | 0x19 => KEY_TAB,                                       // Tab, backtab (shift+Tab)
         0x20 => 49,                                                   // Space
         0xF700 => 126,                                                // Up
         0xF701 => 125,                                                // Down
@@ -361,8 +372,9 @@ pub fn special_char_code(c: char) -> Option<u16> {
 /// A Services key equivalent as (key code, CGEvent flags), on the ANSI
 /// layout. Marks: "$" Shift, "^" Control, "~" Option, "@" Command. A
 /// service's own NSKeyEquivalent implies Command (`implied_command`); the
-/// person's assignments in System Settings spell it as "@". None for a key
-/// this table cannot place (the caller then treats the whole list as unread).
+/// person's assignments in System Settings spell it as "@". A key no posted
+/// chord can produce is placed at NO_KEY; None only when the text is not one
+/// key with marks (the caller then treats the whole list as unread).
 pub fn service_shortcut(equivalent: &str, implied_command: bool) -> Option<(u16, u64)> {
     let mut flags = if implied_command { FLAG_COMMAND } else { 0 };
     let mut key = None;
@@ -395,17 +407,21 @@ pub fn service_shortcut(equivalent: &str, implied_command: bool) -> Option<(u16,
         // F21..F24 have no key on a Mac keyboard: no posted chord can be one.
         return Some((NO_KEY, flags));
     }
-    let special = special_char_code(key);
-    if let Some(code) = special {
+    if let Some(code) = special_char_code(key) {
+        if key == '\u{19}' {
+            flags |= FLAG_SHIFT; // backtab is shift+Tab
+        }
         return Some((code, flags));
     }
     // Other function-key characters (Help, Insert, ...): no posted chord.
     if (0xF700..=0xF8FF).contains(&(key as u32)) {
         return Some((NO_KEY, flags));
     }
-    // A key this table cannot place (a non-ANSI letter, Help, Insert): no
-    // chord cmux posts can produce it, since press_keys posts only from this
-    // same table, so it cannot collide with one.
+    // A key this table cannot place (a non-ANSI letter, Insert, a control
+    // character with no key): no chord cmux posts can produce it, since
+    // press_keys posts only from these same tables, so it cannot collide with
+    // one. (A menu item's key the walk cannot place is different: it fails
+    // closed there, since the walk cannot tell which chord it is.)
     let Some((code, shift)) = char_key(key) else { return Some((NO_KEY, flags)) };
     if shift || key.is_ascii_uppercase() {
         // A capital or shifted character means Shift (services write "B" for ⇧⌘B).
