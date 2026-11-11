@@ -4,6 +4,7 @@ import {
   isSubpixelLayoutShift,
   judgePopups,
   judgeStep,
+  frameIsOfStep,
   LONG_FRAME_PARTS,
   longFramePart,
   overall,
@@ -450,7 +451,7 @@ async function measured(
   if (loafSupported) {
     const observer = new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) {
-        if (entry.duration <= 16.7) continue;
+        if (entry.duration <= 16.7 || !frameIsOfStep(entry, stepStart)) continue;
         longFrames.push(entry.duration);
         if (longFrameParts.length < LONG_FRAME_PARTS)
           longFrameParts.push(longFramePart(entry as LongFrameEntry, stepStart));
