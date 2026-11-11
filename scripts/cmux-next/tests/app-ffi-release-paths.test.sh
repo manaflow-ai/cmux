@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # The app FFI release workflow builds on a push that changes an FFI input, and
 # only then: its push paths are exactly the inputs that
-# scripts/cmux-next/check-app-ffi-pin.sh lists (--list-inputs: what the build
-# reads of each crate cmux-app-ffi reaches through Cargo path dependencies),
-# plus the workflow itself. The hand list lacked cmux-remote-browser, so the
+# scripts/cmux-next/check-app-ffi-pin.sh lists (--list-inputs: each crate
+# cmux-app-ffi reaches as a whole directory except its tests/, benches/ and
+# examples/, every path a scanned source names, the cargo configs, toolchain
+# files, build-app-ffi.sh and this workflow itself, which the list holds). The hand list lacked cmux-remote-browser, so the
 # rb-client push cf25b525a03b started no build (2026-10-07); a whole-crate glob
 # built a release, and the repin bot opened a repin, for a change only a test
 # reads (#39027, 2026-11-09).
@@ -13,16 +14,20 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
 workflow="$root/.github/workflows/app-ffi-release.yml"
 want="$(
   while IFS= read -r input; do
-    # An excluded pathspec is a negative pattern (the workflow lists them after every positive one).
+    # Each input is a `:(literal)` pathspec (no glob or magic in a found path); an excluded one, `:(exclude,literal)`, is a
+    # negative pattern (the workflow lists them after every positive one).
     negate=""
-    if [[ "$input" == ":(exclude)"* ]]; then negate="!"; input="${input#":(exclude)"}"; fi
+    case "$input" in
+      ":(exclude,literal)"*) negate="!"; input="${input#":(exclude,literal)"}" ;;
+      ":(literal)"*) input="${input#":(literal)"}" ;;
+      ":"*) echo "FAIL: --list-inputs printed a pathspec with other magic: $input" >&2; exit 1 ;;
+    esac
     # A directory input is a prefix (a crate, .cargo), whether or not it exists yet.
     case "${input##*/}" in
       .cargo) echo "\"$negate$input/**\"" ;;
       *) [[ -d "$root/$input" ]] && echo "\"$negate$input/**\"" || echo "\"$negate$input\"" ;;
     esac
   done < <(bash "$root/scripts/cmux-next/check-app-ffi-pin.sh" --list-inputs)
-  echo '".github/workflows/app-ffi-release.yml"'
 )"
 # The push paths: the list under `on: push: paths:`, up to the next key.
 have="$(awk '/^on:/ {on=1} on && /^    paths:/ {in_paths=1; next} in_paths && /^      - / {sub(/^      - /, ""); print; next}

@@ -399,11 +399,13 @@ class PullRequestTiers(unittest.TestCase):
         import cmux_next_route as route_module
         listed = subprocess.run(["bash", str(ROOT / "scripts/cmux-next/check-app-ffi-pin.sh"), "--list-inputs"],
                                 check=True, capture_output=True, text=True).stdout.split()
-        # The pin check lists each crate as its directory (and `:(exclude)` pathspecs for its tests); the router routes
-        # whole crates. cmux-tui/crates/.cargo and rust-toolchain(.toml) are cargo's own files above the crates.
-        crates = {"/".join(p.split("/")[:3]) + "/" for p in listed
-                  if p.startswith("cmux-tui/crates/") and (ROOT / "/".join(p.split("/")[:3]) / "Cargo.toml").is_file()}
-        self.assertTrue(crates)
+        # The pin check lists each input as a `:(literal)` pathspec, a crate as its directory, and an excluded test
+        # directory as an `:(exclude,literal)` pathspec; the router routes whole crates. Every listed directory that
+        # holds a Cargo.toml is a crate, wherever it is (cmux-tui/bindings/rust too).
+        plain = [p[len(":(literal)"):] if p.startswith(":(literal)") else p for p in listed
+                 if not p.startswith(":(exclude")]
+        crates = {p + "/" for p in plain if (ROOT / p / "Cargo.toml").is_file()}
+        self.assertIn("cmux-tui/crates/cmux-app-ffi/", crates)
         self.assertLessEqual(crates, set(route_module.app_ffi_inputs(ROOT)))
 
     def test_rust_an_app_scheme_build_phase_reads_runs_the_scheme_compile(self):
