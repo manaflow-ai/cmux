@@ -62,7 +62,7 @@ import importlib.machinery
 import modulefinder
 import os
 import re
-import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -72,6 +72,7 @@ from collections import Counter
 from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import Path
+from typing import NamedTuple
 
 import yaml
 
@@ -997,8 +998,6 @@ def sparse_runs(
 
 # --- workflows --------------------------------------------------------------------------------
 
-_OPERATOR_TOKENS = ("&&", "||", "|&", ";;", ";", "&", "|", "(", ")")
-_SHELL_OPERATORS = {*_OPERATOR_TOKENS, "!"}
 _SHELL_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _RUN_MODULE = re.compile(r"\bpython[\d.]*\b[^\n;&|]*?\s-m\s*([A-Za-z_][\w.]*)")
 _WORKSPACE = re.compile(r"^(?:\$\{\{\s*github\.workspace\s*\}\}|\$\{GITHUB_WORKSPACE\}|\$GITHUB_WORKSPACE\b)")
@@ -1077,68 +1076,229 @@ def _step_cwd(doc: dict, job: dict, step: dict, root: Path) -> str | None:
     return ""
 
 
-def _words(line: str) -> list[str] | None:
-    """A logical line's shell words and operators, or None when shlex cannot split it. shlex groups a
-    run of punctuation into one token (`);`, `()`, `))`): each is split into the operators it holds,
-    so `(cd x); y` closes its subshell before the `;`. A run with a redirection (`>&`) stays a word."""
-    lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
-    lexer.whitespace_split = True
-    try:
-        tokens = list(lexer)
-    except ValueError:
-        return None
-    words: list[str] = []
-    for token in tokens:
-        if not token or set(token) - set("();|&"):
-            words.append(token)
+class _Tok(NamedTuple):
+    """One token of a shell line: kind "word", "op" (structure: only an unquoted ( ) && || ; & | |&
+    or a case terminator), "redir" (a redirection operator) or "bad" (a ( right after a word: an
+    array, a function definition or a glob, all outside the grammar)."""
+
+    kind: str
+    text: str  # a word without its quotes; an operator as written
+    raw: str  # as written
+    quoted: bool  # some part of the word was quoted or escaped
+    start: int
+    end: int
+
+
+_OPS = (
+    "&&", "||", ";;&", ";;", ";&", "|&", "&>>", "&>", "<<<", "<<-", "<<", ">>", ">&", "<&", "<>", ">|",
+    ";", "&", "|", "(", ")", "<", ">",
+)
+_REDIRECTIONS = {"&>>", "&>", "<<<", "<<-", "<<", ">>", ">&", "<&", "<>", ">|", "<", ">"}
+_WORD_END = frozenset(" \t;&|()<>")
+
+
+def _skip_double(line: str, i: int) -> int | None:
+    """The index past the `"` that closes a double-quoted string whose body starts at `i`."""
+    while i < len(line):
+        c = line[i]
+        if c == "\\":
+            i += 2
+        elif c == '"':
+            return i + 1
+        elif line.startswith(("$(", "${"), i):
+            j = _skip_nested(line, i + 2, line[i + 1], ")" if line[i + 1] == "(" else "}")
+            if j is None:
+                return None
+            i = j
+        elif c == "`":
+            j = _skip_backtick(line, i + 1)
+            if j is None:
+                return None
+            i = j
+        else:
+            i += 1
+    return None
+
+
+def _skip_backtick(line: str, i: int) -> int | None:
+    while i < len(line):
+        if line[i] == "\\":
+            i += 2
+        elif line[i] == "`":
+            return i + 1
+        else:
+            i += 1
+    return None
+
+
+def _skip_nested(line: str, i: int, opener: str, closer: str) -> int | None:
+    """The index past the `closer` that matches an `opener` just before `i` ($( ... ), ${ ... },
+    <( ... )), skipping quotes and nested substitutions; None if it never closes."""
+    depth = 1
+    while i < len(line):
+        c = line[i]
+        if c == "\\":
+            i += 2
             continue
-        at = 0
-        while at < len(token):
-            op = next(op for op in _OPERATOR_TOKENS if token.startswith(op, at))
-            words.append(op)
-            at += len(op)
-    return words
+        if c == "'":
+            j = line.find("'", i + 1)
+            if j < 0:
+                return None
+            i = j + 1
+            continue
+        if c == '"' or c == "`":
+            j = _skip_double(line, i + 1) if c == '"' else _skip_backtick(line, i + 1)
+            if j is None:
+                return None
+            i = j
+            continue
+        if c == opener:
+            depth += 1
+        elif c == closer:
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return None
 
 
-def _command_words(command: list[str]) -> list[str]:
-    """A simple command's words without the reserved words that can come before it."""
-    at = 0
-    while at < len(command) and command[at] in _LEADING_RESERVED:
-        at += 1
-    return command[at:]
+def _shell_tokens(line: str) -> list[_Tok] | None:
+    """One logical line's tokens, or None when it does not lex (an unclosed quote or substitution).
+    Quoting decides structure: a quoted or escaped ( ) ; & | is part of a word, never an operator.
+    $( ... ), ${ ... }, backquotes, <( ... ) and >( ... ) stay inside the word they are in."""
+    toks: list[_Tok] = []
+    i, n = 0, len(line)
+    while i < n:
+        c = line[i]
+        if c in " \t":
+            i += 1
+            continue
+        if c == "#":
+            break  # a comment: the rest of the line
+        if c in "<>" and line.startswith("(", i + 1):  # process substitution
+            j = _skip_nested(line, i + 2, "(", ")")
+            if j is None:
+                return None
+            toks.append(_Tok("word", line[i:j], line[i:j], True, i, j))
+            i = j
+            continue
+        op = next((o for o in _OPS if line.startswith(o, i)), None)
+        if op is not None:
+            toks.append(_Tok("redir" if op in _REDIRECTIONS else "op", op, op, False, i, i + len(op)))
+            i += len(op)
+            continue
+        start, text, quoted = i, [], False
+        while i < n and line[i] not in _WORD_END:
+            c = line[i]
+            if c == "\\":
+                text.append(line[i + 1 : i + 2])
+                quoted = True
+                i += 2
+            elif c == "'":
+                j = line.find("'", i + 1)
+                if j < 0:
+                    return None
+                text.append(line[i + 1 : j])
+                quoted = True
+                i = j + 1
+            elif c == '"':
+                j = _skip_double(line, i + 1)
+                if j is None:
+                    return None
+                text.append(line[i + 1 : j - 1])
+                quoted = True
+                i = j
+            elif line.startswith(("$(", "${"), i):
+                j = _skip_nested(line, i + 2, line[i + 1], ")" if line[i + 1] == "(" else "}")
+                if j is None:
+                    return None
+                text.append(line[i:j])
+                i = j
+            elif c == "`":
+                j = _skip_backtick(line, i + 1)
+                if j is None:
+                    return None
+                text.append(line[i:j])
+                i = j
+            else:
+                text.append(c)
+                i += 1
+        toks.append(_Tok("word", "".join(text), line[start:i], quoted, start, i))
+        if i < n and line[i] == "(":
+            toks.append(_Tok("bad", "(", "(", False, i, i + 1))
+            i += 1
+    return toks
 
 
-_LEADING_RESERVED = {"then", "do", "else", "elif", "!", "time", "if", "while", "until", "{"}
-_COMPOUND_OPEN = {"if": "if", "while": "loop", "until": "loop", "for": "loop", "select": "loop", "case": "case"}
-_COMPOUND_CLOSE = {"fi": "if", "done": "loop", "esac": "case"}
-_CHANGES_DIR = re.compile(r"(?:^|[;&|(\s])(?:cd|pushd|popd)\b")
+def _line_commands(line: str) -> list[list[str]] | None:
+    """The words of each simple command on a logical line (redirections kept as words), split at
+    unquoted operators, without the reserved words before a command; None when it does not lex."""
+    toks = _shell_tokens(line)
+    if toks is None:
+        return None
+    commands: list[list[str]] = [[]]
+    for tok in toks:
+        if tok.kind in ("op", "bad"):
+            commands.append([])
+        elif tok.quoted or tok.text not in _LEADING_RESERVED or commands[-1]:
+            commands[-1].append(tok.text)
+    return [command for command in commands if command]
+
+
+_LEADING_RESERVED = {"then", "do", "else", "elif", "!", "time", "if", "while", "until", "{", "}"}
+_GIVES_UP = {"eval", "source", ".", "pushd", "popd", "case", "esac", "function", "select", "coproc", "]]"}
+_EXIT_TRAPS = {"EXIT", "0", "INT", "TERM", "HUP", "QUIT", "SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT"}
+_UNQUOTED_GLOB = re.compile(r"[*?\[]")
 _NOT_FOUND = object()
+_SUBSHELL_COMMAND = _Tok("word", "( ... )", "( ... )", True, 0, 0)
+
+
+def _command_name(command: list[_Tok]) -> tuple[_Tok | None, list[str]]:
+    """A simple command's name (after its VAR=value words) and its arguments' text."""
+    at = 0
+    while at < len(command) and not command[at].quoted and _SHELL_ASSIGNMENT.match(command[at].raw):
+        at += 1
+    if at == len(command):
+        return None, []
+    return command[at], [tok.text for tok in command[at + 1 :]]
 
 
 class _Shell:
-    """Where a run step's shell is, as far as this check can tell, read one logical line at a time: the
-    working directory is a repo folder, or None when it is unknown. Shell text is not straight-line
-    code, so it tracks the possible (directory, last status) pairs through an and-or list: a `cd` may
-    fail (it changes the directory only for what runs after it succeeds); `a && cd x` or `a || cd x`
-    may skip it. A list whose last pipeline fails ends the step under `bash -e` (GitHub's default
-    shell), so its failing branch does not go on; with errexit off it does. When a list ends, two
-    possible directories make it unknown. A ( ... ) subshell or $( ... ) restores the directory at its
-    matching ), across lines and next to other operators; a { ... } group keeps it. A cd in a
-    pipeline of two or more commands or in the background changes nothing (a subshell). A cd inside
-    an if, case, loop or function, a popd, a cd to a folder this check cannot resolve, or one on a
-    line shlex cannot split makes the directory unknown. An unknown directory never resolves again,
-    except by leaving the subshell that lost it."""
+    """Where a run step's shell is, read one logical line at a time: a repo folder, or None when this
+    check cannot tell. It reads only a small grammar and gives up everywhere else, for good:
+
+      - lists: pipelines joined by && and ||, ended by ;, & or the end of the line;
+      - pipelines of simple commands, optionally after !; ( ... ) subshells; { ... } groups;
+      - if / while / until / for blocks, read as one command: a cd anywhere inside one makes the
+        directory unknown;
+      - in a simple command, only cd (one plain argument), exit, return, set (errexit) and trap
+        (exit-time signals only) matter; every other command may succeed or fail and changes nothing.
+
+    Anything else gives up: case, functions, arrays, [[ ]], (( )), eval, source, ., pushd, popd,
+    exec with a command, builtin/command cd, a command name built from a variable or substitution,
+    shopt, CDPATH, a trap that can run mid-step, a here-doc (after its line), or a line that does not
+    lex. Structure comes only from unquoted operators (_shell_tokens).
+
+    It tracks the possible (directory, last status) pairs through an and-or list: a cd may fail, so
+    it changes the directory only for what runs after it succeeds; `a && cd x` or `a || cd x` may skip
+    it. A list whose last pipeline fails ends the step under errexit (bash -e, GitHub's default), so
+    its failing branch does not go on; with errexit off it does. When a list ends, two possible
+    directories make it unknown. A ( ... ) restores the directory at its matching ), across lines;
+    a cd in a pipeline of two or more commands or in the background changes nothing."""
 
     def __init__(self, cwd: str | None, root: Path, errexit: bool = True) -> None:
         self.root = root
         self.errexit = errexit
         self.states: tuple[tuple[str | None, bool], ...] = ((cwd, True),)
         self.op: str | None = None  # "&&" or "||" before the next pipeline, None at a list's start
-        self.tail: tuple[tuple, tuple] | None = None  # (outcomes, skipped) of the list's last pipeline
+        self.tail: tuple[tuple, tuple, bool] | None = None  # the list's last pipeline: (outcomes, skipped, negated)
         self.frames: tuple[tuple, ...] = ()
-        self.command: list[str] = []
-        self.group: tuple[str | None] | None = None  # the directory a { ... } group just closed with
-        self.pipe: list[tuple[list[str], tuple[str | None] | None]] = []
+        self.command: list[_Tok] = []
+        self.group: tuple | None = None  # what a { ... } or block just closed with: (cwd,), or () if it ended the step
+        self.pipe: list[tuple[list[_Tok], tuple | None]] = []
+        self.negate = False
+        self.cds = 0  # cd commands read, so a block knows whether it held one
+        self.condition = False  # inside [[ ... ]]: its operators are words
         self.lost = False
 
     def copy(self) -> "_Shell":
@@ -1161,13 +1321,10 @@ class _Shell:
         if self.op is None:
             return self.states, ()
         want = self.op == "&&"
-        return (
-            tuple(s for s in self.states if s[1] == want),
-            tuple(s for s in self.states if s[1] != want),
-        )
+        return tuple(s for s in self.states if s[1] == want), tuple(s for s in self.states if s[1] != want)
 
-    def _conditional(self) -> bool:
-        return any(frame[0] in ("if", "loop", "case", "func") for frame in self.frames)
+    def _in_block(self) -> bool:
+        return any(frame[0] == "block" for frame in self.frames)
 
     def _end_command(self, upto):
         command, self.command = self.command, []
@@ -1175,141 +1332,228 @@ class _Shell:
         if not command and group is None:
             return _NOT_FOUND
         self.pipe.append((command, group))
-        if upto is not None and command and upto(" ".join(command)):
+        if upto is not None and command and upto(" ".join(tok.text for tok in command)):
             return self._collapse(self._split()[0])
         return _NOT_FOUND
 
-    def _end_pipeline(self, background: bool = False) -> None:
+    def _allowed(self, command: list[_Tok]) -> bool:
+        """Whether this simple command is inside the grammar."""
+        name, words = _command_name(command)
+        if name is None:
+            return True
+        if "$" in name.raw or "`" in name.raw or name.text in _GIVES_UP:
+            return False  # a computed name may be cd
+        if name.text in ("builtin", "command") and set(words) & {"cd", "pushd", "popd", "eval", "source", "."}:
+            return False
+        if name.text == "exec" and words:
+            return False
+        if name.text == "shopt" and set(words) & {"cdable_vars", "autocd"}:
+            return False
+        return name.text != "trap" or set(words[1:]) <= _EXIT_TRAPS or words[:1] in (["-p"], ["-l"])
+
+    def _outcomes(self, command: list[_Tok], cwd: str | None) -> list[tuple[str | None, bool]]:
+        """A lone simple command's outcomes from `cwd`: it may succeed or fail; exit and return end
+        the path; a cd that succeeds lands in its folder (None when this check cannot resolve it)."""
+        name, _ = _command_name(command)
+        if name is not None and name.text in ("exit", "return"):
+            return []
+        if name is None or name.text != "cd":
+            return [(cwd, True), (cwd, False)]
+        args = command[command.index(name) + 1 :]
+        landed = None
+        if len(args) == 1 and not self._in_block():
+            arg = args[0]
+            plain = not arg.text.startswith("-") and "`" not in arg.raw
+            if plain and (arg.quoted or not _UNQUOTED_GLOB.search(arg.raw)):
+                landed = _resolve_dir(arg.text, cwd, self.root)
+        return [(landed, True), (cwd, False)]
+
+    def _end_pipeline(self, background: bool = False) -> bool:
+        """False when the check gives up."""
         pipe, self.pipe = self.pipe, []
+        negated, self.negate = self.negate, False
         if not pipe:
-            return
+            return True
+        for command, group in pipe:
+            if command and group is not None:
+                return False  # words after a block or group
+            if command and not self._allowed(command):
+                return False
+            name = _command_name(command)[0] if command else None
+            self.cds += name is not None and name.text == "cd"
         runs, skipped = self._split()
-        words, group = pipe[0]
-        words = _command_words(words)
-        alone = len(pipe) == 1 and not background
+        alone = len(pipe) == 1 and not background  # else each command runs in a subshell
+        command, group = pipe[0]
+        name, words = _command_name(command) if command else (None, [])
+        if alone and name is not None and name.text == "set":
+            for flag, following in zip(words, [*words[1:], ""]):
+                if re.fullmatch(r"[-+][A-Za-z]*e[A-Za-z]*", flag) or (flag in ("-o", "+o") and following == "errexit"):
+                    self.errexit = flag.startswith("-")
         outcomes: list[tuple[str | None, bool]] = []
         for cwd, _ in runs:
             if alone and group is not None:
-                outcomes += [(group[0], True), (group[0], False)]
-            elif alone and words[:1] in (["exit"], ["return"]):
-                pass  # the step (or subshell) ends on this path: nothing after it runs here
-            elif alone and words[:1] in (["cd"], ["pushd"], ["popd"]):
-                if words[0] == "popd" or self._conditional() or len(words) != 2:
-                    landed = None
-                else:
-                    landed = _resolve_dir(words[1], cwd, self.root)
-                outcomes += [(landed, True), (cwd, False)]
+                outcomes += [(group[0], True), (group[0], False)] if group else []
+            elif alone and command:
+                outcomes += self._outcomes(command, cwd)
             else:
                 outcomes += [(cwd, True), (cwd, False)]
-        if alone and words[:1] == ["set"]:  # set -e / +e / -o errexit / +o errexit
-            for flag, following in zip(words[1:], [*words[2:], ""]):
-                if re.fullmatch(r"[-+][A-Za-z]*e[A-Za-z]*", flag) or (flag in ("-o", "+o") and following == "errexit"):
-                    self.errexit = flag.startswith("-")
-        self.tail = (tuple(outcomes), skipped)
+        if negated:
+            outcomes = [(cwd, not ok) for cwd, ok in outcomes]
+        self.tail = (tuple(outcomes), skipped, negated)
         self.states = tuple(dict.fromkeys([*outcomes, *skipped]))
+        return True
 
     def _end_list(self) -> None:
         if self.tail is not None:
-            outcomes, skipped = self.tail
-            if self.errexit:  # the last pipeline failing ends the step
+            outcomes, skipped, negated = self.tail
+            if self.errexit and not negated:  # the last pipeline failing ends the step
                 outcomes = tuple(s for s in outcomes if s[1])
-            self.states = tuple(dict.fromkeys([*outcomes, *skipped])) or ((None, True),)
+            self.states = tuple(dict.fromkeys([*outcomes, *skipped]))
         self.tail = None
-        self.states = ((self.cwd, True),)
+        if self.states:
+            self.states = ((self.cwd, True),)
         self.op = None
 
     def _open(self, kind: str) -> None:
         runs = self._split()[0]
-        saved = (self.states, self.op, self.tail, tuple(self.command), tuple(self.pipe), self.errexit)
+        saved = (self.states, self.op, self.tail, tuple(self.command), tuple(self.pipe), self.errexit, self.negate, self.cds)
         self.frames += ((kind, saved),)
         self.states, self.op, self.tail = ((self._collapse(runs), True),), None, None
-        self.command, self.pipe = [], []
+        self.command, self.pipe, self.negate = [], [], False
 
     def _close(self) -> None:
-        kind, (states, op, tail, command, pipe, errexit) = self.frames[-1]
+        kind, (states, op, tail, command, pipe, errexit, negate, cds) = self.frames[-1]
         self.frames = self.frames[:-1]
-        inner = self.cwd
+        inner, ended = self.cwd, not self.states
+        start = self._collapse(self._split_of(states, op))
         self.states, self.op, self.tail = states, op, tail
-        self.command, self.pipe = list(command), list(pipe)
+        self.command, self.pipe, self.negate = list(command), list(pipe), negate
         if kind == "sub":
             self.errexit = errexit
-            if not command:
-                self.command = ["( ... )"]  # a subshell command: it leaves the directory as it was
-        else:  # a { ... } group: one command that leaves the directory where its list ended
-            self.group = (inner,)
+            self.command = [_SUBSHELL_COMMAND]  # it leaves the directory as it was
+        elif kind == "block":  # if / loop: unknown after a cd inside, else as it started
+            self.group = (start if self.cds == cds else None,)
+        else:  # a { ... } group: where its list ended, or nowhere when it ended the step
+            self.group = () if ended else (inner,)
+
+    @staticmethod
+    def _split_of(states, op) -> tuple:
+        if op is None:
+            return states
+        return tuple(s for s in states if s[1] == (op == "&&"))
 
     def feed(self, line: str, upto=None) -> str | None:
         """Read one logical line. With `upto`, stop at the first command whose text `upto` accepts and
         return the directory it runs in; otherwise (or when none matches) the directory after the line."""
-        words = _words(line)
-        if words is None:
-            if _CHANGES_DIR.search(line):
+        if self.lost:
+            return None
+        toks = _shell_tokens(line)
+        if toks is None or "CDPATH" in line:
+            self.lost = True
+            return None
+        joined = bool(toks) and toks[-1].kind == "op" and toks[-1].text in ("&&", "||", "|", "|&")
+        here_doc = False
+        redirect = False
+        end = _Tok("op", "\n", "\n", False, len(line), len(line))
+        for at, tok in enumerate(toks if joined else [*toks, end]):
+            if self.condition and tok is not end:
+                self.command.append(tok)  # [[ ... ]]: one command, whatever it holds
+                self.condition = not (tok.kind == "word" and not tok.quoted and tok.text == "]]")
+                continue
+            if tok.kind == "bad":
+                self.lost = True  # an array, a function definition or a glob group
+                return None
+            if redirect:
+                redirect = False
+                if tok.kind == "word":
+                    continue  # the redirection's target
                 self.lost = True
-            return self.cwd
-        joined = bool(words) and words[-1] in ("&&", "||", "|", "|&")
-        tokens = words if joined else [*words, "\n"]
-        skip_next = False
-        for at, word in enumerate(tokens):
-            if skip_next:
-                skip_next = False
+                return None
+            if tok.kind == "redir":
+                previous = self.command[-1] if self.command else None
+                if previous is not None and previous.end == tok.start and previous.raw.isdigit():
+                    self.command.pop()  # 2>&1: the 2 is the redirection's
+                here_doc |= tok.text in ("<<", "<<-")
+                redirect = True
                 continue
-            if word not in _OPERATOR_TOKENS and word != "\n":
-                top = self.frames[-1] if self.frames else None
-                if word == "{" and top is not None and top[0] == "func" and not top[1]:
-                    self.frames = (*self.frames[:-1], ("func", True))
-                    self.command = []
-                elif self.command or self.group is not None:
-                    self.command.append(word)
-                elif word in _COMPOUND_OPEN:
-                    self.frames += ((_COMPOUND_OPEN[word], None),)
-                elif word in _COMPOUND_CLOSE or word == "function":
-                    if word == "function":
-                        self.frames += (("func", False),)
-                    elif top is not None and top[0] == _COMPOUND_CLOSE[word]:
-                        self.frames = self.frames[:-1]
-                elif word in ("then", "do", "else", "elif", "!", "time"):
-                    pass
-                elif word == "{":
-                    self._open("group")
-                elif word == "}" and top is not None and top[0] in ("group", "func"):
-                    if top[0] == "group":
-                        self._close()
-                    else:
-                        self.frames = self.frames[:-1]
-                else:
-                    self.command.append(word)
+            if tok.kind == "word":
+                if not self._word(tok):
+                    self.lost = True
+                    return None
                 continue
-            if word == "(":
-                if len(self.command) == 1 and at + 1 < len(tokens) and tokens[at + 1] == ")":
-                    self.frames += (("func", False),)  # name() { ... }: a function definition
-                    self.command = []
-                    skip_next = True
-                elif self.frames and self.frames[-1] == ("func", False):
-                    skip_next = at + 1 < len(tokens) and tokens[at + 1] == ")"  # function name() {
-                else:
-                    self._open("sub")
+            if tok.text == "(":
+                following = toks[at + 1] if at + 1 < len(toks) else None
+                if self.command or self.group is not None or (following is not None and following.text == "(" and following.start == tok.end):
+                    self.lost = True  # ( in an argument, or (( arithmetic ))
+                    return None
+                self._open("sub")
                 continue
+            if tok.text in (";;", ";&", ";;&") or (tok.text == ")" and not (self.frames and self.frames[-1][0] == "sub")):
+                self.lost = True  # case, or a ) this check cannot place
+                return None
             found = self._end_command(upto)
             if found is not _NOT_FOUND:
                 return found
-            if word in ("|", "|&"):
+            if tok.text in ("|", "|&"):
                 continue
-            if word == ")" and not (self.frames and self.frames[-1][0] == "sub"):
-                self.pipe = []  # a case pattern's ), or one this check cannot place: no command ran
-                continue
-            self._end_pipeline(background=word == "&")
-            if word in ("&&", "||"):
-                self.op = word
+            if not self._end_pipeline(background=tok.text == "&"):
+                self.lost = True
+                return None
+            if tok.text in ("&&", "||"):
+                self.op = tok.text
                 continue
             self._end_list()
-            if word == ")":
+            if tok.text == ")":
                 self._close()
+        if redirect or self.condition:
+            self.lost = True
+        if here_doc:
+            self.lost = True  # its body is not shell, and this check does not follow where it ends
         return self.cwd
 
+    def _word(self, tok: _Tok) -> bool:
+        """Read one word; False when the check gives up."""
+        if self.command or self.group is not None:
+            if self.group is not None:
+                return False  # words after a block or group
+            self.command.append(tok)
+            return True
+        if tok.quoted:
+            self.command.append(tok)
+            return True
+        top = self.frames[-1][0] if self.frames else None
+        word = tok.text
+        if word in ("if", "while", "until", "for"):
+            self._open("block")
+        elif word in ("fi", "done"):
+            if top != "block":
+                return False
+            self._close()
+        elif word in ("then", "do", "else", "elif"):
+            return top == "block"
+        elif word == "{":
+            self._open("group")
+        elif word == "}":
+            if top != "group":
+                return False
+            self._close()
+        elif word == "!":
+            self.negate = not self.negate
+        elif word == "time":
+            pass
+        elif word in _GIVES_UP:
+            return False
+        else:
+            self.command.append(tok)
+            self.condition = word == "[["
+        return True
 
-def _step_errexit(doc: dict, job: dict, step: dict) -> bool:
-    """Whether the step's shell stops at a failing command: GitHub runs bash and sh with -e unless the
-    step (or the job's or workflow's defaults.run) names a shell command line without it."""
+
+def _step_shell(doc: dict, job: dict, step: dict) -> bool | None:
+    """Whether the step's shell stops at a failing command (GitHub runs bash and sh with -e unless the
+    step, or the job's or workflow's defaults.run, names a shell command line without it), or None
+    when the shell is not bash or sh (pwsh, python, cmd...): then the run is not shell text this
+    check reads."""
     for scope, key in ((step, None), (job, "defaults"), (doc, "defaults")):
         if not isinstance(scope, dict):
             continue
@@ -1317,7 +1561,9 @@ def _step_errexit(doc: dict, job: dict, step: dict) -> bool:
         shell = holder.get("shell") if isinstance(holder, dict) else None
         if shell is not None:
             shell = str(shell).strip()
-            return shell in ("bash", "sh") or bool(re.search(r"\s-[A-Za-z]*e", shell))
+            if shell.split(" ", 1)[0].rsplit("/", 1)[-1] not in ("bash", "sh"):
+                return None
+            return shell in ("bash", "sh") or bool(re.search(r"\s-[A-Za-z]*e|\s-o\s+errexit", shell))
     return True
 
 
@@ -1330,18 +1576,10 @@ def _run_kind(text: str) -> str:
 
 
 def _script_command(line: str, script: str, how: tuple[str, str] | None) -> str:
-    """The command on this logical line that names `script` (the whole line if shlex cannot split it)."""
-    words = _words(line)
-    if words is None:
-        return line
-    command: list[str] = []
-    for word in [*words, ";"]:
-        if word not in _SHELL_OPERATORS:
-            command.append(word)
-        elif _mentions(" ".join(_command_words(command)), script, how):
-            return " ".join(_command_words(command))
-        else:
-            command = []
+    """The command on this logical line that names `script` (the whole line if it does not lex)."""
+    for command in _line_commands(line) or []:
+        if _mentions(" ".join(command), script, how):
+            return " ".join(command)
     return line
 
 
@@ -1353,7 +1591,7 @@ def _run_lines(
     a _Shell to copy and never change) per logical line of a run script. How: "module" (-m), "code" (-c), "stdin" (`python -`, `python <`, or
     the body of a heredoc fed to python, whose command line is the heredoc's), "text" (the body of
     another command's heredoc), else "script". Parsed once per step, not once per listed script."""
-    return tuple(_run_lines_uncached(run, root, start))
+    return tuple(_run_lines_uncached(run, root, start, errexit))
 
 
 def _run_lines_uncached(run: str, root: Path, start: str | None, errexit: bool = True):
@@ -1427,17 +1665,11 @@ def _command_env(
 ) -> dict[str, str] | None:
     """The VAR=value words before the command on this logical line that runs `script` (or, given
     `needle`, the first command containing it: the python a heredoc feeds) ({} if none, or no command
-    on it names the script); None when shlex cannot split the line."""
-    words = _words(line)
-    if words is None:
+    on it names the script); None when the line does not lex."""
+    commands = _line_commands(line)
+    if commands is None:
         return None
-    commands: list[list[str]] = [[]]
-    for word in words:
-        if word in _SHELL_OPERATORS:
-            commands.append([])
-        else:
-            commands[-1].append(word)
-    for command in map(_command_words, commands):
+    for command in commands:
         if not (needle in " ".join(command) if needle else _mentions(" ".join(command), script, how)):
             continue
         assigned: dict[str, str] = {}
@@ -1460,7 +1692,7 @@ def run_configs(
     no such step, the job's (workflow then job) env. sys.path[0] is the script's folder for `python
     script.py`; for `python -m`, `python -c` and Python reading stdin it is the working directory (the
     step's working-directory and the `cd`s before the command), as Python puts it there. A line naming
-    the script that shlex cannot split, a step that sets PYTHONPATH any other way (export, another
+    the script that does not lex, a step that sets PYTHONPATH any other way (export, another
     command), a working directory this check cannot resolve, or a `python -m` whose module is in
     neither the working directory nor PYTHONPATH, cannot be verified."""
     values: list[tuple[object, str, str | None]] = []
@@ -1471,7 +1703,9 @@ def run_configs(
             continue
         consumed = 0
         named = False
-        lines = _run_lines(step["run"], root, _step_cwd(doc, job, step, root), _step_errexit(doc, job, step))
+        errexit = _step_shell(doc, job, step)
+        start = _step_cwd(doc, job, step, root) if errexit is not None else None
+        lines = _run_lines(step["run"], root, start, bool(errexit))
         for line, command_line, kind, shell in lines:
             if not _mentions(line, script, how):
                 continue
@@ -1637,6 +1871,277 @@ def find_misses(root: Path, audit: dict[tuple[str, ...], str] | None = None) -> 
         misses += [f"{prefix}{rel} unverifiable: {SEARCH_DOES_NOT_SETTLE} ({what})" for rel, what in sorted(unsettled.items())]
         misses += sorted(set(bad_paths))
     return misses + stale_audit_entries(root, audit)
+
+
+# --- shell fixtures and the bash oracle -------------------------------------------------------
+#
+# Each shape: (run, errexit, script, the directory `python3 script` starts in by this check; None
+# is unknown). The bash oracle below runs every one of them in bash itself.
+
+_SHELL_FOLDERS = ("scripts/ci", "scripts/a", "lib")
+_CI = "scripts/ci"
+_SHELL_SHAPES: tuple[tuple[str, bool, str, str | None], ...] = (
+    # Subshells end at their matching ), across lines and next to other operators.
+    ("(\ncd scripts/ci\n)\npython3 x", True, "x", ""),
+    ("(cd scripts/ci && true); python3 x", True, "x", ""),
+    ("x=$(cd scripts/ci && pwd)\npython3 x", True, "x", ""),
+    ("cd scripts && (cd ci; python3 x)", True, "x", _CI),
+    # A pipeline or & runs its commands in subshells.
+    ("cd scripts/ci | cat\npython3 x", True, "x", ""),
+    ("cd scripts/ci &\npython3 x", True, "x", ""),
+    # Known: a cd that must have worked.
+    ("cd scripts/ci\npython3 x", True, "x", _CI),
+    ("cd scripts/ci; python3 x", True, "x", _CI),
+    ("cd scripts/ci && python3 x", True, "x", _CI),
+    ("cd scripts/ci &&\n  python3 x", True, "x", _CI),
+    ("cd scripts/ci || exit 1\npython3 x", True, "x", _CI),
+    ("{ cd scripts/ci; }\npython3 x", True, "x", _CI),
+    ("cd \"scripts/ci\"\npython3 x", True, "x", _CI),
+    ("cd ${{ github.workspace }}/scripts/ci\npython3 x", True, "x", _CI),
+    ("if true; then echo; exit 1; fi\ncd scripts/ci\npython3 x", True, "x", _CI),
+    ("for f in a b; do echo \"$f\"; done\npython3 x", True, "x", ""),
+    ("cd scripts/ci 2>&1 > /dev/null\npython3 x", True, "x", _CI),
+    ("! true\ncd scripts/ci\npython3 x", True, "x", _CI),
+    # Unknown: a cd that may not have run.
+    ("true || cd scripts/ci\npython3 x", True, "x", None),
+    ("true && cd scripts/ci\npython3 x", True, "x", None),
+    ("true && { cd scripts/ci; }\npython3 x", True, "x", None),
+    ("! cd scripts/ci\npython3 x", True, "x", None),
+    ("if true; then cd scripts/ci; fi\npython3 x", True, "x", None),
+    ("if true; then\n  cd scripts/ci\nfi\npython3 x", True, "x", None),
+    ("for d in a; do cd scripts/ci; done\npython3 x", True, "x", None),
+    ("while false; do\n  cd scripts/ci\ndone\npython3 x", True, "x", None),
+    # Review of #41035, F1: without errexit a failed cd goes on.
+    ("set +e\ncd scripts/ci\npython3 x", True, "x", None),
+    ("cd scripts/ci\npython3 x", False, "x", None),
+    ("cd scripts/ci || exit 1\npython3 x", False, "x", _CI),
+    ("set -e\ncd scripts/ci\npython3 x", False, "x", _CI),
+    # F2: case (with or without a leading ( in its pattern) is outside the grammar.
+    ("case a in (a) cd scripts/ci;; esac\npython3 x", True, "x", None),
+    ("case a in a) cd scripts/ci;; esac\npython3 x", True, "x", None),
+    ("case a in (b) true;; esac\npython3 x", True, "x", None),
+    # F3: quoted punctuation is a word, never structure.
+    ("echo '('\ncd scripts/ci\necho ')'\npython3 x", True, "x", _CI),
+    ("echo \")\" ; cd scripts/ci\npython3 x", True, "x", _CI),
+    ("echo \\( && true\ncd scripts/ci\npython3 x", True, "x", _CI),
+    ("(echo ')'; cd scripts/ci)\npython3 x", True, "x", ""),
+    ("echo '&&' || cd scripts/ci\npython3 x", True, "x", None),
+    ("echo 'a;b' # ) ; cd scripts/ci\npython3 x", True, "x", ""),
+    # Outside the grammar: the directory is unknown from there on.
+    ("go() { cd scripts/ci; }\npython3 x", True, "x", None),
+    ("function go {\n  cd scripts/ci\n}\npython3 x", True, "x", None),
+    ("go() { true; }\npython3 x", True, "x", None),
+    ("arr=(a b)\npython3 x", True, "x", None),
+    ("eval 'cd scripts/ci'\npython3 x", True, "x", None),
+    ("source /dev/null\npython3 x", True, "x", None),
+    (". /dev/null\npython3 x", True, "x", None),
+    ("pushd scripts/ci\npython3 x", True, "x", None),
+    ("popd\npython3 x", True, "x", None),
+    ("builtin cd scripts/ci\npython3 x", True, "x", None),
+    ("D=cd; $D scripts/ci\npython3 x", True, "x", None),
+    ("$(echo cd) scripts/ci\npython3 x", True, "x", None),
+    ("CDPATH=scripts cd ci\npython3 x", True, "x", None),
+    ("(( 1 )) && cd scripts/ci\npython3 x", True, "x", None),
+    ("[[ -d scripts/ci && 1 < 2 ]] && cd scripts/ci\npython3 x", True, "x", None),
+    ("[[ \"$x\" =~ ^(a|b)$ ]] || true\ncd scripts/ci\npython3 x", True, "x", _CI),
+    ("trap 'cd scripts/ci' ERR\npython3 x", True, "x", None),
+    ("cat <<EOF\ncd scripts/ci\nEOF\npython3 x", True, "x", None),
+    ("echo 'unclosed\npython3 x", True, "x", None),
+    # Ones that stay known around constructs that look alike.
+    ("trap 'rm -f t' EXIT\ncd scripts/ci\npython3 x", True, "x", _CI),
+    ("command -v python3\ncd scripts/ci\npython3 x", True, "x", _CI),
+    ("python3 - <<'EOF'\nprint(1)\nEOF", True, "-", ""),
+    # The differential oracle's run shapes.
+    ("cd scripts/ci && PYTHONPATH=lib python3 entry.py", True, "entry.py", _CI),
+    ("cd scripts && PYTHONPATH=lib python3 -m ci.entry", True, "-m", "scripts"),
+)
+_OR_SHAPES: tuple[tuple[str, str, str | None], ...] = (
+    ("cd scripts/ci && true || python3 x.py", "x.py", None),
+    ("cd scripts/ci && python3 a.py || python3 b.py", "a.py", _CI),
+    ("cd scripts/ci && python3 a.py || python3 b.py", "b.py", None),
+    ("cd scripts/ci && python3 a.py || python3 b.py && python3 c.py", "c.py", None),
+    ("cd scripts/ci && true || true\npython3 d.py", "d.py", None),
+)
+
+
+def _shell_cwds(run: str, root: Path, errexit: bool, script: str) -> list[str | None]:
+    """The directory this check gives `python3 script` on each logical line that names it."""
+    needle = f"python3 {script}"
+    return [
+        shell.copy().feed(line, lambda command: needle in command)
+        for line, _, kind, shell in _run_lines_uncached(run, root, "", errexit)
+        if needle in line and kind != "text"
+    ]
+
+
+_BASH_PRELUDE = r"""
+exec 3>>"$__ORACLE_OUT"
+__oracle_decide() {
+  # The count lives in a file: command_not_found_handle and ( ... ) run in subshells.
+  local i
+  i=$(( $(<"$__ORACLE_N") + 1 ))
+  echo "$i" > "$__ORACLE_N"
+  if [ "$i" -gt 64 ]; then exit 97; fi
+  echo "__STUB" >&3
+  [ "${__ORACLE_BITS:i-1:1}" != 1 ]
+}
+python() { echo "__PY ${BASH_LINENO[0]} $PWD" >&3; __oracle_decide; }
+kill() { __oracle_decide; }
+exec() { __oracle_decide; }
+ulimit() { __oracle_decide; }
+python3() { echo "__PY ${BASH_LINENO[0]} $PWD" >&3; __oracle_decide; }
+command_not_found_handle() { __oracle_decide; }
+"""
+_BASH_PATHS = 32  # paths per run at most: every success/failure mix up to 5 stubbed commands, else a sample
+_PYTHON_CALL = re.compile(r"(?<![\w./$-])python3?(?![\w.-])")
+
+
+def _bash_runs(run: str, root: Path, start: str, errexit: bool, bits: str, tmp: Path) -> tuple[int, list[tuple[int, str]]] | None:
+    """Run `run` in bash from root/start, every command but bash's builtins stubbed (succeeding or
+    failing by `bits`, one per call, then succeeding) and python/python3 reporting $PWD. Returns (stub
+    calls, [(physical line, $PWD) per python call]), or None when it does not finish in 5 s."""
+    out = tmp / f"out-{bits or 'none'}"
+    out.write_text("")
+    (tmp / "count").write_text("0")
+    script = tmp / "run.sh"
+    text = run.replace("${{ github.workspace }}", str(root))
+    script.write_text(re.sub(r"\$\{\{.*?\}\}", "expr", text))
+    empty = tmp / "path"
+    empty.mkdir(exist_ok=True)
+    env = {
+        "PATH": str(empty), "HOME": str(tmp), "BASH_ENV": str(tmp / "prelude.sh"), "__ORACLE_OUT": str(out), "__ORACLE_N": str(tmp / "count"),
+        "__ORACLE_BITS": bits, "GITHUB_WORKSPACE": str(root), "GITHUB_OUTPUT": str(tmp / "gh-out"),
+        "GITHUB_ENV": str(tmp / "gh-env"), "GITHUB_STEP_SUMMARY": str(tmp / "gh-summary"), "GITHUB_PATH": str(tmp / "gh-path"),
+    }
+    (tmp / "prelude.sh").write_text(_BASH_PRELUDE)
+    flags = ["-e"] if errexit else []
+    try:
+        subprocess.run(
+            [_BASH, "--noprofile", "--norc", *flags, str(script)], cwd=root / start, env=env,
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5,
+            start_new_session=True,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    calls, seen = 0, []
+    for line in out.read_text(errors="replace").splitlines():
+        if line == "__STUB":
+            calls += 1
+        elif line.startswith("__PY "):
+            _, number, pwd = line.split(" ", 2)
+            seen.append((int(number), pwd))
+    return calls, seen
+
+
+_BASH = shutil.which("bash") or "/bin/bash"
+_bash_oracle_plant = False  # test hook, see test_fixture_bash_oracle_catches_a_wrong_known_directory
+
+
+def _bit_paths(calls: int) -> list[str]:
+    if 2 ** calls <= _BASH_PATHS:
+        return [format(n, f"0{calls}b") if calls else "" for n in range(2 ** calls)]
+    paths = ["", "1" * calls]
+    paths += ["0" * k + "1" for k in range(calls)]
+    paths += ["1" * k + "0" for k in range(1, calls)]
+    return list(dict.fromkeys(paths))[:_BASH_PATHS]
+
+
+def bash_oracle_case(case: tuple[str, str, bool, frozenset[str], str]) -> list[tuple[str, str]]:
+    """(outcome, detail) per logical line of one run that calls python in bash: "agree" (this check's
+    known directory is where bash ran python on every path), "unknown" (this check gives None),
+    "skipped" (more than one python call on the line), "timeout", or "disagree" with the details."""
+    label, run, errexit, folders, start = case
+    out: list[tuple[str, str]] = []
+    with tempfile.TemporaryDirectory() as tmp_name:
+        tmp = Path(tmp_name).resolve()
+        root = tmp / "repo"
+        for folder in {*folders, start}:
+            (root / folder).mkdir(parents=True, exist_ok=True)
+        first = _bash_runs(run, root, start, errexit, "", tmp)
+        if first is None:
+            return [("timeout", label)]
+        observed: dict[int, set[str]] = {}
+        for bits in _bit_paths(first[0]):
+            result = first if bits == "" else _bash_runs(run, root, start, errexit, bits, tmp)
+            if result is None:
+                out.append(("timeout", f"{label} bits {bits}"))
+                continue
+            for number, pwd in result[1]:
+                rel = os.path.relpath(pwd, root)
+                observed.setdefault(number, set()).add("" if rel == "." else rel if not rel.startswith("..") else "<outside>")
+        physical: dict[int, int] = {}
+        logical = 0
+        for number, text in enumerate(run.split("\n"), 1):
+            physical[number] = logical
+            if not text.endswith("\\"):
+                logical += 1
+        lines = list(_run_lines_uncached(run, root, start, errexit))
+        by_line: dict[int, set[str]] = {}
+        for number, places in observed.items():
+            by_line.setdefault(physical.get(number, -1), set()).update(places)
+        for index, places in sorted(by_line.items()):
+            if not 0 <= index < len(lines):
+                out.append(("skipped", f"{label}: line {index}"))
+                continue
+            line, _, kind, shell = lines[index]
+            if kind == "text" or len(_PYTHON_CALL.findall(line)) != 1:
+                out.append(("skipped", f"{label}: {line.strip()[:80]}"))
+                continue
+            checked = shell.copy().feed(line, lambda command: bool(_PYTHON_CALL.search(command)))
+            if _bash_oracle_plant and checked is not None:
+                checked = "<planted>"  # test hook: a checker that is wrong wherever it knows
+            if checked is None:
+                out.append(("unknown", label))
+            elif places == {checked}:
+                out.append(("agree", label))
+            else:
+                out.append(("disagree", f"{label}: {line.strip()[:80]!r}: this check {checked!r}, bash {sorted(places)}"))
+    return out
+
+
+def bash_oracle_cases(root: Path | None = None) -> list[tuple[str, str, bool, frozenset[str], str]]:
+    """Every shell fixture in this file, and, given the repo `root`, every workflow run step in bash
+    or sh that calls python and changes folder (its folders and working directory as in the repo)."""
+    folders = frozenset(_SHELL_FOLDERS)
+    cases = [(f"shape {run!r}", run, errexit, folders, "") for run, errexit, _, _ in _SHELL_SHAPES]
+    cases += [(f"or {run!r}", run, True, folders, "") for run in dict.fromkeys(r for r, _, _ in _OR_SHAPES)]
+    if root is None:
+        return cases
+    repo_folders = frozenset(
+        rel.rsplit("/", 1)[0] for rel in _tree_files(root) if "/" in rel
+    )
+    for path in sorted((root / ".github" / "workflows").glob("*.y*ml")):
+        doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        for job_id, job in ((doc.get("jobs") or {}) if isinstance(doc, dict) else {}).items():
+            for index, step in enumerate((job or {}).get("steps") or []):
+                run = step.get("run") if isinstance(step, dict) else None
+                if not isinstance(run, str) or not _PYTHON_CALL.search(run):
+                    continue
+                if not re.search(r"\b(?:cd|pushd|popd)\b|\(", run):
+                    continue
+                errexit = _step_shell(doc, job or {}, step)
+                start = _step_cwd(doc, job or {}, step, root)
+                if errexit is None or start is None:
+                    continue
+                folders = frozenset(f for f in repo_folders if f in run)
+                cases.append((f"{path.name} {job_id} step {index}", run, errexit, folders, start))
+    return cases
+
+
+def run_bash_oracle(cases) -> tuple[Counter, list[str]]:
+    import multiprocessing
+    from concurrent.futures import ProcessPoolExecutor
+
+    counts: Counter = Counter()
+    disagreements: list[str] = []
+    workers = max(1, os.cpu_count() or 1)
+    with ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context("fork")) as pool:
+        for results in pool.map(bash_oracle_case, cases, chunksize=4):
+            for outcome, detail in results:
+                counts[outcome] += 1
+                if outcome == "disagree":
+                    disagreements.append(detail)
+    return counts, disagreements
 
 
 # --- tests ------------------------------------------------------------------------------------
@@ -2085,7 +2590,7 @@ class SparseCheckoutImportTests(unittest.TestCase):
             ),
             ["w.yml run Check out: scripts/ci/pp_user.py imports scripts/actual/pphelper.py, not in its sparse checkout"],
         )
-        # A line naming the script that shlex cannot split, or an export, cannot be verified.
+        # A line naming the script that does not lex, or an export, cannot be verified.
         self.assertEqual(
             self._misses(
                 self.block("scripts/ci/pp_user.py", "scripts/defaults/pphelper.py"),
@@ -2338,70 +2843,43 @@ class SparseCheckoutImportTests(unittest.TestCase):
             ],
         )
 
+    def test_fixture_review_41041_f1_a_step_shell_without_errexit_is_read_without_it(self) -> None:
+        # `shell: bash {0}` runs without -e: the cd may fail and the step go on in the repo root, so the
+        # -c run's directory is unknown, through run_configs. GitHub's default and `shell: bash` keep -e.
+        listed = self.block("scripts/ci/wentry.py", "scripts/ci/witness.py")
+        run = self.block("cd scripts/ci", self.WITNESS_RUN)
+        self.assertEqual(
+            self._misses(listed, run=run, run_env="shell: bash {0}", more=self.WITNESS),
+            [
+                "w.yml run Check out: scripts/ci/wentry.py runs in a step that sets or reads PYTHONPATH where "
+                "this check cannot follow it",
+                "w.yml run Check out: scripts/ci/wentry.py runs with `python -c` from a working directory this "
+                "check cannot resolve",
+            ],
+        )
+        for shell in ("", "shell: bash", "shell: bash -e {0}"):
+            with self.subTest(shell=shell or "(default)"):
+                self.assertEqual(self._misses(listed, run=run, run_env=shell, more=self.WITNESS), [])
+
     def test_fixture_review_41017_the_shell_directory_in_every_shape(self) -> None:
-        # The directory `python3 x` starts in, after each shape; None is unknown (the run is unverifiable).
-        ci = "scripts/ci"
-        shapes = {
-            "(\ncd scripts/ci\n)\npython3 x": "",
-            "(cd scripts/ci && true); python3 x": "",
-            "x=$(cd scripts/ci && pwd)\npython3 x": "",
-            "cd scripts/ci | cat\npython3 x": "",
-            "cd scripts/ci &\npython3 x": "",
-            "cd scripts/ci\npython3 x": ci,
-            "cd scripts/ci; python3 x": ci,
-            "cd scripts/ci && python3 x": ci,
-            "cd scripts/ci &&\n  python3 x": ci,
-            "cd scripts/ci || exit 1\npython3 x": ci,
-            "{ cd scripts/ci; }\npython3 x": ci,
-            "cd scripts && (cd ci; python3 x)": ci,
-            "true || cd scripts/ci\npython3 x": None,
-            "true && cd scripts/ci\npython3 x": None,
-            "true && { cd scripts/ci; }\npython3 x": None,
-            "if true; then cd scripts/ci; fi\npython3 x": None,
-            "if true; then\n  cd scripts/ci\nfi\npython3 x": None,
-            "case a in a) cd scripts/ci;; esac\npython3 x": None,
-            "for d in a; do cd scripts/ci; done\npython3 x": None,
-            "while false; do\n  cd scripts/ci\ndone\npython3 x": None,
-            "go() { cd scripts/ci; }\npython3 x": None,
-            "function go {\n  cd scripts/ci\n}\npython3 x": None,
-            "set +e\ncd scripts/ci\npython3 x": None,
-            "popd\npython3 x": None,
-        }
+        # The directory each command starts in, per _SHELL_SHAPES; None is unknown (unverifiable).
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / ci).mkdir(parents=True)
-            for run, want in shapes.items():
-                with self.subTest(run=run):
-                    got = [
-                        shell.copy().feed(line, lambda c: "python3" in c)
-                        for line, _, _, shell in _run_lines_uncached(run, root, "")
-                        if "python3" in line
-                    ]
-                    self.assertEqual(got, [want])
+            for folder in _SHELL_FOLDERS:
+                (root / folder).mkdir(parents=True, exist_ok=True)
+            for run, errexit, script, want in _SHELL_SHAPES:
+                with self.subTest(run=run, errexit=errexit, script=script):
+                    self.assertEqual(_shell_cwds(run, root, errexit, script), [want])
 
     def test_fixture_review_41035_after_an_or_the_directory_is_unknown(self) -> None:
         # In `cd x && a || b`, b runs when the cd or a failed, so b's directory is unknown, and so is
         # everything after a || in that list and after the list ends. Only a, after the &&, is in x.
-        # Each (run, script) -> the directory `python3 script` starts in; None is unknown.
-        ci = "scripts/ci"
-        cases = {
-            ("cd scripts/ci && true || python3 x.py", "x.py"): None,
-            ("cd scripts/ci && python3 a.py || python3 b.py", "a.py"): ci,
-            ("cd scripts/ci && python3 a.py || python3 b.py", "b.py"): None,
-            ("cd scripts/ci && python3 a.py || python3 b.py && python3 c.py", "c.py"): None,
-            ("cd scripts/ci && true || true\npython3 d.py", "d.py"): None,
-        }
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / ci).mkdir(parents=True)
-            for (run, script), want in cases.items():
+            (root / "scripts/ci").mkdir(parents=True)
+            for run, script, want in _OR_SHAPES:
                 with self.subTest(run=run, script=script):
-                    got = [
-                        shell.copy().feed(line, lambda c: script in c)
-                        for line, _, _, shell in _run_lines_uncached(run, root, "")
-                        if script in line
-                    ]
-                    self.assertEqual(got, [want])
+                    self.assertEqual(_shell_cwds(run, root, True, script), [want])
 
     # Python puts the working directory, not the script's folder, first for `python -m`, `python -c`
     # and stdin; relative path literals name paths from it too. Both tests/ and scripts/ci/tests/ hold
@@ -2865,6 +3343,32 @@ class SparseCheckoutOracleTests(unittest.TestCase):
             with self.subTest(shape=shape):
                 outcome, detail = _oracle_judge(files, "scripts/ci/wentry.py", {"run": run}, outside, shape=shape)
                 self.assertEqual(outcome, want, detail)
+
+    def test_bash_agrees_wherever_the_check_knows_the_directory(self) -> None:
+        # Review of #41035: every shell fixture here and every workflow step that calls python and
+        # changes folder, run in bash with each other command stubbed to succeed or fail (every mix up
+        # to 5 commands, else a sample) and python reporting $PWD. Wherever this check gives a known
+        # directory for a python call, bash ran it there on every path.
+        import time
+
+        started = time.monotonic()
+        counts, disagreements = run_bash_oracle(bash_oracle_cases(ROOT))
+        print(f"bash oracle: {dict(counts)} in {time.monotonic() - started:.1f}s", file=sys.stderr)
+        self.assertFalse(disagreements, f"{len(disagreements)} disagreements:\n" + "\n".join(disagreements))
+        self.assertGreater(counts["agree"], 0, dict(counts))
+
+    def test_fixture_bash_oracle_catches_a_wrong_known_directory(self) -> None:
+        # A checker that names a wrong known directory fails the oracle: bash ran `python3 x` in
+        # scripts/ci, the planted checker says otherwise.
+        global _bash_oracle_plant
+        case = ("planted", "cd scripts/ci\npython3 x", True, frozenset(_SHELL_FOLDERS), "")
+        self.assertEqual(run_bash_oracle([case]), (Counter(agree=1), []))
+        _bash_oracle_plant = True
+        try:
+            counts, disagreements = run_bash_oracle([case])
+        finally:
+            _bash_oracle_plant = False
+        self.assertEqual(counts, Counter(disagree=1), disagreements)
 
     def test_fixture_the_superset_ratchet_catches_a_checker_that_names_an_extra_file(self) -> None:
         # The same oracle, with a checker that also names one file the run did not load: 100 cases
