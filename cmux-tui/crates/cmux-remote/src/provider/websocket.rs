@@ -226,7 +226,7 @@ impl fmt::Display for DisplaySeconds {
         let millis = self.0.as_millis();
         if millis < 1_000 {
             write!(formatter, "{millis} ms")
-        } else if millis % 1_000 == 0 {
+        } else if millis.is_multiple_of(1_000) {
             write!(formatter, "{} s", millis / 1_000)
         } else {
             write!(formatter, "{:.1} s", self.0.as_secs_f64())

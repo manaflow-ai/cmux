@@ -75,10 +75,7 @@ pub const PER_ADDRESS_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 /// the rest of the caller's deadline (a cold tunnel's first WireGuard
 /// handshake retries at 5 s, so the only address must not be cut at 5 s).
 /// `Err(())` means the bound passed.
-async fn bounded_unless_last<T>(
-    last: bool,
-    connect: impl std::future::Future<Output = T>,
-) -> Result<T, ()> {
+async fn bounded_unless_last<T>(last: bool, connect: impl Future<Output = T>) -> Result<T, ()> {
     if last {
         Ok(connect.await)
     } else {
@@ -113,7 +110,7 @@ impl Dialer for OsTcpDialer {
                     last_error = Some(format!(
                         "{address} did not accept within {} s",
                         PER_ADDRESS_CONNECT_TIMEOUT.as_secs()
-                    ))
+                    ));
                 }
             }
         }
@@ -230,7 +227,7 @@ impl Dialer for SocksDialer {
                     last_error = Some(format!(
                         "CONNECT to {address} was not answered within {} s",
                         PER_ADDRESS_CONNECT_TIMEOUT.as_secs()
-                    ))
+                    ));
                 }
             }
         }
