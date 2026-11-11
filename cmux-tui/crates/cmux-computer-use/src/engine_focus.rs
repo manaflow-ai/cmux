@@ -113,7 +113,7 @@ impl Engine {
     /// The guard for an acting call in background delivery, or `None`
     /// (nothing acts, foreground delivery, or the desktop cannot tell).
     pub(super) fn focus_begin(&self, tool: &tools::Tool, args: &Value) -> Option<FocusGuard> {
-        if !tool.acts() || asks_foreground(args) {
+        if !tool.acts() || asks_foreground(tool.name, args) {
             return None;
         }
         let before = self.desktop.focus_snapshot()?;
@@ -217,9 +217,29 @@ impl Engine {
     }
 }
 
-/// Whether the call (or any step of a batch) asks for foreground delivery,
-/// which raises the window on purpose.
-fn asks_foreground(args: &Value) -> bool {
-    let fg = |v: &Value| v.get("delivery").and_then(Value::as_str) == Some("foreground");
-    fg(args) || args.get("actions").and_then(Value::as_array).is_some_and(|a| a.iter().any(fg))
+/// Tools that take `delivery` and authorize foreground delivery as such
+/// (the person's allowForeground). The others always act in the
+/// background, whatever `delivery` an agent names on them.
+const DELIVERY_TOOLS: &[&str] = &["click", "type_text", "press_key", "drag"];
+
+/// Whether the call raises its window on purpose: a tool that takes
+/// `delivery` with "foreground" (authorized as foreground before it acts), or
+/// a batch whose every acting step is one. A batch with any background step
+/// is guarded as a whole; a foreground word on a tool without delivery
+/// counts for nothing.
+fn asks_foreground(tool: &str, args: &Value) -> bool {
+    let step_fg = |name: &str, v: &Value| {
+        DELIVERY_TOOLS.contains(&name)
+            && v.get("delivery").and_then(Value::as_str) == Some("foreground")
+    };
+    if tool != "batch" {
+        return step_fg(tool, args);
+    }
+    let Some(actions) = args.get("actions").and_then(Value::as_array) else { return false };
+    let acting: Vec<&Value> = actions
+        .iter()
+        .filter(|a| a.get("action").and_then(Value::as_str) != Some("wait"))
+        .collect();
+    !acting.is_empty()
+        && acting.iter().all(|a| step_fg(a.get("action").and_then(Value::as_str).unwrap_or(""), a))
 }
