@@ -64,6 +64,7 @@ extension CloudHandlers {
             let machine = session.machine
             return ["machineId": session.machineID, "title": machine.title, "status": session.effectiveStatus.rawValue,
                     "createdBy": machine.createdBy as Any, "createdAt": machine.createdAt?.timeIntervalSince1970 as Any,
+                    "lastApiActivityAt": machine.idlePause?.lastApiActivityAt as Any, "runningSince": machine.runningSince?.timeIntervalSince1970 as Any,
                     "failure": machine.lastChangeFailure.map { ["code": $0.code, "message": $0.message] } as Any].compacted
         }
         let creating: [[String: Any]] = cloud.creations.all.filter { $0.session == nil }.map { creation in
@@ -74,10 +75,14 @@ extension CloudHandlers {
         // The list is fetched for the account's team when it has one (the `X-Cmux-Team-Id` the API
         // client sends), else for the person alone.
         let list: [String: Any] = ["loaded": loaded, "team": cloud.auth.teamID != nil, "signedIn": cloud.isSignedIn,
-                                   "machines": machines, "creating": creating]
-        return CloudHandlerRules().fields("cloud_handler_machine_list", ["list": list]).merging(["account": listAccount(cloud.isSignedIn, cloud.auth.user?.id, cloud.auth.teamID), "listed_at_ms": cloud.hasCurrentList(within: .seconds(30)) ? .int(Int(Date().timeIntervalSince1970 * 1000) - 30_000) : .null, "last_error": cloud.lastError.map(ActionResultValue.string) ?? .null]) { $1 } // listed_at_ms: read no earlier than this (a script's list is read again past 30 s)
+                                   "user": cloud.auth.platformUserID as Any, "machines": machines, "creating": creating]
+        return CloudHandlerRules().fields("cloud_handler_machine_list", ["list": list]).merging(["account": listAccount(cloud.isSignedIn, cloud.auth.user?.id, cloud.auth.teamID, platformUser: cloud.auth.platformUserID), "listed_at_ms": cloud.hasCurrentList(within: .seconds(30)) ? .int(Int(Date().timeIntervalSince1970 * 1000) - 30_000) : .null, "last_error": cloud.lastError.map(ActionResultValue.string) ?? .null]) { $1 } // listed_at_ms: read no earlier than this (a script's list is read again past 30 s)
     }
-    static func listAccount(_ signedIn: Bool, _ user: String?, _ team: String?) -> ActionResultValue { .object(["signed_in": .bool(signedIn), "user_id": user.map(ActionResultValue.string) ?? .null, "team_id": team.map(ActionResultValue.string) ?? .null]) }
+    static func listAccount(_ signedIn: Bool, _ user: String?, _ team: String?, platformUser: String? = nil) -> ActionResultValue {
+        var account: [String: ActionResultValue] = ["signed_in": .bool(signedIn), "user_id": user.map(ActionResultValue.string) ?? .null, "team_id": team.map(ActionResultValue.string) ?? .null]
+        if let platformUser { account["user"] = .string(platformUser) } // the id a machine's `created_by` names
+        return .object(account)
+    }
 }
 
 extension CloudHandlers {
