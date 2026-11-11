@@ -391,7 +391,8 @@
         "browser.defaultEngine",
         "browser.siteEngines",
         "browser.newTabPage",
-        "browser.showBookmarksBar"
+        "browser.showBookmarksBar",
+        "browser.vimKeys"
       ]
     },
     {
