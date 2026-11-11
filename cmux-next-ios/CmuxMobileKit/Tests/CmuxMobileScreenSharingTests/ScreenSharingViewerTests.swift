@@ -226,9 +226,86 @@ import Testing
         #expect(reloaded.defaultScope == .view)
     }
 
+    // MARK: Go-ahead deadline
+
+    /// The viewer waited for the hub's answer, or for the ticket after approval, with no
+    /// limit ("Connecting to Studio…" forever). After `goAheadDeadline` it says it couldn't
+    /// reach the Mac, with Try Again, and ends any session the hub made.
+    @Test func noAnswerToTheRequestWithinTheDeadlineSaysTheMacCouldNotBeReached() async throws {
+        let clock = ScreenTestClock()
+        let (service, ends) = makeService(clock: clock)
+        let viewer = try #require(service.connect(to: mac(), scope: .full))
+        await ends.waitForRequest()
+        try await waitFor { clock.pendingSleepers == 1 }
+        clock.advance(by: ScreenSharingViewer.goAheadDeadline - .seconds(1))
+        await Task.yield()
+        #expect(viewer.phase == .requesting(.full))
+
+        clock.advance(by: .seconds(1))
+        try await waitFor { viewer.phase == .refused(.other, requested: .full) }
+        // A late answer naming a session ends it on the hub.
+        ends.answer(HubSession(id: "late", state: .pending, scope: .full))
+        await ends.wait(for: 1)
+        #expect(ends.calls == [Ends.Call(session: "late", reason: "viewer_disconnected")])
+    }
+
+    @Test func noTicketAfterApprovalWithinTheDeadlineEndsTheSession() async throws {
+        let clock = ScreenTestClock()
+        let (service, ends) = makeService(clock: clock)
+        let viewer = try #require(service.connect(to: mac(), scope: .view))
+        viewer.requestAnswered(.success(HubSession(id: "s8", state: .approved, scope: .view)), scope: .view)
+        #expect(viewer.phase == .approved(sessionID: "s8", scope: .view))
+        // The requesting phase's deadline went with it; the approved phase has its own.
+        try await waitFor { clock.pendingSleepers == 1 }
+        clock.advance(by: ScreenSharingViewer.goAheadDeadline)
+        try await waitFor { viewer.phase == .refused(.other, requested: .view) }
+        await ends.wait(for: 1)
+        #expect(ends.calls == [Ends.Call(session: "s8", reason: "viewer_disconnected")])
+
+        // Try Again asks again, with a fresh deadline.
+        viewer.request(.view)
+        #expect(viewer.phase == .requesting(.view))
+        try await waitFor { clock.pendingSleepers == 1 }
+    }
+
+    @Test func waitingForThePersonAtTheMacHasNoDeadline() async throws {
+        let clock = ScreenTestClock()
+        let (service, _) = makeService(clock: clock)
+        let viewer = try #require(service.connect(to: mac(), scope: .full))
+        viewer.requestAnswered(.success(HubSession(id: "s9", state: .pending, scope: .full)), scope: .full)
+        try await waitFor { clock.pendingSleepers == 0 }
+        clock.advance(by: .seconds(600))
+        await Task.yield()
+        #expect(viewer.phase == .waitingForApproval(sessionID: "s9", scope: .full))
+    }
+
+    @Test func aTicketInTimeKeepsTheStream() async throws {
+        let clock = ScreenTestClock()
+        let (service, _) = makeService(clock: clock)
+        let viewer = try #require(service.connect(to: mac(), scope: .full))
+        viewer.requestAnswered(.success(HubSession(id: "s10", state: .approved, scope: .full)), scope: .full)
+        service.route(.sessionTicket(ticket("s10", scope: .full)))
+        #expect(viewer.phase == .streaming(sessionID: "s10", scope: .full))
+        try await waitFor { clock.pendingSleepers == 0 }
+        clock.advance(by: ScreenSharingViewer.goAheadDeadline * 2)
+        await Task.yield()
+        #expect(viewer.phase == .streaming(sessionID: "s10", scope: .full))
+    }
+
+    private func waitFor(_ condition: () -> Bool) async throws {
+        let limit = ContinuousClock.now + .seconds(3)
+        while !condition() {
+            if ContinuousClock.now > limit {
+                Issue.record("condition not met before timeout")
+                return
+            }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+    }
+
     // MARK: Fixtures
 
-    func makeService() -> (ScreenSharingService, Ends) {
+    func makeService(clock: (any Clock<Duration>)? = nil) -> (ScreenSharingService, Ends) {
         let identity = DeviceIdentity(deviceID: UUID(), keys: TestKeys())
         let client = DeviceHubClient(baseURL: URL(string: "https://hub.invalid")!, identity: identity,
                                      tokens: DeviceHubAccountToken { "token" })
@@ -239,6 +316,7 @@ import Testing
                                            preferences: ScreenSharingPreferences(store: UserDefaults(suiteName: UUID().uuidString)!))
         let ends = Ends()
         service.prepareViewer = { viewer in
+            if let clock { viewer.clock = clock }
             viewer.makeSignaling = { _, _ in FakeSignaling() }
             viewer.startStream = { _ in }
             viewer.endSession = { _, id, reason in ends.record(id, reason) }
