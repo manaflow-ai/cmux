@@ -1287,7 +1287,8 @@ def shell_scripts(folder: Path) -> list[Path]:
             found.append(path)
             continue
         try:
-            first = path.open("rb").readline()
+            with path.open("rb") as handle:
+                first = handle.readline()
         except OSError:
             continue
         if first.startswith(b"#!") and re.search(rb"\b(?:ba|z|da)?sh\b", first):
