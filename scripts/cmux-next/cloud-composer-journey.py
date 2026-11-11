@@ -432,7 +432,16 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
 
     # Follow the start: the card fails (it stays), or the tab closes into the machine's chat.
     outcome, message, deadline = "", "", time.monotonic() + timeout
+    recorded: set[str] = set()  # this cell's machines, from the app's creation record while it still lists them
     while time.monotonic() < deadline:
+        # The record drops a creation once its workspace opens, so read it on every pass and own it at once
+        # (also for a cancel mid-start): read only after the loop, a started cell's machine could be missed.
+        fresh = (creation_ids(journey) - creations_before) - before
+        recorded |= fresh
+        journey.owned |= fresh
+        if cell.get("run_mode") != "cloud" and sent.get("sent") is True:
+            outcome, message = "not cloud", f"the run row read {cell.get('run_mode')!r}, so the send stayed local"
+            break
         progress = journey.pane("run_mode", pane)
         if progress.get("error"):
             outcome = "started"  # the start closed this tab: the chat is the machine's
@@ -458,6 +467,8 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
         journey.home_pane = None  # this tab closed into the machine's chat; the next cell finds its own pane
     cell["message"] = clean(message, 300)
     made, seen = new_machines(journey, before, creations_before)
+    made = sorted(set(made) | recorded)
+    seen = [m for m in seen if m not in recorded]
     journey.owned.update(made)
     cell["machines_made"] = made
     if seen:

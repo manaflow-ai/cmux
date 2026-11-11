@@ -93,7 +93,9 @@ jobs:
           if [ -n "$SOURCE_REF" ]; then
             # A given commit or branch (a fix lane's head), not a nightly's: resolved to its full SHA.
             case "$SOURCE_REF" in *[!A-Za-z0-9._/-]*) echo "::error::source_ref must be a commit or branch name"; exit 1;; esac
+            case "$SOURCE_REF" in *..*) echo "::error::source_ref must be a commit or branch name"; exit 1;; esac
             commit="$(gh api "repos/$GH_REPO/commits/$SOURCE_REF" --jq .sha)"
+            [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::source_ref $SOURCE_REF resolved to no commit"; exit 1; }
             printf 'build=source %s\ncommit=%s\n' "$SOURCE_REF" "$commit" | tee -a "$GITHUB_OUTPUT" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
@@ -266,8 +268,9 @@ jobs:
 
       - name: The composer matrix
         id: journey
-        # 20 cells of up to 20 min each (a start's 600 s, then its reply's); the harness writes journey.json
-        # after every cell, so a timeout still uploads the cells that ran (run 42992320404 lost them at 150).
+        # Up to 30 cells (20 run without a team), each up to 20 min worst case (a start's 600 s, then its reply's);
+        # the harness writes journey.json after every cell, so a timeout still uploads the cells that ran (run
+        # 42992320404 lost them at 150). A full worst case does not fit: narrow it with `only`.
         timeout-minutes: 220
         env:
           ONLY: ${{ inputs.only }}

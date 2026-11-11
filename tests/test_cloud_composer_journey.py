@@ -80,7 +80,7 @@ class Report(unittest.TestCase):
 
 class Options(unittest.TestCase):
     def test_sweep_vm_ids_and_the_untrusted_cell_parse(self):
-        args = journey.parse_args(["--app", "/x.app", "--sweep-vm-ids", "vm_0123456789abcdef0123", "--untrusted-cell"])
+        args = journey.parse_args(["--cli", "/x/cmux", "--out", "/tmp/out", "--sweep-vm-ids", "vm_0123456789abcdef0123", "--untrusted-cell"])
         self.assertEqual(args.sweep_vm_ids, "vm_0123456789abcdef0123")
         self.assertTrue(args.untrusted_cell)
 
