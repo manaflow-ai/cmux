@@ -44,7 +44,9 @@
 //! replies, no JSON), the close successor rules (`cmux_close_focus_*`,
 //! [`close_focus`]: typed, one call per close; `cmux_close_selection_*`,
 //! [`close_selection`]: the opener relations and the one rule for tabs and
-//! workspaces, a handle per kind), agent cursor visibility for
+//! workspaces, a handle per kind; `cmux_window_close_selection_*`,
+//! [`window_close_selection`]: the whole close-selection state of every
+//! window's workspaces, one handle), agent cursor visibility for
 //! the app (`cmux_agent_cursor_visibility`, [`agent_cursor`]: typed, no JSON,
 //! per input event and per motion frame),
 //! the sidebar document mirror (`cmux_sidebar_mirror_*`, [`sidebar_mirror`]),
@@ -82,6 +84,7 @@ pub mod sidebar_face;
 pub mod sidebar_mirror;
 pub mod tab_drag;
 pub mod typed;
+pub mod window_close_selection;
 mod window_rules;
 use sidebar_mirror::Mirror;
 
@@ -272,6 +275,22 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: harness_login::Inputs =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&harness_login::decide(&request)).map_err(|_| ERR_INVALID)?
+            }
+            b"cloud_capability_header" => {
+                use cmux_cloud_start_core::capability;
+                let request: capability::HeaderRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&capability::header(&request)).map_err(|_| ERR_INVALID)?
+            }
+            b"cloud_capability_answer" => {
+                use cmux_cloud_start_core::capability;
+                let request: capability::AnswerRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&capability::answer(request)).map_err(|_| ERR_INVALID)?
+            }
+            b"cloud_capability_drop" => {
+                cmux_cloud_start_core::capability::forget();
+                b"{}".to_vec()
             }
             b"cloud_start_refusal" => {
                 #[derive(serde::Deserialize)]

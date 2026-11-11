@@ -5,6 +5,8 @@ mod agent_hook_children;
 mod agent_hook_errors;
 mod agent_hook_projection;
 mod agent_hooks_at_rest;
+mod agent_plugin_reports_at_rest;
+mod agent_reports_at_rest;
 mod terminal_size_clamp;
 pub(crate) use terminal_size_clamp::clamp_terminal_size;
 mod terminal_exit_snapshot;
@@ -28,7 +30,8 @@ use terminal_host_records::{
     terminate_discovered_terminal_host_in,
 };
 mod detached_terminals;
-pub(crate) use agent_hooks_at_rest::JournalRowFollower;
+pub(crate) use agent_hooks_at_rest::{JournalFollowerFilter, JournalRowFollower};
+pub use agent_hooks_at_rest::{JournalFollowerSnapshot, JournalFollowersSnapshot};
 pub(crate) use detached_terminals::DetachedTerminalSpawn;
 mod terminal_runtime_index;
 use terminal_runtime_index::{
@@ -63,6 +66,7 @@ use kitty_budget_state::KITTY_IMAGE_PROCESS_BUDGET_BYTES;
 use kitty_budget_state::KITTY_IMAGE_PROCESS_BUDGET_COUNT;
 #[cfg(test)]
 use kitty_budget_state::KITTY_OBJECT_OWNERS_PER_SURFACE;
+pub(crate) use kitty_budget_state::KittyImageAdoptionExpectation;
 use kitty_budget_state::KittyImageBudgetEntry;
 pub(crate) use kitty_budget_state::KittyImageBudgetReservation;
 use kitty_budget_state::KittyImageBudgetState;
@@ -255,7 +259,9 @@ pub use layout_types::{
     LayoutUndoResult, ViewportWidthError, ZoomMode, ZoomState,
 };
 mod layout_undo_commit;
-pub use events::{GraphicsStatus, LayoutDelta, MachineUsage, MuxEvent, TreeDelta, TreeDeltaKind};
+pub use events::{
+    DeltaMutation, GraphicsStatus, LayoutDelta, MachineUsage, MuxEvent, TreeDelta, TreeDeltaKind,
+};
 mod notification_types;
 mod notifications;
 pub use notification_types::{
@@ -290,6 +296,10 @@ mod rows;
 mod screen_changed;
 pub(crate) mod screen_groups;
 mod signaled_mutex;
+#[cfg(test)]
+pub(crate) use signaled_mutex::plain_turns_ahead_on_this_thread;
+#[cfg(test)]
+pub(crate) use signaled_mutex::registry_locks_taken_on_this_thread;
 #[cfg(test)]
 pub(crate) use signaled_mutex::state_locks_taken_on_this_thread;
 pub(crate) use signaled_mutex::{SignaledMutex, interactive_scope};
@@ -332,6 +342,8 @@ mod incognito_terminals;
 mod terminal_exit;
 mod terminal_exit_wait;
 mod terminal_host_link;
+mod terminal_live;
+pub(crate) use terminal_live::TerminalProgressFollower;
 mod terminal_move;
 mod terminal_move_topology;
 mod terminal_progress;
@@ -507,6 +519,15 @@ const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
 const TERMINAL_HOST_CLOSE_WAIT: Duration = crate::terminal_host_runtime::HOST_TERMINATE_WAIT;
 const TERMINAL_READER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 
+/// The index `delta` steps from `active` in a ring of `len` items (`len > 0`,
+/// `active < len`). `delta` comes from a client and can be any `isize`: it is
+/// reduced into the ring first, so the sum is below `2 * len` and never overflows.
+pub(crate) fn ring_step(active: usize, delta: isize, len: usize) -> usize {
+    let len_signed = isize::try_from(len).unwrap_or(isize::MAX);
+    let step = usize::try_from(delta.rem_euclid(len_signed)).unwrap_or(0);
+    active.saturating_add(step) % len
+}
+
 /// A durable client install identity: non-empty, at most 128 ASCII graphic
 /// bytes. Shared by per-client focus memory and per-client notification reads.
 pub(crate) fn validate_client_id(client_id: &str) -> anyhow::Result<()> {
@@ -539,6 +560,9 @@ pub struct Mux {
     /// The registry's id and generation, fixed when it opened: read without
     /// its lock, which durable commits hold.
     registry_identity: (String, String),
+    /// The session snapshot's committed rows and their read-only connection
+    /// (`resource_api/committed_snapshot.rs`); `None` for an in-memory registry.
+    pub(crate) committed_snapshots: Option<crate::resource_api::CommittedSnapshots>,
     /// Clone of the registry's projection spans, read without its lock.
     resource_projection_stats: Arc<crate::diagnostics::ResourceProjectionStats>,
     started_at: Instant,
@@ -625,6 +649,10 @@ pub struct Mux {
     resource_projection_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_close_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Runs in a browser target adoption after its commit failed and before
+    /// its rollback closes the adopted tab (tests).
+    #[cfg(test)]
+    browser_adopt_before_rollback: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_close_after_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     /// Runs in a state mutation after its apply step (inside its open
@@ -636,6 +664,10 @@ pub struct Mux {
     layout_undo_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_close_cleanup: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Runs in a session journal stream that caught up on its database
+    /// reader, just before it moves to the shared ring (tests).
+    #[cfg(test)]
+    pub(crate) journal_stream_before_ring_switch: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     browser_providers: Arc<BrowserProviderRegistry>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     active_render_attachments: Arc<AtomicUsize>,
@@ -677,6 +709,8 @@ pub struct Mux {
     agent_hook_projection: Mutex<()>,
     /// Which hook reports change nothing the journal holds (`agent_hooks_at_rest.rs`).
     agent_hooks_at_rest: agent_hooks_at_rest::AgentHooksAtRest,
+    /// Which plugin reports repeat the roster (`agent_plugin_reports_at_rest.rs`).
+    agent_plugin_reports_at_rest: agent_plugin_reports_at_rest::AgentPluginReportsAtRest,
     /// Live, never-persisted presence per terminal (`agent_presence.rs`).
     agent_presence: Mutex<HashMap<TerminalPublicId, agent_presence::PresenceSlot>>,
     /// Child agents each terminal agent runs past its turn, memory only (`agent_hook_children.rs`).
@@ -705,6 +739,8 @@ pub struct Mux {
     command_history_worker: Mutex<Option<SyncSender<command_history::CommandHistoryMessage>>>,
     /// Makes the durable commits terminal output asks for, off the output readers.
     terminal_publisher: terminal_publisher::TerminalPublisher,
+    /// The terminals whose live facts changed (`mux/terminal_live.rs`).
+    terminal_live: terminal_live::TerminalLiveLog,
     /// Pinned terminals' last lines and their publisher (`terminal-tail-pin-v1`).
     terminal_tail_pins: terminal_tail_pins::TerminalTailPins,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
@@ -845,6 +881,8 @@ pub struct Mux {
     /// for it blocks instead of polling the flag.
     daemon_shutdown_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     pub(crate) control_clients: crate::server::ClientRegistry,
+    /// One whole-tree `list-workspaces` build for concurrent readers.
+    pub(crate) tree_reply_flight: crate::server::tree_reply_flight::TreeReplyFlight,
     /// Guarded chat moves (`agent-transfer-v1`, server/agent_transfer.rs).
     #[cfg(unix)]
     pub(crate) agent_transfers: crate::server::agent_transfer::AgentTransfers,
@@ -978,6 +1016,24 @@ impl Mux {
                 focused_at: 0,
             },
         ))
+    }
+
+    /// The routing tables as of the last finished change of the session state, for a read that walks them with no
+    /// lock (the session snapshot). With stage S1 off they are not published: one short state lock hold copies
+    /// the tables' `Arc`s, never a walk.
+    #[track_caller]
+    pub(crate) fn published_routes(
+        &self,
+    ) -> anyhow::Result<Arc<crate::route_table::RouteSnapshot>> {
+        if self.control_clients.input_lane.on() {
+            let routes = self.state.routes();
+            if !self.state.is_poisoned() {
+                return Ok(arc_swap::Guard::into_inner(routes));
+            }
+        }
+        let state =
+            self.state.lock().map_err(|_| anyhow::anyhow!("the session state is poisoned"))?;
+        Ok(Arc::new(crate::route_table::RouteSnapshot::of(&state)))
     }
 
     #[track_caller]

@@ -32,7 +32,7 @@ const saved = new Map<string, unknown>();
 function installDom(): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
   for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
-    saved.set(key, scope[key]);
+    if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -118,9 +118,32 @@ test("the X keeps `closed` in the app's records once, and the hint is done at on
   await act(async () => hint.current().close());
   expect(hint.current().record).toBe("done");
   expect(host.records[CLOUD_CHAT_HINT_ID]).toBe("closed");
-  await act(async () => hint.current().used());
+  await act(async () => hint.current().close());
   expect(writes).toBe(1);
+});
+
+// #40820 made the X no touch of the page (the pool takes the page back). A Cloud pick is the person's
+// work in that page: the app must still hear `used` after an X, or a hidden page with the pick is
+// "not touched" and can be discarded with it.
+test("a Cloud pick after the X still tells the app `used`, once; the record stays `closed`", async () => {
+  const host = memoryTipHost();
+  const written: string[] = [];
+  const counted: TipHost = { ...host, write: (id, record) => (written.push(record), host.write(id, record)) };
+  const hint = await mountHint(counted);
+  await act(async () => hint.current().close());
+  await act(async () => hint.current().used());
+  await act(async () => hint.current().used());
+  await act(async () => hint.current().close());
+  expect(written).toEqual(["closed", "used"]);
   expect(host.records[CLOUD_CHAT_HINT_ID]).toBe("closed");
+});
+
+test("a page whose record does not change renders once per adoption, not twice", async () => {
+  const { counted } = countingHost();
+  // Parked: it never has the keyboard, so it never asks and its record stays open.
+  const page = await mountPage(counted, true);
+  for (let adoption = 1; adoption <= 3; adoption += 1) await page.adopt(adoption);
+  expect(page.renders).toEqual(["0:unknown", "0:open", "1:open", "2:open", "3:open"]);
 });
 
 test("a Cloud pick keeps `used`; an install that already answered never sees the hint", async () => {

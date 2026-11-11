@@ -486,3 +486,43 @@ fn a_flood_crossing_half_the_cap_wakes_the_writer_at_once() {
         "the writer is not due at once after the flood crossed half the cap: {due:?}"
     );
 }
+
+/// A respawn reads the lost terminal's snapshot and then its tail. The
+/// writer replaces the snapshot and then removes the tail it covers, under
+/// the pass lock. A pass that ran between the two reads paired the old
+/// snapshot with no tail: the respawned screen lost every byte the tail
+/// held. The test runs such a pass on another thread between the reads and
+/// waits for it (bounded): the screen must still show the tail's bytes.
+#[test]
+fn a_snapshot_replaced_while_a_respawn_reads_it_keeps_the_tail_bytes() {
+    let root = directory("respawn-read");
+    let store = Arc::new(OutputStore::new(Some(&root)));
+    let directory = store.directory().unwrap().to_path_buf();
+    let id = TerminalPublicId::parse("term_00000000000000000000000000000f3e").unwrap();
+    super::write(&directory, &id, "g", 6, 80, 24, b"first ").unwrap();
+    super::super::tail::append(&directory, &id, "g", 6, 6, b"second", false).unwrap();
+
+    let writer_store = Arc::clone(&store);
+    let writer_directory = directory;
+    let writer_id = id.clone();
+    super::super::BETWEEN_SCREEN_READS_FOR_TEST.with(|slot| {
+        *slot.borrow_mut() = Some(Box::new(move || {
+            let (done, finished) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                // A writer pass: the new snapshot, then the tail it covers.
+                let _pass = writer_store.lock_pass();
+                super::write(&writer_directory, &writer_id, "g", 12, 80, 24, b"first second")
+                    .unwrap();
+                super::super::tail::remove(&writer_directory, &writer_id);
+                let _ = done.send(());
+            });
+            // A reader that holds the pass lock makes the pass wait: then
+            // this times out and the read goes on first.
+            let _ = finished.recv_timeout(std::time::Duration::from_secs(2));
+        }));
+    });
+    let screen = store.previous_screen(&id).expect("a stored screen");
+    let _ = std::fs::remove_dir_all(&root);
+    let text = String::from_utf8_lossy(&screen.bytes);
+    assert!(text.contains("second"), "the tail's bytes were lost: {text:?}");
+}

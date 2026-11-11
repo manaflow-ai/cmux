@@ -133,8 +133,7 @@ impl Hub {
         // The rows' own `Arc`s, not copies: the save writes only those that changed.
         let rows: Vec<(String, Arc<RemoteSession>)> = self
             .remote_sessions
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .settled()
             .of_peer(peer)
             .map(|(key, r)| (key.clone(), r.clone()))
             .collect();
@@ -189,7 +188,7 @@ impl Hub {
         peer.seed_cached_link(saved.last_seen, saved.down_since, saved.next_retry_at);
         peer.cache_saved_outage
             .store(saved.down_since.is_some(), std::sync::atomic::Ordering::SeqCst);
-        let mut map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let mut map = self.remote_sessions.write();
         if map.has_peer(&peer.name) {
             return;
         }
@@ -203,21 +202,21 @@ impl Hub {
         }
     }
 
-    /// `forget_peer_files` under the rows lock (`remove_peer` holds it itself).
+    /// `forget_peer_files` under the rows writer lock (`remove_peer` holds it itself).
     #[cfg(test)]
     pub(super) fn forget_peer_cache(&self, peer: &str) {
         let writer = self.peer_cache_writer(peer);
         let _writer = writer.lock().unwrap_or_else(|e| e.into_inner());
-        let _rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let _rows = self.remote_sessions.fence();
         self.forget_peer_files(peer);
     }
 
-    /// `forget_peer_cache` with the rows lock held by the caller (`remove_peer`).
+    /// `forget_peer_cache` with the rows writer lock held by the caller (`remove_peer`).
     pub(super) fn forget_peer_files(&self, peer: &str) {
         if let Some(dir) = self.store.peer_cache_dir() {
             disk::remove(&dir, peer);
         }
-        // And its sessions' event snapshots (`peer_snapshot.rs`), under the rows lock once the
+        // And its sessions' event snapshots (`peer_snapshot.rs`), under the rows writer lock once the
         // peer has left the registry (`remove_peer`): a listing or capture of it that found it
         // current (under this lock) has sent its op already and none after it does, so no
         // listing that lets a page start a copy again comes after this.
@@ -390,6 +389,29 @@ mod tests {
         again.forget_peer_cache("huge-blue");
         assert!(!dir.path().join("peers/huge-blue.json").exists());
         assert!(!dir.path().join("peers/huge-blue.journal").exists());
+    }
+
+    /// A peer's list is input from another machine: a row that is not an object (a buggy or
+    /// hostile peer) is skipped, and the daemon keeps the peer's good rows. Before, the row
+    /// reached `views::decide`, whose `summary["indicator"] = ..` panics on a non-object, and
+    /// the peer-notice loop runs under `supervise::once`: the daemon stopped, then stopped
+    /// again each time the peer reconnected with the same list.
+    #[test]
+    fn a_peer_row_that_is_not_an_object_is_skipped_not_a_panic() {
+        let (hub, _dir) = test_hub();
+        let peer = add_idle_peer(&hub, "huge-blue");
+        for row in [json!("x"), json!(7), json!([1]), json!(true), Value::Null] {
+            let kept = Hub::remote_summary("huge-blue", row.clone());
+            assert_eq!(kept, row, "a row that is not an object is not changed");
+        }
+        hub.apply_peer_notice(
+            "huge-blue",
+            peer.generation,
+            PeerNotice::Sessions(vec![json!("x"), json!(7), json!([1]), remote("m1", "lane")]),
+        );
+        let listed = hub.remote_sessions();
+        assert_eq!(listed.len(), 1, "{listed:?}");
+        assert_eq!(listed[0]["name"], "huge-blue/lane");
     }
 
     /// A cache an older build saved can hold a peer's own display line on a pending ask: the

@@ -65,6 +65,7 @@ impl Mux {
         self.agent_records.lock().unwrap().remove(terminal_id);
         self.agent_presence.lock().unwrap().remove(terminal_id);
         self.agent_hooks_at_rest.forget_terminal(terminal_id);
+        self.agent_plugin_reports_at_rest.forget_terminal(terminal_id);
         self.agent_prompts.lock().unwrap().forget(terminal_id);
         self.output_store.forget(terminal_id);
         // Terminal lifecycle does not flow through `agent.*` journal events
@@ -251,6 +252,7 @@ impl Mux {
     /// is installed. Ordinary control clients may connect before this point.
     pub fn mark_server_lifecycle_ready(&self) {
         self.server_lifecycle_ready.store(true, Ordering::Release);
+        self.start_journal_follower_grace();
         // The first terminal must not pay for the host executable's install
         // (cx-b4sjc); unit tests start no daemon and install nothing.
         #[cfg(all(unix, not(test)))]

@@ -92,7 +92,7 @@ function recordFor(held: { record: CloudChatHintRecord; chat: number }, chat: nu
 /// chat it shows (`newChat`: the count of the page's adoptions, so also an adoption that keeps the
 /// screen mounted), so a hint this or another pane showed, closed or used is gone from the next new
 /// chat here too, also when that chat is the next tab that takes this page from the spare pool;
-/// writes `closed` or `used` once. A record never goes from done back to open, and a page whose
+/// writes `closed` once and `used` once. A record never goes from done back to open, and a page whose
 /// record is done reads no more.
 export function useCloudChatHint(host: TipHost, newChat: number = 0): CloudChatHintState {
   const [held, setHeld] = useState<{ record: CloudChatHintRecord; chat: number }>({ record: "unknown", chat: newChat });
@@ -102,7 +102,10 @@ export function useCloudChatHint(host: TipHost, newChat: number = 0): CloudChatH
   chatNow.current = newChat;
   /// The app's records have the hint, or keep none: nothing is left to read.
   const settled = useRef(false);
-  const written = useRef(false);
+  /// The last state this page wrote. A Cloud pick after an X writes again: the app's record stays
+  /// `closed`, and the write tells the app that the person works in this page (an X alone does not:
+  /// the spare pool takes such a page back at Cmd-W).
+  const written = useRef<"closed" | "used" | undefined>(undefined);
   const claimed = useRef(false);
   useEffect(() => {
     if (settled.current) return;
@@ -112,7 +115,12 @@ export function useCloudChatHint(host: TipHost, newChat: number = 0): CloudChatH
         if (!live) return;
         const read = cloudChatHintRecord(state.records);
         if (read === "done") settled.current = true;
-        setHeld((current) => ({ record: cloudChatHintAfterRead(recordFor(current, newChat), read), chat: newChat }));
+        setHeld((current) => {
+          const next = cloudChatHintAfterRead(recordFor(current, newChat), read);
+          // The same record: the same object, so an adoption that changes nothing renders nothing more.
+          const same = next === current.record && (next !== "shown" || current.chat === newChat);
+          return same ? current : { record: next, chat: newChat };
+        });
       },
       () => {
         if (!live) return;
@@ -128,8 +136,8 @@ export function useCloudChatHint(host: TipHost, newChat: number = 0): CloudChatH
     (state: "closed" | "used") => {
       settled.current = true;
       setHeld((current) => ({ ...current, record: "done" }));
-      if (written.current) return;
-      written.current = true;
+      if (written.current === state || written.current === "used") return;
+      written.current = state;
       void host.write(CLOUD_CHAT_HINT_ID, state).catch(() => undefined);
     },
     [host],

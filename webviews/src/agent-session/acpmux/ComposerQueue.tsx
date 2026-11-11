@@ -1194,17 +1194,11 @@ function QueuedEdit({
     finished.current = true;
     onDone(text);
   };
-  // As tall as its lines.
-  const fit = () => {
-    const field = input.current;
-    if (!field) return;
-    field.style.height = "auto";
-    field.style.height = `${field.scrollHeight}px`;
-  };
+  // As tall as its lines by CSS (`field-sizing: content`, composerStates.css): no height write and scrollHeight read
+  // (a forced layout) on each key.
   useEffect(() => {
     input.current?.focus();
     input.current?.select();
-    fit();
   }, []);
   return (
     <textarea
@@ -1213,10 +1207,7 @@ function QueuedEdit({
       aria-label={label}
       rows={1}
       defaultValue={initial ?? entry.prompt}
-      onInput={(event) => {
-        fit();
-        onInput(event.currentTarget.value);
-      }}
+      onInput={(event) => onInput(event.currentTarget.value)}
       // ui-allow: the edit field's own editing keys (Return saves, Shift-Return adds a line, Esc cancels).
       onKeyDown={(event) => {
         // Every key belongs to the input method while it composes (WebKit sends its Return as 229).

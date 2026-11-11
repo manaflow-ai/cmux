@@ -15,13 +15,13 @@ extension WindowManager {
     // MARK: Transitions
 
     /// Applies one registry transition. `select` names, per window, the
-    /// workspaces the user just moved in; the first becomes selected there. `gesture`: a person asked for that selection in this turn (never a daemon delta).
+    /// workspaces the user just moved in; the first becomes selected there. `gesture`: a person asked for that selection in this turn (never a daemon delta). `order`: the daemons' workspace order when the caller built it in this same turn (reconcile).
     @discardableResult
-    func transition(select preferred: [String: [String]] = [:], gesture: Bool = false,
+    func transition(select preferred: [String: [String]] = [:], gesture: Bool = false, order: [String]? = nil,
                     _ body: (inout WindowRegistry) -> WindowRegistry.Changes) -> WindowRegistry.Changes {
         let before = registry.value
         let previous = Dictionary(before.windows.map { ($0.id, $0.workspaceIDs) }, uniquingKeysWith: { first, _ in first })
-        let live = services.machines.daemons.flatMap { Self.orderedIDs(of: $0, machines: self.services.machines, doc: self.services.sidebarDoc) }
+        let live = order ?? services.machines.daemons.flatMap { daemon in registry.orderBuild { Self.orderedIDs(of: daemon, machines: self.services.machines, doc: self.services.sidebarDoc) } }
         let changes = registry.apply { registry in
             let changes = body(&registry)
             registry.order(like: live)
@@ -66,7 +66,7 @@ extension WindowManager {
     /// there (closed, moved to another profile or window), the window shows the most recent other profile it holds
     /// workspaces in. `only` repairs that one window: a close hides rows of its own window and no other window lists
     /// them (`WindowRegistryStore.repairs`), so what a close reads does not grow with the other windows' lists.
-    func repairSelections(previous: [String: [String]], preferred: [String: [String]] = [:], gesture: Bool = false, only: String? = nil, batch: Bool = false) {
+    func repairSelections(previous: [String: [String]], preferred: [String: [String]] = [:], gesture: Bool = false, only: String? = nil, pressed: Bool = false) {
         let machines = services.machines
         let home = machines.local.store
         for window in registry.repairs(only: only) {
@@ -88,7 +88,7 @@ extension WindowManager {
             var wanted = preferred[window.id] ?? []
             if state.profileID != room, let remembered = state.profileWorkspaces[state.profileID] { wanted.append(remembered) }
             let prior = WindowProfiles.visible(previous[window.id] ?? window.workspaceIDs, profile: state.profileID, machines: machines)
-            registry.repairSelection(of: window.id, shown: state.workspaceID, previous: prior, members: visible, preferred: wanted, gesture: gesture, batch: batch, claimed: { claims.pending[$0] != nil }, orders:
+            registry.repairSelection(of: window.id, shown: state.workspaceID, previous: prior, members: visible, preferred: wanted, gesture: gesture, pressed: pressed, claimed: { claims.pending[$0] != nil }, orders:
                 (controller(for: window.id)?.sidebar.model).map { [$0.drawnWorkspaceOrder().map(\.rawValue), $0.allWorkspaces.map(\.id.rawValue)] } ?? []) { select($0, in: state, keepsCreation: true) }
         }
     }
@@ -460,7 +460,7 @@ extension WindowManager {
         var cloud: [[String]] = []
         for daemon in services.machines.daemons {
             installWorkspaceListHook(on: daemon)
-            let ids = Self.orderedIDs(of: daemon, machines: services.machines, doc: services.sidebarDoc)
+            let ids = registry.orderBuild { Self.orderedIDs(of: daemon, machines: services.machines, doc: services.sidebarDoc) }
             for id in ids {
                 live.append(id)
                 seenMachine[id] = daemon.machineID
@@ -510,7 +510,7 @@ extension WindowManager {
         let dead = Set(members.filter(isDead))
         settleRestoreClosed()
         let fallback = launchWindowID ?? closedLaunchWindowID ?? UUID().uuidString.lowercased()
-        transition(select: preferred, gesture: false) { registry in // a delta: never the person's gesture, whatever run is current
+        transition(select: preferred, gesture: false, order: live) { registry in // a delta: never the person's gesture, whatever run is current
             let changes = registry.reconcile(live: live, dead: dead, placements: placements, held: held, behind: behindWindows,
                                              fallbackWindow: fallback)
             restoreClosed.keepClosed(&registry)
