@@ -15,6 +15,7 @@ in tests/process_gone.pin; each repo's own test decides which files it scans and
 """
 import ast
 import importlib.util
+import re
 import sys
 from pathlib import Path
 
@@ -35,6 +36,8 @@ Bindings, references, signal_constant = _names.Bindings, _names.references, _nam
 
 KILLS = {"os.kill", "os.killpg", "posix.kill", "posix.killpg"}
 SIGNAL_KEYWORDS = ("signal", "sig", "signum")
+# A source can reach os.kill without spelling "kill": getattr(os, name), __import__, a star import.
+MAY_REACH_KILL = re.compile(r"kill|getattr|__import__|import\s+\*")
 
 
 def _nonzero_signal(node, names):
@@ -72,8 +75,8 @@ def find_source(source, name="<test>"):
     "signal 0" for a literal 0, "unresolved" for a signal the source does not show (a name, *args, **kwargs). Passing
     os.kill as a value (assertRaises(E, os.kill, pid, 0), functools.partial) counts the arguments after it; a
     reference whose use cannot be followed is "unresolved" too. Nothing that might be a probe is skipped."""
-    if "kill" not in source:
-        return []
+    if not MAY_REACH_KILL.search(source):
+        return []  # cheap skip: nothing here can name os.kill
     try:
         tree = ast.parse(source, name)
     except SyntaxError:

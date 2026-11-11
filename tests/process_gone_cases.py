@@ -135,6 +135,20 @@ class TheScannerFindsTheForms(unittest.TestCase):
                          [("test_a", "signal 0"), ("test_b", "signal 0"), ("test_c", "unresolved"),
                           ("test_d", "unresolved"), ("test_e", "unresolved"), ("test_f", "signal 0")])
 
+    def test_every_alias_form_is_a_row_the_lint_finds(self):
+        # one row per form a review found slipping past a copy of this lint: (finding, source, function it is in)
+        rows = [
+            ("hq#9397 F2", "from os import kill\ndef test_a():\n    kill(p, 0)\n", "test_a"),
+            ("hq#9397 F2", "import os as posix\ndef test_a():\n    posix.kill(p, 0)\n", "test_a"),
+            ("cmux#41365 F1", "import os.path\ndef test_a():\n    os.kill(p, 0)\n", "test_a"),
+            ("hq#9418 F2", "def test_a():\n    from os import *\n    kill(p, 0)\n", "test_a"),
+            ("hq#9418 F2", "import os\ndef test_a(name):\n    getattr(os, name)(p, 0)\n", "test_a"),
+            ("hq#9418 F3", "import os\ndef test_a(obj):\n    os.kill(p, obj.SIGTERM)\n", "test_a"),
+        ]
+        for finding, src, func in rows:
+            with self.subTest(finding=finding, src=src):
+                self.assertEqual(self.hits(src), [func])
+
     def test_import_os_path_binds_os(self):
         # review of cmux#41365 (F1): `import os.path` binds os, but only `import os` was read, so os.kill passed
         src = ("import os.path\n"
@@ -318,6 +332,42 @@ class TheHelpers(unittest.TestCase):
         finally:
             for fd in fds:
                 os.close(fd)
+            for p in (live, proc):
+                p.kill()
+                p.wait()
+
+    def test_a_pidfd_at_1024_or_higher_is_still_waited_on(self):
+        # review of hq#9397 (F1): select.select() raises ValueError for an fd at or above FD_SETSIZE (1024), so
+        # died() crashed in a process with many descriptors. The real pidfd is dup2-ed to 1024+ and waited on there.
+        if not hasattr(os, "pidfd_open"):
+            self.skipTest("no pidfd here: died() polls the state instead")
+        import resource
+        high = 1500
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        if soft <= high:
+            if hard != resource.RLIM_INFINITY and hard <= high:
+                self.skipTest("this host allows %d open files" % hard)
+            resource.setrlimit(resource.RLIMIT_NOFILE, (high + 1, hard))
+            self.addCleanup(resource.setrlimit, resource.RLIMIT_NOFILE, (soft, hard))
+        real, used = os.pidfd_open, []
+
+        def pidfd_open(pid, *args):
+            fd = real(pid, *args)
+            try:
+                os.dup2(fd, high)
+            finally:
+                os.close(fd)
+            used.append(high)
+            return high
+        live = subprocess.Popen(["sleep", "60"])
+        proc = zombie_child()
+        try:
+            with mock.patch.object(process_gone.os, "pidfd_open", pidfd_open):
+                self.assertFalse(died(live.pid, within=0.3))
+                self.assertTrue(running(live.pid))
+                self.assertTrue(died(proc.pid))
+            self.assertEqual(used[:1], [high], "died() did not wait on a pidfd")
+        finally:
             for p in (live, proc):
                 p.kill()
                 p.wait()
