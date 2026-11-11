@@ -73,7 +73,7 @@ public struct HomeMirror: Hashable, Sendable {
         if conversations != next { conversations = next }
         if windows.keys.contains(where: { next[$0] == nil }) { windows = windows.filter { next[$0.key] != nil } }
         keptOrder.removeAll { next[$0] == nil }
-        kept = kept.filter { next[$0.key] != nil }
+        if kept.keys.contains(where: { next[$0] == nil }) { kept = kept.filter { next[$0.key] != nil } }
         revisions[.inbox] = snapshot.rev
         stale.remove(.inbox)
         return refetch
@@ -114,7 +114,7 @@ public struct HomeMirror: Hashable, Sendable {
     private mutating func follow(_ message: Message) {
         guard var window = kept[message.conversation], !window.messages.isEmpty,
               let last = window.lastSeq, message.seq <= last + 1 else { return }
-        if window.apply(message) { kept[message.conversation] = window }
+        if window.apply(message), window != kept[message.conversation] { kept[message.conversation] = window }
     }
 
     /// Applies a fetched tail. If the owner moved past the page while it was
@@ -187,7 +187,8 @@ public struct HomeMirror: Hashable, Sendable {
             if outcome == .ignoredStale { return outcome }
             conversations[summary.id] = mergedSummary(summary, fromInbox: stream == .inbox)
             // A closed conversation is not subscribed: the inbox's newest message is how it learns one.
-            if windows[summary.id] == nil, let newest = summary.lastMessage { follow(newest) }
+            // The merged summary's: an older copy than the one it holds never overwrites a newer edit.
+            if windows[summary.id] == nil, let newest = conversations[summary.id]?.lastMessage { follow(newest) }
             return outcome
         case .conversationRemoved(let id, let inboxRev):
             let outcome = advance(.inbox, to: inboxRev)
@@ -202,12 +203,12 @@ public struct HomeMirror: Hashable, Sendable {
         case .conversationPage(let page):
             let id = page.conversation.id
             if windows[id] != nil { return apply(page: page) }
-            if var window = kept[id], !window.messages.isEmpty {
-                // A page that leaves a hole after it would drop newer kept messages: keep it only when it joins.
-                if window.adopt(page: page.messages) { kept[id] = window }
-            }
             let stream = HomeStream.conversation(id)
             if let known = revisions[stream], known > page.conversation.rev { return .ignoredStale }
+            if var window = kept[id], !window.messages.isEmpty {
+                // A page that leaves a hole after it would drop newer kept messages: keep it only when it joins.
+                if window.adopt(page: page.messages), window != kept[id] { kept[id] = window }
+            }
             conversations[id] = mergedSummary(page.conversation, fromInbox: false)
             revisions[stream] = page.conversation.rev
             stale.remove(stream)

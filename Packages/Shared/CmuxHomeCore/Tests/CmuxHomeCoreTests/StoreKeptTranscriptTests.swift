@@ -162,6 +162,16 @@ import CmuxHomeCoreTestSupport
         #expect(mirror.windows[conv]?.messages.map(\.seq) == [1, 2])
     }
 
+    @Test func aClosedTranscriptTakesAPageThatJoinsIt() {
+        let conv = ConversationID("conv_a")
+        var mirror = opened([conv])
+        mirror.endTranscript(conv)
+        mirror.apply(.conversationPage(ConversationPage(conversation: summary(conv, rev: 2, lastSeq: 3),
+                                                        messages: [message(conv, 2), message(conv, 3)])))
+        mirror.restoreKept(conv)
+        #expect(mirror.windows[conv]?.messages.map(\.seq) == [1, 2, 3])
+    }
+
     @Test func aRemovedConversationTakesItsKeptTranscriptWithIt() {
         let gone = ConversationID("conv_gone")
         let stays = ConversationID("conv_stays")
