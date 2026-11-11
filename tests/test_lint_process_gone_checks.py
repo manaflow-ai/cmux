@@ -10,6 +10,7 @@ with a reason, is the only escape. A file that cannot load the helper carries a 
 copy must match the helper.
 
 Runs under plain python3: `python3 -I tests/test_lint_process_gone_checks.py`.
+It runs itself again under a real Python 3.9 (UnderPython39), which the vendored files say they support.
 """
 
 from __future__ import annotations
@@ -18,6 +19,8 @@ import ast
 import hashlib
 import importlib.util
 import os
+import shutil
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -171,6 +174,60 @@ class ThisRepoScan(unittest.TestCase):
                 got = hashlib.sha256((TESTS / f).read_bytes()).hexdigest()
                 self.assertEqual(got, pin.get(f), "tests/%s was edited here: change it in leo-workspace tools/%s, "
                                  "then copy it and its commit and sha256 into tests/process_gone.pin" % (f, f))
+
+
+# The vendored files say they run on Python 3.9, a Mac's /usr/bin/python3. A name 3.9 lacks (ast.MatchAs) parses
+# fine and raises AttributeError only when the line runs: cmux#41409's copy of ast_names read ast.MatchAs for every
+# node, so find_source() failed on 3.9 before it scanned anything, and nothing here ran it there. So this file runs
+# itself again under a real 3.9, found the way leo-workspace's tools/py39_check.py finds one: $PY39, python3.9 or
+# /usr/bin/python3 when either is 3.9, else uv's managed 3.9 (uv from pip when missing).
+PY39 = (3, 9)
+
+
+def _version(python):
+    try:
+        out = subprocess.run([python, "-I", "-c", "import sys; print(*sys.version_info[:2])"],
+                             capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return tuple(int(x) for x in out.stdout.split()) if out.returncode == 0 else None
+
+
+def _uv():
+    if shutil.which("uv"):
+        return ["uv"]
+    probe = [sys.executable, "-m", "uv"]
+    if subprocess.run(probe + ["--version"], capture_output=True).returncode != 0:
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--user", "--break-system-packages", "uv"],
+                       capture_output=True, timeout=300)
+    return probe if subprocess.run(probe + ["--version"], capture_output=True).returncode == 0 else None
+
+
+def python39():
+    """The path of a Python 3.9, or None."""
+    for cand in (os.environ.get("PY39"), shutil.which("python3.9"), "/usr/bin/python3"):
+        if cand and _version(cand) == PY39:
+            return cand
+    uv = _uv()
+    if not uv:
+        return None
+    found = subprocess.run(uv + ["python", "find", "3.9"], capture_output=True, text=True, timeout=120)
+    if found.returncode != 0:
+        subprocess.run(uv + ["python", "install", "3.9"], capture_output=True, timeout=600)
+        found = subprocess.run(uv + ["python", "find", "3.9"], capture_output=True, text=True, timeout=120)
+    path = found.stdout.strip().splitlines()[-1] if found.returncode == 0 and found.stdout.strip() else None
+    return path if path and _version(path) == PY39 else None
+
+
+class UnderPython39(unittest.TestCase):
+    @unittest.skipIf(sys.version_info[:2] == PY39, "this run is the 3.9 run")
+    def test_the_vendored_files_and_these_tests_pass_under_python_3_9(self):
+        python = python39()
+        self.assertIsNotNone(python, "no Python 3.9 found or installable (set PY39, or install uv); refusing to pass "
+                                     "the vendored files unchecked on the Python they say they support")
+        out = subprocess.run([python, "-I", str(Path(__file__).resolve())], capture_output=True, text=True,
+                             timeout=1800, cwd=ROOT)
+        self.assertEqual(out.returncode, 0, "under %s:\n%s" % (python, (out.stdout + out.stderr)[-6000:]))
 
 
 if __name__ == "__main__":
