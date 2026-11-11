@@ -160,8 +160,11 @@
    inset shadow (or the border the control already has), so no control changes size. Hover steps the
    fill up one notch; the edge stays. Borders: None clears the edge with the card lines. */
 :root[data-settings-look="refined"] .settings {
-  --look-control-fill: var(--polish-hover);
-  --look-control-fill-hover: var(--polish-pressed);
+  /* Aside's quiet steps (Lucas 2026-11-12: the pressed fill on hover was "too bright"): a control
+     sits a few percent of ink over the card, and hover lifts it only a little more; the edge does
+     the drawing. */
+  --look-control-fill: color-mix(in srgb, var(--polish-ink) 5%, transparent);
+  --look-control-fill-hover: color-mix(in srgb, var(--polish-ink) 8%, transparent);
   --look-control-edge: inset 0 0 0 1px var(--look-line);
 }
 
@@ -346,8 +349,11 @@
   }
 }
 
-/* TRY (Lucas 2026-11-12, local build only): taller menu buttons, the comfortable control height. */
-:root[data-settings-look="refined"] .settings .row-control .ui-select-button {
+/* TRY (Lucas 2026-11-12, local build only): taller menu buttons, the comfortable control height,
+   each as wide as its value, as Aside's ("Google ⌃⌄"), right-aligned so its end never moves. */
+:root[data-settings-look="refined"] .settings .row-control .select .ui-select-button {
+  width: auto;
+  min-width: 0;
   min-height: var(--ds-control-primary);
   padding-inline-start: var(--ds-space-3);
 }

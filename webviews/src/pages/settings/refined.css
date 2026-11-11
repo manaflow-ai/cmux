@@ -275,9 +275,12 @@
 /* Pills: popups and buttons sit on a soft fill with no outline, the chevron at the end. */
 :root[data-settings-look="refined"] .settings .row-control :is(.ui-select-button, .button):not(.ui-btn) {
   border-color: transparent;
-  background: var(--polish-hover);
+  background: var(--look-control-fill, var(--polish-hover));
+  box-shadow: var(--look-control-edge, none);
 }
-:root[data-settings-look="refined"] .settings .row-control :is(.ui-select-button, .button):not(.ui-btn):hover:not(:disabled) { background: var(--polish-pressed); }
+:root[data-settings-look="refined"] .settings .row-control :is(.ui-select-button, .button):not(.ui-btn):is(:hover, [data-popup-open]):not(:disabled) {
+  background: var(--look-control-fill-hover, var(--polish-pressed));
+}
 :root[data-settings-look="refined"] .settings .segmented { padding: var(--ds-space-1); border-radius: var(--ds-radius-lg); background: var(--polish-hover); }
 :root[data-settings-look="refined"] .settings .segment { padding: 0 var(--ds-space-3); border-radius: var(--ds-radius-sm); }
 
