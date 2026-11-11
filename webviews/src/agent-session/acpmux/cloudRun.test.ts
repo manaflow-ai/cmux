@@ -234,6 +234,11 @@ test("a Cloud chat copies its project; with none (or home) it starts in the mach
     expect(cloudStartFolder(none)).toEqual({ home: true });
   // A no-project chat's private agent-home folder is never copied.
   expect(cloudStartFolder("/Users/me/Library/Application Support/cmux/agent-home/abc123")).toEqual({ home: true });
+  // Nor is Chief's own home, the folder a "No folder" tab reports.
+  expect(cloudStartFolder("/Users/me/.cmux/chief/default")).toEqual({ home: true });
+  expect(cloudStartFolder("/Users/me/.cmux/chief/com.cmuxterm.app.debug.tag/")).toEqual({ home: true });
+  // A project whose name only looks like it still copies.
+  expect(cloudStartFolder("/Users/me/src/.cmux-chief")).toEqual({ cwd: "/Users/me/src/.cmux-chief" });
 });
 
 test("a start with no project tells the host home, and never names a folder", async () => {
