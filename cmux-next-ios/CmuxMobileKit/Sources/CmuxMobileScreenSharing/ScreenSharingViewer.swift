@@ -38,8 +38,11 @@ public final class ScreenSharingViewer: Identifiable {
     public nonisolated var id: String { hostID }
     public nonisolated let hostID: String
     public let hostName: String
-    public private(set) var phase: Phase = .idle {
-        didSet { armGoAheadDeadline() }
+    /// Set only by the viewer itself; the setter is internal so tests can assign a phase again.
+    public internal(set) var phase: Phase = .idle {
+        // Only a real change of phase starts a new wait: assigning the same phase again must not
+        // push its deadline back (a new request re-arms on purpose, `request(_:)`).
+        didSet { if phase != oldValue { armGoAheadDeadline() } }
     }
     /// The stream while approved (nil before the ticket and after the end).
     public private(set) var screen: ScreenSession?
@@ -111,7 +114,10 @@ public final class ScreenSharingViewer: Identifiable {
         cancelPending(endingSession: true)
         stopStream()
         lastScope = scope
+        let sameWait = phase == .requesting(scope)
         phase = .requesting(scope)
+        // A new request is a new wait, even when the phase reads the same as the last one's.
+        if sameWait { armGoAheadDeadline() }
         let hub = hub, hostID = hostID, requestSession = requestSession, endSession = endSession, sessionLeft = sessionLeft
         requestTask = Task { [weak self] in
             // The call runs in its own task, which cancelling this one does not cancel: the hub may

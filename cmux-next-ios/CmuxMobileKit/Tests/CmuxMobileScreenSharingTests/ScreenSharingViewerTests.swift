@@ -268,6 +268,38 @@ import Testing
         try await waitFor { clock.pendingSleepers == 1 }
     }
 
+    /// Round 2 (verifier low): `phase`'s didSet re-armed the deadline on every assignment, so
+    /// assigning the same phase again pushed the 30 s wait back. Only a real change re-arms.
+    @Test func assigningTheSamePhaseKeepsItsDeadline() async throws {
+        let clock = ScreenTestClock()
+        let (service, _) = makeService(clock: clock)
+        let viewer = try #require(service.connect(to: mac(), scope: .view))
+        viewer.requestAnswered(.success(HubSession(id: "s11", state: .approved, scope: .view)), scope: .view)
+        try await waitFor { clock.pendingSleepers == 1 }
+        clock.advance(by: .seconds(20))
+        viewer.phase = .approved(sessionID: "s11", scope: .view)
+        #expect(clock.pendingSleepers == 1, "the same phase armed a second deadline")
+        clock.advance(by: ScreenSharingViewer.goAheadDeadline - .seconds(20))
+        try await waitFor { viewer.phase == .refused(.other, requested: .view) }
+    }
+
+    /// Asking again while a request with the same scope is out is a new wait: a fresh deadline.
+    @Test func askingAgainStartsAFreshDeadline() async throws {
+        let clock = ScreenTestClock()
+        let (service, _) = makeService(clock: clock)
+        let viewer = try #require(service.connect(to: mac(), scope: .full))
+        try await waitFor { clock.pendingSleepers == 1 }
+        clock.advance(by: .seconds(20))
+        viewer.request(.full)
+        #expect(viewer.phase == .requesting(.full))
+        try await waitFor { clock.pendingSleepers == 1 }
+        clock.advance(by: .seconds(20))
+        await Task.yield()
+        #expect(viewer.phase == .requesting(.full), "the second request kept the first one's deadline")
+        clock.advance(by: .seconds(10))
+        try await waitFor { viewer.phase == .refused(.other, requested: .full) }
+    }
+
     @Test func waitingForThePersonAtTheMacHasNoDeadline() async throws {
         let clock = ScreenTestClock()
         let (service, _) = makeService(clock: clock)
