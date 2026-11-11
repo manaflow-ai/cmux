@@ -11951,11 +11951,15 @@ class RunnerDownloadLinesAreTheOpenedSteps(RealShapesOfNovember11):
                 self.assertNotIn(self.BEFORE, {name for name, _ in owned}, said)
 
     def test_without_the_lead_the_failed_step_takes_them(self):
-        # The detector: with _lead leaving every header where it is (fd8a29bb's ownership), the same failed step's
-        # section holds the composite's download lines.
+        # The detector: with step_owners' sections cut at the headers again (fd8a29bb: the lead timed in _aligned_starts,
+        # never owned), the same failed step's section holds the composite's download lines.
         job, text = self.earlier_step_failed()
         names = self.names(self.SWIFT, job, text)
-        with unittest.mock.patch.object(excuse.steps_log, "_lead", lambda texts, lines, header, *rest, **kw: header):
+        lead = excuse.steps_log._lead
+
+        def timing_only(texts, lines, header, floor, window=None):
+            return header if window is not None else lead(texts, lines, header, floor)
+        with unittest.mock.patch.object(excuse.steps_log, "_lead", timing_only):
             view = excuse.failed_view(job, text, step_names=names, base=True)
         self.assertIsNot(view, excuse.UNPLACED)
         sections = {str(view.steps[k]["name"]): lines for k, _, lines in view.sections}
@@ -12214,6 +12218,7 @@ SCANNERS = {
     "failed_steps_log.step_owners": lambda f: (excuse.step_owners(f.job, f.log, **UNKNOWN),
                                               excuse.step_owners(f.job, f.flood, **UNKNOWN)),
     "failed_steps_log._live_red": lambda f: excuse._live_red(f.lines, 0, len(f.lines), opened=True),
+    "failed_steps_log._lead": lambda f: excuse.steps_log._lead(f.lines, f.raw, len(f.lines) - 1, 0),
     "failed_steps_log._one_to_one_starts": lambda f: excuse._one_to_one_starts(
         [s for s in f.job["steps"]], f.raw, f.lines, f.windows, excuse.STEP_NAMES_UNKNOWN),
     "failed_steps_log.failed_steps_log": lambda f: excuse.failed_steps_log(f.job, f.log, **UNKNOWN),
