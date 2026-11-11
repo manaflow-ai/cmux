@@ -1406,7 +1406,8 @@ class Controller:
         # this job's id, no base failure can match it, whatever the base shows.
         view = base_red_excuse.failed_view(job, log, step_names=self.step_names(job), base=base)
         # A failure no parser names is this red's only when a failed step printed it (owned_unnamed: #41244's review F1).
-        own = base_red_excuse.owned_unnamed(base_red_excuse.test_reds.read(log), view)
+        own = base_red_excuse.owned_unnamed(base_red_excuse.test_reds.read(log), view,
+                                            base_red_excuse.test_reds.unjudged(log))
         if own.crashes or own.truncated:
             return {f"{name}: {why} (job {job_id}, never a base red)" for why in own.crashes + own.truncated[:1]}
         if view is base_red_excuse.UNPLACED:

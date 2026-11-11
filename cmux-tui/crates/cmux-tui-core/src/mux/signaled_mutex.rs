@@ -293,9 +293,10 @@ thread_local! {
 
 /// How many plain lockers took the registry lock in front of this thread's own takes, summed over its takes (test
 /// hook): for each `lock` call, the plain acquisitions between the call and its return. The holder at the call
-/// is not a turn in front (at most one such hold per take). A test proves with it that a person's request does
-/// not queue behind a crowd of writers by counting turns, with no timing: a wait in wall time grows with the
-/// host's load, a place in the queue does not.
+/// is not a turn in front (at most one such hold per take); a plain locker that has the lock at the call and
+/// has not counted itself yet can add 1 to that take. Only `lock` counts: `try_lock` and `lock_until` do not. A
+/// test proves with it that a person's request does not queue behind a crowd of writers by counting turns, with
+/// no timing: a wait in wall time grows with the host's load, a place in the queue does not.
 #[cfg(test)]
 pub(crate) fn plain_turns_ahead_on_this_thread() -> u64 {
     PLAIN_TURNS_AHEAD.with(Cell::get)
