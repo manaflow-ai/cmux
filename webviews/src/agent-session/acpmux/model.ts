@@ -633,11 +633,8 @@ export type AcpmuxRow = {
   /// conversation/toolRunSummary.ts).
   /// False keeps a run waiting for edit permission in tool rows without collapsing it.
   foldRun?: boolean;
-  /// A folded run inside the open "Worked for" of a turn the person steered: its line starts open, so
-  /// opening Worked for shows all its work at once (conversation/turns.ts, turnFoldSteered.experiment.ts).
+  /// A folded run whose line starts open, its steps in sight (toolGroups.ts `runStretches`).
   runOpen?: true;
-  /// A "Worked for" line that names the work it holds after its time (turnFoldSteered `header` arm).
-  workedRuns?: AcpmuxActivity[];
   /// A run of one-line rows carrying messages between agents, folded under one line
   /// (conversation/messageRuns.ts): what its line counts and the rows it folds.
   messageRun?: AcpmuxMessageRun;
