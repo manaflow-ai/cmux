@@ -23,6 +23,8 @@
 #             only=TARGET/SUITE[,TARGET/SUITE...]   run only those kit tests
 #               (-only-testing), e.g. only=CmuxMobileLiveTests/LinkRecoveryTests
 #               (a suite, or TARGET/SUITE/test for an XCTest method)
+#             repeat=N   run the selected kit tests N times (2-100,
+#               -test-iterations): a flake fix's proof, e.g. with only=
 #             ui=SUITE[,SUITE...]   also run those CmuxMobileAppUITests suites
 #               against a Debug app; with ui= and no only=, the kit run is skipped
 #             video   record the UI tests' iPhone screen (simctl recordVideo)
@@ -107,6 +109,7 @@ fi
 
 # test's optional selection (see MODE above), checked before anything is built.
 kit_only=()
+kit_repeat=()
 ui_suites=()
 ui_video=0
 if [[ "$mode" == test && $# -gt 1 ]]; then
@@ -126,8 +129,12 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
             { echo "cmux-next-ios-sim.sh: ui= wants CmuxMobileAppUITests suite names, got '$item'" >&2; exit 2; }
           ui_suites+=("-only-testing:CmuxMobileAppUITests/$item")
         done ;;
+      repeat=*)
+        [[ "${sel#repeat=}" =~ ^([2-9]|[1-9][0-9]|100)$ ]] ||
+          { echo "cmux-next-ios-sim.sh: repeat= wants 2 to 100, got '${sel#repeat=}'" >&2; exit 2; }
+        kit_repeat=(-test-iterations "${sel#repeat=}") ;;
       video) ui_video=1 ;;
-      *) echo "cmux-next-ios-sim.sh: test takes only=LIST, ui=LIST and video, got '$sel'" >&2; exit 2 ;;
+      *) echo "cmux-next-ios-sim.sh: test takes only=LIST, repeat=N, ui=LIST and video, got '$sel'" >&2; exit 2 ;;
     esac
   done
 fi
@@ -504,7 +511,7 @@ if [[ ( "$mode" == test || "$mode" == all ) && $run_kit -eq 1 ]]; then
   set +e
   (cd cmux-next-ios/CmuxMobileKit && xcodebuild test -scheme CmuxMobileKit-Package \
     -destination "id=$test_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$work/dd-test" \
-    -resultBundlePath "$work/kit.xcresult" CODE_SIGNING_ALLOWED=NO -quiet ${kit_only[@]+"${kit_only[@]}"}) >"$work/test.log" 2>&1
+    -resultBundlePath "$work/kit.xcresult" CODE_SIGNING_ALLOWED=NO -quiet ${kit_only[@]+"${kit_only[@]}"} ${kit_repeat[@]+"${kit_repeat[@]}"}) >"$work/test.log" 2>&1
   test_status=$?
   set -e
   xcrun simctl shutdown "$test_udid" >/dev/null 2>&1 || true
@@ -532,6 +539,7 @@ for root in json.load(sys.stdin).get("testNodes", []):
   cat "$out/test-failures.txt"
   keep_test_logs "$work/test.log" "$work/kit.xcresult" kit
   [[ ${#kit_only[@]} -eq 0 ]] || note "- kit filter: ${kit_only[*]}"
+  [[ ${#kit_repeat[@]} -eq 0 ]] || note "- kit repetitions: ${kit_repeat[1]}"
   note "- CmuxMobileKit tests (iOS simulator): exit $test_status, $counts, $((SECONDS - t0)) s"
 fi
 
