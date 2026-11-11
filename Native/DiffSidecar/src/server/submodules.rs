@@ -204,7 +204,13 @@ pub(super) async fn append_submodule_patches(
                 .saturating_sub(*bytes_written)
                 .min(MAX_SUBMODULE_PATCH_BYTES);
             let mut command = git.command();
-            command.args(["diff", "--no-ext-diff", "--no-textconv", "--no-color", "--binary"]);
+            command.args([
+                "diff",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--no-color",
+                "--binary",
+            ]);
             command.args(whitespace.diff_args());
             command.args(prefix_args(&prefix));
             command.args(&revisions);
@@ -280,9 +286,13 @@ async fn open_submodule(folder: &Path, path: &str) -> Option<SessionGit> {
             return None;
         }
     }
-    tokio::fs::symlink_metadata(current.join(".git")).await.ok()?;
+    tokio::fs::symlink_metadata(current.join(".git"))
+        .await
+        .ok()?;
     let git = SessionGit::open(&current, SESSION_GIT_TIMEOUT).await?;
-    let top = git_single_line(&git, &["rev-parse", "--show-toplevel"]).await.ok()?;
+    let top = git_single_line(&git, &["rev-parse", "--show-toplevel"])
+        .await
+        .ok()?;
     let top = tokio::fs::canonicalize(top).await.ok()?;
     let expected = tokio::fs::canonicalize(&current).await.ok()?;
     (top == expected).then_some(git)

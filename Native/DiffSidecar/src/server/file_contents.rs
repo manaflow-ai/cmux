@@ -19,11 +19,11 @@ use std::process::Stdio;
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncReadExt;
 
+use super::submodules::{DiffedSubmodule, containing, open_diffed};
 use super::{
     AppState, SESSION_GIT_TIMEOUT, SessionGit, SessionOpenError, SessionOwner, git_merge_base,
     has_session_token, session_owner_path, valid_token,
 };
-use super::submodules::{DiffedSubmodule, containing, open_diffed};
 use crate::protocol::{
     DiffSource, FileContentsEncoding, FileContentsRequest, FileContentsResult, FileSide,
 };

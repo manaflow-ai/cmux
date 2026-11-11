@@ -924,23 +924,23 @@ async fn run_git_patch_with_limit(
         // checked-out submodule, under its folder, after its
         // `Subproject commit` lines. Best effort, like untracked files.
         let diffed = submodules::append_submodule_patches(
-                git.clone(),
-                git.repo(),
-                revisions,
-                submodules::Session {
-                    whitespace,
-                    new_side: if matches!(source, DiffSource::Staged { .. }) {
-                        submodules::NewSide::Commits
-                    } else {
-                        submodules::NewSide::WorkTree
-                    },
-                    untracked: matches!(source, DiffSource::Unstaged { .. }),
-                    output: &mut output,
-                    bytes_written: &mut bytes_written,
-                    max_patch_bytes,
+            git.clone(),
+            git.repo(),
+            revisions,
+            submodules::Session {
+                whitespace,
+                new_side: if matches!(source, DiffSource::Staged { .. }) {
+                    submodules::NewSide::Commits
+                } else {
+                    submodules::NewSide::WorkTree
                 },
-            )
-            .await?;
+                untracked: matches!(source, DiffSource::Unstaged { .. }),
+                output: &mut output,
+                bytes_written: &mut bytes_written,
+                max_patch_bytes,
+            },
+        )
+        .await?;
         output
             .flush()
             .await

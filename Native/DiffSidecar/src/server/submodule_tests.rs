@@ -35,7 +35,12 @@ impl Fixture {
         let base = std::fs::canonicalize(&base).expect("canonical base");
         let repo = base.join("super");
         let root = base.join("root");
-        for folder in [&repo, &root, &base.join("deep-origin"), &base.join("sub-origin")] {
+        for folder in [
+            &repo,
+            &root,
+            &base.join("deep-origin"),
+            &base.join("sub-origin"),
+        ] {
             std::fs::create_dir_all(folder).expect("create folder");
         }
 
@@ -49,14 +54,35 @@ impl Fixture {
         git(&sub_origin, &["init", "--quiet", "--initial-branch=main"]);
         std::fs::write(sub_origin.join("f.txt"), "one\n").expect("write f.txt");
         git(&sub_origin, &["add", "."]);
-        git(&sub_origin, &["submodule", "--quiet", "add", &path_text(&deep_origin), "deep"]);
+        git(
+            &sub_origin,
+            &[
+                "submodule",
+                "--quiet",
+                "add",
+                &path_text(&deep_origin),
+                "deep",
+            ],
+        );
         git(&sub_origin, &["commit", "--quiet", "-m", "sub"]);
 
         git(&repo, &["init", "--quiet", "--initial-branch=main"]);
         std::fs::write(repo.join("top.txt"), "top\n").expect("write top.txt");
         git(&repo, &["add", "."]);
-        git(&repo, &["submodule", "--quiet", "add", &path_text(&sub_origin), "libs/sub"]);
-        git(&repo, &["submodule", "--quiet", "update", "--init", "--recursive"]);
+        git(
+            &repo,
+            &[
+                "submodule",
+                "--quiet",
+                "add",
+                &path_text(&sub_origin),
+                "libs/sub",
+            ],
+        );
+        git(
+            &repo,
+            &["submodule", "--quiet", "update", "--init", "--recursive"],
+        );
         git(&repo, &["commit", "--quiet", "-m", "initial"]);
 
         std::fs::write(
@@ -206,8 +232,7 @@ async fn unstaged_sessions_show_files_changed_inside_submodules() {
     std::fs::write(fixture.repo.join("top.txt"), "top\nmore\n").expect("edit top.txt");
     std::fs::write(fixture.sub().join("f.txt"), "one\ntwo\n").expect("edit f.txt");
     std::fs::write(fixture.sub().join("new.txt"), "brand new\n").expect("write new.txt");
-    std::fs::write(fixture.sub().join("deep/d.txt"), "deep one\ndeep two\n")
-        .expect("edit d.txt");
+    std::fs::write(fixture.sub().join("deep/d.txt"), "deep one\ndeep two\n").expect("edit d.txt");
 
     let (session, patch) = fixture
         .open(DiffSource::Unstaged {
@@ -284,8 +309,7 @@ async fn branch_sessions_diff_submodules_from_the_merge_base() {
     std::fs::write(fixture.sub().join("f.txt"), "one\ncommitted\n").expect("edit f.txt");
     git(&fixture.sub(), &["commit", "--quiet", "-am", "sub change"]);
     git(&fixture.repo, &["commit", "--quiet", "-am", "bump sub"]);
-    std::fs::write(fixture.sub().join("f.txt"), "one\ncommitted\nworking\n")
-        .expect("edit again");
+    std::fs::write(fixture.sub().join("f.txt"), "one\ncommitted\nworking\n").expect("edit again");
 
     let (_, patch) = fixture
         .open(DiffSource::Branch {
@@ -308,7 +332,10 @@ async fn a_submodule_that_is_not_checked_out_keeps_only_its_gitlink_line() {
     std::fs::write(fixture.sub().join("f.txt"), "one\ntwo\n").expect("edit f.txt");
     git(&fixture.sub(), &["commit", "--quiet", "-am", "sub change"]);
     git(&fixture.repo, &["add", "libs/sub"]);
-    git(&fixture.repo, &["submodule", "--quiet", "deinit", "--force", "libs/sub"]);
+    git(
+        &fixture.repo,
+        &["submodule", "--quiet", "deinit", "--force", "libs/sub"],
+    );
     std::fs::write(fixture.repo.join("top.txt"), "top\nmore\n").expect("edit top.txt");
 
     let (_, patch) = fixture
