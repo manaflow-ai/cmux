@@ -1014,6 +1014,23 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>open</string>
+			<key>pfm_description</key>
+			<string>Agents may open pop-up and context menus of apps in the background to choose an item. Menu bar menus never open in the background.</string>
+			<key>pfm_name</key>
+			<string>computerUse.menus</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>open</string>
+				<string>refuse</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Menus in Background Apps</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
 			<string>Advanced. Agents may bring an app to the front and move your pointer when it takes no background input.</string>

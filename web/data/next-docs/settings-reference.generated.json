@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 587,
+  "count": 588,
   "sections": [
     {
       "id": "general",
@@ -621,6 +621,18 @@
           "kind": "toggle",
           "default": true,
           "group": "Computer Use"
+        },
+        {
+          "key": "computerUse.menus",
+          "title": "Menus in Background Apps",
+          "help": "Agents may open pop-up and context menus of apps in the background to choose an item. Menu bar menus never open in the background.",
+          "kind": "choice",
+          "default": "open",
+          "group": "Computer Use",
+          "values": [
+            "open",
+            "refuse"
+          ]
         },
         {
           "key": "computerUse.mode",
