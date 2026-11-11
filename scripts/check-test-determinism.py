@@ -23,7 +23,11 @@ Detectors (all line/regex heuristics, never an AST):
   (elapsed_ms, perf_counter, DispatchTime.now, CACurrentMediaTime,
   .uptimeNanoseconds, monotonic(), a *_ms variable, a `clock.now - start`)
   against a numeric literal or a Swift Duration literal (`.milliseconds(1000)`).
-  This is the "assert on latency" ban.
+  This is the "assert on latency" ban. It also follows a name: `took =
+  time.perf_counter() - started` then `self.assertLess(took, 0.5)` on a later
+  line of the same function (Python by indentation; Swift, JS and TS by
+  braces). A ratio of two timings (the n-vs-4n scaling check), a bound of 0,
+  and a timing that only reaches a log line or a message are not flagged.
 - live-network-host: a hardcoded external URL/host driving real network from a
   test (public domain or public IP). Loopback, data:, and 0.0.0.0 are allowed.
 - fixed-port-bind: binding/connecting a fixed non-zero port literal for a real
@@ -3614,6 +3618,241 @@ def detect_assert_on_duration(line: str, path_suffix: str = "") -> bool:
     return has_threshold_compare or has_relational_assert
 
 
+# ---------------------------------------------------------------------------
+# assert-on-duration through a name: a clock difference stored on one line and bounded on a later one
+# ---------------------------------------------------------------------------
+
+# A call that reads a clock. Python, Swift and JavaScript/TypeScript (the scanned languages).
+_CLOCK_READ = re.compile(
+    r"""(?x)
+    \b(?:time\.)?(?:perf_counter|monotonic|process_time|thread_time)(?:_ns)?\s*\(
+  | \btime\.time(?:_ns)?\s*\(
+  | \b(?:loop|get_running_loop\(\)|get_event_loop\(\))\.time\s*\(
+  | \bdatetime\.(?:datetime\.)?(?:now|utcnow)\s*\(
+  | \bDate\.now\s*\(
+  | \bperformance\.now\s*\(
+  | \bprocess\.hrtime(?:\.bigint)?\s*\(
+  | \bnew\s+Date\s*\(\s*\)
+  | DispatchTime\.now\s*\(
+  | \bCACurrentMediaTime\s*\(
+  | \bCFAbsoluteTimeGetCurrent\s*\(
+  | \bmach_absolute_time\s*\(
+  | \bProcessInfo\.processInfo\.systemUptime\b
+  | \bDate\s*\(\s*\)
+  | \b(?:Continuous|Suspending)Clock\s*\(\s*\)\.now\b
+  | [Cc]lock\.now\b                  # clock.now, ContinuousClock.now, testClock.now
+    """
+)
+# A clock difference in one call, with no `-`: Date().timeIntervalSince(t0), t0.timeIntervalSinceNow,
+# start.duration(to: .now), process.hrtime(start).
+_CLOCK_DIFFERENCE_CALL = re.compile(
+    r"""(?x)
+    \.timeIntervalSince(?:Now\b|\s*\()
+  | \.duration\s*\(\s*to\s*:
+  | \bprocess\.hrtime\s*\(\s*\w
+    """
+)
+# Literal text one of the two patterns above needs: a cheap test that a file reads no clock at all.
+_CLOCK_KEYS = (
+    "perf_counter", "monotonic", "process_time", "thread_time", "time(", "time_ns(", "now", "hrtime", "Date",
+    "CACurrentMediaTime", "CFAbsoluteTimeGetCurrent", "mach_absolute_time", "systemUptime", "timeIntervalSince",
+    "duration",
+)
+_PY_ASSIGNMENT = re.compile(r"^\s*([A-Za-z_]\w*)\s*(?::\s*[\w\[\]., |]+)?=(?!=)\s*(\S.*)$")
+_BRACE_ASSIGNMENT = re.compile(r"^\s*(?:(?:let|var|const)\s+)?([A-Za-z_]\w*)\s*(?::\s*[^=]+)?=(?![=>])\s*(\S.*)$")
+_ONE_LINE_STRING = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`(?:\\.|[^`\\])*`')
+_BRACES = re.compile(r"[{}]")
+_PY_DEF = re.compile(r"^(\s*)(?:async\s+)?def\s")
+_RELATIONAL_HELPER = re.compile(
+    r"\b(?:XCTAssert(?:LessThan|GreaterThan)\w*|assert(?:Less|Greater)\w*|toBe(?:LessThan|GreaterThan)\w*)\s*\("
+)
+_ASSERT_OPENING = re.compile(r"(?:#expect|#require|\bXCTAssert\w*|\bself\.assert\w*|\bassert\w*|\bexpect)\s*\(")
+_RELATIONAL_OPERATOR = re.compile(r"(?<![<>=!\-])(?:<=|>=|<|>)(?![=>])")
+_ABSOLUTE_BOUND = re.compile(r"(?<![\w.$])\d[\d_]*(?:\.\d+)?|\.(?:nanoseconds|microseconds|milliseconds|seconds)\s*\(")
+
+
+def _top_level_args(text: str, start: int) -> tuple[list[str], int]:
+    """The comma-separated arguments of the call whose `(` is at START, and the index after its `)`.
+
+    A string literal is skipped whole, its interpolations with it: an argument that starts with one is a message.
+    """
+    args: list[str] = []
+    depth = 0
+    arg_start = start + 1
+    index = start
+    while index < len(text):
+        character = text[index]
+        if character in "\"'`":
+            end = index + 1
+            while end < len(text) and text[end] != character:
+                end += 2 if text[end] == "\\" else 1
+            index = end + 1
+            continue
+        if character in "([{":
+            depth += 1
+        elif character in ")]}":
+            depth -= 1
+            if depth == 0:
+                args.append(text[arg_start:index])
+                return args, index + 1
+        elif character == "," and depth == 1:
+            args.append(text[arg_start:index])
+            arg_start = index + 1
+        index += 1
+    args.append(text[arg_start:])
+    return args, len(text)
+
+
+def _is_message(arg: str) -> bool:
+    return bool(re.match(r"\s*(?:[A-Za-z]{1,2})?[\"'`]", arg))
+
+
+def _names_in(text: str, names: set[str]) -> set[str]:
+    return {word for word in re.findall(r"(?<![\w.])[A-Za-z_]\w*", text) if word in names}
+
+
+def _is_timing_ratio(side: str, timings: set[str]) -> bool:
+    """A timing divided by another timing (the scaling check): `took_4n / took_n`, `a / max(b, 1e-9)`."""
+    slash = side.find("/")
+    return slash >= 0 and bool(_names_in(side[slash + 1:], timings) or _CLOCK_READ.search(side[slash + 1:]))
+
+
+def _bounds_a_timing(side: str, other: str, timings: set[str]) -> bool:
+    return (
+        # A bound of 0 (`took > 0`, `toBeGreaterThan(0)`) checks that a timing was taken, not how long it was.
+        not re.fullmatch(r"[\s(]*0(?:\.0*)?[\s)]*", other)
+        and bool(_names_in(side, timings))
+        and not _is_timing_ratio(side, timings)
+        and not _names_in(other, timings)
+        and not _CLOCK_READ.search(other)
+    )
+
+
+def _asserts_absolute_bound_on(line: str, timings: set[str]) -> bool:
+    """Whether the assertion on LINE bounds one of TIMINGS (names holding a clock difference) by a fixed amount."""
+    if not timings or not _is_assertion_line(line) or not _names_in(line, timings):
+        return False
+    helper = _RELATIONAL_HELPER.search(line)
+    if helper:
+        args, after = _top_level_args(line, helper.end() - 1)
+        if helper.group(0).startswith("toBe"):
+            # expect(took).toBeLessThan(500): the operand is expect's argument.
+            opening = re.search(r"\bexpect\s*\(", line[: helper.start()])
+            if not opening:
+                return False
+            subject, _ = _top_level_args(line, opening.end() - 1)
+            operands = [subject[0], args[0]]
+        else:
+            operands = [arg for arg in args if not _is_message(arg)][:2]
+        if len(operands) != 2:
+            return False
+        first, second = operands
+        return _bounds_a_timing(first, second, timings) or _bounds_a_timing(second, first, timings)
+    opening = _ASSERT_OPENING.search(line)
+    if opening:
+        args, _ = _top_level_args(line, opening.end() - 1)
+        conditions = [arg for arg in args if not _is_message(arg)][:1]
+    else:
+        bare = re.search(r"\bassert\s+(.*)$", line)
+        if not bare:
+            return False
+        conditions = [_top_level_args("(" + bare.group(1) + ")", 0)[0][0]]
+    # Each clause of `a >= 0 && a <= waited` is its own comparison: the 0 bounds `a`, not `waited`.
+    clauses = [clause for condition in conditions for clause in re.split(r"&&|\|\||\band\b|\bor\b", condition)]
+    for condition in clauses:
+        for operator in _RELATIONAL_OPERATOR.finditer(condition):
+            left, right = condition[: operator.start()], condition[operator.end():]
+            if _bounds_a_timing(left, right, timings) and _ABSOLUTE_BOUND.search(right):
+                return True
+            if _bounds_a_timing(right, left, timings) and _ABSOLUTE_BOUND.search(left):
+                return True
+    return False
+
+
+def _classify_assignment(value: str, timings: set[str], readings: set[str]) -> Optional[str]:
+    """'timing' for a clock difference, 'reading' for a bare clock reading, None for anything else."""
+    if not (timings or readings) and not any(key in value for key in _CLOCK_KEYS):
+        return None
+    if _is_timing_ratio(value, timings | readings):
+        return None
+    if _CLOCK_DIFFERENCE_CALL.search(value):
+        return "timing"
+    minus = re.search(r"(?<![-=<>*/+eE])-(?![->=])", value)
+    if minus:
+        left = value[: minus.start()]
+        right = value[minus.end():]
+        if re.search(r"\btimedelta\b|\b(?:weeks|days|hours|minutes|seconds)\s*=", right):
+            return None  # datetime.now() - timedelta(hours=1) is an instant, not a duration
+        # A clock reading minus a name (a start), not a timestamp moved by a constant: Date.now() + h - 1_000.
+        if (_CLOCK_READ.search(left) or _names_in(left, readings)) and "+" not in left and re.search(r"[A-Za-z]", right):
+            return "timing"
+        if _names_in(left, timings):
+            return "timing"
+        return None
+    if _names_in(value, timings) and re.search(r"[*/]\s*[\d(]|^\s*\(*\s*\w+\s*\)*\s*[*/]", value):
+        return "timing"  # (took) * 1000, took / 1e6: still the same duration
+    if _CLOCK_READ.search(value) and not re.search(r"[-+*/]", value):
+        return "reading"
+    return None
+
+
+def detect_assert_on_duration_through_name(code_lines: list[str], path_suffix: str) -> list[int]:
+    """Lines bounding a name that holds a clock difference assigned earlier in the same function.
+
+    `took = time.perf_counter() - started` then `self.assertLess(took, 0.5)`: the line-at-a-time check sees
+    neither half on one line. A name holds a timing from its assignment until it is reassigned or its function
+    (Python, by indentation) or block (Swift, JavaScript and TypeScript, by braces) ends. A ratio of two timings
+    is the scaling check and is not a bound on wall time; a timing that only reaches a log line or an assertion's
+    message measures nothing.
+    """
+    if path_suffix not in (".py", ".swift", ".ts", ".tsx", ".js", ".mjs"):
+        return []
+    # Most test files read no clock: skip the scope walk for them.
+    source = "\n".join(code_lines)
+    if not any(key in source for key in _CLOCK_KEYS):
+        return []
+    python = path_suffix == ".py"
+    # Each scope is (opening indent or brace depth, timings, readings); module level is the outermost.
+    scopes: list[tuple[int, set[str], set[str]]] = [(-1, set(), set())]
+    depth = 0
+    flagged: list[int] = []
+    for index, line in enumerate(code_lines):
+        if not line.strip():
+            continue
+        if python:
+            indent = len(line) - len(line.lstrip())
+            while len(scopes) > 1 and indent <= scopes[-1][0]:
+                scopes.pop()
+            definition = _PY_DEF.match(line)
+            if definition:
+                scopes.append((indent, set(), set()))
+                continue
+        _, timings, readings = scopes[-1]
+        if _asserts_absolute_bound_on(line, timings):
+            flagged.append(index)
+        assignment = (_PY_ASSIGNMENT if python else _BRACE_ASSIGNMENT).match(line)
+        if assignment:
+            name, value = assignment.group(1), assignment.group(2)
+            kind = _classify_assignment(value, timings, readings)
+            timings.discard(name)
+            readings.discard(name)
+            if kind == "timing":
+                timings.add(name)
+            elif kind == "reading":
+                readings.add(name)
+        if not python and ("{" in line or "}" in line):
+            # A brace in a one-line string literal does not open a block (comments are already stripped).
+            for character in _BRACES.findall(_ONE_LINE_STRING.sub("", line)):
+                if character == "{":
+                    depth += 1
+                    scopes.append((depth, set(), set()))
+                elif character == "}":
+                    if len(scopes) > 1 and scopes[-1][0] == depth:
+                        scopes.pop()
+                    depth = max(depth - 1, 0)
+    return flagged
+
+
 def detect_live_network_host(line: str, path_suffix: str = "") -> bool:
     # High-precision signal only: an actual http(s):// URL with a public host that
     # is ALSO handed to a network-driving verb on the same line (fetch/axios/
@@ -4241,6 +4480,13 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
         if detect_yield_count_poll(code_lines, i, suffix):
             findings.append(Finding(rel_posix, line_no, RULE_YIELD_COUNT_POLL, snippet))
 
+    duration_lines = {f.line for f in findings if f.rule == RULE_ASSERT_ON_DURATION}
+    for duration_line in detect_assert_on_duration_through_name(code_lines, suffix):
+        if duration_line + 1 not in duration_lines:
+            findings.append(
+                Finding(rel_posix, duration_line + 1, RULE_ASSERT_ON_DURATION, raw_lines[duration_line].strip())
+            )
+
     git_line = detect_git_temp_repo_maintenance(code_lines, text, suffix)
     if git_line is not None:
         findings.append(
@@ -4491,6 +4737,70 @@ def _self_test() -> int:
         (
             "tests/b.py",
             "elapsed_ms = (time.perf_counter() - t0) * 1000\nassert elapsed_ms < 50\n",
+            {RULE_ASSERT_ON_DURATION},
+        ),
+        # A clock difference stored in a name the token list does not know, then bounded on a later line
+        # (cmux#41236: test_base_red_excuse.py's `took` failed its 0.5 s bound under host load).
+        (
+            "tests/duration_through_name.py",
+            (
+                "class T(unittest.TestCase):\n"
+                "    def test_linear(self):\n"
+                "        started = time.perf_counter()\n"
+                "        owned = place(job)\n"
+                "        took = time.perf_counter() - started\n"
+                "        with self.subTest(shape=label):\n"
+                "            self.assertLess(took, 0.5, f\"place took {took:.2f} s\")\n"
+            ),
+            {RULE_ASSERT_ON_DURATION},
+        ),
+        # Two clock readings, the difference taken from their names.
+        (
+            "tests/duration_end_minus_start.py",
+            (
+                "def test_fast():\n"
+                "    began = time.monotonic()\n"
+                "    run()\n"
+                "    done = time.monotonic()\n"
+                "    spent = done - began\n"
+                "    assert spent < 2\n"
+            ),
+            {RULE_ASSERT_ON_DURATION},
+        ),
+        (
+            "cmuxTests/duration_through_name.swift",
+            (
+                "    func testFast() async {\n"
+                "        let start = clock.now\n"
+                "        await model.load()\n"
+                "        let took = clock.now - start\n"
+                "        XCTAssertLessThan(took, .seconds(1))\n"
+                "    }\n"
+            ),
+            {RULE_ASSERT_ON_DURATION},
+        ),
+        (
+            "cmuxTests/duration_interval_name.swift",
+            (
+                "    func testFast() {\n"
+                "        let t0 = Date()\n"
+                "        model.load()\n"
+                "        let spent = Date().timeIntervalSince(t0)\n"
+                "        XCTAssertLessThan(spent, 0.25)\n"
+                "    }\n"
+            ),
+            {RULE_ASSERT_ON_DURATION},
+        ),
+        (
+            "web/tests/duration_through_name.test.ts",
+            (
+                "it('loads fast', async () => {\n"
+                "  const started = performance.now();\n"
+                "  await load();\n"
+                "  const took = performance.now() - started;\n"
+                "  expect(took).toBeLessThan(500);\n"
+                "});\n"
+            ),
             {RULE_ASSERT_ON_DURATION},
         ),
         (
@@ -6248,6 +6558,92 @@ def _self_test() -> int:
         (
             "cmux-next-ios/CmuxMobileKit/Tests/KitTests/n31.swift",
             "#expect(clock.now == RecordedClock.at(.milliseconds(150)))\n",
+        ),
+        # The scaling pattern (cmux#41236): two timings of the same work at N and 4N, bounded only by their ratio.
+        (
+            "tests/n32.py",
+            (
+                "def test_scales_linearly(self):\n"
+                "    began = time.process_time()\n"
+                "    run(n)\n"
+                "    took_n = time.process_time() - began\n"
+                "    began = time.process_time()\n"
+                "    run(4 * n)\n"
+                "    took_4n = time.process_time() - began\n"
+                "    ratio = took_4n / max(took_n, 1e-9)\n"
+                "    self.assertLess(ratio, 8)\n"
+                "    self.assertLess(took_4n / took_n, 8)\n"
+                "    self.assertLess(took_4n, 8 * took_n)\n"
+            ),
+        ),
+        # A clock difference that only reaches a log line or an assertion's message measures nothing.
+        (
+            "tests/n33.py",
+            (
+                "def test_places_all(self):\n"
+                "    started = time.perf_counter()\n"
+                "    owned = place(job)\n"
+                "    took = time.perf_counter() - started\n"
+                "    print(f\"place took {took:.2f} s\")\n"
+                "    log.info('took %.2f s', took)\n"
+                "    self.assertEqual(len(owned), 3, f\"took {took:.2f} s\")\n"
+            ),
+        ),
+        # A name holds a clock difference only in the function that assigned it, and only until it is reassigned.
+        (
+            "tests/n34.py",
+            (
+                "def helper():\n"
+                "    took = time.perf_counter() - started\n"
+                "    return took\n"
+                "def test_rows(self):\n"
+                "    took = len(rows)\n"
+                "    self.assertLess(took, 5)\n"
+                "def test_again(self):\n"
+                "    self.assertLess(took, 5)\n"
+            ),
+        ),
+        # A bound of 0 on another value, and a timing used as that value's upper bound (a relative check).
+        (
+            "cmuxTests/n36.swift",
+            (
+                "    func a() {\n"
+                "        let waited = (seen - typed) * 1000\n"
+                "        let waited2 = (CACurrentMediaTime() - typed) * 1000\n"
+                "        #expect(latency >= 0 && latency <= waited2, \"echo \\(latency) ms\")\n"
+                "    }\n"
+            ),
+        ),
+        # A timestamp moved by a constant is an instant, not a measured duration.
+        (
+            "web/tests/n37.test.ts",
+            (
+                "const floor = Date.now() + FIVE_HOURS_MS - 1_000;\n"
+                "expect(stored).toBeGreaterThanOrEqual(floor);\n"
+                "const cutoff = Date.now() - 60_000;\n"
+                "expect(stored).toBeGreaterThan(cutoff);\n"
+            ),
+        ),
+        # A timing checked only to be positive: no bound on how long it took.
+        (
+            "web/tests/n38.test.ts",
+            (
+                "  const started = performance.now();\n"
+                "  const perKey = (performance.now() - started) / presses;\n"
+                "  expect(perKey).toBeGreaterThan(0);\n"
+            ),
+        ),
+        (
+            "cmuxTests/n35.swift",
+            (
+                "    func a() {\n"
+                "        let took = clock.now - start\n"
+                "        print(took)\n"
+                "    }\n"
+                "    func b() {\n"
+                "        XCTAssertLessThan(took, 3)\n"
+                "    }\n"
+            ),
         ),
     ]
 
