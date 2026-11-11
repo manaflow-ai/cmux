@@ -6112,7 +6112,11 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.pr_files(*self.RUST)
         said = "\n".join(self.judge())
         self.assertIn("compared whole", said)
-        self.assertNotIn("app FFI sources", said)
+        self.assertIn(f"; set aside '{self.PIN}'", said)
+        # The base's own pin red leaves its side too (cmux#41086's base at 2026-11-11).
+        self.gh.logs[2] = unplaced_log(self.JOB, self.ROLLUP, "error: the app FFI sources changed since the pinned "
+                                       f"source {'4' * 40}:", f"##[error]red check: {self.PIN}", shared)
+        self.assertIn("compared whole", "\n".join(self.judge()))
         self.gh.logs[1] = self.unplaced_pin_log(shared, "##[error]red check: Localization")
         with self.assertRaisesRegex(excuse.Refused, "more on this head: .*red check: Localization"):
             self.judge()
@@ -8593,6 +8597,39 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
         said = self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP, red, red))
         self.assertIn(f"excused '{UNPLACED_CHECKS}': its log does not map onto its steps, so it was compared whole", said)
         self.assertIn("red check: Motion and colour tokens", said)
+
+    def window(self, head, *bases):
+        """UnplacedGitHub whose base has the red verdicts BASES (lines, or "green"), newest first, an hour apart."""
+        github = UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, head, [])
+        github.base_runs = []
+        for n, lines in enumerate(bases):
+            run = 30 - n
+            green = lines == "green"
+            github.base_runs.append({"id": run, "event": "push", "head_branch": "feat-cmux-next",
+                                     "status": "completed", "conclusion": "success" if green else "failure",
+                                     "head_sha": BASE_SHA, "created_at": f"2026-11-11T{12 - n:02d}:00:00Z"})
+            job = failed_job(run, run, BASE_SHA, name=UNPLACED_KIT, step=UNPLACED_KIT_STEP)
+            github.jobs[run] = dict(job, conclusion="success") if green else job
+            github.logs[run] = unplaced_log(UNPLACED_KIT, UNPLACED_KIT_STEP, *([] if green else lines))
+        del github.jobs[2], github.logs[2]
+        return github
+
+    def test_identity_with_an_older_red_verdict_of_the_window_is_excused(self):
+        # cmux#41086 at 5d0fb077: the newest base run failed one more test (a flake) than the head.
+        head = ["✘ Test reconnectsAfterSleep() failed after 1.000 seconds with 1 issue."]
+        flake = ["✘ Test aFlakyGateStalls() failed after 9.000 seconds with 1 issue."]
+        said = self.judge(self.window(head, head + flake, head))
+        self.assertIn("compared whole", said)
+        self.assertIn("run 29", said)
+
+    def test_the_window_never_mixes_verdicts_and_a_green_one_ends_it(self):
+        head = ["✘ Test reconnectsAfterSleep() failed after 1.000 seconds with 1 issue.",
+                "✘ Test aFlakyGateStalls() failed after 9.000 seconds with 1 issue."]
+        # Each half on another verdict is no verdict with both.
+        with self.assertRaisesRegex(excuse.Refused, "compared whole"):
+            self.judge(self.window(head, head[:1], head[1:]))
+        with self.assertRaisesRegex(excuse.Refused, "compared whole"):
+            self.judge(self.window(head, head[:1], "green", head))
 
     def test_an_unplaced_app_ffi_pin_red_is_never_excused_whole(self):
         # The pin's rules read the PR's paths (a PR that moves the pin or edits its check is refused): identical masked

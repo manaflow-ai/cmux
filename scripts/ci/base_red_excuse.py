@@ -1369,8 +1369,9 @@ def step_errors(view: FailedView) -> set[tuple[str, str]]:
 # step's own: UNPLACED) has no section per step, so no line can be charged to the step that failed. Seen on
 # 2026-11-11 on 'cmux-next checks (god files, concurrency, crash safety, l10n)' (cmux#40954) and 'CmuxMobileKit tests
 # (macOS swift test, iOS simulator)' (cmux#40598, #40664): every red in those jobs was refused, the base's own too.
-# Such a red is compared whole instead, on both sides alike, and excused only on identity with the newest base verdict
-# for the job, itself a failure: exactly the head's failed steps (by the jobs API), and exactly the same failing-test
+# Such a red is compared whole instead, on both sides alike, and excused only on identity with one red base verdict
+# for the job: the newest, or an older one in the window the placed comparison reads (BASE_WINDOW, BASE_WINDOW_HOURS;
+# a green verdict ends it), each alone: exactly the head's failed steps (by the jobs API), exactly the same failing-test
 # lines and error lines (numbers masked) the same number of times each, read from the whole log less the runner's echo
 # of each script, with at least one. Counts, not sets: a whole log may take in a passing step's expected `✘ Test` or
 # error line (#40542's Codex BLOCKs), so a head whose failing step newly prints a line the base printed only from a
@@ -4564,8 +4565,29 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             if name == FFI_PIN_JOB and any(error.startswith(pin) for error in mine.errors):
                 raise Refused(f"'{name}': {UNPLACED_WHY}, and its app FFI pin is red where no pin rule covers it; "
                               "nothing is compared with the base")
-            audit.append(unplaced_verdict(repo, name, base, mine,
-                                          unplaced_base_evidence(repo, base_job, github), base_run))
+            # The window the placed comparison reads (BASE_WINDOW verdicts within BASE_WINDOW_HOURS of the newest,
+            # a green one ends it): identity with any one red verdict in it, never a mix of several. cmux#41086 at
+            # 5d0fb077: the newest base run had one more failing test than the head (a pre-push gate flake).
+            newest, read = created(base_run), 1
+            while True:
+                try:
+                    theirs = unplaced_base_evidence(repo, base_job, github)
+                    # A pin the rules set aside leaves both sides: the base's own pin red (cmux#41086's base) is no
+                    # difference, and identity still holds for all the rest.
+                    theirs = unplaced_without_ffi_pin(theirs) if aside is not None else theirs
+                    audit.append(unplaced_verdict(repo, name, base, mine, theirs, base_run)
+                                 + (f"; {aside}" if aside is not None else ""))
+                    break
+                except Final:
+                    raise
+                except Refused:
+                    run, found = next(verdicts, (None, None)) if read < BASE_WINDOW else (None, None)
+                    if (run is None or found.get("conclusion") != "failure"
+                            or (newest and created(run)
+                                and newest - created(run) > timedelta(hours=BASE_WINDOW_HOURS))):
+                        raise
+                    read += 1
+                    base_run, base_job = run, found
             continue
         head = signature(view)
         if head is UNPLACED:  # refused above: never, and never compared if it were
