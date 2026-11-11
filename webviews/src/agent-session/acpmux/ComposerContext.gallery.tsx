@@ -371,6 +371,13 @@ const openEnvironmentWithInsetArm =
 
 /// The environment control's machine list: Machines… on its right-click menu (its main list is This
 /// Mac and Cloud, Leo 2026-10-31: "it's just a cloud button").
+/// Opens the picker, then its Move to… list.
+const openMoveTo: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: /^Environment/ });
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-action="moveTo"]'));
+  await ctx.click({ role: "option", name: /Move to…/ });
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-moves [data-action="moveTarget"]'));
+};
 const openMachineList: Play = async (ctx) => {
   await ctx.contextMenu({ role: "button", name: /^Environment/ });
   await ctx.click({ role: "menuitem", name: "Machines…" });
@@ -1170,6 +1177,40 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"][data-current]'));
       },
     },
+    "environment-picker-cloud-team-row": {
+      note: "Active team (Leo, 2026-11-09: \"i guess is team? it's kinda hard to realize tho\"): the Cloud row names the team Cloud runs in, with the people icon the account menu and Switch Active Team draw on that team's row.",
+      props: {
+        ...baseProps,
+        environments: true,
+        cloudSignedIn: true,
+        cloudTeam: { name: "cmux", personal: false },
+        runMode: { mode: "persistent", onMode: () => undefined },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"] .acpmux-team-tag'));
+      },
+    },
+    "environment-picker-cloud-team-closed": {
+      note: "Active team: Cloud picked, the closed control says Cloud and the team it runs in.",
+      props: {
+        ...baseProps,
+        environments: true,
+        cloudSignedIn: true,
+        cloudTeam: { name: "cmux", personal: false },
+        runMode: { mode: "cloud", onMode: () => undefined },
+      },
+    },
+    "environment-picker-cloud-personal-closed": {
+      note: "Active team: the person's own team. Cloud reads Personal with a person icon, never the people icon of a shared team.",
+      props: {
+        ...baseProps,
+        environments: true,
+        cloudSignedIn: true,
+        cloudTeam: { name: "Personal", personal: true },
+        runMode: { mode: "cloud", onMode: () => undefined },
+      },
+    },
     "environment-picker-cloud-closed": {
       note: "Labs (cloud work mode): the closed control with Cloud picked, as the composer shows it before the first send.",
       props: { ...baseProps, environments: true, runMode: { mode: "cloud", onMode: () => undefined } },
@@ -1304,6 +1345,97 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.click({ role: "button", name: /^Environment/ });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-env-popover .acpmux-env-new"));
       },
+    },
+    // Move to… (Leo, 2026-11-10: "the whole \"move to cloud\" deserves a proper \"move to other cloud\"
+    // ... and \"move to local\""): every place a started chat can go, one list. Four arms: a chat on
+    // this Mac with two Cloud machines, a Cloud chat moved from this Mac (This Mac and another
+    // machine), a Cloud chat that started there (only other machines), and a target greyed with why.
+    "started-move-to-menu": {
+      note: "Preview, a started chat on this Mac with two Cloud machines: Move to… opens a list of them.",
+      props: {
+        ...baseProps,
+        environments: true,
+        started: true,
+        onOffload: () => undefined,
+        offloads: ["move"],
+        moveTargets: [
+          { id: "vm-dev", label: "dev-box", kind: "cloud" },
+          { id: "vm-gpu", label: "gpu-box", kind: "cloud" },
+        ],
+        onMoveTo: () => undefined,
+        summary: {
+          sessionId: "gallery-move-local",
+          harness: "claude",
+          cwd: projects[0]!.cwd,
+          host: "This Mac",
+          hostKind: "local",
+        },
+      },
+      play: openMoveTo,
+    },
+    "started-move-to-from-cloud": {
+      note: "Preview, a Cloud chat a move from this Mac put on dev-box: Move to… lists This Mac and the other machine.",
+      props: {
+        ...baseProps,
+        environments: true,
+        started: true,
+        onOffload: () => undefined,
+        offloads: ["bringBack"],
+        moveTargets: [
+          { id: "local", label: "", kind: "local" },
+          { id: "vm-gpu", label: "gpu-box", kind: "cloud" },
+        ],
+        onMoveTo: () => undefined,
+        summary: {
+          sessionId: "gallery-move-cloud",
+          harness: "claude",
+          cwd: "/home/cmux/work/project",
+          host: "dev-box",
+          hostKind: "cloud",
+        },
+      },
+      play: openMoveTo,
+    },
+    "started-move-to-cloud-only": {
+      note: "Preview, a chat that started on a Cloud machine: its one other machine is Move to…'s only row.",
+      props: {
+        ...baseProps,
+        environments: true,
+        started: true,
+        moveTargets: [{ id: "vm-gpu", label: "gpu-box", kind: "cloud" }],
+        onMoveTo: () => undefined,
+        summary: {
+          sessionId: "gallery-move-cloud-only",
+          harness: "claude",
+          cwd: "/home/cmux/work/project",
+          host: "dev-box",
+          hostKind: "cloud",
+        },
+      },
+      play: openMoveTo,
+    },
+    "started-move-to-refused": {
+      note: "Preview, Move to… with one machine that cannot take the chat now: greyed, with why under its name.",
+      props: {
+        ...baseProps,
+        environments: true,
+        started: true,
+        onOffload: () => undefined,
+        offloads: ["move"],
+        moveTargets: [
+          { id: "vm-dev", label: "dev-box", kind: "cloud" },
+          { id: "vm-old", label: "old-box", kind: "cloud", reason: "Update this machine first" },
+        ],
+        onMoveTo: () => undefined,
+        summary: {
+          sessionId: "gallery-move-refused",
+          harness: "claude",
+          cwd: projects[0]!.cwd,
+          host: "This Mac",
+          hostKind: "local",
+        },
+      },
+      play: openMoveTo,
     },
     "started-branch": {
       note: "After a turn starts, location labels lock while the branch remains visible at the right.",

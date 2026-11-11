@@ -350,6 +350,10 @@ PUBLISH_PATH = (
     "find-nightly-next-recovery", "recover-nightly-next-notarization", "publish-nightly", "publish-nightly-next-github", "keep-published-dsyms",
     "generate-nightly-deltas", "republish-nightly-deltas", "published-in", "sign-release-notes",
     "publish-release-notes", "publish-nightly-reel", "build-nightly-app",
+    # The dispatches: run 42726398544's sign dispatch failed on "HTTP 403: API rate limit exceeded for
+    # installation" and nothing published for two hours (2026-11-10). A refused dispatch did nothing on
+    # GitHub's side, so waiting and trying it again never starts a second run.
+    "dispatch-nightly-next-sign", "dispatch-published-in", "retry-nightly-next",
 )
 INSTALL = re.compile(r"bash (\.publish-tooling/)?scripts/ci/gh_budget_wait\.sh --install")
 # One-mini mode adds room for glaeda's capacity wait on the nightly mini (tests/test_nightly_mini_gate_timeouts.py);
@@ -402,6 +406,11 @@ class WorkflowTests(unittest.TestCase):
                 # gh_app_token.sh installs first so this wrapper wraps it (tests/test_gh_app_token.py).
                 app_token = "gh_app_token.sh --install" in str(steps[i].get("run", ""))
                 self.assertTrue(steps[i].get("id") in ("reuse", "nightly-product") or resume or app_token, (name, steps[i].get("name")))
+
+    def test_every_dispatch_is_on_the_publish_path(self) -> None:
+        for name, job in self.jobs.items():
+            if any("gh workflow run" in str(s.get("run", "")) for s in job.get("steps", [])):
+                self.assertIn(name, PUBLISH_PATH, name)
 
     def test_publish_path_timeouts_leave_room_for_the_wait(self) -> None:
         for name in PUBLISH_PATH:

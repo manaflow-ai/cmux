@@ -205,6 +205,7 @@ extension AgentPaneTransport {
                 sentFirst = true
                 localAppToken = nil
             }
+            drainedBatches &+= 1
             for outcome in batch.outcomes { complete(outcome) }
             switch batch.next {
             case nil:
@@ -228,6 +229,21 @@ extension AgentPaneTransport {
         let waiting = drainWaiters
         drainWaiters = []
         for waiter in waiting { waiter.resume() }
+    }
+
+    /// Waits until the send line is empty, as long as it keeps moving: each `quiet` window in which
+    /// the line hands over at least one batch earns another, up to `limit` in all. A line slowed by a
+    /// busy daemon is waited for; one that stops moving for `quiet` is not. True when it drained.
+    func lineDrained(quiet: Duration, limit: Duration) async -> Bool {
+        let end = ContinuousClock.now + limit
+        var seen = drainedBatches
+        // wakeup-allow: each pass waits on the drain's own signal, at most `quiet`; it ends at `limit` or when the line stops moving.
+        while true {
+            let left = ContinuousClock.now.duration(to: end)
+            if await lineDrained(within: min(quiet, max(left, .zero))) { return true }
+            guard drainedBatches != seen, ContinuousClock.now < end else { return false }
+            seen = drainedBatches
+        }
     }
 
     /// Waits until the send line is empty (every frame handed over before now sent or refused), at

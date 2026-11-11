@@ -1,0 +1,19 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/{{NAME}}",
+  "name": "{{TITLE}}",
+  "version": "0.1.0",
+  "description": "A sidebar section made with cmux ext new.",
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderSection",
+      "title": "{{TITLE}}",
+      "symbol": "sparkles",
+      "options": { "defaultRegion": "bottom" }
+    }
+  },
+  "files": ["dist/"]
+}

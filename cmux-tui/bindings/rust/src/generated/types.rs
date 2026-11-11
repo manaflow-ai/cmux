@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 4092e18628956f6f0140e6c2a2f97a370ff80cf2f567a54c4d066c1240242b1d.
+// cmux-tui mux protocol 12, IR 8f7c38cfe306dacf10763a16c8b540a144ad4c48ef14d76c58f729ee5f0f8ee0.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -643,6 +643,9 @@ pub struct ConversationTabRecord {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationTabSplit {
+    /// The split the new split wraps whole, as split-around-v1 on split: pane must be that split's last pane and direction right or down.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub around: Optional<Id>,
     /// The side of pane the new pane takes: right, down, left or up.
     pub direction: String,
     /// Caller-minted public id of the new pane (pane_ and 32 hex digits), as split-client-keys-v1; refused when it exists or ever existed.
@@ -1934,6 +1937,31 @@ pub struct ServerStatsHookQueue {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsJournalFollower {
+    pub client: u64,
+    pub connected_ms: u64,
+    pub keeps_hook_rows: bool,
+    pub keeps_report_rows: bool,
+    pub kinds: Vec<String>,
+    pub left_ms: Nullable<u64>,
+    pub max_sensitivity: Nullable<String>,
+    pub remote: bool,
+    pub stream_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsJournalFollowers {
+    pub followers: Vec<ServerStatsJournalFollower>,
+    pub grace_ms: u64,
+    pub hook_rows_kept: bool,
+    pub journal_hook_keeps_rows: Nullable<bool>,
+    pub keep_all_ms: u64,
+    pub report_rows_kept: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsJournalWriter {
     pub batch_size: ServerStatsHistogram,
     pub batches: u64,
@@ -2050,6 +2078,8 @@ pub struct ServerStatsResult {
     pub disk: Option<ServerStatsDisk>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub hook_queue: Option<ServerStatsHookQueue>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub journal_followers: Option<ServerStatsJournalFollowers>,
     pub journal_writer: Nullable<ServerStatsJournalWriter>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub locks: Option<ServerStatsLocks>,
@@ -2446,6 +2476,10 @@ pub struct Tab {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_resource_id: Optional<String>,
     pub title: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub title_activity: Optional<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub title_text: Option<String>,
 }
 
 #[rustfmt::skip]
