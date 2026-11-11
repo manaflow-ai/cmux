@@ -5848,20 +5848,68 @@ class WsCheckPerTest(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "test_flaky"):
             self.judge()
 
-    def test_a_fast_checks_run_is_read_through_its_snapshot_receipt(self):
-        snapshot = "9" * 40
+    SQUASHED = "5" * 40  # the tree a squash of HEAD onto main's tip makes, cut to the hosted paths
+
+    def snapshot_runs(self, snapshot="9" * 40, tree=SQUASHED):
+        """HEAD's and main's ws-check runs through cmux-ci: each tested a snapshot commit, named in its receipt, HEAD's
+        with source_tree TREE; the squash tree (ws_check_squash_tree) of HEAD onto main's tip is SQUASHED."""
         for sha, run_id in ((HEAD, 1), (self.gh.TIP, 2)):
             self.gh.runs[run_id]["display_title"] = f"Fast checks {snapshot}"
             self.gh.jobs[run_id] = [dict(self.gh.jobs[run_id][1], name="checks", conclusion="failure")]
+            receipt = {"source_sha": snapshot, "run_id": str(run_id), "head_after": snapshot}
+            if sha == HEAD and tree is not None:
+                receipt["source_tree"] = tree
             self.gh.logs[run_id * 10 + 1] = (self.gh.logs[run_id * 10 + 1].replace(sha, snapshot)
-                                             + f"\n2026-11-05T04:39:28.0421097Z FAST_CHECKS_RECEIPT="
-                                             + json.dumps({"source_sha": snapshot, "run_id": str(run_id)}))
+                                             + "\n2026-11-05T04:39:28.0421097Z FAST_CHECKS_RECEIPT="
+                                             + json.dumps(receipt))
+        self.squashed = []
+
+        def squash(repo, head, tip):
+            self.squashed.append((repo, head, tip))
+            return self.SQUASHED if (head, tip) == (HEAD, self.gh.TIP) else "6" * 40
+        patch = unittest.mock.patch.object(excuse, "ws_check_squash_tree", squash, create=True)
+        patch.start()
+        self.addCleanup(patch.stop)
+        return snapshot
+
+    def test_a_fast_checks_run_is_read_through_its_snapshot_receipt(self):
+        snapshot = self.snapshot_runs()
         self.assertIn("every failure", self.judge()[0])
+        self.assertEqual(self.squashed, [(self.gh.REPO, HEAD, self.gh.TIP)])  # the head's run only, at main's tip
         # A title that also names the tested repo and commit (`Fast checks SOURCE tests REPO@TESTED`) is the same run.
         self.gh.runs[1]["display_title"] = f"Fast checks {snapshot} tests teamleaderleo/leo-workspace@{HEAD}"
         self.assertIn("every failure", self.judge()[0])
         self.gh.runs[1]["display_title"] = "Fast checks " + "8" * 40
         with self.assertRaisesRegex(excuse.Refused, "is from another checkout"):
+            self.judge()
+
+    def test_the_brokers_merge_tested_run_from_another_checkout_is_accepted_by_its_tree(self):
+        # LW#4369 at 4f84acf0 (2026-11-11): the broker's run 43048550008, `Fast checks SNAPSHOT job ID`, tested the head
+        # merged with main's tip and was refused as "from another checkout". Its tree is what lands: it counts.
+        snapshot = self.snapshot_runs()
+        self.gh.runs[1]["display_title"] = f"Fast checks {snapshot} job 49c43a9c14094ce1b147dbfea24afa01"
+        self.assertIn("every failure", self.judge()[0])
+
+    def test_a_merge_tested_run_against_an_older_base_is_refused(self):
+        # Its tree is the head merged with an older main: not what a squash onto main's tip makes now.
+        snapshot = self.snapshot_runs(tree="6" * 40)
+        self.gh.runs[1]["display_title"] = f"Fast checks {snapshot} job 49c43a9c14094ce1b147dbfea24afa01"
+        with self.assertRaisesRegex(excuse.Refused, f"run 1 tested tree 666666666666, not {HEAD[:12]} merged with "
+                                                    f"main's tip {self.gh.TIP[:12]} .*another base or head"):
+            self.judge()
+
+    def test_a_run_naming_no_tested_tree_is_refused(self):
+        self.snapshot_runs(tree=None)
+        with self.assertRaisesRegex(excuse.Refused, "names no tested tree in its receipt"):
+            self.judge()
+
+    def test_a_head_that_does_not_merge_with_the_base_tip_is_refused(self):
+        self.snapshot_runs()
+
+        def conflicted(repo, head, tip):
+            raise excuse.Refused(f"{head[:12]} does not merge cleanly with the base tip {tip[:12]} (conflicts in: x)")
+        with unittest.mock.patch.object(excuse, "ws_check_squash_tree", conflicted, create=True), \
+                self.assertRaisesRegex(excuse.Refused, "does not merge cleanly"):
             self.judge()
 
     def merge_base_case(self, merge_base_red, *, tip=None):
@@ -5938,6 +5986,83 @@ class WsCheckPerTest(unittest.TestCase):
         # a cmux head asked about no red is no failure (NoFailureExitsZero), never the ws-check path
         self.assertEqual(excuse.judge(REPO, "feat-cmux-next", HEAD, [], gh),
                          [f"no red run or check named on {HEAD}: no failure to excuse"])
+
+
+class WsCheckSquashTree(unittest.TestCase):
+    """ws_check_squash_tree in a real git repository: the tree a pinned squash of the head onto the base tip makes, cut
+    to leo-workspace's hosted paths, whichever checkout or runner made the run. Compared by tree, never by path."""
+    REPO = "teamleaderleo/leo-workspace"
+
+    def git(self, *args, cwd=None, text=None):
+        return subprocess.run(["git", *args], cwd=cwd or self.work, check=True, capture_output=True, text=True,
+                              input=text, env=git_fixture_env.fixture_env()).stdout.strip()
+
+    def commit(self, files, message):
+        for name, body in files.items():
+            path = Path(self.work, name)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(body)
+        self.git("add", "-A")
+        self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", message)
+        return self.git("rev-parse", "HEAD")
+
+    def setUp(self):
+        top = tempfile.TemporaryDirectory(prefix="bre-squash-")
+        self.addCleanup(top.cleanup)
+        self.work = Path(top.name, "work")
+        git_fixture_env.init_repo(self.work, "-b", "main")
+        hosts = json.dumps({"fast_checks_hosts": {self.REPO: {"repo": "manaflow-ai/cmuxterm-hq",
+                                                               "paths": ["tools", "machines"]}}})
+        self.old = self.commit({"machines/lane-gh-broker.json": hosts, "tools/a.py": "a\n", "tools/b.py": "b\n",
+                                "notes/n.md": "not hosted\n"}, "base")
+        self.tip = self.commit({"tools/b.py": "b2\n"}, "main moves")
+        self.git("checkout", "-q", "-b", "pr", self.old)
+        self.head = self.commit({"tools/a.py": "a2\n", "notes/n.md": "pr note\n"}, "the PR")
+        self.git("checkout", "-q", "-b", "other", self.old)
+        self.other = self.commit({"tools/a.py": "a3\n"}, "another PR")
+        self.git("checkout", "-q", "-b", "clash", self.old)
+        self.clash = self.commit({"tools/b.py": "b3\n"}, "conflicts with main")
+        cache = Path(top.name, "cache")
+        git_fixture_env.init_repo(cache / "teamleaderleo__leo-workspace.git", "--bare")
+        self.git("push", "-q", str(cache / "teamleaderleo__leo-workspace.git"), "main", "pr", "other", "clash")
+        for patch in (unittest.mock.patch.dict(os.environ, {excuse.SOURCE_CACHE_ENV: str(cache),
+                                                            "GH_MIRROR_ROOT": str(Path(top.name, "no-mirrors"))}),):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def squashed(self, head, tip):
+        """What a pinned squash of HEAD onto TIP lands, cut as the broker cuts its snapshot: tools and machines only."""
+        self.git("checkout", "-q", "--detach", tip)
+        self.git("merge", "-q", "--squash", head)
+        self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "squash")
+        landed = self.git("rev-parse", "HEAD")
+        return self.git("mktree", text="\n".join(self.git("ls-tree", landed, "--", path)
+                                                   for path in ("tools", "machines")) + "\n")
+
+    def test_a_run_from_another_checkout_with_the_same_head_and_base_is_accepted(self):
+        self.assertEqual(excuse.ws_check_squash_tree(self.REPO, self.head, self.tip), self.squashed(self.head, self.tip))
+
+    def test_a_run_against_an_older_base_is_refused(self):
+        older = excuse.ws_check_squash_tree(self.REPO, self.head, self.old)
+        self.assertNotEqual(older, excuse.ws_check_squash_tree(self.REPO, self.head, self.tip))
+        with self.assertRaisesRegex(excuse.Refused, "tested another base or head"):
+            excuse.ws_check_tested_tree(self.REPO, "main", self.head, {"run": "7", "tree": older}, self.tip)
+        excuse.ws_check_tested_tree(self.REPO, "main", self.head, {"run": "7", "tree": self.squashed(self.head, self.tip)},
+                                    self.tip)
+
+    def test_a_run_of_a_different_head_is_refused(self):
+        theirs = excuse.ws_check_squash_tree(self.REPO, self.other, self.tip)
+        with self.assertRaisesRegex(excuse.Refused, "tested another base or head"):
+            excuse.ws_check_tested_tree(self.REPO, "main", self.head, {"run": "7", "tree": theirs}, self.tip)
+
+    def test_a_conflicted_merge_is_refused(self):
+        with self.assertRaisesRegex(excuse.Refused, r"does not merge cleanly .*conflicts in: tools/b\.py"):
+            excuse.ws_check_squash_tree(self.REPO, self.clash, self.tip)
+
+    def test_a_commit_git_cannot_read_is_refused(self):
+        with unittest.mock.patch.object(excuse, "git_remote", lambda repo: str(Path(self.work, "missing.git"))), \
+                self.assertRaisesRegex(excuse.Refused, "git cannot read .* commit 777777777777"):
+            excuse.ws_check_squash_tree(self.REPO, "7" * 40, self.tip)
 
 
 class WsCheckFixedOnBase(unittest.TestCase):
