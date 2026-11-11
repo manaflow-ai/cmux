@@ -4,11 +4,11 @@ import CmuxNextDesign
 import Testing
 import Foundation
 
-/// A Cloud chat start whose git seed is refused asks the person before it copies the folder,
-/// instead of copying it silently (a 12.8 GB copy of cmuxterm-hq ran a 16 GB machine's disk out
-/// and ended in "Broken pipe"). The refusal's words are cmux-tui's (`link seed push --seed-only`,
-/// tested in `tests/link_seed.rs`); the App asks first and copies only on the person's yes.
-/// RED before the ask: the start passed no `--on-seed-refusal`, and no answer read as a refusal.
+/// A Cloud chat start whose git seed is refused copies the folder by itself (2026-11-10: "instead of
+/// this dialog, let's just automatically do it"). Only a copy too large for a machine's disk still asks
+/// first: a silent 12.8 GB copy of cmuxterm-hq ran a 16 GB machine's disk out and ended in "Broken pipe".
+/// The refusal's words are cmux-tui's (`link seed push --seed-only`, tested in `tests/link_seed.rs`).
+/// RED before the automatic copy: every refused seed asked, and with no window to ask in the start ended.
 @Suite
 @MainActor
 struct CloudSeedRefusalTests {
@@ -37,7 +37,7 @@ struct CloudSeedRefusalTests {
 
     private struct Declined: Error, Equatable { let reason: String }
 
-    @Test func aSeedThatIsNotRefusedCopiesOnceAndAskingNowhereCopiesNothing() async throws {
+    @Test func aSeedThatIsNotRefusedCopiesOnce() async throws {
         var asked: [CloudMoveCLI.SeedRefusal] = []
         let seeded = try await CloudSeedRefusal.copying(machine: "m", in: { nil }, declined: { Declined(reason: $0) }) { refusal in
             asked.append(refusal)
@@ -45,15 +45,45 @@ struct CloudSeedRefusalTests {
         }
         #expect(seeded.1 == "seeded")
         #expect(asked == [.ask])
+    }
 
-        asked = []
+    /// The person's folder (1.9 GB, no commit the machine can clone from) is copied with no question.
+    @Test func aRefusedSeedCopiesTheFolderWithoutAsking() async throws {
+        for bytes: Int64? in [1_900_000_000, CloudSeedRefusal.askAboveBytes, nil] {
+            var asked: [CloudMoveCLI.SeedRefusal] = []
+            var questions = 0
+            let copied = try await CloudSeedRefusal.copying(machine: "m", ask: { _ in questions += 1; return .cancel }, open: { _ in },
+                                                            declined: { Declined(reason: $0) }) { refusal in
+                asked.append(refusal)
+                return refusal == .ask
+                    ? (CloudMoveCLI.Answer(ok: false, errorCode: "seed_refused", error: "why", fallbackCode: "no_base", copyBytes: bytes), "")
+                    : (CloudMoveCLI.Answer(ok: true), "copied")
+            }
+            #expect(copied.1 == "copied")
+            #expect(asked == [.ask, .copy])
+            #expect(questions == 0, "a copy of \(bytes.map(String.init) ?? "unknown size") asked the person")
+        }
+    }
+
+    /// A copy larger than a machine's disk can take still asks, and asking nowhere copies nothing.
+    @Test func aCopyTooLargeForAMachineStillAsksAndAskingNowhereCopiesNothing() async throws {
+        var asked: [CloudMoveCLI.SeedRefusal] = []
         await #expect(throws: Declined(reason: "why")) {
             _ = try await CloudSeedRefusal.copying(machine: "m", in: { nil }, declined: { Declined(reason: $0) }) { refusal in
                 asked.append(refusal)
-                return (CloudMoveCLI.Answer(ok: false, errorCode: "seed_refused", error: "why"), "")
+                return (CloudMoveCLI.Answer(ok: false, errorCode: "seed_refused", error: "why", copyBytes: 12_800_000_000), "")
             }
         }
-        #expect(asked == [.ask], "a refusal with no window to ask in copied")
+        #expect(asked == [.ask], "a 12.8 GB copy with no window to ask in copied")
+
+        asked = []
+        let copied = try await CloudSeedRefusal.copying(machine: "m", ask: { _ in .copy }, open: { _ in }, declined: { Declined(reason: $0) }) { refusal in
+            asked.append(refusal)
+            return refusal == .ask ? (CloudMoveCLI.Answer(ok: false, errorCode: "seed_refused", error: "why", copyBytes: 12_800_000_000), "")
+                                   : (CloudMoveCLI.Answer(ok: true), "copied")
+        }
+        #expect(copied.1 == "copied")
+        #expect(asked == [.ask, .copy])
     }
 
     /// The refusal names the seed plan's code (`not_git`, `submodule_local_work`, ...) so the log says why.
@@ -68,11 +98,12 @@ struct CloudSeedRefusalTests {
         let (answer, _) = try await CloudMoveCLI(binary: binary, timeout: .seconds(20))
             .startChatCopy(key: "k", account: "a/", machine: "vm", socket: "/s", local: "/l", subpath: "", workRoots: ["/w"], acpmuxHome: nil, onSeedRefusal: .ask)
         #expect(answer.fallbackCode == "not_git")
+        #expect(answer.copyBytes == 5)
         #expect(CloudSeedRefusal(answer, machine: "vm")?.fallbackCode == "not_git")
     }
 
-    /// A private repository the machine can't read without the cmux GitHub App: the dialog offers
-    /// Connect GitHub, which opens the App's install page and ends the start with its reason (so
+    /// A private repository the machine can't read without the cmux GitHub App, too large to copy
+    /// unasked: the dialog offers Connect GitHub, which opens the App's install page and ends the start with its reason (so
     /// Retry seeds again once it is installed), and nothing is copied.
     @Test func aPrivateRepoOffersConnectGitHubWhichOpensTheInstallPageAndCopiesNothing() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cloud-seed-github-\(UUID().uuidString)")
@@ -80,7 +111,7 @@ struct CloudSeedRefusalTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let binary = dir.appendingPathComponent("cmux")
         let install = "https://github.com/apps/cmux/installations/new"
-        let line = #"{"ok":false,"error_code":"seed_refused","error":"needs the cmux GitHub App","fallback_code":"seed.needs_github","install_url":"\#(install)"}"#
+        let line = #"{"ok":false,"error_code":"seed_refused","error":"needs the cmux GitHub App","fallback_code":"seed.needs_github","install_url":"\#(install)","copy_bytes":12800000000}"#
         try "#!/bin/sh\necho '\(line)'\nexit 1\n".write(to: binary, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
         let cli = CloudMoveCLI(binary: binary, timeout: .seconds(20))

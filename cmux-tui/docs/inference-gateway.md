@@ -51,6 +51,29 @@ cmux inference route --machine vm_... --agent claude --json             # which 
    `cmux inference gateway --personal --upstream http://127.0.0.1:8317 --token-file
    /run/cmux-inference-gateway/token` on it.
 
+## Your Mac, automatically (the cmux app)
+
+While you are signed in, the cmux app runs your personal gateway for you:
+`cmux inference gateway --personal --mac-logins --supervised --enable-once <app folder>/personal-gateway-on`.
+There is nothing to install or sign in on a Cloud machine.
+
+- It answers Messages calls (`/v1/messages`, `/v1/messages/count_tokens`) with Claude Code's own
+  sign-in on the Mac (`~/.claude/.credentials.json`, else the keychain item Claude Code keeps), and
+  Responses calls (`/v1/responses`, `/v1/models`) with `~/.codex/auth.json`.
+- It borrows Claude Code's sign-in and never refreshes it. Claude Code rotates its refresh token, so a
+  second refresher would sign one of the two out (`refresh_token_reused`). When the borrowed token
+  expires, calls fail with `inference.gateway_login` until Claude Code on the Mac renews it.
+- It shares the Codex login file with the Codex CLI. Before a refresh it reads the file again, takes a
+  newer login that Codex wrote, and writes the rotated token back to the same file.
+- It turns your personal gateway mode on the first time it runs. If you turn the mode off later, it
+  stays off. One app runs one gateway. Signing out, or quitting, stops it. If another gateway of yours
+  takes over, this one waits until you start a Cloud chat on this Mac.
+- The local model router in Settings > Accounts is not this gateway's upstream: it forwards only to
+  the hosted cmux router and does not serve `/v1/responses`.
+- A Cloud chat start waits up to 10 s for the gateway to connect before the first turn. If the Mac is
+  asleep or offline, a turn ends with `inference.gateway_offline` and recovery text that says to wake
+  the Mac.
+
 ## On your own Mac mini
 
 1. Sign in to the cmux app, then start your proxy (for example `cli-proxy-api`, listening on 8317).

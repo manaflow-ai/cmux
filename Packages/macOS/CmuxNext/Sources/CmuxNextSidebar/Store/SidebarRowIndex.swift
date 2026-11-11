@@ -217,7 +217,9 @@ nonisolated extension SidebarLayout {
     /// all this weird stuff at the bottom of the sidebar"). A remote group that draws as one sidebar
     /// group (``SidebarSection/drawsAsGroup``) has its group bar instead. The one rule for every header kind.
     static func keepsHeaderInOneList(_ section: SidebarSection) -> Bool {
-        (section.isHostGroup || section.machine?.kind == .cloud) && !section.drawsAsGroup
+        // A Cloud machine has no header of its own (2026-11-10: a Cloud chat's workspace is an ordinary row
+        // with a cloud mark by its name; the machine's name is never shown): only a remote group a person made.
+        section.isHostGroup && !section.drawsAsGroup
     }
 
     /// The computer a workspace row of `section` names in the one-list sidebar
@@ -227,6 +229,8 @@ nonisolated extension SidebarLayout {
     static func machineLabel(_ section: SidebarSection, options o: SidebarLayoutOptions) -> String? {
         guard o.flattensMachines, let machine = section.machine, machine.kind != .local
         else { return nil }
+        // A Cloud row never names its machine: its cloud mark says where it runs, and only a status the person must act on is said.
+        if machine.kind == .cloud { return o.machineStatusLabels[machine.id] }
         return o.machineStatusLabels[machine.id].map { machine.name + WorkspaceRowContent.separator + $0 } ?? machine.name
     }
 }

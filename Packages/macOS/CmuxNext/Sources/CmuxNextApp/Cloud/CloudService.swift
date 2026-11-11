@@ -51,6 +51,7 @@ final class CloudService {
     @ObservationIgnored let hostReplica: CloudHostReplicaFollower
     /// Chief hands: levels, the presence key and requests waiting for the owner (cx-om025).
     @ObservationIgnored let hands: HandsService
+    @ObservationIgnored let gateway: PersonalGateway // this Mac answers its person's Cloud machines' model calls (``PersonalGateway``)
     @ObservationIgnored private let machines: MachineRegistry
     /// The plan gate for a create, from the last machine list's limits.
     var createGate: CloudMachineCreateFlow.Gate { CloudMachineCreateFlow.gate(machines.cloudLimits, makesRoom: true) }
@@ -186,7 +187,7 @@ final class CloudService {
             invalidate: { [installIdentity] in await installIdentity.invalidate() })
         hands = HandsService(
             apiBaseURL: configuration.ownerAPIBaseURL(), accessToken: { [auth] in try await auth.tokens().access }, identity: installIdentity,
-            presence: HandPresenceKeyStore(directory: paths.root.appendingPathComponent("install", isDirectory: true)), cli: .cli(resources: Bundle.main.resourceURL, work: work))
+            presence: HandPresenceKeyStore(directory: paths.root.appendingPathComponent("install", isDirectory: true)), cli: .cli(resources: Bundle.main.resourceURL, work: work)); gateway = PersonalGateway(cli: .cli(resources: Bundle.main.resourceURL, work: work), api: configuration.ownerAPIBaseURL(), folder: paths.root)
         let build = LaunchIdentity.current().build
         let relay = CloudCredentialRelay.live(identity: identity, baseURL: configuration.ownerAPIBaseURL(),
             signedIn: { [auth] in await MainActor.run { auth.isSignedIn } }, allowedOps: { await CloudCredentialRelay.bundledServedOps() },
@@ -290,7 +291,7 @@ final class CloudService {
                     await self.shareInstalls.began(switched: switched, except: self.installIdentity)
                     // The install first: the app server path's first list sends its token through the credential relay.
                     await self.installSignedIn()
-                    self.hands.start()
+                    self.hands.start(); self.gateway.start()
                     await self.ensureLink()
                     await self.refresh()
                 } else {
@@ -300,7 +301,7 @@ final class CloudService {
                     await self.link.endLink(final: true)
                     await self.installIdentity.unbind()
                     for share in await self.shareInstalls.ended(except: self.installIdentity) { await share.unbind() }
-                    self.hands.stop()
+                    self.hands.stop(); self.gateway.stop()
                 }
             }
         })
@@ -382,9 +383,8 @@ final class CloudService {
         for session in machines.cloud { session.disconnect() }
     }
 
-    /// The quit coordinator awaits this before AppKit may terminate the process. Nothing of Cloud's
-    /// needs it now: the Mac holds no Cloud machine's model access (its edge carries the route).
-    func prepareForTermination() async {}
+    /// The quit coordinator awaits this before AppKit may terminate the process: the personal gateway ends (a crash closes its stdin, which ends it too).
+    func prepareForTermination() async { gateway.stop() }
 
     /// Serves the `credential` family on the local daemon: answers its
     /// calls on the connection that sent them, and registers again after

@@ -16,6 +16,7 @@
     "tests/test_tailnet_cross_link.sh": {"count": 1, "reason": "safe: a cross-link probe that only links the Security.framework calls certstore uses (SecItemCopyMatching among them) against the stubs; it never runs and reads no password"},
     "scripts/cmux-next/browser-challenges-live.py": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): the app's own browser HTTP auth item"},
     "scripts/measure/chief-import.sh": {"count": 1, "reason": "safe: checks whether the Claude Code-credentials item exists (no -w; the password is not read)"},
+    "cmux-tui/crates/cmux-tui/src/cli/inference_gateway_mac.rs": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): Claude Code's credential (service Claude Code-credentials), borrowed read-only by the person's own gateway"},
     "cmux-tui/crates/acpmux/src/cli/host_vault.rs": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): Claude Code's credential (service Claude Code-credentials)"},
     "cmux-tui/crates/acpmux/src/vault/store.rs": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): the acpmux vault's own service"},
     "cmux-tui/crates/acpmux/src/vault/tests.rs": {"count": 1, "reason": "safe: a test comment describing what the vault's own read prints; reads nothing"},
