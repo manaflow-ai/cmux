@@ -150,8 +150,9 @@ export function ghostOf(row: HTMLElement): HTMLElement {
 
 /// A row's path on the fold's clock, in the view's coordinates: its top where the clock starts and
 /// where it lands, and the band its text draws in (its box less its paddings: a row's bottom padding
-/// is its gap to the next row).
-export type CoverPath = { from: number; to: number; height: number; padTop: number; padBottom: number };
+/// is its gap to the next row). `clip`: what a clip hides of its bottom where the clock starts, opening
+/// on the same clock (turnEndFold.ts clips a row that drew over the row under it when the turn ended).
+export type CoverPath = { from: number; to: number; height: number; padTop: number; padBottom: number; clip?: number };
 
 /// The bottom a ghost's own clip hides (ghostOf keeps the clip its row had when the turn ended).
 export function clippedBottomOf(copy: HTMLElement): number {
@@ -183,7 +184,7 @@ export function coverClip(copy: CoverPath, rows: readonly CoverPath[], own: numb
       bottomFrom = Math.max(bottomFrom, copy.from + copy.height - (row.from + row.padTop));
       bottomTo = Math.max(bottomTo, copy.to + copy.height - (row.to + row.padTop));
     } else {
-      topFrom = Math.max(topFrom, row.from + row.height - row.padBottom - copy.from);
+      topFrom = Math.max(topFrom, row.from + row.height - Math.max(row.padBottom, row.clip ?? 0) - copy.from);
       topTo = Math.max(topTo, row.to + row.height - row.padBottom - copy.to);
     }
   }

@@ -473,8 +473,9 @@ export function playTurnEnd(
     const copyStarts = copies.map((copy) => startTop(copy, gone.find((entry) => entry.copy === copy)!.top));
     nodes.forEach((node, index) => {
       const before = was.get(node.dataset.rowId!);
-      if (boxes.length)
-        paths.push({ from: before ? startTop(node, before.top) : tops[index]!, to: tops[index]!, ...boxes[index]! });
+      // Its path, for the copies under or over it (`coverClip`), with the clip it starts under (below).
+      const path = boxes.length ? { from: tops[index]!, to: tops[index]!, ...boxes[index]! } : undefined;
+      if (path) paths.push(path);
       if (!before) {
         // A row the swap added fades in where it lands, unless it plays its own entrance.
         if (node.matches(".acpmux-row--enter, .acpmux-row--message-enter")) return;
@@ -499,6 +500,7 @@ export function playTurnEnd(
       const height = node.offsetHeight;
       let clip = shown === undefined ? 0 : Math.max(0, from + height - shown);
       for (const copyTop of copyStarts) if (copyTop > from) clip = Math.max(clip, from + height - copyTop);
+      if (path) Object.assign(path, { from, clip: clip >= 0.5 ? clip : undefined });
       if (clip >= 0.5) covers.push({ top: from, bottom: tops[index]! + height });
       if (Math.abs(delta) < 0.5 && clip < 0.5 && !moving.has(node)) return;
       restart(node, moving, { delta, fades: false, animations: [], clip }, () => [

@@ -167,4 +167,11 @@ test("a copy of a row that went draws only outside the rows that come over it", 
   const under = coverClip(copy, [row(140, 110, 40)], 4)!;
   expect(under[0].clipPath).toBe("inset(0px -4096px 4px -4096px)");
   expect(under[1].clipPath).toBe("inset(0px -4096px 22px -4096px)");
+  // A row over the copy that starts clipped at the copy's top (the reply over the live line when a
+  // lagging turn ends) draws nothing over it at first: the copy keeps its top lines there, and loses
+  // them only as the row's text comes down over them (it rests 12 px over the copy's top).
+  const above = { from: 20, to: 0, height: 120, padTop: 0, padBottom: 8, clip: 40 };
+  const opened = coverClip(copy, [above], 0)!;
+  expect(opened[0].clipPath).toBe("inset(0px -4096px 0px -4096px)");
+  expect(opened[1].clipPath).toBe("inset(12px -4096px 0px -4096px)");
 });
