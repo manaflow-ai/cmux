@@ -24,8 +24,9 @@ shell_tree.pin beside it naming the leo-workspace commit it was copied from and 
 its copy against that pin, and leo-workspace's VendoredCopies test checks each copy against this file at that commit.
 
 Run as a script it reads a JSON list of strings on stdin and prints the list of their scan_text(code(...))
-(cmux-platform's TypeScript sweep runs it so); --corpus, --file-corpus, --files, --unparsed and
---bash print corpus(), FILES, each file's scan_file(), each file's unparsed() and each text's bash_writes() as JSON.
+(cmux-platform's TypeScript sweep runs it so); --corpus, --file-corpus, --files, --unparsed, --bash, --no-oracle
+and --tree-only print corpus(), FILES, each file's scan_file(), each file's unparsed(), each text's oracle() (true,
+false or {"no_oracle": reason}), no_oracle() of the texts and TREE_ONLY as JSON.
 """
 from __future__ import annotations
 
@@ -50,7 +51,7 @@ PARAM_HEAD = re.compile(r"[#!]?(?:[A-Za-z_]\w*|\d+|[@*#?$!-])(?:\[[^\]]*\])?")
 ASSIGNMENT = re.compile(r"[A-Za-z_]\w*(?:\[[^\]]*\])?\+?=")
 MAX_DEPTH = 32  # substitutions and expansions inside one another; deeper text is Unparsed, never a RecursionError
 # Reserved words after which a command starts again: a ( there is a subshell, a (( arithmetic, a case or [[ itself.
-START_WORDS = {"!", "{", "}", "if", "then", "else", "elif", "do", "while", "until", "time"}
+START_WORDS = {"!", "{", "}", "if", "then", "else", "elif", "do", "while", "until", "time", "coproc"}
 # Command wrappers: each runs the command after its options, so unwrap() reads through them. Per wrapper: its options
 # that take no argument, those that take one (-n 5, -n5, --adjustment=5), its long options whose argument is optional
 # (only as --opt=ARG), and how many operands come before the command (timeout's DURATION). A long option may be cut
@@ -73,7 +74,10 @@ WRAPPERS = {
     "stdbuf": (set(), {"-i", "-o", "-e", "--input", "--output", "--error"}, set(), 0),
     "setsid": ({"-c", "-f", "-w", "--ctty", "--fork", "--wait"}, set(), set(), 0),
 }
-KEYWORDS = {"!", "{", "}", "if", "then", "else", "elif", "do", "while", "until"}  # time is in WRAPPERS
+KEYWORDS = {"!", "{", "}", "if", "then", "else", "elif", "do", "while", "until", "coproc"}  # time is in WRAPPERS
+# Reserved words this reads no command through: where one reaches a command's first word, what runs is UNRESOLVED,
+# never a command named for it and never nothing (a for or select's words, a done, fi or esac with words after it).
+UNMODELED = {"for", "select", "in", "done", "fi", "esac", "function", "case", "[[", "]]"}
 # The builtins that read NAME=value in their arguments after quote removal, as env does: export "X"=1 sets X.
 DECLARES = {"export", "declare", "typeset", "local", "readonly"}
 
@@ -238,12 +242,21 @@ class _Parser:
                     continue
                 if start:
                     end()
+                elif len(texts) == 2 and texts[0] == "coproc":
+                    # coproc NAME ( ... ): NAME names the coprocess, never a command, but its substitutions run
+                    # (coproc "$(X=0 cmd)" ( ... ); #4441 review), so it is data
+                    cmd.data += cmd.words
+                    cmd.words.clear()
+                    end()
                 elif texts:  # after a word only a function's () may follow
                     j = i + 1
                     while j < n and s[j] in " \t":
                         j += 1
                     if j >= n or s[j] != ")":
                         raise Unparsed(s)
+                    if texts[0] == "function" and len(texts) == 2:
+                        cmd.data += cmd.words  # function NAME (): NAME is a name, never a command
+                        cmd.words.clear()
                     end()
                     i = j + 1
                     continue
@@ -259,6 +272,14 @@ class _Parser:
             if s[i:j].isdigit() and j < n and s[j] in "<>":
                 i = j  # a file descriptor's number: its redirection follows
                 continue
+            if len(texts) == 2 and texts[0] in ("function", "coproc") and not cmd.redirects and \
+                    s[i:j] in ("{", "(") and len(cmd.words) == 2:
+                # function NAME { ...; } and coproc NAME { ...; }: NAME is a name, never a command; the compound
+                # command after it is read as any other (teamleaderleo/leo-workspace#4382 review, F2). NAME's
+                # substitutions run, so it is data (coproc "$(X=0 cmd)" { ...; }; #4441 review).
+                cmd.data += cmd.words
+                cmd.words.clear()
+                end()
             texts.append(s[i:j])
             cmd.words.append(w)
             i = last_end = j
@@ -681,7 +702,8 @@ UNRESOLVED: list = _Unresolved()
 
 
 def unwrap(argv: list[str], assigned: list | None = None, where: list | None = None,
-           names: frozenset = frozenset()) -> list[str] | None:
+           names: frozenset = frozenset(), bare: frozenset | None = None,
+           through: list | None = None) -> list[str] | None:
     """The command ARGV runs and its arguments, read through NAME=value words, reserved words (!, if, do, ...) and
     the command wrappers in WRAPPERS with their options: `time -p env -i X=1 nice -n 5 mktemp t` runs
     ["mktemp", "t"]. An env -S string is split into words (_split). None when ARGV runs nothing (command -v, --help,
@@ -696,15 +718,36 @@ def unwrap(argv: list[str], assigned: list | None = None, where: list | None = N
     may be either, so the command is UNRESOLVED. After exec, and any other wrapper, NAME=value is the command's name.
     WHERE gets (index, spans) for each word returned. INDEX is the ARGV word it comes from; SPANS is None for that
     whole word, or for a word of an env -S string, per character the (start, end) range of ARGV[INDEX] it comes
-    from."""
+    from.
+
+    A bare `time` that starts the command (after reserved words, before any NAME=value or wrapper) is bash's
+    reserved word, which takes -p and nothing else: `time -f F cmd` runs the command -f. Any other time (`command
+    time`, /usr/bin/time, `X=1 time`, a quoted "time") is GNU time, with its options (teamleaderleo/leo-workspace#4380
+    review at 27a11d16, F2). It takes one -p and one --, each unquoted: `time -p -p cmd` and `time "-p" cmd` run the
+    command -p (#4434 review, F1). BARE holds the indexes of ARGV words with no quoting (all of them when None).
+    THROUGH gets the name of each wrapper read through, in order. A reserved word this reads nothing through
+    (UNMODELED) where a command starts makes it UNRESOLVED."""
     argv, k, assigns = list(argv), 0, "shell"
     origin: list = [(i, None) for i in range(len(argv))]
+    first = True  # no NAME=value and no wrapper yet: a bare time here is the reserved word
+
+    def unquoted(j: int) -> bool:  # an ARGV word with no quoting, as it is (no word of an -S string)
+        return origin[j][1] is None and (bare is None or origin[j][0] in bare)
 
     def named(j: int) -> bool:  # an ARGV word NAMES holds, as it is (no word of an -S string)
         return origin[j][1] is None and origin[j][0] in names
 
     def split_at(at: int, off: int) -> bool:
-        """Put the words of argv[at][off:] (an -S string) in its place, after argv[at]; False when env refuses it."""
+        """Put the words of argv[at][off:] (an -S string) in its place, after argv[at]; False when env refuses it. A
+        part only a run can tell ("\0": a shell expansion, $prefix, or env's own ${NAME}) may add words or quotes to
+        what env splits, so a word of the string holding one may be anything: where one is at or before the command's
+        name (an option, its operand, the name itself), what runs only a run can tell, and the command is UNRESOLVED
+        (manaflow-ai/cmuxterm-hq#9393 review at 7948495f, F1; manaflow-ai/cmux#41371 review, F1: vars="X touch";
+        env -S "env -u $vars mktemp ..." runs touch). After the name it changes only the command's arguments, as an
+        expansion outside -S does (manaflow-ai/cmux#41336 review, F1: env -S "mktemp /tmp/$USER.XXXXXX" is mktemp's
+        template)."""
+        if through is not None:
+            through.append("env -S")  # what the host's env must do: split a string (requires' env-split)
         got = _split(argv[at][off:])
         if got is None:
             return False
@@ -719,19 +762,38 @@ def unwrap(argv: list[str], assigned: list | None = None, where: list | None = N
         return True
 
     while k < len(argv):
-        if assigns == "shell" and (argv[k] in KEYWORDS or ASSIGNMENT.match(argv[k]) and not named(k)) or \
+        # A reserved word is one only unquoted, where a command starts: "coproc", or coproc after X=1, is a command
+        # named coproc (#4441 review).
+        keyword = assigns == "shell" and first and argv[k] in KEYWORDS and unquoted(k)
+        if keyword or assigns == "shell" and ASSIGNMENT.match(argv[k]) and not named(k) or \
                 assigns == "env" and "=" in argv[k]:
-            if assigned is not None and argv[k] not in KEYWORDS:
-                assigned.append((origin[k][0], argv[k], origin[k][1]))
+            if not keyword:
+                first = False
+                if assigned is not None:
+                    assigned.append((origin[k][0], argv[k], origin[k][1]))
             k += 1
             continue
+        if first and argv[k] == "time" and unquoted(k):
+            k += 1  # bash's reserved word: one -p, one --, and the next word is the command, whatever it is
+            if k < len(argv) and argv[k] == "-p" and unquoted(k):
+                k += 1
+            if k < len(argv) and argv[k] == "--" and unquoted(k):
+                k += 1
+            continue
+        if argv[k] in UNMODELED and unquoted(k):
+            return UNRESOLVED
+        first = False
         if assigns == "env" and "\0" in argv[k]:
             return UNRESOLVED  # "$V" may be NAME=value or the command
         base = argv[k].rsplit("/", 1)[-1]
         if base not in WRAPPERS:
+            if any(origin[j][1] is not None and "\0" in argv[j] for j in range(k + 1)):
+                return UNRESOLVED  # an -S string's expansion at or before the name: what runs only a run can tell
             if where is not None:
                 where.extend(origin[k:])
             return argv[k:]
+        if through is not None:
+            through.append(base)
         flags, takes, optional, operands = WRAPPERS[base]
         longs = sorted(o for o in flags | takes | optional if o.startswith("--"))
         k += 1
@@ -811,11 +873,13 @@ class Resolved:
     value). WORDS is None when it runs nothing, and UNRESOLVED when that cannot be told. A declaration builtin's
     (DECLARES) NAME=value arguments are in ASSIGNED too, as it reads them, after quote removal (export "X"=1 sets X);
     its arguments whose value only a run can tell with no = in it (export "$V") are in UNKNOWN: each may be one. A
-    value whose name has "\0" in it is NAME=value with a name only a run can tell (env $'X'=1)."""
+    value whose name has "\0" in it is NAME=value with a name only a run can tell (env $'X'=1). THROUGH names each
+    wrapper read through, in order ("env -S" after env for each -S string it splits)."""
     words: list | None
     values: list
     assigned: list
     unknown: list = field(default_factory=list)
+    through: list = field(default_factory=list)
 
 
 def _value(text: str, word: Word) -> tuple[str, list[tuple[int, int]]]:
@@ -891,8 +955,9 @@ def resolve(text: str, cmd: Command) -> Resolved:
     argv = [value for value, _ in values]
     # A quoted "X"=1 is a command's name (or an -S string), never an assignment, whatever its value.
     names = frozenset(i for i, w in enumerate(words) if not ASSIGNMENT.match(text, w.start))
-    assigned, where = [], []
-    run = unwrap(argv, assigned, where, names)
+    bare = frozenset(i for i, w in enumerate(words) if text[w.start:w.end] == argv[i])
+    assigned, where, through = [], [], []
+    run = unwrap(argv, assigned, where, names, bare, through)
 
     def at(index: int, spans) -> Word:
         word, (_, chars) = words[index], values[index]
@@ -904,10 +969,12 @@ def resolve(text: str, cmd: Command) -> Resolved:
 
     got = [(at(i, spans), raw) for i, raw, spans in assigned]
     if run is None or run is UNRESOLVED:
-        return Resolved(run, [], got)
+        return Resolved(run, [], got, through=through)
     found = [at(i, spans) for i, spans in where]
     unknown = []
-    if run[0] in DECLARES:
+    # A declaration builtin is bash's only in bash's own command position, or after command or builtin; after env,
+    # nice or any other program it is a program named export (#4419 review, F1).
+    if run[0] in DECLARES and all(b in ("command", "builtin") for b in through):
         for word, value in zip(found[1:], run[1:]):
             if value.startswith(("-", "+")) and "=" not in value:
                 continue  # an option: export -n, declare -x, declare +x
@@ -915,12 +982,77 @@ def resolve(text: str, cmd: Command) -> Resolved:
                 got.append((word, value))
             elif "\0" in value:
                 unknown.append(word)
-    return Resolved(found, run, got, unknown)
+    return Resolved(found, run, got, unknown, through)
+
+
+# The host capability (tools/requires.py) each program or keyword programs() names needs: a test that runs one goes
+# through requires() for it (#4441 review, F1 and F2).
+CAPABILITIES = {"setsid": "setsid", "timeout": "timeout", "stdbuf": "stdbuf", "time": "gnu-time",
+                "env -S": "env-split", "coproc keyword": "coproc"}
+
+
+def programs(text: str) -> list[str]:
+    """Each program TEXT's commands run, in order, at any depth: the wrappers each is read through (resolve()'s THROUGH:
+    a time other than bash's keyword is "time", an env -S split "env -S"), then the command's own name ("?" when only
+    a run can tell), and "coproc keyword" for bash's unquoted coproc in command position. Raises Unparsed as parse() does."""
+    out = []
+    for cmd in commands(parse(text)):
+        lead = (cmd.words or cmd.data)[:1]
+        if lead and text[lead[0].start:lead[0].end] == "coproc":
+            out.append("coproc keyword")  # bash's own; a quoted "coproc" is a command named coproc
+        run = resolve(text, cmd)
+        out += run.through
+        if run.words is UNRESOLVED:
+            out.append("?")
+        elif run.words:
+            name = "?" if "\0" in run.values[0] else run.values[0].rsplit("/", 1)[-1]
+            out.append(name)
+            inner = shell_string(run.values) if name in SHELLS else None
+            if inner is not None:  # a shell's -c string runs too: its programs, at any depth (cmux#41371 review, F2)
+                try:
+                    out += programs(inner)
+                except Unparsed:
+                    out.append("?")
+    return out
+
+
+def shell_string(values: list[str]) -> str | None:
+    """The text a shell's words (VALUES, its name first, quotes removed) run with -c: the first word that is no
+    option after an option group holding c (bash -c T, bash -ec T, sh -c -- T). None when there is none, and "" read
+    as nothing when only a run can tell it ("\0", as "$V"): its programs are unknown, and the caller's fallback counts."""
+    for i, word in enumerate(values[1:], 1):
+        if word.startswith("-") and not word.startswith("--") and "c" in word[1:]:
+            rest = [w for w in values[i + 1:] if w != "--"]
+            if not rest or "\0" in rest[0]:
+                return None
+            return rest[0]
+        if not word.startswith(("-", "+")):
+            return None  # a script file, not -c
+    return None
+
+
+def needs(text: str) -> list[str]:
+    """The host capabilities (CAPABILITIES) TEXT's programs need, each once, in order; [] when TEXT does not parse."""
+    try:
+        found = programs(text)
+    except Unparsed:
+        return []
+    return list(dict.fromkeys(CAPABILITIES[p] for p in found if p in CAPABILITIES))
+
+
+def runs(text: str) -> str | None:
+    """The name of the command TEXT's first command runs (resolve()): None when it runs nothing, "?" when that
+    cannot be told."""
+    run = resolve(text, next(commands(parse(text))))
+    if run.words is UNRESOLVED:
+        return "?"
+    # A name with an expansion in it ("\0", e.g. "$V") only a run can tell (#4441 review).
+    return ("?" if "\0" in run.values[0] else run.values[0]) if run.words else None
 
 
 def assigned_names(text: str) -> list[str]:
     """The names TEXT's commands set with NAME=value words (resolve()), in order: "?" for one whose name only a run
-    can tell, or a declaration builtin's word that may be NAME=value (export "$V")."""
+    can tell, a declaration builtin's word that may be NAME=value (export "$V"), or a command that is UNRESOLVED."""
     out = []
     for cmd in commands(parse(text)):
         run = resolve(text, cmd)
@@ -928,6 +1060,8 @@ def assigned_names(text: str) -> list[str]:
             name = re.sub(r"\[.*$", "", raw.split("=", 1)[0].rstrip("+"))
             out.append("?" if "\0" in name else name)
         out += ["?"] * len(run.unknown)
+        if run.words is UNRESOLVED:
+            out.append("?")  # what it sets cannot be told
     return out
 
 
@@ -938,10 +1072,18 @@ def words_run(text: str, cmd: Command) -> list[Word] | None:
 
 def template_words(text: str, cmd: Command) -> list[Word]:
     """CMD's mktemp template words: an argument of a command named mktemp (after its wrappers, resolve()) whose own
-    literal text has XXXXXX; inside an env -S string, the characters of the word env makes."""
+    literal text has XXXXXX; inside an env -S string, the characters of the word env makes. None under -u
+    (--dry-run): mktemp then only prints a name it never makes, and whatever writes it later writes a name another
+    account may have made first (manaflow-ai/cmux#41336 review, F2, found by the oracle)."""
     run = resolve(text, cmd)
     if not run.words or run.values[0].rsplit("/", 1)[-1] != "mktemp":
         return []
+    for value in run.values[1:]:
+        if value == "--":
+            break
+        if "\0" in value and value.startswith("-") or value.startswith("--dr") or \
+                re.fullmatch(r"-[dqtu]*u[dqtu]*", value):
+            return []  # a dry run, or an option only a run can tell
     return [w for w in run.words[1:] if "XXXXXX" in literal(text, w)]
 
 
@@ -1271,6 +1413,12 @@ WRAPPERS_UNSAFE = ("env -u mktemp", "env -C mktemp", "timeout mktemp", "nice -n 
 # as it splits any -S string, ${NAME} expanded; a $ without braces, or a $( ), makes env refuse it. The template words
 # inside it are exempt where they sit in the -S argument, and nothing else is.
 ENV_SPLIT = (
+    # manaflow-ai/cmuxterm-hq#9393 review at 7948495f, F1, and manaflow-ai/cmux#41371 review, F1: a shell expansion
+    # inside the -S string ($prefix, $vars, $N) may add words and quotes to what env splits; at or before the
+    # command's name, what runs only a run can tell, so the command is unresolved and no template is exempt (True).
+    # After the name (mktemp /tmp/$USER.XXXXXX) it changes only mktemp's arguments, as outside -S, and the template
+    # is exempt (manaflow-ai/cmux#41336 review, F1). env's own ${NAME} is one word.
+    ("prefix='/bin/sh -c \"'; suffix='\"'; env -S \"${prefix}/mktemp > /tmp/out.$$.XXXXXX${suffix}\"", True),
     ('env -S "mktemp /tmp/$USER.XXXXXX"', False),
     ("env -S 'mktemp /tmp/${USER}.XXXXXX'", False),
     ("env -S'mktemp /tmp/${USER}.XXXXXX'", False),
@@ -1278,12 +1426,27 @@ ENV_SPLIT = (
     ('env --split-string="mktemp /tmp/$USER.XXXXXX"', False),
     ('d=$(env -S "mktemp -d /tmp/$USER.XXXXXX")', False),
     ('env -S "nice -n 5 mktemp /tmp/$USER.XXXXXX"', False),
+    ('env -S "nice -n $N mktemp /tmp/a.$$.XXXXXX"', True),
+    ('env -S "$CMD /tmp/a.$$.XXXXXX"', True),
     ("env -S 'env -S \"mktemp /tmp/${USER}.XXXXXX\"'", False),
     ('env -S "mktemp /tmp/$USER.XXXXXX" > /tmp/out.$$', True),
     ('env -S "mktemp /tmp/$USER.XXXXXX /tmp/out.$$"', True),
     ("env -S 'mktemp /tmp/$USER.XXXXXX'", True),
+    # manaflow-ai/cmux#41371 review, F1: an expansion inside -S can move word boundaries, so what runs (here touch, as
+    # env -u's operand takes X alone) only a run can tell; the template is never exempt.
+    ('vars="X touch"; env -S "env -u $vars mktemp /tmp/a.$$.XXXXXX"', True),
+    # F2: env's own "X=1", quoted, is NAME=value to env; mktemp still runs with its template, which is safe.
+    ('env -i "X=1" mktemp /tmp/a.$$.XXXXXX', False),
+    ("env -i 'X=1' X2=2 mktemp /tmp/a.$$.XXXXXX", False),
     ("env -S 'mktemp \"/tmp/$(id -u).XXXXXX\"'", True),
     ('env -S "printf s > /tmp/out.$$"', True),
+    # manaflow-ai/cmux#41336 review, F2: a file's mode is no proof mktemp made it; only the paths it made are.
+    (": > /tmp/out.$$; chmod 600 /tmp/out.$$", True),
+    ("mkdir /tmp/out.$$; chmod 700 /tmp/out.$$", True),
+    ("f=$(mktemp -u /tmp/$USER.XXXXXX); : > \"$f\"", True),
+    ("mktemp -du /tmp/$USER.XXXXXX", True),
+    ("mktemp --dry-run /tmp/$USER.XXXXXX", True),
+    ("mktemp -d /tmp/$USER.XXXXXX", False),
     ('env -S "mktemp" /tmp/$USER.XXXXXX', False),
     # teamleaderleo/leo-workspace#4368 review at cfd7897e, F4: env -i and command -p find mktemp on the default PATH,
     # past the fake one; bash_writes() runs the fake by its own path, so nothing reaches the real temp folder.
@@ -1296,6 +1459,12 @@ ENV_SPLIT = (
     # manaflow-ai/cmux-platform#1274 review, F1: a shell inside a shell runs, so bash checks it too.
     ("env -S \"bash -c 'printf x > /tmp/out.$$'\"", True),
     ("sh -c 'printf x > /tmp/out.$$'", True),
+    # teamleaderleo/leo-workspace#4380 review at 27a11d16, F2: bash's time runs -f, so the path is mktemp's argument
+    # nowhere, and no template; GNU time runs mktemp.
+    ("time -f F mktemp /tmp/$USER.XXXXXX", True),
+    ("time -o out mktemp -d /tmp/$USER.XXXXXX", True),
+    ("command time -f F mktemp /tmp/$USER.XXXXXX", False),
+    ("/usr/bin/time -f F mktemp /tmp/$USER.XXXXXX", False),
 )
 
 # Where a NAME=value word sets NAME, as bash reads it: (text, the names it sets, "?" for one whose name only a run can
@@ -1326,6 +1495,100 @@ ASSIGNMENT_WORDS = (
     ('readonly "X_T"=0; export X_T; cmd', ["X_T"]),
     ("exec X_T=0 cmd", []),
     ("time -p X_T=0 cmd", ["X_T"]),
+    # teamleaderleo/leo-workspace#4380 review at 27a11d16, F3: after exec's options too, NAME=value is the command.
+    ("exec -a name X_T=0 cmd", []),
+    ("exec -c X_T=0 cmd", []),
+    ("exec -l X_T=0 cmd", []),
+    ("exec -cl -a name X_T=0 cmd", []),
+    # manaflow-ai/cmuxterm-hq#9375 review, F1: exec -a name X_TIMEOUT=0 cmd runs a command named X_TIMEOUT=0.
+    ("exec -a name X_TIMEOUT=0 cmd", []),
+    # manaflow-ai/cmuxterm-hq#9370 review at 4b4f59b6, F1: env's NAME=value words after its options.
+    ('env -i PATH="$PATH" X_T=0 cmd', ["PATH", "X_T"]),
+    ("env -- X_T=0 cmd", ["X_T"]),
+    ("env -u HOME X_T=0 cmd", ["X_T"]),
+    ("env -C / X_T=0 cmd", ["X_T"]),
+    ("env -S 'X_T=0 cmd'", ["X_T"]),
+    # manaflow-ai/cmux#41371 review, F2: env reads its quoted NAME=value words after quote removal.
+    ('env -u HOME "X_T=1" cmd', ["X_T"]),
+    # manaflow-ai/cmuxterm-hq#9375 review, F2: -S's string attached to its option, short and long.
+    ("env -SX_T=0 cmd", ["X_T"]),
+    ("env -S'X_T=0 cmd'", ["X_T"]),
+    ("env --split-string=X_T=0 cmd", ["X_T"]),
+    ("env --split-string='X_T=0 cmd'", ["X_T"]),
+    ("time X_T=0 cmd", ["X_T"]),
+    ("command time -p env X_T=0 cmd", ["X_T"]),
+    # teamleaderleo/leo-workspace#4382 review, F1: a declaration's word after quote removal and escapes.
+    ('export "X_TIMEOUT=0"; cmd', ["X_TIMEOUT"]),
+    ("export X_TIMEOUT\\=0; cmd", ["X_TIMEOUT"]),
+    ('"X_T=0" cmd', []),
+    ("X_T\\=0 cmd", []),
+    # F2: a function's body and a coprocess are commands like any other.
+    ("function f { X_TIMEOUT=0 cmd; }; f", ["X_TIMEOUT"]),
+    ("function f() { X_T=0 cmd; }; f", ["X_T"]),
+    ("function f ( ) ( X_T=0 cmd ); f", ["X_T"]),
+    ("coproc X_T=0 cmd 1>&2; wait", ["X_T"]),
+    ("coproc { X_T=0 cmd 1>&2; }; wait", ["X_T"]),
+    ("coproc NAME { X_T=0 cmd 1>&2; }; wait", ["X_T"]),
+    # #4441 review: a coprocess's NAME is never run, but its substitutions are; a quoted "coproc" is a command named
+    # coproc (here a function), never the keyword.
+    ('coproc "$(X_T=0 cmd 1>&2; echo N)" { true; }; wait', ["X_T"]),
+    ("coproc $(X_T=0 cmd 1>&2; echo N) ( true ); wait", ["X_T"]),
+    ('function coproc { cmd; }; "coproc" X_T=0 cmd', []),
+    # #4419 review, F1: export is a declaration only where bash runs it; after env or nice it is a program.
+    ("env -S 'export X_T=0'; cmd", []),
+    ("env export X_T=0; cmd", []),
+    ("nice export X_T=0; cmd", []),
+    ("command export X_T=0; cmd", ["X_T"]),
+    ("builtin export X_T=0; cmd", ["X_T"]),
+    # #4419 review, F2: a quoted name after a word only a run can tell; env "$V" may be NAME=value or the command.
+    ('V=--; env "$V" X_"T"=0 cmd', ["V", "?"]),
+)
+
+# The command each text runs, as bash runs it (teamleaderleo/leo-workspace#4380 review at 27a11d16, F2): bash's
+# reserved word time takes -p and nothing else, so `time -f F cmd` runs a command named -f; only GNU time (command
+# time, /usr/bin/time, a time after NAME=value, a quoted "time") takes -f and -o. And exec's NAME=value is the command
+# (F3). The sweep runs bash on each row: `cmd` prints that it ran, and any other name is not found.
+RUN_WORDS = (
+    # #4441 review: coproc is the keyword only unquoted and where a command starts.
+    ('"coproc" cmd', "coproc"),
+    ("\\coproc cmd", "coproc"),
+    ("X=1 coproc cmd", "coproc"),
+    ('coproc cmd; read -r line <&"${COPROC[0]}"; echo "$line"; wait', "cmd"),
+    ("time cmd", "cmd"),
+    # manaflow-ai/cmuxterm-hq#9375 review: what exec -a and an attached env -S run.
+    ("exec -a name X_TIMEOUT=0 cmd", "X_TIMEOUT=0"),
+    ("env -SX_T=0 cmd", "cmd"),
+    ("env --split-string=X_T=0 cmd", "cmd"),
+    ("time -p cmd", "cmd"),
+    ("time -- cmd", "cmd"),
+    ("time -p -- cmd", "cmd"),
+    ("time -f F cmd", "-f"),
+    ("time -o out cmd", "-o"),
+    ("time -p -f F cmd", "-f"),
+    ("time --portability cmd", "--portability"),
+    ("time time -f F cmd", "-f"),
+    ("! time -f F cmd", "-f"),
+    ("if time -f F cmd; then :; fi", "-f"),
+    ("command time -f F cmd", "cmd"),
+    ("/usr/bin/time -f F cmd", "cmd"),
+    ("X=1 time -f F cmd", "cmd"),
+    ('"time" -f F cmd', "cmd"),
+    ("exec -a name X=1 cmd", "X=1"),
+    ("exec -c X=1 cmd", "X=1"),
+    ("exec -l X=1 cmd", "X=1"),
+    # #4434 review, F1: bash's time takes one unquoted -p and one unquoted --; the next word is the command.
+    ("time -p -p cmd", "-p"),
+    ('time "-p" cmd', "-p"),
+    ("time '-p' cmd", "-p"),
+    ("time \\-p cmd", "-p"),
+    ('time -p "--" cmd', "--"),
+    ('time "--" cmd', "--"),
+    ("time -- -- cmd", "--"),
+    ("time -- -p cmd", "-p"),
+    ("time -p -- -p cmd", "-p"),
+    # teamleaderleo/leo-workspace#4382 review, F1: before a command, a quoted or escaped = makes no assignment.
+    ('"X_T=0" cmd', "X_T=0"),
+    ("X_T\\=0 cmd", "X_T=0"),
 )
 
 
@@ -1351,6 +1614,8 @@ def _deep(levels: int, write: str = "") -> str:
     return "d=" + line[len("echo "):] if levels else line
 
 
+# A depth bash runs well inside MAX_BASH_PROCESSES and ORACLE_SECONDS: the twin of each tree-only depth fixture.
+BASH_TWIN_DEPTH = 20
 UNPARSED = NOT_SHELL + (_deep(MAX_DEPTH + 1), _deep(200), "x=${a:-" * 300 + "}" * 300 + " > /tmp/out.$$")
 
 
@@ -1406,6 +1671,9 @@ def corpus() -> list[tuple[str, bool]]:
         out[line] = unsafe
     out[_deep(MAX_DEPTH)] = False
     out[_deep(MAX_DEPTH, "; echo > /tmp/out.$$")] = True
+    # _deep(200) is tree-only (TREE_ONLY); its bash-sized twin is run by bash too.
+    out[_deep(BASH_TWIN_DEPTH)] = False
+    out[_deep(BASH_TWIN_DEPTH, "; echo > /tmp/out.$$")] = True
     for line in MISSES:
         out[line] = True
     return sorted(out.items())
@@ -1476,11 +1744,10 @@ FILES = (
 # flags and the corpus calls unsafe. Real /tmp names are never touched: each /tmp in the text is moved into the folder.
 # mktemp by its name or by any path (/usr/bin/mktemp: manaflow-ai/cmuxterm-hq#9393 review at 52412c22, F4).
 MKTEMP_WORD = re.compile(r"(?<![\w./-])(?:(?:/[\w.-]+)*/)?mktemp(?![\w.-])")
-TMPDIR_WORD = re.compile(r"(?<!\w)TMPDIR(?!\w)")
 TMP_PATH = re.compile(r"(?<![\w.])(?:/private)?/tmp(?![\w.-])")
 MKTEMP = """#!/bin/sh
 out=$(TMPDIR=%s %s "$@") || exit $?
-printf '%%s\\n' "$out" >> %s
+[ -e "$out" ] && printf '%%s\\n' "$out" >> %s
 printf '%%s\\n' "$out"
 if [ -n "$SHELL_TREE_PEAK" ] && read -r me < /proc/$$/stat; then
   me=${me##*) }; set -- $me; session=$4; n=0
@@ -1571,27 +1838,94 @@ os._exit(0)
 REAPER_GRACE = 5
 
 
-class BashTimeout(RuntimeError):
+class OracleUnavailable(RuntimeError):
+    """Bash gave no answer for a row, and REASON says why: past its time (BashTimeout), out of processes (a fork
+    failed, or it would hold more than MAX_BASH_PROCESSES at once), bash -n refuses it, or (SKIPPED) the host lacks a
+    capability the row needs (needs(); tools/requires.py). Falsy, so it is never read as "bash wrote" or as agreement.
+    A differential check fails on one unless TREE_ONLY lists its row or it is SKIPPED (no_oracle(); cmux#41336 review)."""
+
+    def __init__(self, reason: str, text: str = "", skipped: bool = False):
+        super().__init__(f"no answer from bash ({reason}): {text[:200]}")
+        self.reason, self.text, self.skipped = reason, text, skipped
+
+    def __bool__(self) -> bool:
+        return False
+
+
+class BashTimeout(OracleUnavailable):
     """A bash run past its time; its process group (PGID) is killed, and the message names the fixture."""
 
     def __init__(self, text: str, timeout: float, pgid: int):
-        super().__init__(f"bash ran past {timeout:g} s on this fixture, and its process group {pgid} was killed: "
-                         f"{text}")
+        RuntimeError.__init__(self, f"bash ran past {timeout:g} s on this fixture, and its process group {pgid} was "
+                              f"killed: {text}")
+        self.reason, self.text, self.skipped = f"bash ran past its {timeout:g} s budget (ORACLE_SECONDS)", text, False
         self.pgid = pgid
+
+
+# The wrappers that stay as a process of their own around the command they run (timeout and GNU time wait for it;
+# setsid forks when it leads its group), and bash's coproc keyword's subshell. env, nice, nohup, stdbuf and exec run
+# the command in their own place.
+FORKING = {"timeout", "time", "setsid", "coproc keyword"} | SHELLS
 
 
 def bash_processes(text: str) -> int:
     """An upper bound on the processes bash holds at once running TEXT with no loop that forks in the background:
-    bash and the fake mktemp with its substitution, and one per (, backtick pair, | and &."""
-    return 4 + text.count("(") + text.count("`") // 2 + text.count("|") + text.count("&")
+    bash and the fake mktemp with its substitution, one per (, backtick pair, | and &, and one per wrapper that stays a
+    process (FORKING, read by programs(): fifty nested `timeout 5` hold fifty; manaflow-ai/cmux#41371 review, F3), a
+    shell started inside it among them, and what that shell's -c string runs (programs() reads it): `timeout 5 bash -c
+    'timeout 5 ... mktemp'` holds both chains at once (manaflow-ai/cmux#41371 review of the vendored copy, F2)."""
+    try:
+        wrappers = sum(p in FORKING for p in programs(text))
+    except Unparsed:
+        wrappers = len(re.findall(r"\b(?:timeout|time|setsid|coproc|%s)\b" % "|".join(sorted(SHELLS)), text))
+    return 4 + text.count("(") + text.count("`") // 2 + text.count("|") + text.count("&") + wrappers
+
+
+# Where a command's NAME=value word may stand, and each quoting of it (manaflow-ai/cmux#41371 review of the vendored
+# copy, F1: env "X=1" mktemp was flagged, since the quoted-name rule of shell assignment syntax was applied to env, which
+# gets its words after quote removal). env_rows() is every prefix with every quoting, before a command `cmd`; the
+# sweep runs each with bash and holds the tree to what bash runs and sets. ANSI-C $'...' is a part only a run can tell
+# here ("\0"), so the tree fails closed on it (UNRESOLVED, flagged) where bash would run cmd.
+ENV_PREFIXES = ("", "env", "env --", "env -u HOME", "nice env", "timeout 5 env", "command env", "env X_A=0",
+                "exec env", "time env", "nice -n 1 env -u HOME --")
+ENV_QUOTINGS = ("X_T=1", '"X_T=1"', "'X_T=1'", '"X_T"=1', 'X_"T"=1', "'X_T'=1", "X\\_T=1", "X_T\\=1", "X_T='1'",
+                '"X_"T=1', "$'X_T=1'")
+
+
+def env_rows() -> list[str]:
+    """Each ENV_PREFIXES with each ENV_QUOTINGS, before the command cmd."""
+    return [f"{p} {q} cmd".strip() for p in ENV_PREFIXES for q in ENV_QUOTINGS]
+
+
+# The wrapper steps a command may be read through, and wrapper_chains() of them (manaflow-ai/cmux#41371 review of the
+# vendored copy, F2: bash_processes() left out wrappers that stay a process, so six nested `timeout 5` were estimated
+# at 4 and held 8). The sweep runs each chain with bash and holds bash_processes() to at least the most processes the
+# run held at once.
+WRAPPER_STEPS = ("timeout 5", "timeout -k 1 5", "env", "env X_T=1", "env -u HOME", "nice", "nice -n 1", "stdbuf -oL")
+
+
+def wrapper_chains(seed: int = 41371) -> list[str]:
+    """Wrapper chains before a mktemp: every pair of the first four WRAPPER_STEPS, seeded random chains of 3 to 12
+    steps, and six nested `timeout 5`; each one alone, inside a substitution, and run again by a nested bash -c."""
+    import random
+    rnd = random.Random(seed)
+    chains = [f"{a} {b}" for a in WRAPPER_STEPS[:4] for b in WRAPPER_STEPS[:4]]
+    chains += [" ".join(rnd.choice(WRAPPER_STEPS) for _ in range(n)) for n in (3, 4, 6, 8, 12) for _ in range(3)]
+    chains.append(" ".join(["timeout 5"] * 6))
+    out = []
+    for chain in chains:
+        line = chain + " mktemp /tmp/$USER.XXXXXX"
+        out += [line, f"x=$({line})", f"{chain} bash -c '{line}'"]
+    return out
 
 
 def bash_writes(text: str, timeout: float = 10, stats: dict | None = None) -> bool | None:
     """Whether bash, running TEXT in a scratch folder (each /tmp in it moved there; PATH a folder of its own, whose
-    mktemp makes its names there and logs them; TMPDIR unset, so ${TMPDIR:-...} defaults run), creates a file or folder
+    mktemp makes its names there and logs them; TMPDIR the scratch temp folder), creates a file or folder
     no mktemp made; None when bash -n refuses TEXT or it would hold more than MAX_BASH_PROCESSES at once. Bash reads
-    no stdin (it is /dev/null). TMPDIR is a folder of the run's own, so a mktemp that is not the fake makes its name
-    there, never in the real temp folder; the script's own TMPDIR is another name, still unset. Bash runs under REAPER,
+    no stdin (it is /dev/null). TMPDIR is the scratch temp folder, the script's own included, so a mktemp that is not
+    the fake makes its name there and "$TMPDIR/x" is a scratch path, never / (manaflow-ai/cmux-platform#1286 review,
+    F1); a ${TMPDIR:-...} default does not run. Bash runs under REAPER,
     which waits for every process the run leaves; past TIMEOUT it kills each one, a setsid one included
     (manaflow-ai/cmuxterm-hq#9393 review at 52412c22, F3), and BashTimeout names TEXT. STATS, when given, gets "runs"
     (0 or 1) and "peak": the most processes bash's session held when a mktemp ran (on Linux)."""
@@ -1601,7 +1935,8 @@ def bash_writes(text: str, timeout: float = 10, stats: dict | None = None) -> bo
         return None
     bash = shutil.which("bash")
     try:
-        if subprocess.run([bash, "-n"], input=text, text=True, capture_output=True, timeout=timeout).returncode:
+        if subprocess.run([bash, "-O", "extglob", "-n"], input=text, text=True, capture_output=True,
+                          timeout=timeout).returncode:
             return None
     except subprocess.TimeoutExpired:
         raise BashTimeout(text, timeout, 0) from None
@@ -1618,16 +1953,20 @@ def bash_writes(text: str, timeout: float = 10, stats: dict | None = None) -> bo
         # F1): env -S "bash -c '...'" failed before it ran, so the differential check never saw it.
         for tool in ("cat", "cp", "mkdir", "touch", "tee", "env", "nice", "nohup", "timeout", "stdbuf", "setsid",
                      "bash", "sh"):
-            os.symlink(shutil.which(tool), os.path.join(bindir, tool))
+            # A host without one (macOS has no setsid, timeout or stdbuf) runs a fixture that calls it as bash does
+            # there: command not found (manaflow-ai/cmuxterm-hq#9393 review at 7948495f, F2).
+            if shutil.which(tool):
+                os.symlink(shutil.which(tool), os.path.join(bindir, tool))
         open(os.path.join(work, "a"), "w").close()
         # Each mktemp is the fake by its own path, so env -i and command -p (the default PATH) never reach the real
         # one, which would make its name in the real temp folder (teamleaderleo/leo-workspace#4368 at cfd7897e, F4).
-        script = TMPDIR_WORD.sub("SHELL_TREE_TMPDIR",
-                                 MKTEMP_WORD.sub(os.path.join(bindir, "mktemp"), TMP_PATH.sub(tmp, text)))
+        script = MKTEMP_WORD.sub(os.path.join(bindir, "mktemp"), TMP_PATH.sub(tmp, text))
         if TMP_PATH.search(script.replace(root, "")) or "umask" in script:
             raise ValueError("a /tmp path or a umask is left in the script: " + script)
+        errors = os.path.join(root, "errors")
         with open(os.path.join(root, "script"), "w") as f:
-            f.write(script)
+            # bash's own messages go to a file, so a fork that failed is told from an answer (cmux#41336 review)
+            f.write(f"exec 2>>'{errors}'\n" + script)
         env = {"PATH": bindir, "HOME": root, "USER": "u", "LC_ALL": "C", "TMPDIR": tmp}
         peak_log = os.path.join(root, "peak")
         if stats is not None:
@@ -1650,11 +1989,16 @@ def bash_writes(text: str, timeout: float = 10, stats: dict | None = None) -> bo
         if code == 124:
             with open(pidfile) as f:
                 raise BashTimeout(text, timeout, int(f.read() or 0)) from None
+        if os.path.exists(errors):
+            with open(errors, errors="replace") as f:
+                if re.search(r"\bfork: ", f.read()):
+                    raise OracleUnavailable("a fork failed: bash ran out of processes", text)
         if stats is not None and os.path.exists(peak_log):
             with open(peak_log) as f:
                 stats["peak"] = max((int(n) for n in f.read().split()), default=0)
-        # A name is mktemp's when the fake logged it, or when its mode is the 0600 file or 0700 folder mktemp makes:
-        # under env -i, the real mktemp runs from the default PATH. Under umask 022 nothing else makes those modes.
+        # A name is mktemp's only when the fake logged it, and the fake logs a name only once it exists (mktemp -u
+        # makes none). A file's mode is never evidence: `: > /tmp/out.$$; chmod 600 /tmp/out.$$` is a guessable name
+        # (manaflow-ai/cmux#41336 review, F2). Every mktemp word runs the fake by its path (MKTEMP_WORD).
         made = []
         if os.path.exists(log):
             with open(log) as f:
@@ -1665,27 +2009,66 @@ def bash_writes(text: str, timeout: float = 10, stats: dict | None = None) -> bo
                 mode = os.lstat(p).st_mode & 0o777
                 if any(p == m or p.startswith(m + "/") for m in made):
                     continue
-                if mode == (0o700 if entry in dirs else 0o600) and "XXXXXX" not in entry:
-                    continue
                 return True
         return False
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
 
-def bash_verdicts(texts: list[str]) -> list[bool | None]:
-    """bash_writes() of each of TEXTS, several bash runs at a time, with the processes they may hold together
-    (bash_processes) kept under PROCESS_BUDGET."""
+# The bash oracle's budget for one row: its wall time (ORACLE_SECONDS) and the processes it may hold at once
+# (MAX_BASH_PROCESSES). Its answer is True or False, or it raises OracleUnavailable naming why there is none.
+ORACLE_SECONDS = 10
+
+
+# The rows bash is never asked about, each with its reason; every other row must get an oracle answer. A depth
+# fixture past MAX_BASH_PROCESSES has a bash-sized twin (BASH_TWIN_DEPTH) in the corpus.
+TREE_ONLY = {
+    _deep(200): "200 nested substitutions hold 200 processes at once, past MAX_BASH_PROCESSES; near a host's limit "
+                "bash's fork backs off past any time budget (cmux#41336 review). Its twin is _deep(BASH_TWIN_DEPTH)",
+    **{line: "not shell: bash -n refuses it, and the tree must refuse it too (UNPARSED)" for line in NOT_SHELL},
+}
+
+
+def oracle(text: str, timeout: float = ORACLE_SECONDS, missing=None) -> bool:
+    """bash_writes(TEXT) within the row's budget: True or False, else raises OracleUnavailable with why there is none.
+    MISSING, when given, maps a capability (needs()) to why this host lacks it, or None: a row that needs one it lacks
+    is never run, and its OracleUnavailable is SKIPPED."""
+    for capability in needs(text) if missing else ():
+        why = missing(capability)
+        if why:
+            raise OracleUnavailable(f"needs {capability}: {why}", text, skipped=True)
+    need = bash_processes(text)
+    if need > MAX_BASH_PROCESSES:
+        raise OracleUnavailable(f"needs {need} processes at once, past MAX_BASH_PROCESSES ({MAX_BASH_PROCESSES})", text)
+    wrote = bash_writes(text, timeout=timeout)
+    if wrote is None:
+        raise OracleUnavailable("bash -n refuses it", text)
+    return wrote
+
+
+def no_oracle(texts: list[str], verdicts: list) -> list[str]:
+    """Each of TEXTS whose verdict is OracleUnavailable, not SKIPPED and not in TREE_ONLY, with why: a differential row
+    with no oracle answer is a failure, never agreement and never a quiet skip."""
+    return [f"{text[:120]!r}: no answer from bash ({v.reason}). Make it fit the budget, or list it in TREE_ONLY "
+            "with its reason and add a bash-sized twin" for text, v in zip(texts, verdicts)
+            if isinstance(v, OracleUnavailable) and not v.skipped and text not in TREE_ONLY]
+
+
+def bash_verdicts(texts: list[str], timeout: float = ORACLE_SECONDS, missing=None) -> list:
+    """oracle() of each of TEXTS: True, False, or the OracleUnavailable it raised. Several bash runs go at a time, with
+    the processes they may hold together (bash_processes) kept under PROCESS_BUDGET."""
     room = threading.Condition()
     free = [PROCESS_BUDGET]
 
-    def one(text: str) -> bool | None:
+    def one(text: str):
         cost = min(bash_processes(text), MAX_BASH_PROCESSES)
         with room:
             room.wait_for(lambda: free[0] >= cost)
             free[0] -= cost
         try:
-            return bash_writes(text)
+            return oracle(text, timeout, missing)
+        except OracleUnavailable as unavailable:
+            return unavailable
         finally:
             with room:
                 free[0] += cost
@@ -1704,7 +2087,13 @@ if __name__ == "__main__":
         json.dump([unparsed(p, t) for p, t in json.load(sys.stdin)], sys.stdout)
     elif sys.argv[1:] == ["--file-corpus"]:
         json.dump(FILES, sys.stdout)
-    elif sys.argv[1:] == ["--bash"]:  # [text, ...] -> [bash_writes(text), ...]
-        json.dump(bash_verdicts(json.load(sys.stdin)), sys.stdout)
+    elif sys.argv[1:] == ["--bash"]:  # [text, ...] -> [true, false or {"no_oracle": reason}, ...]
+        json.dump([v if isinstance(v, bool) else {"no_oracle": v.reason}
+                   for v in bash_verdicts(json.load(sys.stdin))], sys.stdout)
+    elif sys.argv[1:] == ["--tree-only"]:
+        json.dump(TREE_ONLY, sys.stdout)
+    elif sys.argv[1:] == ["--no-oracle"]:  # [text, ...] -> no_oracle() of their verdicts
+        texts = json.load(sys.stdin)
+        json.dump(no_oracle(texts, bash_verdicts(texts)), sys.stdout)
     else:
         json.dump([scan_text(code(t)) for t in json.load(sys.stdin)], sys.stdout)
