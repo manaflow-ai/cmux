@@ -193,6 +193,13 @@ DEPS_CHECKER = "scripts/cmux-next/check-package-dependency-lists.py"
 # (CI step name, command, path prefixes that make it run). {root} is the tree, {pkg} its CmuxNext
 # package, {s} its scripts/cmux-next. Mirrors the job's steps; tests/test_cmux_next_prepush_gate.py
 # keeps this list in step with the workflow.
+# The exit codes each scanner's verdicts use (audited 2026-11-11): 0 for none and 1 for findings, all of them. Exit 2
+# is a refusal to judge in check-crash-safety.sh (not a git checkout), check-state-roots.sh, check-no-process-scan.py
+# and check-no-raw-spawn.py (a bad baseline row); any other code, or a signal, is no verdict either. A scanner whose
+# verdicts use other codes names them here.
+SCANNER_VERDICT_CODES: dict[str, tuple[int, ...]] = {}
+DEFAULT_VERDICT_CODES = (0, 1)
+
 SCANNERS = (
     ("Dialog buttons show their keys (u2647)", ["python3", "-I", "{s}/check-dialog-key-hints.py", "{root}"], (PKG + "/", "webviews/")),
     ("Main-thread concurrency", ["/bin/bash", "{s}/check-concurrency.sh", "{pkg}"], (PKG + "/", "Packages/Shared/")),
@@ -825,10 +832,12 @@ NO_VERDICT = re.compile(r"Traceback \(most recent call last\)|^timed out after \
 
 
 def no_verdict(code: int, out: str, codes: tuple[int, ...] | None = None) -> str | None:
-    """Why a check's run gave no verdict, or None when it gave one: it timed out (run()'s 124), crashed (a traceback),
-    or exited with a code outside CODES (the codes its verdicts use, when it has a fixed set)."""
+    """Why a check's run gave no verdict, or None when it gave one: it timed out (run()'s 124), was killed by a signal
+    (a negative code), crashed (a traceback), or exited with a code outside CODES (the codes its verdicts use)."""
     if code == 124:
         return "timed out"
+    if code < 0:
+        return f"was killed by signal {-code}"
     if NO_VERDICT.search(out):
         return "crashed"
     if codes is not None and code not in codes:
@@ -1598,24 +1607,40 @@ def has_pyyaml(python: str) -> bool:
         return False
 
 
+# Where Debian and Ubuntu's python3-yaml lands: the one place `apt-get install` can put PyYAML for an interpreter.
+APT_DIST_PACKAGES = "/usr/lib/python3/dist-packages"
+
+
+def interpreter_sys_path(python: str) -> list[str]:
+    """PYTHON's sys.path as the hook runs it (-I, so no user site and no PYTHONPATH); [] when it does not answer."""
+    try:
+        done = subprocess.run([python, "-I", "-c", "import json, sys; print(json.dumps(sys.path))"],
+                              capture_output=True, text=True, timeout=30)
+        listed = json.loads(done.stdout) if done.returncode == 0 else []
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return []
+    return [p for p in listed if isinstance(p, str)] if isinstance(listed, list) else []
+
+
 def pyyaml_install_command(python: str, purelib: str | None = None, stdlib: str | None = None,
-                           apt: bool | None = None) -> str:
+                           apt: bool | None = None, syspath: list[str] | None = None) -> str:
     """The one command that makes PyYAML importable for PYTHON under `-I`, which ignores user site-packages, so
-    `pip install --user` never helps the hook. A venv or a site-packages this user can write: pip into it (with
-    --break-system-packages where the Python is marked externally managed, as Homebrew's is; that flag only lifts
-    pip's refusal, it writes this Python's own prefix). Otherwise the system's package (python3-yaml) where apt-get
-    exists, else pip into that Python with sudo."""
+    `pip install --user` never helps the hook. apt's python3-yaml only where it reaches PYTHON: apt-get exists and
+    PYTHON's own sys.path (SYSPATH; read from PYTHON when None) holds APT_DIST_PACKAGES (Codex on #40880: a venv or
+    a custom Python on an apt host never sees it). Otherwise pip, run as -I so a PyYAML already in the user site does
+    not satisfy it, into PYTHON's own prefix (with sudo when this user cannot write it). An externally managed
+    (PEP 668) PYTHON with no apt route gets what to do instead: no pip install here passes --break-system-packages."""
     paths = sysconfig.get_paths()
     purelib = paths["purelib"] if purelib is None else purelib
     stdlib = paths["stdlib"] if stdlib is None else stdlib
     apt = shutil.which("apt-get") is not None if apt is None else apt
-    pip = f"{shlex.quote(python)} -m pip install"
-    if os.access(purelib, os.W_OK):
-        managed = os.path.exists(os.path.join(stdlib, "EXTERNALLY-MANAGED"))
-        return f"{pip}{' --break-system-packages' if managed else ''} {PYYAML_PIN}"
-    if apt:
+    if apt and APT_DIST_PACKAGES in (interpreter_sys_path(python) if syspath is None else syspath):
         return "sudo apt-get install -y python3-yaml"
-    return f"sudo {pip} {PYYAML_PIN}"
+    if os.path.exists(os.path.join(stdlib, "EXTERNALLY-MANAGED")):
+        return (f"{python} is externally managed (PEP 668): install PyYAML 6.0.3 with its own package manager, or "
+                "rerun scripts/install-git-hooks.sh with a venv's python3 first on PATH")
+    pip = f"{shlex.quote(python)} -I -m pip install {PYYAML_PIN}"
+    return pip if os.access(purelib, os.W_OK) else f"sudo {pip}"
 
 
 FALLBACKS_STATUSES = ("found", "incomplete")
@@ -1670,7 +1695,8 @@ def single_host_fallback_problems(repo: Path, base: str, head: str, trusted_scri
         return []
     # The checker runs under this interpreter: the hook's own Python (its python3-path), as every other layer does.
     if not has_pyyaml(sys.executable):
-        return [f"PyYAML missing: run {pyyaml_install_command(sys.executable)}"]
+        fix = pyyaml_install_command(sys.executable)
+        return [f"PyYAML missing: {fix}" if "externally managed" in fix else f"PyYAML missing: run {fix}"]
     with tempfile.TemporaryDirectory(prefix="cmux-fallbacks-") as tmp:
         work = Path(tmp)
         (work / "check.py").write_bytes(script)
@@ -2075,8 +2101,18 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                         + "\n".join(head_out.splitlines()[-5:]))
                 if os.environ.get("CMUX_PREPUSH_GATE_DEBUG"):
                     log(f"--- {name} (head exit {head_code})\n{head_out}")
-                if no_verdict(base_code, base_out):
-                    base_out = ""  # never subtracted, here or in the dependency check's stale-line diff
+                # One rule for every scanner, before any subtraction (Codex on #40880): a run outside the scanner's
+                # verdict codes, a signal, a crash or a timeout is no verdict. At the head it refuses; at the base it
+                # subtracts nothing, here or in the dependency check's stale-line diff.
+                codes = SCANNER_VERDICT_CODES.get(name, DEFAULT_VERDICT_CODES) if jobs[name][0] == "cmd" else None
+                stopped = no_verdict(head_code, head_out, codes)
+                if stopped:
+                    found.append((name, [NoVerdict(f"{name} {stopped} at the pushed head instead of judging it, so the "
+                                                   f"push is refused: "
+                                                   f"{' '.join(head_out.strip().splitlines()[-2:])[:300]}")]))
+                    continue
+                if no_verdict(base_code, base_out, codes):
+                    base_out = ""
                 if name == DEPS_CHECK:
                     head_out, head_code = deps_findings(repo, base, head, base_out, head_out, head_code,
                                                         full_package=name in trees_for, cmd=jobs[name][1],
@@ -2084,10 +2120,6 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                 if head_code == 0:
                     continue  # passing on the head: what it prints is a warning tier, as in CI
                 fresh = new_records(base_out, head_out, name_base, name_head)
-                stopped = no_verdict(head_code, head_out)
-                if stopped:
-                    fresh = [NoVerdict(f"{name} {stopped} at the pushed head instead of judging it, so the push is "
-                                       f"refused: {' '.join(head_out.strip().splitlines()[-2:])[:300]}"), *fresh]
                 if fresh:
                     found.append((name, fresh))
         # Its scan after the scanners: it adds files to the trees (the modules that declare a changed file, deleted
