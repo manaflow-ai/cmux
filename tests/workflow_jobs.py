@@ -31,7 +31,6 @@ ALL_SECRETS = "*"
 _SECRET_DOT = re.compile(r"\bsecrets\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)", re.IGNORECASE)
 _SECRET_INDEX = re.compile(r"\bsecrets\s*\[\s*(?:'([^']*)'|\"([^\"]*)\"|([^\]]*))\s*\]", re.IGNORECASE)
 _SECRET_WHOLE = re.compile(r"\bsecrets\b(?!\s*[.\[])", re.IGNORECASE)
-_EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
 _MATRIX_REF = re.compile(r"\bmatrix\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)", re.IGNORECASE)
 _QUOTED = re.compile(r"^'((?:[^']|'')*)'$")
 # `ctx['name']` / `ctx["name"]` with a literal name: the same reference as `ctx.name` (matrix, inputs, vars, secrets,
@@ -44,6 +43,71 @@ _WHOLE_INPUT = re.compile(r"\$\{\{\s*inputs\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)\s*\
 _VAR_DOT = re.compile(r"(?<![\w.-])vars\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)", re.IGNORECASE)
 _VAR_OPEN = re.compile(r"(?<![\w.-])vars\s*(?=\[|\)|,)", re.IGNORECASE)
 _INPUT_READ = re.compile(r"(?<![\w.-])inputs\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)", re.IGNORECASE)
+
+
+# The expression tokenizer, the same rule as the build-fleet repository's scripts/lib/actions_expr.py (Codex on
+# hq#9175): an expression ends at the first `}}` outside every string literal, a literal is single-quoted with `''`
+# for a quote (or double-quoted, read as cmux reads `vars["X"]`), and text inside a literal reads no context:
+# `${{ 'vars.X' }}` is the text "vars.X". Numbers are Actions' literals: `-1`, `1.5`, `1e+2`, `1E-3`, `0x1F`.
+_TOKEN = re.compile(r"\s*(?:(?P<string>'(?:[^']|'')*'|\"[^\"]*\")"
+                    r"|(?P<number>-?(?:0[xX][0-9a-fA-F]+|0[oO][0-7]+|(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?))"
+                    r"|(?P<name>[A-Za-z_][A-Za-z0-9_-]*)|(?P<op>&&|\|\||==|!=|<=|>=|[.\[\](),!<>*])|(?P<bad>\S))")
+
+
+class Unreadable(ValueError):
+    """An expression the tokenizer cannot read: an unterminated `${{` or string, or a character Actions rejects."""
+
+
+def expression_spans(text: str, strict: bool = False) -> list[tuple[int, int]]:
+    """(start, end) of each `${{ ... }}` in `text`, `}}` inside a string literal kept in its expression. One never
+    closed raises Unreadable when `strict`; otherwise it and the text after it are no expression."""
+    spans: list[tuple[int, int]] = []
+    start = text.find("${{")
+    while start != -1:
+        index, quote = start + 3, ""
+        while index < len(text):
+            if quote and text[index] == quote:
+                quote = ""  # `''` inside a literal closes and reopens it
+            elif not quote and text[index] in "'\"":
+                quote = text[index]
+            elif not quote and text.startswith("}}", index):
+                break
+            index += 1
+        if index >= len(text):
+            if strict:
+                raise Unreadable(f"unterminated expression: {text[start:]!r}")
+            break
+        spans.append((start, index + 2))
+        start = text.find("${{", index + 2)
+    return spans
+
+
+def expressions(text: str, strict: bool = False) -> list[str]:
+    """The bodies of the `${{ }}` expressions in `text` (expression_spans)."""
+    return [text[start + 3:end - 2] for start, end in expression_spans(text, strict)]
+
+
+def tokens(expression: str) -> list[tuple[str, str]]:
+    """`(kind, text)` for each token of one expression body: string, number, name or op."""
+    out: list[tuple[str, str]] = []
+    position = 0
+    while position < len(expression):
+        match = _TOKEN.match(expression, position)
+        if match is None:  # only trailing whitespace is left
+            break
+        kind = match.lastgroup
+        if kind == "bad":
+            raise Unreadable(f"unreadable character {match.group(kind)!r} in {expression!r}")
+        out.append((kind, match.group(kind)))
+        position = match.end()
+    return out
+
+
+def _literal(token: tuple[str, str]) -> str | None:
+    kind, text = token
+    if kind != "string":
+        return None
+    return text[1:-1].replace("''", "'") if text[0] == "'" else text[1:-1]
 
 
 class _UniqueKeyLoader(yaml.SafeLoader):
@@ -149,7 +213,7 @@ def secret_names(value: Any) -> set[str]:
         names.update(match.upper() for match in _SECRET_DOT.findall(text))
         # The index and whole-context forms only inside `${{ }}`: in a run script `secrets[@]`
         # is a shell array.
-        for expression in _EXPRESSION.findall(text):
+        for expression in expressions(text):
             for single, double, _ in _SECRET_INDEX.findall(expression):
                 names.add((single or double).upper() if (single or double) else ALL_SECRETS)
             if _SECRET_WHOLE.search(expression):
@@ -219,14 +283,17 @@ def _scalar_text(value: Any) -> str:
 def dotted(text: str) -> str:
     """`text` with every literal index inside `${{ }}` written in dot form: `matrix['runner']` is `matrix.runner`,
     `needs['a'].outputs['b']` is `needs.a.outputs.b`, `inputs["x"]` is `inputs.x`."""
-    def one(expression: re.Match) -> str:
-        inner = expression.group(0)
+    def one(inner: str) -> str:
         previous = None
         while previous != inner:
             previous = inner
             inner = _LITERAL_INDEX.sub(lambda m: f"{m.group(1)}.{m.group(2) or m.group(3)}", inner)
         return inner
-    return _EXPRESSION.sub(one, text)
+    out, at = [], 0
+    for start, end in expression_spans(text):
+        out += [text[at:start], one(text[start:end])]
+        at = end
+    return "".join(out) + text[at:]
 
 
 def expand_matrix(job: Mapping[str, Any], text: str, reads: "VarReads | None" = None) -> list[str] | None:
@@ -322,14 +389,35 @@ Tracer = Callable[[str], "tuple[set[str], set[str]] | None"]
 
 
 def variable_reads(text: str, whole: bool = False) -> list[str | None]:
-    """Each repository variable `text` reads inside `${{ }}` (all of `text` when `whole`: an operand already taken
-    out of one), upper-cased because GitHub matches variable names without case; None for a read whose name is
-    not a literal (`vars[format(...)]`, `toJSON(vars)`), which no declaration can name."""
+    """Each repository variable `text` reads inside `${{ }}`, upper-cased because GitHub matches variable names
+    without case; None for a read whose name is not a literal (`vars[format(...)]`, `toJSON(vars)`), which no
+    declaration can name, and for an expression the tokenizer cannot read (one never closed, a character Actions
+    rejects). Read by tokens: a name inside a string literal is no read (`${{ 'vars.X' }}` is text), a `}}` inside
+    one does not end the expression, and `github.vars` is a property, not the context. With `whole`, `text` is a
+    plain string (no `${{`) that a guard counts whole, read as it stands: its quotes are text, not literals."""
+    if whole:
+        expression = dotted("${{" + text + "}}")
+        return ([name.upper() for name in _VAR_DOT.findall(expression)]
+                + [None] * len(_VAR_OPEN.findall(expression)))
     found: list[str | None] = []
-    for expression in [text] if whole else _EXPRESSION.findall(text):
-        expression = dotted("${{" + expression + "}}")
-        found += [name.upper() for name in _VAR_DOT.findall(expression)]
-        found += [None] * len(_VAR_OPEN.findall(expression))
+    try:
+        for body in expressions(text, strict=True):
+            stream = tokens(body)
+            for index, (kind, value) in enumerate(stream):
+                if kind != "name" or value.lower() != "vars":
+                    continue
+                if index and stream[index - 1] == ("op", "."):
+                    continue
+                after = stream[index + 1:index + 4]
+                if len(after) >= 2 and after[0] == ("op", ".") and after[1][0] == "name":
+                    name: str | None = after[1][1]
+                elif len(after) >= 3 and after[0] == ("op", "[") and after[2] == ("op", "]"):
+                    name = _literal(after[1])
+                else:
+                    name = None
+                found.append(name.upper() if name is not None else None)
+    except Unreadable:
+        return [None]
     return found
 
 
@@ -406,7 +494,7 @@ def _resolve(job: Mapping[str, Any], text: str, tracer: Tracer | None = None, re
         if tracer is not None:
             # An input read anywhere, a condition's included: its callers' values reach this field too.
             sources = expanded if expanded is not None else [text, *(s for _, s in _strings_at(_matrix(job), ""))]
-            for name in dict.fromkeys(n.lower() for source in sources for e in _EXPRESSION.findall(source)
+            for name in dict.fromkeys(n.lower() for source in sources for e in expressions(source)
                                       for n in _INPUT_READ.findall(dotted("${{" + e + "}}"))):
                 tracer(f"inputs.{name}")
     if expanded is None:
@@ -414,11 +502,11 @@ def _resolve(job: Mapping[str, Any], text: str, tracer: Tracer | None = None, re
     values: set[str] = set()
     unresolved: set[str] = set()
     for cell in expanded:
-        expressions = _EXPRESSION.findall(cell)
-        if not expressions:
+        bodies = expressions(cell)
+        if not bodies:
             values.add(cell)
-        elif len(expressions) == 1 and cell.startswith("${{") and cell.endswith("}}"):
-            found, open_terms = expression_values(expressions[0])
+        elif len(bodies) == 1 and cell.startswith("${{") and cell.endswith("}}"):
+            found, open_terms = expression_values(bodies[0])
             values |= found
             for term in open_terms:
                 traced = tracer(term) if tracer else None
