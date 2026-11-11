@@ -80,7 +80,7 @@ export function MissingHarnessNotice({
       buttons = (
         <>
           <button type="button" data-missing-action="install" onClick={onInstall}>
-            {t("picker.tryAgain")}
+            {t("harness.tryAgain")}
           </button>
           {instead}
         </>
