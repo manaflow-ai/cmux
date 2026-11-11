@@ -469,6 +469,21 @@ jobs:
           ./node_modules/.bin/vp lint || echo "::warning title=webviews lint (warn-only)::vp lint found issues; see the step log"
           exit "$status"
 
+      # Error, notice and recovery strings in the agent chat: no jargon, one sentence, no filler, a caught error's
+      # words never shown, every error surface with an action (cmuxterm-hq
+      # docs/handbook/user-facing-state-contradicts-or-dead-ends.md). Fails on any offender its shrink-only
+      # baseline lacks, on a listed one that is fixed, and, on a pull request, on a baseline that grew over the
+      # merge parent's. Gating on feat-cmux-next too: it is a ratchet, not a style guard.
+      - name: Check user-facing strings
+        id: user-facing-strings
+        if: matrix.shard == 1
+        continue-on-error: true
+        env:
+          BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
+        run: |
+          python3 -I scripts/cmux-next/check-user-facing-strings.py --self-test
+          python3 -I scripts/cmux-next/check-user-facing-strings.py --counts
+
       # The browser-lane suites (test/support/requireBrowserLane.ts) fail in CI
       # without these engines; before, they skipped themselves and passed.
       - name: Cache Playwright's apt packages
@@ -617,6 +632,7 @@ jobs:
           REACT_COMPILER: ${{ steps.react-compiler.outcome }}
           WEBVIEWS_CHECK: ${{ steps.webviews-check.outcome }}
           PR_SCOPED_RULES: ${{ steps.pr-scoped-rules.outcome }}
+          USER_FACING_STRINGS: ${{ steps.user-facing-strings.outcome }}
           # Warn-only: the next run's shard split, never this run's verdict.
           DURATIONS_UPLOAD: ${{ steps.durations-upload.outcome }}
           HISTORY_UPLOAD: ${{ steps.history-upload.outcome }}
@@ -642,7 +658,8 @@ jobs:
             "EAGER_JS_BUDGET|Check diff viewer eager JS budget" \
             "REACT_COMPILER|Verify React Compiler for webviews" \
             "WEBVIEWS_CHECK|Check webviews (Oxlint, Oxfmt, type check)" \
-            "PR_SCOPED_RULES|Check PR-scoped webview rules"; do
+            "PR_SCOPED_RULES|Check PR-scoped webview rules" \
+            "USER_FACING_STRINGS|Check user-facing strings"; do
             var="${gate%%|*}"
             if [ "${!var}" = "failure" ]; then
               if [ "$CMUX_NEXT_STYLE_GUARDS" = warn ] && [[ " $STYLE_GATES " == *" $var "* ]]; then
