@@ -39,7 +39,7 @@ struct ProjectBuildSettingsTabView: View {
                 TextField("Filter settings", text: $panel.settingsSearchText)
                     .textFieldStyle(.plain)
                     .cmuxFont(size: 12)
-                    .projectPanelSearchField(panelID: panel.id)
+                    .projectPanelSearchField(panel: panel)
                 Toggle("Customized only", isOn: $panel.settingsCustomizedOnly)
                     .toggleStyle(.checkbox)
                     .cmuxFont(size: 11)

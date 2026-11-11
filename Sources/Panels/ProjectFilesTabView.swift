@@ -47,7 +47,7 @@ struct ProjectFilesTabView: View {
             TextField("Filter files (e.g. AppDelegate)", text: $panel.filesSearchText)
                 .textFieldStyle(.plain)
                 .cmuxFont(size: 12)
-                .projectPanelSearchField(panelID: panel.id)
+                .projectPanelSearchField(panel: panel)
             if !panel.filesSearchText.isEmpty {
                 Button {
                     panel.filesSearchText = ""

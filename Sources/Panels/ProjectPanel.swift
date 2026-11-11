@@ -73,6 +73,9 @@ public final class ProjectPanel: NSObject, Panel, ObservableObject {
     @Published public var filesSearchText: String = ""
     @Published public var lastLoadError: String?
     private var reloadTask: Task<Void, Never>?
+    /// The view behind the active tab's search field while that field is
+    /// mounted, so ``ownedFocusIntent(for:in:)`` can recognize its editor.
+    weak var searchFieldAnchor: ProjectPanelSearchFieldAnchorView?
 
     public var displayTitle: String {
         projectURL.deletingPathExtension().lastPathComponent
@@ -251,10 +254,11 @@ public final class ProjectPanel: NSObject, Panel, ObservableObject {
         return false
     }
 
+    /// Claims the active tab's search field while it holds keyboard focus, so
+    /// the window's focus coordinator treats this panel as the input owner.
     public func ownedFocusIntent(for responder: NSResponder, in window: NSWindow) -> PanelFocusIntent? {
-        _ = responder
-        _ = window
-        return nil
+        guard searchFieldAnchor?.ownsKeyboardFocus(responder, in: window) == true else { return nil }
+        return .project(.navigator)
     }
 
     @discardableResult
