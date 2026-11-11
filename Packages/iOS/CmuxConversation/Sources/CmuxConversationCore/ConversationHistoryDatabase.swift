@@ -227,8 +227,8 @@ final class ConversationHistoryDatabase {
         return (pages - free) * size
     }
 
-    /// Over `byteLimit`: the conversations written longest ago lose their oldest messages first,
-    /// half of what is above their newest `keepingNewest` at a time, until the rest fit. Each
+    /// Over `byteLimit`: the conversation written longest ago loses its oldest messages first,
+    /// down to its newest `keepingNewest`, then the next, until the rest fit. Each
     /// trimmed conversation's synced range moves up to its oldest kept message and is no longer
     /// complete, so scrolling past it asks the server again. Never trims below `keepingNewest`.
     func trim(to byteLimit: Int, keepingNewest: Int) throws {
@@ -237,28 +237,25 @@ final class ConversationHistoryDatabase {
         var order: [String] = []
         while sqlite3_step(statement) == SQLITE_ROW { order.append(String(cString: sqlite3_column_text(statement, 0))) }
         sqlite3_finalize(statement)
-        var trimmedAny = true
-        while try byteCount() > byteLimit, trimmedAny {
-            trimmedAny = false
-            for conversation in order {
-                let total = try count(conversation)
-                let excess = total - keepingNewest
-                guard excess > 0 else { continue }
-                let drop = max(1, excess / 2)
+        // The one written longest ago shrinks to its newest `keepingNewest` before the next is
+        // touched, half its excess at a time.
+        for conversation in order {
+            while try byteCount() > byteLimit {
+                let excess = try count(conversation) - keepingNewest
+                guard excess > 0 else { break }
                 try transaction {
                     try exec("""
                     DELETE FROM messages WHERE conversation = ?1 AND id IN
                     (SELECT id FROM messages WHERE conversation = ?1 ORDER BY seq ASC LIMIT ?2)
-                    """, [.text(conversation), .integer(Int64(drop))])
+                    """, [.text(conversation), .integer(Int64(max(1, excess / 2)))])
                     try exec("""
                     UPDATE conversations SET complete = 0,
                     oldest_seq = (SELECT MIN(seq) FROM messages WHERE conversation = ?1)
                     WHERE conversation = ?1 AND oldest_seq IS NOT NULL
                     """, [.text(conversation)])
                 }
-                trimmedAny = true
-                guard try byteCount() > byteLimit else { break }
             }
+            guard try byteCount() > byteLimit else { break }
         }
         try exec("PRAGMA incremental_vacuum")
     }
