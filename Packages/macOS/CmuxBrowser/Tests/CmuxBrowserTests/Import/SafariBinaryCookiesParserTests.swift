@@ -267,6 +267,62 @@ private struct BinaryCookiesFixture {
         #expect(decoded.isHTTPOnly)
     }
 
+    /// A store written by Apple's own `HTTPCookieStorage` (macOS 27.2), not built from this
+    /// file's layout assumptions: 1,202 bytes, seven cookies in one page, flag words with the
+    /// high bits real records carry, a port record whose strings start at offset 58, and the
+    /// 87-byte trailer after the last page.
+    private static let appleWrittenStore = Data(base64Encoded: """
+        Y29vawAAAAIAAACvAAADnAAAAQABAAAAEAAAAAAAAACfAAAAAAAAADBCAAAAAAAAOAAAAEoAAABTAAAAXAAAAAAAAAAAAAAAAACA
+        Ta9ZyUEAAIBNA1LIQWxvZ2luLmV4YW1wbGUuY29tAGhvc3Rvbmx5AC9hY2NvdW50AABicGxpc3QwMNEBAlpBY2Nlc3NUaW1lI0HI
+        UgNNlGgSCAsWAAAAAAAAAQEAAAAAAAAAAwAAAAAAAAAAAAAAAAAAAB8AAAEABgAAACQAAADBAAAAUwEAAOcBAAB2AgAACAMAAAAA
+        AACdAAAAAAAAABBCAAAAAAAAOAAAAEUAAABLAAAATQAAAAAAAAAAAAAAAACATa9ZyUEAAIBNA1LIQS5leGFtcGxlLmNvbQBwbGFp
+        bgAvAGjDqWxsbyB3w7ZybGQAYnBsaXN0MDDRAQJaQWNjZXNzVGltZSNByFIDTZRGIAgLFgAAAAAAAAEBAAAAAAAAAAMAAAAAAAAA
+        AAAAAAAAAAAfkgAAAAAAAAARQgAAAAAAADgAAABFAAAATAAAAE4AAAAAAAAAAAAAAAAAgE2vWclBAACATQNSyEEuZXhhbXBsZS5j
+        b20Ac2VjdXJlAC8AdgBicGxpc3QwMNEBAlpBY2Nlc3NUaW1lI0HIUgNNlF3hCAsWAAAAAAAAAQEAAAAAAAAAAwAAAAAAAAAAAAAA
+        AAAAAB+UAAAAAAAAABRCAAAAAAAAOAAAAEUAAABOAAAAUAAAAAAAAAAAAAAAAACATa9ZyUEAAIBNA1LIQS5leGFtcGxlLmNvbQBo
+        dHRwb25seQAvAHYAYnBsaXN0MDDRAQJaQWNjZXNzVGltZSNByFIDTZRhDwgLFgAAAAAAAAEBAAAAAAAAAAMAAAAAAAAAAAAAAAAA
+        AAAfjwAAAAAAAAAIQgAAAAAAADgAAABFAAAASQAAAEsAAAAAAAAAAAAAAAAAgE2vWclBAACATQNSyEEuZXhhbXBsZS5jb20AbGF4
+        AC8AdgBicGxpc3QwMNEBAlpBY2Nlc3NUaW1lI0HIUgNNlGM5CAsWAAAAAAAAAQEAAAAAAAAAAwAAAAAAAAAAAAAAAAAAAB+SAAAA
+        AAAAAB1CAAAAAAAAOAAAAEUAAABMAAAATgAAAAAAAAAAAAAAAACATa9ZyUEAAIBNA1LIQS5leGFtcGxlLmNvbQBzdHJpY3QALwB2
+        AGJwbGlzdDAw0QECWkFjY2Vzc1RpbWUjQchSA02UZXwICxYAAAAAAAABAQAAAAAAAAADAAAAAAAAAAAAAAAAAAAAH5QAAAAAAAAA
+        EEIAAAEAAAA6AAAARwAAAE4AAABQAAAAAAAAAAAAAAAAAIBNr1nJQQAAgE0DUshBkB8uZXhhbXBsZS5jb20AcG9ydGVkAC8AdgBi
+        cGxpc3QwMNEBAlpBY2Nlc3NUaW1lI0HIUgNNlGmDCAsWAAAAAAAAAQEAAAAAAAAAAwAAAAAAAAAAAAAAAAAAAB8AADOJBxcgBQAA
+        AEticGxpc3QwMNEBAl8QGE5TSFRUUENvb2tpZUFjY2VwdFBvbGljeRAACAsmAAAAAAAAAQEAAAAAAAAAAwAAAAAAAAAAAAAAAAAA
+        ACg=
+        """, options: .ignoreUnknownCharacters)
+
+    /// Decodes every cookie of an Apple-written store with its attributes.
+    @Test func decodesAnAppleWrittenStore() throws {
+        let data = try #require(Self.appleWrittenStore)
+        let expiry = Date(timeIntervalSinceReferenceDate: 850_615_963)
+
+        let cookies = try parser.parse(data)
+
+        #expect(cookies == [
+            SafariBinaryCookie(
+                domain: "login.example.com", name: "hostonly", path: "/account", value: "",
+                expiresDate: expiry, isSecure: false, isHTTPOnly: false),
+            SafariBinaryCookie(
+                domain: ".example.com", name: "plain", path: "/", value: "héllo wörld",
+                expiresDate: expiry, isSecure: false, isHTTPOnly: false),
+            SafariBinaryCookie(
+                domain: ".example.com", name: "secure", path: "/", value: "v",
+                expiresDate: expiry, isSecure: true, isHTTPOnly: false),
+            SafariBinaryCookie(
+                domain: ".example.com", name: "httponly", path: "/", value: "v",
+                expiresDate: expiry, isSecure: false, isHTTPOnly: true),
+            SafariBinaryCookie(
+                domain: ".example.com", name: "lax", path: "/", value: "v",
+                expiresDate: expiry, isSecure: false, isHTTPOnly: false, sameSite: .lax),
+            SafariBinaryCookie(
+                domain: ".example.com", name: "strict", path: "/", value: "v",
+                expiresDate: expiry, isSecure: true, isHTTPOnly: true, sameSite: .strict),
+            SafariBinaryCookie(
+                domain: ".example.com", name: "ported", path: "/", value: "v",
+                expiresDate: expiry, isSecure: false, isHTTPOnly: false),
+        ])
+    }
+
     /// An empty store decodes to no cookies.
     @Test func emptyStoreDecodesToNoCookies() throws {
         #expect(try parser.parse(BinaryCookiesFixture.file(pages: [])).isEmpty)
