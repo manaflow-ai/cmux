@@ -121,11 +121,24 @@ public nonisolated final class CloseSelection<ID: Hashable> {
         let old = old.map { map.number($0) }
         let surviving = surviving.map { map.number($0) }
         let shown = shown.map { map.number($0) }
+        // Each group gets a number for this call only: the rule compares them, it does not keep them.
+        var groupNumbers: [String: UInt32] = [:]
+        var groupTabs: [UInt32] = [], groupIDs: [UInt32] = []
+        for (tab, group) in groups {
+            let number = groupNumbers[group] ?? UInt32(groupNumbers.count)
+            groupNumbers[group] = number
+            groupTabs.append(map.number(tab))
+            groupIDs.append(number)
+        }
         let pick = old.withUnsafeBufferPointer { old in
             surviving.withUnsafeBufferPointer { surviving in
                 shown.withUnsafeBufferPointer { shown in
-                    cmux_close_selection_tab(handle, selected, old.baseAddress, old.count, surviving.baseAddress, surviving.count,
-                                             shown.baseAddress, shown.count, nil, nil, 0)
+                    groupTabs.withUnsafeBufferPointer { groupTabs in
+                        groupIDs.withUnsafeBufferPointer { groupIDs in
+                            cmux_close_selection_tab(handle, selected, old.baseAddress, old.count, surviving.baseAddress, surviving.count,
+                                                     shown.baseAddress, shown.count, groupTabs.baseAddress, groupIDs.baseAddress, groupTabs.count)
+                        }
+                    }
                 }
             }
         }
