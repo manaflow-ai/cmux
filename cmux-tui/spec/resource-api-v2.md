@@ -980,6 +980,14 @@ Stream items use decimal strings for sequences and cursors:
 }
 ```
 
+On a `session.events` stream of a connection that sent the capability
+`session-live-cursor-v1`, the cursor has the optional third field `live`
+(described below):
+
+```json
+{"generation": "opaque", "revision": "105", "live": "opaque"}
+```
+
 Response, `stream_item`, and `stream_end` envelopes use exact field sets.
 Responses require `protocol`, `type`, `id`, and `ok`, plus exactly one of
 `result` or the exact structured `error` according to `ok`. Stream items
@@ -1012,11 +1020,24 @@ terminal whose live facts changed after that position, oldest change first,
 and nothing when none did. A resume from a cursor with no `live`, or with
 the `live` of another daemon process, sends one for each terminal that has a
 live fact; so does every resume of a connection that did not send the
-capability, whose cursors never have `live`. While a
+capability, whose cursors never have `live`: the daemon does not read a
+`live` that such a connection sends. The `live` of a cursor does not go
+past a live change that the stream could not read and send. A committed
+batch states a terminal with the live facts its transaction read, which can
+be older than a live batch the client already has. So the stream does a
+second check: after a batch that a resume replays, after each committed
+batch of a stream that resumed from a cursor with `live`, and after a
+committed terminal value that replaces one the stream sent, it reads each
+such terminal again and sends one live batch with the current record when
+that record is not the value it sent last. While a
 live `session.journal.subscribe` stream's kind filter can match
 `terminal.progress` or `terminal.program_status`, or an enabled journal
 hook's kinds match one of them, each such change is one transaction and one
-journal row instead, so that stream or hook gets it. A batch
+journal row instead, so that stream or hook gets it. A stream with no kind
+filter matches every kind, and the filter `terminal.*` matches both: so
+`journal --follow` with no kind filter, and a screen detection plugin binary
+from before the live facts (it follows `terminal.*`), keep one journal row
+for each live fact while they are connected. A batch
 need not restate unchanged resources: an upsert whose
 value the journal already states may be left out, and a topology create
 restates every workspace value but only the subtree of the workspace it changed
@@ -1133,7 +1154,10 @@ whitespace, and Unicode, and contains at most 64 Unicode scalars with no
 Unicode `Cc` control scalar. Validation runs before mutation, so rejection
 leaves both fields unchanged.
 
-`Cursor` contains a generation string and decimal-string revision.
+`Cursor` contains a generation string and decimal-string revision. Its
+optional third field `live` has a meaning only on `session.events`, for a
+connection that sent the capability `session-live-cursor-v1`; each other
+operation that takes a `Cursor` accepts the field and does not read it.
 `MutationResult<T>` is the flat
 `{value,generation,revision,replayed}` result. Every committed mutation
 returns generation and revision; `replayed` reports an idempotency replay.
