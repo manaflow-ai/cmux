@@ -1515,3 +1515,7 @@ fn scan_registered_processes(
 fn process_identity(pid: u32) -> Option<ProcessIdentity> {
     Some(ProcessIdentity { pid, started: 0 })
 }
+
+#[cfg(all(test, target_os = "macos"))]
+#[path = "unix_process_scope/tests/mac_clexec.rs"]
+mod mac_clexec_tests;
