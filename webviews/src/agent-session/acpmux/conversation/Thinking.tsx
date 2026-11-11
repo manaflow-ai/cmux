@@ -24,9 +24,11 @@ import { oneRowPerCall } from "./oneRowPerCall.experiment";
 import { Spinner } from "./icons";
 import { BackgroundHint } from "./BackgroundHint";
 import { useSubsessionInfo } from "../subagents/subsessions";
-import { ShimmerText } from "./ShimmerText";
+import { LiveShimmer } from "./LiveShimmer";
 import { Slot } from "../../../slots/Slot";
-import { thinkingIndicatorSlot } from "../../../slots/thinkingIndicator";
+import { slotVariant, useSlotVariant } from "../../../slots/registry";
+import { thinkingIndicatorSlot, type ThinkingIndicatorProps } from "../../../slots/thinkingIndicator";
+import { DefaultThinkingIndicator } from "../../../slots/thinkingIndicator/DefaultThinkingIndicator";
 import { formatDuration, spanDuration } from "./turns";
 import { WAITING_LABEL, type WaitingOn, WaitingOnContext } from "./waitingOn";
 import { TurnTokens } from "./TurnTokens";
@@ -148,6 +150,31 @@ function useAsked(waiting: WaitingOn | undefined): [boolean, () => void] {
     return () => clearTimeout(timer);
   }, [waiting]);
   return [asked, () => setAsked(false)];
+}
+
+/// The words inside the live line's `<output>`. The thinking indicator is a theme slot
+/// (schemas/theme/slots.json `chat.thinkingIndicator`); a named step is the line's own. While the slot
+/// draws cmux's default variant, both are ONE `LiveShimmer` here, so the shimmer band is one element
+/// from "Thinking" through each step and back (test/transcript-live-line-continuous-browser.test.ts:
+/// "one shimmer band from the first frame to the last"). `<Slot>` for the default at this place made
+/// React mount a new band at each change between the two. A theme's own variant draws through `<Slot>`
+/// (its error boundary, its own mark) and a step then mounts the line's shimmer in its place.
+function LiveWords({
+  decorative,
+  lead,
+  ...indicator
+}: ThinkingIndicatorProps & { decorative: boolean; lead: Roll["lead"] }) {
+  const selected = useSlotVariant(thinkingIndicatorSlot);
+  const builtIn = slotVariant(thinkingIndicatorSlot, selected)?.component === DefaultThinkingIndicator;
+  if (decorative && !builtIn) return <Slot slot={thinkingIndicatorSlot} props={indicator} />;
+  return (
+    <LiveShimmer
+      label={indicator.label}
+      verbs={decorative ? indicator.verbs : undefined}
+      lead={lead}
+      elapsed={indicator.elapsed}
+    />
+  );
 }
 
 export function Thinking({
@@ -428,29 +455,14 @@ export function Thinking({
           >
             {compactLook === "calm" ? (
               label
-            ) : decorative ? (
-              // The thinking indicator is a theme slot (schemas/theme/slots.json `chat.thinkingIndicator`):
-              // its default variant draws exactly the shimmer below did for this case.
-              <Slot slot={thinkingIndicatorSlot} props={{ label, verbs, elapsed, elapsedMs }} />
             ) : (
-              <ShimmerText
-                text={label}
-                baseText={
-                  lead ? (
-                    <>
-                      <span className="cv-worked__lead">{lead.lead}</span>
-                      {lead.rest}
-                    </>
-                  ) : (
-                    label
-                  )
-                }
-                lit={
-                  <>
-                    <span className="cv-shimmer__lit-label" data-text={label} />
-                    {elapsed && <span className="cv-shimmer__lit-time" data-text={elapsed} />}
-                  </>
-                }
+              <LiveWords
+                decorative={decorative}
+                label={label}
+                lead={lead}
+                verbs={verbs}
+                elapsed={elapsed}
+                elapsedMs={elapsedMs}
               />
             )}
           </output>
