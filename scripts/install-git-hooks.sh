@@ -182,47 +182,15 @@ mkdir -p "$TRUSTED_CHECKS_STAGE"
 : > "$TRUSTED_CHECKS_STAGE/.in-use"
 # One python3 copies every checker: a mkdir and a cp per file forked about 2,600 times for 1,300 files, and on
 # a loaded Mac (load 100+, 2026-11-03) that took more than 300 s, so the land queue's install timed out on every
-# train and nothing landed for days. lint/ holds the linters' configs; arch_rules/ holds the rule modules
-# arch-ratchet.py loads from its own directory (without it the installed ratchet runs no layer gate). Folders are
-# made only below the stage (relative to its open folder): a stage that is gone fails this install instead of
-# coming back without its .in-use. A tracked file missing from the checkout fails it too, as cp did.
-COPY_CHECKERS='
-import os
-import shutil
-import sys
-
-stage, prefix = sys.argv[1], "scripts/cmux-next/"
-stage_fd = os.open(stage, os.O_RDONLY | os.O_DIRECTORY)
-for raw in sys.stdin.buffer.read().split(b"\0"):
-    if not raw:
-        continue
-    checker = os.fsdecode(raw)
-    relative = checker[len(prefix):]
-    if "/" in relative and not relative.startswith(("lint/", "arch_rules/")):
-        continue
-    parts = relative.split("/")[:-1]
-    for depth in range(1, len(parts) + 1):
-        try:
-            os.mkdir("/".join(parts[:depth]), dir_fd=stage_fd)
-        except FileExistsError:
-            pass
-    shutil.copy2(checker, os.path.join(stage, relative))
-'
-git ls-files -z scripts/cmux-next | "$PYTHON3_BIN" -I -c "$COPY_CHECKERS" "$TRUSTED_CHECKS_STAGE"
-# check-package-dependency-lists.py imports the Swift source masker from scripts/; the installed copy reads it here.
-if [[ -f scripts/swift_source_mask.py ]]; then
-    cp -p scripts/swift_source_mask.py "$TRUSTED_CHECKS_STAGE/swift_source_mask.py"
-fi
-# check-single-host-fallbacks.py reads runs-on through tests/workflow_jobs.py; the installed copy reads it here.
-if [[ -f tests/workflow_jobs.py ]]; then
-    cp -p tests/workflow_jobs.py "$TRUSTED_CHECKS_STAGE/workflow_jobs.py"
-fi
-# The commit and tree the copy is made from, for refresh_checks.py; "worktree" when scripts/cmux-next differs from HEAD.
-if git diff --quiet HEAD -- scripts/cmux-next && git rev-parse -q --verify HEAD >/dev/null; then
-    printf '%s %s\n' "$(git rev-parse HEAD)" "$(git rev-parse HEAD:scripts/cmux-next)" > "$TRUSTED_CHECKS_STAGE/.source"
-else
-    echo worktree > "$TRUSTED_CHECKS_STAGE/.source"
-fi
+# train and nothing landed for days. What it copies is scripts/git-hooks/checks-copy-inputs, turned into
+# (source, destination) pairs by refresh_checks.py (copy_pairs), the same function a pre-push refresh copies with.
+# It copies exactly those pairs, writes them into the copy (.pairs) and stamps the copy (.source) from them, so no
+# file is copied that the freshness stamp does not cover. lint/ holds the linters' configs; arch_rules/ holds the
+# rule modules arch-ratchet.py loads from its own directory (without it the installed ratchet runs no layer gate).
+# Folders are made only below the stage: a stage that is gone fails this install instead of coming back without
+# its .in-use. A tracked file missing from the checkout fails it too, as cp did.
+"$PYTHON3_BIN" -I scripts/git-hooks/refresh_checks.py --repo "$REPO_ROOT" --install-copy "$TRUSTED_CHECKS_STAGE" \
+    </dev/null >/dev/null
 mv "$TRUSTED_CHECKS_STAGE" "$TRUSTED_HOOK_DIR/$CHECKS_VERSION"
 PREVIOUS_CHECKS=""
 if [[ -L "$TRUSTED_CHECKS_DIR" ]]; then

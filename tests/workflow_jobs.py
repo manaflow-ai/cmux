@@ -20,7 +20,7 @@ import itertools
 import re
 from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import yaml
 
@@ -39,6 +39,11 @@ _QUOTED = re.compile(r"^'((?:[^']|'')*)'$")
 _LITERAL_INDEX = re.compile(r"\b([A-Za-z_][A-Za-z0-9_-]*)\s*\[\s*(?:'([A-Za-z_][A-Za-z0-9_-]*)'|\"([A-Za-z_][A-Za-z0-9_-]*)\")\s*\]")
 _INPUT_TERM = re.compile(r"\s*inputs\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)\s*", re.IGNORECASE)
 _WHOLE_INPUT = re.compile(r"\$\{\{\s*inputs\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)\s*\}\}", re.IGNORECASE)
+# A repository variable read: `vars.NAME` (after dotted(), `vars['NAME']` too), and one whose name is not a literal,
+# `vars[<expression>]` or the whole context (`toJSON(vars)`). Not `inputs.vars` or `x.vars`: a property of another.
+_VAR_DOT = re.compile(r"(?<![\w.-])vars\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)", re.IGNORECASE)
+_VAR_OPEN = re.compile(r"(?<![\w.-])vars\s*(?=\[|\)|,)", re.IGNORECASE)
+_INPUT_READ = re.compile(r"(?<![\w.-])inputs\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)", re.IGNORECASE)
 
 
 class _UniqueKeyLoader(yaml.SafeLoader):
@@ -170,30 +175,41 @@ def runs_on(job: Mapping[str, Any]) -> str:
     return value if isinstance(value, str) else yaml.safe_dump(value, default_flow_style=True).strip()
 
 
-def matrix_values(job: Mapping[str, Any], key: str) -> list[Any] | None:
-    """Every value `matrix.<key>` takes in a job, from the axis and its include entries, or None
-    when the matrix is an expression or the key is nowhere in it (the value is unknown)."""
-    matrix = (job.get("strategy") or {}).get("matrix") if isinstance(job.get("strategy"), Mapping) else None
+def _matrix(job: Mapping[str, Any]) -> Any:
+    return (job.get("strategy") or {}).get("matrix") if isinstance(job.get("strategy"), Mapping) else None
+
+
+def _matrix_cells(job: Mapping[str, Any], key: str) -> list[tuple[str, Any]] | None:
+    """matrix_values with the key path of each value (`strategy.matrix.runner[1]`, `strategy.matrix.include[0].runner`)."""
+    matrix = _matrix(job)
     if not isinstance(matrix, Mapping):
         return None
-    found: list[Any] = []
+    found: list[tuple[str, Any]] = []
     known = False
-    axis = next((v for k, v in matrix.items() if str(k).lower() == key.lower()), None)
-    if axis is not None:
+    axis_key = next((k for k in matrix if str(k).lower() == key.lower()), None)
+    if axis_key is not None:
+        axis = matrix[axis_key]
         if not isinstance(axis, list):
             return None
-        found.extend(axis)
+        found.extend((f"strategy.matrix.{axis_key}[{index}]", value) for index, value in enumerate(axis))
         known = True
-    for entry in matrix.get("include") or []:
+    for index, entry in enumerate(matrix.get("include") or []):
         if not isinstance(entry, Mapping):
             return None
         for k, v in entry.items():
             if str(k).lower() == key.lower():
-                found.append(v)
+                found.append((f"strategy.matrix.include[{index}].{k}", v))
                 known = True
     if isinstance(matrix.get("include"), str):
         return None
     return found if known else None
+
+
+def matrix_values(job: Mapping[str, Any], key: str) -> list[Any] | None:
+    """Every value `matrix.<key>` takes in a job, from the axis and its include entries, or None
+    when the matrix is an expression or the key is nowhere in it (the value is unknown)."""
+    cells = _matrix_cells(job, key)
+    return None if cells is None else [value for _, value in cells]
 
 
 def _scalar_text(value: Any) -> str:
@@ -213,9 +229,9 @@ def dotted(text: str) -> str:
     return _EXPRESSION.sub(one, text)
 
 
-def expand_matrix(job: Mapping[str, Any], text: str) -> list[str] | None:
+def expand_matrix(job: Mapping[str, Any], text: str, reads: "VarReads | None" = None) -> list[str] | None:
     """`text` with each `${{ matrix.KEY }}` replaced by every value the matrix gives it, or None
-    when one of them cannot be resolved."""
+    when one of them cannot be resolved. `reads` records the variables each value it takes reads."""
     text = dotted(text)
     whole = re.compile(r"\$\{\{\s*matrix\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)\s*\}\}", re.IGNORECASE)
     keys = list(dict.fromkeys(whole.findall(text)))
@@ -223,10 +239,13 @@ def expand_matrix(job: Mapping[str, Any], text: str) -> list[str] | None:
         return None if _MATRIX_REF.search(text) else [text]
     choices = []
     for key in keys:
-        values = matrix_values(job, key)
-        if values is None or any(isinstance(v, (Mapping, list)) for v in values):
+        cells = _matrix_cells(job, key)
+        if cells is None or any(isinstance(v, (Mapping, list)) for _, v in cells):
             return None
-        choices.append([_scalar_text(v) for v in values])
+        if reads is not None:
+            for path, value in cells:
+                reads.note(path, _scalar_text(value))
+        choices.append([_scalar_text(v) for _, v in cells])
     out = []
     for combination in itertools.product(*choices):
         expanded = text
@@ -302,13 +321,96 @@ def expression_values(expression: str) -> tuple[set[str], set[str]]:
 Tracer = Callable[[str], "tuple[set[str], set[str]] | None"]
 
 
-def _resolve(job: Mapping[str, Any], text: str, tracer: Tracer | None = None) -> tuple[set[str], set[str]]:
+def variable_reads(text: str, whole: bool = False) -> list[str | None]:
+    """Each repository variable `text` reads inside `${{ }}` (all of `text` when `whole`: an operand already taken
+    out of one), upper-cased because GitHub matches variable names without case; None for a read whose name is
+    not a literal (`vars[format(...)]`, `toJSON(vars)`), which no declaration can name."""
+    found: list[str | None] = []
+    for expression in [text] if whole else _EXPRESSION.findall(text):
+        expression = dotted("${{" + expression + "}}")
+        found += [name.upper() for name in _VAR_DOT.findall(expression)]
+        found += [None] * len(_VAR_OPEN.findall(expression))
+    return found
+
+
+class VarRead(NamedTuple):
+    """One `vars` operand the resolve step consumed: the variable (upper-cased; None when its name is an
+    expression), where it sits (the workflow file, the job id, the key path in that job: `runs-on`,
+    `strategy.matrix.include[0].runner`, `with.runner`; job "" and `on.workflow_call...` or `env.X` for a
+    workflow-level value), the text it sits in as written, and the field whose resolving consumed it (`runs-on`,
+    `environment`, `name`, `env`)."""
+    name: str | None
+    file: str | None
+    job: str
+    path: str
+    text: str
+    field: str
+
+
+class VarReads:
+    """What one field's resolve consumed: every `vars` operand of every text it read (the field as written, each
+    matrix value it took, each caller's `with:` value and declared default an input it read came from, at any
+    call depth, conditions included), each with where it sits. A matrix nothing could expand counts whole."""
+
+    def __init__(self, field: str, file: str | None = None, job: str = "") -> None:
+        self.field, self.file, self.job = field, file, job
+        self.found: set[VarRead] = set()
+
+    def at(self, file: str | None, job: str) -> "VarReads":
+        """The same record, for texts in another job (a caller's)."""
+        other = VarReads(self.field, file, job)
+        other.found = self.found
+        return other
+
+    def note(self, path: str, text: str, whole: bool = False) -> None:
+        for name in variable_reads(text, whole):
+            self.found.add(VarRead(name, self.file, self.job, path, text, self.field))
+
+
+def _strings_at(value: Any, path: str) -> Iterator[tuple[str, str]]:
+    """Every string in a loaded value with its key path (keys at their mapping's path)."""
+    if isinstance(value, str):
+        yield path, value
+    elif isinstance(value, Mapping):
+        for key, item in value.items():
+            if isinstance(key, str):
+                yield path, key
+            yield from _strings_at(item, f"{path}.{key}")
+    elif isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            yield from _strings_at(item, f"{path}[{index}]")
+
+
+def _note_unexpanded_matrix(job: Mapping[str, Any], reads: "VarReads") -> None:
+    """A matrix nothing could expand (an expression such as fromJSON(vars.X), a key it lacks, a condition on a
+    matrix value): the value may come from any part of it, so every variable anywhere in it counts (fail closed).
+    A string with no `${{` counts as one operand, as the scan before the resolve step read it."""
+    for path, text in _strings_at(_matrix(job), "strategy.matrix"):
+        reads.note(path, text, whole="${{" not in text)
+
+
+def _resolve(job: Mapping[str, Any], text: str, tracer: Tracer | None = None, reads: VarReads | None = None,
+             path: str = "") -> tuple[set[str], set[str]]:
     """The literal values `text` (a value as written in the job) can take, literal indexes read in dot form,
     matrix cells expanded and an expression's literal branches read, and the parts nothing here resolves. A
-    `tracer` (Workflows.tracer) resolves a branch that is a reusable workflow's `inputs.X` to its callers' values."""
-    expanded = expand_matrix(job, text.strip())
+    `tracer` (Workflows.tracer) resolves a branch that is a reusable workflow's `inputs.X` to its callers' values.
+    `reads` records every `vars` operand consumed on the way: in `text` (at `path`), conditions included, in each
+    matrix value it took (the whole matrix when it could not expand one), and, through the tracer, in each caller's
+    value of every input it reads, as a branch or in a condition."""
+    text = text.strip()
+    expanded = expand_matrix(job, text, reads)
+    if reads is not None:
+        reads.note(path, text)
+        if expanded is None:
+            _note_unexpanded_matrix(job, reads)
+        if tracer is not None:
+            # An input read anywhere, a condition's included: its callers' values reach this field too.
+            sources = expanded if expanded is not None else [text, *(s for _, s in _strings_at(_matrix(job), ""))]
+            for name in dict.fromkeys(n.lower() for source in sources for e in _EXPRESSION.findall(source)
+                                      for n in _INPUT_READ.findall(dotted("${{" + e + "}}"))):
+                tracer(f"inputs.{name}")
     if expanded is None:
-        return set(), {text.strip()}
+        return set(), {text}
     values: set[str] = set()
     unresolved: set[str] = set()
     for cell in expanded:
@@ -355,44 +457,44 @@ class Workflows:
         spec = next((v for k, v in declared.items() if str(k).lower() == name.lower()), None)
         return spec.get("default") if isinstance(spec, Mapping) else None
 
-    def input_values(self, workflow: str, name: str,
-                     _seen: frozenset = frozenset()) -> tuple[set[str], set[str]]:
+    def input_values(self, workflow: str, name: str, _seen: frozenset = frozenset(),
+                     reads: VarReads | None = None) -> tuple[set[str], set[str]]:
         """Every value `inputs.<name>` takes in `workflow`, and what nothing resolves (`inputs.<name>` itself when
-        no workflow here calls it)."""
+        no workflow here calls it). `reads` records the variables each caller's value (or the declared default)
+        reads, with the caller's file, job and `with.<name>` path."""
         key = (workflow, name.lower())
         callers = list(self.callers(workflow))
         if key in _seen or not callers:
             return set(), {f"inputs.{name}"}
         values: set[str] = set()
         unresolved: set[str] = set()
-        for caller, _, job in callers:
-            passed = next((v for k, v in (job.get("with") or {}).items() if str(k).lower() == name.lower()), None)
-            if passed is None:
+        for caller, caller_job, job in callers:
+            passed_key = next((k for k in (job.get("with") or {}) if str(k).lower() == name.lower()), None)
+            if passed_key is None:
                 default = self._declared_default(workflow, name)
+                if reads is not None and isinstance(default, str):
+                    reads.at(workflow, "").note(f"on.workflow_call.inputs.{name}.default", default)
                 values.add("" if default is None else _scalar_text(default))
                 continue
-            found, open_terms = _resolve(job, _scalar_text(passed), self.tracer(caller, _seen | {key}))
+            passed = job["with"][passed_key]
+            here = reads.at(caller, caller_job) if reads is not None else None
+            found, open_terms = _resolve(job, _scalar_text(passed), self.tracer(caller, _seen | {key}, here),
+                                         here, f"with.{passed_key}")
             values |= found
             unresolved |= open_terms
         return values, unresolved
 
-    def tracer(self, workflow: str, _seen: frozenset = frozenset()) -> Tracer:
-        """The tracer for jobs of `workflow`: an `inputs.X` term is input_values(workflow, X); others are None."""
+    def tracer(self, workflow: str, _seen: frozenset = frozenset(), reads: VarReads | None = None) -> Tracer:
+        """The tracer for jobs of `workflow`: an `inputs.X` term is input_values(workflow, X); others are None.
+        With `reads`, it records the variables the callers' values read."""
         def trace(term: str) -> tuple[set[str], set[str]] | None:
             match = _INPUT_TERM.fullmatch(term)  # terms come from dotted text: inputs['x'] is inputs.x here
-            return self.input_values(workflow, match.group(1), _seen) if match else None
+            return self.input_values(workflow, match.group(1), _seen, reads) if match else None
         return trace
 
 
 def _runs_on_items(job: Mapping[str, Any]) -> list[Any]:
-    raw = job.get("runs-on")
-    if raw is None or raw == "":
-        return []
-    if isinstance(raw, Mapping):
-        labels = raw.get("labels")
-        return [*(labels if isinstance(labels, list) else [labels] if labels else []),
-                *([raw["group"]] if raw.get("group") else [])]
-    return raw if isinstance(raw, list) else [raw]
+    return [item for _, item in _runs_on_paths(job)]
 
 
 def runs_on_cells(job: Mapping[str, Any], workflow: str | None = None,
@@ -426,12 +528,25 @@ def runs_on_cells(job: Mapping[str, Any], workflow: str | None = None,
     return list(dict.fromkeys(", ".join(combination) for combination in itertools.product(*cells)))
 
 
-def _tracer(workflow: str | None, workflows: Workflows | None) -> Tracer | None:
-    return workflows.tracer(workflow) if workflows is not None and workflow is not None else None
+def _tracer(workflow: str | None, workflows: Workflows | None, reads: VarReads | None = None) -> Tracer | None:
+    return workflows.tracer(workflow, reads=reads) if workflows is not None and workflow is not None else None
 
 
-def runs_on_values(job: Mapping[str, Any], workflow: str | None = None,
-                   workflows: Workflows | None = None) -> tuple[set[str], set[str]]:
+def _runs_on_paths(job: Mapping[str, Any]) -> list[tuple[str, Any]]:
+    """_runs_on_items with the key path of each."""
+    raw = job.get("runs-on")
+    if isinstance(raw, Mapping):
+        labels = raw.get("labels")
+        return [*(((f"runs-on.labels[{i}]", v) for i, v in enumerate(labels)) if isinstance(labels, list)
+                  else [("runs-on.labels", labels)] if labels else []),
+                *([("runs-on.group", raw["group"])] if raw.get("group") else [])]
+    if isinstance(raw, list):
+        return [(f"runs-on[{i}]", v) for i, v in enumerate(raw)]
+    return [] if raw is None or raw == "" else [("runs-on", raw)]
+
+
+def runs_on_values(job: Mapping[str, Any], workflow: str | None = None, workflows: Workflows | None = None,
+                   reads: VarReads | None = None) -> tuple[set[str], set[str]]:
     """Every label a job's runs-on can resolve to (literal indexes read, matrix values expanded, literal branches
     of an expression read, and, given the job's `workflow` file name and every document as `workflows`, a reusable
     workflow's `inputs.X` traced to its callers' `with:` values at any depth), and every part it could not resolve
@@ -439,35 +554,39 @@ def runs_on_values(job: Mapping[str, Any], workflow: str | None = None,
     unresolved part as unclassified, like environment_values. The single-host fallback test reads this."""
     values: set[str] = set()
     unresolved: set[str] = set()
-    for item in _runs_on_items(job):
+    for path, item in _runs_on_paths(job):
         if not isinstance(item, str):
             unresolved.add(repr(item))
+            if reads is not None:  # nothing resolves it, so every variable in it counts
+                for at, text in _strings_at(item, path):
+                    reads.note(at, text, whole="${{" not in text)
             continue
-        found, open_terms = _resolve(job, item, _tracer(workflow, workflows))
+        found, open_terms = _resolve(job, item, _tracer(workflow, workflows, reads), reads, path)
         values |= found
         unresolved |= open_terms
     return values, unresolved
 
 
-def environment_values(job: Mapping[str, Any], workflow: str | None = None,
-                       workflows: Workflows | None = None) -> tuple[set[str], set[str]]:
+def environment_values(job: Mapping[str, Any], workflow: str | None = None, workflows: Workflows | None = None,
+                       reads: VarReads | None = None) -> tuple[set[str], set[str]]:
     """Every environment name a job's `environment:` can resolve to (matrix values expanded,
     literal branches of an expression read), casefolded because GitHub matches environment names
     without case (`Release` is `release`), and every part it could not resolve. A guard counts a
     job with an unresolved part as unclassified, never as outside the environment."""
     env = job.get("environment")
+    path = "environment"
     if isinstance(env, Mapping):
-        env = env.get("name")
+        env, path = env.get("name"), "environment.name"
     if env is None or env == "":
         return set(), set()
     if not isinstance(env, str):
         return set(), {repr(env)}
-    values, unresolved = _resolve(job, env, _tracer(workflow, workflows))
+    values, unresolved = _resolve(job, env, _tracer(workflow, workflows, reads), reads, path)
     return {value.casefold() for value in values}, unresolved
 
 
 def name_values(job: Mapping[str, Any], job_id: str, workflow: str | None = None,
-                workflows: Workflows | None = None) -> tuple[set[str], set[str]]:
+                workflows: Workflows | None = None, reads: VarReads | None = None) -> tuple[set[str], set[str]]:
     """The check name a job reports: its `name:` (the job id when it has none) with matrix values
     expanded and literal expressions read (`${{ 'CLA policy guard' }}` is `CLA policy guard`), and
     every part nothing resolves. Check names keep their case. A guard that matches names counts a job
@@ -475,7 +594,7 @@ def name_values(job: Mapping[str, Any], job_id: str, workflow: str | None = None
     name = job.get("name", job_id)
     if not isinstance(name, str):
         return set(), {repr(name)}
-    return _resolve(job, name, _tracer(workflow, workflows))
+    return _resolve(job, name, _tracer(workflow, workflows, reads), reads, "name")
 
 
 def effective_env(document: Mapping[str, Any], job: Mapping[str, Any],
@@ -514,15 +633,29 @@ class Resolved:
     (runs_on_cells, runs_on_values), environment names casefolded (environment_values), the check
     name with literal expressions read (name_values), and the job's effective secrets (the workflow
     env it inherits, then its env, steps, `with:` and `secrets:`; secret_names). Each `*_unresolved`
-    set, and `runs_on_cells is None`, is what nothing here could read: a guard fails closed on it."""
+    set, and `runs_on_cells is None`, is what nothing here could read: a guard fails closed on it.
+
+    `vars_read` is every repository variable those fields consumed (VarRead: the variable, the file, job and key
+    path it sits at, and the field), wherever it sat: the field as written, a matrix value it took (a matrix
+    nothing could expand counts whole), a caller's `with:` value or an input's default at any call depth, inside a
+    condition or a fromJSON, in dot or bracket form. A guard about the variables a field reads reads them here,
+    never the field's text. Field `env` holds the variables the job's env layers read (the workflow's, then the
+    job's): runs-on, environment and name cannot read the env context, so no other field consumes them."""
 
     def __init__(self, job: Mapping[str, Any], job_id: str = "", workflow: str | None = None,
                  workflows: Workflows | None = None) -> None:
         self.job = job
         self.runs_on_cells = runs_on_cells(job, workflow, workflows)
-        self.runs_on, self.runs_on_unresolved = runs_on_values(job, workflow, workflows)
-        self.environments, self.environments_unresolved = environment_values(job, workflow, workflows)
-        self.names, self.names_unresolved = name_values(job, job_id, workflow, workflows)
+        reads = {field: VarReads(field, workflow, job_id) for field in ("runs-on", "environment", "name", "env")}
+        self.runs_on, self.runs_on_unresolved = runs_on_values(job, workflow, workflows, reads["runs-on"])
+        self.environments, self.environments_unresolved = environment_values(job, workflow, workflows,
+                                                                             reads["environment"])
+        self.names, self.names_unresolved = name_values(job, job_id, workflow, workflows, reads["name"])
+        inherited = job.inherited_env if isinstance(job, Job) else {}
+        for scope, layer in (("", inherited), (job_id, job.get("env"))):
+            for path, text in _strings_at(layer or {}, "env"):
+                reads["env"].at(workflow, scope).note(path, text)
+        self.vars_read: frozenset[VarRead] = frozenset().union(*(r.found for r in reads.values()))
         self.secrets = secret_names(job)
 
 

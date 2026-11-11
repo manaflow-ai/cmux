@@ -36,9 +36,18 @@ while IFS= read -r remote; do
                         scripts/git-hooks/refresh_checks.py
                         scripts/web_lint_prepush.py
                         scripts/lint_swift_namespaces.py
-                        scripts/swift_source_mask.py
-                        tests/workflow_jobs.py
+                        scripts/git-hooks/checks-copy-inputs
                     )
+                    # ...and everything the cmux-next checks copy is made from: the one list the installer copies
+                    # and refresh_checks.py stamps from (the list itself is an input above, so a dirty list stops here).
+                    if [[ -f "$REPO_ROOT/scripts/git-hooks/checks-copy-inputs" ]]; then
+                        while IFS= read -r entry || [[ -n "$entry" ]]; do
+                            entry="${entry#"${entry%%[![:space:]]*}"}"
+                            entry="${entry%"${entry##*[![:space:]]}"}"
+                            [[ -z "$entry" || "$entry" == \#* ]] && continue
+                            trusted_inputs+=("${entry%% -> *}")  # the source of `source -> destination`
+                        done < "$REPO_ROOT/scripts/git-hooks/checks-copy-inputs"
+                    fi
                     if ! git diff --quiet "$trusted_sha" -- "${trusted_inputs[@]}"; then
                         echo "warning: cmux merge-driver installer inputs differ from trusted $trusted_branch; rerun from a clean checkout." >&2
                         exit 0
