@@ -135,6 +135,9 @@ const CAPABILITIES: &[&str] = &[
     AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
     AGENT_SESSION_START_VM_KIND_CAPABILITY,
     AGENT_SESSION_START_MODEL_CAPABILITY,
+    // The person's mode pick on a start (`agent-session-start`, already admitted); the machine
+    // honors it on the caller's own Cloud VM only.
+    AGENT_SESSION_START_MODE_CAPABILITY,
     agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY,
     agent_session_attach::AGENT_SESSION_CONTEXT_CAPABILITY,
     agent_session_attach::AGENT_SESSION_BTW_CAPABILITY,

@@ -1,10 +1,11 @@
 // l10n-allow-file: test fixtures.
 // A new chat on this Mac with Settings' Start New Chats In set to Cloud (or Cloud picked in the
-// composer's Where row) sends its first message to a Cloud machine (cloud.startChat): that machine
-// starts the chat, in what it decides (an asking mode: the Cloud start's policy `ask`). The access
-// chip named this Mac's acpmux start mode instead, "Bypass permissions", and the chat then came up
-// in Manual on the machine (cloud-ergo-start-chat capture, 2026-11-09). With Cloud picked, the chip
-// names no mode, as a Cloud chat's own chip does before it reports one. The real composer chips, in JSDOM.
+// composer's Where row) sends its first message to a Cloud machine (cloud.startChat). That machine
+// started the chat asking (the Cloud start's policy `ask`) while the access chip named this Mac's
+// start mode, "Bypass permissions" (cloud-ergo-start-chat capture, 2026-11-09). Leo, 2026-11-11:
+// "but shouldnt the user be allowed to just go through with stuff?". The send now carries the mode
+// the chip names (cloudStartMode), the person's own Cloud machine starts the chat in it, and the chip
+// names it with Cloud picked as it does for a chat on this Mac. The real composer chips, in JSDOM.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -146,7 +147,34 @@ test("a new chat that starts on this Mac names the mode this Mac's acpmux starts
   expect(chipText()).toBe("Bypass permissions");
 });
 
-test("with Cloud picked, the chip does not promise this Mac's start mode for the Cloud chat", async () => {
+test("with Cloud picked, the chip names the mode the Cloud chat starts in", async () => {
   await render(await newChat(true));
-  expect(chipText()).toBe("Mode");
+  expect(chipText()).toBe("Bypass permissions");
+});
+
+test("a Cloud send carries the mode the chip names", async () => {
+  const { cloudStartMode } = await import("../src/agent-session/acpmux/cloudRun");
+  const snapshot = await newChat(true);
+  await render(snapshot);
+  expect(cloudStartMode(snapshot.summary, undefined, FOLDER)).toEqual({ mode: "bypassPermissions" });
+  // The person's pick (a switch's held mode) goes instead of this Mac's answer.
+  const picked = {
+    ...snapshot.summary!,
+    modes: { currentModeId: "default", availableModes: [{ id: "default", name: "Default" }] },
+  } as Summary;
+  expect(cloudStartMode(picked, "claude", FOLDER)).toEqual({ mode: "default" });
+  // Another harness, a folder acpmux has not answered for, or a chat that already runs: none.
+  expect(cloudStartMode(snapshot.summary, "codex", FOLDER)).toEqual({});
+  expect(cloudStartMode(snapshot.summary, undefined, "/home/dev/elsewhere")).toEqual({});
+  expect(cloudStartMode({ ...snapshot.summary!, sessionId: "s1" }, undefined, FOLDER)).toEqual({});
+});
+
+test("the Cloud start request names the mode to the host", async () => {
+  const { startCloudChat } = await import("../src/agent-session/acpmux/cloudRun");
+  const calls: [string, Record<string, unknown>][] = [];
+  const call = async (method: string, params: Record<string, unknown>) => void calls.push([method, params]);
+  await startCloudChat(call, { task: "go", harness: "claude", mode: "bypassPermissions" }, "k");
+  expect(calls[0]?.[1]).toMatchObject({ harness: "claude", mode: "bypassPermissions" });
+  await startCloudChat(call, { task: "go" }, "k");
+  expect("mode" in (calls[1]?.[1] ?? {})).toBe(false);
 });

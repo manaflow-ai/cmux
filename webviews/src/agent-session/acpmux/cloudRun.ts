@@ -9,7 +9,9 @@
 
 import { isAgentHome } from "./sessionList";
 import { pickFolder } from "./startFolderModel";
+import { exactStartMode } from "./startMode";
 import type { ComposerAttachment } from "./attachments";
+import type { AcpmuxSnapshot } from "./model";
 
 /// What the page hands the host. `home`: the chat has no project folder on this Mac, so nothing is
 /// copied and the chat starts in the machine's own home folder (cloudStartFolder).
@@ -20,6 +22,9 @@ export type CloudStart = {
   home?: boolean;
   harness?: string;
   model?: string;
+  /** The mode the access chip names at the send: the person's own Cloud machine starts the chat in
+   * it (cloudStartMode). */
+  mode?: string;
   environment?: string;
   reservationKey?: string;
   /** A native gesture ticket reserved before waiting for a Cloud machine lease. */
@@ -42,6 +47,24 @@ export function cloudStartFolder(project: string | undefined): { cwd: string } |
   // never copied.
   if (isAgentHome(folder)) return { home: true };
   return { cwd: folder };
+}
+
+/// The mode a Cloud send starts its chat in: the one the access chip names for this new chat, the
+/// person's pick (a switch's held mode) else this Mac's acpmux answer for the harness in the folder
+/// (`_acpmux/start_mode`, Start New Chats In). The person's own Cloud machine starts the chat in it
+/// (cmux-tui agent_session_start.rs `agent-session-start-mode-v1`), as this Mac would have (Leo,
+/// 2026-11-11, on the asking mode a Cloud chat started in: "but shouldnt the user be allowed to just
+/// go through with stuff?"). None when the chip names none: the machine's own start applies.
+export function cloudStartMode(
+  summary: AcpmuxSnapshot["summary"],
+  harness: string | undefined,
+  cwd: string | undefined,
+): { mode: string } | Record<string, never> {
+  const chat = harness ?? summary?.harness;
+  if (!chat || summary?.sessionId) return {};
+  const picked = summary?.harness === chat ? summary.modes?.currentModeId : undefined;
+  const mode = picked ?? exactStartMode(chat, cwd)?.modeId;
+  return mode ? { mode } : {};
 }
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -185,6 +208,7 @@ export async function startCloudChat(
   else if (start.home) params.home = true;
   if (start.harness) params.harness = start.harness;
   if (start.model) params.model = start.model;
+  if (start.mode) params.mode = start.mode;
   if (start.environment) params.environment = start.environment;
   if (start.reservationKey) params.reservationKey = start.reservationKey;
   if (start.gestureTicket) params.gestureTicket = start.gestureTicket;

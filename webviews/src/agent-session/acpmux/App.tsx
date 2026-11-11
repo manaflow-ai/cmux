@@ -514,6 +514,7 @@ import {
   cloudRunsHere,
   cloudFolderGrants,
   cloudStartFolder,
+  cloudStartMode,
   cloudStartSaid,
   cloudStartTeam,
   makeCloudSignInRetry,
@@ -11511,6 +11512,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   {
                     ...cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd),
                     ...heldPick(composerSnapshot),
+                    ...cloudStartMode(
+                      composerSnapshot.summary,
+                      heldPick(composerSnapshot).harness,
+                      projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd,
+                    ),
                   },
                 );
                 if (typeof started === "string") {
@@ -12383,6 +12389,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                               harness,
                               ...cloudStartFolder(cwd),
                               ...(model ? { model } : {}),
+                              ...cloudStartMode(snapshot.summary, harness, cwd),
                             },
                             true,
                           ),

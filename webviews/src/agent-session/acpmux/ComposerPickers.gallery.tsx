@@ -203,7 +203,7 @@ function GalleryComposerPickers(props: Props) {
 const NEW_CHAT_FOLDER = "/Users/gallery/cloud-proof";
 
 /// A new chat's rail before its first send: the access chip names the mode this Mac's acpmux would
-/// start it in, or, with Cloud picked, no mode (the Cloud machine decides it; cloud-ergo-start-chat).
+/// start it in, with Cloud picked too: the person's own Cloud machine starts the chat in it.
 function GalleryNewChatPickers({ start, cloud }: NonNullable<Props["newChat"]>) {
   const [answered, setAnswered] = useState(false);
   useEffect(() => {
@@ -222,7 +222,7 @@ function GalleryNewChatPickers({ start, cloud }: NonNullable<Props["newChat"]>) 
         <div className="acpmux-composer-gallery-copy">
           <strong>{cloud ? "New chat, Cloud picked" : "New chat on this Mac"}</strong>
           <span>
-            {cloud ? "The Cloud machine decides the start mode." : "acpmux on this Mac names the start mode."}
+            {cloud ? "Your Cloud machine starts it in this mode." : "acpmux on this Mac names the start mode."}
           </span>
         </div>
         {answered && (

@@ -143,6 +143,100 @@ fn the_owners_own_start_on_their_cloud_vm_keeps_its_harness_mode() {
     assert!(!methods.contains(&"session/set_mode".to_owned()), "{methods:?}");
 }
 
+/// The `session/new` the daemon sent acpmux, of the frames it sent until the fake went quiet.
+fn session_new(phone: &Phone) -> Value {
+    let mut new = None;
+    while let Ok(frame) = phone.fake.frames.recv_timeout(Duration::from_millis(300)) {
+        if frame["method"] == "session/new" {
+            new = Some(frame);
+        }
+    }
+    new.expect("no session/new")
+}
+
+impl Phone {
+    /// The owner's start naming the person's pick of the chat's mode.
+    fn start_in(&mut self, mode: &str) -> Value {
+        let start = json!({"cmd":"agent-session-start","surface":self.surface,"cwd":self.cwd,
+            "harness":"claude","vm_kind":"owner","mode":mode});
+        self.client.request(start)
+    }
+}
+
+/// Leo, 2026-11-11, on the asking mode a Cloud chat started in: "but shouldnt the user be allowed
+/// to just go through with stuff?". On their own Cloud VM the chat starts in the mode they picked,
+/// with no `ask` policy holding it to an asking one.
+#[test]
+fn the_owners_start_on_their_cloud_vm_runs_the_mode_they_picked() {
+    let mut owner = connect("owner-picks-bypass", false, true, "claude", "default", false);
+    let started = owner.start_in("bypassPermissions");
+    assert_eq!(started["ok"], json!(true), "{started}");
+    assert_eq!(*owner.mode.lock().unwrap(), "bypassPermissions");
+    let new = session_new(&owner);
+    assert!(new["params"]["_meta"]["acpmux"].get("policy").is_none(), "{new}");
+}
+
+#[test]
+fn a_pick_the_session_already_runs_sets_nothing() {
+    let mut owner = connect("owner-picks-same", false, true, "claude", "bypassPermissions", false);
+    let started = owner.start_in("bypassPermissions");
+    assert_eq!(started["ok"], json!(true), "{started}");
+    let methods = owner.methods();
+    assert!(!methods.contains(&"session/set_mode".to_owned()), "{methods:?}");
+}
+
+/// A wider pick the agent does not take leaves the chat as acpmux started it.
+#[test]
+fn a_wider_pick_the_agent_refuses_keeps_the_chat() {
+    let mut owner = connect("owner-wider-stuck", false, true, "claude", "default", true);
+    let started = owner.start_in("bypassPermissions");
+    assert_eq!(started["ok"], json!(true), "{started}");
+    assert_eq!(*owner.mode.lock().unwrap(), "default");
+    let methods = owner.methods();
+    assert!(!methods.contains(&"_acpmux/kill".to_owned()), "{methods:?}");
+}
+
+/// An asking pick the agent does not take would leave the chat wider than asked: ended, refused.
+#[test]
+fn an_asking_pick_the_agent_refuses_ends_the_chat() {
+    let mut owner = connect("owner-asking-stuck", false, true, "claude", "bypassPermissions", true);
+    assert_code(&owner.start_in("default"), "agent_session.not_asking");
+    let methods = owner.methods();
+    assert_eq!(methods.last().map(String::as_str), Some("_acpmux/kill"), "{methods:?}");
+}
+
+/// A phone's start keeps the phone's floor whatever mode it names.
+#[test]
+fn a_phones_start_ignores_a_mode_pick() {
+    let mut phone = connect("phone-picks-bypass", true, true, "claude", "acceptEdits", false);
+    let started = phone.start_in("bypassPermissions");
+    assert_eq!(started["ok"], json!(true), "{started}");
+    assert_eq!(*phone.mode.lock().unwrap(), "default");
+    let new = session_new(&phone);
+    assert_eq!(new["params"]["_meta"]["acpmux"]["policy"], json!("ask"), "{new}");
+}
+
+/// Off the caller's own Cloud VM (a Mac, an SSH host) a pick is ignored: the asking rule holds.
+#[test]
+fn a_pick_off_the_owners_cloud_vm_keeps_the_asking_rule() {
+    let mut mac = connect("mac-picks-bypass", false, true, "claude", "acceptEdits", false);
+    mac.mux.set_agent_start_host(Arc::new(|| AgentStartHost::Allowed));
+    let started = mac.start_in("bypassPermissions");
+    assert_eq!(started["ok"], json!(true), "{started}");
+    assert_eq!(*mac.mode.lock().unwrap(), "default");
+    let new = session_new(&mac);
+    assert_eq!(new["params"]["_meta"]["acpmux"]["policy"], json!("ask"), "{new}");
+}
+
+#[test]
+fn a_start_without_a_pick_keeps_the_ask_policy() {
+    let mut owner = connect("owner-no-pick", false, true, "claude", "acceptEdits", false);
+    let started = owner.start();
+    assert_eq!(started["ok"], json!(true), "{started}");
+    let new = session_new(&owner);
+    assert_eq!(new["params"]["_meta"]["acpmux"]["policy"], json!("ask"), "{new}");
+}
+
 #[test]
 fn a_phone_start_keeps_the_phones_floor_after_the_phone_disconnects() {
     let (release, gate) = std::sync::mpsc::channel();

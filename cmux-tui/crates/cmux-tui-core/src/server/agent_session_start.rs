@@ -41,6 +41,18 @@
 //! its own default mode (still with policy `ask`). A Mac, an SSH host and a
 //! team VM keep the rule above ([`AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY`]).
 //!
+//! There, a start may name the person's own pick of the chat's mode (`mode`,
+//! [`AGENT_SESSION_START_MODE_CAPABILITY`]): the mode the app's access chip
+//! names for the new chat, the person's pick or this Mac's Start New Chats In
+//! answer. The start then names no policy, so acpmux starts the chat as it
+//! starts one on the person's Mac, and the daemon sets that mode once the
+//! agent is up (Leo, 2026-11-11, on the asking mode a Cloud chat started in:
+//! "but shouldnt the user be allowed to just go through with stuff?"). A pick
+//! the agent does not take leaves the chat as acpmux started it, unless the
+//! pick asks before acting: a chat never runs wider than the person asked, so
+//! that one is ended and refused. A phone's start, and any start off the
+//! caller's own Cloud VM, ignores `mode` and keeps its rule above.
+//!
 //! acpmux runs on demand: when nothing listens on the socket, the daemon
 //! starts it once through the binary's starter (`cmux acp daemon start`,
 //! as `cmux acp` does) and connects again; otherwise
@@ -89,6 +101,10 @@ pub const AGENT_SESSION_START_MODEL_CAPABILITY: &str = "agent-session-start-mode
 /// the person's own disposable VM is the boundary (Leo, 2026-10-30, on
 /// ChatGPT's "Where should this chat run?": "we should just have it").
 pub const AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY: &str = "agent-session-start-owner-cloud-v1";
+/// `mode` on `agent-session-start`: the person's pick of a new chat's mode, honored only on the
+/// caller's own Cloud VM (the module's doc). Advertised with
+/// [`AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY`], which an app reads before it sends one.
+pub const AGENT_SESSION_START_MODE_CAPABILITY: &str = "agent-session-start-mode-v1";
 
 /// Starts the binary's acpmux daemon (blocking; acpmux bounds its own start).
 pub type AcpmuxStarter = Arc<dyn Fn() -> Result<(), String> + Send + Sync>;
@@ -298,6 +314,10 @@ pub(super) struct StartParams {
     harness: Option<String>,
     #[serde(default)]
     model: Option<String>,
+    /// The person's pick of the chat's mode (`agent-session-start-mode-v1`): set on the caller's
+    /// own Cloud VM only, ignored anywhere else.
+    #[serde(default)]
+    mode: Option<String>,
     /// The selected folder on the machine. A missing folder is allowed only
     /// for the caller's own Cloud VM, where Rust creates `~/chats/<id>`.
     #[serde(default)]
@@ -343,7 +363,12 @@ impl StartParams {
                 && !model.chars().any(|c| c.is_whitespace() || c.is_control())
                 && !model.contains(['{', '}', '$', '"', '\\', '\''])
         });
-        harness_ok && cwd_ok && instance_ok && model_ok
+        let mode_ok = self.mode.as_deref().is_none_or(|mode| {
+            (1..=64).contains(&mode.len())
+                && !mode.starts_with('-')
+                && mode.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+        });
+        harness_ok && cwd_ok && instance_ok && model_ok && mode_ok
     }
 }
 
@@ -707,7 +732,11 @@ fn start_and_bind(
     if !folder_trusted(&trust, params.harness.as_deref()) {
         return Err(Refusal::UntrustedFolder);
     }
-    let mut meta = json!({"policy": "ask"});
+    // The person's pick of the chat's mode, on their own Cloud VM only (not a phone's start): the
+    // start names no policy, so acpmux starts the chat as on the person's Mac, and the pick is set
+    // below. Anywhere else the policy is `ask`.
+    let picked = params.mode.as_deref().filter(|_| owner_cloud && !phone);
+    let mut meta = if picked.is_some() { json!({}) } else { json!({"policy": "ask"}) };
     if let Some(harness) = &params.harness {
         meta.insert("harness", json!(harness));
     }
@@ -758,6 +787,8 @@ fn start_and_bind(
     };
     let family = if phone {
         settle_phone_mode(link, until, &session).map_err(end)?
+    } else if let Some(mode) = picked {
+        set_picked_mode(link, until, &session, mode).map_err(end)?
     } else if owner_cloud {
         session_family(link, until, &session).map_err(end)?
     } else {
@@ -845,6 +876,43 @@ fn session_family(link: &AcpmuxLink, until: Instant, session: &str) -> Result<St
         .filter(|family| !family.is_empty())
         .map(str::to_owned)
         .ok_or(Refusal::Refused)
+}
+
+/// The person's pick of a new chat's `mode` on their own Cloud VM (`agent-session-start-mode-v1`):
+/// set unless the session already runs it. A pick the agent does not take leaves the chat in the
+/// mode acpmux started it in, unless the pick asks before acting (one of the family's asking modes
+/// in acpmux's `_acpmux/web_modes`): the chat would then run wider than the person asked, so it is
+/// refused (the caller ends it). Returns the session's family.
+fn set_picked_mode(
+    link: &AcpmuxLink,
+    until: Instant,
+    session: &str,
+    mode: &str,
+) -> Result<String, Refusal> {
+    let read = || {
+        ask(link, until, "_acpmux/web_modes", json!({"sessionId": session})).map_err(Refusal::of)
+    };
+    let table = read()?;
+    let family = table
+        .pointer("/session/family")
+        .and_then(Value::as_str)
+        .filter(|family| !family.is_empty())
+        .map(str::to_owned)
+        .ok_or(Refusal::Refused)?;
+    let current =
+        |table: &Value| table.pointer("/session/mode").and_then(Value::as_str) == Some(mode);
+    if current(&table) {
+        return Ok(family);
+    }
+    let set = ask(link, until, "session/set_mode", json!({"sessionId": session, "modeId": mode}));
+    if set.is_ok() && current(&read()?) {
+        return Ok(family);
+    }
+    let asks = table
+        .pointer(&format!("/families/{}", family.replace('~', "~0").replace('/', "~1")))
+        .and_then(Value::as_array)
+        .is_some_and(|modes| modes.iter().any(|asking| asking.as_str() == Some(mode)));
+    if asks { Err(Refusal::NotAsking) } else { Ok(family) }
 }
 
 /// acpmux's remote rule for a new session: its family is not refused and
