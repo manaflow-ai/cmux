@@ -81,6 +81,12 @@ async function run(name: string, engine: BrowserType) {
   try {
     const page = await pane.open({ width: 1100, height: 800 });
     await page.emulateMedia({ reducedMotion: "no-preference" });
+    // PLAIN=1: no shadows, filters or blends, to tell an engine's raster cost from the page's work.
+    if (process.env.PLAIN === "1")
+      await page.addStyleTag({
+        content:
+          "*,*::before,*::after{box-shadow:none!important;filter:none!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;mix-blend-mode:normal!important;text-shadow:none!important;mask:none!important;-webkit-mask:none!important}",
+      });
     const view = (await page.locator(".acpmux-scroll").boundingBox())!;
     await page.mouse.move(view.x + view.width / 2, view.y + view.height / 2);
     // The engine's own frame interval with nothing moving: headless engines on a CI host do not all
