@@ -73,6 +73,14 @@ final class WorkspaceStatusView: NSView {
         if placesPill { needsLayout = true }
     }
 
+    /// A plain line is as wide as the block and a pill is capped at its width (`layout`): a new width places the
+    /// lines again. The draw asks for a layout only for a pill or a font change, so the resize asks here.
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize.width != frame.width
+        super.setFrameSize(newSize)
+        if changed, !status.lines.isEmpty { needsLayout = true }
+    }
+
     override func layout() {
         super.layout()
         // No line, no frame to set. With lines, only the two values the block places them with are read
