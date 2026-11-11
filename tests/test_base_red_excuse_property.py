@@ -78,7 +78,8 @@ def key(runner: str, name: str) -> str:
     return {"swift": f"{name}()", "xctest": f"KitTests {name}", "xcresult": f"KitTests.{name}()",
             "listing": f"KitTests.{name}()", "cargo": f"tests::{name}",
             "unittest": f"test_{name} (pkg.mod.Case.test_{name})", "pytest": f"tests/test_mod.py::test_{name}",
-            "bun": f"test/pane.test.ts > pane > {name}", "opaque": f"opaque {name}"}[runner]
+            "bun": f"test/pane.test.ts > pane > {name}", "opaque": f"opaque {name}",
+            "display": f'"{name}"'}[runner]
 
 
 def final_failures(block: dict) -> list:
@@ -145,10 +146,12 @@ def block_lines(block: dict) -> list[str]:
     failures = sorted(failures, key=lambda f: not f[2])
     total = len(failures) + passes
     out: list[str] = []
-    if runner == "swift":
+    if runner in ("swift", "display"):
+        # "display": a Swift Testing display name (`✘ Test "beta"`), which says nothing of its suite: its issues' files
+        # are part of its identity (test_reds.ISSUE_SITE).
         out.append("◇ Test run started.")
         for _, name, ok in failures:
-            shown = f"{name}()" if ok else name  # a name the parser cannot read: no parentheses
+            shown = (f'"{name}"' if runner == "display" else f"{name}()") if ok else name
             out += [f"✘ Test {shown} recorded an issue at {block.get('file', 'KitTests.swift')}:3:5: Expectation failed",
                     f"✘ Test {shown} failed after 0.010 seconds with 1 issue."]
         out.append(f"✘ Test run with {total} tests in 1 suite failed after 0.100 seconds with {len(failures)} "
@@ -646,9 +649,11 @@ def evidence_mutate(rng: random.Random, steps: list, window: list) -> list:
         mixed = [step for step in other if step["conclusion"] != "success" or step.get("errored")]
         if mixed:
             steps.insert(rng.randrange(len(steps) + 1), rng.choice(mixed))
-        swift = [block for step in steps for block in step["blocks"] if block["runner"] == "swift"]
+        swift = [block for step in steps for block in step["blocks"] if block["runner"] in ("swift", "display")]
         if swift:
-            rng.choice(swift)["file"] = rng.choice(("Mine.swift", "Other.swift"))
+            chosen = rng.choice(swift)
+            chosen.update(runner="display", file=rng.choice(("Mine.swift", "Other.swift")),
+                          failures=[("display", name, ok) for _, name, ok in chosen["failures"]])
     return steps
 
 
@@ -754,15 +759,20 @@ class AnExcuseKeepsTheBasesEvidence(unittest.TestCase):
 
     def test_review_41422_f1_a_continue_on_error_tests_identity_and_count_come_from_one_verdict(self):
         # #41422's review F1: "Head beta() x10 in Mine.swift, newest base x10 in Other.swift, older base with the
-        # identity but x1. Each verdict alone refuses this, the combined window excuses it".
+        # identity but x1. Each verdict alone refuses this, the combined window excuses it". The file is a test's
+        # identity when its name is a display name (`✘ Test "beta"`); a function name `beta()` names it alone.
         def coe(count, file):
-            return step("ui tests", "success", dict(block("swift", *["beta"] * count), file=file), errored=True)
+            return step("ui tests", "success", dict(block("display", *["beta"] * count), file=file), errored=True)
+        # The older verdict has the identity (beta in Mine.swift, once, where the name check read it: a failed
+        # section), the newest the count (x10 in a continue-on-error section, in Other.swift).
         failed = step("package tests", "failure", block("swift", "alpha"))
+        older = step("package tests", "failure", block("swift", "alpha"),
+                     dict(block("display", "beta"), file="Mine.swift"))
         head = [failed, coe(10, "Mine.swift")]
         window = [{"green": False, "steps": [failed, coe(10, "Other.swift")]},
-                  {"green": False, "steps": [failed, coe(1, "Mine.swift")]}]
+                  {"green": False, "steps": [older]}]
         for entry in window:
-            with self.subTest(alone=entry["steps"][1]["blocks"][0]["file"]):
+            with self.subTest(alone=len(entry["steps"])):
                 self.assertIsNone(judged({"seed": -1, "placed": True, "window": [entry], "head": head}))
         case = {"seed": -1, "placed": True, "window": window, "head": head}
         said = judged(case)
