@@ -1,4 +1,5 @@
 #if DEBUG && os(iOS)
+import CmuxMobileChief
 import CmuxMobileDesign
 import CmuxMobileTerminal
 import CmuxSpinner
@@ -17,7 +18,10 @@ import SwiftUI
 ///   whose read takes about a second (a real network answer);
 /// - `cloud`: a Cloud machine's connect wait (A, the screen's, with the two
 ///   variants it was picked from), its failure with the cause, and Cloud chats
-///   with no Mac to reach them through.
+///   with no Mac to reach them through;
+/// - `chiefoff`: Home's "Chief Is Off" card (the Cloud Chief's brain is off, as every new
+///   account's is): A, the one Home shows, in its four states (off, turning on, failed,
+///   unavailable on this account), then the variants it was picked from, B and C.
 public struct RecoveryGalleryRoot: View {
     public static var isRequested: Bool {
         ProcessInfo.processInfo.arguments.contains("-cmux-mobile-recovery-gallery")
@@ -42,6 +46,8 @@ public struct RecoveryGalleryRoot: View {
                 cloud
             case "home":
                 home
+            case "chiefoff":
+                chiefOff
             case "signedout":
                 signedOut
             default:
@@ -117,6 +123,32 @@ public struct RecoveryGalleryRoot: View {
                 galleryLabel("No Mac")
                 CloudChatsConnectMac {}
                     .frame(height: 300)
+            }
+            .padding(.vertical, 60)
+        }
+        .background(CmuxMobileTheme.standard.colors.bg.color)
+    }
+
+    /// A (picked): SPEC 7.3's inline failure card, the shape every failure card in the
+    /// app has, so the state reads as something to act on, with its one button.
+    /// B: a centered note as Home's other notes (reads as fine print; easy to miss).
+    /// C: the Chief's row with the button trailing (reads as a chat, and a tap on the row
+    /// would open a Chief that does not answer).
+    private var chiefOff: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                galleryLabel("A · picked · off")
+                ChiefOffCardView(.off) {}.padding(.horizontal, 16)
+                galleryLabel("A · turning on")
+                ChiefOffCardView(.turningOn) {}.padding(.horizontal, 16)
+                galleryLabel("A · failed")
+                ChiefOffCardView(.failed) {}.padding(.horizontal, 16)
+                galleryLabel("A · unavailable on this account")
+                ChiefOffCardView(.unavailable) {}.padding(.horizontal, 16)
+                galleryLabel("B · note")
+                ChiefOffCardView(.off, style: .note) {}.padding(.horizontal, 16)
+                galleryLabel("C · row")
+                ChiefOffCardView(.off, style: .row) {}.padding(.horizontal, 16)
             }
             .padding(.vertical, 60)
         }
