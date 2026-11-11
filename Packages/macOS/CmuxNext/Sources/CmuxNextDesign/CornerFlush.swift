@@ -154,6 +154,9 @@ public final class CornerFlushChrome: NSView {
     private weak var framedContent: NSView?
     /// Inside ``redraw``, which reports every strip: the top row is checked once, after them.
     private var redrawing = false
+    /// The content and window whose subtree ``stripsKnown(content:in:)`` last walked and found no strip in.
+    private weak var walkedEmpty: NSView?
+    private weak var walkedEmptyWindow: NSWindow?
 
     override public init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -185,6 +188,14 @@ public final class CornerFlushChrome: NSView {
             view = ancestor.superview
         }
         return false
+    }
+
+    /// A strip entered a window: its chrome knows it (weakly), with no redraw. A cached walk that found no
+    /// strip ends, so the top row is checked against this one on the next ``apply``.
+    public static func register(_ strip: any TabStripCorner & NSView) {
+        guard let chrome = chrome(of: strip) else { return }
+        chrome.strips.add(strip)
+        chrome.walkedEmpty = nil; chrome.walkedEmptyWindow = nil
     }
 
     /// The window's chrome that `strip` reports to: the one among its ancestors' subviews.
@@ -298,9 +309,12 @@ public final class CornerFlushChrome: NSView {
     /// Whether the top row can be told: a strip of `root`'s window is known, or `content` is in a window.
     /// Before a strip has reported, the strips under `content` are looked up and kept (a strip hidden from
     /// launch, Hide Tab Bar or vertical tabs, may never lay out into a report), so the top row is known
-    /// from the first frame; the walk runs only while no strip of the window is known.
+    /// from the first frame. A walk that found none is kept for that content and window (``walkedEmpty``),
+    /// so a window with no strip walks once, not on every layout pass; a strip entering a window
+    /// registers itself (``register(_:)``), which ends that.
     private func stripsKnown(content: NSView, in root: NSView) -> Bool {
         if strips.allObjects.contains(where: { ($0 as? NSView)?.window === root.window }) { return true }
+        if walkedEmpty === content, content.window != nil, walkedEmptyWindow === content.window { return true }
         var stack: [NSView] = [content]
         var found = false
         while let view = stack.popLast() {
@@ -312,6 +326,7 @@ public final class CornerFlushChrome: NSView {
             stack.append(contentsOf: view.subviews)
         }
         // In a window with no strip under its content at all, the top row has none.
+        (walkedEmpty, walkedEmptyWindow) = found || content.window == nil ? (nil, nil) : (content, content.window)
         return found || content.window != nil
     }
 

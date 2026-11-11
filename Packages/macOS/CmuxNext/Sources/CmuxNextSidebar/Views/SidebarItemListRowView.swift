@@ -64,7 +64,7 @@ final class SidebarItemListRowView: SidebarRowView {
 
     override func updateLayer() {
         performWithTheme {
-            title.textColor = archived ? Palette.textPrimary.withAlphaComponent(SidebarStyle.archivedAlpha) : Palette.textPrimary
+            title.textColor = archived ? Palette.sidebarTitle.withAlphaComponent(SidebarStyle.archivedAlpha) : Palette.sidebarTitle
             // The selected row is the foreground, in the content's surface (design/selected-is-foreground.md).
             paintFill(isSelected ? Palette.selectedSurface(over: Palette.surfaceOverride(.sidebar)) : isHovered ? Palette.hoverFill : nil)
         }

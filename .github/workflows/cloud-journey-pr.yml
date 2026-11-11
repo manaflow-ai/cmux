@@ -16,14 +16,12 @@ name: Cloud journey (PR CLI on staging)
 # run. The CLI-to-app contract for those is the action argument export (plans/cmux-next/action-surfaces.json)
 # and the tests on both sides of it.
 #
-# Secrets: the staging agent test account (CMUX_JOURNEY_DEV_STACK_*) in cmux-next-cloud-journey, the
-# environment backend.yml's journey-preview already reads on pull request refs (cmux-next-vm-image-dev
-# admits feat-cmux-next only). Same-repo pull requests only; a fork's never gets them.
+# Secrets: the staging agent test account, CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD in cmux-next-vm-image-dev (the pair
+# cloud-chat-proof.yml's proof-staging and backend.yml's journey-staging read). Same-repo pull requests only; a fork's never gets them.
 # Without the pair the job fails (it never skips). The chat runs on the model stub.
 
 on:
-  # A manual run on feat-cmux-next: the same journey at the branch tip, as the staging agent account of
-  # cmux-next-vm-image-dev (that environment admits feat-cmux-next only; cloud-chat-proof.yml's proof-staging pair).
+  # A manual run on feat-cmux-next: the same journey at the branch tip.
   workflow_dispatch:
   pull_request:
     branches: [feat-cmux-next]
@@ -60,7 +58,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     environment:
-      name: ${{ github.event_name == 'workflow_dispatch' && 'cmux-next-vm-image-dev' || 'cmux-next-cloud-journey' }}
+      name: cmux-next-vm-image-dev
       deployment: false
     timeout-minutes: 50
     steps:
@@ -116,17 +114,11 @@ jobs:
           bun-version: "1.4.4"
       - name: Cloud journey (staging, this pull request's CLI)
         env:
-          CMUX_DOGFOOD_STACK_EMAIL: ${{ github.event_name == 'workflow_dispatch' && secrets.CMUX_DOGFOOD_STACK_EMAIL || secrets.CMUX_JOURNEY_DEV_STACK_EMAIL }}
-          CMUX_DOGFOOD_STACK_PASSWORD: ${{ github.event_name == 'workflow_dispatch' && secrets.CMUX_DOGFOOD_STACK_PASSWORD || secrets.CMUX_JOURNEY_DEV_STACK_PASSWORD }}
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
           CMUX_PATH: ${{ steps.build-cmux-tui.outputs.path }}
           JOURNEY_MODEL: stub
           TARGET: staging
-        run: |
-          # cloud-journey-ci.sh passes when the pair is empty; here an empty pair (a misnamed or missing
-          # secret) is this check's red, never a silent skip.
-          if [ -z "$CMUX_DOGFOOD_STACK_EMAIL" ] || [ -z "$CMUX_DOGFOOD_STACK_PASSWORD" ]; then
-            echo "::error title=Cloud journey cannot run::no Stack pair in this environment (CMUX_JOURNEY_DEV_STACK_EMAIL/_PASSWORD on a pull request, CMUX_DOGFOOD_STACK_* on a dispatch)"
-            exit 1
-          fi
-          bash scripts/cmux-next/cloud-journey-ci.sh
+        # An empty pair (a misnamed or missing secret) is this check's red in cloud-journey-ci.sh, never a skip.
+        run: bash scripts/cmux-next/cloud-journey-ci.sh

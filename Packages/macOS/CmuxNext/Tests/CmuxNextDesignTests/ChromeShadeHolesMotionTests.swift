@@ -50,4 +50,25 @@ import Testing
         #expect(holes.closingCount == 1)
         #expect(holes.mask.sublayers?.count == 3)
     }
+
+    /// A -> B -> A -> B inside one fade: the first close's late completion leaves A's patch, closing
+    /// again, in place, so no hole flashes (Claude review at 2b035728, note 4).
+    @Test func aStaleCloseCompletionLeavesTheReclosingPatch() {
+        let holes = ChromeShadeHoles()
+        holes.layout(bounds: CGRect(x: 0, y: 0, width: 400, height: 100))
+        let key = ObjectIdentifier(holes)
+        let a = CGPath(rect: CGRect(x: 10, y: 0, width: 100, height: 40), transform: nil)
+        let b = CGPath(rect: CGRect(x: 120, y: 0, width: 100, height: 40), transform: nil)
+        holes.set(key, path: a, animated: false)
+        holes.set(key, path: b, animated: true) // close 1: A
+        holes.set(key, path: a, animated: true) // close 2: B
+        holes.set(key, path: b, animated: true) // close 3: A again
+        #expect(holes.closingCount == 1)
+        holes.finishClosing(1) // the first fade's completion, late
+        #expect(holes.closingCount == 1)
+        #expect(holes.mask.sublayers?.count == 3)
+        holes.finishClosing(3)
+        #expect(holes.closingCount == 0)
+        #expect(holes.mask.sublayers?.count == 2)
+    }
 }

@@ -52,7 +52,9 @@ public final class ChromeShadeHoles {
     private var moving: [ObjectIdentifier: FolderMotion] = [:]
     static let motionKey = "folder.hole.motion"
     /// Holes closing after a selection change: their patches fade in, then go.
-    private var closing: [(path: CGPath, patch: CAShapeLayer)] = []
+    /// `serial` names the close, so a fade that a reopen cut short cannot end a later close of the same patch.
+    private var closing: [(path: CGPath, patch: CAShapeLayer, serial: Int)] = []
+    private var closeSerial = 0
 
     public init() {
         let still: [String: any CAAction] = ["path": NSNull(), "bounds": NSNull(), "position": NSNull(), "opacity": NSNull()]
@@ -97,10 +99,16 @@ public final class ChromeShadeHoles {
         open[key] = nil
         if let old {
             if animated {
-                closing.append(old)
+                // A -> B -> A -> B inside one fade: the first close's completion must not take this patch
+                // away mid-fade (the hole would flash), so it ends only its own close; this one fades on
+                // from what the patch shows now.
+                closeSerial += 1
+                closing.append((old.path, old.patch, closeSerial))
+                let shown = old.patch.presentation()?.opacity ?? old.patch.opacity
+                old.patch.removeAnimation(forKey: "opacity")
                 CATransaction.begin()
-                CATransaction.setMainCompletion { [weak self, patch = old.patch] in self?.finishClosing(patch) }
-                Motion.tabs.set(old.patch, "opacity", to: Float(1), fade: .crossfade)
+                CATransaction.setMainCompletion { [weak self, serial = closeSerial] in self?.finishClosing(serial) }
+                Motion.tabs.set(old.patch, "opacity", to: Float(1), fade: .crossfade, from: shown)
                 CATransaction.commit()
             } else {
                 old.patch.removeFromSuperlayer()
@@ -148,10 +156,9 @@ public final class ChromeShadeHoles {
         }
     }
 
-    private func finishClosing(_ patch: CAShapeLayer) {
-        guard let index = closing.firstIndex(where: { $0.patch === patch }) else { return }
-        closing.remove(at: index)
-        patch.removeFromSuperlayer()
+    func finishClosing(_ serial: Int) { // internal for tests
+        guard let index = closing.firstIndex(where: { $0.serial == serial }) else { return }
+        closing.remove(at: index).patch.removeFromSuperlayer()
         rebuildBase()
     }
 

@@ -1067,6 +1067,26 @@ export function loginBearer(provider: "claude" | "codex", value: string): string
 const GUEST = 'export HOME="${HOME:-/home/cmux}"; cd "$HOME" 2>/dev/null || cd /; c=cmux-tui; [ -x "$HOME/.cmux/bin/cmux-tui" ] && c="$HOME/.cmux/bin/cmux-tui"; ';
 const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
+/**
+ * The guest program that prints the `"model":"..."` of every message in Claude session `id`'s transcript. It
+ * searches each Claude directory an agent can run with: CLAUDE_CONFIG_DIR as every running process has it (the
+ * launcher's effective one, e.g. ~/.config/cmux/claude-team that agent-auth.sh's team and gateway modes set on a
+ * shared machine), then this shell's CLAUDE_CONFIG_DIR, ~/.claude and ~/.config/cmux/claude-team.
+ */
+export function claudeTranscriptModelsProgram(id: string): string {
+  return (
+    `id=${shq(id)}; { for e in /proc/[0-9]*/environ; do tr '\\0' '\\n' 2>/dev/null < "$e" | sed -n 's/^CLAUDE_CONFIG_DIR=//p'; done; ` +
+    `printf '%s\\n' "\${CLAUDE_CONFIG_DIR:-}" "$HOME/.claude" "$HOME/.config/cmux/claude-team"; } 2>/dev/null | sort -u | ` +
+    `while IFS= read -r d; do [ -n "$d" ] || continue; for f in "$d"/projects/*/"$id".jsonl; do ` +
+    `[ -f "$f" ] && grep -ho '"model":"[^"]*"' "$f"; done; done | sort -u`
+  );
+}
+
+/** The models a {@link claudeTranscriptModelsProgram} printout names, `<synthetic>` (Claude Code's own notices) left out. */
+export function transcriptModels(stdout: string): string[] {
+  return [...new Set([...stdout.matchAll(/"model":"([^"]+)"/g)].map((m) => m[1]!).filter((m) => m !== "<synthetic>"))];
+}
+
 /** --machine: stop an earlier run's model stub and drop its endpoint from Claude Code's settings (and Codex's stub provider). */
 export const REUSE_RESET =
   // Only the stub an earlier run recorded (its launch writes journey-model-stub.pid), and only while that pid still runs it.
@@ -1609,6 +1629,27 @@ async function machinesMode(argv: string[], backend: Backend, email: string | un
   return result.failed.length ? 1 : 0;
 }
 
+/** `--delete-kept ID`: one machine a `--keep` run of this account made (`cloud journey jr-...`), read back first. */
+async function deleteKeptMode(id: string, backend: Backend, email: string | undefined, password: string | undefined, team: string | undefined, signIn: string): Promise<number> {
+  if (!/^vm_[a-z0-9]{20}$/.test(id)) throw new Error(`--delete-kept: not vm_<20 lowercase letters or digits>: ${JSON.stringify(id.slice(0, 60))}`);
+  const secrets: string[] = password ? [password] : [];
+  const api = new Api(backend.api, team);
+  if (signIn === "oidc") api.bearer = (await oidcSignIn(backend.api, process.env, secrets)).token;
+  else {
+    if (!email || !password) throw new Error("no agent test account: set CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD, or --credentials FILE");
+    api.bearer = (await passwordSignIn(STACK[backend.stack], email, password)).access;
+  }
+  const m = await api.read("cloud.machine.get", { machine: id });
+  const name = String(m?.name ?? "");
+  if (!/^cloud journey jr-[a-z0-9]+$/.test(name)) {
+    console.log(JSON.stringify({ refused: id, reason: `named ${JSON.stringify(name.slice(0, 60))}, not a --keep journey's machine` }));
+    return 1;
+  }
+  await api.deleteMachine(id, `journey-delete-kept-${id}`);
+  console.log(JSON.stringify({ deleted: id, name }));
+  return 0;
+}
+
 /**
  * Steps that passed on the version before a deploy and fail after it: the deploy's own reds. A step that
  * was already red before (a known backend bug) is not the deploy's fault and never triggers a rollback.
@@ -1655,6 +1696,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (signIn !== "password" && signIn !== "oidc") throw new Error(`--sign-in ${signIn}: password or oidc`);
   // --machines (list) and --delete-ids (delete exact ids): the operator's leaked-machine cleanup, no journey.
   if (argv.includes("--machines") || argv.includes("--delete-ids")) return machinesMode(argv, backend, email, password, team);
+  // --delete-kept ID: delete one machine a --keep run of this account made (named `cloud journey jr-...`), and nothing else.
+  const kept = argValue("--delete-kept", argv);
+  if (kept !== undefined) return deleteKeptMode(kept, backend, email, password, team, signIn);
   const cleanupTag = argValue("--cleanup-tag", argv);
   if (cleanupTag !== undefined) return cleanupTagMode(cleanupTag, backend, email, password, team, argv.includes("--kept"));
   const agent = argValue("--agent", argv) ?? "claude";
@@ -2218,7 +2262,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (!(fresh[0].step >= 1)) throw new Error(`this turn's first model request is at step ${fresh[0].step}: the session lost the earlier turns`);
       return { value: null, detail: `${last.slice(0, 120)} (model request at step ${fresh[0].step}: the earlier turns came along)` };
     };
-    const lifecycle = provider && !gatewayAny && !only.has("chat") && !only.has("lifecycle");
+    // An agent with no login to pass (OpenCode on its free Zen models) gets the later turns with --lifecycle.
+    const lifecycle = (provider || argv.includes("--lifecycle")) && !gatewayAny && !only.has("chat") && !only.has("lifecycle");
     if (only.has("chat")) {
       J.skip("start agent", "--skip chat");
     } else {
@@ -2273,15 +2318,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         }
         return { value: last, detail: last.slice(0, 280) };
       });
-      // `--agent claude/MODEL`: the session must run the model asked for (the session record, not the reply's own
-      // words, which a model gets wrong about itself).
-      if (askedModel && !modelStub) {
+      // `--agent claude/MODEL`: the session must run the model asked for. Read from what ran: the `model` of every
+      // assistant message in the session's Claude transcript, never the reply's own words (a model gets them wrong
+      // about itself) and never `acp session info`, whose record names the model asked for and lists every model
+      // the harness offers (so it named the asked model even when a pooled agent ran another one: a second chat
+      // on one machine asked claude-sonnet-5-5 and ran claude-haiku-5-5, and this step passed, 2026-11-10).
+      if (askedModel && !modelStub && harness === "claude") {
         await J.step("session model", async () => {
           const r = await exec(`${GUEST}"$c" acp --json session info ${shq(session)} 2>&1`, 45_000);
-          const named = [...new Set(r.stdout.match(/claude-(?:opus|sonnet|haiku)[a-z0-9.-]*/g) ?? [])];
-          if (!named.length) return { value: null, detail: `asked ${askedModel}; the session record names no Claude model` };
-          if (!named.includes(askedModel)) throw new Error(`asked ${askedModel}; the session runs ${named.join(", ")}`);
-          return { value: null, detail: `asked ${askedModel}; the session runs ${named.join(", ")}` };
+          const asid = /"agentSessionId"\s*:\s*"([^"]+)"/.exec(r.stdout)?.[1];
+          if (!asid) throw new Error(`asked ${askedModel}; acp session info names no agentSessionId: ${r.stdout.slice(-200)}`);
+          const t = await exec(`${GUEST}${claudeTranscriptModelsProgram(asid)}`, 45_000);
+          const ran = transcriptModels(t.stdout);
+          if (!ran.length) throw new Error(`asked ${askedModel}; the session's Claude transcript (${asid}) names no model`);
+          if (ran.some((m) => m !== askedModel && !m.startsWith(`${askedModel}-`))) throw new Error(`asked ${askedModel}; the agent ran ${ran.join(", ")}`);
+          return { value: null, detail: `asked ${askedModel}; the agent ran ${ran.join(", ")} (its Claude transcript)` };
         });
       }
       if (modelStub && provider) {

@@ -362,7 +362,12 @@ final class TabCell {
             // pill draws nothing under it, so the selection is never a gray pill. Where the content's surface
             // does not stand out of the chrome (no shade, a near-black theme), the pill keeps the selection fill.
             if runsIntoCard, folderShows { backgroundLayer.backgroundColor = nil }
-            cornerFeetLayer?.fillColor = Palette.selectedFolderSurface.cgColor
+            // A background window's folder dims as its pill did: it keeps the share of its step out of the
+            // chrome that the pill kept of its fill, so the key window's selected tab still reads first.
+            let surface = Palette.selectedFolderSurface
+            let dimmed = isWindowMain || isLifted ? surface
+                : surface.blended(withFraction: Palette.chromeShade * (1 - Self.backgroundWindowSelectionShare), of: .black)?.withAlphaComponent(surface.alphaComponent)
+            cornerFeetLayer?.fillColor = (dimmed ?? surface).cgColor
             if isLifted, let lift = Palette.windowBackground.blended(withFraction: 0.08, of: Palette.textPrimary) {
                 // Keeps the tabs sliding under it quiet: solid when opaque, thicker glass when translucent.
                 backgroundLayer.backgroundColor = WindowBackdrop.dragPreview(themeScope).dragLiftFill(lift).cgColor

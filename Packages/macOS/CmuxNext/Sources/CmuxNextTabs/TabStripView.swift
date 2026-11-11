@@ -402,6 +402,7 @@ public final class TabStripView: NSView {
         super.viewDidMoveToWindow()
         syncShown()
         if window != nil {
+            CornerFlushChrome.register(self) // the chrome's top row knows this strip before it lays out
             applyTokens(animated: false)
             startObserving()
             startObservingTokens()
@@ -584,8 +585,8 @@ public final class TabStripView: NSView {
         closingWatch.updateTracking()
     }
 
-    /// Movement snaps: Reduce Motion or `ui.animationSpeed` "off".
-    var reduceMotion: Bool { !Motion.tabs.animatesMovement }
+    /// Movement snaps: Reduce Motion, `ui.animationSpeed` "off" or a live resize of the strip's window.
+    var reduceMotion: Bool { !Motion.tabs.animatesMovement(in: window) }
 
     var viewportWidth: CGFloat { tabsClip.bounds.width }
 

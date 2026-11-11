@@ -609,7 +609,7 @@ impl Hub {
             self.cold_prompt_check(session).await?;
         }
         if steer_now && session.moving().is_some() {
-            return Err(super::queue::moving_error());
+            return Err(super::queue::moving_error(session));
         }
         // Who sent it, as the queue knows its prompts' senders (`digest.rs`).
         let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
@@ -1705,11 +1705,39 @@ impl Hub {
         // person's terminal signs in, and the fix (`claude_auth.rs`).
         let mut signed_out = false;
         let cloud_host = result.is_err() && self.config.read().await.cloud_host;
+        // On a Cloud machine, the card's third way in: cmux's gateway, when the image says the
+        // machine's team has an account for Claude there (`agent_login::Machine::gateway_access`).
+        // Asked only for a sign-in failure it explains.
+        let gateway = match &result {
+            Err(e) if cloud_host && crate::claude_auth::would_explain(&session.id, &e.message) => {
+                let machine = crate::agent_login::Machine {
+                    root: self.vm_marker_root(),
+                    home: dirs::home_dir().unwrap_or_default(),
+                };
+                machine.gateway_access(crate::agent_login::Agent::Claude).await == Some(true)
+            }
+            _ => false,
+        };
         if let Err(e) = &mut result
-            && let Some(text) = crate::claude_auth::explain(&session.id, &e.message, cloud_host)
+            && let Some(text) =
+                crate::claude_auth::explain(&session.id, &e.message, cloud_host, gateway)
         {
             tracing::warn!(session = %session.id, "Claude agent is not signed in");
-            e.message = text;
+            // The gateway fallback (off by default, `agent_login::GATEWAY_FALLBACK_ENV`): a chat
+            // with no credential on a team the gateway serves uses it without asking. The agent
+            // restarts on it once this turn ends, and the first send goes again there
+            // (`auto_resume/first_send.rs`).
+            let fell_back = gateway
+                && crate::agent_login::gateway_fallback_on()
+                && crate::claude_auth::spawned(&session.id)
+                    .is_some_and(|s| !crate::claude_auth::find(&s.env).signed_in())
+                && self.use_gateway_now(session);
+            e.message = if fell_back {
+                tracing::info!(session = %session.id, "Claude has no credential: the chat uses cmux's gateway");
+                crate::claude_auth::gateway_fallback_text(&e.message)
+            } else {
+                text
+            };
             signed_out = true;
         }
         if let (Err(e), Some(Value::Object(info))) = (&mut result, &route_info) {

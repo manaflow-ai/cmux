@@ -81306,6 +81306,17 @@
           "name" : "login",
           "suggestions" : null,
           "title" : "Harness Login"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "model",
+          "suggestions" : null,
+          "title" : "Model"
         }
       ],
       "category" : "cloud",
@@ -90397,6 +90408,288 @@
         "workspace"
       ],
       "title" : "Reset Appearance to Inherited",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "enumeration" : [
+              {
+                "title" : "Terminal",
+                "value" : "terminal"
+              },
+              {
+                "title" : "Browser",
+                "value" : "browser"
+              },
+              {
+                "title" : "Agent Chat",
+                "value" : "agentChat"
+              },
+              {
+                "title" : "New Tab Page",
+                "value" : "newTabPage"
+              }
+            ]
+          },
+          "name" : "kind",
+          "suggestions" : null,
+          "title" : "Kind"
+        },
+        {
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "split",
+          "suggestions" : null,
+          "title" : "Divider"
+        }
+      ],
+      "category" : "pane",
+      "cliName" : "divider insert",
+      "computed" : {
+        "canonical_action_id" : "divider.insertNew",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "DividerActionCatalog",
+      "id" : "divider.insertNew",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "divider",
+        "split",
+        "insert",
+        "new",
+        "between",
+        "pane",
+        "terminal",
+        "browser",
+        "agent",
+        "chat",
+        "tab"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "divider",
+            "folder" : null,
+            "group" : "create",
+            "label" : null,
+            "parent" : null,
+            "rank" : 0,
+            "style" : "choices"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.split.3x1",
+      "targets" : [
+        "workspace"
+      ],
+      "title" : "Insert New",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "split",
+          "suggestions" : null,
+          "title" : "Divider"
+        }
+      ],
+      "category" : "pane",
+      "cliName" : "divider hide",
+      "computed" : {
+        "canonical_action_id" : "divider.hide",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "DividerActionCatalog",
+      "id" : "divider.hide",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "divider",
+        "split",
+        "line",
+        "hide",
+        "invisible",
+        "separator",
+        "border"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "divider",
+            "folder" : null,
+            "group" : "view",
+            "label" : null,
+            "parent" : null,
+            "rank" : 0,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "eye.slash",
+      "targets" : [
+        "workspace"
+      ],
+      "title" : "Hide Divider",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "split",
+          "suggestions" : null,
+          "title" : "Divider"
+        }
+      ],
+      "category" : "pane",
+      "cliName" : "divider show",
+      "computed" : {
+        "canonical_action_id" : "divider.show",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "DividerActionCatalog",
+      "id" : "divider.show",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "divider",
+        "split",
+        "line",
+        "show",
+        "visible",
+        "separator",
+        "border"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "divider",
+            "folder" : null,
+            "group" : "view",
+            "label" : null,
+            "parent" : null,
+            "rank" : 1,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "eye",
+      "targets" : [
+        "workspace"
+      ],
+      "title" : "Show Divider",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false

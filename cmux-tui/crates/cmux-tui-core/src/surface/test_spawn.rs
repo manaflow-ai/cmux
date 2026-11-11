@@ -346,4 +346,48 @@ impl Surface {
         let start = crate::shell_history::ShellMark::CommandStart;
         pty.command_tracker.lock().unwrap().apply(start, 5_000, &mut Line(command));
     }
+
+    /// Notes output at `at_ms`, as the output reader does with the real
+    /// clock, so a test runs minutes of printing in no time.
+    #[cfg(test)]
+    pub(crate) fn note_output_at_for_test(&self, at_ms: u64) {
+        let pty = self.as_pty().expect("a PTY surface");
+        pty.terminal_metadata.lock().unwrap().activity.note_output(at_ms);
+    }
+
+    /// Applies one OSC 7501 report of `state` (the root record of app
+    /// `make`) at `at_ms`, as the terminal parser's callback does: the test
+    /// terminal has no such callback.
+    #[cfg(test)]
+    pub(crate) fn report_program_status_for_test(
+        &self,
+        state: ghostty_vt::ProgramStatusState,
+        at_ms: u64,
+    ) {
+        self.report_program_status_progress_for_test(state, None, at_ms);
+    }
+
+    /// `report_program_status_for_test` with the report's `progress` value.
+    #[cfg(test)]
+    pub(crate) fn report_program_status_progress_for_test(
+        &self,
+        state: ghostty_vt::ProgramStatusState,
+        progress: Option<u8>,
+        at_ms: u64,
+    ) {
+        let pty = self.as_pty().expect("a PTY surface");
+        let report = ghostty_vt::ProgramStatusReport {
+            state,
+            kind: None,
+            progress,
+            id: String::new(),
+            app: "make".into(),
+            title: String::new(),
+            message: String::new(),
+        };
+        pty.program_status_records()
+            .lock()
+            .unwrap()
+            .apply(ghostty_vt::ProgramStatusEvent::Report(report), at_ms);
+    }
 }

@@ -36394,6 +36394,11 @@
           "kind" : "string",
           "name" : "login",
           "required" : false
+        },
+        {
+          "kind" : "string",
+          "name" : "model",
+          "required" : false
         }
       ],
       "cli" : "offered",
@@ -40463,6 +40468,122 @@
       "palette_suggested" : null,
       "title" : "Reset Appearance to Inherited",
       "title_key" : "action.appearance.reset",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "enum",
+          "name" : "kind",
+          "required" : true,
+          "values" : [
+            "terminal",
+            "browser",
+            "agentChat",
+            "newTabPage"
+          ]
+        },
+        {
+          "kind" : "string",
+          "name" : "split",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "divider insert",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "divider"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "divider.insertNew",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.pane",
+        "order" : 102,
+        "title" : "Panes",
+        "title_key" : "category.pane",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Insert New",
+      "title_key" : "action.divider.insertNew",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "split",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "divider hide",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "divider"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "divider.hide",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.pane",
+        "order" : 102,
+        "title" : "Panes",
+        "title_key" : "category.pane",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Hide Divider",
+      "title_key" : "action.divider.hide",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "split",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "divider show",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "divider"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "divider.show",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.pane",
+        "order" : 102,
+        "title" : "Panes",
+        "title_key" : "category.pane",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Divider",
+      "title_key" : "action.divider.show",
       "title_table" : "LayoutActions"
     },
     {
@@ -52989,6 +53110,86 @@
           "visible_when" : {
             "debug_only" : false,
             "feature" : "cloud",
+            "requires" : [
+
+            ]
+          }
+        }
+      ],
+      "implied" : [
+
+      ]
+    },
+    "divider" : {
+      "entries" : [
+        {
+          "choices" : {
+            "argument" : "kind",
+            "more_opens_palette" : false,
+            "values" : [
+              {
+                "title" : "Terminal",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "terminal"
+              },
+              {
+                "title" : "Browser",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "browser"
+              },
+              {
+                "title" : "Agent Chat",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "agentChat"
+              },
+              {
+                "title" : "New Tab Page",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "newTabPage"
+              }
+            ]
+          },
+          "enabled_when" : "can_perform",
+          "id" : "divider.insertNew",
+          "kind" : "choices",
+          "order" : 0,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 1
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "divider.hide",
+          "kind" : "action",
+          "order" : 2,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "divider.show",
+          "kind" : "action",
+          "order" : 3,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
             "requires" : [
 
             ]

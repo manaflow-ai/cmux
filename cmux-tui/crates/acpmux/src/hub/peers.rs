@@ -620,7 +620,12 @@ impl Hub {
     /// Prefix a peer session's summary so it reads as `<peer>/<name>`. A display line the peer
     /// put on a pending ask never reaches a client (`drop_display_lines`): every row a peer's
     /// list or `session_changed` adds goes through here.
+    /// A row that is not an object (a buggy or hostile peer) comes back unchanged: it has no
+    /// receipt, so every caller skips it.
     pub(crate) fn remote_summary(peer: &str, mut summary: Value) -> Value {
+        if !summary.is_object() {
+            return summary;
+        }
         super::drop_display_lines(&mut summary);
         let generation = summary
             .get("sessionReceipt")

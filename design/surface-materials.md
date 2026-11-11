@@ -76,7 +76,7 @@ What the rule means in practice:
 |---|---|---|---|
 | Window backdrop | window-chrome | real glass (regular or clear Liquid Glass, frosted, translucent tint, or opaque by setting) | `Sources/CmuxNextDesign/WindowMaterialView.swift` |
 | Titlebar, toolbar band | window-chrome | clear | `CmuxNextApp/Windows/TitlebarToolbarBand.swift` |
-| Sidebar | window-chrome | clear; real glass when it floats over content | `CmuxNextSidebar/Views/SidebarContainerView.swift` |
+| Sidebar | window-chrome | clear; real glass when it floats over content; the stuck project header's veil is the sidebar tone over a within-window blur | `CmuxNextSidebar/Views/SidebarContainerView.swift`, `SidebarStuckVeilView.swift` |
 | Tab strip | window-chrome | clear; one real glass panel in the glass tab style | `CmuxNextTabs/TabStripView.swift` |
 | Dock backdrop | window-chrome | real glass rim around the terminal's background | `CmuxNextLayout/Views/DockBackdropView.swift` |
 | Browser omnibar | window-chrome | real glass | `CmuxNextBrowser/UI/OmnibarViews.swift` |
