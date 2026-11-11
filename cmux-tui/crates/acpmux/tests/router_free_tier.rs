@@ -27,9 +27,7 @@ fn scratch(tag: &str) -> PathBuf {
     // The pid alone is not unique: rbx lanes share TMPDIR but each has its own PID namespace,
     // so two lanes' test processes can have the same pid, and one test's relay drop then
     // shuts down the other's relay. The start time keeps two runs apart.
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.subsec_nanos());
+    let nanos = unique_nanos() % 1_000_000_000;
     let dir = std::env::temp_dir().join(format!("amxf-{tag}-{}-{nanos:x}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -700,4 +698,19 @@ fn free_tier_an_app_that_leaves_before_the_provider_line_leaves_no_provider_and_
     // The relay closed the replaced provider already; on macOS a shutdown of it is ENOTCONN.
     drop(held);
     drop(relay);
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }

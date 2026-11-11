@@ -591,6 +591,21 @@ fn is_change(event: &notify::Result<notify::Event>, relevant: &dyn Fn(&Path) -> 
 
 #[cfg(test)]
 mod tests {
+    /// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+    /// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+    /// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+    fn unique_nanos() -> u128 {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use std::time::{SystemTime, UNIX_EPOCH};
+        static LAST: AtomicU64 = AtomicU64::new(0);
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+        let (Ok(last) | Err(last)) =
+            LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+        u128::from(now.max(last + 1))
+    }
+
     use std::path::{Path, PathBuf};
     use std::sync::mpsc::{Receiver, channel};
     use std::time::{Duration, Instant};
@@ -705,8 +720,7 @@ mod tests {
     /// back, so its identity did not say that it had no watch (Linux).
     #[test]
     fn a_folder_made_again_is_watched_once_armed_again() {
-        let stamp =
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let stamp = unique_nanos();
         let base = std::env::temp_dir().canonicalize().unwrap();
         let root = base.join(format!("cmux-local-rewatch-{}-{stamp}", std::process::id()));
         let dir = root.join("customize");
@@ -746,8 +760,7 @@ mod tests {
     /// some file systems) gives a same-size save its old modification time.
     #[test]
     fn a_same_size_save_with_the_old_modification_time_changes_the_fingerprint() {
-        let stamp =
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let stamp = unique_nanos();
         let dir =
             std::env::temp_dir().join(format!("cmux-local-reload-{}-{stamp}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();

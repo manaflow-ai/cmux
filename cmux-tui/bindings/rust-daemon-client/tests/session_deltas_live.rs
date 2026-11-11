@@ -17,7 +17,7 @@ use cmux_daemon_client::{
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::mpsc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 const TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -79,7 +79,7 @@ fn a_sidebar_change_arrives_as_its_raw_delta_then_the_typed_delta() {
         return;
     };
     let binary = PathBuf::from(binary);
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let nanos = unique_nanos();
     let session = format!("dc-sdelta-{}-{}", std::process::id(), nanos % 1_000_000);
     let dir = std::env::temp_dir().join(format!("{session}-dir"));
     let state_dir = dir.join("tui");
@@ -142,4 +142,19 @@ fn a_sidebar_change_arrives_as_its_raw_delta_then_the_typed_delta() {
     events_until(&raw_rx, "stopped", |e| *e == DaemonEvent::Stopped);
     let rest = events_until(&plain_rx, "stopped", |e| *e == DaemonEvent::Stopped);
     assert!(!rest.iter().any(|e| matches!(e, DaemonEvent::SessionDelta { .. })), "{rest:?}");
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }

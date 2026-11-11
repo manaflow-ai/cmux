@@ -10,7 +10,6 @@ use std::net::{TcpListener, TcpStream};
 use std::os::unix::fs::{PermissionsExt as _, symlink};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;
 
@@ -21,7 +20,7 @@ struct Dir(PathBuf);
 
 impl Dir {
     fn new(label: &str) -> Self {
-        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let stamp = unique_nanos();
         let path = std::env::temp_dir()
             .join(format!("cmux-gitlab-{label}-{}-{stamp}", std::process::id()));
         std::fs::create_dir_all(&path).unwrap();
@@ -231,4 +230,19 @@ fn a_private_gitlab_repo_clones_and_pushes_with_the_machine_token() {
     assert!(push.status.success(), "{}", String::from_utf8_lossy(&push.stderr));
     assert!(!String::from_utf8_lossy(&push.stderr).contains(TOKEN));
     assert_eq!(git(&bare, &["rev-parse", "main"]), git(&checkout, &["rev-parse", "HEAD"]));
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }

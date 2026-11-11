@@ -40,7 +40,7 @@ fn temp_root(name: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
         "cmux-snapshot-read-{name}-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ))
 }
 
@@ -485,11 +485,7 @@ fn a_snapshot_read_answers_when_an_in_process_terminal_closes_under_it() {
     // A child that writes nothing.
     let quiet = vec!["/bin/sh".into(), "-c".into(), "IFS= read -r line".into()];
     let options = SurfaceOptions { command: Some(quiet), ..SurfaceOptions::default() };
-    let name = format!(
-        "snapshot-close-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-    );
+    let name = format!("snapshot-close-{}-{}", std::process::id(), unique_nanos());
     let mux = Mux::new(name, options);
     mux.new_workspace(Some("kept".into()), Some((80, 24))).unwrap();
     let closed = mux.new_workspace(Some("closed".into()), Some((80, 24))).unwrap();
@@ -526,11 +522,7 @@ fn a_snapshot_read_answers_when_two_in_process_terminals_close_under_it() {
     // A child that writes nothing.
     let quiet = vec!["/bin/sh".into(), "-c".into(), "IFS= read -r line".into()];
     let options = SurfaceOptions { command: Some(quiet), ..SurfaceOptions::default() };
-    let name = format!(
-        "snapshot-two-closes-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-    );
+    let name = format!("snapshot-two-closes-{}-{}", std::process::id(), unique_nanos());
     let mux = Mux::new(name, options);
     mux.new_workspace(Some("kept".into()), Some((80, 24))).unwrap();
     let mut closing_under_the_read = Vec::new();
@@ -778,3 +770,18 @@ fn a_snapshot_read_between_a_commit_and_its_route_publish_shows_the_routes_of_th
 mod route_wait;
 #[cfg(unix)]
 mod window;
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
+}

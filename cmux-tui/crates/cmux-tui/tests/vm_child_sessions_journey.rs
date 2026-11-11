@@ -18,7 +18,7 @@ use std::fs;
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use journey_support::*;
 use serde_json::{Value, json};
@@ -112,7 +112,7 @@ fn ids(reply: &Value) -> Vec<String> {
 #[test]
 fn session_children_journey_lists_follows_and_opens_a_vm_chats_child() {
     // A socket path must stay under SUN_LEN: a short folder under /tmp.
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
+    let stamp = unique_nanos() % 1_000_000_000;
     let root = PathBuf::from("/tmp").join(format!("vcs-{}-{stamp}", std::process::id()));
     fs::create_dir_all(&root).unwrap();
     let root = fs::canonicalize(&root).unwrap();
@@ -204,4 +204,19 @@ fn session_children_journey_lists_follows_and_opens_a_vm_chats_child() {
     let refused = chat_tab(&vm, &store, &other);
     assert_eq!(refused["ok"], false, "{refused}");
     assert_eq!(refused["error_code"], json!("conversation_tab.machine_mismatch"), "{refused}");
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }

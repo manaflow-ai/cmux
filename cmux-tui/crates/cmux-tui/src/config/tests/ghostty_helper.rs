@@ -373,7 +373,7 @@ fn ghostty_defaults_falls_back_to_files_when_helper_is_unavailable() {
     let dir = std::env::temp_dir().join(format!(
         "cmux-tui-ghostty-helper-fallback-{}-{}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     std::fs::create_dir_all(&dir).unwrap();
     let config = dir.join("config");
@@ -395,7 +395,7 @@ fn ghostty_defaults_use_helper_result_before_file_fallback() {
     let dir = std::env::temp_dir().join(format!(
         "cmux-tui-ghostty-helper-result-{}-{}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     std::fs::create_dir_all(&dir).unwrap();
     let config = dir.join("config");
@@ -430,7 +430,7 @@ fn ghostty_defaults_do_not_retry_files_after_helper_timeout() {
     let dir = std::env::temp_dir().join(format!(
         "cmux-tui-ghostty-helper-timeout-{}-{}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     std::fs::create_dir_all(&dir).unwrap();
     let config = dir.join("config");
@@ -444,4 +444,19 @@ fn ghostty_defaults_do_not_retry_files_after_helper_timeout() {
     assert_eq!(defaults.fg, None);
     assert_eq!(defaults.bg, None);
     assert_eq!(defaults.cursor_style, Some(CursorShape::Block));
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }

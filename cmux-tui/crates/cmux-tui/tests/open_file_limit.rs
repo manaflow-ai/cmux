@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use std::os::unix::net::UnixStream;
 
@@ -35,7 +35,7 @@ struct Daemon {
 
 impl Daemon {
     fn start_with_soft_limit(soft: libc::rlim_t) -> Self {
-        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let stamp = unique_nanos();
         let dir = PathBuf::from("/tmp").join(format!("cmux-nofile-{}-{stamp}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let socket = dir.join("mux.sock");
@@ -193,4 +193,19 @@ fn cmux_next_owner_runs_300_terminals_with_a_256_open_file_soft_limit() {
         .map(|pane| pane["tabs"].as_array().map_or(0, Vec::len))
         .sum::<usize>();
     assert!(tabs > TERMINALS, "expected more than {TERMINALS} tabs, found {tabs}");
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }

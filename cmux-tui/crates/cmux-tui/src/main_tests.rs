@@ -272,7 +272,7 @@ fn remote_shutdown_failure_still_stops_the_mux_and_removes_the_socket() {
     let socket_path = std::env::temp_dir().join(format!(
         "cmux-remote-shutdown-{}-{}.sock",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     std::fs::write(&socket_path, b"test socket marker").unwrap();
     let mux = Mux::new("remote-shutdown-failure", SurfaceOptions::default());
@@ -298,7 +298,7 @@ fn normal_server_cleanup_disarms_the_fallback_guard() {
     let socket_path = std::env::temp_dir().join(format!(
         "cmux-normal-shutdown-{}-{}.sock",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     std::fs::write(&socket_path, b"test socket marker").unwrap();
     let mux = Mux::new("normal-shutdown", SurfaceOptions::default());
@@ -595,8 +595,7 @@ fn static_machine_catalog_notices_use_the_selected_locale() {
 
 #[test]
 fn static_machine_creation_does_not_connect_until_selected() {
-    let suffix =
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let suffix = unique_nanos();
     let socket = std::env::temp_dir()
         .join(format!("cmux-unselected-machine-{}-{suffix}.sock", std::process::id()));
     let runtime = MachineRuntime::with_creation_sources(
@@ -795,9 +794,8 @@ fn connection_hub_evicts_least_recently_used_beyond_the_warm_limit() {
 #[test]
 fn unix_provider_uses_the_edge_supplied_bearer() {
     use std::os::unix::net::UnixListener;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
-    let suffix = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let suffix = unique_nanos();
     let socket = std::env::temp_dir()
         .join(format!("cmux-provider-token-{}-{suffix}.sock", std::process::id()));
     let listener = UnixListener::bind(&socket).unwrap();
@@ -1170,4 +1168,19 @@ fn existing_session_reuse_preserves_machine_client_mode() {
         target: config::MachineTargetConfig::Unix { socket: PathBuf::from("/tmp/build-host.sock") },
     });
     assert_eq!(session_client_mode(&config), SessionClientMode::Machines);
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }

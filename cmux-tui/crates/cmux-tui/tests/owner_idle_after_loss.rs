@@ -116,7 +116,7 @@ impl Drop for Owner {
 
 fn scratch(name: &str) -> PathBuf {
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() % 1_000_000;
-    PathBuf::from(format!("/tmp/oil-{name}-{}-{stamp}", std::process::id()))
+    PathBuf::from(format!("/tmp/oil-{name}-{}-{stamp}-{}", std::process::id(), next_id()))
 }
 
 /// The CPU time `ps` reports for `pid`; `None` only once the process is
@@ -318,4 +318,13 @@ fn orphaned_owner_exits_when_its_executables_volume_is_removed() {
         std::thread::sleep(Duration::from_millis(50));
     }
     assert!(used <= SPIN_LIMIT, "the owner used {used:?} of CPU before it exited");
+}
+
+/// A number no other call in this process gets, for a temporary name that must stay short (a Unix
+/// socket path under it has a 103-byte limit). The clock's milliseconds alone gave two parallel
+/// tests one folder.
+fn next_id() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    NEXT.fetch_add(1, Ordering::Relaxed)
 }

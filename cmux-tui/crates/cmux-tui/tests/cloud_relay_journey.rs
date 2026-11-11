@@ -21,7 +21,6 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use journey_support::*;
 use serde_json::json;
@@ -112,7 +111,7 @@ fn relay(
 
 #[test]
 fn a_chat_and_its_dirty_checkout_move_from_one_cloud_vm_to_another() {
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
+    let stamp = unique_nanos() % 1_000_000_000;
     let root = PathBuf::from("/tmp").join(format!("crj-{}-{stamp}", std::process::id()));
     fs::create_dir_all(&root).unwrap();
     let root = fs::canonicalize(&root).unwrap();
@@ -389,7 +388,7 @@ fn a_chat_and_its_dirty_checkout_move_from_one_cloud_vm_to_another() {
 /// Bring Back Local from VM two still merges against the copy's own base, carried to the new path.
 #[test]
 fn a_copied_folder_moved_to_another_vm_still_brings_back() {
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
+    let stamp = unique_nanos() % 1_000_000_000;
     let root = PathBuf::from("/tmp").join(format!("crc-{}-{stamp}", std::process::id()));
     fs::create_dir_all(&root).unwrap();
     let root = fs::canonicalize(&root).unwrap();
@@ -475,4 +474,19 @@ fn walk_names(dir: &Path) -> Vec<String> {
         }
     }
     names
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }

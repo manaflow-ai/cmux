@@ -73,7 +73,7 @@ fn env_remove_drops_an_inherited_value_from_the_child() -> Result<(), Box<dyn st
 #[test]
 fn spawn_sets_pwd_to_the_cwd_path_string_not_its_real_path()
 -> Result<(), Box<dyn std::error::Error>> {
-    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_nanos();
+    let stamp = unique_nanos();
     let root = std::env::temp_dir().join(format!("cmux-pty-pwd-{}-{stamp}", std::process::id()));
     let real = root.join("real");
     let link = root.join("link");
@@ -125,4 +125,19 @@ fn spawn_sets_pwd_to_the_cwd_path_string_not_its_real_path()
     );
     assert_eq!(shown_explicit, explicit, "the caller's PWD did not win");
     Ok(())
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }

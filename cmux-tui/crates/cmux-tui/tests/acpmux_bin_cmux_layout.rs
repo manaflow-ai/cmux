@@ -38,8 +38,7 @@ struct Machine {
 
 impl Machine {
     fn new(name: &str, launcher: impl FnOnce(&Path) -> Vec<PathBuf>) -> Self {
-        let stamp =
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let stamp = unique_nanos();
         // Under /tmp: the daemon's socket path must stay short.
         let dir =
             PathBuf::from("/tmp").join(format!("cmux-bin-{name}-{}-{stamp}", std::process::id()));
@@ -249,4 +248,19 @@ fn w5s_acpmux_bin_with_the_agents_own_env_reaches_its_daemon() {
         out.status.code(),
         String::from_utf8_lossy(&out.stderr)
     );
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }

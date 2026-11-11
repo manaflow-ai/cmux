@@ -31,7 +31,7 @@ mod journey_support;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use journey_support::*;
 use serde_json::{Value, json};
@@ -107,7 +107,7 @@ fn moved_chat_tab(machine: &Machine, session: &str) {
 #[test]
 fn cloud_move_journey_moves_a_dirty_folder_and_its_chat_to_a_personal_cloud_vm() {
     // A socket path must stay under SUN_LEN: a short folder under /tmp.
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
+    let stamp = unique_nanos() % 1_000_000_000;
     let root = PathBuf::from("/tmp").join(format!("cmj-{}-{stamp}", std::process::id()));
     fs::create_dir_all(&root).unwrap();
     let root = fs::canonicalize(&root).unwrap();
@@ -268,7 +268,7 @@ fn advertises(machine: &Machine, capability: &str) -> bool {
 /// manual step; without the bound id it does not.
 #[test]
 fn a_fresh_image_vm_serves_fs_v1_from_the_baked_env_and_the_bound_id() {
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
+    let stamp = unique_nanos() % 1_000_000_000;
     let root = PathBuf::from("/tmp").join(format!("cmf-{}-{stamp}", std::process::id()));
     fs::create_dir_all(&root).unwrap();
     let root = fs::canonicalize(&root).unwrap();
@@ -384,7 +384,7 @@ fn restart_daemon(machine: &Machine) {
 /// leaving it frozen or running in two places.
 #[test]
 fn cloud_move_resolves_a_lost_finish_after_the_vm_daemon_restarts() {
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
+    let stamp = unique_nanos() % 1_000_000_000;
     let root = PathBuf::from("/tmp").join(format!("cmr-{}-{stamp}", std::process::id()));
     fs::create_dir_all(&root).unwrap();
     let root = fs::canonicalize(&root).unwrap();
@@ -446,4 +446,19 @@ fn cloud_move_resolves_a_lost_finish_after_the_vm_daemon_restarts() {
     let unknown = vm.rpc(json!({"id": 18, "cmd": "agent-transfer-receive-abort",
                                 "receive_id": "rcv-never-made-here"}));
     assert_eq!(unknown["error_code"], json!("agent_transfer.unknown_receive"), "{unknown}");
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }

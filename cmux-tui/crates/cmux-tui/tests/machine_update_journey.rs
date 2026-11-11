@@ -21,7 +21,6 @@ mod journey_support;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use journey_support::*;
 use serde_json::{Value, json};
@@ -31,7 +30,7 @@ const NEWER_VERBS: &str = "fs-v1,agent-transfer-v1,access-request-v1";
 
 /// A short folder under /tmp: a socket path must stay under SUN_LEN.
 fn journey_root(tag: &str) -> (PathBuf, Cleanup) {
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
+    let stamp = unique_nanos() % 1_000_000_000;
     let root = PathBuf::from("/tmp").join(format!("{tag}-{}-{stamp}", std::process::id()));
     fs::create_dir_all(&root).unwrap();
     let root = fs::canonicalize(&root).unwrap();
@@ -794,4 +793,19 @@ fn machine_update_apply_step_refuses_before_changing_anything() {
         "{outcome:?}"
     );
     unchanged("another update holding the lock");
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }

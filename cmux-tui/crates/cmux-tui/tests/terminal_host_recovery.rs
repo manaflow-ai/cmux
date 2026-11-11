@@ -72,7 +72,7 @@ struct RecoveryHarness {
 
 impl RecoveryHarness {
     fn start(name: &str) -> Self {
-        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let stamp = unique_nanos();
         let dir = PathBuf::from("/tmp")
             .join(format!("cmux-terminal-host-{name}-{}-{stamp}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
@@ -153,7 +153,7 @@ impl RecoveryHarness {
     }
 
     fn start_unstarted(name: &str) -> Self {
-        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let stamp = unique_nanos();
         let dir = PathBuf::from("/tmp")
             .join(format!("cmux-terminal-host-{name}-{}-{stamp}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
@@ -5462,4 +5462,19 @@ fn restart_with_many_live_terminals_answers_within_budget() {
         bound.as_millis(),
         all_running.as_millis(),
     );
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }

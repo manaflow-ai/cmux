@@ -617,7 +617,7 @@ fn config_path_prefers_cmux_tui_json_and_falls_back_to_legacy_mux_json() {
     let dir = std::env::temp_dir().join(format!(
         "cmux-tui-config-path-test-{}-{}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let config_dir = dir.join("cmux");
     std::fs::create_dir_all(&config_dir).unwrap();
@@ -695,4 +695,19 @@ fn browser_capture_config_validates_bounds() {
     let _ = std::fs::remove_file(&path);
     assert_eq!(config.browser.max_capture_megapixels, Browser::default().max_capture_megapixels);
     assert_eq!(config.browser.capture_scale, None);
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }
