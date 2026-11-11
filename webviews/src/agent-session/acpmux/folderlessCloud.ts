@@ -91,6 +91,18 @@ export function chatFolderFace(cwd: string | undefined, cloud: boolean): { state
   return folder ? { state, name: projectLabel(folder) } : { state };
 }
 
+/// A started Cloud chat still in the fresh folder its machine made for it: the chip names that
+/// folder as the machine has it (`/home/cmux/chats/s-1` reads "s-1"), never No folder: the chat
+/// exists and works there. Undefined for an unsent chat (No folder is its valid start) and for any
+/// other folder, which the chip names itself.
+export function startedCloudFolderName(
+  cwd: string | undefined,
+  { cloud, started }: { cloud: boolean; started: boolean },
+): string | undefined {
+  if (!started || !cloud || !isCloudChatFolder(cwd)) return undefined;
+  return projectLabel(cwd!.replace(/\/+$/, ""));
+}
+
 /// What the folder chip opens:
 /// - `localFolders`: this Mac's folders and Add folder… (a new chat that starts here, or a Cloud
 ///   start not sent yet, whose picked folder the start copies to the machine: cloudRun.ts

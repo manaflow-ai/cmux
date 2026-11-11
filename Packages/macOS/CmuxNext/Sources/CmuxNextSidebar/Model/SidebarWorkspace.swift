@@ -147,6 +147,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// Nobody named the workspace and its title says nothing (the daemon's default name, or a
     /// terminal in the home folder): the row reads quiet while idle (`WorkspaceRowView.isQuiet`).
     public var isUnnamed = false
+    /// Its front tab is a New Tab page whose Send starts a Cloud chat (`AgentCloudStartTitles`): the row draws the
+    /// cloud mark from the Send, as the chat's own row on its machine does once it opens (``WorkspaceRowContent/runsInCloud``).
+    public var startsInCloud = false
     /// Archived in the sidebar document (`extra.archived`, or under an archived group): the row
     /// draws dimmed at the end of its list (plans/cmux-next/archiving-DESIGN.md). Set by `arrange`.
     public var isArchived = false

@@ -363,8 +363,7 @@ fn job_file(session: &str, repo: &str, reference: Option<&str>) -> String {
 /// `cloud repo add`'s answer: the attached repository, or its refusal (`code`, `message`, and
 /// for `repo.needs_github` the link that connects GitHub).
 fn attached(text: &str) -> Result<Value, Value> {
-    let value = text.lines().rev().find_map(|line| serde_json::from_str::<Value>(line.trim()).ok());
-    match value {
+    match last_json(text) {
         Some(value) if value.get("code").is_some() => {
             let code = value.get("code").and_then(Value::as_str).unwrap_or("chat_cd.repo_failed");
             let message =
@@ -378,6 +377,25 @@ fn attached(text: &str) -> Result<Value, Value> {
             json!({"output": text.trim()}),
         )),
     }
+}
+
+/// The last JSON value of a section: the whole text when it is one value (`acp session fork
+/// --json` prints its answer pretty, over many lines), else the last value that starts a line
+/// and runs to the end (a warning the command wrote on stderr, `2>&1`, may come first), else
+/// the last line that is one value on its own.
+fn last_json(text: &str) -> Option<Value> {
+    if let Ok(value) = serde_json::from_str::<Value>(text.trim()) {
+        return Some(value);
+    }
+    let starts = text.match_indices('\n').map(|(at, _)| at + 1).chain(std::iter::once(0));
+    let mut starts = starts.filter(|at| text[*at..].starts_with(['{', '['])).collect::<Vec<_>>();
+    starts.sort_unstable();
+    starts
+        .iter()
+        .find_map(|at| serde_json::from_str::<Value>(text[*at..].trim()).ok())
+        .or_else(|| {
+            text.lines().rev().find_map(|line| serde_json::from_str::<Value>(line.trim()).ok())
+        })
 }
 
 /// `acp session fork SESSION --cwd FOLDER` on the machine: the new session's id.
@@ -395,10 +413,7 @@ fn fork(
     let stdout = cloud_start_chat::exec(runner, machine, &script)?;
     let found = sections(&stdout);
     let text = found.get("fork").map_or("", String::as_str);
-    let new = text
-        .lines()
-        .rev()
-        .find_map(|line| serde_json::from_str::<Value>(line.trim()).ok())
+    let new = last_json(text)
         .and_then(|value| value.get("sessionId").and_then(Value::as_str).map(str::to_owned));
     match new {
         Some(new) if found.get("exit").map(|code| code.trim()) == Some("0") => Ok(new),

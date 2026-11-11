@@ -223,6 +223,109 @@ pub(super) fn send_existing(
     report(&send_to(&mut runner, &request, machine_id, session), global.output)
 }
 
+/// The newest records `cmux chat read` reads of a chat on a Cloud VM, in one exec.
+pub(super) const READ_EVENTS: u64 = 2000;
+
+/// `cmux chat read SESSION` for a chat on a Cloud VM (chat_send.rs): its transcript after `after`, at most
+/// `limit` items, in `cmux chat read`'s page shape, from the records the machine's acpmux prints.
+pub(super) fn read_existing(
+    global: &GlobalArgs,
+    machine_id: &str,
+    session: &str,
+    after: u64,
+    limit: usize,
+) -> i32 {
+    let mut runner = SelfRunner { globals: forwarded_globals(global), global: global.clone() };
+    match read_on(&mut runner, machine_id, session, after, limit) {
+        Outcome::Done(page) => super::wire::print_local_success(&page, global.output),
+        Outcome::Failed { error, exit } => super::wire::print_local_error(&error, global.output, exit),
+    }
+}
+
+/// [`read_existing`]'s read: `acp tail SESSION --last N` on the machine (one record per line, no attach,
+/// so reading never marks the chat seen), turned into a page here.
+pub(super) fn read_on(
+    runner: &mut dyn Runner,
+    machine_id: &str,
+    session: &str,
+    after: u64,
+    limit: usize,
+) -> Outcome {
+    let script = format!(
+        "{GUEST_PRELUDE}echo @@events; \"$c\" acp tail {sid} --last {READ_EVENTS} 2>&1; echo \"@@exit $?\"",
+        sid = shell_quote(session),
+    );
+    let stdout = match exec(runner, machine_id, &script) {
+        Ok(stdout) => stdout,
+        Err(error) => return Outcome::Failed { error, exit: 1 },
+    };
+    let found = sections(&stdout);
+    let text = found.get("events").map_or("", String::as_str);
+    if found.get("exit").map(|code| code.trim()) != Some("0") {
+        return failed(
+            "chat.read_failed",
+            format!(
+                "chat {session} on vm:{machine_id} could not be read: {}",
+                super::wire::sanitize_remote_text(text.trim())
+            ),
+            json!({"machine_id": machine_id, "session_id": session}),
+            1,
+        );
+    }
+    let events: Vec<Value> = text
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line.trim()).ok())
+        .filter(|event| event.get("seq").and_then(Value::as_u64).is_some())
+        .collect();
+    let first = events.first().and_then(|event| event.get("seq")).and_then(Value::as_u64);
+    let more_before = events.len() as u64 >= READ_EVENTS && first.is_some_and(|seq| seq > 1);
+    let mut page = super::agents::chat::page_of_events(session, &events, after, limit, more_before);
+    page.set("machine_id", json!(machine_id));
+    Outcome::Done(page)
+}
+
+/// `cmux chat wait SESSION` for a chat on a Cloud VM (chat_send.rs): waits until its turn ends and answers its
+/// reply, as `cmux chat send SESSION TEXT --wait` does after its send (the same exec wait, [`wait_turn`]).
+pub(super) fn wait_existing(
+    global: &GlobalArgs,
+    machine_id: &str,
+    session: &str,
+    timeout: Duration,
+) -> i32 {
+    let mut runner = SelfRunner { globals: forwarded_globals(global), global: global.clone() };
+    report(&wait_on(&mut runner, machine_id, session, timeout), global.output)
+}
+
+/// [`wait_existing`]'s wait: the newest turn (any seq after 0), within `timeout`.
+pub(super) fn wait_on(
+    runner: &mut dyn Runner,
+    machine_id: &str,
+    session: &str,
+    timeout: Duration,
+) -> Outcome {
+    let request = Request {
+        prompt: None,
+        agent: String::new(),
+        cwd: None,
+        from_folder: None,
+        environment: None,
+        machine: Machine::Target(machine_id.to_owned()),
+        wait: true,
+        timeout: timeout.min(MAX_TIMEOUT),
+        make_room: false,
+        allow_large: false,
+    };
+    let answer = json!({
+        "machine_id": machine_id,
+        "target": format!("machine:{machine_id}"),
+        "session_id": session,
+        "follow_up": follow_ups(machine_id, session),
+    });
+    let began = runner.now();
+    let deadline = Deadline(Some(began.checked_add(request.timeout).unwrap_or(began)));
+    wait_turn(runner, &request, machine_id, session, (0, None), answer, deadline)
+}
+
 /// [`send_existing`]'s run: the prompt (step 4) and, with `--wait`, the turn (step 5), in one `--timeout`
 /// deadline from its start; a step that answered after it is that phase's timeout, as in [`run`].
 fn send_to(runner: &mut dyn Runner, request: &Request, machine_id: &str, session: &str) -> Outcome {
@@ -1554,7 +1657,21 @@ fn wait_turn(
         if let Some(turn) = turn.as_ref().filter(|turn| turn.ended) {
             answer.set("turn", turn.value.clone());
             let read = polled.get("lastexit").map(|code| code.trim()) == Some("0");
-            let Some(text) = reply(polled.get("last")).filter(|_| read) else {
+            let text = reply(polled.get("last")).filter(|_| read);
+            // A failed turn is `chat.turn_failed` with its own reason, whether or not a reply was
+            // written before it failed (a failed turn often has none to read).
+            if turn.failed() {
+                if let Some(text) = text {
+                    answer.set("reply", json!(text));
+                }
+                return Outcome::Failed {
+                    error: json!({"code": "chat.turn_failed",
+                                  "message": turn_failure_message(&turn),
+                                  "details": answer, "retryable": false}),
+                    exit: 1,
+                };
+            }
+            let Some(text) = text else {
                 return failed(
                     "chat.read_failed",
                     "the turn ended, but its reply could not be read; read it with the \
@@ -1564,14 +1681,6 @@ fn wait_turn(
                 );
             };
             answer.set("reply", json!(text));
-            if turn.failed() {
-                return Outcome::Failed {
-                    error: json!({"code": "chat.turn_failed",
-                                  "message": format!("the turn ended {}", turn.status),
-                                  "details": answer, "retryable": false}),
-                    exit: 1,
-                };
-            }
             return Outcome::Done(answer);
         }
         // `acp wait` exits 0 (ended), 2 (a permission) or 3 (its own timeout); anything else
@@ -1725,6 +1834,16 @@ impl PushedTurn {
                 exit: 1,
             };
         }
+        if status == "failed" {
+            if let Some(text) = self.reply {
+                answer.set("reply", json!(text));
+            }
+            return Outcome::Failed {
+                error: json!({"code": "chat.turn_failed", "message": format!("the turn ended {}", self.stop),
+                              "details": answer, "retryable": false}),
+                exit: 1,
+            };
+        }
         let Some(text) = self.reply else {
             return failed(
                 "chat.read_failed",
@@ -1734,14 +1853,20 @@ impl PushedTurn {
             );
         };
         answer.set("reply", json!(text));
-        if status == "failed" {
-            return Outcome::Failed {
-                error: json!({"code": "chat.turn_failed", "message": format!("the turn ended {}", self.stop),
-                              "details": answer, "retryable": false}),
-                exit: 1,
-            };
-        }
         Outcome::Done(answer)
+    }
+}
+
+/// What a failed turn in `acp history` says about its end: its own error (a string, or an
+/// object's `message`), else its status (`the turn ended failed`).
+fn turn_failure_message(turn: &Turn) -> String {
+    let error = turn.value.get("error");
+    let said = error.and_then(Value::as_str).or_else(|| {
+        error.and_then(|error| error.get("message")).and_then(Value::as_str)
+    });
+    match said.map(str::trim).filter(|said| !said.is_empty()) {
+        Some(said) => format!("the turn ended {}: {}", turn.status, super::wire::sanitize_remote_text(said)),
+        None => format!("the turn ended {}", turn.status),
     }
 }
 
@@ -2389,7 +2514,7 @@ mod internal;
 use folder::local_folder;
 use internal::link_wait;
 mod support;
-use support::{at, folder_kind, last_turn, reply, session_cwd, words};
+use support::{Turn, at, folder_kind, last_turn, reply, session_cwd, words};
 // `cmux chat cd` reads the same guest script sections.
 pub(in crate::cli) use support::sections;
 

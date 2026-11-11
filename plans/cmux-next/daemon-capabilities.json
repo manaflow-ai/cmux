@@ -21,6 +21,7 @@
     "agent-session-start-keyed-reason-v1",
     "agent-session-start-model-v1",
     "agent-session-start-no-cwd-v1",
+    "agent-session-start-permission-mode-v1",
     "agent-session-start-v1",
     "agent-session-start-vm-kind-v1",
     "agent-session-steer-v1",

@@ -30,6 +30,8 @@ public struct WorkspaceAutoNameReader {
     /// The title an unnamed workspace whose shell idles at its home reads (a Cloud machine's "Terminal",
     /// `SidebarMapping.homeShellName`); nil for a machine whose home folder names its rows.
     let homeShellTitle: @MainActor (WorkspaceModel) -> String?
+    /// The title a Cloud chat start lends the New Tab page that sent it, and the chat it opened (`AgentCloudStartTitles`).
+    let cloudStarts: AgentCloudStartTitles
 
     /// - Parameters:
     ///   - enabled: `workspaces.autoName`.
@@ -41,11 +43,13 @@ public struct WorkspaceAutoNameReader {
     ///   - hold: the names rows keep while their front tab's is unknown; the
     ///     app's one (`AppServices.autoNameHold`), since it builds a reader per row it maps.
     ///   - homeShellTitle: what an unnamed workspace whose shell idles at its home reads, by its machine.
+    ///   - cloudStarts: the titles of Cloud chat starts (the app's `AppServices.cloudStartTitles`).
     public init(enabled: @escaping @MainActor () -> Bool, isNewTabPage: @escaping @MainActor (TabModel) -> Bool,
                 livePage: @escaping @MainActor (TabModel) -> LivePage?, incognitoTitle: @escaping @MainActor (TabModel) -> String??,
                 terminal: @escaping @MainActor (TabModel) -> NewWorkspaceName.Tab, turns: AgentTurnStateStore = .shared,
                 hold: WorkspaceAutoNameHold, allowsLegacyDefaults: @escaping @MainActor (WorkspaceModel) -> Bool = { _ in true },
-                homeShellTitle: @escaping @MainActor (WorkspaceModel) -> String? = { _ in nil }) {
+                homeShellTitle: @escaping @MainActor (WorkspaceModel) -> String? = { _ in nil },
+                cloudStarts: AgentCloudStartTitles = AgentCloudStartTitles()) {
         self.enabled = enabled
         self.isNewTabPage = isNewTabPage
         self.livePage = livePage
@@ -55,6 +59,7 @@ public struct WorkspaceAutoNameReader {
         self.hold = hold
         self.allowsLegacyDefaults = allowsLegacyDefaults
         self.homeShellTitle = homeShellTitle
+        self.cloudStarts = cloudStarts
     }
 
     /// The rule as `workspaces.autoName` and `workspaces.autoName.variant` set it now.
@@ -103,6 +108,8 @@ public struct WorkspaceAutoNameReader {
                                label: candidate.isEmpty ? nil : candidate)
                 ?? NewWorkspaceName.clean(SidebarMapping.shortSessionName(sessionName))
                 ?? turns.title(for: session).flatMap { AgentTurnStates.promptGist($0) }.flatMap(NewWorkspaceName.clean)
+                // A Cloud chat this Mac started reads as its first prompt until its chat has a title here (`AgentCloudStartTitles`).
+                ?? cloudStarts.title(of: face).flatMap(NewWorkspaceName.clean)
         }
         let legacyDefaults = self.allowsLegacyDefaults(workspace)
         let label = rule.label(name: workspace.name, title: workspace.title, front: front(tab), anchor: work.flatMap { front($0) },
@@ -114,7 +121,9 @@ public struct WorkspaceAutoNameReader {
             hold.forget(workspace: workspace.id)
             return label
         }
-        return hold.settle(workspace: workspace.id, namer: Self.namer(tab, work: work), label: label)
+        // A Cloud start's title is held apart from the page's own (none): a failed start's page never keeps it.
+        let namer = Self.namer(tab, work: work) + (cloudStarts.startsInCloud(face) ? "|cloud-start" : "")
+        return hold.settle(workspace: workspace.id, namer: namer, label: label)
     }
 
     /// What names a row: the tab (with the chat it shows, so a new chat in the same tab starts
@@ -129,7 +138,8 @@ public struct WorkspaceAutoNameReader {
     /// conversation tab gives nothing (nil): its record is titled `about:blank`.
     public func front(_ tab: TabModel) -> WorkspaceAutoName.Front? {
         if let session = tab.agentSession {
-            if isNewTabPage(tab) { return .chat(userName: nil, title: nil) }
+            // A page whose Send starts a Cloud chat reads as that chat from the Send (`AgentCloudStartTitles`).
+            if isNewTabPage(tab) { return .chat(userName: nil, title: cloudStarts.title(of: tab)) }
             return .chat(userName: tab.name, title: turns.title(for: session), generatedTitle: turns.generatedTitle(for: session))
         }
         if tab.kind == .conversation || tab.page != nil || tab.appTab != nil { return nil }

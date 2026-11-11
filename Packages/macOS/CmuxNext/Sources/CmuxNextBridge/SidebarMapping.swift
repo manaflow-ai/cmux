@@ -68,11 +68,14 @@ public struct SidebarMapping {
         /// The page's sound (a browser tab playing sound or muted); the row
         /// merges its tabs' (`SidebarWorkspaceAudio.merge`).
         public var audio: SidebarWorkspaceAudio?
+        /// The front tab is a New Tab page whose Send starts a Cloud chat (``AgentCloudStartTitles``): the row's cloud mark.
+        public var startsInCloud = false
 
-        public init(title: String? = nil, favicon: SidebarFavicon? = nil, audio: SidebarWorkspaceAudio? = nil) {
+        public init(title: String? = nil, favicon: SidebarFavicon? = nil, audio: SidebarWorkspaceAudio? = nil, startsInCloud: Bool = false) {
             self.title = title
             self.favicon = favicon
             self.audio = audio
+            self.startsInCloud = startsInCloud
         }
     }
 
