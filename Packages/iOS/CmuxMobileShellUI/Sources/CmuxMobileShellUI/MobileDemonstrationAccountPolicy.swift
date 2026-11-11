@@ -31,6 +31,12 @@ struct MobileDemonstrationAccountPolicy: Equatable {
 
     /// Whether a pairing presentation may open. Attach-ticket version approval
     /// is not a pairing entry point and is never refused.
+    /// What's New announces connection methods and Mac requirements the
+    /// demonstration account cannot use.
+    func whatsNewPresentation(_ policy: MobileWhatsNewPresentationPolicy) -> MobileWhatsNewPresentationPolicy {
+        policy
+    }
+
     func allows(_ presentation: PairingPresentation) -> Bool {
         if case .versionApproval = presentation { return true }
         return allowsPairing

@@ -40,6 +40,18 @@ import Testing
         #expect(policy.allows(.versionApproval))
     }
 
+    /// The 2026-11-10 reviewer run: What's New opened right after onboarding
+    /// and told the reviewer to choose Tailscale Only (and to use a BETA).
+    @Test func demonstrationAccountNeverSeesWhatsNewAtLaunch() {
+        let demo = MobileDemonstrationAccountPolicy(isDemonstrationAccount: true)
+        #expect(demo.whatsNewPresentation(MobileWhatsNewPresentationPolicy()).suppressLaunchPresentation)
+        let other = MobileDemonstrationAccountPolicy(isDemonstrationAccount: false)
+        #expect(!other.whatsNewPresentation(MobileWhatsNewPresentationPolicy()).suppressLaunchPresentation)
+        #expect(other.whatsNewPresentation(
+            MobileWhatsNewPresentationPolicy(suppressLaunchPresentation: true)
+        ).suppressLaunchPresentation)
+    }
+
     @Test func everyOtherAccountKeepsTheLiveFlow() {
         let policy = MobileDemonstrationAccountPolicy(isDemonstrationAccount: false)
         for phase in [OnboardingConnectionPhase.idle, .searching, .fallback, .ready] {
