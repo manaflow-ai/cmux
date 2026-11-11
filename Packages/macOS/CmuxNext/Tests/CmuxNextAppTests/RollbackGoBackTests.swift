@@ -9,7 +9,7 @@ import Testing
 /// swap cut short is tidied at launch.
 @Suite(.serialized) struct RollbackGoBackTests {
     /// The Keychain key that signs records, in the app (``KeptRecordKey``).
-    static let key = SymmetricKey(size: .bits256)
+    nonisolated static let key = SymmetricKey(size: .bits256)
 
     private static func scratch() throws -> URL {
         let root = FileManager.default.temporaryDirectory.appending(path: "RollbackGoBackTests-\(UUID().uuidString)", directoryHint: .isDirectory)

@@ -9,7 +9,7 @@ import Testing
 /// check. The seal is taken again right before the swap moves the bundle into place. A build whose
 /// check or first run fails is not tried again at every launch, only once another build runs.
 @Suite(.serialized) struct KeptRecordTrustTests {
-    private static let key = SymmetricKey(size: .bits256)
+    private nonisolated static let key = SymmetricKey(size: .bits256)
 
     private nonisolated final class Counter: @unchecked Sendable {
         private let lock = NSLock()
