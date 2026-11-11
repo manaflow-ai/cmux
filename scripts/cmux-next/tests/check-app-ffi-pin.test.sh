@@ -583,6 +583,30 @@ refuse_build "a build script that runs a command" "uses Command" \
   'printf "fn main() { let _ = std::process::Command::new(\"git\").args([\"rev-parse\", \"HEAD\"]).output(); }\n" > "$hole/build.rs"'
 refuse_build "a build script that lists a directory" "uses read_dir" \
   'printf "fn main() { for _ in std::fs::read_dir(\"data\").unwrap() {} }\n" > "$hole/build.rs"'
+# A build script that reads an environment variable cargo does not set builds from what no input holds, so it refuses
+# (ffi-pin-rev-5); so does a read whose name is no literal, or a read of them all.
+for case in 'fn main() { let _ = std::env::var("MY_FLAG"); }|MY_FLAG (var), which cargo does not set' \
+  'use std::env;|fn main() { let _ = env::var("MY_FLAG"); }|MY_FLAG (var), which cargo does not set' \
+  'fn main() { let _ = env!("MY_FLAG"); }|MY_FLAG (env!), which cargo does not set' \
+  'fn main() { let _ = option_env!("MY_FLAG"); }|MY_FLAG (option_env!), which cargo does not set' \
+  'fn main() { let _ = std::env::var_os("MY_FLAG"); }|MY_FLAG (var_os), which cargo does not set' \
+  'fn main() { for _ in std::env::vars() {} }|every environment variable (vars)' \
+  'fn main() { let _ = std::env::var(format!("MY_{}", 1)); }|whose name is no literal (var)' \
+  'fn main() { let _ = env!(concat!("MY_", "FLAG")); }|whose name is no literal (env!)' \
+  'fn main() { let _ = ["MY_FLAG"].map(std::env::var); }|whose name is no literal (var)' \
+  'use std::env::var as get;|fn main() { let _ = get("MY_FLAG"); }|whose name is no literal (an alias of var)'; do
+  body="${case%|*}"
+  body="${body//|/$'\n'}"
+  refuse_build "a build script with ${body//$'\n'/ }" "${case##*|}" 'printf "%s\n" "$body" > "$hole/build.rs"'
+done
+# What cargo sets for a build script is allowed (CARGO_*, OUT_DIR, TARGET and the rest), in every form.
+printf '%s\n' 'use std::env::{self, var};' \
+  'fn main() { let _ = env!("CARGO_MANIFEST_DIR"); let _ = std::env::var("OUT_DIR"); let _ = var("TARGET"); }' \
+  'fn more() { let _ = env::var_os("CARGO_CFG_TARGET_OS"); let _ = option_env!("RUSTC_WRAPPER"); }' > "$hole/build.rs"
+git -C "$repo" add -A
+git -C "$repo" commit -qm "a build script that reads what cargo sets"
+pin_head "pin the cargo variables" || fail "a build script reading cargo's variables refused: $(check_out)"
+git -C "$repo" reset -q --hard "$before_holes"
 printf 'pub fn here(p: &std::path::Path) -> Option<&std::path::Path> { p.parent() }\n' >> "$hole/src/lib.rs"
 git -C "$repo" commit -qam "a library source that uses .parent()"
 pin_head "pin the library .parent()" || fail "a library source's .parent() refused: $(check_out)"
@@ -605,6 +629,15 @@ hole_case "a path dependency inside the crate's tests/" stale cmux-tui/crates/cm
 # crate too) refuse.
 hole_case "a literal naming a file in another case" "refuse:another case" - \
   'echo c > "$repo/cmux-tui/shared/case.txt"; printf "pub const C: &str = include_str!(\"../../../shared/CASE.txt\");\n" >> "$hole/src/lib.rs"'
+# The whole found name is tested, not only its last part (ffi-pin-rev-5): a directory part in another case refuses
+# when the file name has no '.'.
+hole_case "a literal naming a path whose directory is in another case" "refuse:another case" - \
+  'echo d > "$repo/cmux-tui/shared/data"; printf "pub const D: &str = include_str!(\"../../../SHARED/data\");\n" >> "$hole/src/lib.rs"'
+# A bare word with no '/' and no '.' is no path, even where git has it in another case (cmux-hole/src as "SRC").
+printf 'pub const BARE: &str = "SRC";\n' >> "$hole/src/lib.rs"
+git -C "$repo" commit -qam "a bare word git has in another case"
+pin_head "pin the bare word" || fail "a bare word that git has in another case refused: $(check_out)"
+git -C "$repo" reset -q --hard "$before_holes"
 hole_case "a literal naming a file through a symlinked directory" "refuse:symlink" - \
   'mkdir -p "$repo/cmux-tui/shared2"; echo s > "$repo/cmux-tui/shared2/s.txt"; ln -s ../shared2 "$repo/cmux-tui/shared/dirlink"; printf "pub const S: &str = include_str!(\"../../../shared/dirlink/s.txt\");\n" >> "$hole/src/lib.rs"'
 hole_case "a literal naming a symlink outside the crates" "refuse:symlink" - \
@@ -646,6 +679,21 @@ hole_case "a rustc-wrapper a cargo config names" stale cmux-tui/crates/tools/wra
   'mkdir -p "$repo/cmux-tui/crates/.cargo" "$repo/cmux-tui/crates/tools"; echo "exec rustc" > "$repo/cmux-tui/crates/tools/wrap.sh"; printf "[build]\nrustc-wrapper = \"tools/wrap.sh\"\n" > "$repo/cmux-tui/crates/.cargo/config"'
 hole_case "a file build-app-ffi.sh names" stale cmux-tui/ffi-flags.txt \
   'echo "-C x" > "$repo/cmux-tui/ffi-flags.txt"; printf "flags=\"\$(cat \"\$repo_root/cmux-tui/ffi-flags.txt\")\"\n" > "$repo/scripts/cmux-next/build-app-ffi.sh"'
+# The pin files are never inputs (ffi-pin-rev-5): app-ffi-pin.json and Package.swift are the pin, not build sources.
+# build-app-ffi.sh's header names the pin file; were that an input, every re-pin commit would stale its own pin.
+printf '# Pinned in Packages/macOS/CmuxNext/app-ffi-pin.json, which Packages/macOS/CmuxNext/Package.swift reads\n' \
+  > "$repo/scripts/cmux-next/build-app-ffi.sh"
+git -C "$repo" add -A
+git -C "$repo" commit -qm "build-app-ffi.sh names the pin files"
+pin_head "pin build-app-ffi.sh naming the pin files" \
+  || fail "a re-pin staled its own pin when build-app-ffi.sh names the pin files: $(check_out)"
+out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh --list-inputs 2>&1)" || fail "--list-inputs failed: $out"
+[[ "$out" == *":(literal)scripts/cmux-next/build-app-ffi.sh"* ]] || fail "--list-inputs lost build-app-ffi.sh: $out"
+[[ "$out" != *"app-ffi-pin.json"* && "$out" != *"Package.swift"* ]] || fail "--list-inputs prints a pin file: $out"
+git -C "$repo" reset -q --hard "$before_holes"
+# A named directory that holds the pin files is an input without them.
+hole_case "a build-app-ffi.sh that names the pin's directory" stale Packages/macOS/CmuxNext/README.md \
+  'printf "# Packages/macOS/CmuxNext holds the pin\n" > "$repo/scripts/cmux-next/build-app-ffi.sh"'
 hole_case "the release workflow" stale .github/workflows/app-ffi-release.yml \
   'mkdir -p "$repo/.github/workflows"; echo "name: app FFI release" > "$repo/.github/workflows/app-ffi-release.yml"'
 # S6: a #[path] in an inline module resolves from that module's directory, as rustc does.
@@ -952,5 +1000,31 @@ if out="$(check_at "$((first_at + 4000))" --stale-grace 3600)"; then
 fi
 [[ "$out" == *"error: the pin has been behind for 66 min"* ]] || fail "the union grace lost the first change: $out"
 [[ "$out" == *"cmux-tui/shared/union-grace.txt"* ]] || fail "the overdue report does not name the file only the pin names: $out"
+
+# The grace is dated from the oldest committer date of the commits that left the pin behind, not from the first one
+# in history order (ffi-pin-rev-5): a rebased or cherry-picked commit can carry an older date than its parent.
+git -C "$repo" checkout -q -f "$rb~1"
+order_at="$(( $(git -C "$repo" show -s --format=%ct HEAD) + 60 ))"
+echo "// dated later" >> "$repo/cmux-tui/crates/cmux-rd-core/src/lib.rs"
+GIT_COMMITTER_DATE="@$((order_at + 3000)) +0000" git -C "$repo" commit -qam "rd-core, first in history, dated later"
+echo "// dated earlier" >> "$repo/cmux-tui/crates/cmux-rd-core/src/lib.rs"
+GIT_COMMITTER_DATE="@$order_at +0000" git -C "$repo" commit -qam "rd-core, second in history, dated earlier"
+if out="$(check_at "$((order_at + 4000))" --stale-grace 3600)"; then
+  fail "a pin behind since the oldest date 66 minutes ago passed: the grace was dated from the first commit in history order: $out"
+fi
+[[ "$out" == *"error: the pin has been behind for 66 min"* ]] || fail "the grace was not dated from the oldest date: $out"
+[[ "$out" == *"cmux-tui/crates/cmux-rd-core/src/lib.rs"* ]] || fail "the overdue report does not name rd-core: $out"
+# A commit dated in the future gives no age: the pin would pass as behind with no end, so --stale-grace fails.
+git -C "$repo" checkout -q -f "$rb~1"
+future_at="$(( $(git -C "$repo" show -s --format=%ct HEAD) + 60 ))"
+echo "// dated in the future" >> "$repo/cmux-tui/crates/cmux-rd-core/src/lib.rs"
+GIT_COMMITTER_DATE="@$((future_at + 86400)) +0000" git -C "$repo" commit -qam "rd-core, dated a day ahead"
+if out="$(check_at "$future_at" --stale-grace 3600)"; then
+  fail "a pin behind a commit dated in the future passed --stale-grace: $out"
+fi
+[[ "$out" == *"error: the first commit that left the pin behind is dated in the future"* ]] \
+  || fail "no future-date error: $out"
+[[ "$out" == *"changed since the pinned source $pinned"*"cmux-tui/crates/cmux-rd-core/src/lib.rs"* ]] \
+  || fail "the future-date report lost the stale report: $out"
 
 echo "check-app-ffi-pin.test.sh: ok"
