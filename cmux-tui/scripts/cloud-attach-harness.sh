@@ -1,7 +1,7 @@
 #!/bin/bash
 # The Cloud late-attach harness (cmux-server attach_harness_request).
 # Usage: unshare -rn scripts/cloud-attach-harness.sh TEST_BINARY ATTACH_SECONDS
-# Runs inside `unshare -rn`. A dummy link (NOARP: every packet is dropped)
+# (or sudo -n unshare -n). Runs inside a fresh network namespace. A dummy link (it drops every packet)
 # carries 10.9.9.0/24, so a connect to 10.9.9.1 hangs, as one sent before a
 # fresh machine's network attach. At ATTACH seconds 10.9.9.1 goes onto lo,
 # where a server answers 200; the next SYN connects.

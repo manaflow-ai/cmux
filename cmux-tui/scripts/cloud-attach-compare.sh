@@ -1,13 +1,16 @@
 #!/bin/bash
 # Before/after for the Cloud late-attach harness: the same request against
 # the connect code at BASE (default HEAD~1) and at HEAD, each attach time
-# several times. Needs unprivileged user and network namespaces.
+# several times. Needs a network namespace: unprivileged, or through sudo -n.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 base=${1:-HEAD~1}
 runs=${RUNS:-3}
 file=crates/cmux-server/src/cloud_http_transport.rs
-unshare -rn true || { echo "attach-compare: no user namespaces here"; exit 2; }
+# A user namespace where allowed, else root's (a CI runner's passwordless sudo).
+if unshare -rn true 2>/dev/null; then ns=(unshare -rn)
+elif sudo -n unshare -n true 2>/dev/null; then ns=(sudo -n unshare -n)
+else echo "attach-compare: no network namespace here"; exit 2; fi
 build() { cargo test -p cmux-server --lib --no-run --message-format=json 2>/dev/null |
   python3 -c 'import json,sys
 for l in sys.stdin:
@@ -16,7 +19,7 @@ for l in sys.stdin:
 measure() {
   for attach in 1 4 8 12; do
     for _ in $(seq "$runs"); do
-      echo "attach-compare: $1 attach ${attach}s $(unshare -rn scripts/cloud-attach-harness.sh "$2" "$attach")"
+      echo "attach-compare: $1 attach ${attach}s $("${ns[@]}" scripts/cloud-attach-harness.sh "$2" "$attach")"
     done
   done
 }
