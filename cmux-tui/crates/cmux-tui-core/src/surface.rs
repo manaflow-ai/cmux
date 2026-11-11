@@ -1668,6 +1668,14 @@ impl PtyTerminalRuntime {
 /// This object owns the process, terminal emulator, ordered input/output, and
 /// canonical geometry. Keeping the two identities distinct makes a terminal
 /// projectable into any number of panes without cloning its PTY or VT state.
+///
+/// Lock order (outer first): `Mux::state` -> `geometry` -> `term` ->
+/// `runtime` -> leaf locks (`render`, `taps`, `title`, `mouse_encoders`, ...).
+/// Mux code holds `Mux::state` while it reads `geometry` (`Surface::size`),
+/// and a resize holds `geometry` while it takes `term`. So no path may call a
+/// mux method that takes `Mux::state` (every `emit_terminal_*`,
+/// `mark_output_dirty`) while it holds `term` or `geometry`: collect the event
+/// under the lock, release it, then emit.
 pub struct PtyTerminalRuntime {
     event_surface_id: SurfaceId,
     /// Stable public content identity. This belongs to the terminal runtime,
@@ -7208,9 +7216,9 @@ impl PtySurface {
     /// and the frame worker holds only a weak reference. Building here keeps
     /// the final render frame ordered after the byte taps and before detach.
     fn publish_final_frame(&self) {
-        let mut term = self.term.lock().unwrap();
+        let term = self.term.lock().unwrap();
         let generation = self.render_generation.load(Ordering::Acquire);
-        let _ = self.build_frame_locked(&mut term, generation, true);
+        let _ = self.build_producer_frame(term, generation);
     }
 
     /// Preserve the last hosted frame, then end every live attachment while
@@ -7232,6 +7240,9 @@ impl PtySurface {
         // observe a live terminal or a complete, inert final snapshot.
         self.host_connection_state
             .store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
+        // `SurfaceOutput` takes `Mux::state`, which is ordered before `term`.
+        drop(term);
+        self.mark_output_dirty();
     }
 
     fn mark_output_dirty(&self) {
@@ -7242,7 +7253,25 @@ impl PtySurface {
         }
     }
 
+    /// Build a producer-driven frame, release `term`, then publish
+    /// `SurfaceOutput`. The output event takes `Mux::state`, and Mux code
+    /// holds `Mux::state` while it reads `Surface::size` (geometry), while a
+    /// resize holds geometry and then takes `term`. So the event must not be
+    /// sent while the terminal lock is held.
+    fn build_producer_frame(
+        &self,
+        mut term: std::sync::MutexGuard<'_, Box<Terminal>>,
+        generation: u64,
+    ) -> ghostty_vt::Result<bool> {
+        let built = self.build_frame_locked(&mut term, generation, true);
+        drop(term);
+        self.mark_output_dirty();
+        built
+    }
+
     /// Build and fan out one immutable frame while the caller holds `term`.
+    /// This never calls into the mux; a producer-driven caller publishes the
+    /// output event through [`Self::build_producer_frame`] after unlocking.
     fn build_frame_locked(
         &self,
         term: &mut Terminal,
@@ -7283,10 +7312,6 @@ impl PtySurface {
                 true
             }
         };
-
-        if producer_driven {
-            self.mark_output_dirty();
-        }
         Ok(built)
     }
 
@@ -7687,7 +7712,7 @@ fn spawn_frame_producer(surface: &Arc<Surface>, requests: Receiver<u64>) -> anyh
             }
             let Some(surface) = weak.upgrade() else { break };
             let Some(pty) = surface.as_pty() else { break };
-            let mut term = pty.term.lock().unwrap();
+            let term = pty.term.lock().unwrap();
             let generation = requested.max(pty.render_generation.load(Ordering::Acquire));
             let colors_pending = pty.attach_colors_pending.load(Ordering::Acquire);
             if colors_pending {
@@ -7695,9 +7720,7 @@ fn spawn_frame_producer(surface: &Arc<Surface>, requests: Receiver<u64>) -> anyh
                     pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
                 let _ = pty.flush_attach_colors_locked(&term, defaults);
             }
-            if pty.build_frame_locked(&mut term, generation, true).unwrap_or(false)
-                || colors_pending
-            {
+            if pty.build_producer_frame(term, generation).unwrap_or(false) || colors_pending {
                 last_frame = Instant::now();
             }
         }
@@ -10424,9 +10447,8 @@ mod tests {
             Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
         let pty = surface.as_pty().unwrap();
 
-        let mut term = pty.term.lock().unwrap();
-        assert!(!pty.build_frame_locked(&mut term, 2, true).unwrap());
-        drop(term);
+        let term = pty.term.lock().unwrap();
+        assert!(!pty.build_producer_frame(term, 2).unwrap());
 
         let render = pty.render.lock().unwrap();
         assert_eq!(render.built_generation, 0);
