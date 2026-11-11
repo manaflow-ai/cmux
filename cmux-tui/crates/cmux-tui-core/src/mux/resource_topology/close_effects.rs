@@ -607,9 +607,11 @@ impl Mux {
             )?,
             _ => self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?,
         };
-        if terminals.is_some() {
-            projection.result["ended_terminal_ids"] = json!(ended.public_ids);
-            projection.result["running_terminal_ids"] = json!(ended.running);
+        if terminals.is_some()
+            && let Some(result) = projection.result.as_object_mut()
+        {
+            result.insert("ended_terminal_ids".into(), json!(ended.public_ids));
+            result.insert("running_terminal_ids".into(), json!(ended.running));
         }
         // Full projection derives terminal tombstones from detached tabs, but
         // an exited terminal receipt has zero tabs. Explicit close must still
