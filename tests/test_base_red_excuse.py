@@ -3706,14 +3706,26 @@ class StackedChildIntoLaneParent(unittest.TestCase):
 # source each read went to.
 CMUX_LANE = "lane/base-red-excuse-stacked-parent"
 STATUS_CONTEXT = "preview deploy"
+# The lane commit a stacked child branched from: older than its parent PR's head, which moved on after. No verdict
+# path may read it (#41403's review: the compile and ws-check paths compared the child with it).
+LANE_MERGE_BASE = "9" * 40
+SHA_IN = re.compile(r"(?<![0-9a-f])[0-9a-f]{40}(?![0-9a-f])")
+
+
+def unhanded_shas(route: str, handed: set[str]) -> list[str]:
+    """The commits ROUTE (a GitHub route, a blob ref, a receipt read) names that are not in HANDED: the child's head
+    and the shas the judge's Evidence hands out."""
+    return [sha for sha in SHA_IN.findall(route) if sha not in handed]
 
 
 class StackedOnLaneParent:
     """Mixed into a feat-cmux-next fixture: the same head judged as a child PR into CMUX_LANE, the head of open PR
     #41235 at PARENT_HEAD, whose completed runs at that head are the fixture's base runs there (of the workflow
-    PARENT_WORKFLOWS maps the asked one to). Every read of a run list or a commit list is recorded in SOURCES by where it
-    went: "parent" (the parent PR's head) or "branch" (CMUX_LANE's own runs or commits, which serve LANE_RUNS and
-    LANE_COMMITS, or another commit's statuses)."""
+    PARENT_WORKFLOWS maps the asked one to). The child's merge-base with CMUX_LANE is LANE_MERGE_BASE, an older lane
+    commit. Every read of a run list or a commit list is recorded in SOURCES by where it went: "parent" (the parent PR's
+    head) or "branch" (CMUX_LANE's own runs or commits, which serve LANE_RUNS and LANE_COMMITS, or another commit's
+    statuses); and any read (a route or a blob) naming a commit other than HEAD and the parent's head as "unhanded
+    sha"."""
 
     parent_head = BASE_SHA
     parent_workflows: dict = {}
@@ -3724,7 +3736,23 @@ class StackedOnLaneParent:
         self.lane_runs: list[dict] = []
         self.lane_commits: list[str] = []
 
+    def record_shas(self, route):
+        if unhanded_shas(route, {HEAD, self.parent_head}):
+            self.sources.append(("unhanded sha", route))
+
+    def blob(self, repo, ref, path):
+        self.record_shas(f"blob {ref}:{path}")
+        return super().blob(repo, ref, path)
+
     def json(self, route, *, paginate=False):
+        self.record_shas(route)
+        if route.startswith(f"repos/{REPO}/compare/{CMUX_LANE}...{HEAD}"):
+            # The child branched from LANE_MERGE_BASE; the parent's head (the branch tip) moved on since.
+            return {"merge_base_commit": {"sha": LANE_MERGE_BASE,
+                                          "commit": {"committer": {"date": "2026-11-10T00:00:00Z"}}},
+                    "base_commit": {"sha": self.parent_head}, "status": "diverged", "files": []}
+        if route == f"repos/{REPO}/commits/{self.parent_head}":
+            return {"sha": self.parent_head, "commit": {"committer": {"date": "2026-11-11T08:00:00Z"}}}
         if route.startswith(f"repos/{REPO}/pulls?"):
             assert f"head=manaflow-ai:{CMUX_LANE}" in route and "state=open" in route, route
             return [parent_pull(41235, self.parent_head, CMUX_LANE, REPO)]
@@ -3805,8 +3833,10 @@ class CompileStatusGitHub(StatusGitHub):
 
 
 def ws_check_stacked_github():
-    """WsCheckGitHub with main replaced by lane/ws-parent, the head of open PR #77 at TIP: its commit list
-    (BASE_COMMITS) is the lane branch's own; SOURCES records it as "branch", and the parent head's status as "parent".
+    """WsCheckGitHub with main replaced by lane/ws-parent, the head of open PR #77 at TIP; the child's merge-base is
+    MERGE_BASE, an older lane commit. Its commit list (BASE_COMMITS) is the lane branch's own; SOURCES records it as
+    "branch", the parent head's status as "parent", and any read naming another commit than HEAD or TIP as
+    "unhanded sha".
     A factory: WsCheckGitHub is defined further down."""
     class WsCheckStackedGitHub(WsCheckGitHub):
         WS_LANE = "lane/ws-parent"
@@ -3816,6 +3846,8 @@ def ws_check_stacked_github():
             self.sources: list[tuple[str, str]] = []
 
         def json(self, route, *, paginate=False, per_page=100):
+            if unhanded_shas(route, {HEAD, self.TIP}):
+                self.sources.append(("unhanded sha", route))
             if route.startswith(f"repos/{self.REPO}/pulls?"):
                 return [parent_pull(77, self.TIP, self.WS_LANE, self.REPO)]
             if route == f"repos/{self.REPO}/branches/{self.WS_LANE}":
@@ -3832,7 +3864,9 @@ def ws_check_stacked_github():
 class StackedParentEvidenceOnEveryPath(unittest.TestCase):
     """A child PR into a lane branch heading an open PR reads every base verdict from that PR's head, on every path:
     the per-test web and gallery verdicts, the cut-short shard, the by-name comparison and its tip suite, the
-    per-step reading and a jobless status (cmux#41235's review, F1 and F2)."""
+    per-step reading, a jobless status, the compile status and ws-check (cmux#41235's review, F1 and F2). No path
+    reads any commit but the child's head and the parent's: the child's merge-base, an older lane commit, is no
+    evidence (#41403's review)."""
 
     def judge(self, gh, **kwargs):
         return "\n".join(excuse.judge(REPO, CMUX_LANE, HEAD, [10], gh, **kwargs))
@@ -3840,7 +3874,8 @@ class StackedParentEvidenceOnEveryPath(unittest.TestCase):
     def assert_parent_alone(self, gh):
         self.assertTrue(gh.sources, "no base evidence was read")
         self.assertEqual([route for source, route in gh.sources if source != "parent"], [],
-                         f"a verdict path read {CMUX_LANE}'s own runs or commits, not PR #41235's head")
+                         "a verdict path read the lane branch's own runs or commits, or a commit the judge's Evidence "
+                         "did not hand out (the child's merge-base), not the parent PR's head")
 
     def test_f1_a_web_replay_red_the_parents_head_has_too_is_excused(self):
         gh = web_on_lane_parent()
@@ -3892,6 +3927,41 @@ class StackedParentEvidenceOnEveryPath(unittest.TestCase):
         gh.base_statuses[BASE_SHA] = [dict(gh.head_status)]
         self.assertIn(f"excused '{STATUS_CONTEXT}'",
                       "\n".join(excuse.judge(REPO, CMUX_LANE, HEAD, [], gh, checks=[STATUS_CONTEXT])))
+
+    def test_a_compile_red_at_the_childs_merge_base_excuses_nothing(self):
+        # The child branched from LANE_MERGE_BASE, whose compile failed the same way; the parent's head compiled.
+        def receipts(states):
+            def read(repo, sha):
+                return {"sha": sha, "repo": repo, "state": states.get(sha, "pass"),
+                        "recipe_version": excuse.COMPILE_RECEIPT_RECIPE[0],
+                        "configuration": excuse.COMPILE_RECEIPT_RECIPE[1]}
+            return read
+
+        gh = on_lane_parent(CompileStatusGitHub)
+        with unittest.mock.patch.object(excuse, "compile_receipt", receipts({HEAD: "fail", LANE_MERGE_BASE: "fail"})):
+            with self.assertRaisesRegex(excuse.Refused, f"merge-base {BASE_SHA[:12]} .*reads pass: the red is this"):
+                excuse.judge(REPO, CMUX_LANE, HEAD, [], gh, checks=[excuse.COMPILE_PASS_STATUS])
+        with unittest.mock.patch.object(excuse, "compile_receipt", receipts({HEAD: "fail", BASE_SHA: "fail"})):
+            self.assertIn(f"so is its merge-base {BASE_SHA[:12]}'s", "\n".join(
+                excuse.judge(REPO, CMUX_LANE, HEAD, [], gh, checks=[excuse.COMPILE_PASS_STATUS])))
+
+    def test_a_ws_check_red_at_the_childs_merge_base_excuses_nothing(self):
+        # The parent's head fails ws-check another way; the child's merge-base (an older lane commit) fails it the
+        # child's way. Compared with the merge-base it read as the base's red; it is the child's own.
+        gh = ws_check_stacked_github()
+        relay = WsCheckPerTest.RELAY
+        gh.verdict(HEAD, 1, {relay: WsCheckPerTest.relay_lint(WsCheckPerTest())})
+        gh.verdict(gh.TIP, 2, {WsCheckPerTest.DEPLOY: WsCheckPerTest.ws_deploy(WsCheckPerTest(), "test_x")})
+        gh.verdict(gh.MERGE_BASE, 3, {relay: WsCheckPerTest.relay_lint(WsCheckPerTest())})
+        with self.assertRaisesRegex(excuse.Refused, "not on lane/ws-parent"):
+            excuse.judge(gh.REPO, "lane/ws-parent", HEAD, [], gh)
+        self.assertEqual([route for source, route in gh.sources if source != "parent"], [])
+        # A green parent head makes it the child's own too, never "fixed on base" by the merge-base's red.
+        gh.verdict(gh.TIP, 2, {}, state="success")
+        with self.assertRaises(excuse.Refused) as refused:
+            excuse.judge(gh.REPO, "lane/ws-parent", HEAD, [], gh)
+        self.assertNotIsInstance(refused.exception, excuse.FixedOnBase)
+        self.assertEqual([route for source, route in gh.sources if source != "parent"], [])
 
     def test_every_verdict_path_reads_the_parents_head_alone(self):
         # The class detector: each path that reads base evidence, judged on a child of a lane parent, reads runs
@@ -3950,27 +4020,59 @@ class StackedParentEvidenceOnEveryPath(unittest.TestCase):
             gh.verdict(gh.TIP, 2, {WsCheckPerTest.RELAY: WsCheckPerTest.relay_lint(WsCheckPerTest())})
             return gh
 
+        def ws_check_parent_green():
+            gh = ws_check()
+            gh.verdict(gh.TIP, 2, {}, state="success")
+            gh.verdict(gh.MERGE_BASE, 3, {WsCheckPerTest.RELAY: WsCheckPerTest.relay_lint(WsCheckPerTest())})
+            return gh
+
+        def ws_check_parent_red_another_way():
+            gh = ws_check_parent_green()
+            gh.verdict(gh.TIP, 2, {WsCheckPerTest.DEPLOY: WsCheckPerTest.ws_deploy(WsCheckPerTest(), "test_x")})
+            return gh
+
+        receipt_reads: list[str] = []
+
         def down(repo, sha):
+            receipt_reads.append(sha)
             raise excuse.ReceiptUnreachable(f"the compile receipt of {sha[:12]}: HTTP 530")
+
+        def up(repo, sha):
+            receipt_reads.append(sha)
+            return {"sha": sha, "repo": repo, "state": "fail", "recipe_version": excuse.COMPILE_RECEIPT_RECIPE[0],
+                    "configuration": excuse.COMPILE_RECEIPT_RECIPE[1]}
 
         paths = {"per-test web replay": (replay, {}), "per-test web head shard": (head_shard, {}),
                  "cut-short shard": (cut_short, {}), "per-test gallery replay crash": (gallery, {}),
                  "by-name comparison": (by_name, {}), "tip suite dispatches": (tip_suite, {}),
-                 "per-step reading (update-branch)": (green_parent, {"purpose": "update-branch"}),
+                 "green parent job, update-branch (refused before the per-step reading)": (
+                     green_parent, {"purpose": "update-branch"}),
                  "jobless status": (status, {"runs": [], "checks": [STATUS_CONTEXT]}),
                  "compile status, receipts down": (compile_receipts_down,
                                                    {"runs": [], "checks": [excuse.COMPILE_PASS_STATUS]}),
+                 "compile status, receipts up": (compile_receipts_down,
+                                                 {"runs": [], "checks": [excuse.COMPILE_PASS_STATUS], "receipts": up}),
                  "ws-check status": (ws_check, {"runs": [], "repo": "teamleaderleo/leo-workspace",
-                                                "base": "lane/ws-parent"})}
+                                                "base": "lane/ws-parent"}),
+                 "ws-check, parent green": (ws_check_parent_green, {"runs": [], "repo": "teamleaderleo/leo-workspace",
+                                                                    "base": "lane/ws-parent"}),
+                 "ws-check, parent red another way": (ws_check_parent_red_another_way,
+                                                      {"runs": [], "repo": "teamleaderleo/leo-workspace",
+                                                       "base": "lane/ws-parent"})}
         for path, (make, kwargs) in paths.items():
-            with self.subTest(path), unittest.mock.patch.object(excuse, "compile_receipt", down):
+            receipts = kwargs.pop("receipts", down)
+            with self.subTest(path), unittest.mock.patch.object(excuse, "compile_receipt", receipts):
                 gh = make()
+                receipt_reads.clear()
                 runs = kwargs.pop("runs", [10])
                 repo, base = kwargs.pop("repo", REPO), kwargs.pop("base", CMUX_LANE)
                 try:
                     excuse.judge(repo, base, HEAD, runs, gh, **kwargs)
                 except excuse.Refused:
                     pass
+                handed = {HEAD, getattr(gh, "parent_head", None), getattr(gh, "TIP", None)}
+                gh.sources += [("parent" if sha in handed else "unhanded sha", f"compile receipt {sha}")
+                               for sha in receipt_reads if sha != HEAD]
                 self.assert_parent_alone(gh)
 
 
