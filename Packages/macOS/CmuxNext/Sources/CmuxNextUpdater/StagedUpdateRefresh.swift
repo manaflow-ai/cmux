@@ -206,8 +206,9 @@ final class StagedUpdateRefresh {
 
     /// Follows the flow's phase: an update waiting arms the next probe; anything else ends it. A
     /// build Sparkle just downloaded is the feed's newest for the followed ring as of now (Sparkle
-    /// read the feed to pick it), so the card's appearance records that answer
-    /// (``UpdaterService/lastFeedRead``) and reads a stale pulled list, with no extra feed read.
+    /// read the feed to pick it, and read the pulled list just before, ``UpdateController/prepareUpdate``),
+    /// so the card's appearance records that answer (``UpdaterService/lastFeedRead``) and reads
+    /// nothing: a read here would land after a click it raced and act on the staged build again.
     func follow(_ phase: UpdateIndicatorPhase, previous: UpdateIndicatorPhase, updater: UpdaterService) {
         guard case .ready = phase else {
             installing = false
@@ -218,7 +219,6 @@ final class StagedUpdateRefresh {
             wasReady = true
             if case .downloading = previous, let staged = updater.stagedBuild(), !staged.isEmpty {
                 updater.lastFeedRead = FeedRead(newest: staged, at: updater.now(), ring: updater.ring)
-                if !hasFreshList(updater) { updater.pulledWatch.refresh() }
             }
         }
         arm(updater)

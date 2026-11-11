@@ -24,20 +24,22 @@ import CmuxNextWakeupsTestSupport
         return (h, { installs.count })
     }
 
-    /// Sparkle stages the build (downloading, then Update Ready): the click goes as the card says.
-    static func stage(_ h: Base.Harness) {
+    /// Sparkle stages the build: it reads the pulled list before the download (`prepareUpdate`),
+    /// downloads, then shows Update Ready.
+    static func stage(_ h: Base.Harness) async {
+        await h.updater.pulledWatch.refresh().value
         h.updater.debugIndicatorPhase = .hidden
         h.updater.debugIndicatorPhase = .downloading(.starting)
         h.updater.debugIndicatorPhase = .ready(version: "3.0.0")
     }
 
-    /// The build Sparkle just staged is the feed's newest: the card records that, reads the pulled
-    /// list, and the click installs with no feed read at all.
+    /// The build Sparkle just staged is the feed's newest: the card records that and reads
+    /// nothing, and the click installs with no feed read at all.
     @Test func aBuildSparkleJustStagedInstallsWithNoReadAtTheClick() async throws {
         let (h, installs) = Self.make()
-        Self.stage(h)
+        await Self.stage(h)
         #expect(h.updater.lastFeedRead?.newest == "300")
-        #expect(await eventually { h.updater.stagedRefresh.hasFreshRead(h.updater) }, "the card did not read the pulled list ahead")
+        #expect(h.updater.stagedRefresh.hasFreshRead(h.updater), "the staged build's own reads did not count for the click")
         h.updater.installClicked()
         #expect(await eventually { installs() == 1 }, "the click did not install the staged build")
         #expect(h.feed.fetches == 0, "the click read the feed: \(h.feed.fetches) reads")
@@ -46,7 +48,7 @@ import CmuxNextWakeupsTestSupport
 
     @Test func aStaleReadIsReadAgainAtTheClick() async throws {
         let (h, installs) = Self.make()
-        Self.stage(h)
+        await Self.stage(h)
         #expect(await eventually { h.updater.stagedRefresh.hasFreshRead(h.updater) })
         h.updater.lastFeedRead = FeedRead(newest: "300", at: h.updater.now().addingTimeInterval(-(StagedUpdateRefresh.clickReadFreshness + 1)),
                                           ring: h.updater.ring)
@@ -59,7 +61,7 @@ import CmuxNextWakeupsTestSupport
     /// A read for another ring never decides the click: the person picked a ring after it.
     @Test func aReadOfAnotherRingIsNotTrusted() async throws {
         let (h, _) = Self.make()
-        Self.stage(h)
+        await Self.stage(h)
         #expect(await eventually { h.updater.stagedRefresh.hasFreshRead(h.updater) })
         h.updater.lastFeedRead = FeedRead(newest: "300", at: h.updater.now(), ring: h.updater.ring == .dev ? .nightly : .dev)
         #expect(!h.updater.stagedRefresh.hasFreshRead(h.updater))
@@ -69,7 +71,7 @@ import CmuxNextWakeupsTestSupport
     /// finds swaps in at the click with no read at the click.
     @Test func activationReadsAheadOnlyWhenTheReadIsStale() async throws {
         let (h, _) = Self.make()
-        Self.stage(h)
+        await Self.stage(h)
         #expect(await eventually { h.updater.stagedRefresh.hasFreshRead(h.updater) })
         h.updater.prefetchForInstallClick()
         try await Task.sleep(for: .milliseconds(50))
