@@ -103,6 +103,31 @@ question. For example, `WorkspaceRowCloseNotchGalleryTests` writes the
 `close-notch-gallery` PNG set and tar archive only when the fleet sets
 `CMUX_TEST_REQUIRE_GUI=1`.
 
+`cmux-ci capture --list-states <sha>` prints the scenes and tours at a commit.
+
+## Permission and feed flow
+
+A change to agent permission prompts, the feed bridge (`AcpmuxPermissionFeedBridge`) or
+Needs you has its own scenes. They need no harness, phone or sign-in: an acpmux runs inside
+the app (`HomeNeedsYouCapture` in CmuxNextHome) with one peer session holding a prompt, and the bridge's feed
+calls go to the local daemon's feed. Chief Home's pinned Needs you section is the picture.
+
+* `scene:permission-feed-peer`: the bridge found the prompt at recovery and posted it; Needs
+  you lists it. acpmux then sends `_acpmux/permission_pending` for it.
+* `scene:permission-feed-peer-resolved`: the same, then acpmux sends
+  `_acpmux/session_changed` (`permission_resolved`, with the peer's raw `sessionId`, `peer` and
+  `qualifiedSessionId`) and lists no prompt. The bridge withdraws the item and Needs you goes.
+  The capture's result says `withdrawn: true` or `false`.
+* `tour:permission-feed-peer`: both, light and dark, in one launch. Use it for a before and
+  after:
+
+```sh
+cmux-ci capture <sha> --state tour:permission-feed-peer --pr <number>
+```
+
+The scenes' glue is in `CaptureSceneRegistry+Home.swift`; change `HomeNeedsYouCapture.swift` to
+picture another prompt or notice.
+
 ## Sidebar close-notch example
 
 The close-notch work is a good **native** preview matrix because it has a tunable
