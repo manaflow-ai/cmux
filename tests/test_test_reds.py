@@ -1812,6 +1812,44 @@ class EscapesEndAtTheirFirstTerminator(unittest.TestCase):
         self.assertEqual(reds.read(text).failed, {"a::new", "a::old"})
 
 
+# Every line boundary str.splitlines() splits on, the one split every log reader uses (log_lines, lines_of,
+# step_owners): written out here, not read from the code under test, so the tests below check the code against it.
+SPLITLINES_BOUNDARIES = ("\n", "\r", "\r\n", "\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029")
+
+
+class EscapesEndAtEveryLineBoundary(unittest.TestCase):
+    r"""The follow-up review of cmux#41390, F1 (test_reds.py:68): "an OSC body runs across a bare \r, so
+    `\x1b]0;title\rtest new ... FAILED\n` loses the failure that log_lines() sees (it uses splitlines()). Cached logs
+    keep raw CRs, and this excuses a head with a new failure. Make plain() end every escape at exactly the line
+    boundaries the reader uses: one shared definition, splitlines' set (\n, \r, \r\n, \v, \f, \x1c-\x1e, \x85, U+2028,
+    U+2029), used by both.\""""
+
+    def test_the_shared_boundaries_are_exactly_what_splitlines_splits_on(self):
+        splits = {chr(point) for point in range(0x110000) if len(f"a{chr(point)}b".splitlines()) == 2}
+        self.assertEqual(splits, {b for b in SPLITLINES_BOUNDARIES if len(b) == 1})
+        self.assertEqual(set(reds.LINE_BOUNDARIES), splits)
+
+    def test_a_title_before_any_boundary_keeps_the_failure_after_it(self):
+        for boundary in SPLITLINES_BOUNDARIES:
+            for title in ("\x1b]0;title", "\x1b]8;;https://example.invalid/x"):
+                with self.subTest(boundary=repr(boundary), title=repr(title)):
+                    text = f"running 1 test\n{title}{boundary}test a::new ... FAILED\ntest result: FAILED. 0 passed; " \
+                           "1 failed; 0 ignored; 0 measured; 0 filtered out\n"
+                    self.assertIn("test a::new ... FAILED", reds.log_lines(reds.plain(text)))
+                    self.assertEqual(len(reds.plain(text).splitlines()), len(text.splitlines()))
+                    self.assertEqual(reds.read(reds.plain(text)).failed, {"a::new"})
+
+    def test_a_new_failure_behind_a_title_and_a_bare_cr_is_the_heads_own(self):
+        # The review's case through the judge: the base fails a::old; the head fails it and a::new, printed after a
+        # title that a bare CR ends. Read raw (as a cached log keeps it), the new failure is the head's own.
+        summary = "test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out"
+        base = log("running 2 tests", "test a::old ... FAILED", summary.replace("2 failed", "1 failed"))
+        head = log("running 2 tests", "test a::old ... FAILED", "\x1b]0;title\rtest a::new ... FAILED", summary)
+        verdict = reds.classify(reds.plain(head), reds.plain(base), "cargo test", "feat-cmux-next run 1")
+        self.assertTrue(verdict.own, verdict.reasons)
+        self.assertIn("a::new", " ".join(verdict.reasons))
+
+
 class BunFileOwnershipStaysInItsStep(unittest.TestCase):
     """cmux#41382's review F2 (test_reds.py:806): "The fallback takes file ownership from earlier steps. A passing
     a.test.ts in step 1 plus a headerless failure and FAIL a.test.ts in step 2 creates a spurious unnamed failure, so
@@ -1918,10 +1956,18 @@ def rewrite_case(seed: int) -> dict:
         closing = None
         for text in lines:
             made += noise_lines()
+            if rng.random() < 0.2:
+                # An escape the line's own text follows across a line boundary, any of splitlines' (a bare CR from a
+                # progress bar, a form feed, U+2028, ...): the reader splits there, so the line after it is the log's.
+                opener = rng.choice(("\x1b]0;title", "\x1b]0;title\x07", "\x1b]8;;https://example.invalid/x",
+                                     "\x1b[31m", ""))
+                before = opener + rng.choice(SPLITLINES_BOUNDARIES)
+            else:
+                before = ""
             if closing is None and rng.random() < 0.15:
                 made.append("\x1b]0;opening title")
                 closing = rng.randint(1, 3)
-            made.append(noisy(text))
+            made.append(before + noisy(text))
             if closing is not None:
                 closing -= 1
                 if closing == 0:
@@ -2039,6 +2085,8 @@ class LogRewritesKeepEveryFailure(unittest.TestCase):
         for piece in ("\x1b]0;opening title", "\x1b]0;never closed", "\x1b\\", "\x07", "\x1b[31m",
                       "passing_", "FAIL test/a.test.ts", "(pass) a > ok"):
             self.assertIn(piece, raw)
+        for boundary in SPLITLINES_BOUNDARIES:  # an escape ended by each of the reader's line boundaries
+            self.assertIn("\x1b]0;title" + boundary, raw, repr(boundary))
 
 
 class ReadOncePerLog(unittest.TestCase):
