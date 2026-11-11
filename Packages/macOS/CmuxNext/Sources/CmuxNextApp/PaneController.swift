@@ -460,7 +460,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             _ = BenchSpans.measure("switch.bindChrome") { view.browserChrome.bind(entry.tab, state: entry.state) }
         }
         DebugTabSwitch.mark(self, "content")
-        if let content { DebugTabSwitch.kind(self, content.switchKind) }
+        if let content { DebugTabSwitch.kind(self, content.kind.rawValue) }
         currentTabKey = key
         services.themes.applyPaneBackground(self, waitsForTerminal: content == nil && showsLiveTerminal) // a tab's own tint (no work while nothing is set)
         if let key, content != nil { BenchSpans.measure("switch.present") { services.cache.present(key, by: self, presence: presence) } }

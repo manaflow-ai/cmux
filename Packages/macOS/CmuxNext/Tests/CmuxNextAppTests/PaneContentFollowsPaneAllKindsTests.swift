@@ -1,0 +1,221 @@
+import AppKit
+@testable import CmuxNextAgentPane
+@testable import CmuxNextApp
+import CmuxNextBridge
+@testable import CmuxNextBrowser
+@testable import CmuxNextDaemon
+import CmuxNextDesign
+@testable import CmuxNextLayout
+import CmuxNextPages
+@testable import CmuxNextTabs
+@testable import CmuxNextTerminal
+import CmuxNextTestSupport
+import Foundation
+import Testing
+
+/// Lawrence 2026-11-11: "for perf, when i resize panes, for like file viewer, it doesnt have smooth animation, check
+/// all pane types, all must have smooth transition". The contract of every kind of pane content (`TabContent.Kind`):
+/// while a keyboard resize moves its pane, its view has its content area's rect in EVERY frame, and the landing's
+/// frame is the rest size, with no other size after it.
+///
+/// Before: the area kept every view that was not a terminal's host, a browser's chrome or Home at the size it had
+/// when the press began and gave it the pane's size once, after the landing (FRAME OWNER S1), so a file viewer, an
+/// agent chat, a placeholder and a notice stood still while their pane moved, then jumped.
+///
+/// The kinds come from `TabContent.Kind.allCases` and each fixture is made in a switch with no default, so a new kind
+/// does not compile here until it has a fixture, and then has this contract or fails.
+///
+/// The app's own pane content (`PaneContentView`) shows the kind in p2 of p1 | p2; one press on p2 (`PaneResize.press`)
+/// moves the divider. The test is the spring's clock, one frame per step.
+///
+/// Not covered here: the pixels a producer on another thread or process draws in that rect (a terminal's surface:
+/// `TerminalKeyResizeFrameTests`; a Chromium page: `CEFPageFrameOwnerTests`; the Chromium fixture here is the mock
+/// engine's page in the real chrome).
+@MainActor
+@Suite(.serialized, .closesItsWindows)
+struct PaneContentFollowsPaneAllKindsTests {
+    private actor NoHost: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+    }
+
+    /// One kind's content as the app shows it, what keeps it alive, and how it goes.
+    struct Shown {
+        let content: TabContent
+        var keeping: [Any] = []
+        var close: @MainActor () -> Void = {}
+    }
+
+    /// The content of `kind`, made as the app makes it.
+    static func shown(_ kind: TabContent.Kind) throws -> Shown {
+        _ = NSApplication.shared
+        switch kind {
+        case .terminal:
+            let services = AppServices(environment: AppEnvironment.current([:]))
+            let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 7), title: "~"))
+            let scripted = ScriptedTerminalIO()
+            let session = TerminalSession(io: scripted)
+            try #require(session.surfaceView.surface != nil, "libghostty created no surface")
+            let attachment = TerminalAttachment.Target(surface: tab.surface, terminalResourceID: nil, generation: nil)
+            let io = DaemonTerminalIO(target: .init(attachment: attachment, initialSize: CellSize(cols: 80, rows: 24)), resizes: ResizeCoordinator(),
+                                      visible: false, endpoint: { throw CancellationError() })
+            let entry = TerminalEntry(validity: "test", session: session, io: io, themeKey: TerminalThemeKey(machine: services.daemon.machineID, tab: tab),
+                                      store: services.daemon.store, surface: tab.surface)
+            return Shown(content: .terminal(entry), keeping: [services, tab], close: { scripted.finish() })
+        case .chromium:
+            let page = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://a.example/")))
+            let entry = BrowserEntry(tab: page), chrome = BrowserPaneChrome()
+            chrome.bind(entry.tab, state: entry.state)
+            return Shown(content: .browser(entry), keeping: [chrome], close: { chrome.drop() })
+        case .webkit:
+            let page = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
+            let entry = BrowserEntry(tab: page), chrome = BrowserPaneChrome()
+            chrome.bind(entry.tab, state: entry.state)
+            return Shown(content: .browser(entry), keeping: [chrome], close: {
+                chrome.drop()
+                page.close()
+            })
+        case .agent:
+            let directory = FileManager.default.temporaryDirectory.appending(path: "pane-follows-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let file = directory.appending(path: "index.html")
+            try Data("<html><body>Agent</body></html>".utf8).write(to: file)
+            let chat = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+            return Shown(content: .agent(chat), close: {
+                chat.close()
+                try? FileManager.default.removeItem(at: directory)
+            })
+        case .page:
+            // The file viewer's page (Lawrence's example): a React page in an internal page tab.
+            let files = try #require(PageWebView(descriptor: .files, routes: []))
+            return Shown(content: .page(InternalPageView(key: "pane-follows-files", page: .files, content: files)))
+        case .placeholder:
+            return Shown(content: .placeholder(RemoteTerminalPlaceholderView(frame: .zero)))
+        case .notice:
+            return Shown(content: .notice(AgentTabElsewhereView(machine: "studio")))
+        case .conversation:
+            let (services, _) = HomeLaunchRevealTests.services()
+            return Shown(content: .conversation(HomeHostView(services: services, conversation: "conv_local")), keeping: [services])
+        }
+    }
+
+    /// p1 | p2 in a 1200 x 800 window: p2 shows `content`, p1 a plain view.
+    final class Panes: LayoutPaneContentProvider {
+        let reveal: LaunchReveal = {
+            let reveal = LaunchReveal()
+            reveal.markAllReady()
+            return reveal
+        }()
+        let content: NSView
+        var views: [PaneID: PaneContentView] = [:]
+
+        init(content: NSView) { self.content = content }
+
+        func makeContentView(for pane: PaneID) -> NSView {
+            let tabs = (0..<2).map { TabItem(id: TabID("\(pane.rawValue)-tab\($0)"), title: "Tab \($0)") }
+            let view = PaneContentView(stripModel: TabStripModel(tabs: tabs, selectedID: tabs[0].id), reveal: reveal)
+            view.show(pane == "p2" ? content : NSView())
+            views[pane] = view
+            return view
+        }
+    }
+
+    /// What the landing leaves for after its commit; the test runs it when it says.
+    @MainActor final class Landing {
+        var work: [@MainActor () -> Void] = []
+    }
+
+    /// Every size `view` takes from now on (one per frame change to a new size).
+    @MainActor final class Sizes {
+        private let view: NSView
+        private var last: CGSize
+        private(set) var taken: [CGSize] = []
+
+        init(of view: NSView) {
+            self.view = view
+            last = view.frame.size
+            view.postsFrameChangedNotifications = true
+            _ = NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: view, queue: nil) { [weak self] _ in
+                MainActor.assumeIsolated { self?.noteSize() }
+            }
+        }
+
+        private func noteSize() {
+            let size = view.frame.size
+            guard size != last else { return }
+            last = size
+            taken.append(size)
+        }
+    }
+
+    /// `view`'s rect in its window, rounded to a tenth of a point.
+    static func rect(_ view: NSView) -> CGRect {
+        let rect = view.convert(view.bounds, to: nil)
+        func tenth(_ value: CGFloat) -> CGFloat { (value * 10).rounded() / 10 }
+        return CGRect(x: tenth(rect.minX), y: tenth(rect.minY), width: tenth(rect.width), height: tenth(rect.height))
+    }
+
+    @Test(arguments: TabContent.Kind.allCases)
+    func theContentHasItsAreasRectInEveryFrameOfAKeyResize(_ kind: TabContent.Kind) throws {
+        let shown = try Self.shown(kind)
+        defer { withExtendedLifetime(shown.keeping) { shown.close() } }
+        #expect(shown.content.kind == kind, "the fixture of \(kind) made a \(shown.content.kind)")
+        let content = shown.content.view
+
+        let provider = Panes(content: content)
+        let columns = [LayoutColumn(id: "c0", width: 1, root: .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")))]
+        let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(columns))], activeScreenID: "s", focusedPane: "p2")
+        let root = LayoutRootView(model: model, contentProvider: provider)
+        root.context.reduceMotionOverride = false
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = root
+        defer { window.closeAfterTest() }
+        root.layoutSubtreeIfNeeded()
+        root.layoutSubtreeIfNeeded()
+        root.driver.isManual = true
+        let landing = Landing()
+        root.context.afterCommit = { [landing] in landing.work.append($0) }
+
+        let pane = try #require(provider.views["p2"]), area = pane.contentHost
+        try #require(content.window === window, "the pane does not show the \(kind) content")
+        let start = Self.rect(area)
+        try #require(start.width > 100 && start.height > 100, "the pane's content area is \(start) before the press")
+        #expect(Self.rect(content) == start, "at rest the \(kind) content is at \(Self.rect(content)), its area at \(start)")
+        // The page inside an internal page tab (the file viewer's web view) is what the person sees: it fills its tab's view.
+        let inner: NSView? = if case .page(let page) = shown.content { page.content } else { nil }
+
+        // One press on p2 toward p1: the divider moves left, p2's left edge moves, p2 grows.
+        #expect(PaneResize.press("p2", .left, model: model, view: root))
+        var off: [String] = []
+        var areas: [CGRect] = []
+        var frames = 0
+        while frames < 240, root.advanceFrame(1.0 / 120) {
+            root.layoutSubtreeIfNeeded()
+            frames += 1
+            let now = Self.rect(area)
+            areas.append(now)
+            if Self.rect(content) != now { off.append("frame \(frames): content \(Self.rect(content)), area \(now)") }
+            if let inner, Self.rect(inner) != now { off.append("frame \(frames): page \(Self.rect(inner)), area \(now)") }
+        }
+        try #require(frames > 3, "the press did not spring (\(frames) frames)")
+        try #require(Set(areas.map(\.width)).count > 3, "the pane's content area did not move with the spring: \(Set(areas.map(\.width)).sorted())")
+        #expect(off.isEmpty, "\(kind): the content was not at its area's rect in \(off.count) of \(frames) frames: \(off.prefix(3))")
+
+        // The landing's frame, then what the landing leaves for after its commit: the content is at the rest size in the
+        // landing's frame and takes no other size after it.
+        root.layoutSubtreeIfNeeded()
+        let landed = Self.rect(area)
+        #expect(Self.rect(content) == landed, "\(kind): at the landing's frame the content is at \(Self.rect(content)), its area at \(landed)")
+        let later = Sizes(of: content)
+        let release = landing.work
+        landing.work.removeAll()
+        for work in release { work() }
+        root.layoutSubtreeIfNeeded()
+        root.layoutSubtreeIfNeeded()
+        #expect(!area.isHolding, "the hold did not end at the landing")
+        #expect(Self.rect(area) == landed, "the content area changed after the landing's frame: \(Self.rect(area)), was \(landed)")
+        #expect(Self.rect(content) == landed, "\(kind): after the landing the content is at \(Self.rect(content)), its area at \(landed)")
+        if let inner { #expect(Self.rect(inner) == landed, "\(kind): after the landing the page is at \(Self.rect(inner)), its area at \(landed)") }
+        #expect(later.taken.isEmpty, "\(kind): the content took \(later.taken.count) more size(s) after the landing's frame: \(later.taken)")
+    }
+}
