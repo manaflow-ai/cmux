@@ -38,8 +38,7 @@ else
 fi
 CMUX_TUIKIT_REQUIRE_RUST=1 "$py" "$kit/test_tuikit.py" || status=$?
 "$py" "$kit/test_load_profiles.py" || status=$?
-out="${TMPDIR:-/tmp}/tui-kit-selftest.$$"
-mkdir -p "$out"
+out="$(mktemp -d "${TMPDIR:-/tmp}/tui-kit-selftest.XXXXXX")"
 trap 'rm -rf "$out"' EXIT
 "$py" "$kit/pace_probe.py" --seconds "$pace_seconds" --out "$out" | tee "$out/pace.txt"
 # TUI-KIT-PACE: the default program (the compiled gradient when it built, else the Python spin).

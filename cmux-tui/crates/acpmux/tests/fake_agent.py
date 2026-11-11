@@ -1236,6 +1236,12 @@ def handle_prompt(rid, params):
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": message}})
         return
     # "big-output:N" answers with one message of N MiB: one update too large for a frame.
+    # "chunks: N" streams N one-word reply chunks, then ends the turn (an ack batch test).
+    if text.startswith("chunks:"):
+        for n in range(int(text[7:])):
+            update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"w{n} "}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text.startswith("big-output:"):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "z" * (int(text[11:]) << 20)}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
@@ -1601,6 +1607,17 @@ CLAUDE_MODELS = [("default", "Default"), ("claude-opus-5-5", "Opus 5.5"), ("clau
                  ("claude-haiku-5-5", "Haiku 5.5"), ("claude-fable-5-1", "Fable 5.1")]
 
 
+HELD = []
+HELD_CANCELS = []
+
+
+def write_atomic(path, text):
+    """`text` to `path`, whole or not at all: a reader never sees half of it."""
+    with open(path + ".tmp", "w") as f:
+        f.write(text)
+    os.replace(path + ".tmp", path)
+
+
 def stdin_lines(early):
     """stdin's lines, starting with the bytes read while waiting at the start gate."""
     if early:
@@ -1658,6 +1675,23 @@ def main():
         m = msg["method"]
         rid = msg.get("id")
         params = msg.get("params") or {}
+        # FAKE_SET_MODE_HOLD=<dir>: hold every session/set_mode unanswered, writing how many wait
+        # to <dir>/held and the ids each `$/cancel_request` names to <dir>/cancels. Once all but one
+        # are cancelled, answer every held one, the cancelled ones too: their answers come late
+        # and the daemon drops them (tests/cancel_request.rs).
+        hold = os.environ.get("FAKE_SET_MODE_HOLD")
+        if hold and m == "$/cancel_request":
+            HELD_CANCELS.append(params.get("requestId"))
+            write_atomic(os.path.join(hold, "cancels"), json.dumps(HELD_CANCELS))
+            if len(HELD) > 1 and len(set(map(str, HELD_CANCELS))) >= len(HELD) - 1:
+                for held in HELD:
+                    send({"jsonrpc": "2.0", "id": held, "result": {}})
+                HELD.clear()
+            continue
+        if hold and m == "session/set_mode":
+            HELD.append(rid)
+            write_atomic(os.path.join(hold, "held"), str(len(HELD)))
+            continue
         # FAKE_SET_MODE_SILENT=1: never answer session/set_mode, while staying alive.
         if m == "session/set_mode" and os.environ.get("FAKE_SET_MODE_SILENT") == "1":
             continue

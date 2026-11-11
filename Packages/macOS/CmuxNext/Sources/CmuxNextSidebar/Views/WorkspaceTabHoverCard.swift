@@ -30,6 +30,8 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
     var onClose: ((TabID) -> Void)? { didSet { rowViews.forEach(wireClose) } }
 
     var reportedLines: [String] { rowViews.prefix(tabs.count).map(\.reportedLine) }
+    /// The list's scroll view, so a test can show the legacy scrollers a mouse or the "always" setting shows.
+    var listScrollView: NSScrollView { scrollView }
     override var isFlipped: Bool { true }
 
     init(style: WorkspaceTabHoverCardStyle = .standard) {
@@ -38,7 +40,7 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
         isHidden = true
         scrollView.documentView = document
         scrollView.drawsBackground = false
-        scrollView.hasVerticalScroller = true
+        scrollView.hasVerticalScroller = false // set in `layout` when the list scrolls
         scrollView.verticalScrollElasticity = .none
         SystemScrollers.followThin(scrollView)
         container.addSubview(scrollView)
@@ -181,12 +183,17 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
         container.frame = CGRect(x: -outset, y: 0, width: width, height: bounds.height)
         let list = listHeight
         scrollView.frame = CGRect(x: 0, y: 0, width: width, height: list)
-        // The legacy scroller takes its width from the content; an overlay scroller takes none.
+        let shown = items(upTo: tabs.count)
+        // A list that fits has no scroller: a legacy one (a mouse, or "Show scroll bars: Always") kept its width at the
+        // rows' right though nothing scrolled, so each row's fill stopped short of the card's right edge (Lawrence
+        // 2026-11-09, "right spacing is bad for the hover card"). A list that scrolls gives the legacy scroller its
+        // width; an overlay scroller takes none.
+        let scrolls = height(of: shown) > list + 0.5
+        if scrollView.hasVerticalScroller != scrolls { scrollView.hasVerticalScroller = scrolls }
         let contentWidth = NSScrollView.contentSize(forFrameSize: NSSize(width: width, height: list), horizontalScrollerClass: nil,
-                                                    verticalScrollerClass: scrollView.hasVerticalScroller ? NSScroller.self : nil,
+                                                    verticalScrollerClass: scrolls ? NSScroller.self : nil,
                                                     borderType: scrollView.borderType, controlSize: .regular,
                                                     scrollerStyle: scrollView.scrollerStyle).width
-        let shown = items(upTo: tabs.count)
         document.frame = CGRect(x: 0, y: 0, width: contentWidth, height: height(of: shown))
         var y: CGFloat = 0
         var group = 0
