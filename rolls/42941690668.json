@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42941690668",
+  "recorded_at": "2026-11-11T01:57:09Z",
+  "reason": "cmux-tui 9ce600ff377d changes the image's cmux-tui (pinned 2e5a10e41590)",
+  "dry_run": false,
+  "cmux_tui": "9ce600ff377d6bdbbf2c15a0b4311a757d974dda",
+  "fixes": [
+    {
+      "sha": "8ba436a0e814e5f669ab3cd1fd588490d3e8ec63",
+      "mergedAt": "2026-11-10T17:32:34-08:00",
+      "subject": "cmux-action-catalog: sidebar.custom.toggle's title in its SidebarSectionActions table"
+    },
+    {
+      "sha": "b62e590135ae139d6e443a3e34ef9c4fe15077de",
+      "mergedAt": "2026-11-10T17:32:33-08:00",
+      "subject": "Custom sidebar: one action shows or hides it, or writes the starter"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T01:57:09Z",
+    "snapshot_id": "sh-a49c2d35dacf410ab71081050554def9",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42941690668): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8cb243bf32ba65ed032339a384efb8a6e89c82bd",
+    "image": "cloud-native-auto-9ce600ff-42941690668-1",
+    "revision": "ci-42941690668-1",
+    "at": "2026-11-11T01:57:09Z"
+  },
+  "rolled_back": false
+}
