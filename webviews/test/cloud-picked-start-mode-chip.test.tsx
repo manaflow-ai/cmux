@@ -155,9 +155,11 @@ const chipText = () => (host.querySelector(".acpmux-mode .acpmux-mode-text")?.te
 // The open menu's rows, once it has drawn them: each turn of the wait lets React commit, up to a deadline, so the
 // assertions read the menu as it shows, never what one fixed turn happened to reach.
 async function menuRows(): Promise<string[]> {
-  const read = () => [...dom.window.document.querySelectorAll("[role=menuitemradio]")].map((row) => row.textContent ?? "");
+  const read = () =>
+    [...dom.window.document.querySelectorAll("[role=menuitemradio]")].map((row) => row.textContent ?? "");
   const deadline = Date.now() + 5_000;
-  while (read().length === 0 && Date.now() < deadline) await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  while (read().length === 0 && Date.now() < deadline)
+    await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
   return read();
 }
 
