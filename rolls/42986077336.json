@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42986077336",
+  "recorded_at": "2026-11-11T08:26:55Z",
+  "reason": "cmux-tui 2a88908f860d changes the image's cmux-tui (pinned a3686b1e9983)",
+  "dry_run": false,
+  "cmux_tui": "2a88908f860d8801f57bc9baffe2dfd1d4a86d54",
+  "fixes": [
+    {
+      "sha": "2a88908f860d8801f57bc9baffe2dfd1d4a86d54",
+      "mergedAt": "2026-11-11T00:04:50-08:00",
+      "subject": "acpmux: Claude Code's own messaging in acpmux agents goes through acpmux (W7-A) (#40803)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T08:26:55Z",
+    "snapshot_id": "sh-c27ec6082439466ca953c92c686a1c0e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42986077336): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "643634d5adcc3512fb790fd53eb84ac0b6c8a506",
+    "image": "cloud-native-auto-2a88908f-42986077336-1",
+    "revision": "ci-42986077336-1",
+    "at": "2026-11-11T08:26:55Z"
+  },
+  "rolled_back": false
+}
