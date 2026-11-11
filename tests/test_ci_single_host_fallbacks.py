@@ -305,6 +305,59 @@ class SingleHostFallbacks(unittest.TestCase):
         self.assertEqual({r.name for r in found["r"].vars_read if r.field == "runs-on"}, {"TOP"})
         self.assertLessEqual(counts["input_values"] + counts["_resolve"], 2 * depth * 8, counts)
 
+    @staticmethod
+    def deep_chain(last: str, runs_on: str) -> str:
+        """A callee whose input i0 defaults to i1, ..., i31 to i32, and i32 to LAST (one past MAX_TRACE_DEPTH from i0)."""
+        declared = "".join(f"      i{n}: {{type: string, default: '${{{{ inputs.i{n + 1} }}}}'}}\n" for n in range(32))
+        declared += f"      i32: {{type: string, default: '{last}'}}\n"
+        return f"on:\n  workflow_call:\n    inputs:\n{declared}jobs:\n  a:\n    runs-on: {runs_on}\n"
+
+    DEEP_CALLER = "jobs:\n  c:\n    uses: ./.github/workflows/callee.yml\n"
+    DEEP_RUNS_ON = "${{ inputs.i0 == 'big' && inputs.i31 || 'ubuntu-24.04' }}"
+
+    def test_codex_repro_a_result_cut_at_depth_is_not_reused_nearer_the_top(self) -> None:
+        """Codex on #41015 F1: the runs-on reads i0 (cut at i32, past MAX_TRACE_DEPTH) and i31, two inputs from
+        vars.NEW_RUNNER. i31's result cut short at depth 31 was reused at depth 1, so NEW_RUNNER was never read."""
+        callee = self.deep_chain("${{ vars.NEW_RUNNER }}", self.DEEP_RUNS_ON)
+        _, _, resolved = self.resolve_callee({"callee.yml": callee, "caller.yml": self.DEEP_CALLER})
+        self.assertIn("NEW_RUNNER", {r.name for r in resolved.vars_read if r.field == "runs-on"})
+        self.assertIn("vars.NEW_RUNNER", resolved.runs_on_unresolved)
+        self.assertEqual({u.reason for u in resolved.unverifiable}, {"more than 32 inputs"})
+        self.assert_names(self.scan({"callee.yml": callee, "caller.yml": self.DEEP_CALLER}), "NEW_RUNNER")
+
+    def test_a_result_cut_by_a_loop_is_not_reused_once_the_loop_is_closed(self) -> None:
+        """The same class for a loop: `fallback` traced inside `runner` stops where it meets `runner` again, so it
+        lacks runner's 'lab-a'. Reused for the runs-on's own `inputs.fallback`, the runs-on missed 'lab-a'."""
+        callee = ("on:\n  workflow_call:\n    inputs:\n"
+                  "      runner: {type: string, default: \"${{ inputs.fallback || 'lab-a' }}\"}\n"
+                  "      fallback: {type: string, default: \"${{ inputs.runner || 'lab-b' }}\"}\n"
+                  "jobs:\n  a:\n    runs-on: ${{ inputs.runner == 'x' && inputs.fallback || inputs.fallback }}\n")
+        _, _, resolved = self.resolve_callee({"callee.yml": callee, "caller.yml": self.DEEP_CALLER})
+        self.assertEqual(resolved.runs_on, {"lab-a", "lab-b"})
+        self.assertTrue(resolved.unverifiable)
+
+    def test_a_chain_of_workflows_past_the_depth_cap_stays_linear(self) -> None:
+        """Results cut by MAX_TRACE_DEPTH are kept per depth, so 40 workflows each called twice by the next still
+        cost O(workflows x depth), and the cut is a finding."""
+        depth = 40
+        declared = "on:\n  workflow_call:\n    inputs:\n      runner: {type: string}\n"
+
+        def calls(target: str, value: str) -> str:
+            return "".join(f"  c{k}:\n    uses: ./.github/workflows/{target}\n    with:\n      runner: {json.dumps(value)}\n"
+                           for k in range(2))
+        files = {"w0.yml": declared + "jobs:\n  a:\n    runs-on: ${{ inputs.runner }}\n"}
+        for n in range(1, depth):
+            files[f"w{n}.yml"] = declared + "jobs:\n" + calls(f"w{n - 1}.yml", "${{ inputs.runner }}")
+        files[f"w{depth}.yml"] = "jobs:\n" + calls(f"w{depth - 1}.yml", "${{ vars.TOP }}")
+        wj = checker.load_workflow_jobs()
+        workflows = wj.Workflows({name: wj.document(text) for name, text in files.items()})
+        job = workflows.documents["w0.yml"]["jobs"]["a"]
+        found = {}
+        counts = self.count_work(wj, lambda: found.setdefault("r", wj.resolve(job, "a", "w0.yml", workflows)))
+        print(f"\nworkflow chain past the cap, {depth} workflows x 2 callers: {counts}", file=sys.stderr)
+        self.assertEqual({u.reason for u in found["r"].unverifiable}, {"more than 32 inputs"})
+        self.assertLessEqual(counts["input_values"] + counts["_resolve"], 2 * depth * 8, counts)
+
     def test_the_resolver_records_each_variable_it_consumes_with_where_it_sits(self) -> None:
         """The checker reads its findings from workflow_jobs.resolve, which records every `vars` operand it consumed
         resolving a field: the file, the job and the key path it sits at, and the field that consumed it."""
@@ -756,6 +809,23 @@ class PrepushGateLayer(unittest.TestCase):
         refused = self.layer()
         self.assertTrue(refused, "a new runs-on variable passed because the base's scan did not run either")
         self.assertTrue(all("did not run" in line for line in refused), refused)
+
+    def test_a_base_whose_trace_was_cut_short_is_never_subtracted_from_the_head(self) -> None:
+        """Codex on #41015: a trace the resolver refuses to finish reads something unknown past the cut. The base and
+        the head both stop at i32 of the same chain, so the head's new vars.NEW_RUNNER past it is invisible and the
+        one finding, the cut, was the base's too: subtracted as debt, the push passed. A cut refuses at the head."""
+        self.checker(None)
+        write = (self.repo / ".github" / "workflows").joinpath
+        write("caller.yml").write_text(SingleHostFallbacks.DEEP_CALLER, encoding="utf-8")
+        write("callee.yml").write_text(SingleHostFallbacks.deep_chain("${{ vars.RUNNER_POOLS }}", "${{ inputs.i0 }}"),
+                                       encoding="utf-8")
+        self.base = self.commit("a chain past the depth cap on the base")
+        write("callee.yml").write_text(SingleHostFallbacks.deep_chain("${{ vars.NEW_RUNNER }}", "${{ inputs.i0 }}"),
+                                       encoding="utf-8")
+        self.commit("reads vars.NEW_RUNNER past the cut")
+        refused = self.layer()
+        self.assertTrue(refused, "a new variable past the depth cut passed: the base's cut was subtracted as debt")
+        self.assertTrue(any("cannot be verified" in line for line in refused), refused)
 
     def test_output_of_the_wrong_shape_refuses(self) -> None:
         """Codex F2 on #40840: findings were str()-coerced, so `[{"key": [], "message": {}}]` was one equal finding on
