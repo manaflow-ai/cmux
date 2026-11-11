@@ -241,6 +241,42 @@ import Testing
         #expect(ReattachCatchUpLiveTests.answer(store, newest) == "answer \(newest)")
     }
 
+    /// The gap's records reach the chat but not the phone's kept copy: after a tail-first
+    /// reattach the kept copy starts again at the newest page's first prompt, with older records
+    /// on the Mac, so a relaunch never shows the turns before the gap joined to the newest ones
+    /// with nothing between (scrolling up reads the gap as older pages).
+    @Test func aGapRestartsTheKeptCopyAtTheNewestRecords() async throws {
+        typealias Kept = AgentKeptTranscriptTests
+        let last = Chat.turns + 299
+        let fake = Fake(turns: 0..<(last + 1), visibleThrough: Chat.turns * 5)
+        fake.failGapPages(true)
+        let cache = Kept.cache()
+        defer { try? FileManager.default.removeItem(at: cache.directory) }
+        let link = fake.link()
+        let hub = Kept.hub(cache)
+        await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
+        let source = hub.source(sessionID: "s1", summary: Kept.summary)
+        let store = AgentChatStore(source: source)
+        await Chat.waitUntil { store.turns.count == Chat.turns }
+        #expect(store.turns.map(\.id) == Self.ids(0..<Chat.turns))
+
+        await hub.bind(nil)
+        fake.write(through: last)
+        await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
+        await Chat.waitUntil { Self.shows(store, last) && fake.gapPageCount > 0 }
+        #expect(store.isFillingGap)
+
+        // The link drops with the gap still open: the kept copy is saved as it stands.
+        await hub.bind(nil)
+        cache.flush()
+        let key = try #require(AgentTranscriptCache.key(accountID: "acct", macID: "mac1", tabID: "s7"))
+        let entry = try #require(cache.cached(key))
+        #expect(entry.earlier)
+        #expect(entry.records.first?["msg"]?["turnId"]?.stringValue == "t\(last - 79)")
+        #expect(entry.records.allSatisfy { Int($0["seq"]?.numberValue ?? 0) > (last - 79) * 5 })
+        #expect(entry.lastSeq == last * 5 + 5)
+    }
+
     /// A gap that fits one page: the reattach's one page is everything missed, applied as one
     /// batch, with no gap and no other read.
     @Test func aSmallGapReadsAsBefore() async throws {
