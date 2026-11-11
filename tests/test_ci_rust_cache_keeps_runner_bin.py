@@ -48,17 +48,15 @@ def keeps_bin(step: dict) -> bool:
     return value is False or str(value).strip().lower() == "false"
 
 
-def runner_labels(job: dict) -> list[str] | None:
-    """The job's runs-on as each matrix cell writes it (a label list joined by ", "), or None when a matrix value
-    is not static (a guard counts that job as able to take a persistent runner)."""
-    return workflow_jobs.runs_on_cells(job)
+def ephemeral_label(label: str) -> bool:
+    return bool(EPHEMERAL_LABEL.match(label.strip()))
 
 
 def ephemeral_only(job: dict) -> bool:
-    labels = runner_labels(job)
-    if not labels:
-        return False
-    return all(isinstance(label, str) and "${{" not in label and EPHEMERAL_LABEL.match(label.strip()) for label in labels)
+    """Every runner the job's runs-on can resolve to is one EPHEMERAL_LABEL names: workflow_jobs.may_run_self_hosted
+    with these labels as the one-shot ones (every matrix cell read, a part nothing resolves counted as persistent).
+    A job with no runs-on is not."""
+    return bool(workflow_jobs.runs_on_cells(job)) and not workflow_jobs.may_run_self_hosted(job, one_shot=ephemeral_label)
 
 
 def workflow_failures(path: Path) -> tuple[int, list[str]]:
@@ -109,6 +107,10 @@ def self_test() -> list[str]:
         ({"runs-on": ["self-hosted", "macOS"]}, False),
         ({"runs-on": "${{ vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}"}, False),
         ({"runs-on": "${{ matrix.runner }}", "strategy": {"matrix": {"include": [{"runner": "ubuntu-24.04"}]}}}, True),
+        ({"runs-on": "${{ matrix.runner }}", "strategy": {"matrix": {"runner": ["ubuntu-24.04", "self-hosted"]}}}, False),
+        ({"runs-on": "${{ needs.pick.outputs.runner }}"}, False),
+        ({"runs-on": "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}"},
+         True),
         ({"runs-on": "${{ matrix.runner }}", "strategy": {"matrix": {"include": [{"runner": "ubuntu-24.04"}, {"runner": "blacksmith-6vcpu-macos-latest"}]}}}, False),
         ({"runs-on": "${{ matrix.runner }}", "strategy": {"matrix": "${{ fromJSON(needs.plan.outputs.jobs) }}"}}, False),
     ]

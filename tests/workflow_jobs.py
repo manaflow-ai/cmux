@@ -246,12 +246,6 @@ def holds_secret(job: Mapping[str, Any]) -> bool:
     return bool(secret_names(job)) or environment_spec(job) is not None
 
 
-def runs_on(job: Mapping[str, Any]) -> str:
-    """The job's runs-on as written ("" when it has none, as a reusable-workflow call does)."""
-    value = job.get("runs-on", "")
-    return value if isinstance(value, str) else yaml.safe_dump(value, default_flow_style=True).strip()
-
-
 _FROM_JSON = re.compile(r"^\$\{\{\s*fromJSON\s*\(\s*(.*?)\s*\)\s*\}\}$", re.IGNORECASE | re.DOTALL)
 _NEEDS_OUTPUT = re.compile(r"needs\.([A-Za-z0-9_-]+)\.outputs\.([A-Za-z0-9_-]+)", re.IGNORECASE)
 _STEP_OUTPUT = re.compile(r"\$\{\{\s*steps\.([A-Za-z0-9_-]+)\.outputs\.([A-Za-z0-9_-]+)\s*\}\}", re.IGNORECASE)
@@ -596,6 +590,31 @@ def runs_on_values(job: Mapping[str, Any], workflow: str | None = None,
         values |= found
         unresolved |= open_terms
     return values, unresolved
+
+
+# GitHub-hosted and Blacksmith labels: a VM that runs one job and is destroyed. Anything else (`self-hosted`, a
+# `-glaeda` suffix, a fleet pool's label) may be a machine whose workspace, HOME and caches outlive the job.
+ONE_SHOT_LABEL = re.compile(
+    r"^(ubuntu-(\d{2}\.\d{2}|latest)(-arm)?|windows-(\d{4}|latest)|macos-(\d{2}|latest)(-large|-xlarge|-intel)?"
+    r"|blacksmith-\d+vcpu-(ubuntu-\d{4}(-arm)?|windows-\d{4}|macos-\d{2}))$"
+)
+
+
+def one_shot_label(label: str) -> bool:
+    return bool(ONE_SHOT_LABEL.match(label.strip()))
+
+
+def may_run_self_hosted(job: Mapping[str, Any], workflow: str | None = None, workflows: Workflows | None = None,
+                        one_shot: Callable[[str], bool] = one_shot_label) -> bool:
+    """Whether a job can land on a machine that outlives it: a label its runs-on can resolve to (runs_on_values:
+    every matrix cell, include entries and a fromJSON matrix of a literal too, an expression's literal branches, a
+    reusable workflow's inputs through its callers) that `one_shot` does not accept, or any part nothing here
+    resolves (a repository variable, a picker's output, a matrix value nothing gives, `matrix.X` inside a larger
+    expression), which counts as self-hosted. A job with no runs-on (a reusable-workflow call) is False. Every guard
+    that holds self-hosted jobs to a rule decides which jobs those are here, never from runs-on text: the text of
+    `${{ matrix.runner }}` names no runner, so a text match lets `runner: [self-hosted]` through."""
+    values, unresolved = runs_on_values(job, workflow, workflows)
+    return bool(unresolved) or not all(one_shot(value) for value in values)
 
 
 def environment_spec(job: Mapping[str, Any]) -> dict[str, Any] | None:
