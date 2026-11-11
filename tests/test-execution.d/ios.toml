@@ -46,6 +46,10 @@ path = "tests/test_ios_sim_runtime.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_png_opaque.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_testflight_archive_log.py"
 lane = "linux-guard"
 

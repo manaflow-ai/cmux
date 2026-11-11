@@ -30,12 +30,15 @@ def runtime(version, build, phones=("iPhone 17 Pro", "iPhone 17"), available=Tru
 BLACKSMITH = {"runtimes": [runtime("26.5", "23F77"), runtime("27.0", "24A434")], "devicetypes": []}
 
 
-def run(listing, declared=None):
+def run(listing, declared=None, args=()):
     env = {k: v for k, v in os.environ.items() if k != "CMUX_CI_IOS_SIM_RUNTIME"}
     if declared is not None:
         env["CMUX_CI_IOS_SIM_RUNTIME"] = declared
-    return subprocess.run([sys.executable, "-I", str(HELPER)], input=json.dumps(listing), env=env,
+    return subprocess.run([sys.executable, "-I", str(HELPER), *args], input=json.dumps(listing), env=env,
                           capture_output=True, text=True)
+
+
+APPSTORE = ("--phone-class", "appstore-6.9")
 
 
 class IOSSimRuntimeTest(unittest.TestCase):
@@ -74,6 +77,29 @@ class IOSSimRuntimeTest(unittest.TestCase):
         p = run({"runtimes": [runtime("26.5", "23F77", phones=("iPad Pro", "iPhone Air"))]}, "23F77")
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual(p.stdout.split()[1], "com.apple.CoreSimulator.SimDeviceType.iPhone-Air")
+
+    def test_appstore_class_takes_the_69_inch_iphone(self):
+        phones = ("iPhone 17 Pro", "iPhone 16 Pro Max", "iPhone 17 Pro Max")
+        p = run({"runtimes": [runtime("26.5", "23F77", phones=phones)]}, "23F77", APPSTORE)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(p.stdout.split()[1], "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro-Max")
+
+    def test_appstore_class_never_falls_back_to_another_size(self):
+        p = run({"runtimes": [runtime("26.5", "23F77")]}, "23F77", APPSTORE)
+        self.assertNotEqual(p.returncode, 0)
+        self.assertEqual(p.stdout, "")
+        self.assertIn("iPhone 17 Pro Max", p.stderr)
+
+    def test_unknown_argument_is_refused(self):
+        p = run(BLACKSMITH, "23F77", ("--phone-class", "6.7"))
+        self.assertNotEqual(p.returncode, 0)
+        self.assertEqual(p.stdout, "")
+
+    def test_step_script_shoots_app_store_screens_on_the_69_inch_iphone(self):
+        text = SCRIPT.read_text()
+        self.assertIn("--phone-class appstore-6.9", text)
+        self.assertIn("status_bar \"$udid\" override --time 9:41", text)
+        self.assertIn("1320x2868", text)
 
     def test_step_script_selects_through_the_helper(self):
         text = SCRIPT.read_text()

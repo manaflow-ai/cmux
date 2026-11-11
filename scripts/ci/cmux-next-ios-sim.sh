@@ -46,6 +46,16 @@
 #             --arg shots --arg devices=-cmux-mobile-settings-page,devices \
 #               --arg feed=CMUX_MOBILE_FEED_STRESS=60,-cmux-mobile-tab,feed
 #           Run it at the base and at the head for a PR's before and after.
+#           A scene's leading SHOT_WAIT=N word (seconds, 1-60) is not passed to
+#           the app: it is that scene's wait before the shot (default 5).
+#           The scene `appstore=iphone-6.9` (not a screen) makes the run App Store
+#           screenshots: the 6.9" iPhone (iPhone 17 Pro Max, else 16 Pro Max;
+#           no other phone), the status bar overridden to 9:41 with full
+#           signal and battery (`simctl status_bar override`), and each shot
+#           checked to be the 6.9" display's portrait size (1320x2868 or
+#           1290x2796) and written without an alpha channel (png_opaque.py),
+#           or the step fails, e.g.
+#             --arg shots --arg appstore=iphone-6.9 --arg 01-home=-cmux-mobile-tab,home
 #   chief-live-perf / chief-live-perf-baseline
 #           Three Chief layout measurements on one simulator, reusing test
 #           DerivedData. Copy the identical head benchmark test to the baseline
@@ -100,7 +110,11 @@ case "$mode" in build|release-build|test|bench|all|pair-e2e|shots|chief-live-per
 if [[ "$mode" == release-build && $# -ne 1 ]]; then
   echo "cmux-next-ios-sim.sh: release-build takes no further arguments" >&2; exit 2
 fi
-scenes=("${@:2}")
+scenes=()
+appstore=0
+for scene in "${@:2}"; do
+  if [[ "$mode" == shots && "$scene" == appstore=iphone-6.9 ]]; then appstore=1; else scenes+=("$scene"); fi
+done
 if [[ "$mode" == shots && ${#scenes[@]} -eq 0 ]]; then
   echo "cmux-next-ios-sim.sh: shots needs one or more scenes after it, name=WORD,WORD,..." >&2; exit 2
 fi
@@ -290,7 +304,9 @@ fi
 # (CMUX_CI_IOS_SIM_RUNTIME, set by the build fleet's controller), else the newest (ios_sim_runtime.py).
 # A host without the declared runtime fails here, with the runtimes it has.
 if [[ "$mode" != release-build ]]; then
-  sim_choice="$(xcrun simctl list -j runtimes devicetypes | python3 -I scripts/ci/ios_sim_runtime.py)" || exit 3
+  phone_class=()
+  if [[ "$appstore" == 1 ]]; then phone_class=(--phone-class appstore-6.9); fi
+  sim_choice="$(xcrun simctl list -j runtimes devicetypes | python3 -I scripts/ci/ios_sim_runtime.py ${phone_class[@]+"${phone_class[@]}"})" || exit 3
   read -r runtime device_type <<< "$sim_choice"
 fi
 
@@ -693,22 +709,38 @@ if [[ "$mode" == shots ]]; then
   note ""
   note "## Screens (mock data, DEBUG launch arguments)"
   note ""
+  if [[ "$appstore" == 1 ]]; then
+    # App Store screenshots: Apple's clean status bar (9:41, full signal, Wi-Fi and battery).
+    simctl status_bar "$udid" override --time 9:41 --dataNetwork wifi --wifiMode active --wifiBars 3 \
+      --cellularMode active --cellularBars 4 --operatorName "" --batteryState charged --batteryLevel 100
+    note "- App Store screenshots: ${device_type##*.}, status bar overridden (9:41, full signal and battery)"
+  fi
   for scene in "${scenes[@]}"; do
     name="${scene%%=*}"
     [[ "$name" =~ ^[A-Za-z0-9._-]+$ && "$scene" == *=?* ]] || { note "- skipped scene '$scene': want name=WORD,WORD,..."; continue; }
     IFS=',' read -r -a words <<< "${scene#*=}"
     envs=(SIMCTL_CHILD_CMUX_MOBILE_MOCK_AUTH=1)
     args=()
+    wait_s="${CMUX_NEXT_IOS_SHOT_WAIT:-5}"
     for w in ${words[@]+"${words[@]}"}; do
-      if [[ ${#args[@]} -eq 0 && "$w" =~ ^[A-Z_][A-Z0-9_]*= ]]; then envs+=("SIMCTL_CHILD_$w"); else args+=("$w"); fi
+      if [[ ${#args[@]} -eq 0 && "$w" =~ ^SHOT_WAIT=([1-9]|[1-5][0-9]|60)$ ]]; then wait_s="${w#SHOT_WAIT=}"
+      elif [[ ${#args[@]} -eq 0 && "$w" =~ ^[A-Z_][A-Z0-9_]*= ]]; then envs+=("SIMCTL_CHILD_$w"); else args+=("$w"); fi
     done
     for look in dark light; do
       simctl ui "$udid" appearance "$look" >/dev/null 2>&1 || true
       env "${envs[@]}" xcrun simctl --set "$sims" launch "$udid" "$bundle_id" ${args[@]+"${args[@]}"} >/dev/null
       # A bounded wait for the scene to draw; demo drivers have no signal to wait on.
-      sleep "${CMUX_NEXT_IOS_SHOT_WAIT:-5}"
+      sleep "$wait_s"
       simctl io "$udid" screenshot "$out/screens/$name-$look.png" >/dev/null
       simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
+      if [[ "$appstore" == 1 ]]; then
+        size="$(sips -g pixelWidth -g pixelHeight "$out/screens/$name-$look.png" | awk '/pixelWidth/ { w = $2 } /pixelHeight/ { h = $2 } END { print w "x" h }')"
+        [[ "$size" == 1320x2868 || "$size" == 1290x2796 ]] ||
+          { note "- $name-$look: $size is not a 6.9\" iPhone portrait size (1320x2868 or 1290x2796)"; exit 1; }
+        # App Store Connect refuses an alpha channel; simctl writes RGBA even when every pixel is opaque.
+        python3 -I scripts/ci/png_opaque.py "$out/screens/$name-$look.png" ||
+          { note "- $name-$look: could not drop its alpha channel"; exit 1; }
+      fi
     done
     note "- $name: screens/$name-dark.png, screens/$name-light.png"
   done
