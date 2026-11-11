@@ -45,11 +45,7 @@ nonisolated extension ContextMenuCatalog {
         ["name": "remoteBrowserPage", "source": "CmuxNextRemoteBrowser/Native/RemoteBrowserNativeUI.swift"],
         ["name": "sidebarNoticeCard", "source": "CmuxNextSidebar/Views/SidebarNoticeCardView.swift"],
         ["name": "sidebarUpdateCard", "source": "CmuxNextSidebar/Views/SidebarUpdateCardView.swift"],
-        ["name": "debugSidebarToggleIcon", "source": "CmuxNextApp/Windows/SidebarToggleIconMenu.swift"],
-        ["name": "debugStatusIconSet", "source": "CmuxNextApp/Windows/StatusIconSetMenu.swift"],
         ["name": "homeBackground", "source": "CmuxNextHomeEngine/HomePageMenus.swift"],
-        ["name": "historyToolbar", "source": "CmuxNextHistory/HistoryPageView.swift"],
-        ["name": "historyRow", "source": "CmuxNextHistory/HistoryPageRow.swift"],
     ]
 
     /// Every context menu's export, keyed by `ActionMenuContext.exportName`.

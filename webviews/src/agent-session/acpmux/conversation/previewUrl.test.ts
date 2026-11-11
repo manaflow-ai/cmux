@@ -5,7 +5,7 @@
 // nothing useful. A setting's value and an API route are not pages; a dev server's address is.
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
-import { latestLocalUrl, turnPreviewUrl } from "./previewUrl";
+import { latestLocalUrl, turnPreviewUrl, turnServedUrl } from "./previewUrl";
 
 const shell = (command: string, output: string): AcpmuxRow =>
   ({
@@ -51,4 +51,12 @@ test("a dev server's address and a page the answer names still are", () => {
   expect(latestLocalUrl(["Server running at http://0.0.0.0:8000/"])).toBe("http://localhost:8000/");
   const turn = [shell("bun run dev", "  ➜  Local:   http://localhost:5173/\n")];
   expect(turnPreviewUrl(user, turn)).toBe("http://localhost:5173/");
+});
+
+test("a page the prompt names is the header's preview, but only the agent's own counts as served", () => {
+  const asked = { ...user, text: "build it like the one at http://localhost:3000/" } as AcpmuxRow;
+  expect(turnPreviewUrl(asked, [])).toBe("http://localhost:3000/");
+  expect(turnServedUrl([])).toBeUndefined();
+  const served = [shell("npm run dev &", "  Local:   http://localhost:5173/")];
+  expect(turnServedUrl(served)).toBe("http://localhost:5173/");
 });

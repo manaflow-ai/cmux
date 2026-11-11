@@ -1,7 +1,7 @@
 import { useId, useLayoutEffect, useReducer, useRef } from "react";
 import { usePopupHost } from "./UiProvider";
 import type { AnchorBox } from "./popupHost";
-import type { NativePopupEvent, NativePopupModel, NativePopupRow } from "./popupProtocol";
+import { nativePopupRows, type NativePopupEvent, type NativePopupModel, type NativePopupRow } from "./popupProtocol";
 import { NativePopupEventFence } from "./nativePopupEvents";
 
 export type { NativePopupEvent, NativePopupModel, NativePopupRow } from "./popupProtocol";
@@ -126,7 +126,7 @@ function withEditSequences(
       if (row.children) collect(row.children);
     }
   };
-  collect([...(model.rail ?? []), ...model.rows, ...(model.footer ?? [])]);
+  collect(nativePopupRows(model));
   for (const id of sequences.keys()) if (!liveFields.has(id)) sequences.delete(id);
   const applied = (id: string, value: string | undefined, explicit: number | undefined): number => {
     const edit = sequences.get(id);
@@ -155,5 +155,7 @@ function withEditSequences(
     rows: rows(model.rows),
     ...(model.rail ? { rail: rows(model.rail) } : {}),
     ...(model.footer ? { footer: rows(model.footer) } : {}),
+    ...(model.searchAccessory ? { searchAccessory: rows([model.searchAccessory])[0]! } : {}),
+    ...(model.columns ? { columns: model.columns.map((column) => ({ ...column, rows: rows(column.rows) })) } : {}),
   };
 }

@@ -12969,6 +12969,137 @@
           }
         }
       }
+    },
+    "addMachine.personOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only a click or key in the card adds or checks a machine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يضيف جهازًا أو يفحصه إلا نقرة أو مفتاح داخل البطاقة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Samo klik ili tipka u kartici dodaje ili provjerava mašinu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kun et klik eller en tast i kortet tilføjer eller tjekker en maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nur ein Klick oder eine Taste in der Karte fügt eine Maschine hinzu oder prüft sie."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo un clic o una tecla en la tarjeta añade o comprueba una máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seul un clic ou une touche dans la carte ajoute ou vérifie une machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo un clic o un tasto nella scheda aggiunge o controlla una macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "マシンの追加と確認は、カード内のクリックかキー操作でのみ行えます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មានតែការចុច ឬគ្រាប់ចុចនៅក្នុងកាតប៉ុណ្ណោះ ដែលបន្ថែម ឬពិនិត្យម៉ាស៊ីន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "카드 안에서 클릭하거나 키를 눌러야만 기기를 추가하거나 확인합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bare et klikk eller en tast i kortet legger til eller sjekker en maskin."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maszynę dodaje lub sprawdza tylko kliknięcie lub klawisz na karcie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Só um clique ou uma tecla no cartão adiciona ou verifica uma máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Добавить или проверить машину можно только щелчком или клавишей в карточке."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เฉพาะการคลิกหรือกดแป้นในการ์ดเท่านั้นที่เพิ่มหรือตรวจสอบเครื่องได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir makineyi yalnızca karttaki bir tıklama veya tuş ekler ya da denetler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Додати або перевірити машину можна лише клацанням чи клавішею в картці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ một cú nhấp hoặc phím trong thẻ mới thêm hoặc kiểm tra máy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有在卡片中点按或按键才能添加或检查机器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有在卡片中按一下或按鍵才能加入或檢查機器。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

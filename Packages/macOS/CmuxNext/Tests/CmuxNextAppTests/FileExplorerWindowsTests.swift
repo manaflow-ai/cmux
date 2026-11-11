@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextTestSupport
 import Foundation
 import Testing
 import CmuxNextFilesUI
@@ -28,8 +29,7 @@ struct FileExplorerWindowsTests {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let suite = "cmux-file-explorer-windows-test-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        services.rightSidebarDefaults = defaults
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         services.windows.ordersWindowsIn = false
         AppActions.bind(services)
         let first = try #require(services.windows.openWindow(workspaces: ["fe-windows-a"]))

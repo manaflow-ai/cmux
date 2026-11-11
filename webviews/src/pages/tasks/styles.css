@@ -357,24 +357,36 @@
   color: var(--page-text-2);
 }
 
-/* Inbox: the list and the detail side by side. */
+/* Inbox: the list and the detail side by side. Dragging the detail's edge (SplitEdge sets
+   --tasks-detail-width here) fixes the detail and gives the list the rest; the two flex values read
+   invalid while that is unset, so the defaults hold. */
 .tasks-inbox {
+  --tasks-detail-flex: 0 1 var(--tasks-detail-width);
+  --tasks-list-flex: 1 1 calc(var(--tasks-detail-width) * 0);
   display: flex;
   flex: 1;
   min-height: 0;
 }
 
 .tasks-inbox-list {
-  flex: 0 1 460px;
+  flex: var(--tasks-list-flex, 0 1 460px);
   min-width: 320px;
   padding-top: 4px;
 }
 
+/* Still, so its edge stays put while the detail scrolls inside it. */
 .tasks-detail-pane {
-  flex: 1 1 320px;
+  position: relative;
+  display: flex;
+  flex: var(--tasks-detail-flex, 1 1 320px);
+  min-width: 0;
+  border-inline-start: 1px solid var(--page-separator);
+}
+
+.tasks-detail-scroll {
+  flex: 1;
   min-width: 0;
   overflow: auto;
-  border-inline-start: 1px solid var(--page-separator);
 }
 
 .tasks-detail {

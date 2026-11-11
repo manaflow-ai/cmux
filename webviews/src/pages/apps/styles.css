@@ -53,7 +53,7 @@
   outline: none;
 }
 
-.apps-search:focus {
+.apps-search:focus-visible {
   border-color: var(--page-text-3);
 }
 
@@ -377,15 +377,29 @@
   margin-top: auto;
 }
 
+/* The list's track is the default until its edge is dragged (SplitEdge sets --apps-list-width here);
+   it reads invalid while that is unset, and the detail keeps 360px. */
 .apps-split {
+  --apps-list-track: clamp(200px, var(--apps-list-width), 100% - 360px);
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(240px, 340px) minmax(0, 1fr);
+  grid-template-columns: var(--apps-list-track, minmax(240px, 340px)) minmax(0, 1fr);
+  min-height: 0;
+}
+
+/* The list scrolls; its edge sits on this still wrapper so it stays put. */
+.apps-split-side {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
   min-height: 0;
 }
 
 .apps-split-list {
+  flex: 1;
   min-width: 0;
+  min-height: 0;
   overflow-y: auto;
   border-right: 1px solid var(--page-separator);
 }
@@ -406,6 +420,11 @@
     border-right: 0;
     border-bottom: 1px solid var(--page-separator);
     overflow: visible;
+  }
+
+  /* Stacked: nothing to drag. */
+  .apps-split-side > .ui-split-edge {
+    display: none;
   }
 }
 

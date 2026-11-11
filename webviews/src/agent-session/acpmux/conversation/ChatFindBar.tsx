@@ -54,6 +54,36 @@ export function ChatFindBar({ find, label }: { find: FindBarState; label?: strin
     shell?.addEventListener(FIND_HIDE_EVENT, hide);
     return () => shell?.removeEventListener(FIND_HIDE_EVENT, hide);
   }, [hide]);
+  // The transcript keeps its top fade while the bar is open, with full ink over the bar's box
+  // (conversation.css: --acpmux-find-x, --acpmux-find-y and --acpmux-find-width on the scroller),
+  // measured before paint and again when the bar narrows, the pane resizes, or Session Info moves it
+  // (its reach is a style on the shell, SessionInfo.tsx SESSION_INFO_CLEAR).
+  useLayoutEffect(() => {
+    const node = bar.current;
+    const scroller = node?.closest<HTMLElement>(".acpmux-scroll");
+    if (!node || !scroller) return;
+    const measure = () => {
+      const box = node.getBoundingClientRect();
+      const view = scroller.getBoundingClientRect();
+      scroller.style.setProperty("--acpmux-find-x", `${box.left - view.left}px`);
+      scroller.style.setProperty("--acpmux-find-y", `${box.top - view.top}px`);
+      scroller.style.setProperty("--acpmux-find-width", `${box.width}px`);
+    };
+    measure();
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : undefined;
+    observer?.observe(node);
+    observer?.observe(scroller);
+    const shell = scroller.closest(".acpmux-shell");
+    const moved = typeof MutationObserver === "function" ? new MutationObserver(measure) : undefined;
+    if (shell) moved?.observe(shell, { attributes: true, attributeFilter: ["style"] });
+    return () => {
+      observer?.disconnect();
+      moved?.disconnect();
+      scroller.style.removeProperty("--acpmux-find-x");
+      scroller.style.removeProperty("--acpmux-find-y");
+      scroller.style.removeProperty("--acpmux-find-width");
+    };
+  }, []);
   useEffect(() => {
     field.current?.focus();
     field.current?.select();

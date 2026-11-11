@@ -7,7 +7,7 @@ use crate::rpc::Message;
 use std::collections::VecDeque;
 use std::os::fd::AsRawFd;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
 use tokio::sync::mpsc;
 
@@ -449,7 +449,8 @@ impl Started {
         {
             let tx = events_tx.clone();
             tokio::spawn(async move {
-                let mut lines = BufReader::new(stdout).lines();
+                // Lossy: a line that is not UTF-8 never ends the pipe (`lossy_lines`).
+                let mut lines = crate::lossy_lines::LossyLines::new(BufReader::new(stdout));
                 while pace_rx.recv().await.is_some() {
                     let next = lines.next_line().await.ok().flatten();
                     let done = next.is_none();
@@ -462,7 +463,7 @@ impl Started {
         {
             let tx = events_tx.clone();
             tokio::spawn(async move {
-                let mut lines = BufReader::new(stderr).lines();
+                let mut lines = crate::lossy_lines::LossyLines::new(BufReader::new(stderr));
                 loop {
                     let next = lines.next_line().await.ok().flatten();
                     let done = next.is_none();
@@ -537,6 +538,9 @@ impl Started {
             });
         }
 
+        // This process never sees the daemon's `_acpmux/chat_settings` push: the forced
+        // `agents.promptSuggestions` comes with the spec, before either translator reads it.
+        crate::claude_stdio::prompt_suggestions::set_managed(spec.prompt_suggestions_managed);
         let translator = spec.translator.as_ref().map(|t| {
             let tr = Translator::new(t.acp_session_id.clone(), &t.mode, &t.model, &t.effort);
             if t.fast

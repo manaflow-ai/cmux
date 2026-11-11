@@ -1031,6 +1031,16 @@ fn start(
     if let Err(e) = crate::skills::install_builtin(&crate::skills::shared_dir(&paths.home)) {
         eprintln!("optchat-chief: installing the shipped Chief skills: {e}");
     }
+    // The person's Claude Code skills cmux.json names (`chief.claudeSkills`,
+    // default every `emil-*` skill) join the shared Chief skills
+    // (slash_skills.rs).
+    let linked = crate::slash_skills::link_default_claude_skills(&paths.home);
+    if !linked.is_empty() {
+        eprintln!(
+            "optchat-chief: linked Claude skills into the Chief skills: {}",
+            linked.join(", ")
+        );
+    }
     // The tool packs cmux ships (toolpacks.rs); their skills reach each
     // Chief through session_dir::write (toolpacks::sync_skills).
     if let Err(e) = crate::toolpacks::install_builtin(&crate::toolpacks::shared_dir(&paths.home)) {
@@ -1411,6 +1421,15 @@ fn start(
                     .map(|v| v.to_string())
                     .map_err(late)
             }
+            ControlRequest::StartSubagent(name) => {
+                let (reply, answer) = channel();
+                tx.send(Input::StartSubagent { name, reply })
+                    .map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
             ControlRequest::StopSubagent(name) => {
                 let (reply, answer) = channel();
                 tx.send(Input::StopSubagent { name, reply })
@@ -1644,6 +1663,22 @@ fn start(
     // The memory's one change book: the inspector's edits and the chat's
     // deleted messages (brain/inbox.rs) share its journal and rebuild worker.
     let memory_editor = crate::inspect::edit::Editor::open(chat.clone(), &paths.root);
+    // The MCP hub (mcp_hub): servers the Chief adds itself; a task's result
+    // and a subscribed event reach the brain as a note, as a peer Chief's do.
+    let mcp_hub = crate::mcp_hub::McpHub::new(
+        paths.root.join("mcp"),
+        Some(crate::skills::chief_dir(home)),
+        {
+            let tx = Mutex::new(tx.clone());
+            Arc::new(move |text: String| {
+                let _ = tx
+                    .lock()
+                    .expect("mcp tx")
+                    .send(Input::PeerChiefNote { text });
+            })
+        },
+    );
+    mcp_hub.start();
     crate::tools::serve_all(
         &paths.tools_socket,
         crate::tools::Served {
@@ -1671,6 +1706,7 @@ fn start(
                     })
                 },
             ))),
+            mcp: Some(mcp_hub.clone()),
         },
     )
     .map_err(|e| format!("serving the memory tools: {e}"))?;
@@ -2293,7 +2329,8 @@ pub fn probe_until_ready(
 /// `deadline_exceeded` error) or Chief's own wait on its `session/new`. Any
 /// other request that went unanswered is not a start, and stays a fault.
 /// A harness acpmux saw stop working says "did no work", which is not this:
-/// it is a fault the person hears of. A loaded or
+/// no wait cures it, though a fresh harness may start (`turn::is_hung_start`:
+/// the reply ledger tries again, with no cuts). A loaded or
 /// memory-starved machine (2026-11-04: swap full, the harness in page-in
 /// waits) is a wait, never a fault to post: the start works when it can.
 pub fn start_stall(error: &str) -> bool {

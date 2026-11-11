@@ -11,17 +11,23 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::process::Child;
 use tokio::sync::{Mutex, mpsc, oneshot};
 
 mod command;
 pub(crate) mod foreign_login;
+mod leader_exit;
 #[cfg(unix)]
 pub(crate) mod session_tmp;
+/// Tests read a built command without starting it; every spawn builds through
+/// `harness_command_ready`.
+#[cfg(test)]
+pub(crate) use command::harness_command;
 pub(crate) use command::{
-    REMOTE_ENV_POLICY_ID, REMOTE_ENV_POLICY_KEY, command_env, command_env_cleared, harness_command,
-    host_environment, pinned_preview_format, preview_format, resolved_profile_env,
+    REMOTE_ENV_POLICY_ID, REMOTE_ENV_POLICY_KEY, command_env, command_env_cleared, explicit_env,
+    harness_command_ready, host_environment, pinned_preview_format, preview_format,
+    resolved_profile_env,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,6 +95,26 @@ pub enum Inbound {
     LinkBroken { agent: u64 },
 }
 
+#[cfg(all(test, unix))]
+#[path = "agent_idle_tests.rs"]
+mod idle_tests;
+
+/// Tests only: how often the readers on this thread's runtime woke to check their agent's
+/// process while its output was quiet (`agent_idle_tests.rs`).
+#[cfg(test)]
+pub(crate) mod leader_wakeups {
+    thread_local! {
+        static WAKEUPS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    }
+    pub(crate) fn count() {
+        WAKEUPS.with(|w| w.set(w.get() + 1));
+    }
+    /// The wakeups since the last take.
+    pub(crate) fn take() -> u64 {
+        WAKEUPS.with(|w| w.replace(0))
+    }
+}
+
 /// Tests only: the agent generation `ChildAgent::replay_pending` reports as replaying.
 #[cfg(test)]
 pub(crate) static TEST_REPLAYING: std::sync::atomic::AtomicU64 =
@@ -124,6 +150,9 @@ const HOST_KIND_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// How long the reader waits for the Exit entry's ack to be written.
 const EXIT_ACK_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
+/// The most entries logged before an ack while more wait: the host keeps each entry until it
+/// is acked, so this bounds what a streaming link adds to the host's buffer.
+const ACK_BATCH: usize = 64;
 
 /// The agent runs under an `__agent-host` process (durable sessions).
 struct Hosted {
@@ -140,6 +169,11 @@ struct Hosted {
     exit: tokio::sync::Notify,
     /// Last entry whose record reached the store.
     logged: tokio::sync::watch::Sender<u64>,
+    /// Held while a reader logs an entry and moves `logged`: the reader of a closed link may
+    /// still log entries from its queue after a reattach, while the host replays the same
+    /// entries to the new link (it resumes after `logged`). Under this lock each entry is
+    /// logged once: a reader skips an entry at or below `logged` and only acknowledges it.
+    log_turn: tokio::sync::Mutex<()>,
     /// The reader stopped (an entry could not be logged): the agent is not
     /// usable through this link; the next request adopts the host again.
     broken: std::sync::atomic::AtomicBool,
@@ -173,7 +207,8 @@ pub enum Attached {
 /// How long `kill` lets the agent's process group exit after SIGTERM.
 pub(crate) const KILL_GRACE: std::time::Duration = std::time::Duration::from_millis(300);
 
-/// How often the reader checks that the agent process is still running.
+/// How often the reader checks that the agent process is still running, where the kernel gives
+/// no exit event for it (`agent/leader_exit.rs`).
 const LEADER_CHECK: std::time::Duration = std::time::Duration::from_millis(500);
 
 /// How long the reader keeps draining stdout after the agent process exits.
@@ -671,6 +706,8 @@ struct CodexLink {
 struct Spawned {
     child: Option<Child>,
     pid: Option<u32>,
+    /// The exit event of `child`, opened while it is unreaped.
+    exit: Option<leader_exit::LeaderExit>,
     stdin: Box<dyn tokio::io::AsyncWrite + Unpin + Send>,
     stdout: Box<dyn tokio::io::AsyncRead + Unpin + Send>,
     stderr: Box<dyn tokio::io::AsyncRead + Unpin + Send>,
@@ -692,7 +729,7 @@ impl Spawned {
         command_line: Option<(String, Vec<String>)>,
         session: Option<(&str, &str)>,
     ) -> Result<Self> {
-        let mut cmd = harness_command(name, profile, cwd, command_line, session)?;
+        let mut cmd = harness_command_ready(name, profile, cwd, command_line, session).await?;
         // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).
         let launch = crate::hub::LaunchServers::read(
             &Launch::of(&cmd, cwd),
@@ -707,6 +744,8 @@ impl Spawned {
         // profile's value as resolved), is set once its session's start is over (`cpu_class.rs`).
         let env = command_env(&cmd);
         let run_class = crate::cpu_class::CpuClass::for_session(
+            profile.kind,
+            &profile.argv,
             env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
         );
         crate::cpu_class::start_at_normal(&mut cmd);
@@ -733,12 +772,14 @@ impl Spawned {
             }
         };
         let pid = child.id();
+        let exit = pid.and_then(leader_exit::LeaderExit::open);
         let stdin = child.stdin.take().context("agent stdin")?;
         let stdout = child.stdout.take().context("agent stdout")?;
         let stderr = child.stderr.take().context("agent stderr")?;
         Ok(Self {
             child: Some(child),
             pid,
+            exit,
             stdin: Box::new(stdin),
             stdout: Box::new(stdout),
             stderr: Box::new(stderr),
@@ -758,6 +799,7 @@ impl Spawned {
         Self {
             child: None,
             pid: None,
+            exit: None,
             stdin: pipes.stdin,
             stdout: pipes.stdout,
             stderr: pipes.stderr,
@@ -847,6 +889,7 @@ impl ChildAgent {
         let Spawned {
             child,
             pid,
+            exit,
             stdin,
             stdout,
             stderr,
@@ -937,7 +980,8 @@ impl ChildAgent {
             let inbound = inbound.clone();
             let generation = agent.generation;
             tokio::spawn(async move {
-                let mut lines = BufReader::new(stderr).lines();
+                // Lossy: a line that is not UTF-8 never ends the pipe (`lossy_lines`).
+                let mut lines = crate::lossy_lines::LossyLines::new(BufReader::new(stderr));
                 while let Ok(Some(line)) = lines.next_line().await {
                     let _ = inbound
                         .send(Inbound::Stderr(line, None, Some((generation, StderrPipe::Stderr))))
@@ -952,22 +996,38 @@ impl ChildAgent {
             let tap = tap.clone();
             let agent_for_exit = agent.clone();
             tokio::spawn(async move {
-                let mut lines = BufReader::new(stdout).lines();
+                let mut lines = crate::lossy_lines::LossyLines::new(BufReader::new(stdout));
                 // The leader can exit while a descendant still holds stdout
-                // open; watch it so its exit is reported regardless.
-                let mut leader_check = tokio::time::interval(LEADER_CHECK);
+                // open; watch it so its exit is reported regardless. The
+                // kernel's exit event where there is one: a quiet agent then
+                // never wakes this task. Otherwise a check every LEADER_CHECK.
+                let mut exit = exit;
+                let mut leader_check = exit.is_none().then(|| tokio::time::interval(LEADER_CHECK));
                 let mut leader_gone: Option<tokio::time::Instant> = None;
                 // The carry whose hold was waited out (`claude_stdio/carry.rs`): once per carry.
                 let mut held: Option<u64> = None;
                 loop {
+                    let leader = async {
+                        match (leader_gone, &exit, leader_check.as_mut()) {
+                            // Give buffered output a moment, then stop reading.
+                            (Some(at), _, _) => {
+                                let until = at.checked_add(LEADER_DRAIN).unwrap_or(at);
+                                tokio::time::sleep_until(until).await;
+                            }
+                            (None, Some(exit), _) => exit.exited().await,
+                            (None, None, Some(check)) => {
+                                check.tick().await;
+                            }
+                            (None, None, None) => std::future::pending().await,
+                        }
+                    };
                     let next = tokio::select! {
                         next = lines.next_line() => next,
-                        _ = leader_check.tick() => {
-                            if let Some(at) = leader_gone {
-                                // Give buffered output a moment, then stop reading.
-                                if at.elapsed() >= LEADER_DRAIN {
-                                    break;
-                                }
+                        _ = leader => {
+                            #[cfg(test)]
+                            leader_wakeups::count();
+                            if leader_gone.is_some() {
+                                break;
                             } else if !agent_for_exit.is_alive().await {
                                 leader_gone = Some(tokio::time::Instant::now());
                                 // Stop what the agent left running so the pipe closes.
@@ -979,6 +1039,9 @@ impl ChildAgent {
                                 }
                                 #[cfg(windows)]
                                 agent_for_exit.kill_job();
+                            } else if exit.take().is_some() {
+                                // An exit event for a process still running: check on a timer.
+                                leader_check = Some(tokio::time::interval(LEADER_CHECK));
                             }
                             continue;
                         }
@@ -2029,6 +2092,7 @@ impl ChildAgent {
                 inbound,
                 detached: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 logged: tokio::sync::watch::channel(resume_after).0,
+                log_turn: tokio::sync::Mutex::new(()),
                 broken: std::sync::atomic::AtomicBool::new(false),
                 replay_to: std::sync::atomic::AtomicU64::new(0),
                 stopped: std::sync::atomic::AtomicBool::new(false),
@@ -2075,19 +2139,27 @@ impl ChildAgent {
         true
     }
 
-    /// Read `link`'s entries: log each, act on it, then acknowledge it.
+    /// Read `link`'s entries: log each, act on it, then acknowledge it (one ack for a run of
+    /// queued entries, at most [`ACK_BATCH`] apart).
     fn start_reader(self: &Arc<Self>, link: Arc<crate::agent_host::link::Link>) {
         let reader = self.clone();
         tokio::spawn(async move {
             let Some(hosted) = reader.hosted.as_ref() else { return };
             let mut entries = link.entries.lock().await;
+            // Entries logged since the last ack.
+            let mut unacked = 0usize;
             while let Some((h, entry)) = entries.recv().await {
                 let is_exit = matches!(entry, crate::agent_host::Entry::Exit { .. });
                 #[cfg(debug_assertions)]
                 let ack_fails = ack_fails_once(&entry);
                 #[cfg(not(debug_assertions))]
                 let ack_fails = false;
-                if !reader.on_host_entry(h, entry, &hosted.inbound).await {
+                // An entry the reader of an earlier link logged already (its queue outlived its
+                // link, and the host replayed the entry here) is only acknowledged.
+                let turn = hosted.log_turn.lock().await;
+                let fresh = h > *hosted.logged.borrow();
+                if fresh && !reader.on_host_entry(h, entry, &hosted.inbound).await {
+                    drop(turn);
                     // Not stored: never acknowledge it or anything after it.
                     // Open requests stay open; the next request reattaches.
                     tracing::warn!(agent = %reader.name, "agent host entry {h} not logged; acks stop");
@@ -2109,7 +2181,10 @@ impl ChildAgent {
                         hosted.inbound.send(Inbound::LinkBroken { agent: reader.generation }).await;
                     return;
                 }
-                hosted.logged.send_replace(h);
+                if fresh {
+                    hosted.logged.send_replace(h);
+                }
+                drop(turn);
                 if is_exit {
                     // Written before anyone hears of the exit: a daemon that
                     // ends the agent and exits at once still acks the Exit.
@@ -2121,8 +2196,19 @@ impl ChildAgent {
                     }
                     continue;
                 }
-                if ack_fails || link.ack(h).await.is_err() {
+                if ack_fails {
                     break;
+                }
+                // An ack is cumulative: the host drops every entry through `h` (`host.rs`
+                // `drop_through`, so since the first host build). While more entries wait here
+                // one ack goes per ACK_BATCH entries; the entry that empties the queue is always
+                // acked, so an idle link leaves none unacked.
+                unacked += 1;
+                if unacked >= ACK_BATCH || entries.is_empty() {
+                    if link.ack(h).await.is_err() {
+                        break;
+                    }
+                    unacked = 0;
                 }
             }
             #[cfg(debug_assertions)]

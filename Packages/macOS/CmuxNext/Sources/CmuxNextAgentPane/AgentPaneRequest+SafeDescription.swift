@@ -76,6 +76,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .readAloud(.speak): "readAloudSpeak"
         case .readAloud(.stop): "readAloudStop"
         case .openChat: "openChat"
+        case .resumeChat: "resumeChat"
         case .openChatInTerminal: "openChatInTerminal"
         case .watchChat: "watchChat"
         case .chatsPage: "chatsPage"
@@ -85,6 +86,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .cloudEnvironment: "cloudEnvironment"
         case .cloudCredentialTransfer: "cloudCredentialTransfer"
         case .tryAnotherApproach: "tryAnotherApproach"
+        case .cloudTurnRewind(let request): request.method
         case .appAction: "appAction"
         case .paneAction, .moveToMachine, .diffTurn, .diffPatch: "paneAction"
         case .preview: "preview"
@@ -155,6 +157,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .computerUsePreview: "computerUsePreview"
         case .upload: "upload"
         case .uploadStage: "uploadStage"
+        case .uploadStageForSend: "uploadStageForSend"
         case .dictationRecordingUpload: "dictationRecordingUpload"
         case .dictationRecordingCancel: "dictationRecordingCancel"
         case .unsupported: "unsupported"

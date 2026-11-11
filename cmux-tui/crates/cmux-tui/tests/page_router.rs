@@ -322,3 +322,78 @@ fn the_history_page_relay_hears_a_closed_workspace_as_history_changed() {
     let refused = channels.send(&json!({"id": 2, "cmd": "subscribe"}));
     assert_eq!(refused["error_code"], "origin.forbidden", "{refused}");
 }
+
+/// The routed `feed` namespace (`feed-client-v1`, plans/cmux-next/feed-page.md):
+/// the Feed page reads the daemon's feed view, an intent needs the person's
+/// gesture, another page reads no feed, and the integration owner's writes
+/// are the verified app's alone.
+#[test]
+fn the_feed_page_reads_the_daemons_feed_view() {
+    let fixture = Fixture::new("feed");
+    fixture.ensure(HISTORY_ORIGIN);
+    let read = v2("view", "feed.view.read", json!({"layout": "inbox", "tz_offset_min": 60}), None);
+
+    let mut feed = fixture.unix();
+    let hello =
+        feed.send(&json!({"id": 1, "cmd": "client-hello", "role": "page_relay", "page": "feed"}));
+    assert_eq!(hello["ok"], true, "{hello}");
+    assert_eq!(
+        hello["data"]["page_events"],
+        json!(["feed-view-changed", "feed-reports-changed"]),
+        "{hello}"
+    );
+    // A page relay reads the feed only when its process is the verified app (this test process
+    // never proves itself; feed_client_ops' unit test covers the app's own relay).
+    assert_eq!(refusal_reason(&feed.send(&read)), "app_process_only");
+    let intent = v2("intent", "feed.intent", json!({"kind": "mark_all_read"}), Some("fd-1"));
+    assert_eq!(refusal_reason(&feed.send(&intent)), "gesture_required");
+    let post = v2(
+        "post",
+        "feed.post",
+        json!({"item": {"id": "fi_1", "title": "t", "poster": {"kind": "integration"}, "created_at": 1}}),
+        Some("fd-2"),
+    );
+    assert_eq!(feed.send(&post)["ok"], false);
+
+    // Another page reads no feed.
+    let mut history = fixture.unix();
+    history.send(&json!({"id": 1, "cmd": "client-hello", "role": "page_relay", "page": "history"}));
+    assert_eq!(refusal_reason(&history.send(&read)), "page_not_allowed");
+
+    // A script on the socket (an agent in a pane) reads no feed and posts nothing.
+    let mut script = fixture.unix();
+    assert_eq!(refusal_reason(&script.send(&read)), "app_process_only");
+    assert_eq!(script.send(&post)["ok"], false);
+}
+
+/// The Stashed Tabs page: its relay reads `stash.list`, may import OneTab
+/// text only with the person's gesture, never reads history, and hears a
+/// stash change another client makes (`stash-changed`) and nothing else.
+#[test]
+fn the_stash_page_relay_lists_stashes_and_hears_stash_changed() {
+    let fixture = Fixture::new("stash");
+    fixture.ensure(HISTORY_ORIGIN);
+    let mut relay = fixture.unix();
+    let hello =
+        relay.send(&json!({"id": 1, "cmd": "client-hello", "role": "page_relay", "page": "stash"}));
+    assert_eq!(hello["ok"], true, "{hello}");
+    assert_eq!(hello["data"]["page_events"], json!(["stash-changed"]), "{hello}");
+    let list = v2("list", "stash.list", json!({}), None);
+    assert_eq!(relay.send(&list)["ok"], true);
+    let groups = json!({"source": "onetab", "groups": [{"tabs": [{"url": "https://a.example/"}]}]});
+    let refused = relay.send(&v2("import", "stash.import", groups.clone(), Some("pr-stash-1")));
+    assert_eq!(refusal_reason(&refused), "gesture_required");
+    let history = relay.send(&v2("history", "history.entries.list", json!({}), None));
+    assert_eq!(refusal_reason(&history), "page_not_allowed");
+    let subscribed = relay.send(&json!({"id": 2, "cmd": "subscribe"}));
+    assert_eq!(subscribed["ok"], true, "{subscribed}");
+
+    // Another client (the CLI, a window's Save and Close) stashes pages.
+    let mut main = fixture.unix();
+    let imported = main.send(&v2("import", "stash.import", groups, Some("pr-stash-2")));
+    assert_eq!(imported["ok"], true, "{imported}");
+    let event = relay.event();
+    assert_eq!(event["event"], "stash-changed", "{event}");
+    let read = relay.send(&list);
+    assert_eq!(read["result"].as_array().map(Vec::len), Some(1), "{read}");
+}

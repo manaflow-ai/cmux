@@ -84,7 +84,7 @@ APP_BUILD_JOBS = re.compile(
 DAEMON_BUILD_JOBS = re.compile(r"^cmux-tui artifacts / (build|build-windows|build-darwin-fallback)( \(.*\))?$")
 # Jobs that compile the app's test targets. The lane keeps them for Swift: a unit test needs its
 # own target built, and no prebuilt build holds a PR's test bundle.
-TEST_COMPILE_JOBS = re.compile(r"^cmux-next / cmux-next (swift test|fast tier)|^fleet test-compile / ")
+TEST_COMPILE_JOBS = re.compile(r"^cmux-next / cmux-next (swift test|fast tier)|^fleet test-compile( \(advisory\))? / ")
 
 # Measured costs of the lane's own steps, in minutes, added back to its time.
 # base app: an answered `cmux-ci build cmux --any-tag` download (cmuxterm-hq#7238, median ready

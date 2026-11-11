@@ -1,5 +1,14 @@
 //! A lane result its authenticated parent already consumed does not become another task.
 //! Only successful local reads and explicit completion waits count; each mark names one turn.
+//!
+//! A prompt whose caller waits for its reply and prints it (`acpmux run`, `acpmux send --wait`:
+//! `_meta.acpmux.readsReply`, `cli/output.rs` `collect_once`) reads the turn it runs, while that
+//! caller's connection is still open when the turn ends ([`LaneReplyReader`]). A Claude Code
+//! subagent runs those in its lead's session with its lead's caller token, so before this the lead
+//! got a second copy of every reply its subagent already had as a lane report turn (W5-M,
+//! 2026-11-08). A caller that left first (a timed-out CLI) read nothing: its report goes. A
+//! steer into a running turn and a turn several messages joined (`digest.rs`) are never read
+//! this way: their reply answers more than the waiting caller's message.
 
 use super::*;
 use std::collections::BTreeMap;
@@ -16,6 +25,9 @@ struct Reads {
     parent: String,
     turns: BTreeMap<u64, Receipt>,
     waits: BTreeMap<String, usize>,
+    /// Callers that wait for a turn's reply and print it, by turn id: each by its reader's key,
+    /// with whether its connection ended ([`LaneReplyReader`]).
+    replies: BTreeMap<String, BTreeMap<u64, tokio::sync::watch::Receiver<bool>>>,
 }
 
 #[derive(Default)]
@@ -24,15 +36,25 @@ struct Receipt {
     start_seq: u64,
     ended: bool,
     read: bool,
+    /// Its turn ran several messages that joined one turn (`digest.rs`): a waiting caller's
+    /// reply answers its own message only, so it reads none of the turn ([`LaneReplyReader`]).
+    joined: bool,
 }
 
 impl Reads {
+    /// Whether a caller still connected waits for turn `turn_id`'s reply and prints it.
+    fn reply_read(&self, turn_id: &str) -> bool {
+        self.replies.get(turn_id).is_some_and(|r| r.values().any(|ended| !*ended.borrow()))
+    }
+
     fn trim(&mut self) {
         while self.turns.len() > 64 {
             let Some(turn) = self
                 .turns
                 .iter()
-                .find(|(_, r)| !self.waits.contains_key(&r.turn_id))
+                .find(|(_, r)| {
+                    !self.waits.contains_key(&r.turn_id) && !self.replies.contains_key(&r.turn_id)
+                })
                 .map(|(t, _)| *t)
             else {
                 break;
@@ -63,6 +85,110 @@ impl Drop for LaneReportWait {
                 reads.trim();
             }
         }
+    }
+}
+
+/// One caller that waits for a lane prompt's reply and prints it (`readsReply`): from the
+/// prompt's acceptance, which names its turn, until its request returns. Dropped, it reads no
+/// more; a connection that ended before the turn did read nothing.
+pub(crate) struct LaneReplyReader {
+    hub: Weak<Hub>,
+    lane: String,
+    key: u64,
+    ended: tokio::sync::watch::Receiver<bool>,
+}
+
+/// Each [`LaneReplyReader`]'s own key.
+static NEXT_READER: AtomicU64 = AtomicU64::new(1);
+
+impl LaneReplyReader {
+    /// `accepted` with this reader's registration first: the acceptance names the turn the
+    /// prompt runs in (`turnId`); a duplicate of a prompt already run names none to read.
+    pub(crate) fn watch(
+        &self,
+        accepted: Option<Box<dyn FnOnce(Value) + Send>>,
+    ) -> Box<dyn FnOnce(Value) + Send> {
+        let (hub, lane, key, ended) =
+            (self.hub.clone(), self.lane.clone(), self.key, self.ended.clone());
+        Box::new(move |v: Value| {
+            // A duplicate of a prompt already run, or a steer into another prompt's turn: the
+            // turn's reply answers more than this caller's prompt, so it reads none of it.
+            let duplicate = v.get("duplicate").and_then(Value::as_bool) == Some(true)
+                || v.get("steer").and_then(Value::as_bool) == Some(true);
+            if let (Some(hub), Some(turn), false) =
+                (hub.upgrade(), v.get("turnId").and_then(Value::as_str), duplicate)
+            {
+                hub.lane_report_reply_register(&lane, turn, key, ended);
+            }
+            if let Some(accepted) = accepted {
+                accepted(v);
+            }
+        })
+    }
+}
+
+impl Drop for LaneReplyReader {
+    fn drop(&mut self) {
+        let Some(hub) = self.hub.upgrade() else { return };
+        let mut lanes = hub.lane_report_reads.lanes.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(reads) = lanes.get_mut(&self.lane) {
+            reads.replies.retain(|_, readers| {
+                readers.remove(&self.key);
+                !readers.is_empty()
+            });
+            reads.trim();
+        }
+    }
+}
+
+impl Hub {
+    /// A reader for a prompt to `lane` whose caller waits for its reply and prints it, when the
+    /// caller is the session the lane reports to; `ended` is the caller's connection's end.
+    pub(crate) fn lane_report_reply_reader(
+        self: &Arc<Self>,
+        caller: Option<&str>,
+        lane: &str,
+        ended: tokio::sync::watch::Receiver<bool>,
+    ) -> Option<LaneReplyReader> {
+        let caller = caller?;
+        (self.lane_report_parent(lane).as_deref() == Some(caller)).then(|| LaneReplyReader {
+            hub: Arc::downgrade(self),
+            lane: lane.to_owned(),
+            key: NEXT_READER.fetch_add(1, Ordering::Relaxed),
+            ended,
+        })
+    }
+
+    /// Reader `key` waits for turn `turn_id` of `lane`; a turn that already ended is read now.
+    fn lane_report_reply_register(
+        &self,
+        lane: &str,
+        turn_id: &str,
+        key: u64,
+        ended: tokio::sync::watch::Receiver<bool>,
+    ) {
+        let Some(parent) = self.lane_report_parent(lane) else { return };
+        let mut lanes = self.lane_report_reads.lanes.lock().unwrap_or_else(|e| e.into_inner());
+        let reads = lanes.entry(lane.to_owned()).or_default();
+        reads.parent = parent;
+        let live = !*ended.borrow();
+        reads.replies.entry(turn_id.to_owned()).or_default().insert(key, ended);
+        let ended = reads.turns.values_mut().filter(|r| r.turn_id == turn_id && r.ended);
+        for receipt in ended.filter(|r| !r.joined) {
+            receipt.read |= live;
+        }
+    }
+}
+
+impl Hub {
+    /// Turn `turn` of `lane` started with messages that joined one turn (`digest.rs`).
+    pub(super) fn lane_report_turn_joined(&self, lane: &str, turn: u64) {
+        let Some(parent) = self.lane_report_parent(lane) else { return };
+        let mut lanes = self.lane_report_reads.lanes.lock().unwrap_or_else(|e| e.into_inner());
+        let reads = lanes.entry(lane.to_owned()).or_default();
+        reads.parent = parent;
+        reads.turns.entry(turn).or_default().joined = true;
+        reads.trim();
     }
 }
 
@@ -121,6 +247,13 @@ impl Hub {
         receipt.start_seq = result.get("turnSeq").and_then(Value::as_u64).unwrap_or(0);
         receipt.ended = true;
         receipt.read |= reads.waits.contains_key(&receipt.turn_id);
+        let (turn_id, joined) = (receipt.turn_id.clone(), receipt.joined);
+        if !joined
+            && reads.reply_read(&turn_id)
+            && let Some(receipt) = reads.turns.get_mut(&turn)
+        {
+            receipt.read = true;
+        }
         reads.trim();
     }
 

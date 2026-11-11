@@ -36,6 +36,8 @@ export interface HighlightMedia {
   sha256?: string;
   kind: string;
   alt: string;
+  /** A before/after pair's side (release-notes.py add_gallery_media); a lone picture has none. */
+  role?: "after" | "before";
 }
 
 export interface Highlight {
@@ -131,3 +133,6 @@ export type SheetLayout = "inline" | "stack" | "grid";
     prs..."): the title links it and its `#N` shows at the row's end on hover (default); the `#N`
     always shows, muted; or the whole row is the link, with a hover fill. */
 export type SheetLinks = "hover" | "end" | "row";
+/** How a highlight's before/after pair shows (MediaCompare.tsx; the route's `compare=`, for the
+    gallery): a split the person drags (default), the two side by side, or a Before / After toggle. */
+export type CompareMode = "slider" | "side" | "toggle";

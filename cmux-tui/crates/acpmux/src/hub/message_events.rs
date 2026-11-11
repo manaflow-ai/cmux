@@ -285,7 +285,10 @@ pub(super) fn name_message(accepted: &mut Value, message: &MessageContext) {
 }
 
 pub(super) fn ensure_message_provenance(opts: &mut PromptOptions, target_id: &str) {
-    if opts.provenance.is_some() {
+    // A peer's message names its sender here: it takes the place of an `unverified` mark.
+    if opts.provenance.is_some()
+        && !crate::prompt_provenance::is_unverified(opts.provenance.as_ref())
+    {
         return;
     }
     let Some(sender) = opts.message_sender.as_ref().and_then(Value::as_object) else { return };
@@ -293,6 +296,12 @@ pub(super) fn ensure_message_provenance(opts: &mut PromptOptions, target_id: &st
     let Some(name) = sender.get("name").and_then(Value::as_str) else { return };
     let mut provenance = crate::prompt_provenance::named_sender(name, target_id);
     provenance.set("sessionId", json!(id));
+    // It keeps how it came and who passed it on, as the daemon saw them.
+    for key in [crate::prompt_provenance::TRANSPORT, crate::prompt_provenance::FORWARDED_BY] {
+        if let Some(value) = opts.provenance.as_ref().and_then(|p| p.get(key)) {
+            provenance.set(key, value.clone());
+        }
+    }
     if let Some(label) = sender.get("label").and_then(Value::as_str) {
         provenance = crate::prompt_provenance::stamp_declared(provenance, Some(label));
     }
@@ -355,9 +364,10 @@ fn append_once_loaded(
     if tokio::runtime::Handle::try_current().is_err() {
         return;
     }
+    let owner = hub.clone();
     let (hub, id, message) = (hub.clone(), session_id.to_owned(), message.clone());
     let target_scope = target_scope.map(str::to_owned);
-    tokio::spawn(async move {
+    owner.scope.spawn_until_cancelled("message-projection", async move {
         hub.session_meta(&id).await;
         if resolve_exact(&hub, &id).is_some() {
             append_or_repair(&hub, &id, &message, target_scope.as_deref());
@@ -388,7 +398,8 @@ fn schedule_projection_repair(
     let hub = hub.clone();
     let target_scope = target_scope.map(str::to_owned);
     let guard = ProjectionRepairGuard { hub: hub.clone(), key: key.clone() };
-    tokio::spawn(async move {
+    let owner = hub.clone();
+    owner.scope.spawn_until_cancelled("message-projection-repair", async move {
         // Constructed before spawning so cancellation before the future is first polled still
         // removes the in-flight key.
         let _guard = guard;

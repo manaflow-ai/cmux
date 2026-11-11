@@ -675,18 +675,19 @@ async fn send_queue_to_a_peer_that_is_down_acks_at_once_and_keeps_trying() {
 
 /// A send to a session a reachable machine does not have is refused at once, naming the
 /// closest names there, never queued (2026-11-05: a send to a process title, not the session's
-/// name, said "queued" and then failed 17 attempts unseen).
+/// name, said "queued" and then failed 17 attempts unseen). Part of a name is no name: only its
+/// start finds it (`name_match.rs`, #36878: `b/feed-lane` is the one session `feed-lane-items`).
 #[tokio::test]
 async fn send_queue_to_a_missing_session_fails_fast_with_the_closest_names() {
     let (a, _b, _id) = busy_peer("nosession", "feed-lane-items").await;
     let mut ca = C::new(a.clone()).await;
     let started = Instant::now();
     let e = ca
-        .call(SEND_QUEUE, json!({"request": prompt("b/feed-lane", "hi", "p-missing")}))
+        .call(SEND_QUEUE, json!({"request": prompt("b/lane-items", "hi", "p-missing")}))
         .await
         .unwrap_err();
     assert!(started.elapsed() < ACK, "the refusal took {:?}", started.elapsed());
-    assert!(e.contains("no session feed-lane on b"), "{e}");
+    assert!(e.contains("no session lane-items on b"), "{e}");
     assert!(e.contains("did you mean: feed-lane-items"), "{e}");
     // A name nothing contains still gets the closest names on that machine.
     let e = ca
@@ -880,9 +881,13 @@ async fn this_machines_own_name_in_front_of_a_session_name_finds_the_session() {
         c.call(SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 5000})).await.unwrap();
     assert_eq!(status["status"], "delivered", "{status}");
     assert_eq!(status["accepted"]["sessionId"], id, "{status}");
-    // Only the whole name: `own-lan` is a prefix of `own-lane`, but HOST/own-lan finds nothing.
+    // A name's start finds its one session (`name_match.rs`, #36878): HOST/own-lan is own-lane.
+    // A longer name is no name: HOST/own-lanes finds nothing.
     let partial = format!("{}/own-lan", acpmux::pairing::machine_name());
-    let e = c.call(method::MUX_INFO, json!({"sessionId": partial})).await.unwrap_err();
+    let info = c.call(method::MUX_INFO, json!({"sessionId": partial})).await.unwrap();
+    assert_eq!(info["sessionId"], id, "{info}");
+    let longer = format!("{}/own-lanes", acpmux::pairing::machine_name());
+    let e = c.call(method::MUX_INFO, json!({"sessionId": longer})).await.unwrap_err();
     assert!(e.contains("no session"), "{e}");
     // The name in any case: a coordinator writes `Air-Blue` for `air-blue`.
     let upper = format!("{}/own-lane", acpmux::pairing::machine_name().to_uppercase());

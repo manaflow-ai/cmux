@@ -3,6 +3,8 @@
 # key, a language, a plural category) or is not valid JSON fails; distinct keys, the same key in
 # different objects, untracked catalogs and the real tree pass.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 CHECK="$ROOT_DIR/scripts/cmux-next/check-xcstrings-keys.py"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/cmux-check-xcstrings-keys.XXXXXX")"

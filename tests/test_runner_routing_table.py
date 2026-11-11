@@ -184,6 +184,7 @@ class RoutingTableTests(unittest.TestCase):
             baseline = {"runs-on": route, "environment": "ci-routing-agent", "steps": [{"run": "python3 decide.py"}]}
             for change, error in (({}, False), ({"environment": "release"}, True),
                                   ({"environment": {"name": "ci-routing-agent"}}, True),
+                                  ({"environment": {"name": "ci-routing-agent", "deployment": False}}, False),
                                   # ci.yml's router: the routing environment off pull requests, none on them.
                                   ({"environment": "${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}"}, False),
                                   ({"environment": "${{ github.event_name != 'pull_request' && 'release' || '' }}"}, True),

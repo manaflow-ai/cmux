@@ -209,3 +209,22 @@ test("the words back after a retry roll nothing in, and no old words rise again"
   expect(container.querySelector(".cv-roll-out")).toBeNull();
   expect(container.querySelector("output.cv-thinking")?.hasAttribute("data-roll")).toBe(false);
 });
+
+test("the needs-input dot grows in only when an ask opens under a drawn line, and shrinks out once answered", () => {
+  const at = (waiting?: "permission") =>
+    act(() =>
+      root!.render(
+        <WaitingOnContext.Provider value={waiting}>
+          <Thinking since={0} now={() => 1_000} />
+        </WaitingOnContext.Provider>,
+      ),
+    );
+  at("permission");
+  expect(container.querySelector(".cv-needs-input-glyph")).not.toBeNull();
+  expect(container.querySelector(".cv-needs-input-glyph.is-asked")).toBeNull();
+  at();
+  expect(container.querySelector(".cv-needs-input-glyph.is-answered")).not.toBeNull();
+  at("permission");
+  expect(container.querySelector(".cv-needs-input-glyph.is-asked")).not.toBeNull();
+  expect(container.querySelector(".cv-needs-input-glyph.is-answered")).toBeNull();
+});

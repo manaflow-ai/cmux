@@ -10,13 +10,30 @@
 // the files changed (wide enough for an inline diff), then the conversation in time order. The
 // rail is what a person checks: checks with reds and running first and greens folded, reviewers,
 // linked issues. A narrow pane is one column in that order.
-import { lazy, Suspense, useEffect, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { relativeTime } from "../../agent-session/acpmux/conversation/relativeTime";
 import { Icon } from "../../agent-session/acpmux/icons/Icon";
 import type { Strings } from "../shared/i18n";
 import { ChecksDashboard } from "./ChecksDashboard";
 import { withRollup } from "./checksModel";
+import {
+  filterConversation,
+  filterCounts,
+  type ConversationFilter,
+  type ConversationOrder,
+} from "./conversationFilter";
 import { GitHubMarkdown } from "./GitHubMarkdown";
+import { ReadinessBlock, type ReadinessLayout } from "./ReadinessBlock";
+import type { Blocker } from "./readiness";
 import type { GitHubSnapshot, GitHubStore } from "./store";
 import type { ConversationEntry, FilePatch, LinkedPullRequest, PullRequestDetails } from "./types";
 
@@ -106,6 +123,9 @@ export function GitHubPage({
   layout = "split",
   checksPlacement = "top",
   width = "fill",
+  readinessLayout = "list",
+  readinessShown,
+  conversationFilter = "all",
 }: {
   store: GitHubStore;
   strings: Strings;
@@ -113,11 +133,18 @@ export function GitHubPage({
   layout?: GitHubLayout;
   checksPlacement?: ChecksPlacement;
   width?: PageWidth;
+  /** How the merge readiness block lays out its blockers (the gallery's candidates). */
+  readinessLayout?: ReadinessLayout;
+  /** The blocker whose detail starts open, and the conversation's first filter (gallery states). */
+  readinessShown?: Blocker["kind"];
+  conversationFilter?: ConversationFilter;
 }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const { t } = strings;
   const { target, pullRequest: pr, details } = snapshot;
   const hasContent = pr !== undefined;
+  // One callback for the page's life: GitHubMarkdown parses a body again only when its text changes.
+  const open = useCallback((url: string) => store.openOnGitHub(url), [store]);
   // Once the frame that draws this pull request (or its loading state) is on screen, the host hears of it.
   useEffect(() => {
     if (!target) return;
@@ -136,11 +163,17 @@ export function GitHubPage({
     );
   }
   const waitingFirst = !pr && (!snapshot.answered || snapshot.reading);
-  const open = (url: string) => store.openOnGitHub(url);
   const description = pr && <Description details={details} strings={strings} open={open} />;
   const files = pr && <Files pr={pr} snapshot={snapshot} store={store} strings={strings} />;
   const conversation = pr && (
-    <Conversation details={details} strings={strings} now={now} open={open} more={() => store.openOnGitHub()} />
+    <Conversation
+      details={details}
+      strings={strings}
+      now={now}
+      open={open}
+      more={() => store.openOnGitHub()}
+      initialFilter={conversationFilter}
+    />
   );
   // The dashboard once the host has the jobs; until then the cache's rollup, in the same place.
   const checks =
@@ -162,6 +195,17 @@ export function GitHubPage({
   return (
     <main className="gh" data-layout={layout} data-width={width} aria-busy={waitingFirst}>
       <Header snapshot={snapshot} store={store} strings={strings} now={now} waitingFirst={waitingFirst} />
+      {pr && (
+        <ReadinessBlock
+          pr={pr}
+          details={details}
+          checks={snapshot.checks ? withRollup(snapshot.checks, pr.checkList ?? []) : null}
+          strings={strings}
+          open={open}
+          layout={readinessLayout}
+          shownFirst={readinessShown}
+        />
+      )}
       {pr && checksPlacement === "top" && <div className="gh-ci-band">{checks}</div>}
       {pr && (
         <div className="gh-body">
@@ -373,7 +417,7 @@ function Description({
       {!details ? (
         <p className="gh-muted">{strings.t("github.description.loading")}</p>
       ) : details.body.trim() ? (
-        <GitHubMarkdown source={details.body} open={open} />
+        <GitHubMarkdown source={details.body} html={details.html} open={open} />
       ) : (
         <p className="gh-muted">{strings.t("github.description.none")}</p>
       )}
@@ -387,27 +431,66 @@ function Conversation({
   now,
   open,
   more,
+  initialFilter,
 }: {
   details?: PullRequestDetails;
   strings: Strings;
   now: () => number;
   open: (url: string) => void;
   more: () => void;
+  initialFilter: ConversationFilter;
 }) {
+  const [filter, setFilter] = useState<ConversationFilter>(initialFilter);
+  const [order, setOrder] = useState<ConversationOrder>("newest");
   if (!details) return null;
-  const entries = details.conversation;
+  const { t } = strings;
+  const counts = filterCounts(details.conversation, details.viewer);
+  const entries = filterConversation(details.conversation, filter, order, details.viewer);
+  const filters: [ConversationFilter, string][] = [
+    ["all", "github.conversation.all"],
+    ["unresolved", "github.conversation.unresolved"],
+  ];
+  if (details.viewer) filters.push(["mine", "github.conversation.mine"]);
   return (
     <Section
-      title={strings.t("github.conversation")}
+      title={t("github.conversation")}
       detail={details.conversationTotal ? String(details.conversationTotal) : undefined}
     >
-      {details.conversationTotal > entries.length && (
+      {details.conversation.length > 0 && (
+        <div className="gh-conversation-bar">
+          <fieldset className="gh-segments" aria-label={t("github.conversation.filter")}>
+            {filters.map(([value, key]) => (
+              <button
+                key={value}
+                type="button"
+                className="gh-segment"
+                aria-pressed={filter === value}
+                onClick={() => setFilter(value)}
+              >
+                {t(key)} <span className="gh-segment-count">{counts[value]}</span>
+              </button>
+            ))}
+          </fieldset>
+          <button
+            type="button"
+            className="gh-fold gh-conversation-order"
+            onClick={() => setOrder(order === "newest" ? "oldest" : "newest")}
+          >
+            {t(order === "newest" ? "github.conversation.newest" : "github.conversation.oldest")}
+          </button>
+        </div>
+      )}
+      {/* Counted as the host counts the total (review of #38263, F1): an empty review wrapper the
+          host left out is not a comment GitHub has that the page lacks. */}
+      {details.conversationTotal > details.conversationRead && (
         <button type="button" className="gh-more" onClick={more}>
-          {strings.t("github.conversation.more")}
+          {t("github.conversation.more")}
         </button>
       )}
       {entries.length === 0 ? (
-        <p className="gh-muted">{strings.t("github.conversation.empty")}</p>
+        <p className="gh-muted">
+          {t(details.conversation.length ? "github.conversation.none" : "github.conversation.empty")}
+        </p>
       ) : (
         <ol className="gh-timeline">
           {entries.map((entry, index) => (
@@ -446,7 +529,7 @@ function Entry({
             <span className="gh-entry-time">{relativeTime(at, now(), strings.language)}</span>
           ))}
       </div>
-      {entry.body.trim() && <GitHubMarkdown source={entry.body} open={open} />}
+      {entry.body.trim() && <GitHubMarkdown source={entry.body} html={entry.html} open={open} />}
       {entry.comments.length > 0 && (
         <ul className="gh-review-comments">
           {entry.comments.map((comment, index) => (
@@ -455,7 +538,7 @@ function Entry({
                 {comment.path}
                 {comment.line != null && `:${comment.line}`}
               </span>
-              <GitHubMarkdown source={comment.body} open={open} />
+              <GitHubMarkdown source={comment.body} html={comment.html} open={open} />
             </li>
           ))}
         </ul>

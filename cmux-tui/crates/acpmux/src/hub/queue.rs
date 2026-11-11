@@ -42,7 +42,7 @@ pub enum Withdrawn {
     /// Not in the queue: it started, ended or was already removed.
     NotWaiting,
     /// Kept: asked for another agent's message only, and it is not one (the person's own, or
-    /// an agent's message the person edited, which makes it theirs).
+    /// an agent's message the person edited, which keeps its sender but is no longer only theirs).
     NotFromAgent,
 }
 
@@ -131,7 +131,8 @@ pub(super) struct PromptRun {
     pub(super) control: Control,
     pub(super) cloud_mobile: bool,
     pub(super) trust_gate: bool,
-    /// Who sent it (`prompt_provenance.rs`); an edit drops it.
+    /// Who sent it (`prompt_provenance.rs`); an edit keeps it and adds its editor
+    /// (`prompt_provenance::edited_by`).
     pub(super) provenance: Option<Value>,
     /// Another agent's name when it is that agent's message, `None` when it is the person's
     /// (`digest.rs`); an edit makes it the person's.
@@ -204,9 +205,15 @@ pub(super) enum Wait<'a> {
 }
 
 /// What a prompt, or a change to the queue or the draft, gets while the chat is being moved to
-/// another daemon (`transfer_out.rs`).
-pub(super) fn moving_error() -> RpcError {
-    RpcError::new(-32000, "transfer.moving: this chat is being moved to another daemon")
+/// another daemon (`transfer_out.rs`). One whose move committed keeps its move's mark for good
+/// (`MOVED_AWAY` after a restart), and answers where it went: no move of it is under way.
+pub(super) fn moving_error(session: &Session) -> RpcError {
+    match session.read_meta(|m| m.moved_to.clone()) {
+        Some(to) => super::transfer_out::moved_error(&to),
+        None => {
+            RpcError::new(-32000, "transfer.moving: this chat is being moved to another daemon")
+        }
+    }
 }
 
 /// What a withdrawn prompt's `session/prompt` answers: no turn ran.
@@ -259,7 +266,7 @@ fn approved_rules(run: PromptRun, approval: Option<&Value>) -> PromptRun {
 
 /// Whether a prompt waits in the chat's queue that a failed turn does not hold, read under the
 /// queue's lock.
-fn queue_waits(session: &Session) -> bool {
+pub(super) fn queue_waits(session: &Session) -> bool {
     let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     queue.iter().any(|q| !q.aside())
 }
@@ -297,7 +304,7 @@ impl Hub {
             Some((turn_id, Some(waits))) => (turn_id, Some(waits)),
             Some((turn_id, None)) => return Err(Ok(withdrawn_reply(p.prompt_id, &turn_id))),
             // A chat being moved takes no prompt: its new daemon does (`transfer_out.rs`).
-            None if session.moving().is_some() => return Err(Err(moving_error())),
+            None if session.moving().is_some() => return Err(Err(moving_error(session))),
             // A watched chat takes no prompt until it is taken over (`watch.rs`).
             None if session.meta().watching.is_some() => {
                 return Err(Err(super::watch::read_only()));
@@ -410,7 +417,7 @@ impl Hub {
                 }
                 // A move began while it waited for the lock (`transfer_out.rs`): it runs nowhere.
                 if session.moving().is_some() {
-                    return Err(Err(moving_error()));
+                    return Err(Err(moving_error(session)));
                 }
                 // A turn whose task takes the lock after it runs (the turn its agent ran on into
                 // as the one before ended, `carried_turn.rs`; one recovered from a host): this
@@ -692,6 +699,8 @@ impl Hub {
         if let Some(display_parts) = p.display_parts {
             queued.set("displayParts", display_parts.clone());
         }
+        // Its provenance first: `mark_pasted` reads it to leave a daemon-made prompt unnoted.
+        let mut queued = crate::prompt_provenance::marked(queued, p.provenance);
         super::session::mark_pasted(&mut queued, p.blocks);
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         // Check and insert under one lock: simultaneous prompts cannot all reserve the last
@@ -792,12 +801,7 @@ impl Hub {
                 seam();
             }
         }
-        self.append(
-            session,
-            "mux",
-            "queued",
-            crate::prompt_provenance::marked(queued, p.provenance),
-        );
+        self.append(session, "mux", "queued", queued);
         if ahead {
             self.append(
                 session,
@@ -1077,7 +1081,7 @@ impl Hub {
         from_agents_only: bool,
     ) -> Result<Withdrawn, RpcError> {
         if session.moving().is_some() {
-            return Err(moving_error());
+            return Err(moving_error(session));
         }
         self.remove_queued_by(session, prompt_id, None, editor, from_agents_only)
     }
@@ -1374,9 +1378,8 @@ impl Hub {
                             approved.insert(turn.to_owned(), e.msg.clone());
                         }
                     }
-                    // An edit (`queue_edit.rs`): the prompt and its rules replace the queued ones,
-                    // and it has no `_meta.provenance` (the person rewrote it), unless the edit
-                    // kept a person's own (`author.rs`).
+                    // An edit (`queue_edit.rs`): the prompt and its rules replace the queued ones;
+                    // its `_meta.provenance` keeps its sender and names its editor (`editedBy`).
                     "queue_updated" => {
                         // A revision never goes back: a log from before edits were logged under
                         // the queue lock may hold an older edit after a newer one, and the newer

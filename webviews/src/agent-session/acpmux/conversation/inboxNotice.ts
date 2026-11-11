@@ -8,17 +8,30 @@
 // and a preview has them read back from its text. Notices next to each other draw as one group
 // (`mergeInboxNotices`), a thread named in two of them once.
 import type { AcpmuxRow } from "../model";
+import { keptPrefix, noteKeptPrefix } from "./prefixFlatMap";
 import { withoutRelayEnvelope, withoutRelayHead } from "./relayEnvelope";
+import { bareSender, relayAddress, senderRecord, senderUnverified, type SenderRecord } from "./senderIdentity";
+import type { SentFrom } from "./sentFromHarness";
 
 /// Who sent a message, as acpmux records it (`sender`, prompt_provenance.rs
-/// `sender_record_with_auth`): the sending chat's id when acpmux proved it, and the name it gave.
-/// A chip opens the sender by these, never by `from`, the line's display text, which may carry a
-/// note such as "(self-declared, unauthenticated)" (Leo, 2026-11-07: clicking a sender "just
-/// fundamentally doesn't load").
+/// `sender_record_with_auth`): the sending chat's id when acpmux proved it, and the name it gave
+/// (its label, never cut). A chip opens the sender by these, never by `from`, the line's display
+/// text (Leo, 2026-11-07: clicking a sender "just fundamentally doesn't load"). The record's
+/// verification and harness read as `unverified` and `harness` beside it.
 export type SenderRef = { session?: string; label?: string };
 
-/// One message of a thread, as the notice or `_acpmux/inbox_thread` gives it.
-export type InboxMessage = { promptId?: string; from: string; sender?: SenderRef; at?: number; text: string };
+/// One message of a thread, as the notice or `_acpmux/inbox_thread` gives it. `from` is the bare
+/// name (senderIdentity.ts); `unverified` when acpmux could not verify who sent it, `harness` the
+/// sender's family from its record.
+export type InboxMessage = {
+  promptId?: string;
+  from: string;
+  sender?: SenderRef;
+  at?: number;
+  text: string;
+  unverified?: true;
+  harness?: string;
+};
 
 /// One thread of a notice.
 export type InboxThread = {
@@ -30,21 +43,31 @@ export type InboxThread = {
   from: string[];
   /// The newest message's sender's session, when it is a chat here.
   fromSession?: string;
-  /// The newest message's sender, as acpmux recorded it.
+  /// The newest message's sender, as acpmux recorded it (its label and session).
   sender?: SenderRef;
   /// The newest message's sender's harness family (`claude`, `codex`, ...), when acpmux bound it
-  /// (prompt_provenance.rs `fromHarness`; cmux#30247): its line draws that harness's mark.
+  /// (prompt_provenance.rs `fromHarness`; cmux#30247) or its sender record names it: its line draws
+  /// that harness's mark.
   fromHarness?: string;
+  /// acpmux could not verify the newest message's sender (its record's `verification`, or an older
+  /// acpmux's suffix on its name): the line's subtle marker, never words in the name.
+  unverified?: true;
   /// The new messages the notice brought.
   count: number;
   /// The newest one's first line.
   preview: string;
+  /// The newest one whole, when the notice held no messages but acpmux sent it under its bound
+  /// (hub/inbox.rs `newest`): the line draws it at once, with no read that grows it.
+  newest?: string;
   /// It holds a block or a question.
   blocker: boolean;
   /// The new messages' prompt ids: an opened thread shows these.
   promptIds: string[];
   /// The messages whole, oldest first, when the notice holds them.
   messages?: InboxMessage[];
+  /// Where each message says it came from, by its prompt id (`sender_claim`, sentFromHarness.ts):
+  /// a sender chip under it.
+  sentFrom?: Record<string, SentFrom>;
 };
 
 export type InboxNotice = { threads: InboxThread[] };
@@ -54,12 +77,16 @@ export type InboxNotice = { threads: InboxThread[] };
 export const inboxThreadKey = (rowId: string, threadId: string) => `${rowId}\u0000${threadId}`;
 
 const text = (value: unknown): string => (typeof value === "string" ? value : "");
-const senderRef = (value: unknown): SenderRef | undefined => {
-  const r = value as Record<string, unknown> | null;
-  if (!r || typeof r !== "object") return undefined;
-  const session = text(r.session).trim();
-  const label = text(r.label).trim();
-  return session || label ? { ...(session && { session }), ...(label && { label }) } : undefined;
+/// The session and lookup label of acpmux's sender record (senderIdentity.ts `senderRecord`): a
+/// relayed sender's label is its relay address (senderIdentity.ts `relayAddress`), since the
+/// record's label is then only the name the sender declared (`--from`), which a local namesake may
+/// hold too (cmux#38642 review).
+const senderRef = (record: SenderRecord | undefined): SenderRef | undefined => {
+  if (!record) return undefined;
+  const label = relayAddress(record.relay) ?? record.label;
+  return record.session || label
+    ? { ...(record.session && { session: record.session }), ...(label && { label }) }
+    : undefined;
 };
 
 /// The key a sender's chat is asked for by: its session id, else the name it gave, else `from`.
@@ -77,8 +104,10 @@ export function threadLabel(threadId: string): string {
   return pr ? `#${pr[1]}` : "";
 }
 
-/// The daemon's label without the quotes it puts around a topic for the agent.
-const shownLabel = (label: string, threadId: string): string => {
+/// The daemon's label without the quotes it puts around a topic for the agent, nor the unverified
+/// suffix an older acpmux put on a self-named sender's thread.
+const shownLabel = (written: string, threadId: string): string => {
+  const label = bareSender(written).name;
   const quoted = /^"([\s\S]*)"$/.exec(label);
   if (quoted) return quoted[1]!;
   return label === "messages" ? "" : label || threadLabel(threadId);
@@ -107,16 +136,28 @@ export function inboxNotice(notice: string, provenance: Record<string, unknown>)
     if (!threadId) continue;
     const promptIds = strings(p.promptIds);
     const count = typeof p.new === "number" && p.new > 0 ? p.new : Math.max(1, promptIds.length);
-    const messages = Array.isArray(p.messages) ? inboxMessages(p.messages) : undefined;
-    const newest = messages?.at(-1)?.text;
-    const sender = senderRef(p.sender);
+    const held = Array.isArray(p.messages) ? inboxMessages(p.messages) : undefined;
+    const newest = held?.at(-1)?.text;
+    const senders = strings(p.from).map(bareSender);
+    const record = senderRecord(p.sender);
+    const sender = senderRef(record);
+    const harness = text(p.fromHarness) || record?.harness || held?.at(-1)?.harness;
+    const unverified = senderUnverified(record, senders.at(-1)?.declared ?? false) || held?.at(-1)?.unverified === true;
+    // The thread's flag is its newest sender's (its record, or an older acpmux's suffix on its
+    // `from`), which acpmux may say only on the thread: that message is marked too, so its row and
+    // the group's hover show it (laneNoticeBatches.ts, MessageGroupHover.tsx).
+    const messages =
+      unverified && held?.length && !held.at(-1)!.unverified
+        ? [...held.slice(0, -1), { ...held.at(-1)!, unverified: true as const }]
+        : held;
     threads.push({
       threadId,
       label: shownLabel(text(p.label), threadId),
-      from: strings(p.from),
+      from: [...new Set(senders.map((sender) => sender.name).filter(Boolean))],
       ...(text(p.fromSession) && { fromSession: text(p.fromSession) }),
       ...(sender && { sender }),
-      ...(text(p.fromHarness) && { fromHarness: text(p.fromHarness) }),
+      ...(harness && { fromHarness: harness }),
+      ...(unverified && { unverified: true as const }),
       count,
       preview:
         withoutRelayHead(text(p.preview).trim()) ||
@@ -125,23 +166,29 @@ export function inboxNotice(notice: string, provenance: Record<string, unknown>)
       blocker: p.blocker === true || previewLineBlocks(notice, threadId),
       promptIds,
       ...(messages?.length && { messages }),
+      ...(!messages?.length && typeof p.newest === "string" && { newest: withoutRelayEnvelope(p.newest) }),
     });
   }
   return threads.length ? { threads } : undefined;
 }
 
 /// A thread's messages as acpmux records them (a notice's `messages`, `_acpmux/inbox_thread`), each
-/// without the broker label it came in (relayEnvelope.ts): every one is another agent's.
+/// without the broker label it came in (relayEnvelope.ts): every one is another agent's. An opened
+/// thread's sender is its `fromName`, the name alone; its `from` is the agent's words for it.
 export function inboxMessages(records: unknown[]): InboxMessage[] {
   return records.flatMap((m): InboxMessage[] => {
     const r = m as Record<string, unknown> | null;
     if (!r || typeof r.text !== "string") return [];
-    const sender = senderRef(r.sender);
+    const name = bareSender(text(r.from));
+    const record = senderRecord(r.sender);
+    const sender = senderRef(record);
     return [
       {
-        from: text(r.from),
+        from: text(r.fromName) || name.name,
         ...(sender && { sender }),
         text: withoutRelayEnvelope(r.text),
+        ...(senderUnverified(record, name.declared) && { unverified: true as const }),
+        ...(record?.harness && { harness: record.harness }),
         ...(typeof r.promptId === "string" && { promptId: r.promptId }),
         ...(typeof r.at === "number" && { at: r.at }),
       },
@@ -159,10 +206,12 @@ const firstLine = (value: string): string =>
     .find((l) => l.trim())
     ?.trim() ?? "";
 
-/// Every message the notice's threads hold, for Find, else their previews.
+/// Every message the notice's threads hold, for Find, else their newest messages or previews.
 export function inboxText(notice: InboxNotice): string {
   return notice.threads
-    .map((thread) => (thread.messages ? thread.messages.map((m) => m.text).join("\n\n") : thread.preview))
+    .map((thread) =>
+      thread.messages ? thread.messages.map((m) => m.text).join("\n\n") : (thread.newest ?? thread.preview),
+    )
     .join("\n\n");
 }
 
@@ -176,6 +225,29 @@ export function inboxCounts(notice: InboxNotice): { messages: number; senders: s
   }
   return { messages, senders };
 }
+
+/// A thread's newest sender: its newest message's, else its last named.
+const newestFrom = (thread: InboxThread): string => thread.messages?.at(-1)?.from ?? thread.from.at(-1) ?? "";
+
+/// A thread's sender as acpmux identified it: its session id, else its record's label, from the
+/// thread's record, else its newest message's own (acpmux may name it only there).
+const senderIdentity = (thread: InboxThread) => {
+  const record = thread.sender ?? thread.messages?.at(-1)?.sender;
+  return { session: record?.session || thread.fromSession, label: record?.label };
+};
+
+/// Whether the later thread's newest sender is the earlier one's own chat, not only its name: the
+/// later one names no identity of its own, or both name the same session (else, when neither names
+/// one, the same record). Two chats can share a name or a label (cmux#38642, cmux#38791 reviews), so
+/// a matching one alone never lends one's record, session, family or unverified mark to the other.
+const sameSender = (held: InboxThread, next: InboxThread): boolean => {
+  if (newestFrom(held) !== newestFrom(next)) return false;
+  const a = senderIdentity(held);
+  const b = senderIdentity(next);
+  if (!b.session && !b.label) return true;
+  if (a.session || b.session) return a.session === b.session;
+  return !!a.label && a.label === b.label;
+};
 
 /// Two notices as one: a thread in both once, with the later one's newest message.
 export function joinNotices(first: InboxNotice, later: InboxNotice): InboxNotice {
@@ -195,6 +267,18 @@ export function joinNotices(first: InboxNotice, later: InboxNotice): InboxNotice
       blocker: held.blocker || next.blocker,
       promptIds: [...held.promptIds, ...next.promptIds],
     };
+    // The later notice names the newest sender; when it is the earlier one's own chat and says less
+    // of it, the earlier one's record, session, family and unverified mark still hold. A record of
+    // its own (the thread's, or its newest message's) says whether that sender is verified, so the
+    // earlier mark never reaches a newest message its own notice did not mark (cmux#38642 review).
+    if (sameSender(held, next)) {
+      if (!next.sender && held.sender) joined.sender = held.sender;
+      if (!next.fromSession && held.fromSession) joined.fromSession = held.fromSession;
+      if (!next.fromHarness && held.fromHarness) joined.fromHarness = held.fromHarness;
+      const ownRecord = next.sender ?? next.messages?.at(-1)?.sender;
+      if (!next.unverified && held.unverified && !ownRecord) joined.unverified = held.unverified;
+    }
+    if (held.sentFrom || next.sentFrom) joined.sentFrom = { ...held.sentFrom, ...next.sentFrom };
     // Whole only when both notices held their messages whole.
     delete joined.messages;
     if (held.messages && next.messages) joined.messages = [...held.messages, ...next.messages];
@@ -208,9 +292,30 @@ const isNotice = (row: AcpmuxRow) => row.kind === "user" && row.incoming?.kind =
 /// `rows` with each run of notices next to each other (rows that draw nothing between them) as the
 /// first one's row, holding every thread of the run (`joined` names the rest, for Find). The same
 /// rows give the same array back; a run gives the same merged row back while its rows hold.
+/// Rows change at their tail, so a call reads again only the rows after the last run that closed
+/// before the first row that changed (`keptPrefix`): a tool call arriving in a long chat costs its
+/// own rows, not a read of every row's kind (bench/transcript-replay.bench.ts, god log).
 export function mergeInboxNotices(rows: AcpmuxRow[]): AcpmuxRow[] {
+  const last = lastMerge?.rows.deref();
+  const lastOut = lastMerge?.out.deref();
+  let start = 0;
   let out: AcpmuxRow[] | undefined;
-  for (let index = 0; index < rows.length; index += 1) {
+  let swallowed: number[] = [];
+  if (last && lastOut && lastMerge) {
+    if (last === rows) return lastOut;
+    // Back from the first changed row to one that ends any run (neither a notice nor a row that
+    // draws nothing): no run crosses it, so what came before it merged as it did last time.
+    start = keptPrefix(last, rows);
+    while (start > 0 && (isNotice(rows[start - 1]!) || rows[start - 1]!.incoming?.kind === "hidden")) start -= 1;
+    // The rows each earlier run took in (the source index after the run, and how many rows the
+    // merge has dropped by then) say where the kept rows' items end in the last output.
+    swallowed = lastMerge.swallowed.filter((at) => at <= start);
+    const left = swallowed.length ? lastMerge.dropped[swallowed.length - 1]! : 0;
+    if (left > 0) out = lastOut.slice(0, start - left);
+  }
+  const kept = swallowed.length;
+  const dropped: number[] = lastMerge && last ? lastMerge.dropped.slice(0, kept) : [];
+  for (let index = start; index < rows.length; index += 1) {
     const row = rows[index]!;
     if (!isNotice(row)) {
       out?.push(row);
@@ -231,11 +336,23 @@ export function mergeInboxNotices(rows: AcpmuxRow[]): AcpmuxRow[] {
     }
     out ??= rows.slice(0, index);
     out.push(mergedRow(run));
+    swallowed.push(next);
+    dropped.push((dropped.at(-1) ?? 0) + next - index - 1);
     // The rows that draw nothing inside the run go with it; any after it stay.
     index = next - 1;
   }
-  return out ?? rows;
+  const result = out ?? rows;
+  if (out && lastOut) noteKeptPrefix(out, lastOut, start - (dropped[kept - 1] ?? 0));
+  lastMerge = { rows: new WeakRef(rows), out: new WeakRef(result), swallowed, dropped };
+  return result;
 }
+
+/// The last call's rows and output, held weakly (a closed chat leaves nothing here), with each run
+/// it merged: `swallowed[i]` the index after the run, `dropped[i]` how many rows the merge had left
+/// out by then.
+let lastMerge:
+  | { rows: WeakRef<AcpmuxRow[]>; out: WeakRef<AcpmuxRow[]>; swallowed: number[]; dropped: number[] }
+  | undefined;
 
 /// The merged row drawn for a run, by the run's first row object: reused while the run holds the
 /// very same row objects, so it never stands in for another chat's rows that share ids.

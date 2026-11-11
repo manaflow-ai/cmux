@@ -9,6 +9,7 @@
 // they were drawn, the rows it reveals fade in and copies of the rows it hides fade out.
 import { afterAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { MOTION_SETTLE_MS } from "../src/motion/scale.generated";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
 import { FOLD_SETTLE_MS } from "../src/agent-session/acpmux/conversation/foldAnchor";
@@ -256,13 +257,13 @@ test("opening Worked for marks the thread, fades in the rows it reveals and slid
     expect(line(11).getAttribute("aria-expanded")).toBe("true");
     expect(thread().getAttribute("data-turn-fold")).toBe("open");
     expect(spacerHeight()).toBeGreaterThan(closed);
-    // Each revealed row fades in once, on the fold's token (180 ms with no host).
+    // Each revealed row fades in once, on the fold's token (the settle's length with no host).
     const revealed = shownBy(11);
     expect(revealed.length).toBeGreaterThan(0);
     const faded = fades(0).map((one) => rowOf(one.node));
     for (const id of revealed) expect(faded).toContain(id);
     expect(new Set(faded).size).toBe(faded.length);
-    expect(fades(0)[0]!.options.duration).toBe(180);
+    expect(fades(0)[0]!.options.duration).toBe(MOTION_SETTLE_MS);
     // The rows below start where they were drawn (above their new place) and slide down; the
     // clicked line and the rows above it never move.
     const moved = slides();

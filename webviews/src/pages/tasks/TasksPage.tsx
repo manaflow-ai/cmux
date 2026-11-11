@@ -7,6 +7,7 @@ import { Icon } from "../../agent-session/acpmux/icons/Icon";
 import { AgentMark } from "../../agent-session/shared/AgentMark";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { Menu, MenuButton, MenuCheckboxItem, MenuGroup, MenuPopup, MenuSeparator } from "../../ui/Menu";
+import { SplitEdge } from "../../ui/SplitEdge";
 import { VirtualList } from "../../ui/VirtualList";
 import type { Strings } from "../shared/i18n";
 import {
@@ -512,7 +513,18 @@ function InboxLayout({ store, state, strings }: LayoutProps) {
         }}
       />
       <div className="tasks-detail-pane">
-        {selected ? <TaskDetail store={store} state={state} strings={strings} task={selected} /> : null}
+        <div className="tasks-detail-scroll">
+          {selected ? <TaskDetail store={store} state={state} strings={strings} task={selected} /> : null}
+        </div>
+        {/* Its line is the split's divider and drags as one (ui/SplitEdge.tsx). */}
+        <SplitEdge
+          side="start"
+          property="--tasks-detail-width"
+          storageKey="cmux.tasks.detail.width"
+          min={280}
+          max={960}
+          on="parent"
+        />
       </div>
     </div>
   );

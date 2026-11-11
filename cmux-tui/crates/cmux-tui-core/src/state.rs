@@ -28,6 +28,9 @@ mod browser_devices_data_tests;
 pub(crate) mod browser_devices_ops;
 #[cfg(test)]
 mod churn_tree_events_tests;
+pub(crate) mod classic_import_router;
+#[cfg(test)]
+mod classic_import_tests;
 #[cfg(test)]
 mod closed_browser_history_tests;
 pub(crate) mod closed_history;
@@ -46,6 +49,8 @@ mod closed_pane_split;
 mod closed_relaunch_tests;
 mod closed_screen_layout;
 mod closed_tab_groups;
+#[cfg(test)]
+mod command_clear_until_tests;
 pub(crate) mod command_history_store;
 pub(crate) mod commit;
 pub(crate) mod conductor_import_router;
@@ -77,6 +82,8 @@ pub(crate) mod home_store;
 mod home_tests;
 #[cfg(test)]
 mod incognito_terminal_tests;
+#[cfg(test)]
+mod journal_write_budget_tests;
 pub(crate) mod kept_tab_store;
 pub(crate) mod kept_tabs;
 #[cfg(test)]
@@ -167,6 +174,11 @@ pub(crate) mod workspace_checklist;
 pub(crate) mod workspace_checklist_store;
 #[cfg(test)]
 mod workspace_checklist_tests;
+#[cfg(test)]
+mod workspace_close_values_tests;
+pub(crate) mod workspace_extras;
+#[cfg(test)]
+mod workspace_extras_tests;
 pub(crate) mod workspace_status_store;
 
 pub(crate) use home_store::error_code as home_error_code;

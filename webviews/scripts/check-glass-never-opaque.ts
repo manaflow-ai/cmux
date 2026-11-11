@@ -500,7 +500,6 @@ export const OVERLAY_PENDING = new Map<string, string>([
   ],
   ["pages/markdown/styles.css .cmux-comment-card", "the Markdown viewer's comment card paints the elevated surface"],
   ["ui/ui.css .ui-sheet", "the shared sheet paints --ui-surface, not the glass"],
-  ["ui/findPill.css .find-pill", "the find pill paints the card material (--cmux-card-tint, at least 90%)"],
   [
     "pages/markdown/styles.css .md-link-bubble",
     "the Markdown link editor popover paints --cmux-md-popover-background (the solid popup surface) over its glass",

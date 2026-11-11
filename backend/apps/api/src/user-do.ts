@@ -20,11 +20,12 @@ import { CLOSE_RETRY_MS, flushInstallCloses, markAgentClosing, markInstallClosin
 import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { SecondaryStream } from "./secondary-stream.ts"
 import { pullLargeRows, readInboxOp } from "./user-inbox.ts"
+import { memberRoleHealed, stackHealDeps, type StackHealDeps } from "./stack-team-heal.ts"
 import { checkPresenceKey, type PresenceKeyBody } from "./user-presence-key.ts"
 import { homeRateTakeSql, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
 import { installAuthorityVersion } from "./domains/user-authority.ts"
-import { DEFAULT_CHIEF_BIND, defaultChiefIdentity } from "./domains/user-chief-default.ts"
-import { deliverSignupChief, type DefaultMachinePlatform } from "./user-chief-provision.ts"
+import { DEFAULT_CHIEF_BIND, DEFAULT_CHIEF_REBIND, defaultChiefIdentity } from "./domains/user-chief-default.ts"
+import { deliverSignupChief, rebindDefaultChief, type DefaultMachinePlatform, type RebindReply } from "./user-chief-provision.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 
 const CHALLENGE_TTL_MS = 2 * 60_000
@@ -176,6 +177,17 @@ export class UserDO extends OwnerDO<UserState> {
       activate: (agent, owner) => this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(agent)).activateDefault(agent, owner),
       bind: (machine, key) => this.submitSystem(DEFAULT_CHIEF_BIND, machine, key, defaultChiefIdentity(entity))
     })
+  }
+
+  /**
+   * The default Chief's brain asks this when its stored VM no longer answers (chief-default-hand.ts): the platform
+   * names the current VM of the same logical machine, and only that is bound (DO RPC, no route reaches it).
+   */
+  async rebindDefaultChief(entity: string, agent: string): Promise<RebindReply> {
+    if (!this.isBound(entity)) return { ok: false, code: "chief.machine.not_default", retryable: false }
+    return rebindDefaultChief(this.signupPlatform(), entity, agent,
+      () => this.isBound(entity) ? this.bind(entity).currentState : undefined,
+      (machine, key) => this.submitSystem(DEFAULT_CHIEF_REBIND, machine, key, defaultChiefIdentity(entity)))
   }
 
   private closeRetryAt: number | null = null // Retry time of a socket close that failed (socket-registry.ts); memory only.
@@ -629,9 +641,14 @@ export class UserDO extends OwnerDO<UserState> {
     return grant && grant.revoked_at === null ? (inst.public_jwk as JsonWebKey) : null
   }
 
-  /** Live membership authority used only after the caller proves possession of its install key. */
-  protected tokenTeamMember = (team: string, user: string): Promise<string | null> =>
-    this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)).memberRole(team, user)
+  /**
+   * Live membership authority used only after the caller proves possession of its install key: TeamDO,
+   * healed from Stack when TeamDO does not know a person Stack lists in the team (stack-team-heal.ts).
+   */
+  protected tokenTeamMember = (team: string, user: string, stackUser: string | undefined): Promise<string | null> =>
+    memberRoleHealed(this.env, team, user, stackUser, this.stackHeal ?? stackHealDeps(this.env))
+  /** How the heal reads Stack; tests set a fake Stack here. */
+  protected stackHeal: StackHealDeps | undefined
 
   /** One-time challenge + ES256 signature by the install key + revocation check. */
   async redeem(entity: string, install: string, nonce: string, signature: string, agent?: string): Promise<RedeemResult> {
@@ -653,7 +670,7 @@ export class UserDO extends OwnerDO<UserState> {
     if (!ok) return { ok: false, code: "auth.forbidden", message: "bad signature" }
     // Membership is checked only after proof of possession; the nonce, not a request header, selects the team.
     if (row.team !== null && row.team !== state.user.personal_team) {
-      const role = await this.tokenTeamMember(row.team, entity)
+      const role = await this.tokenTeamMember(row.team, entity, state.user.stack_user_id)
       if (!role) return { ok: false, code: "auth.forbidden", message: "not a member of this team" }
     }
     // Re-read after all awaits: revocation, expiry or replacement may have committed during verification or membership lookup.

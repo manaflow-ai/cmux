@@ -76,7 +76,7 @@ final class SidebarPriorityPanelView: NSView {
     private var contentHeight: CGFloat {
         guard !panel.collapsed else { return 0 }
         guard !panel.entries.isEmpty else { return SidebarDensityTokens.rowHeight }
-        return panel.entries.reduce(0) { $0 + SidebarPriorityRowView.height(hasPreview: $1.preview != nil) }
+        return panel.entries.reduce(0) { $0 + SidebarPriorityRowView.height($1) }
     }
 
     /// The height the panel takes, at most `maximum` (its rows then scroll inside).
@@ -90,7 +90,7 @@ final class SidebarPriorityPanelView: NSView {
         // Hiding invalidates even a press below the drag threshold: its release may never reach
         // the hidden row. A re-rank, a fold or a height change also invalidates the press's slot.
         if old.shown != panel.shown || old.collapsed != panel.collapsed || old.entries.map(\.id) != panel.entries.map(\.id)
-            || old.entries.map({ $0.preview != nil }) != panel.entries.map({ $0.preview != nil }) {
+            || old.entries.map({ SidebarPriorityRowView.height($0) }) != panel.entries.map({ SidebarPriorityRowView.height($0) }) {
             stopPresses()
         }
         header.configure(title: Strings.priorityTitle, collapsed: panel.collapsed)
@@ -101,7 +101,7 @@ final class SidebarPriorityPanelView: NSView {
         placeRows(animated: window != nil && old.entries != panel.entries)
         updateTicker()
         if old.collapsed != panel.collapsed || old.entries.count != panel.entries.count
-            || old.entries.map({ $0.preview != nil }) != panel.entries.map({ $0.preview != nil }) {
+            || old.entries.map({ SidebarPriorityRowView.height($0) }) != panel.entries.map({ SidebarPriorityRowView.height($0) }) {
             onHeightChange?()
         }
         needsLayout = true
@@ -131,7 +131,7 @@ final class SidebarPriorityPanelView: NSView {
         var y: CGFloat = 0
         runTop = nil
         for entry in panel.entries {
-            let height = SidebarPriorityRowView.height(hasPreview: entry.preview != nil)
+            let height = SidebarPriorityRowView.height(entry)
             let frame = NSRect(x: 0, y: y, width: width, height: height)
             if let row = rows[entry.id] {
                 if row.entry != entry { row.configure(entry) }
@@ -158,7 +158,7 @@ final class SidebarPriorityPanelView: NSView {
         // The held row stays under the pointer while another chat's text updates: only a re-rank or a
         // height change moves it, and those cancel the drag first (`show`).
         if let held = draggingID.flatMap({ rows[$0] }) { targets.removeAll { $0.0 === held } }
-        guard animated, Motion.sidebar.animatesMovement else {
+        guard animated, Motion.sidebar.animatesMovement(in: window) else {
             // Each row at its place, whole. Set through the animator, the frame replaces a move still in
             // flight (as `RowMotion` does), which a plain set would not stop.
             Motion.withoutAnimation {
@@ -215,7 +215,7 @@ final class SidebarPriorityPanelView: NSView {
     /// A drop back in its own slot changes nothing.
     private func drag(_ row: SidebarPriorityRowView, offset: CGFloat, ended: Bool) {
         guard let from = panel.entries.firstIndex(where: { $0.id == row.entry.id }) else { return }
-        let heights = panel.entries.map { SidebarPriorityRowView.height(hasPreview: $0.preview != nil) }
+        let heights = panel.entries.map { SidebarPriorityRowView.height($0) }
         let top = heights[..<from].reduce(0, +)
         let scrollY = scroll.contentView.bounds.origin.y
         let scrollStart = dragScrollStart ?? scrollY

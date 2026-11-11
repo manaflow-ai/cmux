@@ -9,6 +9,10 @@
       "scope": "actions:run",
       "class": "mutation"
     },
+    "agent_chat.list": {
+      "scope": "agent_chat:read",
+      "class": "read"
+    },
     "agent_cli.list": {
       "scope": "agent_cli:read",
       "class": "read"
@@ -393,6 +397,10 @@
       "scope": "cloud:write",
       "class": "mutation"
     },
+    "cloud.machine.keep": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
     "cloud.machine.list": {
       "scope": "cloud:read",
       "class": "read"
@@ -438,6 +446,10 @@
       "class": "read"
     },
     "cloud.rescue.open": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.retention.set": {
       "scope": "cloud:write",
       "class": "mutation"
     },
@@ -1088,6 +1100,10 @@
     "pane.list": {
       "scope": "workspace:read",
       "class": "read"
+    },
+    "pane.move": {
+      "scope": "workspace:write",
+      "class": "mutation"
     },
     "pane.neighbor.get": {
       "scope": "workspace:read",
@@ -2013,6 +2029,8 @@
     "browser.viewer.resize",
     "chief.archive",
     "chief.delete",
+    "classic_import.plan",
+    "classic_import.record",
     "client.cell_pixels.set",
     "client.detach",
     "client.get",
@@ -2025,6 +2043,7 @@
     "cloud.environment.build",
     "cloud.environment.delete",
     "cloud.fs.remove",
+    "cloud.machine.archive_delete",
     "cloud.machine.create",
     "cloud.machine.delete",
     "cloud.machine.io",
@@ -2039,6 +2058,9 @@
     "cloud.owner.handoff_wait",
     "cloud.owner.handoffs",
     "cloud.owner.harness_login_copy",
+    "cloud.owner.turn_checkpoint",
+    "cloud.owner.turn_rewind",
+    "cloud.owner.turns",
     "cloud.port.close",
     "cloud.previews.create_link",
     "cloud.previews.refresh",
@@ -2051,23 +2073,17 @@
     "cloud.snapshot.create",
     "cloud.snapshot.delete",
     "cloud.snapshot.restore",
-    "cloud.vm.delete_snapshot",
     "cloud.vm.domains",
     "cloud.vm.firewall_create",
     "cloud.vm.firewall_delete",
     "cloud.vm.firewall_get",
     "cloud.vm.firewall_list",
-    "cloud.vm.fork",
     "cloud.vm.networks",
     "cloud.vm.provision_api",
     "cloud.vm.publication_api_keys",
     "cloud.vm.publications",
-    "cloud.vm.resize",
-    "cloud.vm.restore",
     "cloud.vm.revoke_publication_api_key",
     "cloud.vm.scp_endpoint",
-    "cloud.vm.snapshot",
-    "cloud.vm.snapshots",
     "cloud.vm.tunnel_attach",
     "cloud.vm.tunnel_detach",
     "cloud.vm.tunnel_enroll",

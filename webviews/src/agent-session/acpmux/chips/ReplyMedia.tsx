@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Dialog } from "../../../ui/Dialog";
 
+import { belowTabRowStyle, useTabRow } from "../header/tabRow";
 import { useT } from "../i18n";
 import { Close, Expand, OpenTab, PlayTriangle } from "../conversation/icons";
 import { callChipHost } from "./host";
@@ -22,6 +23,7 @@ import { usePathInfo, useReplyPolicy } from "./linkStore";
 import { useNearViewport } from "../useNearViewport";
 import { isDeniedPath, pathName } from "./paths";
 import { MEDIA_PREVIEW_DWELL, useHoverIntent } from "../../../ui/hoverIntent";
+import { movedFrom, slidUnderStillPointer, trackPointerRest, type PointerPlace } from "../../../ui/scrollHover";
 import { mediaPreviewAllowed } from "../../../ui/mediaPreviewPolicy";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { mediaKind } from "./mediaKind";
@@ -276,6 +278,8 @@ export function VideoViewer({
 }) {
   const t = useT();
   const close = useRef<HTMLButtonElement>(null);
+  // Below the pane's tab row, as the image viewer (header/tabRow.ts belowTabRowStyle).
+  const below = belowTabRowStyle(useTabRow());
   return (
     <Dialog
       open
@@ -285,6 +289,7 @@ export function VideoViewer({
       label={name || t("media.player")}
       className="acpmux-image-viewer"
       backdropClassName="acpmux-image-viewer-backdrop"
+      style={below}
       initialFocus={close}
     >
       <div className="acpmux-image-viewer-body">
@@ -363,6 +368,9 @@ export function VideoThumbnail({
   const startedRef = useRef(false);
   const [started, setStarted] = useState(false);
   const [hovered, setHovered] = useState(false);
+  /// The poster scrolled under a still pointer: the preview waits for the pointer to move on it.
+  const parked = useRef<PointerPlace | null>(null);
+  useEffect(() => trackPointerRest(), []);
   const [duration, setDuration] = useState<string | undefined>();
   const previewAllowed = useMediaPreviewAllowed();
   const { shown, hover: setHover, dismiss } = useHoverIntent<boolean>({ delay: MEDIA_PREVIEW_DWELL });
@@ -455,11 +463,23 @@ export function VideoThumbnail({
           className="cv-media__poster"
           aria-label={duration ? t("media.playLength", { length: duration }) : t("media.play")}
           onClick={play}
-          onMouseEnter={() => {
+          onMouseEnter={(event) => {
             setHovered(true);
+            if (slidUnderStillPointer(event)) {
+              parked.current = { x: event.clientX, y: event.clientY };
+              return;
+            }
+            parked.current = null;
+            if (previewAllowed) setHover(true, MEDIA_PREVIEW_DWELL);
+          }}
+          onMouseMove={(event) => {
+            const still = parked.current;
+            if (!still || !movedFrom(still, event)) return;
+            parked.current = null;
             if (previewAllowed) setHover(true, MEDIA_PREVIEW_DWELL);
           }}
           onMouseLeave={() => {
+            parked.current = null;
             setHovered(false);
             setHover(null);
           }}

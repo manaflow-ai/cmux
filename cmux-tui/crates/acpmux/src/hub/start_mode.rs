@@ -111,6 +111,11 @@ pub(crate) const FULL_ACCESS_MODES: [&str; 4] =
 /// Mode ids that are a temporary toggle, never inherited by a sub-session.
 const TOGGLE_MODES: [&str; 1] = ["plan"];
 
+/// Whether `mode` is a temporary toggle ([`TOGGLE_MODES`]), which a sub-session never inherits.
+pub(crate) fn is_toggle(mode: &str) -> bool {
+    TOGGLE_MODES.contains(&mode)
+}
+
 /// `agents.defaultPermissionMode`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum DefaultMode {
@@ -779,8 +784,13 @@ impl Hub {
             self.stop_full_access_agent(session, off.off()).await;
             return Err(e);
         }
-        // A narrower policy holds over a pinned mode too (`policy_mode.rs`).
-        self.hold_policy_mode(session, child, profile_sets_mode(profile)).await;
+        // A narrower policy holds over a pinned mode too (`policy_mode.rs`). An agent that cannot
+        // keep it is stopped and the start fails.
+        if let Err(e) = self.hold_policy_mode(session, child, profile_sets_mode(profile)).await {
+            let record = super::policy_mode::refusal_record(&e);
+            self.stop_started_agent(session, false, "policy_refused", record).await;
+            return Err(e);
+        }
         Ok(())
     }
 
@@ -788,6 +798,18 @@ impl Hub {
     /// stays open and idle, and its next prompt starts an agent under the setting. `managed`: MDM's
     /// off stops it (now, or one that held as the agent started).
     pub(super) async fn stop_full_access_agent(&self, session: &Arc<Session>, managed: bool) {
+        self.stop_started_agent(session, managed, "full_access_refused", json!({})).await;
+    }
+
+    /// `stop_full_access_agent` for any refused start or run: logs `event` with `record` once the
+    /// agent ended.
+    pub(super) async fn stop_started_agent(
+        &self,
+        session: &Arc<Session>,
+        managed: bool,
+        event: &str,
+        record: Value,
+    ) {
         // Taken first: the child slot's lock is not held while the agent ends. Under MDM's off it
         // is retired under that lock, as MDM's end retires one (`end_managed_full_access`): a mode
         // or option report it still has queued is not applied to the agent after it, and none it
@@ -818,7 +840,7 @@ impl Hub {
             self.end_unadopted_host(session).await;
         }
         self.set_status(session, SessionStatus::Idle);
-        self.append(session, "mux", "full_access_refused", json!({}));
+        self.append(session, "mux", event, record);
     }
 
     /// The level new chats on profile `harness` start at now, and what chose it.

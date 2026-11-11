@@ -46,14 +46,14 @@ await requireBrowserLane("session-chip-browser.test.ts", async () => {
   const ROWS = {
     received: {
       chip: '[data-chip-row="received"] button.cv-agent-tag',
-      line: '[data-chip-row="received"] .cv-disclosure__line',
+      line: '[data-chip-row="received"] .cv-agentmsg__line',
       // The glyph itself, not its wrapper's line box.
       icon: '[data-chip-row="received"] .cv-received__mark :is(svg, img)',
     },
     sent: {
       chip: '[data-chip-row="sent"] button.cv-agent-tag',
-      // A sent message draws as a received one (cmux#37879): the same line and mark.
-      line: '[data-chip-row="sent"] .cv-disclosure__line',
+      // A sent message draws as a received one (cmux#37879): the same one message row and mark.
+      line: '[data-chip-row="sent"] .cv-agentmsg__line',
       icon: '[data-chip-row="sent"] .cv-received__mark :is(svg, img)',
     },
   } as const;

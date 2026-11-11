@@ -43,6 +43,17 @@ struct SidebarSnapshotPageIconTests {
         #expect(icons["asset"] == .some(.symbol("photo")))
     }
 
+    /// A terminal workspace whose focused tab is a page beside it shows the page's favicon
+    /// (user 23802): it restores with the page's globe, not a terminal icon's loading symbol.
+    @Test func aRowFocusedOnAPageBesideWorkRestoresWithThePageGlobe() throws {
+        var row = SidebarWorkspace(id: WorkspaceID("split"), title: "split", icon: .favicon(Self.favicon()),
+                                   tabs: [SidebarTab(id: TabID("shell"), title: "zsh", kind: .terminal),
+                                          SidebarTab(id: TabID("pr"), title: "PR", kind: .browser)])
+        row.focusedTab = TabID("pr")
+        let icons = try Self.restored([row])
+        #expect(icons["split"] == .some(.pagePlaceholder))
+    }
+
     @Test func anOlderSnapshotWithoutThePageSlotStillReads() throws {
         let json = #"{"sections":[{"isCollapsed":false,"machineID":"local","machineKind":"local","nodes":[{"workspace":{"id":"w","machineID":"local","title":"w","kind":"browser"}}]}],"profiles":[]}"#
         let decoded = try JSONDecoder().decode(SidebarSnapshot.self, from: Data(json.utf8))

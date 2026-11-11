@@ -81,6 +81,8 @@ Default role set: every machine. Sizes are installed sizes on the guest.
 | Claude Code (native binary) | all | vendor release manifest sha256 + its signature | 234 MB | none until run |
 | Codex (musl release tarball) | all | vendor release, sha256 + Sigstore bundle | 263 MB | none until run |
 | OpenCode (linux-x64 package) | all | npm integrity | 186 MB | none until run |
+| Gemini CLI (npm package; one bundled `gemini.js` run by Node, unpacked with no install step) | all | npm tarball sha256 | 99 MB | none until run |
+| Grok CLI (xAI's static linux-x86_64 binary from x.ai/cli; it publishes no checksum, so the lock's sha256 is ours) | all | sha256 + size | 202 MB | none until run |
 | pi (1.0.0 is current; today's pin is 0.85.1) | all | npm (ships a shrinkwrap), integrity + provenance; no single-file release, so CI packs one tarball per version into the store | 437 MB | none until run |
 | Node 24 LTS, Bun, Python 3.12 + uv | all | upstream releases, checksums + signatures | 208 + 76 + 104 + 47 MB | none |
 | git, gh, ripgrep, jq, fd, fzf, sqlite3, tmux, build-essential, bubblewrap, fuse3, acl, curl, rsync, vim, nano | all | apt snapshot mirror; gh release tarball | (in L1) | none |

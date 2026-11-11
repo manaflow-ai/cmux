@@ -100,6 +100,10 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// button, spaces strip, profile control and Search button show only while the pointer is over
     /// the sidebar. Off by default: they always show.
     public var controlsOnHover = false
+    /// `sidebar.floatOnHover` (Lawrence 2026-11-08): with the sidebar hidden, the pointer resting on
+    /// the window's sidebar edge floats the sidebar over the content until the pointer leaves it.
+    /// On by default.
+    public var floatOnHover = true
     /// Minimal mode (`sidebar.minimal`, cx-w1r5; Lawrence 2026-10-09: "some
     /// people like minimal mode"): workspace rows draw only their icon, name,
     /// unread mark and attention state (no second line, no counts or badges,
@@ -138,6 +142,8 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// `sidebar.groupPalette` (``GroupPalette``): where group colors come from, and whether a new group takes the
     /// palette's next color. Pure glass by default: a new group has no color until a person picks one.
     public var groupPalette: GroupPalette = .glass
+    /// `sidebar.groupGradient` (``GroupGradient``): the gradient the ``GroupPalette/gradient`` palette steps through.
+    public var groupGradient: GroupGradient = .sunset
     /// Compact (the default), comfortable or expanded workspace rows
     /// (`sidebar.density`); minimal mode wins over expanded content.
     public var density: SidebarDensity = .compact

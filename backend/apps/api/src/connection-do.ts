@@ -15,6 +15,7 @@ import { createWatchTable, nextWatchAt, recordStopFailure, watchOf } from "./int
 import { onDisconnect, onGmailPush, runWatchWork, startWatchSafely, stopWatchWith, watchSoon, type GooglePush, type WatchHost } from "./integrations/google-watches.ts"
 import { createRevocationTable, drainRevocations, nextRevocationAt, takeCredentialForRevocation } from "./integrations/revocations.ts"
 import * as ghTokens from "./integrations/github-tokens.ts"
+import { githubConnectTarget, type GithubConnectTarget } from "./integrations/github-connect.ts"
 import { ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
@@ -195,6 +196,17 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const result = frames.find((f) => f.t === "result")
     const c = result && result.t === "result" ? (result.value as Connection) : undefined
     if (!c || c.status !== "revoked") return
+    if (c.provider === "github") {
+      // Mark the revoked connection's issued tokens before returning; the alarm
+      // completes provider DELETE even if this isolate stops during the first try.
+      const marked = ghTokens.markConnectionTokensRevoked(this.ledger(), c.id, Date.now())
+      if (marked > 0) {
+        this.scheduleAlarm()
+        void ghTokens.drainTokenRevocations(this.ledger(), Date.now()).catch((e) =>
+          console.error(JSON.stringify({ msg: "github disconnect token revoke failed", error: e instanceof Error ? e.name : "unknown" })),
+        )
+      }
+    }
     // Gmail: users.stop runs with the credential before the revoke (google-watches.ts onDisconnect).
     const stopAlias = watchOf(this.ctx.storage.sql, c.id)?.alias ?? null
     const taken = takeCredentialForRevocation(this.ctx.storage.sql, c, providers[c.provider], Date.now(), stopAlias)
@@ -220,6 +232,12 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
   async githubStatus(entity: string, principal: Principal) {
     if (principal.team !== entity) return { configured: false, app_slug: null, connection: null }
     return ghTokens.githubStatus(this.env, this.boundTo(entity) ? this.bind(entity).currentState : connectionsDomain.initial(), principal)
+  }
+
+  /** integration.connect with a repo: which GitHub page to open (github-connect.ts), asked with this object's injectable HTTP. */
+  async githubConnectTarget(entity: string, principal: Principal, repo: string): Promise<GithubConnectTarget> {
+    if (principal.team !== entity) return { kind: "install" }
+    return githubConnectTarget(this.env, this.http, repo)
   }
 
   async githubRepos(entity: string, principal: Principal, query: { readonly query?: string; readonly cursor?: string }) {

@@ -64,7 +64,7 @@ final class SidebarSectionHeaderView: NSView {
 
     override func updateLayer() {
         performWithTheme {
-            name.textColor = Palette.textTertiary
+            name.textColor = Palette.textSecondary
             chevron.contentTintColor = Palette.textTertiary
             // A click folds the section: hover shows the row hover fill (cx-qno.17).
             if let layer {
@@ -77,7 +77,7 @@ final class SidebarSectionHeaderView: NSView {
     override func layout() {
         super.layout()
         let b = bounds
-        let inset = SidebarStyle.horizontalInset * 2
+        let inset = SidebarStyle.horizontalInset + SidebarStyle.contentInset
         name.font = SidebarStyle.headerFont
         let th = ceil(name.intrinsicContentSize.height)
         let chevronSide = Metrics.smallIconSize

@@ -212,9 +212,7 @@ export async function traceUpwardAnchors({
         driven.delete(paint);
         const current = read();
         if (pendingFold !== undefined) {
-          const toggle = scroller.querySelector<HTMLButtonElement>(
-            '[data-row-id="gap-incoming"] .cv-disclosure__toggle',
-          );
+          const toggle = scroller.querySelector<HTMLButtonElement>('[data-row-id="gap-incoming"] .cv-agentmsg__toggle');
           foldTransitions.push({
             before: pendingFold,
             after: toggle?.getAttribute("aria-expanded") ?? null,
@@ -303,7 +301,7 @@ export async function traceUpwardAnchors({
           (window as unknown as { __stepFoldStream(): void }).__stepFoldStream();
           if ([4, 32, 60, 88].includes(frame)) {
             const toggle = scroller.querySelector<HTMLButtonElement>(
-              '[data-row-id="gap-incoming"] .cv-disclosure__toggle',
+              '[data-row-id="gap-incoming"] .cv-agentmsg__toggle',
             );
             if (!toggle) throw new Error(`received fold toggle missing at frame ${frame}`);
             pendingFold = toggle.getAttribute("aria-expanded");

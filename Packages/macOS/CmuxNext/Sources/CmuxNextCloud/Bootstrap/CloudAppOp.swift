@@ -28,6 +28,18 @@ public nonisolated struct CloudAppOpFailure: Error, Equatable, Sendable, CustomS
     public var description: String { message.isEmpty ? code : message }
 }
 
+public extension JSONValue {
+    /// The id of an app op's answer's `record` (`{"snapshot": {"id"}}`, `{"machine": {"id"}}`); nil when
+    /// `record` is nil. An answer with no such id is `cmux.cloud.bad_response`.
+    func recordID(_ record: String?, op: String) throws -> String? {
+        guard let record else { return nil }
+        guard let id = self[record]?["id"]?.stringValue, !id.isEmpty else {
+            throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "\(op) answered no \(record)")
+        }
+        return id
+    }
+}
+
 /// One Cloud app op: `op`, JSON `args`, an idempotency key for a mutation
 /// (nil for a read), and the wire origin.
 public typealias CloudAppOp = @Sendable (_ op: String, _ args: JSONValue, _ key: String?, _ origin: AppsRunRequest.Origin) async throws -> JSONValue

@@ -250,11 +250,37 @@ async fn agent_output_is_not_held_behind_another_chats_acked_change() {
     assert!(took < SYNC / 2, "agent output waited {took:?} behind another chat's change");
 }
 
-/// F2: a journal that makes nothing durable (a hung or failing disk; the writer retries without
-/// end) must not hold every reply without a limit: past the stall limit, the store asks the
-/// daemon to stop for a restart.
+/// huge-blue, 2026-11-08: a saturated disk (35-50% iowait, a 10.4 s fdatasync) made a reply wait
+/// past the stall limit, and the daemon stopped for a restart 8 times in 3 hours; every session
+/// start meanwhile failed with "acpmux is shutting down". A journal that is only slow (each sync
+/// takes ten stall limits, and none fails) must not ask the daemon to stop: the reply waits and
+/// then goes out.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_journal_that_syncs_nothing_asks_the_daemon_to_stop() {
+async fn a_slow_journal_delays_the_reply_and_never_asks_the_daemon_to_stop() {
+    use std::sync::atomic::Ordering;
+    super::TEST_STALL_MS.store(100, Ordering::SeqCst);
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(62);
+    let hub = hub(home.path(), &journal);
+    let (input, mut outgoing) = connect(&hub).await;
+    let stop = hub.store.stop_reason().unwrap_or_else(|| panic!("no stop reason"));
+    journal.set_sync_delay(Duration::from_millis(1000));
+    let started = Instant::now();
+    let unread = json!({"sessionId": CHAT});
+    send(&input, Message::request(2, method::MUX_MARK_UNREAD, unread)).await;
+    let reply = until(&mut outgoing, |line| line["id"] == 2).await;
+    let took = started.elapsed();
+    journal.set_sync_delay(Duration::ZERO);
+    assert!(reply.get("error").is_none(), "markUnread: {reply}");
+    assert!(took >= Duration::from_millis(900), "the reply did not wait for its sync: {took:?}");
+    assert!(stop.borrow().is_none(), "a slow disk asked the daemon to stop: {:?}", *stop.borrow());
+}
+
+/// F2: a journal whose writer fails (a failing disk: every sync returns an error and the writer
+/// retries without end) must not hold every reply without a limit: past the stall limit, the
+/// store asks the daemon to stop for a restart.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failing_journal_asks_the_daemon_to_stop() {
     use std::sync::atomic::Ordering;
     super::TEST_STALL_MS.store(300, Ordering::SeqCst);
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
@@ -262,17 +288,20 @@ async fn a_journal_that_syncs_nothing_asks_the_daemon_to_stop() {
     let hub = hub(home.path(), &journal);
     let (input, mut outgoing) = connect(&hub).await;
     let mut stop = hub.store.stop_reason().unwrap_or_else(|| panic!("no stop reason"));
-    // Each sync takes 3 s: past the 300 ms stall limit, and short enough that the journal ends
-    // (a sync under way keeps its delay, and the store's drop waits for it).
-    journal.set_sync_delay(Duration::from_secs(3));
+    journal.fail_all_syncs(Some(std::io::ErrorKind::Other));
     let unread = json!({"sessionId": CHAT});
     send(&input, Message::request(2, method::MUX_MARK_UNREAD, unread)).await;
     let asked = tokio::time::timeout(Duration::from_millis(2500), stop.wait_for(Option::is_some))
         .await
         .is_ok();
-    journal.set_sync_delay(Duration::ZERO);
+    journal.fail_all_syncs(None);
     let _ = until(&mut outgoing, |line| line["id"] == 2).await;
-    assert!(asked, "a reply waited past the stall limit and the store did not ask to stop");
+    assert!(
+        asked,
+        "a reply waited past the stall limit on a failing journal and the store did not ask to stop"
+    );
+    let why = stop.borrow().clone().unwrap_or_default();
+    assert!(why.contains("failing"), "{why}");
 }
 
 /// F1, the streaming read: `session/load`'s replay sends each record as it reads it

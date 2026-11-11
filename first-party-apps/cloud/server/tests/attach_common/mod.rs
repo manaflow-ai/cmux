@@ -58,7 +58,7 @@ impl FakeSpawner {
     }
 
     /// A stream of the last carrier of `machine` is refused with this
-    /// `link.dial` error code (as the real carrier reports it).
+    /// code, in the server's own names (as the real carrier reports it).
     pub fn refuse(&self, machine: &str, code: &str) {
         let log = self.log();
         let index = log.tags.iter().rposition(|t| t.machine == machine).expect("spawned");
@@ -133,8 +133,6 @@ impl LinkSpawner for FakeSpawner {
 
 pub fn paths() -> LinkPaths {
     LinkPaths {
-        binary: PathBuf::from("/opt/cmux/bin/cmux-tui"),
-        hub_socket: PathBuf::from("/tmp/cmux-test/link.sock"),
         state_dir: PathBuf::from("/tmp/cmux-test/link-state"),
         socket_dir: PathBuf::from("/tmp/cmux-test"),
         device_name: "test-mac".into(),

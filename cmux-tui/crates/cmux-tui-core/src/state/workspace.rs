@@ -129,6 +129,15 @@ impl Mux {
                 match &change {
                     WorkspaceStatusChange::Set { key, text, icon, color, meta } => {
                         meta.validate(|id| state.terminal_catalog.contains_key(id))?;
+                        // `tail:term_…` is a terminal tail pin's record
+                        // (`mux/terminal_tail_pins.rs`): only the daemon sets one.
+                        if key.starts_with(RESERVED_TAIL_KEY_PREFIX)
+                            && !matches!(mutation.actor, Actor::Daemon)
+                        {
+                            anyhow::bail!(
+                                "bad request: status keys starting with {RESERVED_TAIL_KEY_PREFIX} are reserved for terminal tail pins"
+                            );
+                        }
                         // Checked here, after the replay check, so a retry of
                         // a committed set returns its stored result.
                         let owner_process = match meta.owner_pid {
@@ -236,6 +245,7 @@ impl Mux {
         // Owned status entries a previous run left: re-arm their watches and
         // drop the ones whose TTL passed while the daemon was down.
         crate::state::status_owners::resume(self);
+        self.clear_stale_terminal_tails();
         let ephemeral = self.read_registry_state(crate::state::store::ephemeral_workspaces)?;
         for workspace_id in ephemeral {
             self.close_ephemeral_workspace(&workspace_id, TerminalCloseGuard::None)?;

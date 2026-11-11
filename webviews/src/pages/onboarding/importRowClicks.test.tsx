@@ -11,6 +11,8 @@ import { OnboardingStore } from "./store";
 
 const restore = installDom();
 afterAll(restore);
+// The test DOM has no Web Animations; ViewSwap plays one when the body swaps (summary ⇄ list).
+(window.HTMLElement.prototype as unknown as { animate: unknown }).animate ??= () => ({ cancel() {}, finish() {} });
 
 /** A client that records each call (op and params) and answers nothing. */
 function recording() {
@@ -35,6 +37,11 @@ async function mount() {
   await act(async () =>
     createRoot(root).render(<OnboardingPage store={store} strings={createStrings(table, ["en"])} />),
   );
+  // Express shows the summary first; the rows live behind Choose Browsers and Data….
+  const choose = [...root.querySelectorAll<HTMLButtonElement>("button")].find(
+    (button) => button.textContent?.trim() === createStrings(table, ["en"]).t("onboarding.import.express.choose"),
+  );
+  if (choose) await act(async () => choose.click());
   const profile = state.importer!.rows.find((row) => row.kind === "profile" && row.checked && !row.needsFullDiskAccess);
   const row = root.querySelector<HTMLElement>(`[data-row="${profile!.kind === "profile" ? profile!.id : ""}"]`)!;
   calls.length = 0;

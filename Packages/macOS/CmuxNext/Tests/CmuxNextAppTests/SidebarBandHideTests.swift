@@ -25,6 +25,12 @@ import Testing
             guard let data = try? Data(contentsOf: url), let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
             return (root["sidebar"] as? [String: Any])?[key] as? Bool
         }
+
+        /// Whether cmux.json is there and parses as an object, so a missing or unreadable file never passes for "the key is absent".
+        func fileParses() -> Bool {
+            guard let data = try? Data(contentsOf: url), let root = try? JSONSerialization.jsonObject(with: data) else { return false }
+            return root is [String: Any]
+        }
         var account: LayoutItemID { LayoutItemID("itm_account") }
         var showsProfileControl: Bool { sidebar.footerRegion.itemView(account) != nil }
 
@@ -123,9 +129,11 @@ import Testing
         #expect(band.contains("Show Spaces"))
         #expect(!band.contains("Show Profile Button"))
         _ = h.services.registry.perform("sidebar.spaces.show")
-        await h.until { !h.sidebar.profileBar.isHidden && h.saved("showSpaces") == true }
+        // Shown is the default: the write removes the key (#38119), so cmux.json keeps no copy.
+        await h.until { !h.sidebar.profileBar.isHidden && h.fileParses() && h.saved("showSpaces") == nil }
         #expect(!h.sidebar.profileBar.isHidden)
-        #expect(h.saved("showSpaces") == true)
+        #expect(h.fileParses(), "cmux.json is missing or does not parse")
+        #expect(h.saved("showSpaces") == nil, "shown is the default: sidebar.showSpaces leaves cmux.json")
     }
 
     @Test func theProfileButtonHidesFromItsMenuAndTheBandShowsItAgain() async throws {
@@ -147,8 +155,11 @@ import Testing
         #expect(band.contains("Show Profile Button"))
         #expect(!band.contains("Show Spaces"))
         _ = h.services.registry.perform("sidebar.profileControl.show")
-        await h.until { h.showsProfileControl && h.saved("showProfileControl") == true }
+        // Shown is the default: the write removes the key (#38119), so cmux.json keeps no copy.
+        await h.until { h.showsProfileControl && h.fileParses() && h.saved("showProfileControl") == nil }
         #expect(h.showsProfileControl)
+        #expect(h.fileParses(), "cmux.json is missing or does not parse")
+        #expect(h.saved("showProfileControl") == nil, "shown is the default: sidebar.showProfileControl leaves cmux.json")
     }
 
     /// Relaunch: cmux.json still says hidden, so the band draws neither piece, and its empty

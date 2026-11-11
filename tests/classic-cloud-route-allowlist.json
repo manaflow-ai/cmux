@@ -12,12 +12,6 @@
   },
   "entries": [
     {
-      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStrings+Errors.swift",
-      "pattern": "route:/api/vm",
-      "count": 1,
-      "reason": "debt: an error-text matcher that recognises classic /api/vm failures; goes when NEXT stops calling /api/vm"
-    },
-    {
       "file": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Notifications/SandboxRunNotices.swift",
       "pattern": "route:/api/runs",
       "count": 1,
@@ -30,22 +24,16 @@
       "reason": "debt: the NEXT Cloud REST client's sandboxed-run calls still use classic /api/runs until they move to cmux-platform hand-offs"
     },
     {
-      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudAPIClient.swift",
-      "pattern": "route:/api/vm",
-      "count": 23,
-      "reason": "debt: the NEXT Cloud REST client's machine calls still use classic /api/vm until cmux-platform's machine API replaces them"
-    },
-    {
-      "file": "cmux-tui/crates/cmux-cloud-api/src/classic.rs",
-      "pattern": "route:/api/vm",
-      "count": 8,
-      "reason": "keep: a move from Swift to Rust: CloudAPIClient.swift's classic /api/vm machine calls, which the app moves onto through the daemon's cloud.vm.* operations (#37350); goes when cmux-platform's machine API replaces them"
-    },
-    {
       "file": "cmux-tui/crates/cmux-cloud-api/src/runs.rs",
       "pattern": "route:/api/runs",
       "count": 4,
       "reason": "keep: a move from Swift to Rust: CloudAPIClient.swift's sandboxed-run calls on classic /api/runs, behind the daemon's cloud.runs.* operations (#37350); goes when they move to cmux-platform hand-offs"
+    },
+    {
+      "file": "cmux-tui/crates/cmux-cloud-api/src/runs.rs",
+      "pattern": "segments:/api/runs",
+      "count": 3,
+      "reason": "debt: newly counted, not a new call: the daemon cloud.runs.* ops' classic /api/runs paths, built as path-part arrays, the guard missed while it read only \"/api/runs\" strings; goes when they move to cmux-platform"
     },
     {
       "file": "cmux-tui/crates/cmux-cloud-tasks/src/follower.rs",
@@ -58,18 +46,6 @@
       "pattern": "route:/api/runs",
       "count": 1,
       "reason": "debt: the sandboxed-run follower's path label names classic /api/runs"
-    },
-    {
-      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Tunnel/CloudTunnelHub.swift",
-      "pattern": "route:/api/vm",
-      "count": 1,
-      "reason": "debt: the WireGuard hub's timeout label names classic /api/vm/tunnel enrollment"
-    },
-    {
-      "file": "cmux-tui/bindings/typescript/code-mode/cloud-relay.mjs",
-      "pattern": "route:/api/vm",
-      "count": 19,
-      "reason": "debt: code mode's cloud relay maps vm.* operations onto classic /api/vm routes until it calls cmux-platform"
     },
     {
       "file": "cmux-tui/crates/cmux-cloud-environment/src/client_config.rs",

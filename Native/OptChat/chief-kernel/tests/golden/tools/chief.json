@@ -233,6 +233,120 @@
     "name": "version"
   },
   {
+    "description": "MCP servers, in code mode. When the person says \"connect to X\" (a name like linear or deepwiki, an https URL, or a command like `npx -y @scope/server`), call action add with target X yourself: no config, no restart; it works in this same turn. A server that needs a sign-in answers with a page to open for the person (your auth-escalation flow) and you wake when it is connected. Use servers without loading their schemas: action search (query) finds tools across servers; describe (server, tool) gives TypeScript declarations; run (code) runs a script where `await mcp.<server>.<tool>({...})` calls a tool (structuredContent, or text parsed as JSON when it is; errors throw), so loop, filter and join results in the script and print only what you need. call (server, tool, args) is one direct call; with task: true (and note) it runs off your turn as an MCP task and you wake once with its result (tasks, task: id with op status|wait|cancel). subscribe (server, uri or event, note) wakes you when a resource changes or the server sends that notification (events, unsubscribe: id). Also list, remove, signin, resources, read, prompts, prompt (server, name, args). Subagents use servers but only you add or remove them.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "add",
+            "list",
+            "remove",
+            "signin",
+            "search",
+            "describe",
+            "call",
+            "run",
+            "tasks",
+            "task",
+            "subscribe",
+            "unsubscribe",
+            "events",
+            "resources",
+            "read",
+            "prompts",
+            "prompt"
+          ],
+          "type": "string"
+        },
+        "args": {
+          "description": "call: the tool's arguments; prompt: the prompt's.",
+          "type": "object"
+        },
+        "code": {
+          "description": "run: TypeScript; top-level await; `return` a value or console.log; no imports.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "env": {
+          "description": "add: environment of a local server (kept secret).",
+          "type": "object"
+        },
+        "event": {
+          "description": "subscribe: a notification method (notifications/message, notifications/tools/list_changed) or *.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "headers": {
+          "description": "add: HTTP headers with a key (kept secret, never shown).",
+          "type": "object"
+        },
+        "id": {
+          "description": "task: t<N>; unsubscribe: e<N> or all.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "name": {
+          "description": "add: the server's name (default: from the target); prompt: the prompt.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "note": {
+          "description": "task, subscribe: what to do when you wake.",
+          "type": "string"
+        },
+        "op": {
+          "enum": [
+            "status",
+            "wait",
+            "cancel"
+          ],
+          "type": "string"
+        },
+        "query": {
+          "type": "string"
+        },
+        "replace": {
+          "type": "boolean"
+        },
+        "server": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "target": {
+          "description": "add: a known server name, an https URL, or the command that runs a local server.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "task": {
+          "description": "call: run off the turn as a task; you wake with its result.",
+          "type": "boolean"
+        },
+        "timeout_seconds": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "tool": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "uri": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "wait_seconds": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    "name": "mcp"
+  },
+  {
     "description": "Teleport: move yourself (memory, conversations, settings, subagent transcripts, grants) to another machine. When the person says teleport, move or come back, call this yourself; never ask them for a token or a step. action move (default): to = cloud (the hosted Cloud Chief; the app's sign-in is used), ssh:HOST[:DIR] (a Mac mini or Linux VM over SSH, the host name as the person says it), local:DIR, or home (the Mac you came from). Run dry_run true first; fix any blocker you can (a missing optchat-chief is installed by the move itself) and tell the person only a sign-in or a key you cannot reach. Then the real move: it starts when this turn ends and keeps this copy for rollback, so say goodbye in this turn; your next answer comes from the new place with nothing lost. status: the last move's report. reach: after a move, which SSH hosts, tailnet, fleet and model route answer from here. rollback: the old copy answers again. fork (to = cloud): copy yourself (memory, conversations, the person's profile) into a new Cloud Chief while you keep answering here; nothing here stops or moves. Use it first when the person wants to try the cloud without losing you; then talk to the fork with tell(id: \"chief:fork\") (its reply comes back as a note) and move for real only after it checks out. fork_status: the fork's record.",
     "inputSchema": {
       "additionalProperties": false,
@@ -348,6 +462,33 @@
         "text": {
           "description": "The message, in Markdown.",
           "type": "string"
+        },
+        "widget": {
+          "type": "object",
+          "description": "A card drawn natively in the chat by an installed cmux app's cmux.chat.widget/1 export (a PR status card: app cmux/pr-card, props {repo, number}). Clients without the app show fallback.",
+          "properties": {
+            "app": {
+              "type": "string",
+              "description": "The app id, publisher/name."
+            },
+            "props": {
+              "type": "object",
+              "description": "The widget's input data (at most 16 KiB)."
+            },
+            "fallback": {
+              "type": "string",
+              "description": "Plain text shown where the widget cannot draw (iPhone, notifications)."
+            },
+            "url": {
+              "type": "string",
+              "description": "An https link older builds show."
+            }
+          },
+          "required": [
+            "app",
+            "fallback"
+          ],
+          "additionalProperties": false
         }
       },
       "type": "object"

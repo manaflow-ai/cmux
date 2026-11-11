@@ -1,6 +1,6 @@
 import { useCallback, useRef } from "react";
 import { entranceAllowed } from "../../shared/pageReveal";
-import { cssTimeMs, foldMotion } from "../conversation/fold";
+import { cssTimeMs, FOLD_DROP_MS, foldMotion } from "../conversation/fold";
 
 /// The card's class while it enters, and its kept copy's while it leaves (subagents.css).
 export const TRAY_ENTER_ATTR = "data-tray-enter";
@@ -18,7 +18,7 @@ function animationMs(node: HTMLElement): number {
   return Math.max(0, ...style.animationDuration.split(",").map((part) => cssTimeMs(part) ?? 0));
 }
 
-/// The copies still playing (each lives one exit, under 100 ms, or until settled), so a card that
+/// The copies still playing (each lives one exit, the settle, or until settled), so a card that
 /// comes back, or another chat showing, drops them at once.
 const leaving = new Map<HTMLElement, { host: HTMLElement; done: () => void }>();
 
@@ -27,8 +27,8 @@ export function settleTrayExit(host?: HTMLElement | null): void {
   for (const entry of leaving.values()) if (host === undefined || entry.host === host) entry.done();
 }
 
-/// Plays the exit of `card`, which React is about to remove: a copy of it sits where it is drawn,
-/// over the bottom stack, and fades out on the arm's exit, then goes. Called while the card is still
+/// Plays the exit of `card`, which React is about to remove: a copy of it takes its place in the
+/// stack and folds its height away as it fades, on the arm's exit, then goes. Called while the card is still
 /// laid out (its ref's cleanup). Its one timer is a fallback for an `animationend` that never comes
 /// (an animation the page settled, a style changed under it); it, `animationend` and `animationcancel`
 /// (the host turning motion off) remove the copy, and a card that comes back to the same host, or
@@ -85,32 +85,21 @@ export function playTrayExit(card: HTMLElement): void {
   ghost.classList.add(TRAY_GHOST);
   ghost.setAttribute("aria-hidden", "true");
   ghost.setAttribute("inert", "");
-  // Anchored to the host's bottom edge, where the composer stays: the stack under the card does not
-  // move when it goes, and the host (the floating stack) loses the card's height from its top.
-  const place = entering
-    ? {
-        left: card.offsetLeft,
-        bottom: host.clientHeight - card.offsetTop - card.offsetHeight,
-        width: card.offsetWidth,
-        height: card.offsetHeight,
-      }
-    : {
-        left: rect.left - box.left - host.clientLeft,
-        bottom: box.top + host.clientTop + host.clientHeight - rect.bottom,
-        width: rect.width,
-        height: rect.height,
-      };
+  // In the card's own place, in flow: the copy folds its height to 0 as it fades, on the house
+  // settle (subagents.css `acpmux-tray-leave`), so what stands under and around it (the composer, the
+  // transcript over the stack) moves once, continuously, as the hat goes, never a jump of its height
+  // (Leo, 2026-11-08: "the hat auto removing/auto hiding stuff that's super done is maybe a bit
+  // jarring?"). React removes the card right after this; the copy stays where it was.
   Object.assign(ghost.style, {
-    position: "absolute",
-    left: `${place.left}px`,
-    bottom: `${place.bottom}px`,
-    width: `${place.width}px`,
-    height: `${place.height}px`,
+    height: `${card.offsetHeight}px`,
+    minHeight: "0",
     maxHeight: "none",
-    margin: "0",
+    boxSizing: "border-box",
+    overflow: "hidden",
+    flexShrink: "0",
     pointerEvents: "none",
   });
-  host.appendChild(ghost);
+  card.after(ghost);
   // A clone keeps no scroll offsets: the copy's scrolled parts (the list, a command's output) are put
   // back where the card had them, before the frame paints. Only the scrolled ones, a handful.
   const scrolled = [card, ...card.querySelectorAll<HTMLElement>("*")];
@@ -145,9 +134,64 @@ export function playTrayExit(card: HTMLElement): void {
   };
   ghost.addEventListener("animationend", ended);
   ghost.addEventListener("animationcancel", ended);
-  const timer = setTimeout(done, ms + 50);
+  let timer = setTimeout(done, ms + 50);
   leaving.set(ghost, { host, done });
+  // A restart on the first frames (below) moves the end: the fallback moves with it.
+  startOnFirstFrames(ghost, view, ms, () => {
+    clearTimeout(timer);
+    timer = setTimeout(done, ms + 50);
+  });
 }
+
+/// One frame at 60 Hz.
+const FRAME_MS = 1000 / 60;
+
+/// The copy's fold starts on the frames the page paints. Its clock started when the copy was made,
+/// inside the commit that removed the card, and the settle moves most of the way in its first
+/// quarter. So a stall early in the fold (a slow commit, a slow first paint) drew its next frame most
+/// of the way down, one jump: a headless WebKit drew one frame, then nothing for about 200 ms, then
+/// the hat gone. On its first frame, and after a gap of `FOLD_DROP_MS` or more while the fold is in
+/// its first half, the clock goes back to one frame in, so the frame after the stall is near the start
+/// and the whole fold plays. At most `RESTARTS` restarts after the first frame, so a page that keeps
+/// stalling still ends; the frame loop stops then, past the first half, or once the copy is gone.
+/// `restarted` re-arms the fallback.
+function startOnFirstFrames(
+  ghost: HTMLElement,
+  view: Window | null | undefined,
+  ms: number,
+  restarted: () => void,
+): void {
+  if (!view?.requestAnimationFrame || typeof ghost.getAnimations !== "function") return;
+  const restart = () => {
+    let moved = false;
+    for (const animation of ghost.getAnimations()) {
+      const at = animation.currentTime;
+      if (typeof at !== "number" || at <= FRAME_MS) continue;
+      animation.currentTime = FRAME_MS;
+      moved = true;
+    }
+    if (moved) restarted();
+  };
+  /// How far the copy's fold has played, in ms (0 while it is still pending).
+  const played = () =>
+    Math.max(0, ...ghost.getAnimations().map((animation) => Number(animation.currentTime ?? 0) || 0));
+  let last: number | undefined;
+  let restarts = 0;
+  const step = (now: number) => {
+    if (!leaving.has(ghost)) return;
+    if (last === undefined) restart();
+    else if (now - last >= FOLD_DROP_MS) {
+      restart();
+      restarts += 1;
+    }
+    last = now;
+    if (restarts < RESTARTS && played() < ms / 2) view.requestAnimationFrame(step);
+  };
+  view.requestAnimationFrame(step);
+}
+
+/// The most restarts after the first frame (`startOnFirstFrames`).
+const RESTARTS = 2;
 
 /// Calls `reduced` when the system's Reduce Motion turns on; returns the stop (none without matchMedia).
 function watchReducedMotion(node: Element, reduced: () => void): () => void {

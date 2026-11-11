@@ -1062,3 +1062,17 @@ test("a file still uploading whose node the person deletes is cancelled", async 
   expect(field().querySelector("[data-inline-attachment]")).toBeNull();
   expect(host.querySelector('[aria-busy="true"]')).toBeNull();
 });
+
+test("an unplaced chip's text or file goes in after a selection, never over it", async () => {
+  // Keep as .txt (and a click on a chip) takes the chip's place in the prompt first
+  // (composer/pastedChips.ts). An oversized paste inside a code fence leaves its chip in the strip
+  // with no place: what comes next goes in after the selected draft, never replacing it (Codex
+  // review of #37516).
+  const composer = await openComposer([]);
+  await act(async () => composer.current!.restore("keep this draft", []));
+  await act(async () => markdownField().selectAll());
+  await act(async () => markdownField().removeInline("unplaced-chip", true));
+  await act(async () => markdownField().pasteText(" and this"));
+  await settleTurns();
+  expect(markdownField().value()).toBe("keep this draft and this");
+});

@@ -39,7 +39,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         // ring file, answered at once and not logged here.
         if let body = message.body as? [String: Any], body["method"] as? String == AgentPageFlickerLog.method, let view {
             view.flickerLog?.recordPage(body["params"] as? [String: Any], page: AgentPageFlickerLog.pageName(view),
-                                        pid: view.knownWebContentPid)
+                                        pid: view.flickerPid)
             return replyHandler(AgentPaneReply.success(), nil)
         }
         // Where a chat rests belongs to the chat, so it is answered here from the one store both
@@ -125,6 +125,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             AgentPaneClosedItem.push(view.recentlyClosed, to: view)
             AgentPaneNowPlaying.shared.push(to: view)
             view.model.attentionTabs?.push(to: view)
+            view.model.attentionTabs?.places.push(to: view)
             view.announceSessionInfo()
             view.model.readAloud?.push(to: view)
             view.pushPaneNotices()

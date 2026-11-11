@@ -100,7 +100,7 @@
   font: inherit;
   outline: none;
 }
-.acpmux-add-account input:not([type="radio"]):focus {
+.acpmux-add-account input:not([type="radio"]):focus-visible {
   border-color: var(--agent-text);
 }
 .acpmux-add-account .acpmux-add-account-error {

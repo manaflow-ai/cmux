@@ -16,9 +16,10 @@ protocol InternalPageFocusing: NSView {
 /// that looks for the page (`content as? PageWebView`) finds it with or without
 /// a bar. The pane focuses `focusTarget` when the tab gets the keyboard; a
 /// click inside the page moves the responder within it as usual.
-final class InternalPageView: TitleRowHostView {
+final class InternalPageView: TitleRowHostView, PaneKeyResizeHeld {
     let key: String
     let page: InternalPageID
+    var holdsInKeyResize: Bool { page == .homeDock || page == .homeTab } // THE ONE STATED EXCEPTION to "pane content follows its pane in a key resize": the measured reason and the work that ends it are at `PaneKeyResizeHeld`
     let content: NSView
     /// The native bar above the content (below it, ``toolbarPosition``); it sets its own height.
     let topBar: NSView?
@@ -108,4 +109,4 @@ extension InternalPageView: ToolbarEdgeHosting {}
 
 /// A two-finger swipe over the page (PageSwipeForwarder) runs `navigate` too.
 extension InternalPageView: PageHistoryHosting {}
-extension InternalPageView: ChiefPanelContent { var chiefIsAnswering: Bool { (content as? any ChiefPanelContent)?.chiefIsAnswering == true } }
+extension InternalPageView: ChiefPanelContent { var chiefIsAnswering: Bool { (content as? any ChiefPanelContent)?.chiefIsAnswering == true }; var chiefShowsThrough: Bool { get { (content as? any ChiefPanelContent)?.chiefShowsThrough == true } set { (content as? any ChiefPanelContent)?.chiefShowsThrough = newValue } }; var chiefHeaderHeight: CGFloat { (content as? any ChiefPanelContent)?.chiefHeaderHeight ?? 0 } }

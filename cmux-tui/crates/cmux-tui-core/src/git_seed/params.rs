@@ -40,6 +40,12 @@ struct Wire {
     /// Clone only: the branch, tag or commit to check out.
     #[serde(default, rename = "ref")]
     git_ref: Option<String>,
+    /// The checkout may open at its head first ([`HeadFirst`]).
+    #[serde(default)]
+    head_first: bool,
+    /// With `head_first`: the folder below the repository's root the chat opens in.
+    #[serde(default)]
+    subpath: Option<String>,
 }
 
 /// A checked start request. The paths are not yet placed in the sandbox
@@ -63,6 +69,59 @@ pub struct StartParams {
     /// Clone only (no bundle, no Mac folder): `Some(ref)` with the branch,
     /// tag or commit to check out (`None` inside: the remote's default).
     pub clone_only: Option<Option<String>>,
+    /// The checkout opens at its head first: only for a whole seed (no `since`) without
+    /// the Mac's sparse patterns, and only when the subpath can be written as a pattern.
+    pub head_first: Option<HeadFirst>,
+}
+
+/// A seed that marks its head (`cmux_git::sync_barrier::Sync::head_ready`) before it fills
+/// the rest of the checkout: the root's files, the harness folders and each folder on
+/// `subpath` with its own files (`super::run`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HeadFirst {
+    /// The subpath's folders, outermost first (`a`, `b` for `a/b`).
+    pub subpath: Vec<String>,
+}
+
+/// Deepest subpath a head names.
+const MAX_SUBPATH_PARTS: usize = 32;
+
+impl HeadFirst {
+    /// `None` when the subpath has a part a non-cone pattern cannot name literally: such a
+    /// seed fills whole before it answers, as it did before heads.
+    pub(super) fn of(subpath: Option<&str>) -> Option<Self> {
+        let subpath = subpath.unwrap_or("").trim_matches('/');
+        if subpath.is_empty() {
+            return Some(Self { subpath: Vec::new() });
+        }
+        let parts: Vec<String> = subpath.split('/').map(str::to_owned).collect();
+        let literal = |part: &String| {
+            !part.is_empty()
+                && part != "."
+                && part != ".."
+                && part.len() <= 255
+                && !part.starts_with(' ')
+                && !part.ends_with(' ')
+                && !part.chars().any(|c| c.is_control() || "*?[]\\!#".contains(c))
+        };
+        (parts.len() <= MAX_SUBPATH_PARTS && parts.iter().all(literal))
+            .then_some(Self { subpath: parts })
+    }
+
+    /// The subpath's folders, each relative to the root (`a`, `a/b`).
+    pub fn folders(&self) -> Vec<String> {
+        let mut at = String::new();
+        self.subpath
+            .iter()
+            .map(|part| {
+                if !at.is_empty() {
+                    at.push('/');
+                }
+                at.push_str(part);
+                at.clone()
+            })
+            .collect()
+    }
 }
 
 impl StartParams {
@@ -112,6 +171,9 @@ impl StartParams {
         {
             return Err(SeedRefusal::bad_request("invalid sparse patterns"));
         }
+        let head_first = (wire.head_first && wire.since.is_none() && wire.sparse.is_none())
+            .then(|| HeadFirst::of(wire.subpath.as_deref()))
+            .flatten();
         Ok(Self {
             folder: wire.folder,
             url: wire.url,
@@ -126,6 +188,7 @@ impl StartParams {
             lfs: wire.lfs,
             since: wire.since,
             clone_only: None,
+            head_first,
         })
     }
 
@@ -150,6 +213,7 @@ impl StartParams {
             lfs: wire.lfs,
             since: None,
             clone_only: Some(wire.git_ref),
+            head_first: None,
         })
     }
 }
@@ -300,6 +364,29 @@ mod tests {
             "folder": "/h/p", "url": "https://github.com/o/n.git", "repo": "o/n", "bundle": "/h/b",
         }));
         assert_eq!(half.unwrap_err().code, "seed.bad_request");
+    }
+
+    #[test]
+    fn a_head_first_start_is_only_a_whole_seed_with_a_literal_subpath() {
+        let sha = "a".repeat(40);
+        let parse = |extra: Value| {
+            let mut params = serde_json::json!({
+                "folder": "/h/p", "url": "https://github.com/o/n.git", "repo": "o/n",
+                "base": sha, "bundle": "/h/b", "head": sha, "index": sha, "work": sha,
+                "head_first": true,
+            });
+            params.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            StartParams::parse(&params).unwrap().head_first
+        };
+        assert_eq!(parse(serde_json::json!({})), Some(HeadFirst { subpath: vec![] }));
+        let nested = parse(serde_json::json!({"subpath": "/app/web/"})).unwrap();
+        assert_eq!(nested.folders(), ["app", "app/web"]);
+        assert_eq!(parse(serde_json::json!({"since": sha})), None, "a delta");
+        assert_eq!(parse(serde_json::json!({"sparse": "/a\n"})), None, "the Mac's patterns");
+        assert_eq!(parse(serde_json::json!({"head_first": false})), None);
+        for subpath in ["a/../b", "a//b", "a/*", "!a", "#a", "a/[x]", "a\\b", " a", "./a"] {
+            assert_eq!(parse(serde_json::json!({ "subpath": subpath })), None, "{subpath}");
+        }
     }
 
     #[test]

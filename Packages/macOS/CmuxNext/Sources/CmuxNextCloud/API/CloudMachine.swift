@@ -176,6 +176,9 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
     public var serverRevision: String?
     /// When the machine last started running; nil while it is paused.
     public var runningSince: Date?
+    /// When the server deletes the machine if it stays paused (the record's `evict_at`); nil when
+    /// the record does not say (an older server, or one not deleting paused machines yet).
+    public var evictAt: Date?
     /// The auto-size pick a create with `autosize` answered.
     public var sizePick: CloudSizePick?
     /// Why the last pause, resume or resize failed; nil when it did not.
@@ -193,7 +196,7 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
     enum CodingKeys: String, CodingKey {
         case id, provider, status, displayName, slug, kind, image, imageVersion, createdAt, createdBy, team, address, size
         case declaredCapabilities = "capabilities"
-        case pauseReason, idlePauseMinutes, idlePause, hourlyRateUsd, updatedAt, serverRevision, runningSince, sizePick
+        case pauseReason, idlePauseMinutes, idlePause, hourlyRateUsd, updatedAt, serverRevision, runningSince, evictAt, sizePick
         case lastChangeFailure = "error"
         case pendingChange, pendingMutationID, failedMutationID, servesDesktop
     }
@@ -254,4 +257,12 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
 
 extension String {
     var nonEmpty: String? { isEmpty ? nil : self }
+}
+
+public extension CloudMachine {
+    /// Whether Open Desktop can show this machine: only over the carrier's `desktop` service (`cmux-rd`),
+    /// so only a cmux-next machine that serves its desktop. A classic machine has no carrier route. Who may
+    /// watch it is the carrier's call: it refuses anyone but the creator (`service_refused`, exit 6).
+    /// The record's own `desktop` gates it, never a promoted capability (`provider_operations` may list it).
+    var opensCarrierDesktop: Bool { provider == "cmux-next" && servesDesktop }
 }

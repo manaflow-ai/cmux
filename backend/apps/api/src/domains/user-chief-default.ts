@@ -7,7 +7,9 @@ export { HOSTED_DEFAULT_KEY } from "./user-chief.ts"
 export const DEFAULT_CHIEF_ENSURE = "chief.default.ensure"
 export const DEFAULT_CHIEF_PROVISION = "chief.default.provision"
 export const DEFAULT_CHIEF_BIND = "chief.default.bind"
-export const DEFAULT_CHIEF_OPS = new Set([DEFAULT_CHIEF_ENSURE, DEFAULT_CHIEF_BIND])
+/** The platform moved the Chief's logical machine to another VM (a shrink, a rewind, a fresh machine). */
+export const DEFAULT_CHIEF_REBIND = "chief.default.rebind"
+export const DEFAULT_CHIEF_OPS = new Set([DEFAULT_CHIEF_ENSURE, DEFAULT_CHIEF_BIND, DEFAULT_CHIEF_REBIND])
 export const defaultChiefWorkspace = (user: string) => `chief-default-${user}`
 export const defaultChiefIdentity = (user: string) => `system:user:${user}`
 export const defaultChiefAllowed = (state: UserState, p: Principal) =>
@@ -53,7 +55,7 @@ export const reduceDefaultChief = (state: UserState, op: string, params: unknown
     if (!created.ok) return created
     return { ...created, state: { ...created.state, hosted_default: (created.value as ChiefRecord).id } }
   }
-  if (op !== DEFAULT_CHIEF_BIND) return reject("validation.invalid", "unknown default Chief op")
+  if (op !== DEFAULT_CHIEF_BIND && op !== DEFAULT_CHIEF_REBIND) return reject("validation.invalid", "unknown default Chief op")
   const v = params as Partial<ChiefCloudMachine> | null
   if (!v || typeof v !== "object" || Object.keys(v).some((k) => !["workspace", "team", "machine", "provider", "connection_machine", "install"].includes(k))
     || v.workspace !== defaultChiefWorkspace(user.id) || v.team !== personalTeamIdFor(user.id) || !shortId(v.machine) || !shortId(v.provider)
@@ -64,9 +66,17 @@ export const reduceDefaultChief = (state: UserState, op: string, params: unknown
   const chief = state.hosted_default ? state.chiefs?.[state.hosted_default] : undefined
   if (!chief || chief.archived_at !== null || chief.brain_place) return reject("chief.unavailable", "the signup Chief is no longer hosted")
   const binding: ChiefCloudMachine = { workspace: v.workspace, team: v.team, machine: v.machine, provider: v.provider, connection_machine: v.connection_machine, install: v.install }
-  if (chief.cloud_machine) return JSON.stringify(chief.cloud_machine) === JSON.stringify(binding)
-    ? { ok: true, state, value: chief, changed: false }
-    : reject("auth.forbidden", "signup provisioning cannot replace the Chief's machine")
+  const same = chief.cloud_machine && JSON.stringify(chief.cloud_machine) === JSON.stringify(binding)
+  if (same) return { ok: true, state, value: chief, changed: false }
+  if (op === DEFAULT_CHIEF_BIND && chief.cloud_machine) return reject("auth.forbidden", "signup provisioning cannot replace the Chief's machine")
+  // A rebind keeps the same logical machine and changes only the VM under it and that VM's own install.
+  if (op === DEFAULT_CHIEF_REBIND) {
+    const was = chief.cloud_machine
+    if (!was) return reject("chief.unavailable", "the Chief has no machine to follow")
+    if (was.workspace !== binding.workspace || was.team !== binding.team || was.machine !== binding.machine || was.provider !== binding.provider) {
+      return reject("auth.forbidden", "a rebind follows the same logical machine to its new VM only")
+    }
+  }
   const updated: ChiefRecord = { ...chief, cloud_machine: binding, rev: chief.rev + 1, updated_at: new Date(ctx.now).toISOString() }
   return { ok: true, state: { ...state, chiefs: { ...state.chiefs, [chief.id]: updated } }, value: updated }
 }

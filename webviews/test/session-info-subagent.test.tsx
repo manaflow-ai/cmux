@@ -10,7 +10,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
-import { SessionInfo, useSessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
 import {
   resetSessionInfoState,
   setSessionInfoMore,

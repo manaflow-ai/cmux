@@ -219,7 +219,7 @@ public struct ArtifactPreview: View {
             ZoomableImage(image: decodedImage, label: "Image, \(artifact.name)", onDismissDrag: onClose.map { close in
                 { translation, ended in
                     if ended {
-                        if translation > 120 { close() } else { withAnimation(.cmuxMobileSnap) { dismissDrag = 0 } }
+                        if translation > 120 { close() } else { withAnimation(.cmuxMobileSnap.unlessReduceMotion) { dismissDrag = 0 } }
                     } else {
                         dismissDrag = max(0, translation)
                     }

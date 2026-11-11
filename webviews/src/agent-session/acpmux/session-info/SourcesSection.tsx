@@ -8,6 +8,7 @@ import type { SummarySource } from "../summary/sessionSummary";
 import { extraFolderName } from "../extraFolders";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { openPullRequestDiff, pullRequestDiffUrl } from "./pullRequestDiff";
+import { heightAbove, useFoldMotion } from "./foldMotion";
 import { SOURCES_SHOWN, sourceLabels, scopedPath } from "./sourcesSectionModel";
 import { SessionInfoFold } from "./SessionInfoSection";
 import { WindowedRows } from "./WindowedRows";
@@ -40,11 +41,15 @@ export function SourcesSection({
   const t = useT();
   // A fold that would hold back one row shows it instead (OutputsSection `OUTPUTS_SHOWN`).
   const folds = sources.length - SOURCES_SHOWN >= 2;
-  const shown = folds && !expanded ? sources.slice(0, SOURCES_SHOWN) : sources;
+  // Show more grows the list in place and Show less closes it over the rows that go (foldMotion.ts).
+  const fold = useFoldMotion<HTMLUListElement>(expanded, (list) =>
+    heightAbove(list, list.children[folders.length + SOURCES_SHOWN]),
+  );
+  const shown = folds && !fold.drawn ? sources.slice(0, SOURCES_SHOWN) : sources;
   const labels = sourceLabels(t, sources);
   return (
     <>
-      <ul className="acpmux-session-info-list" data-section="sources">
+      <ul ref={fold.ref} className="acpmux-session-info-list" data-section="sources">
         {folders.map((folder) => (
           // tooltip-allow: the row shows the folder's name; the tooltip is its full path
           <li key={`folder:${folder}`} className="acpmux-session-info-source" data-kind="folder" title={folder}>
@@ -70,7 +75,7 @@ export function SourcesSection({
         <SessionInfoFold
           className="acpmux-session-info-sources-fold"
           open={expanded}
-          onToggle={() => onExpandedChange(!expanded)}
+          onToggle={() => fold.toggle(!expanded, onExpandedChange)}
         >
           {expanded
             ? t("sessionInfo.outputs.showLess")

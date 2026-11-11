@@ -19,6 +19,7 @@ import type { SessionSummary, SummaryBackgroundTask, SummaryWakeup } from "../..
 import { useScheduledClock } from "../scheduled";
 import { visibleChanges, type SessionInfoPullRequestStatus } from "../changesSectionModel";
 import type { OutputArtifact, OutputLink } from "../outputsSectionModel";
+import type { ProducedLink } from "../producedLinks";
 import { sessionInfoLists, type SessionInfoProcess } from "../processes";
 import { useSectionOrder } from "../sectionOrder";
 import {
@@ -100,6 +101,8 @@ export type NativeSessionInfoProps = {
   repository?: string;
   made?: Pick<SessionSummary, "outputs" | "pullRequests" | "scheduled"> & Partial<Pick<SessionSummary, "sources">>;
   links: readonly OutputLink[];
+  /// The pull requests, issues and commits the chat produced (producedLinks.ts).
+  produced?: readonly ProducedLink[];
   artifacts: number;
   documents: readonly OutputArtifact[];
   rows: readonly AcpmuxRow[];
@@ -128,6 +131,8 @@ export type NativeSessionInfoProps = {
   onReconnectMcp?: (server: string) => Promise<unknown>;
   onOpenFolder?: (path: string) => void;
   onShowCall?: (toolCallId: string) => boolean;
+  /// Reveals the turn linked by a native time breakdown row.
+  onShowTurn?: (turnId: string) => void;
 };
 
 /// Sends the model when it changes, coalesced to a frame; withdraws it when the chat's panel goes.
@@ -429,6 +434,8 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
         {
           files: (props.made?.outputs ?? []) as readonly TurnFile[],
           links: props.links,
+          produced: props.produced,
+          repository: props.repository,
           artifacts: props.artifacts,
           documents: props.documents,
           onOpenFile: props.onOpenOutput,
@@ -509,6 +516,8 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
       usageSection(
         {
           own: summary?.usageStats,
+          timeBreakdown: summary?.timeBreakdown,
+          onShowTurn: props.onShowTurn,
           planLimits: typeof summary?.usageLimits === "object" ? summary.usageLimits : undefined,
           sessions: props.allSessions ?? [],
           chatId,

@@ -17,6 +17,10 @@ import Testing
 /// well." Its lines and answers are a React page on the design scale (webviews/src/pages/cookie-import;
 /// the row's look is CookieImportCard.test.tsx's); this view hosts it: the glass, the shadow, the
 /// size the page reports, and the page's answers back to the chrome.
+///
+/// Leo, 2026-11-08: "i dont like this. 1. looks bad. 2. not glass. 3. talks about too much irrelevant
+/// shit". It is a toast: the toast surface's glass, the window toasts' material on the same overlay
+/// host, and one line (no detail, no Keep in sync: that is Settings > Browser > Import).
 @MainActor @Suite(.serialized) struct BrowserCookieImportCardLookTests {
     /// The card's page, as the host sees it: the states pushed and a hook to send messages back.
     @MainActor final class FakePage: BrowserChromeWebContent {
@@ -31,7 +35,6 @@ import Testing
     }
 
     static let offer = BrowserCookieImportOffer(icons: [], title: "Import cookies from Google Chrome",
-                                                detail: "Stay signed in to your sites. Nothing leaves this Mac.",
                                                 importTitle: "Import…", notNowTitle: "Not Now", neverTitle: "Don't Show Again")
 
     static func card(_ page: FakePage = FakePage(), offer: BrowserCookieImportOffer = offer) -> BrowserCookieImportCard {
@@ -47,7 +50,7 @@ import Testing
         let state = try #require(page.pushed.last)
         #expect(page.pushed.count == 1)
         #expect(state["title"] as? String == "Import cookies from Google Chrome")
-        #expect(state["detail"] as? String == "Stay signed in to your sites. Nothing leaves this Mac.")
+        #expect(state["detail"] == nil && state["keepInSyncTitle"] == nil, "one line: no detail, no Keep in sync")
         #expect(state["importTitle"] as? String == "Import…")
         #expect(state["notNowTitle"] as? String == "Not Now")
         #expect(state["neverTitle"] as? String == "Don't Show Again")
@@ -109,19 +112,14 @@ import Testing
         #expect(card.content == nil)
     }
 
-    @Test func theBannerIsTheThemesGlassInTheDialogRadius() throws {
+    @Test func theCardIsTheToastSurfacesGlass() throws {
         let glass = try #require(Self.card().glass)
-        #expect(glass.tone == .theme)
-        #expect(glass.rimView == nil)
-        #expect(glass.cornerRadius == FloatingGlassStyle.dialog.cornerRadius)
-    }
-
-    @Test func theBannerHasNoVeilOfItsOwnUnderItsText() throws {
-        let glass = try #require(Self.card().glass)
-        func veils(_ view: NSView) -> Int {
-            (view is OverlayBackingView ? 1 : 0) + view.subviews.map(veils).reduce(0, +)
-        }
-        #expect(veils(glass) == 0)
+        let toast = Glass.makeSurface(.toast, cornerRadius: SurfaceRole.toast.cornerRadius, interactive: false)
+        #expect(glass.tone == SurfaceRole.toast.tone, "the window toasts' tone")
+        #expect(glass.cornerRadius == SurfaceRole.toast.cornerRadius)
+        #expect(glass.material == toast.material, "the window toasts' material on this Mac")
+        #expect(!glass.prefersBlurToLiquidGlass, "Liquid Glass where this Mac draws it, as the toasts on the same overlay host")
+        #expect(glass.samplesBehindWindow, "the blur (macOS 14 and 15) samples the page behind the overlay window")
     }
 
     @Test func theBannerCastsThePopupShadow() throws {
@@ -131,21 +129,6 @@ import Testing
         #expect(!layer.masksToBounds)
         #expect(layer.shadowOpacity > 0)
         #expect(layer.shadowPath != nil)
-    }
-
-    /// The second half of the same report: on macOS 26 the banner still drew a near-black 1 px
-    /// line at its top and bottom (fleet capture, 60/255 over a 241/255 page). It floats on the
-    /// overlay host, a clear window over the page's window, where Liquid Glass has nothing to
-    /// refract and its lens bends the clear pixels into that line. It is the blur of what is
-    /// behind its window instead.
-    @Test func theBannerBlursThePageBehindItsWindowNeverLiquidGlass() throws {
-        let glass = try #require(Self.card().glass)
-        #expect(glass.samplesBehindWindow)
-        #expect(glass.material != .liquidGlass)
-        if glass.material == .vibrancy {
-            let blur = try #require(glass.subviews.compactMap { $0 as? NSVisualEffectView }.first)
-            #expect(blur.blendingMode == .behindWindow)
-        }
     }
 
     @Test func aSurfaceThatPrefersTheBlurTakesItOverLiquidGlassButKeepsReduceTransparency() {

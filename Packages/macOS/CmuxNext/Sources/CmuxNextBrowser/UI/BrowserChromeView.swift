@@ -230,6 +230,7 @@ public final class BrowserChromeView: NSView {
             view.translatesAutoresizingMaskIntoConstraints = false
         }
         toolbar.wantsLayer = true
+        accessoryBar.wantsLayer = true
         separator.wantsLayer = true
         contentContainer.wantsLayer = true
         contentContainer.layer?.masksToBounds = true
@@ -323,8 +324,9 @@ public final class BrowserChromeView: NSView {
             contentContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
         pageBars.onCloseFind = { [weak self] in self?.hideFindBar() }
+        // Re-read when an observed token changes (the flush corner's value among them).
+        density.update { [weak self] in self?.updateColors() }
         density.start()
-        updateColors()
     }
 
     private func wireActions() {
@@ -480,7 +482,12 @@ public final class BrowserChromeView: NSView {
             let paints = WindowBackdrop.current(themeTokens).panesPaintBackground
             let surface = paints ? Palette.surfaceBackground.cgColor : nil
             layer?.backgroundColor = surface
-            toolbar.layer?.backgroundColor = Palette.surfaceOverride(.browserChrome)?.cgColor ?? surface
+            // The flush corner (`chrome.cornerFlush`): the card's own color, the selected tab's, so the tab,
+            // the toolbar and the page read as one surface.
+            let card = paints && CornerFlush.current.isOn ? Palette.windowBackground.cgColor : surface
+            toolbar.layer?.backgroundColor = Palette.surfaceOverride(.browserChrome)?.cgColor ?? card
+            // The bar under the toolbar (the bookmarks bar) is the same band: it takes the toolbar's fill.
+            accessoryBar.layer?.backgroundColor = toolbar.layer?.backgroundColor
             contentContainer.layer?.borderColor = Palette.separator.cgColor
         }
     }

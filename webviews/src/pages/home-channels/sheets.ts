@@ -253,6 +253,7 @@ export class HomeSheets {
         return record ?? this.snapshot.chiefs.get(chief.id);
       },
       backends: () => (host ? host.backends() : none()),
+      harnessIds: () => (host ? host.harnessIds() : none()),
       addBackend: (backend) => (host ? host.addBackend(backend) : none()),
       checkBackend: (id) => (host ? host.checkBackend(id) : none()),
     };

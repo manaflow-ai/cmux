@@ -77,7 +77,7 @@ extension LiveCoordinator {
                 let blocks = AcpmuxSessionSource.promptBlocks(text: text, attachments: await Self.attachments(attachments))
                 _ = try await hub.request("session/prompt", .object([
                     "sessionId": .string(sessionID), "prompt": .array(blocks),
-                    "_meta": .object(["acpmux": .object(["promptId": .string(promptID), "steer": .bool(false), "resend": .bool(true)])]),
+                    "_meta": PushReplyPlan.promptMeta(promptID: promptID),
                 ]))
             case .chief, .terminal:
                 break

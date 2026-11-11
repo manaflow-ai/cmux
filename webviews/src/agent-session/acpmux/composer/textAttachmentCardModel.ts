@@ -1,4 +1,5 @@
-import { PASTE_LINE_BREAK, pasteLines } from "../conversation/promptCollapse";
+import { PASTE_LINE_BREAK } from "../conversation/promptCollapse";
+import { LABEL_SEPARATOR, pastedSizeParts } from "./pastedTextChipModel";
 import type { Translate } from "../i18n";
 
 /// The most lines a card can show (the strip's 64 px card shows three, the prompt's 48 px two).
@@ -29,12 +30,7 @@ export function textPreview(text: string, lines = TEXT_CARD_LINES, chars = TEXT_
 
 /// A paste's size as its label says it: its lines when it has more than one (one long paragraph is
 /// "1 line" and says nothing), then its characters, in the reader's language ("42 lines · 1.8K
-/// characters").
+/// characters"). The chip lays the same parts out one by one (pastedTextChipModel.ts).
 export function pastedSize(t: Translate, language: string, text: string): string {
-  const lines = pasteLines(text);
-  const chars = t("composer.pastedChars", {
-    count: new Intl.NumberFormat(language, { notation: "compact", maximumFractionDigits: 1 }).format(text.length),
-  });
-  if (lines < 2) return chars;
-  return `${t("transcript.pastedLines", { n: lines, count: new Intl.NumberFormat(language).format(lines) })} · ${chars}`;
+  return pastedSizeParts(t, language, text).join(LABEL_SEPARATOR);
 }

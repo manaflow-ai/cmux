@@ -1,7 +1,7 @@
 import React from "react";
 import { useEscapingList } from "../../ui/popupHost";
 import { Listbox } from "../../ui/Listbox";
-import { useComposerListBox } from "./backdropLayer";
+import { useComposerListBox } from "./backdropLayerModel";
 import { useT } from "./i18n";
 import { shownName, type SlashCommand, type SlashMatch } from "./slashCommands";
 

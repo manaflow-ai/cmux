@@ -92,7 +92,6 @@ PICKS: dict[str, int] = {
     "cmux-next-web-bundles.yml": 2,
     "cmux-next-web.yml": 1,
     "cmux-next.yml": 21,
-    "cmux-terminal-client-xcframework.yml": 1,
     "cmux-tui-artifacts-retry.yml": 1,
     "cmux-tui-artifacts.yml": 18,
     "cmux-tui-build-package.yml": 2,

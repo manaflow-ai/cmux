@@ -58,6 +58,17 @@ nonisolated enum AcpmuxStatusClient {
         return AcpmuxChatOpenPlan(result: result)
     }
 
+    /// `_acpmux/chat_resolve {ref}`: the chat a pasted session id, id start, transcript path or
+    /// resume command names (`/resume <ref>`): its key (`harness:sessionId`) when exactly one chat
+    /// matches, else ``ChatResumeStatus`` saying why none opens.
+    @concurrent static func chatResolve(socketPath: String, ref: String,
+                                        deadline: Duration = AcpmuxEnvironment.answerDeadline) async throws -> Result<String, ChatResumeStatus> {
+        let result = try await call(socketPath: socketPath, method: "_acpmux/chat_resolve", params: ["ref": ref], deadline: deadline)
+        let status = result["status"] as? String
+        if status == "found", let key = result["key"] as? String, key.contains(":") { return .success(key) }
+        return .failure(ChatResumeStatus(resolveStatus: status))
+    }
+
     /// `_acpmux/chat_transcript`: the past turns of one device-wide chat, read from its own
     /// transcript (cx-khns1). The page's handshake waits on it, so the deadline is `chat_open`'s.
     @concurrent static func chatTranscript(socketPath: String, key: String,

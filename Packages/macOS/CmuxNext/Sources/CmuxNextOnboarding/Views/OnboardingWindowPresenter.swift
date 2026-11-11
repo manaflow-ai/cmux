@@ -54,7 +54,7 @@ public final class OnboardingWindowPresenter {
     /// installed agent CLI and no tool window shows. None found, nothing opens; an existing
     /// installation (`isFirstRun` false) never gets it.
     public func showAgentsAtFirstRun(isFirstRun: Bool, source: (any AgentSignInSource)?, defaults: UserDefaults = .standard) async {
-        let key = "home.firstRun.agentsShown"
+        let key = Self.agentsShownKey
         guard !defaults.bool(forKey: key) else { return }
         // An upgrade is no first run; a first run marks it only once the step showed.
         guard isFirstRun else { return defaults.set(true, forKey: key) }
@@ -73,13 +73,17 @@ public final class OnboardingWindowPresenter {
         await withCheckedContinuation { closeWaiters.append($0) }
     }
 
-    /// Bring your history's once flag (the App shows that page); unset, this Mac never finished a first launch.
+    /// The Agents step's once flag; the Set Up cmux card (``FirstRunSetup``) sets it in its place.
+    public static let agentsShownKey = "home.firstRun.agentsShown"
+
+    /// Bring your history's once flag (the App shows that page); unset, and no Set Up cmux card started, this Mac
+    /// never finished a first launch.
     public static let historyShownKey = "home.firstRun.historyImportShown"
 
     /// Whether this launch is the Mac's first, read before the first-run steps set their flags:
     /// the hang-report card waits for the next launch.
     public static func isFirstLaunch(defaults: UserDefaults = .standard) -> Bool {
-        !defaults.bool(forKey: historyShownKey)
+        !defaults.bool(forKey: historyShownKey) && defaults.string(forKey: FirstRunSetup.stateKey) == nil
     }
 
     /// The first-run steps, one at a time: Agents first (it gets a person to a working agent),

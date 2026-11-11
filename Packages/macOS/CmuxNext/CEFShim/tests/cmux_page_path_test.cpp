@@ -365,6 +365,62 @@ int main() {
     Expect(mime.empty() && charset.empty(), "content type empty");
   }
 
+  // A video's first chunk of a longer file is one answer to the rest of the file: Chromium takes a
+  // cmux-page:// answer's length as the file's (Leo, 2026-11-03: "i can neither preview a vid in
+  // place nor have it pop up anymore"). The page host's 8 MiB of a 12 MB recording at bytes=0-.
+  {
+    const int64_t mib8 = 8 << 20, total = 12'345'678;
+    const std::vector<std::pair<std::string, std::string>> first = {
+        {"Content-Range", "bytes 0-" + std::to_string(mib8 - 1) + "/" + std::to_string(total)},
+        {"Accept-Ranges", "bytes"}};
+    cmux_shim::PageRangedStream stream;
+    Expect(cmux_shim::PlanRangedStream("bytes=0-", 206, first, mib8, &stream), "a first chunk of a longer file streams");
+    Expect(stream.length == total, "the answer's length is the rest of the file, got " + std::to_string(stream.length));
+    Expect(stream.next == mib8 && stream.total == total, "the next chunk starts after the first");
+    Expect(stream.headers.size() == 2 && stream.headers[0].second == "bytes 0-12345677/12345678",
+           "the answer's Content-Range names the rest of the file");
+    Expect(cmux_shim::PageRangedStreamNextRange(stream) == "bytes=8388608-", "the next ask is open-ended from there");
+    // The second chunk is the rest; it must start where the first ended and stay the same file.
+    const auto second = cmux_shim::PageRangeHeaders("Content-Range: bytes 8388608-12345677/12345678\n");
+    Expect(cmux_shim::AcceptRangedChunk(&stream, 206, second, total - mib8), "the next chunk is taken");
+    Expect(stream.next == total, "the stream ends at the file's end");
+    Expect(!cmux_shim::AcceptRangedChunk(&stream, 206, second, total - mib8), "nothing past the end is taken");
+
+    // A seek: Chromium asks again from the middle; the page host's chunk from there streams too.
+    const auto middle = cmux_shim::PageRangeHeaders("Content-Range: bytes 9000000-17388607/30000000\n");
+    Expect(cmux_shim::PlanRangedStream("bytes=9000000-", 206, middle, mib8, &stream) && stream.next == 9'000'000 + mib8,
+           "a seek's first chunk streams");
+    Expect(stream.length == 21'000'000, "a seek's answer is the rest from there");
+
+    // Chunks that are not the next part of the same file are refused (the stream fails).
+    cmux_shim::PlanRangedStream("bytes=0-", 206, first, mib8, &stream);
+    Expect(!cmux_shim::AcceptRangedChunk(&stream, 206, cmux_shim::PageRangeHeaders("Content-Range: bytes 0-9/12345678"), 10),
+           "a chunk from another place is refused");
+    Expect(!cmux_shim::AcceptRangedChunk(&stream, 206, cmux_shim::PageRangeHeaders("Content-Range: bytes 8388608-8388617/99"), 10),
+           "a chunk of a file of another size is refused");
+    Expect(!cmux_shim::AcceptRangedChunk(&stream, 404, {}, 0), "a refused chunk (the grant is gone) fails the stream");
+    Expect(!cmux_shim::AcceptRangedChunk(&stream, 206, cmux_shim::PageRangeHeaders("Content-Range: bytes 8388608-8388617/12345678"), 9),
+           "a chunk shorter than its Content-Range is refused");
+
+    // Answers that are already whole stay as they are: a closed range, a 200, a 416, a bad header.
+    Expect(!cmux_shim::PlanRangedStream("bytes=0-1", 206, cmux_shim::PageRangeHeaders("Content-Range: bytes 0-1/8"), 2, &stream),
+           "a closed range is answered as asked");
+    Expect(!cmux_shim::PlanRangedStream("bytes=0-", 206, cmux_shim::PageRangeHeaders("Content-Range: bytes 0-7/8"), 8, &stream),
+           "a chunk that reaches the end is the whole answer");
+    Expect(!cmux_shim::PlanRangedStream("bytes=0-", 200, {}, 8, &stream), "a 200 is the whole file");
+    Expect(!cmux_shim::PlanRangedStream("bytes=99-", 416, cmux_shim::PageRangeHeaders("Content-Range: bytes */8"), 0, &stream),
+           "a 416 stays a 416");
+    Expect(!cmux_shim::PlanRangedStream("bytes=4-", 206, cmux_shim::PageRangeHeaders("Content-Range: bytes 0-1/8"), 2, &stream),
+           "a chunk from another place than asked is not streamed");
+    Expect(!cmux_shim::PlanRangedStream("bytes=0-", 206, cmux_shim::PageRangeHeaders("Content-Range: bytes 0-3/8"), 2, &stream),
+           "a chunk shorter than its Content-Range is not streamed");
+    Expect(!cmux_shim::PlanRangedStream("bytes=-4", 206, cmux_shim::PageRangeHeaders("Content-Range: bytes 4-5/8"), 2, &stream),
+           "a suffix range is not streamed");
+    Expect(cmux_shim::PlanRangedStream("", 206, cmux_shim::PageRangeHeaders("Content-Range: bytes 0-1/8"), 2, &stream) &&
+               stream.length == 8,
+           "a request with no Range header streams the whole file");
+  }
+
   std::string cleanup = "rm -rf '" + made + "' '" + base + "'";
   if (system(cleanup.c_str()) != 0) std::cerr << "warning: could not remove " << base << "\n";
   std::cout << g_cases << " cases, " << g_failures << " failures\n";

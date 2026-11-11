@@ -22,6 +22,7 @@ on:
       - "ghostty"
       - "ghostty-next"
       - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/actions/runner-cargo-home/**"
       - ".github/workflows/cmux-tui-headless-debug.yml"
   # Republishes a key a push missed (a cancelled or failed run).
   workflow_dispatch:

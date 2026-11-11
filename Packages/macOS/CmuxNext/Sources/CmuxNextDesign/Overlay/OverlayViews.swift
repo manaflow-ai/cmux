@@ -4,9 +4,9 @@ import AppKit
 final class OverlayContainerView: NSView {
     nonisolated override var isFlipped: Bool { false }
 
-    /// A presented view's click region in this view's coordinates (``OverlayOptions/mouseRect``), nil
-    /// when the whole view takes clicks. Set by the host.
-    var mouseRect: (NSView) -> NSRect? = { _ in nil }
+    /// A presented view's click regions in this view's coordinates (a dialog's card), nil when the
+    /// whole view takes clicks. Set by the host.
+    var clickRegions: (NSView) -> [NSRect]? = { _ in nil }
 
     /// A view takes only the clicks in its click region; the rest go to the views under it, so a
     /// dialog's transparent area never covers an older dialog's card (review 32 of #37296).
@@ -14,7 +14,7 @@ final class OverlayContainerView: NSView {
         guard !isHidden else { return nil }
         let local = convert(point, from: superview)
         for view in subviews.reversed() where !view.isHidden {
-            if let rect = mouseRect(view), !rect.contains(local) { continue }
+            if let regions = clickRegions(view), !regions.contains(where: { $0.contains(local) }) { continue }
             if let hit = view.hitTest(local) { return hit }
         }
         return frame.contains(point) ? self : nil

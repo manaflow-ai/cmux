@@ -53,7 +53,9 @@ class ReleaseHelperArchitectures(unittest.TestCase):
         self.bin.mkdir()
         self.app = self.root / 'build-universal/Build/Products/Release/cmux.app'
         for name in ['scripts/ci/release-build-archs.sh', 'scripts/ci/verify-binary-archs.sh',
-                     'scripts/install-prebuilt-ghostty-cli-helper.sh']:
+                     'scripts/install-prebuilt-ghostty-cli-helper.sh',
+                     # The Release build step sources its fleet-cache retry and reads the cache settings.
+                     'scripts/ci/lib/fleet-cache-fallback.sh', 'scripts/ci/fleet-compilation-cache.sh']:
             dest = self.root / name
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / name, dest)
@@ -127,7 +129,7 @@ for alias in cmux-tui acpmux; do
   ln -s cmux "$app/Contents/Resources/bin/$alias"
 done
 ''')
-        self.env = dict(os.environ, PATH=str(self.bin) + ':' + os.environ['PATH'])
+        self.env = dict(os.environ, PATH=str(self.bin) + ':' + os.environ['PATH'], RUNNER_TEMP=str(self.root))
         self.context = {'inputs': {'release_archs': 'default'}, 'vars': {'CI_RELEASE_BUILD_ARCHS': ''},
                         'steps': {}, 'needs': {}, 'github': {'token': 'fixture-no-token'}}
 

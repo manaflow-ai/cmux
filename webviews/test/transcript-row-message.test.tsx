@@ -59,7 +59,8 @@ const send = (status: string, output?: string, command = 'tell-coordinator "cg-n
 async function render(row: object) {
   const { createRoot } = await import("react-dom/client");
   const { ToolRows } = await import("../src/agent-session/acpmux/conversation/TurnRows");
-  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
   act(() => root?.unmount());
   resetTranscriptDisclosure();
   root = createRoot(host);
@@ -111,8 +112,8 @@ test("opening it grows the message in place: the card holds the text and nothing
   expect(host.querySelector(".cv-agentmsg__preview")?.textContent).toBe("");
   const row = host.querySelector(".cv-message")!;
   // Nothing but the line and the card: no receipt line, no output block, no Show more.
-  expect([...row.children].map((child) => child.className)).toEqual([
-    "cv-tool cv-agentmsg__line is-strong",
+  expect(row.firstElementChild?.className).toBe("cv-tool cv-agentmsg__line is-strong");
+  expect([...row.querySelector(".cv-agentmsg__open")!.children].map((child) => child.className)).toEqual([
     "cv-agentmsg__card selectable",
   ]);
   expect(row.querySelector(".cv-tool-output")).toBeNull();
@@ -206,7 +207,8 @@ async function renderNamed(to: string, names: Map<string, string>) {
   const { createRoot } = await import("react-dom/client");
   const { ToolRows } = await import("../src/agent-session/acpmux/conversation/TurnRows");
   const { AgentNamesContext } = await import("../src/agent-session/acpmux/conversation/agentNames");
-  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
   act(() => root?.unmount());
   resetTranscriptDisclosure();
   root = createRoot(host);

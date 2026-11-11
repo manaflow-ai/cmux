@@ -1187,6 +1187,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final EmptyResult setDividerVisible(SetDividerVisibleRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_DIVIDER_VISIBLE, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
     public final Object setFrontendBrowserHistory(SetFrontendBrowserHistoryRequest request) throws CmuxException {
         Object result = execute(Commands.SET_FRONTEND_BROWSER_HISTORY, request.toWire());
         return Wire.immutableJson(result);
@@ -1277,6 +1282,11 @@ public abstract class GeneratedCmuxClient {
         return SetTerminalKeepResult.fromWire(result);
     }
 
+    public final SetTerminalTailPinResult setTerminalTailPin(SetTerminalTailPinRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_TERMINAL_TAIL_PIN, request.toWire());
+        return SetTerminalTailPinResult.fromWire(result);
+    }
+
     public final ViewportPaneWidthResult setViewportPaneWidth(SetViewportPaneWidthRequest request) throws CmuxException {
         Object result = execute(Commands.SET_VIEWPORT_PANE_WIDTH, request.toWire());
         return ViewportPaneWidthResult.fromWire(result);
@@ -1289,6 +1299,21 @@ public abstract class GeneratedCmuxClient {
 
     public final Object setWorkspaceMetadata(SetWorkspaceMetadataRequest request) throws CmuxException {
         Object result = execute(Commands.SET_WORKSPACE_METADATA, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object shellRead(ShellReadRequest request) throws CmuxException {
+        Object result = execute(Commands.SHELL_READ, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object shellRun(ShellRunRequest request) throws CmuxException {
+        Object result = execute(Commands.SHELL_RUN, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object shellStop(ShellStopRequest request) throws CmuxException {
+        Object result = execute(Commands.SHELL_STOP, request.toWire());
         return Wire.immutableJson(result);
     }
 

@@ -49,7 +49,9 @@ jobs:
     # A secret-reading dispatch job runs in an environment (tests/test_supplychain_security.py). This
     # existing one is limited to feat-cmux-next by GitHub's branch policy; its own secret is never read here
     # (tests/test_machine_join_e2e_workflow.py pins the job's two secret references).
-    environment: cmux-next-vm-image-dev
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
     # Blacksmith only (16 vCPU; 32 while the overflow switch's record exists): a VM that runs
     # this one job and is destroyed. Never LINUX_RUNNER, which may name a persistent host, since
     # this job adds an OS user and holds the stack secrets.

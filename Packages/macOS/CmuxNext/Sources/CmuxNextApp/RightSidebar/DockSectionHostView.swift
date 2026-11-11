@@ -5,8 +5,9 @@ import CmuxNextLayout
 import SwiftUI
 
 /// Hosts the Dock section for one window: follows the shown workspace's
-/// layout (its `LayoutModel` is observable) and runs the column actions
-/// through the registry.
+/// layout (its `LayoutModel` is observable) from each `refresh()`; runs
+/// the column actions through the registry. No surface shows it now: the
+/// right sidebar that held it is gone.
 final class DockSectionHostView: NSView, RightSidebarRefreshing {
     let model = DockSectionModel()
     private weak var controller: WindowController?
@@ -14,7 +15,7 @@ final class DockSectionHostView: NSView, RightSidebarRefreshing {
 
     init(controller: WindowController) {
         self.controller = controller
-        super.init(frame: NSRect(x: 0, y: 0, width: RightSidebarModel.width, height: 400))
+        super.init(frame: NSRect(x: 0, y: 0, width: 260, height: 400))
         let registry = controller.services.registry
         let actions = DockSectionActions(
             focus: { [weak controller] pane in controller?.focus.send(.focusPane(pane, source: .intent)) },
@@ -23,12 +24,8 @@ final class DockSectionHostView: NSView, RightSidebarRefreshing {
         let hosting = NSHostingView(rootView: DockSectionListView(model: model, actions: actions))
         hosting.translatesAutoresizingMaskIntoConstraints = false
         addSubview(hosting)
-        NSLayoutConstraint.activate([
-            hosting.leadingAnchor.constraint(equalTo: leadingAnchor),
-            hosting.trailingAnchor.constraint(equalTo: trailingAnchor),
-            hosting.topAnchor.constraint(equalTo: topAnchor),
-            hosting.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
+        NSLayoutConstraint.activate([hosting.leadingAnchor.constraint(equalTo: leadingAnchor), hosting.trailingAnchor.constraint(equalTo: trailingAnchor),
+                                     hosting.topAnchor.constraint(equalTo: topAnchor), hosting.bottomAnchor.constraint(equalTo: bottomAnchor)])
         refresh()
     }
 
@@ -57,7 +54,7 @@ final class DockSectionHostView: NSView, RightSidebarRefreshing {
 
     private func update(from content: WorkspaceContentController) {
         model.update(columns: content.layoutModel.activeScreen?.layout.columns ?? []) {
-            content.paneController(key: $0.rawValue)?.selectedTab?.title
+            content.paneController(key: $0.rawValue)?.selectedTab?.titleText
         }
     }
 }

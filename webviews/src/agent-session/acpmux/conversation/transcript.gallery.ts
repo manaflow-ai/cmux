@@ -5,6 +5,7 @@ import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import { SUBAGENTS } from "../subagents/subagentFold";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
+import { drawsBackgroundTurnLines } from "./backgroundTurnLook.experiment";
 import { childRows } from "../subagents/childRows";
 import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
@@ -1024,7 +1025,10 @@ const loneToolCalls = () =>
 /// Opens the turn's Worked for and its folded run ("Searched the web"). At rest the finished
 /// call's check and time are hidden and keep their room; the failure's red word shows.
 const loneToolMetaAtRest = async (ctx: PlayContext) => {
-  await openGroupedRun(ctx);
+  await openWorked(ctx);
+  // Each call between the agent's asides is its own run, so a lone call draws as its own row; a
+  // folded run line, when there is one, opens too.
+  if (ctx.document.querySelector(".cv-tools > .cv-tool.is-toggle")) await openFoldedRun(ctx);
   await ctx.waitFor(() => ctx.document.querySelector(".cv-tool .cv-command__ok"));
   const view = ctx.document.defaultView!;
   for (const node of ctx.document.querySelectorAll(".cv-tool .cv-command__ok, .cv-tool .cv-command__time"))
@@ -1682,6 +1686,23 @@ export default agentPaneEntry({
         summary(5.6, { status: "completed", durationMs: 14_000 }),
       ]),
       play: hoverReference(24175, ".cv-link-preview.acpmux-pr-card"),
+    },
+    "github-references-scroll": {
+      note: 'Leo 2026-11-10: "just tried this touchpad scrolling the github preview is kinda bad". A long reply with a pull request chip on every paragraph: a wheel or touchpad scroll puts an open card away at once, and a chip sliding under a still pointer opens nothing until the pointer moves again.',
+      ...LEO_WORKSPACE,
+      snapshot: chat([
+        user("Which pull requests landed tonight?", 6),
+        assistant(
+          Array.from(
+            { length: 24 },
+            (_, index) =>
+              `Paragraph ${index + 1}: the lane landed #${LANE_NUMBERS[index % LANE_NUMBERS.length]} after review, ` +
+              "and the follow-up keeps the transcript readable while it waits for the next base merge.",
+          ).join("\n\n"),
+          5.6,
+        ),
+        summary(5.6, { status: "completed", durationMs: 14_000 }),
+      ]),
     },
     "github-references-same-number": {
       note: "A bare #843 is a pull request in both leo-workspace (the folder's) and cmux (which the chat linked): the chip names its repository.",
@@ -2787,10 +2808,11 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
       play: async (ctx) => {
-        // A settled run folds to its line; opened, it lists the calls, each opened in turn.
+        // A running turn keeps its calls in sight (cmux#38339); a run folded to its line opens to
+        // them. Each call is then opened in turn.
         await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-tool.is-toggle")));
-        if (ctx.document.querySelector(".cv-tools > .cv-tool.is-toggle")) await openFoldedRun(ctx);
         const closed = '.cv-tool.is-toggle[aria-expanded="false"]';
+        if (ctx.document.querySelectorAll(closed).length < ENVELOPE_TOOLS.length) await openFoldedRun(ctx);
         await ctx.waitFor(() => ctx.document.querySelectorAll(closed).length === ENVELOPE_TOOLS.length);
         // Each row centered first: the runner scrolls a target only as far as needed, which parks a row
         // at the transcript's foot, under Jump to latest (shown while a run is working), and the click
@@ -3466,7 +3488,7 @@ export default agentPaneEntry({
       snapshot: chat(longChatRows),
       play: async (ctx) => {
         await ctx.scroll({ selector: ".acpmux-scroll" }, "top");
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest[data-shown]"));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]"));
       },
     },
     "jump-latest-working": {
@@ -3475,7 +3497,7 @@ export default agentPaneEntry({
       snapshot: chat(longChatRows, { isWorking: true }),
       play: async (ctx) => {
         await ctx.scroll({ selector: ".acpmux-scroll" }, "top");
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest[data-shown]"));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]"));
       },
     },
     selection: {
@@ -3800,6 +3822,7 @@ export default agentPaneEntry({
         },
       },
       play: async (ctx) => {
+        if (!drawsBackgroundTurnLines()) return;
         const line = { selector: `[data-row-id="${backgroundTurnRowId("gallery-bg-quiet")}"] .cv-background-turn` };
         await ctx.click(line);
         await ctx.waitFor(() => ctx.find(line).getAttribute("aria-expanded") === "true");
@@ -3811,6 +3834,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         if (ctx.document.querySelector(`[data-row-id="${backgroundTurnRowId("gallery-bg-empty")}"]`))
           throw new Error("an ended background turn with nothing to open drew a line");
+        if (!drawsBackgroundTurnLines()) return;
         const line = { selector: `[data-row-id="${backgroundTurnRowId("gallery-bg-waiting")}"] .cv-background-turn` };
         if (ctx.find(line).tagName === "BUTTON") throw new Error("a background line with nothing to open is a button");
         if (ctx.find(line).querySelector(".cv-agent-activity__chevron"))

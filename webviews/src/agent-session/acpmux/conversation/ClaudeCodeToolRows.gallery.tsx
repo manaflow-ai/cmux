@@ -15,8 +15,9 @@ import { McpCallRows } from "./McpCallRows";
 import { Thinking } from "./Thinking";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
-import { TranscriptDisclosureProvider, resetTranscriptDisclosure } from "./transcriptDisclosure";
-import { WorkingCountsContext, type WorkingCounts } from "./WorkingFor";
+import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
+import { WorkingCountsContext, type WorkingCounts } from "./workingForModel";
 
 type Look = "shipped" | "bare" | "caret" | "split" | "condensed";
 type Props = { look: Look; mode: "light" | "dark" };

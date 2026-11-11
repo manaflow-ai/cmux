@@ -93,18 +93,32 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
 /// subagent gets its own set, kept until the app-server exits), so a tokio
 /// worker per core in each one adds up: about 100 tasks a set on a 32-core
 /// machine, which filled the sessions slice's task cap on a fleet host.
-const STDIO_MCP_SERVERS: [&str; 7] =
-    ["acpmux-mcp", "subsession-mcp", "forum-mcp", "offer-mcp", "secret-mcp", "cua-mcp", "repo-mcp"];
+const STDIO_MCP_SERVERS: [&str; 8] = [
+    "acpmux-mcp",
+    "subsession-mcp",
+    "forum-mcp",
+    "offer-mcp",
+    "secret-mcp",
+    "cua-mcp",
+    "repo-mcp",
+    "hosted-mcp",
+];
 
 /// Worker threads of a stdio MCP server: it answers one client's requests
 /// on one pipe. Still a multi-thread runtime, so `block_in_place` works.
 const MCP_WORKERS: usize = 2;
+/// The longest a stopping daemon waits for its queued log lines to be written: a log output
+/// that takes no bytes must not keep a stopped daemon from exiting.
+const LOG_FLUSH_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// The worker count `args` (without the program name) runs with: None is
 /// tokio's default, one per core.
 fn runtime_workers(args: &[OsString]) -> Option<usize> {
-    let command = args.iter().find(|a| *a != "--json" && *a != "--suppress-reads")?;
-    STDIO_MCP_SERVERS.iter().any(|name| command == name).then_some(MCP_WORKERS)
+    let mut words = args.iter().filter(|a| *a != "--json" && *a != "--suppress-reads");
+    let command = words.next()?;
+    // `bridge mcp` is the desktop apps' stdio server (`cli/bridge.rs`).
+    let bridge_mcp = command == "bridge" && words.next().is_some_and(|a| a == "mcp");
+    (bridge_mcp || STDIO_MCP_SERVERS.iter().any(|name| command == name)).then_some(MCP_WORKERS)
 }
 
 /// Each runtime worker's stack: the main thread's default on Linux and macOS, not tokio's 2 MiB.
@@ -244,12 +258,25 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             dev,
             take_over,
         }) => {
-            tracing_subscriber::fmt()
+            let logs = tracing_subscriber::fmt()
                 .with_env_filter(
                     tracing_subscriber::EnvFilter::try_new(&log).unwrap_or_else(|_| "info".into()),
                 )
-                .with_target(false)
-                .init();
+                .with_target(false);
+            // A logging thread only queues its line: a log output that takes no bytes (a full
+            // pipe, a stalled disk) never stops the daemon (`log_sink.rs`).
+            match crate::log_sink::Sink::start(std::io::stdout()) {
+                Ok(sink) => {
+                    sink.install();
+                    logs.with_writer(sink).init();
+                }
+                Err(e) => {
+                    logs.init();
+                    tracing::warn!(
+                        "no log writer thread, lines are written where they are logged: {e}"
+                    );
+                }
+            }
             // An acknowledged reply waits on the event journal's sync, which a utility disk tier
             // throttles 15-30x under another app's disk work (STATUS 11554): the daemon stays at
             // the default tier, and only its background threads yield.
@@ -270,6 +297,8 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 take_over,
             })
             .await;
+            // The lines logged so far reach the log before the process ends.
+            crate::log_sink::flush(LOG_FLUSH_BUDGET);
             if let Err(error) = result {
                 // A systemd start can race the daemon that is handing over
                 // this home. Keep its lock refusal a distinct, prevented
@@ -338,6 +367,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             })
             .await
         }
+        Some(Command::Race(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::race::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
         Some(Command::Task(cmd)) => {
             let json_out = cli.json;
             match crate::cli::task::run(cmd, json_out).await {
@@ -359,9 +395,23 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 Err(e) => errors::exit_with(&e, json_out),
             }
         }
+        Some(Command::Ledger(args)) => {
+            let json_out = cli.json;
+            match crate::cli::ledger::run(args, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
         Some(Command::Bead(cmd)) => {
             let json_out = cli.json;
             match crate::cli::beads::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
+        Some(Command::Bridge(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::bridge::run(cmd, json_out).await {
                 Ok(()) => Ok(()),
                 Err(e) => errors::exit_with(&e, json_out),
             }
@@ -373,6 +423,10 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 Err(e) => errors::exit_with(&e, json_out),
             }
         }
+        Some(Command::Desktop(cmd)) => match crate::cli::desktop::run(cmd, cli.json) {
+            Ok(()) => Ok(()),
+            Err(e) => errors::exit_with(&e, cli.json),
+        },
         Some(Command::Watch(cmd)) => {
             let json_out = cli.json;
             match crate::cli::watch::run(cmd, json_out).await {
@@ -402,6 +456,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::SubsessionMcp) => crate::subsession_mcp::run().await,
         Some(Command::ForumMcp) => crate::forum_mcp::run().await,
         Some(Command::RepoMcp) => crate::cloud_repo_mcp::run().await,
+        Some(Command::HostedMcp) => crate::hosted_mcp::run().await,
         Some(Command::AcpmuxMcp) => crate::acpmux_mcp::run().await,
         Some(Command::Skill) => {
             use std::io::Write;
@@ -458,15 +513,25 @@ mod tests {
             "secret-mcp",
             "cua-mcp",
             "repo-mcp",
+            "hosted-mcp",
         ] {
             assert_eq!(runtime_workers(&os(&[name])), Some(MCP_WORKERS), "{name}");
             assert_eq!(runtime_workers(&os(&["--json", name])), Some(MCP_WORKERS), "{name}");
         }
+        let bridge = os(&["bridge", "mcp", "--as", "codex-desktop"]);
+        assert_eq!(runtime_workers(&bridge), Some(MCP_WORKERS));
     }
 
     #[test]
     fn every_other_command_keeps_the_default_runtime() {
-        for args in [&["ls"][..], &["daemon", "run"], &["send", "forum-mcp"], &[], &["--json"]] {
+        for args in [
+            &["ls"][..],
+            &["daemon", "run"],
+            &["send", "forum-mcp"],
+            &[],
+            &["--json"],
+            &["bridge", "inbox"],
+        ] {
             assert_eq!(runtime_workers(&os(args)), None, "{args:?}");
         }
     }

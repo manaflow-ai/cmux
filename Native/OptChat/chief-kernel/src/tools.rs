@@ -6,9 +6,9 @@ use serde_json::{Value, json};
 
 use crate::prompt::{
     CLOUD_WORKSPACE_DESCRIPTION, CONTROL_DESCRIPTION, DATE_DESCRIPTION, ESCALATE_AUTH_DESCRIPTION,
-    PEER_TELL_DESCRIPTION, PEERS_DESCRIPTION, REACT_DESCRIPTION, REMEMBER_DESCRIPTION,
-    REPLY_DESCRIPTION, SEND_DESCRIPTION, SLEEP_DESCRIPTION, SPAWN_CWD_DESCRIPTION,
-    SPAWN_DESCRIPTION, SPAWN_HARNESS_DESCRIPTION, SPAWN_MODEL_DESCRIPTION,
+    MCP_DESCRIPTION, PEER_TELL_DESCRIPTION, PEERS_DESCRIPTION, REACT_DESCRIPTION,
+    REMEMBER_DESCRIPTION, REPLY_DESCRIPTION, SEND_DESCRIPTION, SLEEP_DESCRIPTION,
+    SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION, SPAWN_HARNESS_DESCRIPTION, SPAWN_MODEL_DESCRIPTION,
     SPAWN_SIDEBAR_DESCRIPTION, STOP_DESCRIPTION, TELL_DESCRIPTION, TRANSCRIPT_DESCRIPTION,
     VERSION_DESCRIPTION, WATCH_DESCRIPTION, ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
 };
@@ -177,6 +177,30 @@ pub fn tool_list(subagent: bool, allows: &dyn Fn(&str) -> bool) -> Value {
         json!({"name": "version", "description": VERSION_DESCRIPTION,
      "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false}}),
     );
+    // MCP servers in code mode (optchat-chief mcp_hub), for the Chief and its
+    // subagents: one fixed tool whatever servers are added.
+    list.push(json!({"name": "mcp", "description": MCP_DESCRIPTION,
+     "inputSchema": {"type": "object", "properties": {
+        "action": {"type": "string", "enum": ["add", "list", "remove", "signin", "search", "describe", "call", "run", "tasks", "task", "subscribe", "unsubscribe", "events", "resources", "read", "prompts", "prompt"]},
+        "target": {"type": "string", "minLength": 1, "description": "add: a known server name, an https URL, or the command that runs a local server."},
+        "name": {"type": "string", "minLength": 1, "description": "add: the server's name (default: from the target); prompt: the prompt."},
+        "server": {"type": "string", "minLength": 1},
+        "tool": {"type": "string", "minLength": 1},
+        "args": {"type": "object", "description": "call: the tool's arguments; prompt: the prompt's."},
+        "code": {"type": "string", "minLength": 1, "description": "run: TypeScript; top-level await; `return` a value or console.log; no imports."},
+        "query": {"type": "string"},
+        "task": {"type": "boolean", "description": "call: run off the turn as a task; you wake with its result."},
+        "id": {"type": "string", "minLength": 1, "description": "task: t<N>; unsubscribe: e<N> or all."},
+        "op": {"type": "string", "enum": ["status", "wait", "cancel"]},
+        "uri": {"type": "string", "minLength": 1},
+        "event": {"type": "string", "minLength": 1, "description": "subscribe: a notification method (notifications/message, notifications/tools/list_changed) or *."},
+        "note": {"type": "string", "description": "task, subscribe: what to do when you wake."},
+        "headers": {"type": "object", "description": "add: HTTP headers with a key (kept secret, never shown)."},
+        "env": {"type": "object", "description": "add: environment of a local server (kept secret)."},
+        "replace": {"type": "boolean"},
+        "timeout_seconds": {"type": "integer", "minimum": 1},
+        "wait_seconds": {"type": "integer", "minimum": 1}},
+      "required": ["action"], "additionalProperties": false}}));
     // Moving itself to another machine (migrate.rs): the Chief's own home.
     if !subagent {
         list.push(move_tool());
@@ -192,7 +216,14 @@ pub fn tool_list(subagent: bool, allows: &dyn Fn(&str) -> bool) -> Value {
             "text": {"type": "string", "description": "The message, in Markdown."},
             "attachments": {"type": "array", "items": text, "description": "Files to attach: local paths (/abs, ~/rel, file://; images and videos show inline, any other file as a file) or http(s) URLs (a link card)."},
             "reply_to": {"type": "integer", "minimum": 0, "description": "A user message's line id: the message goes into its thread. Without it: the top level."},
-            "long": {"type": "boolean", "description": "true when the person asked for a long answer (a full list, a report): it posts on the first send instead of coming back to be cut."}},
+            "long": {"type": "boolean", "description": "true when the person asked for a long answer (a full list, a report): it posts on the first send instead of coming back to be cut."},
+            "widget": {"type": "object", "description": "A card drawn natively in the chat by an installed cmux app's cmux.chat.widget/1 export (a PR status card: app cmux/pr-card, props {repo, number}). Clients without the app show fallback.",
+              "properties": {
+                "app": {"type": "string", "description": "The app id, publisher/name."},
+                "props": {"type": "object", "description": "The widget's input data (at most 16 KiB)."},
+                "fallback": {"type": "string", "description": "Plain text shown where the widget cannot draw (iPhone, notifications)."},
+                "url": {"type": "string", "description": "An https link older builds show."}},
+              "required": ["app", "fallback"], "additionalProperties": false}},
           "additionalProperties": false}}));
         list.push(json!({"name": "transcript", "description": TRANSCRIPT_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {
@@ -228,6 +259,7 @@ pub fn tool_list(subagent: bool, allows: &dyn Fn(&str) -> bool) -> Value {
 /// record. Every other tool only reads, or is deduped by its key.
 const ONCE: &[&str] = &[
     "spawn",
+    "mcp",
     "tell",
     "control",
     "sleep",
@@ -239,9 +271,9 @@ const ONCE: &[&str] = &[
 ];
 
 /// Tools only a host on the person's machine can do: the Mac's app
-/// (`version`), moving the Chief's home (`move`) and running a command off
-/// the turn (`watch`).
-const HOST_ONLY: &[&str] = &["version", "move", "watch"];
+/// (`version`), moving the Chief's home (`move`), running a command off
+/// the turn (`watch`) and the MCP hub with its servers and secrets (`mcp`).
+const HOST_ONLY: &[&str] = &["version", "move", "watch", "mcp"];
 
 /// The engines that take specs; a cloud engine drops the host-only tools.
 const SPEC_ENGINES: &[(&str, bool)] = &[

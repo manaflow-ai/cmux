@@ -89,6 +89,13 @@ webviews/src/**/generated/strings.json merge=cmux-generated-v1
 webviews/src/pages/home-channels/generated/pane-strings.json merge=cmux-generated-v1
 webviews/src/pages/diff/generated/locales/** merge=cmux-generated-v1
 webviews/src/pages/diff/generated/localeLoaders.ts merge=cmux-generated-v1
+# The docs reference pages' data (web/scripts/export-next-docs.ts, from the
+# action catalog and the settings schema). Every settings pull request rewrites
+# the settings reference, so two of them always collided there.
+# regenerate-web-bundles.sh rebuilds it with no build, and
+# regenerate-swift-exports.sh again after the exports it follows;
+# web/tests/next-docs.test.ts fails on a stale copy.
+web/data/next-docs/*.generated.json merge=cmux-generated-v1
 # The other exports scripts/ci/next_batch.py's merger rebuilds (its
 # SWIFT_GENERATED and SDK_GENERATED; tests/test_install_git_hooks.py checks
 # that every kept path is one of them). A kept copy that is stale fails its

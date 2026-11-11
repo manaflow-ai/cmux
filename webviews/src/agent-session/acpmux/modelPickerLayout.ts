@@ -1,8 +1,10 @@
+import type { ChipFace } from "./chipFace";
 // The composer's model picker's props, the combos it lands, and its height bounds (ModelPicker.tsx).
 import type { AcpmuxSnapshot } from "./model";
 import type { Choice, Combo } from "./composerPickerModel";
 import type { QuickMenuExtras } from "./QuickModelMenu";
-import type { UsedLook } from "./quickModelMenuModel";
+import type { QuickSetup, UsedLook } from "./quickModelMenuModel";
+import type { SetupPick } from "./harnessSetup";
 import type { PickerProfile } from "./pickerProfiles";
 import type { SessionAuth } from "./sessionAuth";
 
@@ -31,6 +33,10 @@ export type ModelPickerProps = {
   switching?: { harness: string; name: string; mark?: string };
   /// The chip's secondary text after the model: the chosen effort, when it is not the default.
   detail?: string;
+  /// The chip's logo, name and effort as one value (chipFace.ts). When given, it is what the chip
+  /// draws (a switch to another harness still draws that harness); `label`, `detail` and
+  /// `detailShort` then only feed the menu.
+  face?: ChipFace;
   /// How much of the context window the chat has used ("42% of context used"), shown in the
   /// chip's tooltip: the controls row draws no context ring (hq#1957 item 15 compact row).
   usage?: string;
@@ -69,6 +75,13 @@ export type ModelPickerProps = {
   onHarnessEnable?(folder: string, id: string): void;
   /// Add harness…, the menu's last row: the pane's Harnesses page, in place (cx-uj5g8).
   onAddAgent?(): void;
+  /// A pick of a model whose harness needs setting up here (not installed, or signed out): the
+  /// composer installs it in place, signs it in and then starts the chat on the model
+  /// (harnessSetup.ts). With it, the search finds those harnesses' models too; without it their
+  /// rows are inert and their tab offers Install… or Log In.
+  onSetUpPick?(pick: SetupRequest): void;
+  /// What that setup is doing: the compact menu's setup strip.
+  setup?: QuickSetup;
   /// Set while the picker is mounted to a call that opens its menu (the compact one when `quick`
   /// is set), whose rail switches harness: the footer's harness item opens it (ComposerHarness.tsx).
   opener?: { current: (() => void) | undefined };
@@ -153,3 +166,7 @@ export function pickerHeightBounds(
   const minHeight = Math.min(maxHeight, Math.max(MODEL_PICKER_MIN_HEIGHT, opened ?? 0));
   return { maxHeight, minHeight };
 }
+
+/// A pick ``ModelPickerProps.onSetUpPick`` gets: the model and its harness, whether the harness is
+/// installed here, and the login acpmux named for it when it found it signed out.
+export type SetupRequest = SetupPick & { notInstalled: boolean; login?: string };

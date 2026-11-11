@@ -142,7 +142,7 @@ struct EmailCodeStep: View {
                 .padding(.top, 6)
             CodeBoxes(text: $code, groups: [entry.length], characters: entry.characters)
                 .modifier(ShakeEffect(trigger: shakes))
-                .animation(.linear(duration: theme.motion.shakeDuration), value: shakes)
+                .animation(.linear(duration: theme.motion.shakeDuration).unlessReduceMotion, value: shakes)
                 .disabled(isVerifying)
                 // Verifying: the boxes dim and the spinner sits on them.
                 .opacity(isVerifying ? 0.4 : 1)

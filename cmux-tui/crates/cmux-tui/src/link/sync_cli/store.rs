@@ -81,7 +81,7 @@ fn configured() -> Option<&'static Config> {
 /// answer or answered with no list of capabilities: such a machine may serve
 /// it, so the caller still fences.
 pub(super) fn fetch_served(socket: &std::path::Path) -> Option<bool> {
-    serves_fetch(&super::super::machine_gate::identify(socket)?)
+    serves_fetch(&super::super::machine_gate::reach(socket).ok()?)
 }
 
 /// [`fetch_served`] for one `identify` answer: `None` when it has no list of
@@ -102,9 +102,11 @@ pub(super) fn fence_unknown(remote: &mut Remote, remote_root: &str) -> anyhow::R
     }
 }
 
-/// Whether a push goes through the store, given [`fetch_served`].
+/// Whether a push goes through the store, given [`fetch_served`]. Never under a held copy's
+/// fence ([`super::fence`]): a fetch names no hold the machine checks when it writes, so a held
+/// copy writes every file itself, each under its hold.
 pub(super) fn usable(fetch_served: bool) -> bool {
-    configured().is_some() && fetch_served
+    configured().is_some() && fetch_served && !super::fence::raised()
 }
 
 /// What earlier fetch jobs under a folder left: the jobs, and each file they
@@ -339,8 +341,12 @@ fn read_piece(file: &LocalFile, piece: &Piece) -> anyhow::Result<Vec<u8>> {
     let mut bytes = vec![0u8; usize::try_from(piece.size)?];
     match &file.source {
         Source::File(path) => {
-            let mut opened = std::fs::File::open(path)
-                .with_context(|| format!("cannot read {}", path.display()))?;
+            let mut opened = super::local::open_listed(path, file.id)?;
+            opened.seek(SeekFrom::Start(piece.offset))?;
+            opened.read_exact(&mut bytes)?;
+        }
+        Source::Checked(checked) => {
+            let mut opened = super::place::open_beneath(&checked.root, &checked.relative)?.0;
             opened.seek(SeekFrom::Start(piece.offset))?;
             opened.read_exact(&mut bytes)?;
         }

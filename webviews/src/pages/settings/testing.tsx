@@ -84,7 +84,10 @@ export function rowElement(container: ParentNode, key: string): HTMLElement {
 }
 
 /** Sets a form control's value the way typing does, so React sees the change. */
-export async function changeValue(element: HTMLInputElement | HTMLSelectElement, value: string): Promise<void> {
+export async function changeValue(
+  element: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement,
+  value: string,
+): Promise<void> {
   await act(async () => {
     const proto = Object.getPrototypeOf(element) as object;
     Object.getOwnPropertyDescriptor(proto, "value")!.set!.call(element, value);

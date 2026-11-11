@@ -38,6 +38,18 @@ fn root(projects: &Path) -> ChatRoot {
     }
 }
 
+/// The kept order is the order a full sort gives: newest first, ties by key text.
+fn assert_newest_first(index: &ChatIndex) {
+    let chats = index.chats();
+    let key = |c: &cmux_chat_index::IndexedChat| {
+        let text = format!("{}:{}", c.entry.harness.id(), c.entry.session_id);
+        (std::cmp::Reverse(c.entry.updated_ms), text)
+    };
+    for pair in chats.windows(2) {
+        assert!(key(pair[0]) < key(pair[1]), "out of order: {:?}", (key(pair[0]), key(pair[1])));
+    }
+}
+
 #[test]
 fn one_transcript_write_merges_one_chat() {
     let home = tempfile::tempdir().unwrap();
@@ -65,6 +77,7 @@ fn one_transcript_write_merges_one_chat() {
     );
     assert_eq!(index.chats().len(), CHATS);
     assert_eq!(index.chats()[0].entry.session_id, session_id(7), "the written chat is newest");
+    assert_newest_first(&index);
 
     // A new transcript is one more chat, still merged alone.
     let new = session_file(&projects, CHATS);
@@ -73,6 +86,7 @@ fn one_transcript_write_merges_one_chat() {
     assert_eq!(changes.len(), 1);
     assert!(index.merge_visits() <= 2, "a new chat merged {} entries", index.merge_visits());
     assert_eq!(index.chats().len(), CHATS + 1);
+    assert_newest_first(&index);
 
     // A deleted transcript removes that chat only.
     std::fs::remove_file(&file).unwrap();
@@ -82,4 +96,5 @@ fn one_transcript_write_merges_one_chat() {
         "{changes:?}"
     );
     assert_eq!(index.chats().len(), CHATS);
+    assert_newest_first(&index);
 }

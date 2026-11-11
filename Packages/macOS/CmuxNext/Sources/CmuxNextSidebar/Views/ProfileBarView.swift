@@ -24,6 +24,10 @@ final class ProfileBarView: NSView {
     private(set) var pressed: Int?
     /// Where the press on a space started (bar coordinates): a move past the threshold drags its dot.
     var pressPoint: NSPoint?
+    /// The press now down showed its space (`switchOnPress`): its release is no click.
+    private var pressSwitched = false
+    /// The space this window showed before that press; a tear-off of the dot gives it back (`dropDot`).
+    var pressOrigin: ProfileKey?
     /// The space dot being dragged (`ProfileBarView+DotDrag`); nil otherwise.
     var dotDrag: ProfileBarDotDrag?
     private var swipeTracker = ProfileSwipeTracker()
@@ -48,6 +52,18 @@ final class ProfileBarView: NSView {
     /// Gallery toggle: on a scrolled strip the "+" rides the end of the dots
     /// instead of staying pinned on the trailing edge (the shipped choice).
     var plusRidesContent = false { didSet { if plusRidesContent != oldValue { relayout() } } }
+    /// `sidebar.spaceSwitcher` for galleries and tests; nil reads the Debug Settings tunable.
+    var switcherStyleOverride: SpaceSwitcherStyle? { didSet { relayout() } }
+    /// Shows a switcher menu at a mark (tests capture it); nil pops it up under the pointer's mark.
+    var presentMenu: ((NSMenu, NSRect) -> Void)?
+    /// A switcher menu opened (true) or closed: the sidebar keeps its hover chrome revealed meanwhile.
+    var onMenuOpenChange: ((Bool) -> Void)?
+    /// The mark whose switcher menu is open: it stays lit until the menu closes.
+    var menuOpenIndex: Int?
+    /// Which spaces other windows show (the App's windows fill it, `SpaceWindowMarks.install`) and how its choices run.
+    let windowMarks = SpaceWindowMarks()
+    /// Redraws the window marks when another window switches space or the tunable changes.
+    var markObservation: Task<Void, Never>?
 
     init(model: SidebarModel) {
         self.model = model
@@ -63,6 +79,14 @@ final class ProfileBarView: NSView {
         marks.autoresizingMask = [.width, .height]
         addSubview(indicator)
         addSubview(marks)
+    }
+
+    /// The window marks observe only while the bar is in a window: leaving it stops the observation.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        markObservation?.cancel()
+        markObservation = window == nil ? nil : observeWindowMarks()
+        windowMarks.isActive = window != nil
     }
 
     @available(*, unavailable)
@@ -114,7 +138,22 @@ final class ProfileBarView: NSView {
         super.layout()
         marks.frame = bounds
         placeIndicator(animated: false)
+        // Slots that moved with no setter call and no new size move the regions too (the sidebar's `render` asks for
+        // this layout when a token of the switcher changes).
+        if slotRects() != regionSlots { relayout() }
     }
+
+    /// The slots follow the bar's size (`strip`, `slotRects`): a new size draws the marks and makes the tooltips and
+    /// the accessibility elements for the new slots, as a new inset does. A move alone changes nothing in the bar,
+    /// so a window resize step that only moves it costs no draw and no rebuild.
+    override func setFrameSize(_ newSize: NSSize) {
+        let old = frame.size
+        super.setFrameSize(newSize)
+        if frame.size != old { relayout() }
+    }
+
+    /// The slots the tooltips and the accessibility elements were last made for.
+    private var regionSlots: [NSRect] = []
 
     // MARK: Drawing
 
@@ -188,6 +227,7 @@ final class ProfileBarView: NSView {
                 let active = profile.id == model.activeProfileID
                 draw(profile: profile, in: rects[offset], active: active, hovered: hovered == offset,
                      compact: strip.compact && !active)
+                drawWindowMark(for: profile, in: rects[offset], compact: strip.compact && !active)
             }
             if plusIsDrawn { drawPlus(in: rects[model.profiles.count]) }
         }
@@ -217,9 +257,11 @@ final class ProfileBarView: NSView {
 
     private func rebuildToolTips() {
         let rects = slotRects()
+        regionSlots = rects
         var regions: [(rect: NSRect, text: String)] = drawnDotIndices.map { offset in
             let profile = model.profiles[offset]
-            return (rects[offset], profile.iconIsEmoji ? [profile.icon, profile.name].compactMap(\.self).joined(separator: " ") : profile.name)
+            let name = profile.iconIsEmoji ? [profile.icon, profile.name].compactMap(\.self).joined(separator: " ") : profile.name
+            return (rects[offset], windowMarkLabel(name, for: profile))
         }
         if plusIsDrawn { regions.append((rects[model.profiles.count], Strings.newProfile)) }
         setThemedToolTipRegions(regions)
@@ -245,6 +287,8 @@ final class ProfileBarView: NSView {
     func setPointerInside(_ inside: Bool) { isPointerInside = inside }
 
     func setHovered(_ value: Int?) {
+        // A mark whose menu is open stays lit until it closes (rulebook: hover-revealed controls stay lit).
+        let value = menuOpenIndex ?? value
         guard hovered != value else { return }
         hovered = value
         needsDisplay = true
@@ -268,10 +312,18 @@ final class ProfileBarView: NSView {
         needsDisplay = true
     }
 
+    /// A press on another space shows it now, in the press's own turn, as a browser activates a tab on
+    /// mouse-down (Lawrence 2026-11-10: "when i mousedown on switching space, it instantly switches"). The
+    /// press stays down on the dot: past the threshold it drags the now current space. What a click answers
+    /// with a menu or with another window, and the "+", wait for the release (`mouseUp`).
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         pressPoint = point
-        setPressed(interactionIndex(at: point))
+        let index = interactionIndex(at: point)
+        setPressed(index)
+        let shown = model.activeProfileID
+        pressSwitched = index.map { switchOnPress($0, option: event.modifierFlags.contains(.option)) } ?? false
+        pressOrigin = pressSwitched ? shown : nil
     }
 
     /// A press on a space that moves drags its dot to reorder the spaces (`ProfileBarView+DotDrag`).
@@ -283,12 +335,15 @@ final class ProfileBarView: NSView {
         defer {
             pressed = nil
             pressPoint = nil
+            pressSwitched = false
+            pressOrigin = nil
             needsDisplay = true
         }
         // A dragged dot drops (over the footer band it moves its space); the release is no click.
         if dropDot() { return }
-        guard let pressed, pressed == interactionIndex(at: convert(event.locationInWindow, from: nil)) else { return }
-        activate(pressed)
+        // A press that switched is done: its release is not a click on the space it made current.
+        guard !pressSwitched, let pressed, pressed == interactionIndex(at: convert(event.locationInWindow, from: nil)) else { return }
+        activate(pressed, option: event.modifierFlags.contains(.option))
     }
 
     /// The bar is the pager's dots: a trackpad pages over it like over the
@@ -327,12 +382,13 @@ final class ProfileBarView: NSView {
         return nil
     }
 
-    private func activate(_ index: Int) {
-        if index == Self.plusIndex {
-            model.send(.newProfile)
-        } else if model.profiles.indices.contains(index), model.profiles[index].id != model.activeProfileID {
-            model.send(.switchProfile(model.profiles[index].id))
-        }
+    /// A click on a mark (the release of a press that did not switch, or an accessibility press): the "+"
+    /// makes a space; a space switches here, or, when another window shows it, offers Go to Window / Move Here
+    /// (`SpaceSwitcherLogic.click`, `ProfileBarView+Windows`).
+    func activate(_ index: Int, option: Bool = false) {
+        if index == Self.plusIndex { return model.send(.newProfile) }
+        guard model.profiles.indices.contains(index) else { return }
+        click(index, option: option)
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
@@ -347,7 +403,7 @@ final class ProfileBarView: NSView {
         let rects = slotRects()
         var children: [NSAccessibilityElement] = model.profiles.enumerated().map { offset, profile in
             let active = profile.id == model.activeProfileID
-            let element = ProfileDotElement(label: active ? Strings.profileCurrent(profile.name) : profile.name,
+            let element = ProfileDotElement(label: windowMarkLabel(active ? Strings.profileCurrent(profile.name) : profile.name, for: profile),
                                             frame: rects[offset], parent: self) { [weak self] in self?.activate(offset) }
             element.setAccessibilityIdentifier("cmux.sidebar.space.\(profile.id.rawValue)")
             element.setAccessibilitySelected(active)

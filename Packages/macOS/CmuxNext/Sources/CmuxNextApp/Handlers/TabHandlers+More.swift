@@ -84,26 +84,25 @@ extension TabHandlers {
     /// selected tabs every selected tab goes, in strip order (`movingTabs`).
     private static func moveToNewWorkspace(_ ctx: AppActionContext, _ invocation: ActionInvocation, newWindow: Bool) {
         guard let (tab, _) = ctx.daemonTab(invocation), ctx.connection() != nil else { return }
-        if let reason = TabPromotion.refusal(tab: tab, services: ctx.services) {
-            return ctx.registry.refuse(reason)
-        }
-        let windows = ctx.services.windows, tabs = ctx.movingTabs(invocation, tab)
-        let origin = windows.moveOrigin(of: ctx.services.workspaceID(ofTab: tab))
-        // Read before the await: whether this run may change the view (a run this client's user did
-        // not start opens the window behind, never key), and the window it acts in.
+        if let reason = TabPromotion.refusal(tab: tab, services: ctx.services) { return ctx.registry.refuse(reason) }
+        let work: ActionWork = Task { [move = newWorkspaceMove(of: tab, with: ctx.movingTabs(invocation, tab), newWindow: newWindow, services: ctx.services)] in await move() }
+        if !newWindow { ctx.registry.track(work) }
+    }
+
+    /// Move Tab to New Workspace / Window of `tabs` (`tab` first): read now; the move answers once its window is placed (nil) or why not.
+    static func newWorkspaceMove(of tab: TabModel, with tabs: [TabModel], newWindow: Bool, services: AppServices) -> @MainActor () async -> ActionWorkFailure? {
+        let windows = services.windows, origin = windows.moveOrigin(of: services.workspaceID(ofTab: tab))
+        // Read before the await: whether this run may change the view (another's run opens the window behind), and its window.
         let allowed = ActionRunScope.viewChangeAllowed()
-        let source = newWindow ? nil : ctx.services.landingWindow(tabWorkspace: ctx.services.workspaceID(ofTab: tab), workspaceID: nil)
+        let source = newWindow ? nil : services.landingWindow(tabWorkspace: services.workspaceID(ofTab: tab), workspaceID: nil)
         let preferred = newWindow ? nil : (source ?? windows.active)?.state
-        if allowed, let source, let pane = ctx.services.locateTab(model: tab)?.1 { source.focus.followMovedTab(tab.id, from: pane.id) }
-        let work: ActionWork = Task {
-            guard let key = await TabMoves.toNewWorkspace(tabs.first ?? tab, services: ctx.services) else {
-                return "move-tab-to-new-workspace failed (see the app log)"
-            }
-            await TabMoves.join(tabs.dropFirst(), workspace: key, services: ctx.services)
+        if allowed, let source, let pane = services.locateTab(model: tab)?.1 { source.focus.followMovedTab(tab.id, from: pane.id) }
+        return {
+            guard let key = await TabMoves.toNewWorkspace(tabs.first ?? tab, services: services) else { return "move-tab-to-new-workspace failed (see the app log)" }
+            await TabMoves.join(tabs.dropFirst(), workspace: key, services: services)
             windows.placeMoved(key.rawValue, from: origin, preferred: preferred, newWindow: newWindow, select: allowed)
             return nil
         }
-        if !newWindow { ctx.registry.track(work) }
     }
 
     private static func bindTabState(_ registry: ActionRegistry, _ ctx: AppActionContext) {

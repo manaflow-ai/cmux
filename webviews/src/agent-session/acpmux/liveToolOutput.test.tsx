@@ -228,7 +228,7 @@ test("every command form the row readers parse goes through the pane", () => {
     ["an assignment prefix", { command: "CMUX_SOCKET=/tmp/cmux.sock cmux acp send lane-a 'hi'" }],
     ["a timeout wrapper", { command: "timeout 30 cmux acp send lane-a 'hi'" }],
     ["a shell -c", { command: "bash -c 'cmux acp send lane-a hi'" }],
-    ["a reach wrapper", { command: "reach big-red 'cmux acp send lane-a hi'" }],
+    ["a reach wrapper", { command: "reach devbox 'cmux acp send lane-a hi'" }],
     [
       "a shell function",
       { command: "tell() { cmux acp send --no-wait \"$1\" 'Merged.' 2>&1 | tail -1; }; tell lane-a; tell lane-b" },
@@ -296,14 +296,17 @@ afterEach(() => {
   root = undefined;
   dom?.window.close();
   dom = undefined;
-  for (const [key, value] of saved) scope[key] = value;
+  for (const [key, value] of saved) {
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
   saved.clear();
 });
 
 function mount(): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>");
   for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
-    saved.set(key, scope[key]);
+    if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,

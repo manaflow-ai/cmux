@@ -58,7 +58,8 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
         // One event: the next state and the effects to run, in order.
         b"cloud_task_step" => {
             let step: Step = read(request)?;
-            serde_json::to_value(follower::step(step.source, step.state, step.event, step.now)).map_err(|_| ERR_INVALID)?
+            serde_json::to_value(follower::step(step.source, step.state, step.event, step.now))
+                .map_err(|_| ERR_INVALID)?
         }
         // A launch's state from the saved list (none, or one that does not read: empty).
         b"cloud_task_load" => {

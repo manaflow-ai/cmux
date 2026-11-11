@@ -242,7 +242,7 @@ public final class CloudMachineStatePush {
 extension CloudAPIClient {
     /// The machine state sockets at `baseURL` (``CloudConfiguration/relayAPIBaseURL(environment:)``, the platform
     /// origin), as this client's person and team; nil for the classic client, whose Stack session the platform does
-    /// not take (as ``relayChat(baseURL:)``).
+    /// not take.
     @MainActor
     public func statePush(baseURL: URL) -> CloudMachineStatePush? {
         guard !sendsStackSession else { return nil }

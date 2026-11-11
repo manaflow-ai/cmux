@@ -5,6 +5,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { until } from "./support/until";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -97,15 +98,19 @@ test("a failed Add folder… says why and Retry asks the host again", async () =
     option.textContent?.includes("Add folder…"),
   )!;
   await act(async () => add.click());
-  await act(async () => new Promise((done) => setTimeout(done, 0)));
+  await until(
+    () => host.querySelector('[role="alert"]') !== null,
+    () => act(async () => {}),
+  );
   expect(calls).toBe(1);
   expect(host.querySelector('[role="alert"]')?.textContent).toBe("Folder access was denied");
 
   const retry = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
     (button) => button.textContent === "Retry",
   )!;
+  // The retry's ask and its answer are promise steps: the act returns only after a task turn, when
+  // they have run.
   await act(async () => retry.click());
-  await act(async () => new Promise((done) => setTimeout(done, 0)));
   expect(calls).toBe(2);
   expect(host.querySelector('[role="alert"]')).toBeNull();
 });
@@ -146,7 +151,43 @@ test("a folder picked while Add folder… is open is not replaced by the panel's
   await act(async () => option("relay").click());
   expect(picks).toEqual(["/work/relay"]);
 
+  // The panel's late answer and its handling are promise steps: the act returns only after a task
+  // turn, when they have run.
   await act(async () => answer("/work/late"));
-  await act(async () => new Promise((done) => setTimeout(done, 0)));
   expect(picks).toEqual(["/work/relay"]);
+});
+
+// Leo, 2026-11-09: "this no folder selected should be, like, good as well." With no folder, the
+// chooser's face reads No folder, and its menu checks No folder too, also before the caller says
+// `noProject` (a fresh New Tab headline); a picked folder unchecks it (review of cmux#39940).
+test("the empty chooser reads No folder and its menu checks No folder", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ProjectChooser } = await import("../src/agent-session/acpmux/ProjectChooser");
+  const projects = [{ cwd: "/Users/you/src/cmux", label: "cmux" }];
+  const noneRow = () =>
+    [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) =>
+      option.textContent?.startsWith("No folder"),
+    );
+  for (const current of [undefined, "/Users/you/src/cmux"]) {
+    act(() => root?.unmount());
+    root = createRoot(host);
+    await act(async () =>
+      root!.render(
+        <ProjectChooser
+          projects={projects}
+          {...(current ? { current, currentLabel: "cmux" } : {})}
+          icon={null}
+          onPick={() => {}}
+          onNoProject={() => {}}
+          side="bottom"
+        />,
+      ),
+    );
+    const trigger = host.querySelector<HTMLButtonElement>("button")!;
+    expect(trigger.textContent).toBe(current ? "cmux" : "No folder");
+    await act(async () => trigger.click());
+    expect(noneRow(), "the No folder row").toBeTruthy();
+    expect(noneRow()!.getAttribute("aria-current")).toBe(current ? null : "true");
+    await act(async () => trigger.click());
+  }
 });

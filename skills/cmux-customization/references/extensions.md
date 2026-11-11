@@ -6,6 +6,11 @@ in `~/.config/cmux/cmux-next.json`. Both reload on save: no compile, no restart,
 no install click. This page lists what an extension can call today, what is
 still missing, and four copy-paste folders that work as written.
 
+An extension of its own (an id `local/NAME` beside the customize app, built from
+TypeScript) starts with `cmux ext new NAME` and loads with `cmux ext dev`; an
+agent runs `cmux ext dev --once --json` after each edit and reads its exit code
+and errors ([docs/cmux-next/extensions/dev-loop.md](../../../docs/cmux-next/extensions/dev-loop.md)).
+
 ## Start from a template
 
 Each folder in [`../templates/`](../templates/) is a complete customize app
@@ -25,6 +30,7 @@ cp templates/<name>/cmux-app.json templates/<name>/main.js ~/.config/cmux/custom
 | `sidebar-section` | The focused workspace's name and its tabs, redrawn on every workspace or tab change; a click focuses the tab. | `workspace:write` (for the click; reading needs nothing) |
 | `command-button` | Buttons that run the person's own `cmux-next.json` actions. | `actions:run` |
 | `pane` | A checklist that opens as a tab, and a sidebar row that opens it. | `storage:local` (keep the list), `actions:run` (the row) |
+| `threads` | Your agent chats as a thread list (`agent_chat.list`): cards with the folder, a status (Input, Failed, Done, Working with its duration) or the age, the title and what the chat does now; chats that need you first, running chats in a Working shelf and day-old chats in Earlier, both closed; a search field. Read again on `agent_chat.changed` (the app tells the daemon when a chat changes), not on a timer. | `workspace:write` (a click shows the chat's workspace), `actions:run` (a chat with no workspace opens in a tab) |
 
 Read scopes (`workspace:read`, `integration:github:read`, ...) are granted at
 install. Every other scope stays off until the person turns it on in
@@ -71,6 +77,7 @@ views" in the Command Palette (no scope), `cmux action run app.open --app local/
 |---|---|---|
 | A sidebar section | `implements["cmux.section/1"]`, region `top`, `middle` or `bottom`; `cmux apps place` | none |
 | A Session Info section | `implements["cmux.session.info.section/1"]`; render gets `{ session_id, cwd, branch?, harness? }` | none |
+| A New Tab widget | `implements["cmux.newtab.widget/1"]`, `options.size` `small` or `wide`; the person places it (Edit New Tab > Add Widgets); at most 64 nodes; mounted only when placed, from the page's open to its close, also while the page is hidden ([the clock recipe](../../../examples/extensions/clock/README.md)) | none |
 | Decorate workspace rows | `implements["cmux.sidebar.rows/1"]` (customize app only) | none |
 | A pane (a tab) | `implements["cmux.pane/1"]`, opened as above | none |
 | Look like cmux | `Panel`, `Row`, `Button`, `Menu`, `Toggle`, `Slider`, `TextField`, `Badge`, `EmptyState`, `ProgressView`, `cmux.theme` tones, `cmux.toast` ([the kit](local-app-views.md#matching-the-app)) | none |
@@ -78,6 +85,7 @@ views" in the Command Palette (no scope), `cmux action run app.open --app local/
 | Run a built-in action | `cmux.actions.run(id, args)` from a click; ids from `cmux.actions.list()`. Actions that sign in, quit, change the system or act on live input are refused | `actions:run` |
 | Read the current workspace, pane, tab | `cmux.workspace.list()`, `cmux.pane.list({ workspace })`, `cmux.tab.list({ workspace })`; each row has `focused` | `workspace:read` |
 | Follow changes | `cmux.events.on("workspace.changed" \| "pane.changed" \| "tab.changed" \| "terminal.changed", fn)`; `cmux.live(op)` re-reads on `<family>.changed` | the op's read scope |
+| Show live data | `cmux.watch(name, params)` reads a signal source (`github.pulls`, `workspace.list`, `agent.list`; the list is `CmuxSignalMap` in `generated/cmux-app.d.ts`): one read per (name, params) for every section, re-read on push, polled behind the signal only when nothing pushes, the last value kept while it re-reads. Use it instead of `cmux.timer.every` polling. Recipe: `examples/extensions/pr-list` | the source's scopes |
 | Focus, rename, split | `cmux.tab.focus`, `cmux.workspace.rename`, `cmux.pane.split`, ... | `workspace:write` |
 | Run a shell command in a new terminal | `cmux.pane.run({ pane, argv })`, `cmux.workspace.run({ workspace, argv })` | `workspace:execute` |
 | Type into a terminal | `cmux.terminal.input.write` | `terminal:execute` |
@@ -87,6 +95,25 @@ views" in the Command Palette (no scope), `cmux action run app.open --app local/
 
 The whole op list with scopes is `cmux-tui/crates/cmux-app-host/generated/cmux-app.d.ts`
 (`cmux script types` prints it).
+
+## Chat widgets
+
+An app can draw a card inside a Home chat (plans/cmux-next/chat-widgets-DESIGN.md).
+It implements `cmux.chat.widget/1` with a render export; an agent sends a message
+part naming the app:
+
+```json
+{"type": "widget", "app": "cmux/pr-card", "props": {"repo": "manaflow-ai/cmux", "number": 38629},
+ "fallback": "PR #38629: Model picker finds any model", "url": "https://github.com/manaflow-ai/cmux/pull/38629"}
+```
+
+The Chief sends it with `send` `widget: {app, props, fallback, url?}`. The export gets
+`ctx.props` and `ctx.widget.key` (`<message>#<part>`) and returns a view; cmux draws it
+natively in the bubble (Text, Row, Button, a row of Buttons in an `HStack`, Badge,
+Divider, EmptyState, Panel titles; at most 14 items). Page long lists yourself (a page
+signal and Previous/Next), keep state that must outlive a relaunch in `cmux.storage`
+under `ctx.widget.key`, and refresh with `cmux.timer.every`. Clients without the app
+(the iPhone, a Mac without it) show `fallback`. Example: `samples/apps/pr-card`.
 
 ## Missing
 

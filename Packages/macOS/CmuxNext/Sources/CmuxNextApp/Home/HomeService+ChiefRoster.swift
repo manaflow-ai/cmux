@@ -1,10 +1,11 @@
-import CmuxNextFeed
+import Foundation
 import CmuxHomeCore
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHomeModel
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
+import CmuxNextFeedClient
 
 /// Every Chief in the Home list on every host, one tagged Main (Lawrence
 /// 2026-10-19: "idk which is main one"; 2026-10-20: "local chiefs and cloud
@@ -102,17 +103,37 @@ extension HomeService {
     /// "we don't necessarily want to bother the chief with lots of TMI type information, but we want
     /// to make it like easily accessible ... you can opt out if you want".
     func observeFeedRows() {
-        // task-owner: lives as long as the service; event-driven (Observation)
+        // task-owner: lives as long as the service; event-driven (Observation, then the daemon's feed changes)
         feedRowsObservation = Task { [weak self] in
-            for await (rows, conversation) in ObservationStream({ [weak self] () -> ([HomeFeedRow], String?) in
-                guard let self, services.settings?.snapshot.homeFeedInChief ?? true else { return ([], nil) }
-                // Requests (approvals, questions) stay in the Feed, where they can be answered.
-                let notices = services.feed.model.visibleItems.lazy.filter { $0.type == .notice && !$0.isArchived }
-                return (notices.prefix(HomeFeedRow.limit).map {
-                    HomeFeedRow(id: $0.id, source: $0.poster.label, title: $0.title, url: $0.context.url, date: $0.createdAt)
-                }, defaultChiefConversation)
+            var reading: Task<Void, Never>?
+            defer { reading?.cancel() }
+            for await (enabled, conversation) in ObservationStream({ [weak self] () -> (Bool, String?) in
+                guard let self else { return (false, nil) }
+                return (services.settings?.snapshot.homeFeedInChief ?? true, defaultChiefConversation)
             }) {
-                self?.homeStore.setFeedRows(rows, in: conversation.map { CmuxHomeCore.ConversationID($0) })
+                reading?.cancel()
+                reading = nil
+                guard let self else { return }
+                guard enabled else {
+                    homeStore.setFeedRows([], in: nil)
+                    continue
+                }
+                let target = conversation.map { CmuxHomeCore.ConversationID($0) }
+                let daemon = services.feed.daemon
+                // task-owner: this observation's; cancelled on the next setting or default Chief change.
+                reading = Task { [weak self] in
+                    var shown = FeedAccountProjection<Never>() // another account's rows go at once
+                    for await _ in daemon.changes() {
+                        // Requests (approvals, questions) stay in the Feed, where they can be answered.
+                        guard let view = try? await daemon.view(.list, filter: ["category": .string("notices")], limit: HomeFeedRow.limit),
+                              !Task.isCancelled, shown.settled(view, clear: { self?.homeStore.setFeedRows([], in: target) }) else { continue }
+                        let notices = view.items.lazy.filter { $0.isNotice && !$0.isArchived }.prefix(HomeFeedRow.limit)
+                        self?.homeStore.setFeedRows(Array(notices).map {
+                            HomeFeedRow(id: $0.id, source: $0.poster?.label ?? "", title: $0.title ?? "",
+                                        url: $0.context?.url.flatMap(URL.init(string:)), date: $0.createdDate)
+                        }, in: target)
+                    }
+                }
             }
         }
     }
@@ -190,11 +211,10 @@ extension HomeService {
         HomeChiefFollow(whereabouts: services.chiefTeleport.whereabouts, chiefs: directory.chiefs, reachableHost: nil)
     }
 
-    /// Whether `conversation` shows the Chief's location chip: this Mac's default Chief (the one
-    /// `cmux chief move` moves), or the conversation Home followed it to.
-    func showsTeleport(conversation: String) -> Bool {
-        HomeChiefName.select(from: conversations)?.id == conversation || chiefFollow.conversation == conversation
-    }
+    /// The conversations that show the Chief's location chip and teleport row: this Mac's default Chief (the one
+    /// `cmux chief move` moves), and the conversation Home followed it to.
+    var teleportConversations: [String] { [HomeChiefName.select(from: conversations)?.id, chiefFollow.conversation].compactMap { $0 } }
+    func showsTeleport(conversation: String) -> Bool { teleportConversations.contains(conversation) }
 
     /// A teleport or a return (the marker written or removed, or the moved Chief's record read)
     /// re-runs the Chief tab check, so the tab and the page follow the Chief. The stream emits only
@@ -204,9 +224,10 @@ extension HomeService {
         teleport.startFollowing()
         // task-owner: lives as long as the service; event-driven (Observation over the marker's file watch)
         chiefTeleportObservation = Task { [weak self] in
-            for await _ in ObservationStream({ [weak self] in self?.chiefFollow }).dropFirst() {
-                self?.refreshChiefTab()
-            }
+            for await _ in ObservationStream({ [weak self] in self?.chiefFollow }).dropFirst() { self?.refreshChiefTab() }
+        }
+        teleport.endAnnouncementOnNewerMessage { [weak self] in
+            self?.teleportConversations.compactMap { self?.homeStore.summary(CmuxHomeCore.ConversationID($0))?.lastSeq }.max() ?? 0
         }
     }
 }

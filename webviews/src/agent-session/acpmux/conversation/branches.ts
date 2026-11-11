@@ -6,6 +6,7 @@
 // archived one is not a version.
 import type { AcpmuxRow } from "../model";
 import type { AcpmuxSessionEntry } from "../sessionList";
+import { findSession, sessionIndex } from "../sessionIndex";
 
 /** A prompt's versions: the chats in order (oldest first), and which one this chat is. */
 export type MessageBranch = { sessions: string[]; index: number };
@@ -32,12 +33,14 @@ function versions(
 ): string[] {
   const went = (entry: AcpmuxSessionEntry | undefined) =>
     entry?.sessionId === chat || (entry?.turnCount ?? 0) > inherited;
-  const forks = sessions
+  // Among the forks only (sessionIndex.ts), not every listed chat.
+  const forks = sessionIndex(sessions)
+    .of("forked")
     .filter((entry) => entry.parentId === parent && entry.forkSeq === forkSeq && !entry.side && !entry.archived)
     .filter(went)
     .map((entry) => entry.sessionId)
     .sort();
-  return [...(went(sessions.find((entry) => entry.sessionId === parent)) ? [parent] : []), ...forks];
+  return [...(went(findSession(sessions, parent)) ? [parent] : []), ...forks];
 }
 
 /// The open fork's first own prompt (after its `forked` boundary), with the chat and turn it was
@@ -48,7 +51,7 @@ export function forkAnchor(
   sessions: readonly AcpmuxSessionEntry[],
   forkedAtSeq: number | undefined,
 ): { row: AcpmuxRow; parentId: string; forkSeq: number } | undefined {
-  const self = sessions.find((entry) => entry.sessionId === chat);
+  const self = findSession(sessions, chat);
   if (!self?.parentId || self.forkSeq === undefined || forkedAtSeq === undefined) return undefined;
   const row = firstPromptAfter(rows, forkedAtSeq);
   return row && { row, parentId: self.parentId, forkSeq: self.forkSeq };
@@ -67,7 +70,10 @@ export function messageBranches(
   const branches = new Map<string, MessageBranch>();
   if (!chat || !complete) return branches;
   const forkSeqs = new Set(
-    sessions.filter((entry) => entry.parentId === chat && entry.forkSeq !== undefined).map((entry) => entry.forkSeq!),
+    sessionIndex(sessions)
+      .of("forked")
+      .filter((entry) => entry.parentId === chat)
+      .map((entry) => entry.forkSeq!),
   );
   const anchor = forkAnchor(chat, rows, sessions, forkedAtSeq);
   if (!anchor && forkSeqs.size === 0) return branches;

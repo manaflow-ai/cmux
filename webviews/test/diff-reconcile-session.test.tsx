@@ -6,6 +6,7 @@
 // commits, and stays the active one when the reconcile fails.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { until } from "./support/until";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -138,8 +139,10 @@ async function reconcile(
   try {
     await act(async () => root.render(<Viewer generation={1} />));
     await act(async () => opens.shift()!(opened("warm", { prepared: "warm", fingerprint: "when-the-turn-ended" })));
-    await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
-    expect(active.current?.sessionId).toBe("warm");
+    await until(
+      () => active.current?.sessionId === "warm",
+      () => act(async () => {}),
+    );
     calls.length = 0;
     // App's reconcile: the shown session is kept, then the reconciling generation renders.
     retained.current = active.current;

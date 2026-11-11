@@ -160,6 +160,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-mcp-connect"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "serde",
+ "serde_json",
+ "sha2",
+ "url",
+]
+
+[[package]]
 name = "cmux-sdk"
 version = "1.0.0"
 dependencies = [
@@ -783,6 +794,7 @@ dependencies = [
  "chrono",
  "cmux-chief",
  "cmux-conversation",
+ "cmux-mcp-connect",
  "cmux-sdk",
  "cmux-server-core",
  "image",

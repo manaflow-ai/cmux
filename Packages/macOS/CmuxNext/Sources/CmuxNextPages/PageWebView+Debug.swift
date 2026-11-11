@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import CmuxNextSettings
+import CmuxNextCompat
 import CmuxNextDesign
 public import Foundation
 import AppKit
@@ -92,12 +93,7 @@ extension PageWebView {
     /// Ends this page's WebContent process (WebKit's `_killWebContentProcess`), so a live check can
     /// prove what the host does when the page crashes. False when WebKit has no such call. DEBUG
     /// verb only.
-    public func debugKillWebContent() -> Bool {
-        let selector = NSSelectorFromString("_killWebContentProcess")
-        guard webView.responds(to: selector) else { return false }
-        webView.perform(selector)
-        return true
-    }
+    public func debugKillWebContent() -> Bool { killWebContentProcess() }
 
     /// Whether a real AppKit key or mouse event reached the page in the last second: the same
     /// `PageCallContext.userGesture` a page call gets. DEBUG verb only.
@@ -258,8 +254,7 @@ extension PageWebView {
                                               windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 0) else { return false }
             // The view's ordinary overrides record input before WebKit handles it.
             // Direct native delivery is needed when a capture window never becomes key.
-            webView.mouseDown(with: down)
-            webView.mouseUp(with: up)
+            SyntheticInput.click(webView, down: down, up: up)
             return true
         }
         for type in ["mousePressed", "mouseReleased"] {

@@ -131,16 +131,16 @@ enum TabLifecycle {
         let user = invocation.origin == .user
         // Agent tabs and pages count as a kind for the user only: a script's
         // `tab new` always gets a terminal or browser it can drive.
-        let onAgentTab = user && controller != nil && selectedID.map(ctx.services.agentTabs.isAgentTab) == true
+        let onAgentTab = user && controller != nil && selectedID.map { ctx.services.agentTabs.isAgentTab($0) } == true
         // Cmd-T opens a tab in the current workspace, like a browser, also in a pane that hides its
         // tab bar (an agent chat alone): Lawrence decided 2026-10-11 (cx-04fy), replacing the
         // "follows the tab bar" rule of cx-xt5k. New Workspace (Cmd-N) opens one in a new workspace.
         // The kind is Rust's (cmux-window-rules `tabs::new_tab_kind`); agent tabs and the page live in a
         // shown pane whose daemon holds agent tabs.
-        let facts = NewTabKind.facts(tab, id: selectedID, agent: onAgentTab, newTabPage: onAgentTab && selectedID.map(ctx.services.agentTabs.isNewTabPage) == true,
+        let facts = NewTabKind.facts(tab, id: selectedID, agent: onAgentTab, newTabPage: onAgentTab && selectedID.map { ctx.services.agentTabs.isNewTabPage($0) } == true,
                                      user: user, followsSetting: followsSetting, canHostAgent: controller.map { ctx.services.agentTabs.canHost(on: $0.daemon) } ?? false)
         // The position action's slot, else a person's setting (the +: `tabs.newTabButtonPosition`, else `tabs.newTabPosition`), else the end (NewTabSlot).
-        let slot = NewTabSlot.target(current: tab, pane: pane.tabs, explicit: position, user: user, setting: invocation[StripNewTab.button]?.boolValue == true
+        let slot = NewTabSlot.target(current: tab, in: controller, pane: pane.tabs, explicit: position, user: user, setting: invocation[StripNewTab.button]?.boolValue == true
                                      ? ctx.services.settings?.snapshot.newTabButtonPosition ?? .buttonDefault : ctx.services.settings?.snapshot.newTabPosition)
         let kind = WindowRules().newTabKind(facts)?.kind ?? .terminal
         switch kind {
@@ -184,7 +184,7 @@ enum TabLifecycle {
 
     static func keySlot(_ ctx: AppActionContext, _ invocation: ActionInvocation) -> NewTabSlot.Target? {
         guard invocation.origin == .user, invocation.target == nil, !invocation.besideCaller, let pane = ctx.services.windows.active?.focusedPane else { return nil }
-        return NewTabSlot.target(current: pane.pane.tabs.first { $0.id == current(pane) }, pane: pane.pane.tabs, explicit: nil, user: true, setting: ctx.services.settings?.snapshot.newTabPosition)
+        return NewTabSlot.target(current: pane.pane.tabs.first { $0.id == current(pane) }, in: pane, pane: pane.pane.tabs, explicit: nil, user: true, setting: ctx.services.settings?.snapshot.newTabPosition)
     }
 
     /// Reopens a browser tab's page on the other engine in the same pane,
@@ -411,21 +411,19 @@ enum TabLifecycle {
             defer { pane.workspace?.showCancelledCreation() } // a close of a pending split's stand-in: the focus to a live pane now
             // A Cmd-W while the last one's close still asks the daemon closes the next tab (TabCloseGuard).
             guard let id = invocation.origin == .user ? TabCloseGuard.cmdWTarget(selected, in: pane) : selected else { return }
-            // The user's Cmd-W closes a pinned tab, as Chrome's does, unless `tabs.cmdWClosesPinnedTabs`
-            // is off (then it keeps it, PINNED-ITEMS-END-TO-END P3); the tab menu, the CLI and MCP close it either way.
+            // The user's Cmd-W closes a pinned tab like any other, as Chrome's does (cmux-ad i8); the close
+            // selects by the one close-selection rule (TabCloseSelection: its opener's family, else the next tab). Only Home's tab is kept.
             if invocation.origin == .user {
-                let closesPinned = ctx.services.settings?.snapshot.cmdWClosesPinnedTabs ?? CmdWClosesPinnedTabsSetting.fallback
-                // Several selected tabs close together (Chrome); a selected pinned tab stays, as above.
-                if let selected = pane.stripModel.keyboardCloseSelection(id, closesPinned: closesPinned) {
+                // Several selected tabs close together (Chrome).
+                if let selected = pane.stripModel.keyboardCloseSelection(id) {
                     let empties = TabCloseGuard.empties(pane, closing: selected)
                     if empties { pane.workspace?.focus.noteEmptied(pane.paneKey, by: press) }
                     trace.closed(tabs: selected.map(\.rawValue), emptiesPane: empties, input: input)
                     return CloseUndoToasts.close(in: pane, selected)
                 }
-                switch pane.stripModel.keyboardClose(id, closesPinned: closesPinned) {
+                switch pane.stripModel.keyboardClose(id) {
                 case .close: break
                 case .select(let next): return pane.select(next)
-                case .keep: return ctx.refuse(RefusalStrings.pinnedTabKept)
                 // Cmd-W in the Home Chief pane: nothing to close there, so no notice either.
                 case .ignore: return
                 }

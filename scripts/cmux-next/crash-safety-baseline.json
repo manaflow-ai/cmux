@@ -5,7 +5,6 @@
    "chatmux-relay": 12,
    "cmux-app-host": 2,
    "cmux-browser-host": 2,
-   "cmux-mux2": 17,
    "cmux-rd-host": 1,
    "cmux-tui": 1
   },
@@ -14,10 +13,9 @@
    "chatmux-relay": 81,
    "cmux-app-host": 2,
    "cmux-browser-host": 1,
-   "cmux-mux2": 42,
    "cmux-remote": 39,
    "cmux-terminal-client": 1,
-   "cmux-tui": 76,
+   "cmux-tui": 75,
    "cmux-tui-core": 190,
    "cmux-tui-hooks": 11,
    "cmux-tui-platform": 1,
@@ -33,7 +31,7 @@
    "cmux-tui-core": 24
   },
   "unwrap": {
-   "acpmux": 132,
+   "acpmux": 130,
    "chatmux-relay": 7,
    "cmux-remote": 4,
    "cmux-terminal-client": 30,
@@ -101,7 +99,7 @@
    "CmuxNextServerHelper": 5,
    "CmuxNextSettings": 1,
    "CmuxNextTabs": 5,
-   "CmuxNextTerminal": 7,
+   "CmuxNextTerminal": 6,
    "CmuxUpdater": 1,
    "MessagesLabHome": 14,
    "MessagesLabSidebar": 2
@@ -112,7 +110,7 @@
    "exit": {
     "acpmux": 6,
     "cmux-browser-host": 4,
-    "cmux-tui-core": 3
+    "cmux-tui-core": 4
    },
    "expect": {
     "acpmux": 14,
@@ -120,12 +118,13 @@
     "cmux-layout-reducer": 4,
     "cmux-local-auth": 2,
     "cmux-terminal-sizing": 6,
-    "cmux-tui-core": 11,
+    "cmux-tui-core": 10,
     "cmux-unix-socket": 1
    },
    "panic_macro": {
     "acpmux": 2,
     "cmux-pane-protocol": 1,
+    "cmux-scope": 1,
     "cmux-server": 1,
     "cmux-tui": 1,
     "cmux-tui-core": 3
@@ -137,10 +136,10 @@
   "swift": {
    "dynamic_dispatch": {
     "CmuxNextAgentPane": 2,
-    "CmuxNextBrowser": 14,
+    "CmuxNextBrowser": 16,
     "CmuxNextBrowserAutomation": 5,
     "CmuxNextDesign": 6,
-    "CmuxNextPages": 3,
+    "CmuxNextPages": 4,
     "CmuxNextPhone": 1,
     "CmuxNextPopups": 2,
     "CmuxNextResources": 2,
@@ -179,7 +178,7 @@
     "CmuxVNC": 3,
     "CmuxVNCDemoServer": 3,
     "CmuxVNCWebRTC": 19,
-    "MessagesLabHome": 2
+    "MessagesLabHome": 3
    }
   }
  }

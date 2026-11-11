@@ -574,7 +574,16 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             #if DEBUG
             self?.devProbe?.sent(data)
             #endif
-            self?.model.session.send(data)
+            guard let self else { return }
+            // A refusal comes back as `.inputNotSent` from inside `send`.
+            inputRefused = false
+            model.session.send(data)
+        }
+        // Held for a reattach (or a first attach still coming) is not sent:
+        // the echo may never come, so nothing is predicted for it.
+        surface.inputGoesOut = { [weak self] in
+            guard let self else { return false }
+            return model.connectionState.isAttached && !inputRefused
         }
         // Every input path (keyboard, key bar, composer, paste) goes through
         // the surface's `perform`: typing brings the prompt into view, like Terminal.
@@ -1057,10 +1066,25 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             scheduleOutput()
         case .hostGridOwner(let name):
             hostGridOwner = name
+        case .inputNotSent:
+            // Keys refused, or held through an outage and dropped: their
+            // predicted glyphs would stand for keys that never arrive.
+            inputRefused = true
+            surface.prediction?.inputDropped()
+            model.ingest(event)
+        case .connection(let state):
+            // The link went down with keys on it: the ones in flight may be
+            // held, resent or dropped, and their echoes may never come.
+            if !state.isAttached { surface.prediction?.inputDropped() }
+            model.ingest(event)
         default:
             model.ingest(event)
         }
     }
+
+    /// The session refused the input `send` was just given (`.inputNotSent`
+    /// during the call): prediction does not record it.
+    private var inputRefused = false
 
     /// Feeds at once when nothing was fed in this display frame (an echo is
     /// not held back to the next frame); otherwise the display link feeds at
@@ -2738,14 +2762,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         #endif
         // A hide a newer show interrupted: the keyboard is on its way up, and
         // settling the stack now would lay it out against the hide.
-        guard !isStale(note) else { return }
+        guard !isStale(note), !endsOnScreen(note, onScreen: true) else { return }
         dock.keyboardDidHide()
         keyboardDidChange()
     }
 
     @objc private func keyboardDidShow(_ note: Notification) {
         // A show a newer hide interrupted (the keyboard key pressed twice).
-        guard !isStale(note) else { return }
+        guard !isStale(note), !endsOnScreen(note, onScreen: false) else { return }
         keyboardDidChange()
     }
 
@@ -2754,6 +2778,22 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func isStale(_ note: Notification) -> Bool {
         guard let end = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return false }
         return keyboardTracker.isStale(didChangeTo: end)
+    }
+
+    /// A did-show whose end frame is off screen (or a did-hide whose end frame
+    /// is on screen) belongs to a transition being reversed. A hide that lands
+    /// just after a show's animation, but before UIKit posted its did-show,
+    /// gets that did-show with the hide's frame, ahead of the hide's will
+    /// (measured: did-show 24 ms past the show's duration, so `isStale` lets it
+    /// through). Laying out on it put the composer at the bottom in one frame
+    /// while the keyboard was still up; the will that follows moves it inside
+    /// the keyboard's animation instead.
+    private func endsOnScreen(_ note: Notification, onScreen: Bool) -> Bool {
+        guard let notified = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return false }
+        let frame = keyboardDock.keyboardFrame(notified: notified)
+        let screen = view.window?.screen.bounds ?? UIScreen.main.bounds
+        let visible = screen.intersection(frame).height > 0.5
+        return visible == onScreen
     }
 
     @objc private func keyboardDidChange() {

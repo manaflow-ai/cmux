@@ -2,7 +2,7 @@
 // told the reader nothing): splitForMiddleTruncation keeps the name's end whole, and leaves a short
 // name alone.
 import { describe, expect, test } from "bun:test";
-import { splitForMiddleTruncation } from "./ComposerContext";
+import { splitForMiddleTruncation } from "./composerContextModel";
 
 describe("splitForMiddleTruncation", () => {
   test("a short name is not split", () => {

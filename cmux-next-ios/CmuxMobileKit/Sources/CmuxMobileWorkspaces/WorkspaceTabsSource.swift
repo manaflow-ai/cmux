@@ -687,7 +687,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         toastText = text
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: ToastDismissal.lifetime(for: text))
-            if self?.toastText == text { withAnimation { self?.clearNotice() } }
+            if self?.toastText == text { withAnimation(.default.unlessReduceMotion) { self?.clearNotice() } }
         }
     }
 

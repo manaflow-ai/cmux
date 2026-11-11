@@ -552,13 +552,45 @@ fn a_codex_start_runs_the_broker_before_the_first_prompt() {
         (Inputs { guest_kind: Some(String::new()), ..codex.clone() }, Reason::GuestNotOwner),
         (Inputs { requested: Some(Choice::None), ..codex.clone() }, Reason::ChoseNone),
         (Inputs { requested: Some(Choice::Machine), ..codex.clone() }, Reason::MachineLoginKept),
-        // A run that may show no prompt passes nothing instead of refusing the start.
-        (Inputs { headless: true, ..codex.clone() }, Reason::NeedsLoginChoice),
+        // A run that may show no prompt keeps `none` and `machine` as chosen, from the flag or kept.
+        (
+            Inputs { headless: true, requested: Some(Choice::None), ..codex.clone() },
+            Reason::ChoseNone,
+        ),
+        (Inputs { headless: true, stored: Some(Choice::None), ..codex.clone() }, Reason::ChoseNone),
+        (
+            Inputs { headless: true, requested: Some(Choice::Machine), ..codex.clone() },
+            Reason::MachineLoginKept,
+        ),
     ];
     for (d, reason) in skips {
         let decision = decide(&d);
         assert_eq!((decision.step, decision.reason), (Step::Skip, reason), "{d:?}");
     }
+    // Production start matrix `codex-signed-out` (2026-11-08): a headless Codex start with no
+    // choice passed nothing, so Codex sat signed out and the run's first turn hung for 419 s. It
+    // now refuses at once, as Claude's does, and an agent's `--login pass` alone is no choice.
+    let refused = [
+        Inputs { headless: true, ..codex.clone() },
+        Inputs { headless: true, requested: Some(Choice::Pass), ..codex.clone() },
+        Inputs { headless: true, cached: true, ..codex.clone() },
+    ];
+    for d in refused {
+        let decision = decide(&d);
+        assert_eq!(
+            (decision.step, decision.reason),
+            (Step::Refuse, Reason::NeedsLoginChoice),
+            "{d:?}"
+        );
+        assert!(
+            decision.summary.starts_with("refuse (needs-login-choice):"),
+            "{}",
+            decision.summary
+        );
+    }
+    // The pass the person chose before, kept per user, still runs the broker headless.
+    let kept = Inputs { headless: true, stored: Some(Choice::Pass), ..codex.clone() };
+    assert_eq!((decide(&kept).step, decide(&kept).reason), (Step::Install, Reason::CodexBroker));
     let chosen = Inputs {
         headless: true,
         requested: Some(Choice::Pass),
@@ -678,5 +710,43 @@ fn the_login_decision_wire_holds_no_credential() {
         + &serde_json::to_value(decide(&inputs)).unwrap().to_string();
     for word in ["token", "secret", "password", "credential", "oauth"] {
         assert!(!wire.to_lowercase().contains(word), "{word} in {wire}");
+    }
+}
+
+#[test]
+fn only_a_claude_start_that_copies_conflicts_with_a_warm_copy() {
+    // A Claude start that reads and copies onto its machine would race the warm's Claude copy.
+    let claude = decide(&cached(owner()));
+    assert!(claude.reads_machine && claude.warm_copy_conflict);
+    // Codex reads the machine too (its broker), but the warm copies only Claude: no conflict.
+    let codex = decide(&Inputs { provider: Some(Provider::Codex), ..cached(owner()) });
+    assert!(codex.reads_machine && !codex.warm_copy_conflict);
+    // A start that copies nothing (`--login none`, a machine it does not own) never waits.
+    let none =
+        Inputs { requested: Some(Choice::None), requested_by_person: true, ..cached(owner()) };
+    assert!(!decide(&none).warm_copy_conflict);
+    assert!(!decide(&Inputs { caller_owns: Some(false), ..cached(owner()) }).warm_copy_conflict);
+}
+
+#[test]
+fn a_refused_start_never_waits_on_a_warm_copy() {
+    // A headless Claude start with no login choice refuses at once (`cloud start-session`): it copies nothing,
+    // so it never waits for the warm's copy onto its machine.
+    let refused = decide(&Inputs { headless: true, ..owner() });
+    assert_eq!(refused.step, Step::Refuse);
+    assert!(!refused.warm_copy_conflict);
+}
+
+#[test]
+fn a_start_that_keeps_the_machines_login_never_waits_on_a_warm_copy() {
+    // `--login machine` writes nothing: with a login there it keeps it, without one it refuses.
+    for login in [MachineLogin::Working, MachineLogin::Session, MachineLogin::None] {
+        let d = decide(&Inputs {
+            requested: Some(Choice::Machine),
+            requested_by_person: true,
+            machine_login: Some(login),
+            ..owner()
+        });
+        assert!(d.reads_machine && !d.warm_copy_conflict, "{login:?}");
     }
 }

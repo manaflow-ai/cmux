@@ -57,10 +57,15 @@ public nonisolated struct ClassicMigrationLedger: Codable, Equatable, Sendable {
     /// The cmux-next version that wrote it last.
     public var appVersion: String?
     public var updatedAt: Double
+    /// When the person answered the launch's import preview with Cancel
+    /// (seconds since 1970): later launches no longer ask. Import Workspaces
+    /// from Classic cmux still runs, and clears it once it imports. Older
+    /// ledgers have none (an optional field: the schema stays 1).
+    public var declinedAt: Double?
 
     public init(schema: Int = Self.currentSchema, state: State = .inProgress, source: ClassicMigrationSource? = nil,
                 workspaces: [String: Entry] = [:], groups: [String: String] = [:], runs: Int = 0,
-                appVersion: String? = nil, updatedAt: Double = 0) {
+                appVersion: String? = nil, updatedAt: Double = 0, declinedAt: Double? = nil) {
         self.schema = schema
         self.state = state
         self.source = source
@@ -69,6 +74,7 @@ public nonisolated struct ClassicMigrationLedger: Codable, Equatable, Sendable {
         self.runs = runs
         self.appVersion = appVersion
         self.updatedAt = updatedAt
+        self.declinedAt = declinedAt
     }
 }
 

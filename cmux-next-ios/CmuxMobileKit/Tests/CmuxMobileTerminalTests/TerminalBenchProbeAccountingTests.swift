@@ -41,6 +41,9 @@ import UIKit
     }
 
     @Test func probeCountsTheResetAndAnIdleEchoShowsAtOnce() async throws {
+        // No other suite's screen adds its bytes to the probe's count.
+        await TerminalScreenTestLock.acquire()
+        defer { TerminalScreenTestLock.release() }
         let probe = TerminalBenchProbe()
         TerminalBenchProbe.shared = probe
         defer { TerminalBenchProbe.shared = nil }

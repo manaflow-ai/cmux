@@ -3,7 +3,8 @@
 //! removals for watchers. The cache file keeps per-file read offsets so a
 //! restart counts only new lines.
 
-use std::collections::{BTreeMap, HashSet};
+use std::cmp::Reverse;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -13,6 +14,7 @@ use crate::adapters::{PathRole, classify_path};
 use crate::entry::{ChatEntry, ChatKey};
 use crate::roots::ChatRoot;
 use crate::scan::{RootScan, read_file, scan_root};
+use crate::stamp::FileStamp;
 use crate::store_file;
 
 // 2: Codex rollouts count their typed prompts from message items (current Codex writes no
@@ -43,6 +45,25 @@ pub enum ChatChange {
 struct Slot {
     root: ChatRoot,
     scan: RootScan,
+    /// Each store file's stamp when an event last named it (None: it was not there).
+    store_stamps: HashMap<PathBuf, Option<FileStamp>>,
+}
+
+impl Slot {
+    /// Whether store file `path` moved since an event last named it. macOS reports an extended
+    /// attribute event on a WAL while processes read it, with nothing written; taken for a change,
+    /// each daemon's read made every other daemon read the whole store again.
+    fn store_file_changed(&mut self, path: &Path) -> bool {
+        let now = std::fs::metadata(path).ok().map(|meta| FileStamp::of(&meta));
+        self.store_stamps.insert(path.to_path_buf(), now) != Some(now)
+    }
+
+    /// Whether any store file an event has named moved: a writer that holds its connection open
+    /// may report nothing on the store, so a transcript written beside it says to look.
+    fn known_store_files_changed(&mut self) -> bool {
+        let known: Vec<PathBuf> = self.store_stamps.keys().cloned().collect();
+        known.iter().fold(false, |changed, path| self.store_file_changed(path) | changed)
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -55,6 +76,10 @@ struct CacheFile {
 pub struct ChatIndex {
     slots: Vec<Slot>,
     merged: BTreeMap<ChatKey, IndexedChat>,
+    /// `merged`'s keys newest first ([`ChatIndex::newest_first`]), kept in step with each
+    /// insert and removal: a reader walks the first rows of the order and stops, where it sorted
+    /// every chat on each read (a window refresh per activity change, ~3,000 chats).
+    order: BTreeMap<OrderKey, ChatKey>,
     /// Root entries the last change merged (see ``merge_visits``).
     visits: usize,
     /// A chat appeared or went away since the last ``take_structural_change``.
@@ -77,10 +102,15 @@ impl ChatIndex {
             .unwrap_or_default();
         let slots = roots
             .into_iter()
-            .map(|root| Slot { scan: saved.remove(&root.id()).unwrap_or_default(), root })
+            .map(|root| Slot {
+                scan: saved.remove(&root.id()).unwrap_or_default(),
+                store_stamps: HashMap::new(),
+                root,
+            })
             .collect();
-        let mut index = Self { slots, merged: BTreeMap::new(), visits: 0, structural: false };
-        index.merged = index.merge();
+        let mut index = Self { slots, ..Self::default() };
+        let merged = index.merge();
+        index.set_merged(merged);
         index
     }
 
@@ -100,7 +130,7 @@ impl ChatIndex {
                 .position(|slot| slot.root.id() == root.id())
                 .map(|at| old.swap_remove(at).scan)
                 .unwrap_or_default();
-            self.slots.push(Slot { root, scan });
+            self.slots.push(Slot { root, scan, store_stamps: HashMap::new() });
         }
         self.remerge()
     }
@@ -146,10 +176,13 @@ impl ChatIndex {
                 let Some(root) = owning_root(&slot.root, path) else { continue };
                 let spelled = slot.root.path.join(path.strip_prefix(root).unwrap_or(path));
                 match classify_path(slot.root.harness, &slot.root.path, &spelled) {
-                    PathRole::Store => store_changed = true,
+                    PathRole::Store => store_changed |= slot.store_file_changed(&spelled),
                     PathRole::Session => sessions.push(spelled),
                     PathRole::Ignore => {}
                 }
+            }
+            if slot.scan.database && !sessions.is_empty() {
+                store_changed |= slot.known_store_files_changed();
             }
             if store_changed {
                 rescan(slot);
@@ -173,16 +206,24 @@ impl ChatIndex {
 
     /// Every chat, newest first.
     pub fn chats(&self) -> Vec<&IndexedChat> {
-        let mut chats: Vec<&IndexedChat> = self.merged.values().collect();
-        chats.sort_by(|a, b| {
-            b.entry
-                .updated_ms
-                .cmp(&a.entry.updated_ms)
-                // Ties: the key text (`<harness id>:<session id>`) ascending, the order
-                // clients keep (the windows of `_acpmux/chats_window`), not the enum's declaration order.
-                .then_with(|| key_text(&a.entry).cmp(key_text(&b.entry)))
-        });
-        chats
+        self.newest_first().collect()
+    }
+
+    /// Every chat, newest first, read from the kept order: a reader that stops after a page
+    /// costs the page, however many chats the index holds. Ties: the key text
+    /// (`<harness id>:<session id>`) ascending, the order clients keep (the windows of
+    /// `_acpmux/chats_window`), not the enum's declaration order.
+    pub fn newest_first(&self) -> impl Iterator<Item = &IndexedChat> + '_ {
+        self.order.values().filter_map(|key| self.merged.get(key))
+    }
+
+    /// How many chats the index holds.
+    pub fn len(&self) -> usize {
+        self.merged.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.merged.is_empty()
     }
 
     pub fn get(&self, key: &ChatKey) -> Option<&IndexedChat> {
@@ -214,7 +255,7 @@ impl ChatIndex {
                 changes.push(ChatChange::Removed { key: key.clone() });
             }
         }
-        self.merged = next;
+        self.set_merged(next);
         changes
     }
 
@@ -239,16 +280,38 @@ impl ChatIndex {
                 old => {
                     self.structural |= old.is_none();
                     changes.push(ChatChange::Upsert { chat: Box::new(chat.clone()) });
-                    self.merged.insert(key, chat);
+                    self.insert(key, chat);
                 }
             }
         }
         for key in stale {
-            self.merged.remove(&key);
+            self.remove(&key);
             self.structural = true;
             changes.push(ChatChange::Removed { key });
         }
         changes
+    }
+
+    /// Replaces every chat, and the order with them.
+    fn set_merged(&mut self, merged: BTreeMap<ChatKey, IndexedChat>) {
+        self.order =
+            merged.iter().map(|(key, chat)| (order_key(&chat.entry), key.clone())).collect();
+        self.merged = merged;
+    }
+
+    /// One chat in or replaced: its old place in the order goes, its new one comes.
+    fn insert(&mut self, key: ChatKey, chat: IndexedChat) {
+        if let Some(old) = self.merged.get(&key) {
+            self.order.remove(&order_key(&old.entry));
+        }
+        self.order.insert(order_key(&chat.entry), key.clone());
+        self.merged.insert(key, chat);
+    }
+
+    fn remove(&mut self, key: &ChatKey) {
+        if let Some(old) = self.merged.remove(key) {
+            self.order.remove(&order_key(&old.entry));
+        }
     }
 
     fn merge(&mut self) -> BTreeMap<ChatKey, IndexedChat> {
@@ -331,9 +394,12 @@ fn update_file(slot: &mut Slot, path: &Path) -> Vec<String> {
     sessions
 }
 
-/// The key as text (`<harness id>:<session id>`), compared without building it.
-fn key_text(entry: &ChatEntry) -> impl Iterator<Item = u8> + '_ {
-    entry.harness.id().bytes().chain(std::iter::once(b':')).chain(entry.session_id.bytes())
+/// A chat's place in [`ChatIndex::newest_first`]: newest first, then the key text
+/// (`<harness id>:<session id>`) ascending, byte by byte as `str` compares.
+type OrderKey = (Reverse<i64>, String);
+
+fn order_key(entry: &ChatEntry) -> OrderKey {
+    (Reverse(entry.updated_ms), format!("{}:{}", entry.harness.id(), entry.session_id))
 }
 
 /// The spelling of `root` that `path` is under (its path, real path or an alias).

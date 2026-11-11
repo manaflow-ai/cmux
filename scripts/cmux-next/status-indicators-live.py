@@ -26,6 +26,7 @@ Exit 1 on any failed check. Every process of this job's own app copy is ended on
   nx-remote --class light -- python3 scripts/cmux-next/status-indicators-live.py --job <id> --tag <tag>
 """
 import argparse, base64, glob, json, os, plistlib, re, shutil, signal, socket, subprocess, sys, time
+import tempfile
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--job", required=True)
@@ -258,7 +259,7 @@ class Run:
         self.failures, self.notes, self.evidence = [], [], {"set": icon_set, "checks": {}}
         self.config = os.path.join(self.dir, "cmux.json")
         self.acp_home = os.path.join(self.dir, "acpmux-home")
-        self.acp_socket = f"/tmp/kxa2-acp-{os.getpid()}-{icon_set}.sock"
+        self.acp_socket = os.path.join(tempfile.mkdtemp(prefix="kxa2-", dir="/tmp"), f"acp-{icon_set}.sock")  # a mkdtemp dir: a guessable /tmp name could be planted by another account
         self.xdg = os.path.join(self.dir, "xdg")
         self.app = None
         self.terms = {}
@@ -303,9 +304,11 @@ class Run:
         return {s.get("sessionId"): s for s in found if isinstance(s, dict)}
 
     def launch(self):
-        tag_state = os.path.expanduser(f"~/Library/Application Support/cmux/tags/{TAG}")
-        if os.path.isdir(tag_state) and not os.path.islink(tag_state):
-            os.rename(tag_state, f"{tag_state}.old-{int(time.time())}")
+        # NEXT's own folder and the one in classic's that a build from before it used (a new build adopts that).
+        for tag_state in (os.path.expanduser(f"~/Library/Application Support/cmux-next/tags/{TAG}"),
+                          os.path.expanduser(f"~/Library/Application Support/cmux/tags/{TAG}")):
+            if os.path.isdir(tag_state) and not os.path.islink(tag_state):
+                os.rename(tag_state, f"{tag_state}.old-{int(time.time())}")
         if os.path.exists(SOCKET):
             os.unlink(SOCKET)
         os.makedirs(self.acp_home, exist_ok=True)

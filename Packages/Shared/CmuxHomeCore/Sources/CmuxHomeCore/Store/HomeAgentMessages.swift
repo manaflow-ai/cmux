@@ -241,6 +241,21 @@ struct HomeAgentMessages {
         return open ? [fold] + members : [fold]
     }
 
+    /// The agents queued at their newest message, in the order the Chief starts them (lowest id first), leaving
+    /// out `started` ones (their session showed). One pass over the runs, however many agents the chat has.
+    func queuedPeers(started: Set<String>) -> [String] {
+        var newest: [String: HomeAgentRun.Message] = [:]
+        for run in runs.values {
+            for message in run.messages {
+                if let held = newest[message.peer],
+                   (held.date, held.sequence, held.id) >= (message.date, message.sequence, message.id) { continue }
+                newest[message.peer] = message
+            }
+        }
+        return newest.values.filter { $0.outgoing && $0.queued && !started.contains($0.peer) }.map(\.peer)
+            .sorted { (Int($0.dropFirst()) ?? .max, $0) < (Int($1.dropFirst()) ?? .max, $1) }
+    }
+
     /// `peer`'s chat with the Chief over every run of the conversation (``HomeAgentThread``), or nil
     /// when no run has a message with it. `items` are the conversation's own rows: the Chief's link
     /// to the agent's session comes from its words there.

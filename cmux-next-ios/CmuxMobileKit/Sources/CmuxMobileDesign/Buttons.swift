@@ -150,7 +150,7 @@ public struct CmuxMobileCapsuleStyle: ButtonStyle {
             .opacity(kind == .primary && !isEnabled ? 0.4 : 1)
             .opacity(pressed ? 0.85 : 1)
             .scaleEffect(pressed ? 0.98 : 1)
-            .animation(theme.motion.snap.animation, value: pressed)
+            .animation(theme.motion.snap.animation.unlessReduceMotion, value: pressed)
     }
 
     private var foreground: AnyShapeStyle {

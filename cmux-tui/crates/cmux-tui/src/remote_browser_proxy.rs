@@ -95,6 +95,7 @@ pub(super) fn parse_browser_proxy_args(args: &[String]) -> anyhow::Result<Browse
                             | "--carrier"
                             | "--exit-with-parent"
                             | "--no-install"
+                            | "--ssh-forced-command"
                             | "--upgrade"
                     ) && !value.contains('=');
                     if takes_value {

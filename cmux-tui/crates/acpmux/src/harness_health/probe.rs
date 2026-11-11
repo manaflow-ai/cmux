@@ -38,22 +38,43 @@ pub(super) fn run_for(
         return Err(crate::launch_policy::DISABLED_MESSAGE.to_owned());
     }
     let (program, args) = argv.split_first().ok_or("no command")?;
-    let mut cmd = Command::new(program);
-    // The daemon starter's turn values are not this command's (config::TURN_SCOPED_ENV).
-    for k in crate::config::inherited_caller_scoped_keys() {
-        cmd.env_remove(k);
-    }
-    crate::login_env::apply_std_for(&mut cmd, family, Some(env));
-    crate::config::scrub_nested_claude_env_for(&mut cmd, family);
-    // A sign-in check never sees another harness's login (`agent/foreign_login.rs`).
-    // What the check runs, by its command line or its label's canonical family.
-    if let Some(family) = family {
-        let runs = crate::agent::foreign_login::classify_command(argv, family);
-        crate::agent::foreign_login::remove_foreign(&runs, |key| {
-            cmd.env_remove(key);
-        });
-    }
-    cmd.envs(env).args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let build = || {
+        let mut cmd = Command::new(program);
+        // The daemon starter's turn values are not this command's (config::TURN_SCOPED_ENV).
+        for k in crate::config::inherited_caller_scoped_keys() {
+            cmd.env_remove(k);
+        }
+        crate::login_env::apply_std_for(&mut cmd, family, Some(env));
+        crate::config::scrub_nested_claude_env_for(&mut cmd, family);
+        // A sign-in check never sees another harness's login (`agent/foreign_login.rs`).
+        // What the check runs, by its command line or its label's canonical family.
+        if let Some(family) = family {
+            let runs = crate::agent::foreign_login::classify_command(argv, family);
+            crate::agent::foreign_login::remove_foreign(&runs, Some(env), |key| {
+                cmd.env_remove(key);
+            });
+        }
+        cmd.envs(env).args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        cmd
+    };
+    // As an agent spawn: the login values this check's env plan takes (`login_env::ChildEnv`).
+    let mut cmd = match family {
+        Some(family) => {
+            let mut plan = crate::login_env::ChildEnv {
+                family,
+                profile: Some(env),
+                remote: false,
+                explicit: None,
+            };
+            crate::login_env::build_ready_blocking(
+                &mut plan,
+                || Ok(build()),
+                crate::agent::explicit_env,
+                |e| e,
+            )?
+        }
+        None => build(),
+    };
     #[cfg(unix)]
     std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
     let mut child = cmd.spawn().map_err(|e| format!("{program}: {e}"))?;

@@ -307,199 +307,6 @@
   color: var(--cmux-text-secondary);
 }
 
-/* The agent pane (Swift HomeAgentSidePane and HomeAgentChatView). */
-.hm-agent-pane {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-width: 0;
-  background: var(--cmux-surface-background);
-  color: var(--cmux-text);
-}
-.hm-agent-pane__strip {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex: none;
-  height: 32px;
-  padding: 0 8px;
-  border-bottom: 1px solid var(--cmux-separator);
-  overflow: hidden;
-}
-.hm-agent-pane__tab {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 8px 4px 12px;
-  border-radius: 6px;
-}
-.hm-agent-pane__tab[data-selected] {
-  background: var(--cmux-hover);
-}
-.hm-agent-pane__tab-name,
-.hm-agent-pane__tab-close {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  cursor: default;
-}
-.hm-agent-pane__tab-name {
-  max-width: 150px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--text-detail);
-  font-weight: 600;
-}
-.hm-agent-pane__tab-close {
-  display: inline-flex;
-  color: var(--cmux-text-secondary);
-}
-.hm-agent-chat {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-}
-.hm-agent-chat__header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: none;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--cmux-separator);
-}
-.hm-agent-chat__names {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
-}
-.hm-agent-chat__title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 600;
-}
-.hm-agent-chat__status {
-  color: var(--cmux-text-secondary);
-  font-size: var(--text-caption);
-}
-.hm-agent-chat__button {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  border: 1px solid var(--cmux-separator);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--cmux-text);
-  font: inherit;
-  font-size: var(--text-detail);
-  white-space: nowrap;
-}
-.hm-agent-chat__scroll {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  flex: 1;
-  min-height: 0;
-  padding: 12px 16px;
-  overflow-y: auto;
-}
-.hm-agent-chat__out {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 4px;
-}
-.hm-agent-chat__sender {
-  color: var(--cmux-text-secondary);
-  font-size: var(--text-caption);
-  font-weight: 600;
-}
-.hm-agent-chat__out[data-sender="you"] .hm-agent-chat__sender {
-  color: var(--cmux-accent);
-}
-.hm-agent-chat__bubble {
-  max-width: 85%;
-  padding: 8px 12px;
-  border-radius: 16px;
-  background: var(--cmux-hover);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  user-select: text;
-}
-.hm-agent-chat__bubble[data-clamp] {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.hm-agent-chat__bubble[data-clamp="2"] {
-  -webkit-line-clamp: 2;
-}
-.hm-agent-chat__bubble[data-clamp="4"] {
-  -webkit-line-clamp: 4;
-}
-.hm-agent-chat__link {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--cmux-accent);
-  font: inherit;
-  font-size: var(--text-detail);
-  font-weight: 600;
-  cursor: default;
-}
-.hm-agent-chat__link--quiet {
-  color: var(--cmux-text-secondary);
-}
-.hm-agent-chat__steps {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-}
-.hm-agent-chat__details {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  color: var(--cmux-text-secondary);
-  font-size: var(--text-detail);
-}
-.hm-agent-chat__details li::before {
-  content: "· ";
-}
-.hm-agent-chat__composer {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex: none;
-  margin: 8px 12px 12px;
-  padding: 8px 8px 8px 12px;
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--cmux-hover) 60%, transparent);
-}
-.hm-agent-chat__field {
-  flex: 1;
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  outline: none;
-  background: transparent;
-  color: var(--cmux-text);
-  font: inherit;
-}
-.hm-agent-chat__send {
-  display: inline-flex;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--cmux-accent);
-}
-
 /* Link chips and their preview card (Swift HomeLinkPreviewCardView): the shared link card's glass. */
 .hm-link-preview__body {
   display: flex;
@@ -774,4 +581,155 @@
 }
 .hm-header-panels__button[aria-pressed="true"] {
   color: var(--cmux-lit-glyph);
+}
+
+/* "Set Up cmux" on Home (setup/SetupCard.tsx): one small-radius card in the chat column, above
+   Chief's composer. Each row's trailing slot keeps its width, so a button, the spinner and the done
+   mark swap in place. */
+.hm-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 560px;
+  padding: 12px;
+  border: 1px solid var(--cmux-separator);
+  border-radius: 6px;
+  background: var(--cmux-elevated-background);
+  color: var(--cmux-text);
+  font-size: var(--text-body);
+}
+.hm-setup__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.hm-setup__title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+}
+.hm-setup__progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--cmux-text-secondary);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+}
+.hm-setup__ring-track {
+  stroke: var(--cmux-separator);
+}
+.hm-setup__ring-fill {
+  stroke: var(--cmux-text-secondary);
+}
+.hm-setup__hide {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--cmux-text-tertiary);
+  font: inherit;
+  font-size: var(--text-detail);
+  cursor: default;
+}
+.hm-setup__hide:hover {
+  color: var(--cmux-text-secondary);
+}
+.hm-setup__next,
+.hm-setup__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 4px 0;
+}
+.hm-setup__next-text,
+.hm-setup__row-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.hm-setup__row-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hm-setup__row-detail {
+  overflow: hidden;
+  color: var(--cmux-text-secondary);
+  font-size: var(--text-detail);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hm-setup__rows {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.hm-setup__row + .hm-setup__row {
+  border-top: 1px solid var(--cmux-separator);
+}
+.hm-setup__row[data-done] .hm-setup__row-title {
+  color: var(--cmux-text-secondary);
+}
+.hm-setup__check {
+  display: inline-flex;
+  flex: none;
+  width: 16px;
+  justify-content: center;
+}
+.hm-setup__row[data-done] .hm-setup__check,
+.hm-setup__slot .status-glyph {
+  color: var(--cmux-app-success);
+}
+.hm-setup__slot {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 72px;
+  min-height: 24px;
+}
+.hm-setup__note,
+.hm-setup__all-done {
+  margin: 0;
+  color: var(--cmux-text-tertiary);
+  font-size: var(--text-detail);
+}
+.hm-setup__all-done {
+  color: var(--cmux-text-secondary);
+}
+/* The checklist sits on the chat column with no card of its own, over the composer. */
+.hm-setup[data-look="checklist"] {
+  padding: 0 12px;
+  border: 0;
+  background: none;
+}
+/* Comparison only: the same rows as the first-run window would hold them. */
+.hm-setup[data-look="window"] {
+  max-width: none;
+  height: 100%;
+  padding: 32px 32px 24px;
+  border: 0;
+  background: none;
+}
+.hm-setup[data-look="window"] .hm-setup__title {
+  font-size: var(--text-title);
+}
+.hm-setup[data-look="window"] .hm-setup__rows {
+  padding: 0 12px;
+  border: 1px solid var(--cmux-separator);
+  border-radius: 6px;
+  background: var(--cmux-elevated-background);
+}
+.hm-setup__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: auto;
 }

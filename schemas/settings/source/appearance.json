@@ -1009,7 +1009,7 @@
           },
           "help": {
             "key": "settings.appearance.density.help",
-            "text": "Row height, padding, corners, icons and text size together. Compact is the default."
+            "text": "Row height, padding, corners, icons and text size together."
           },
           "kind": "choice",
           "swift_owner": "DensitySetting",
@@ -1036,8 +1036,8 @@
             {
               "value": "cozy",
               "title": {
-                "key": "settings.choice.cozy",
-                "text": "Cozy"
+                "key": "settings.choice.default",
+                "text": "Default"
               }
             },
             {
@@ -1055,13 +1055,15 @@
               }
             }
           ],
-          "default": "compact",
+          "default": "cozy",
           "keywords": [
             "size",
             "spacing",
             "compact",
             "comfortable",
             "cozy",
+            "default",
+            "normal",
             "spacious",
             "dense",
             "font"
@@ -1101,7 +1103,11 @@
           "key": "app.uiScale",
           "title": {
             "key": "settings.appearance.uiScale",
-            "text": "Interface Scale"
+            "text": "App Zoom"
+          },
+          "help": {
+            "key": "settings.appearance.uiScale.help",
+            "text": "Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app."
           },
           "kind": "number",
           "swift_owner": "UIScaleSetting",
@@ -1120,18 +1126,19 @@
             "chrome",
             "web",
             "bigger",
-            "smaller"
+            "smaller",
+            "interface scale"
           ]
         },
         {
           "key": "appearance.metrics.chromeFontSize",
           "title": {
-            "key": "settings.appearance.interfaceSize",
-            "text": "Interface Size"
+            "key": "settings.appearance.textSize",
+            "text": "Text Size"
           },
           "help": {
-            "key": "settings.appearance.interfaceSize.help",
-            "text": "Text size of tabs, the sidebar and other controls. Terminal text has its own size."
+            "key": "settings.appearance.textSize.help",
+            "text": "Text size of tabs, the sidebar, chat and other controls, over the density's. Terminal text has its own size."
           },
           "kind": "number",
           "swift_owner": "InterfaceSizeSetting",
@@ -1151,6 +1158,8 @@
             "font",
             "text",
             "size",
+            "density",
+            "interface size",
             "chromeFontSize"
           ]
         },
@@ -1652,7 +1661,7 @@
           },
           "help": {
             "key": "settings.ui.paneAnimations.help",
-            "text": "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once."
+            "text": "Splits, closes, moves, zooms and column scrolls slide into place. Off: they change at once."
           },
           "kind": "toggle",
           "swift_owner": "PaneAnimationsSetting",
@@ -1712,50 +1721,6 @@
             "animation",
             "workspace",
             "sidebar"
-          ]
-        },
-        {
-          "key": "ui.animations.bounce",
-          "name": "bounce",
-          "title": {
-            "key": "settings.ui.animations.bounce",
-            "text": "Animation Bounce"
-          },
-          "help": {
-            "key": "settings.ui.animations.bounce.help",
-            "text": "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce."
-          },
-          "kind": "choice",
-          "swift_owner": {
-            "type": "AnimationKindsSetting",
-            "prefixed": true
-          },
-          "swift_enum": {
-            "name": "MotionBounce",
-            "generated": false,
-            "module": "CmuxNextDesign"
-          },
-          "choices": [
-            {
-              "value": "none",
-              "title": {
-                "key": "settings.choice.none",
-                "text": "None"
-              }
-            },
-            {
-              "value": "subtle",
-              "title": {
-                "key": "settings.choice.subtle",
-                "text": "Subtle"
-              }
-            }
-          ],
-          "default": "none",
-          "keywords": [
-            "motion",
-            "spring",
-            "bounce"
           ]
         }
       ]

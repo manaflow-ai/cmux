@@ -360,7 +360,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   const COMMAND = 'button[aria-expanded][data-tool-id="c1"]';
   const commandToggle = (page: Page) => page.locator(COMMAND).first();
 
-  test("the transcript and the composer share one column, inset by the page edge, wider in wide panes", async () => {
+  test("the transcript and the composer share one column, inset by the page edge, Chat Text Width wide", async () => {
     const chat = newChat();
     const columns: Record<number, { main: number; row: number[]; composer: number[]; edge: number }> = {};
     for (const width of [480, 900, 1400, 1900]) {
@@ -399,9 +399,12 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
       expect({ viewport, composer }).toEqual({ viewport, composer: row });
     // A narrow pane leaves the page edge on each side.
     expect(columns[480]!.row).toEqual([pageEdge, pageEdge]);
-    // A wide pane gives the column more room, to a readable cap; it stays centered.
-    expect(column(1900)).toBeGreaterThan(column(900));
-    expect(column(1900)).toBeLessThanOrEqual(800);
+    // Every pane that fits it draws Chat Text Width's 800px (within the whole-pixel inset's 1px), not a
+    // share of the pane (https://github.com/manaflow-ai/cmux/issues/36299); it stays centered.
+    for (const viewport of [900, 1400, 1900]) {
+      expect(column(viewport)).toBeGreaterThanOrEqual(800);
+      expect(column(viewport)).toBeLessThanOrEqual(801);
+    }
     expect(Math.abs(columns[1900]!.row[0]! - columns[1900]!.row[1]!)).toBeLessThanOrEqual(1);
   });
 
@@ -546,6 +549,8 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
         top: Math.round(text.top - box.top),
         bottom: Math.round(box.bottom - text.bottom),
         right: Math.round(row.right - box.right),
+        height: box.height,
+        oneLine: text.bottom - text.top < 1.5 * parseFloat(getComputedStyle(node).lineHeight),
       };
     });
     // Tinted glass (Leo 2026-10-20): the window shows through, but the tint is there.
@@ -555,8 +560,13 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     // 16 at the sides, as ChatGPT and Claude (design/transcript-spacing.md "Prompt bubble").
     expect(bubble.left).toBeGreaterThanOrEqual(BUBBLE.paddingInline - 2);
     expect(bubble.left).toBeLessThanOrEqual(BUBBLE.paddingInline);
-    expect(Math.abs(bubble.top - bubble.left)).toBeLessThanOrEqual(2);
-    expect(Math.abs(bubble.bottom - bubble.left)).toBeLessThanOrEqual(2);
+    // The text sits centred in the bubble's height: one line is 44 tall, its block padding what the line
+    // leaves (design/transcript-spacing.md "Prompt bubble", BUBBLE.oneLine). The glyph box's top and
+    // bottom gaps are equal; how they compare with the 16 at the sides depends on the face's ascent
+    // (DejaVu's put them within 2 of it, Inter's taller ascent 3 off), which the spec
+    // does not fix.
+    expect(Math.abs(bubble.top - bubble.bottom)).toBeLessThanOrEqual(1);
+    if (bubble.oneLine) expect(Math.abs(bubble.height - BUBBLE.oneLine)).toBeLessThanOrEqual(0.5);
     expect(bubble.right).toBe(0);
     await page.close();
   });

@@ -76,14 +76,15 @@ import Testing
     /// tabs.patch (tab_close_button.cc): the x's hover is a rounded rect, not Chrome's circle. It is
     /// concentric with the pill (2026-11-04): the default 16 pt button sits 4 pt inside the 24 pt pill.
     /// In Helium's 8 pt pill that was Helium's `kCornerRadius` 4; since the default outer radius is the
-    /// omnibar's 8 pt (Lawrence 2026-11-05, 99d72e1ba3a: "default roundness is too round now"), the pill
-    /// is 6 pt and the x's hover nested 4 pt inside it is 2 pt.
+    /// omnibar's 8 pt (Lawrence 2026-11-05, 99d72e1ba3a) the pill was 6 pt; with the main pane concentric
+    /// with the 16 pt window across its 6 pt gutter (Lawrence 2026-11-07), the card is 10 pt, the pill 2 pt
+    /// inside it 8 pt and the x's hover nested 4 pt inside that 4 pt: Helium's `kCornerRadius` again.
     @Test func tabCloseHoverIsARoundedRectConcentricWithThePill() {
         let metrics = TabStripMetrics.standard
         let side = metrics.closeButtonSize
         let pill = CGRect(x: 0, y: 0, width: 120, height: metrics.tabHeight)
         let close = CGRect(x: pill.maxX - metrics.contentTrailingInset - side, y: (pill.height - side) / 2, width: side, height: side)
-        #expect(metrics.cornerRadius == 6 && (pill.height - side) / 2 == 4, "pill \(metrics.cornerRadius) pt, x inset \((pill.height - side) / 2) pt")
-        #expect(metrics.nestedCornerRadius(close, in: pill) == 2)
+        #expect(metrics.cornerRadius == 8 && (pill.height - side) / 2 == 4, "pill \(metrics.cornerRadius) pt, x inset \((pill.height - side) / 2) pt")
+        #expect(metrics.nestedCornerRadius(close, in: pill) == 4)
     }
 }

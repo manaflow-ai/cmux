@@ -26,8 +26,10 @@ public extension WindowOverlayHost {
             scrim = view
         }
         content.removeFromSuperview()
-        // Presented again while its close was fading out.
-        content.alphaValue = 1
+        // Presented again while its close was fading out. A content that keeps its own alpha keeps it
+        // here, before `syncPanel()` orders the panel in and commits a frame: set back by the caller
+        // after this call, it showed one frame at full opacity first.
+        if !options.keepsContentAlpha { content.alphaValue = 1 }
         if case .pane(let clip) = options.effectiveLayer, !isAppHost {
             let clipView = OverlayClipView(frame: clip)
             clipView.addSubview(content)
@@ -124,6 +126,12 @@ public extension WindowOverlayHost {
         return NSRect(x: frame.minX + rect.minX, y: y, width: rect.width, height: rect.height)
     }
 
+    /// Where the overlay takes clicks (window coordinates), nil for its whole frame: a dialog's
+    /// card (``OverlayOptions/mouseRect``).
+    func clickRegions(of handle: OverlayHandle) -> [NSRect]? {
+        mouseRect(of: handle).map { [$0] }
+    }
+
     /// What of the overlay shows (window coordinates): a `.pane` overlay
     /// inside its clip and outside every occluder.
     func visibleRegion(of handle: OverlayHandle) -> [NSRect] {
@@ -174,7 +182,9 @@ public extension WindowOverlayHost {
             if let region = options.modalRegion { rects.append(region) }
             if !options.passesThroughClicks {
                 let visible = visibleRegion(of: handle)
-                rects += mouseRect(of: handle).map { mouse in visible.map { $0.intersection(mouse) }.filter { !$0.isEmpty } } ?? visible
+                rects += clickRegions(of: handle).map { regions in
+                    regions.flatMap { region in visible.map { $0.intersection(region) } }.filter { !$0.isEmpty }
+                } ?? visible
             }
             return rects
         }

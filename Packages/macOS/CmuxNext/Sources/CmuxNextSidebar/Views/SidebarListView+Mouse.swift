@@ -47,7 +47,10 @@ extension SidebarListViewComponents {
         case let .workspace(id):
             // A control-click is a right-click: its menu (`menu(for:)`) neither selects nor switches.
             guard !model.isPlaceholder(id), !flags.contains(.control) else {
-                self.press = nil
+                // A row still being created selects nothing (the daemon has no workspace yet), but a press on it can
+                // still become a drag: Leo 2026-11-06, "I can no longer drag them, or I can only drag them after a
+                // super long time". Its drop is the create's slot (`SidebarBridge`, `reslotCreates`).
+                self.press = model.isCreating(id) && !flags.contains(.control) && event.clickCount == 1 ? press : nil
                 return
             }
             if event.clickCount == 2, flags.isEmpty {
