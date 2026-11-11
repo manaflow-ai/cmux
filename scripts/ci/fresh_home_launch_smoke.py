@@ -597,6 +597,7 @@ def crash_report_launch_time(path: Path) -> float | None:
 
 
 NO_PROCESS = "it names no process"
+NO_PROCESS_REREAD_SECONDS = 3.0
 
 
 def not_of_launch(path: Path, pid: int, app: Path, earlier: frozenset[int], started: float | None = None,
@@ -860,8 +861,12 @@ def launch_crash_reports(diagnostics: Path, executable: str, since: float, exite
         return why
 
     crashes = awaited_crash_reports(diagnostics, executable, since, exited, skip)
-    if not crashes and any(why.startswith(NO_PROCESS) for why in not_counted.values()):
-        time.sleep(2)  # a report that was read while macOS wrote it names its process by now
+    # A report that was read while macOS wrote it names its process a moment later: read again until each
+    # report names one (or counts), for NO_PROCESS_REREAD_SECONDS at most (one of a format without a pid never does).
+    deadline = time.monotonic() + NO_PROCESS_REREAD_SECONDS
+    while (not crashes and time.monotonic() < deadline
+           and any(why.startswith(NO_PROCESS) for why in not_counted.values())):
+        time.sleep(0.5)
         crashes = awaited_crash_reports(diagnostics, executable, since, False, skip)
     return crashes, {found: not_counted[found] for found in sorted(not_counted) if found not in crashes}
 
