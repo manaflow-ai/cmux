@@ -2140,6 +2140,7 @@ async fn dispatch_request_with_identity(
             let workspace_id = crate::session_env::workspace_id(mux_meta(&params), &env)?;
             let through = super::fork_through::through(&params);
             let start_later = super::fork_through::starts_later(&params);
+            let retarget = super::fork_through::retarget(&params)?;
             let who = who(conn);
             let (new, warning) = if let Some(prompt) =
                 params.pointer("/_meta/acpmux/beforePromptId").and_then(Value::as_str)
@@ -2158,8 +2159,34 @@ async fn dispatch_request_with_identity(
                     if crate::hub::fork_cancel::cancelled() {
                         return Err(crate::hub::fork_cancel::cancelled_refusal());
                     }
-                    let fork = hub.fork(&s, name, cwd, env, workspace_id, through, start_later);
-                    let new = admitted.run(fork).await?;
+                    // Onto another harness (`_meta.acpmux.harness`, `hub/fork.rs` `Retarget`): a
+                    // pick of another harness's model in a started chat, at its next send.
+                    let new = match retarget {
+                        Some(retarget) => {
+                            let fork = hub.fork_to(
+                                &s,
+                                retarget,
+                                name,
+                                cwd,
+                                env,
+                                workspace_id,
+                                start_later,
+                            );
+                            admitted.run(fork).await?
+                        }
+                        None => {
+                            let fork = hub.fork(
+                                &s,
+                                name,
+                                cwd,
+                                env,
+                                workspace_id,
+                                through,
+                                start_later,
+                            );
+                            admitted.run(fork).await?
+                        }
+                    };
                     Ok((new, admitted.warning.clone()))
                 };
                 hub.fork_cancellable(token, fork).await?

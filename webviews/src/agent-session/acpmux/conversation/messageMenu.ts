@@ -72,6 +72,11 @@ const forkServed = (snapshot: AcpmuxSnapshot) =>
   snapshot.connection !== "disconnected" &&
   !snapshot.connection.startsWith("connecting");
 
+/// Whether a pick of another harness's model can fork the chat onto it in place (forkHold.ts, App.tsx
+/// `chat.forkTo`): acpmux here serves forks of this chat. A connection that drops for a moment keeps
+/// the pick; the send then fails and the composer keeps the message.
+export const switchForks = (snapshot: AcpmuxSnapshot) => Boolean(snapshot.canFork) && !snapshot.summary?.peer;
+
 /// Whether a turn can be forked now: acpmux serves the fork (`forkServed`) and no turn is running.
 /// The turn footer's Fork shows on the same rule. The whole chat forks while it works too
 /// (`forkToTarget`).

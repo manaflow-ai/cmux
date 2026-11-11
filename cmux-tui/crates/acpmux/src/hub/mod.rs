@@ -65,6 +65,7 @@ mod agent_messaging_tests;
 #[cfg(test)]
 mod first_work_tests;
 mod fork;
+pub use fork::Retarget;
 #[cfg(test)]
 mod host_notice_tests;
 #[cfg(test)]
@@ -170,6 +171,8 @@ mod prompt_ledger;
 mod prompt_line;
 #[cfg(test)]
 mod prompt_line_tests;
+#[cfg(test)]
+mod fork_retarget_tests;
 /// Whether a prompt block is acpmux's lead mark of who wrote it (`prompt_attribution.rs`).
 pub fn prompt_attribution_lead(block: &Value) -> bool {
     prompt_attribution::is_lead(block)

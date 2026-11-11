@@ -48,6 +48,28 @@ pub(super) fn starts_later(params: &Value) -> bool {
     params.pointer("/_meta/acpmux/startLater").and_then(Value::as_bool).unwrap_or(false)
 }
 
+/// The harness a `session/fork` forks onto (`_meta.acpmux.harness`, with `model`): a pick of
+/// another harness's model in a started chat, at its next send (`hub/fork.rs` `Retarget`).
+pub(super) fn retarget(params: &Value) -> Result<Option<crate::hub::Retarget>, RpcError> {
+    let text = |key: &str| -> Result<Option<String>, RpcError> {
+        match params.pointer(&format!("/_meta/acpmux/{key}")) {
+            None | Some(Value::Null) => Ok(None),
+            Some(Value::String(s)) if !s.trim().is_empty() && s.len() <= 256 => Ok(Some(s.clone())),
+            Some(_) => Err(RpcError::invalid_params(format!(
+                "_meta.acpmux.{key} must be a nonempty string of at most 256 bytes"
+            ))),
+        }
+    };
+    let model = text("model")?;
+    Ok(match text("harness")? {
+        Some(harness) => Some(crate::hub::Retarget { harness, model }),
+        None if model.is_some() => {
+            return Err(RpcError::invalid_params("_meta.acpmux.model needs _meta.acpmux.harness"));
+        }
+        None => None,
+    })
+}
+
 /// The earlier turn a `session/fork` from `acp.session.fork` forks through.
 pub(super) fn through(params: &Value) -> Option<u64> {
     params.pointer("/_meta/acpmux/throughSeq").and_then(Value::as_u64)
@@ -138,6 +160,12 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
         let mut mux = cancel_token(params);
         for key in ["via", "requireFullAccess"] {
             if let Some(value) = params.pointer(&format!("/_meta/acpmux/{key}")) {
+                mux.insert(key.into(), value.clone());
+            }
+        }
+        // A pick of another harness's model, sent (`hub/fork.rs` `Retarget`).
+        for key in ["harness", "model"] {
+            if let Some(value) = params.get(key).filter(|v| v.is_string()) {
                 mux.insert(key.into(), value.clone());
             }
         }
