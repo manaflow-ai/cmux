@@ -5,11 +5,20 @@
 // a chip that opens into the band. Leo, 2026-11-07: "the composer hat can become a dual thing where
 // you can go through it and, like, click left and right through things and be able to answer things
 // as they come".
+// Its × (Leo, 2026-11-11: "there's no close button :("): three ways to show it, all with Escape.
+// Shipped: on hover, in a room it keeps at rest (dismiss-hover). Compared: always shown
+// (dismiss-always), and over the band's corner in no room of its own (dismiss-corner), which covers
+// the pager and is why the × keeps a room.
 import { componentEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { hatQuestionsLook } from "./hatQuestions.experiment";
 
-type Props = { count?: number; look?: "band" | "line" | "chip" };
+type Props = {
+  count?: number;
+  look?: "band" | "line" | "chip";
+  dismissLook?: "hover" | "always" | "corner";
+  first?: "child";
+};
 
 const prompt = (ctx: PlayContext) => ctx.document.querySelector(".acpmux-hat-questions__prompt")?.textContent ?? "";
 const position = (ctx: PlayContext) => ctx.document.querySelector(".acpmux-hat-questions__position")?.textContent ?? "";
@@ -33,6 +42,14 @@ export const hatQuestionsScript = [
     run: async (ctx: PlayContext) => {
       await ctx.click({ selector: ".acpmux-hat-questions__answer" });
       await ctx.waitFor(() => !prompt(ctx).startsWith("Can you create"));
+    },
+  },
+  {
+    name: "the × puts the shown question away",
+    run: async (ctx: PlayContext) => {
+      const before = prompt(ctx);
+      await ctx.click({ selector: ".acpmux-hat-questions__dismiss" });
+      await ctx.waitFor(() => prompt(ctx) !== before);
     },
   },
   {
@@ -70,6 +87,18 @@ export default componentEntry<Props>({
     chip: {
       note: "The chip arm, folded: the yellow mark and 1 of 3, centred over the composer.",
       props: { look: "chip" },
+    },
+    "dismiss-hover": {
+      note: "Shipped: a started chat's question, its name on a line of its own and the question under it, and the × at the head's end, faded in on hover or focus in a room it keeps at rest, so nothing moves. Escape puts it away too.",
+      props: { first: "child" },
+    },
+    "dismiss-always": {
+      note: "The × always shown, in the same room: findable at a glance, one more mark at rest.",
+      props: { first: "child", dismissLook: "always" },
+    },
+    "dismiss-corner": {
+      note: "The × over the band's top corner, in no room of its own: it sits on the pager and the text runs under it. Rejected.",
+      props: { first: "child", dismissLook: "corner" },
     },
     play: {
       note: "Step to the tagged ask, answer it with a click, then type a reply that withdraws the chat's own question.",

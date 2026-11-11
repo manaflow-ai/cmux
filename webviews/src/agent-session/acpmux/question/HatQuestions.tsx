@@ -13,8 +13,17 @@
 // the step went. Leaving, the band keeps its last question until its height reaches zero, so nothing
 // pops out; with motion off the change is one frame. Questions already waiting when it mounts draw
 // at once. Arms in hatQuestions.experiment.ts.
+//
+// Each question can be put away (Leo, 2026-11-11: "there's no close button :("): the shared × at the
+// head's end (ui/DismissButton.tsx), faded in while the pointer is over the band or the focus is in
+// it, and Escape while the focus is in it. It holds its room at rest, so revealing it moves nothing,
+// and the head's text is cut to the room beside it. Dismissing marks the question seen in this chat
+// (App.tsx `dismissHatQuestion`, waitingAskStore.ts): it leaves the hat, while the ask itself still
+// waits where it was asked (its card, its chat, the sidebar's Needs you dot). A started chat's name
+// takes its own line over the question, so neither is cut at a fixed share of the band.
 import React, { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
+import { DismissButton } from "../../../ui/DismissButton";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { inlineText } from "./inlineText";
@@ -41,6 +50,8 @@ export type HatQuestionActions = {
   showCard(question: HatQuestion): void;
   /// Opens a started chat's question in its chat.
   open(question: HatQuestion): void;
+  /// Puts the question away from the hat: the person has seen it (the × or Escape).
+  dismiss(question: HatQuestion): void;
 };
 
 /// Whether the band's height transition is still running; with motion off it never starts.
@@ -51,11 +62,15 @@ export function HatQuestions({
   questions,
   actions,
   look: lookProp,
+  dismissLook = "hover",
 }: {
   questions: readonly HatQuestion[];
   actions: HatQuestionActions;
   /// The gallery's arm; the pane reads the experiment.
   look?: "band" | "line" | "chip";
+  /// How the × shows: on hover in its own room (shipped), always, or over the band's corner (the
+  /// gallery's comparison, which shows why it needs its own room).
+  dismissLook?: "hover" | "always" | "corner";
 }) {
   const t = useT();
   const [armRead] = useState(() => experimentArm(hatQuestionsLook));
@@ -142,6 +157,30 @@ export function HatQuestions({
     );
   };
   const folded = look === "chip" && !open;
+  const dismiss = () => actions.dismiss(shown);
+  // Escape while the focus is in the band puts the shown question away; a control that used it
+  // first (a menu, a field) keeps it.
+  const escapeKey = (event: React.KeyboardEvent<HTMLFieldSetElement>) => {
+    if (folded || event.key !== "Escape" || event.defaultPrevented || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    dismiss();
+  };
+  const close = !folded && (
+    <DismissButton
+      className="acpmux-hat-questions__dismiss"
+      label={t("message.dismiss")}
+      reveal={dismissLook === "always" ? "always" : "hover"}
+      onDismiss={dismiss}
+    />
+  );
+  // A started chat's name has the head's line to itself, its question the line under it (not in the
+  // one-line arm, which keeps everything on one line).
+  const fromLine = Boolean(shown.who) && look !== "line";
+  const prompt = (
+    <span className="acpmux-hat-questions__prompt" title={shown.prompt}>
+      {inlineText(shown.prompt)}
+    </span>
+  );
   const many = drawn.length > 1;
   // Left and right step through the questions from any of the band's buttons.
   const stepKeys = (event: React.KeyboardEvent<HTMLButtonElement>) => {
@@ -232,6 +271,7 @@ export function HatQuestions({
       data-folded={folded || undefined}
       data-leaving={leaving || undefined}
       data-settled={settled || undefined}
+      data-dismiss={dismissLook}
       style={{ "--acpmux-hat-questions-height": `${arrived && !leaving ? height : 0}px` } as CSSProperties}
       onTransitionEnd={(event) => {
         if (leaving && event.target === event.currentTarget) setKept([]);
@@ -241,7 +281,13 @@ export function HatQuestions({
       }}
     >
       <div ref={inner} className="acpmux-hat-questions__room">
-        <fieldset className="acpmux-hat-questions__body" aria-label={t("hat.questions")}>
+        {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape puts the shown question away from any of its buttons. */}
+        <fieldset
+          className="acpmux-hat-questions__body"
+          aria-label={t("hat.questions")}
+          data-dismiss-host=""
+          onKeyDown={escapeKey}
+        >
           {folded ? (
             <button type="button" className="acpmux-hat-questions__chip" onClick={() => setOpen(true)}>
               <span className="acpmux-hat-questions__mark" aria-hidden="true" />
@@ -253,13 +299,17 @@ export function HatQuestions({
               <div className="acpmux-hat-questions__head">
                 <span className="acpmux-hat-questions__mark" aria-hidden="true" />
                 {shown.tag && <span className="acpmux-hat-questions__tag">{t(TAG_KEY[shown.tag])}</span>}
-                {shown.who && <span className="acpmux-hat-questions__who">{shown.who}</span>}
-                <span className="acpmux-hat-questions__prompt" title={shown.prompt}>
-                  {inlineText(shown.prompt)}
-                </span>
+                {shown.who && (
+                  <span className="acpmux-hat-questions__who" data-line={fromLine || undefined} title={shown.who}>
+                    {shown.who}
+                  </span>
+                )}
+                {!fromLine && prompt}
                 {look === "line" && answers}
                 {pager}
+                {close}
               </div>
+              {fromLine && <div className="acpmux-hat-questions__under">{prompt}</div>}
               {look !== "line" && shown.detail && (
                 <p className="acpmux-hat-questions__detail">{inlineText(shown.detail)}</p>
               )}
