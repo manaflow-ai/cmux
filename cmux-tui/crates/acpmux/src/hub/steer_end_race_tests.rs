@@ -13,6 +13,8 @@ async fn unsent_steer_after_completion(steer_only: bool) {
         // background class a loaded fleet Mac did not end the stand-in's steer turn in 20 s.
         "harnesses": {"fake": {
             "argv": ["/usr/bin/env", "FAKE_CODEX_STEER=1", "python3", fake],
+            // Steering as codex-acp does: the family a setting word gave it before.
+            "family": "codex",
             "env": {"ACPMUX_SESSION_CPU_CLASS": "normal"},
         }},
         "defaultHarness": "fake",

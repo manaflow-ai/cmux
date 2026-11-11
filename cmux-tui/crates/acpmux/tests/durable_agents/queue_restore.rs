@@ -528,7 +528,7 @@ async fn a_turn_a_restart_cut_off_resumes_first_and_its_steer_and_queue_deliver_
     daemon.sigterm();
     std::fs::write(
         daemon.home.join("config.json"),
-        json!({"harnesses": {"fake": {"argv": steering}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
+        json!({"harnesses": {"fake": {"argv": steering, "family": "claude"}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
     )
     .unwrap();
     daemon.start();
