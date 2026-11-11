@@ -26,6 +26,9 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
+
 WORKFLOWS = ROOT / ".github" / "workflows"
 
 # Workflows that run CI, with the labels they react to.
@@ -89,7 +92,7 @@ def evaluate(expr: str, event: dict) -> bool:
     return bool(eval(py, {"__builtins__": {}}, {}))  # noqa: S307 - the input is our own constant
 
 
-NOT_ON_PULL_REQUEST = re.compile(r"^(!cancelled\(\) && )?github\.event_name == '(workflow_dispatch|push)' &&")
+PUSH_OR_DISPATCH = re.compile(r"github\.event_name\s*==\s*'(workflow_dispatch|push)'")
 # On a pull_request event github.ref is refs/pull/N/merge, never a branch, so a job gated first on a branch ref
 # never runs there. Not so for pull_request_target, whose github.ref is the base branch.
 ON_BRANCH_REF = re.compile(r"^(!cancelled\(\) && )?github\.ref == 'refs/heads/[^']+' &&")
@@ -108,8 +111,10 @@ def top_level_or(condition: str) -> bool:
 
 
 def never_on_pull_request(condition: str) -> bool:
-    """Whether a job condition keeps the job off every pull request event: it needs a push or a dispatch."""
-    return bool(NOT_ON_PULL_REQUEST.match(condition))
+    """Whether a job condition keeps the job off every pull request event: every way it can be true needs a push
+    or a dispatch term (tests/workflow_jobs.expression_requires), and every event term in it is one of those."""
+    return (workflow_jobs.expression_requires(condition, lambda atom: bool(PUSH_OR_DISPATCH.fullmatch(atom)))
+            and workflow_jobs.events_only(condition, {"push", "workflow_dispatch"}))
 
 
 PUSH = "github.event_name == 'push'"

@@ -27,7 +27,9 @@ publishes, or a `${{ secrets.* }}` read (signing material) in the called workflo
 A gate counts only if it REQUIRES the release ref. The condition is split at top-level `||` (every alternative must
 require it) and `&&` (one conjunct is enough), so `tag-gate || github.event_name == 'workflow_dispatch'` is no gate.
 For a policy with an event list (app-ffi-release.yml: push and workflow_dispatch) the gate must also carry an event
-term, and an event term naming any other event (workflow_run, repository_dispatch, schedule) is refused too.
+term, and every event term must be `github.event_name == '<an allowed event>'`: one naming any other event
+(workflow_run, repository_dispatch, schedule), a `!=`, a contains() or a term under `!` is refused, even beside an
+allowed one (tests/workflow_jobs.event_terms reads each).
 A step is gated by its own `if`, its job's `if`, or a job it `needs` that is gated, unless the job's `if` holds
 always(), failure() or cancelled() (then it runs even when the gated job was skipped).
 
@@ -78,18 +80,8 @@ def _strip(expression: Any) -> str:
     return text
 
 
-def requires(expression: Any, atom: Callable[[str], bool]) -> bool:
-    """Whether every way the condition can be true needs `atom`: all alternatives of `||`, any conjunct of `&&`."""
-    text = _strip(expression)
-    while workflow_jobs._wrapped(text):
-        text = text[1:-1].strip()
-    alternatives = workflow_jobs._split_top(text, "||")
-    if len(alternatives) > 1:
-        return all(requires(part, atom) for part in alternatives)
-    conjuncts = workflow_jobs._split_top(text, "&&")
-    if len(conjuncts) > 1:
-        return any(requires(part, atom) for part in conjuncts)
-    return atom(text)
+# Whether every way the condition can be true needs `atom`: all alternatives of `||`, any conjunct of `&&`.
+requires = workflow_jobs.expression_requires
 
 
 def event_term(atom: str, allowed: frozenset) -> bool:
@@ -107,7 +99,10 @@ def gated(expression: Any, policy: Policy) -> bool:
         return False
     # A ref alone would let a trigger added later (workflow_run, repository_dispatch, schedule on that branch)
     # publish unnoticed, so the gate names the events that may, and every alternative of it names only those.
-    return not policy.events or requires(expression, lambda atom: event_term(atom, policy.events))
+    # Finding an allowed event term is not enough: `branch && push && github.event_name == 'workflow_run'` holds
+    # one, so every event term (==, !=, contains(), one under `!`) must also be an `==` of an allowed event.
+    return not policy.events or (requires(expression, lambda atom: event_term(atom, policy.events))
+                                 and workflow_jobs.events_only(expression, policy.events))
 
 
 RELEASE_PATH = re.compile(r"releases|/git/(tags|refs)|(^|/)tags(/|$)")

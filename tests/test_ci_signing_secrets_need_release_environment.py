@@ -131,8 +131,11 @@ def environment_values(document: dict, job: dict) -> set[str] | None:
 
 
 def binds_dispatch_and_exact_ref(condition: str) -> bool:
-    """Whether a job condition lets the job run only on a dispatch of an exact protected ref."""
-    return bool(DISPATCH_ONLY.search(condition) and EXACT_BRANCH_REF.search(condition))
+    """Whether a job condition lets the job run only on a dispatch of an exact protected ref: every way it can be
+    true needs both terms (tests/workflow_jobs.expression_requires), and every event term in it is the dispatch."""
+    return (workflow_jobs.expression_requires(condition, lambda atom: bool(DISPATCH_ONLY.fullmatch(atom)))
+            and workflow_jobs.expression_requires(condition, lambda atom: bool(EXACT_BRANCH_REF.fullmatch(atom)))
+            and workflow_jobs.events_only(condition, {"workflow_dispatch"}))
 
 
 DISPATCH = "github.event_name == 'workflow_dispatch'"
