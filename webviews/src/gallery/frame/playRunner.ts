@@ -110,6 +110,27 @@ export async function selectTextWithDriver(element: Element, driver?: InputDrive
 
 const nextFrame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
 
+/**
+ * One neutral frame of the stage before a state's play: an empty layer the stage draws and takes
+ * away, each in a frame of its own. It is no part of the component the state shows, it sends no
+ * input, and it is not a step: nothing times it, nothing judges it and no report has it.
+ */
+export async function drawNeutralFrame(): Promise<void> {
+  const layer = document.createElement("div");
+  layer.setAttribute("aria-hidden", "true");
+  layer.dataset.galleryNeutralFrame = "";
+  // Painted (a compositor layer of one pixel that no eye can tell from the page), fixed and
+  // contained, so it moves nothing and no layout shift or box of the state sees it.
+  layer.style.cssText =
+    "position:fixed;top:0;left:0;width:1px;height:1px;background:#000;opacity:0.004;pointer-events:none;contain:strict;will-change:opacity";
+  document.body.append(layer);
+  await nextFrame();
+  await nextFrame();
+  layer.remove();
+  await nextFrame();
+  await nextFrame();
+}
+
 let actionSequence = 0;
 
 /** What the play clicked itself (a plain `element.click()` on a toggle, not `ctx.click`) since the

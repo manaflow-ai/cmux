@@ -1,6 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { runPlay, selectTextWithDriver, syntheticKey, syntheticPointer } from "../src/gallery/frame/playRunner";
+import {
+  drawNeutralFrame,
+  runPlay,
+  selectTextWithDriver,
+  syntheticKey,
+  syntheticPointer,
+} from "../src/gallery/frame/playRunner";
 import { isSubpixelLayoutShift, longFramePart } from "../src/gallery/play";
 
 const scope = globalThis as Record<string, unknown>;
@@ -300,6 +306,31 @@ describe("gallery play settle budget", () => {
     expect(step.settleMs).toBeGreaterThan(20);
     expect(step.status).toBe("warn");
     expect(step.problems.join("\n")).toMatch(/settle latency .* \(limit 20 ms; rAF timing, not a gate\)/);
+  });
+});
+
+describe("the stage's neutral frame", () => {
+  test("draws a layer of its own for two frames, takes it away, and leaves the state as it was", async () => {
+    const restore = [["requestAnimationFrame", "requestAnimationFrame" in scope, scope.requestAnimationFrame] as const];
+    scope.requestAnimationFrame = dom.window.requestAnimationFrame.bind(dom.window);
+    const root = document.getElementById("root")!;
+    root.innerHTML = "<button id=kept>Kept</button>";
+    const before = root.innerHTML;
+    const layers = () => document.querySelectorAll("[data-gallery-neutral-frame]").length;
+    try {
+      const drawn = drawNeutralFrame();
+      expect(layers(), "the layer is in the page while its frames draw").toBe(1);
+      expect(root.querySelector("[data-gallery-neutral-frame]"), "outside the state's own root").toBeNull();
+      await drawn;
+      expect(layers(), "the layer is gone").toBe(0);
+      expect(root.innerHTML).toBe(before);
+      expect(document.activeElement).toBe(document.body);
+    } finally {
+      for (const [key, had, value] of restore) {
+        if (had) scope[key] = value;
+        else delete scope[key];
+      }
+    }
   });
 });
 
