@@ -32,9 +32,13 @@ tests/test_risk_tier.py that reads `ROOT / ".github/workflows/risk-tier.yml"`; r
 checked out only the test and its script, so CI died with FileNotFoundError. For each test file
 (test_*.py or *_test.py) the list names by exact path and the job's `run:` steps name, every path
 it builds statically (`ROOT / "a/b"`, `ROOT / "a" / "b"`, `ROOT.joinpath(...)`, `.parents[n]`,
-`os.path.join(HERE, ...)`, `open("a/b")`, `Path("a/b")`) that is a file in the repo must be
-checked out, by the same git oracle. A name counts only when every assignment to it gives the same
-repo path, so tmp fixtures never count.
+`os.path.join(HERE, ...)`, `open("a/b")`, `Path("a/b")`, `FILE = "a/b"; open(FILE)`) and reads or
+runs (open() for reading, read_text/read_bytes, a module loaded by file, an argv element of a
+subprocess, a path option's default, a call into its own function that reads that parameter) must
+be checked out when it is a file in the repo, by the same git oracle. Writes do not count. A name's
+value is the one live at the read, in program order (branches and loops keep what every path agrees
+on), and a function sees a module name only when every assignment to it gives the same path, so
+tmp fixtures never count. _ReadFinder has the details.
 
 Plain scripts the job runs are checked the same way: perf-cron.py reads perf-budgets.json, and the
 measure job of cmux-next-perf-budgets.yml checks out perf-cron.py alone. A script's subcommand may
@@ -355,7 +359,7 @@ def _norm(rel: str) -> str | None:
     out = posixpath.normpath(rel) if rel else ""
     if out == ".":
         return ""
-    if out == ".." or out.startswith("../"):
+    if out == ".." or out.startswith("../") or (rel.startswith(_PARAM) and not out.startswith(_PARAM)):
         return None
     return out
 
@@ -365,12 +369,25 @@ def _join(base: str, *parts: str) -> str | None:
 
 
 def _dirname(rel: str) -> str | None:
+    if rel.startswith(_PARAM) and "/" not in rel:
+        return None  # a parameter's folder is unknown
     return None if rel == "" else rel.rsplit("/", 1)[0] if "/" in rel else ""
 
 
-_PATH_CALLS = {"Path", "PurePath", "PosixPath", "pathlib.Path"}
+_PATH_CALLS = {"Path", "PurePath", "PosixPath", "pathlib.Path", "pathlib.PurePath", "pathlib.PosixPath"}
 _IDENTITY_METHODS = {"resolve", "absolute", "expanduser"}
 _IDENTITY_OS = {"os.path.abspath", "os.path.realpath", "os.path.normpath", "os.fspath", "str"}
+# Calls that run their argument (a script path in an argv list or alone): the job needs that file too.
+_RUN_CALLS = {"subprocess.run", "subprocess.call", "subprocess.check_call", "subprocess.check_output",
+              "subprocess.Popen", "check_call", "check_output", "Popen"}
+# Calls that load the file at a positional index (or keyword).
+_LOAD_CALLS = {"spec_from_file_location": (1, "location"), "SourceFileLoader": (1, "path"),
+               "run_path": (0, "path_name"), "copyfile": (0, "src"), "copy": (0, "src"), "copy2": (0, "src")}
+_LOAD_MODULES = {"spec_from_file_location": "importlib.util", "SourceFileLoader": "importlib.machinery",
+                 "run_path": "runpy", "copyfile": "shutil", "copy": "shutil", "copy2": "shutil"}
+_READ_METHODS = {"read_text", "read_bytes"}
+# A function parameter's value inside its body: `{_PARAM}name` (+ "/suffix" once joined).
+_PARAM = "\0param:"
 
 
 def _dotted(node: ast.AST) -> str | None:
@@ -386,123 +403,395 @@ def _literal(node: ast.AST) -> str | None:
     return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
 
 
-class _RepoPaths:
-    """Evaluates expressions that name a repo-relative path statically.
+def _reads_mode(call: ast.Call, index: int) -> bool:
+    """True when the call's mode (positional `index` or `mode=`) is absent or a literal that reads."""
+    mode: ast.AST | None = call.args[index] if len(call.args) > index else None
+    for keyword in call.keywords:
+        if keyword.arg == "mode":
+            mode = keyword.value
+    if mode is None:
+        return True
+    literal = _literal(mode)
+    return literal is not None and not set(literal) & set("wax")
 
-    `__file__` is the script's own path; `Path("x")` and `open("x")` with a relative literal are
-    taken from the repo root, where the workflow runs them. A name counts only when every
-    assignment to it in the file evaluates to the same path, so a fixture variable reassigned to a
-    tmp dir is never taken for the repo.
+
+def _bound_names(target: ast.AST) -> set[str]:
+    """Names a binding target (or a pattern) rebinds."""
+    out = set()
+    for node in ast.walk(target):
+        if isinstance(node, ast.Name):
+            out.add(node.id)
+        elif isinstance(node, (ast.MatchAs, ast.MatchStar)) and node.name:
+            out.add(node.name)
+        elif isinstance(node, ast.MatchMapping) and node.rest:
+            out.add(node.rest)
+    return out
+
+
+def _local_names(func: ast.AST) -> set[str]:
+    """Names local to a function: its parameters and every name its own body binds (not nested scopes)."""
+    args = func.args
+    names = {a.arg for a in [*args.posonlyargs, *args.args, *args.kwonlyargs]}
+    names |= {a.arg for a in (args.vararg, args.kwarg) if a is not None}
+    declared: set[str] = set()
+    for node in _own_nodes(func.body if isinstance(func.body, list) else [ast.Expr(func.body)]):
+        if isinstance(node, (ast.Global, ast.Nonlocal)):
+            declared.update(node.names)
+        names |= _binds(node)
+    return names - declared
+
+
+def _own_nodes(body: list[ast.stmt]):
+    """Every node of these statements, not descending into nested functions, lambdas or classes."""
+    todo = list(body)
+    while todo:
+        node = todo.pop()
+        yield node
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            continue
+        todo.extend(ast.iter_child_nodes(node))
+
+
+def _binds(node: ast.AST) -> set[str]:
+    """Names one node binds in the scope it runs in."""
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return {node.name}
+    if isinstance(node, ast.Assign):
+        return set().union(*(_bound_names(t) for t in node.targets))
+    if isinstance(node, (ast.AnnAssign, ast.AugAssign, ast.NamedExpr)):
+        return _bound_names(node.target)
+    if isinstance(node, (ast.For, ast.AsyncFor)):
+        return _bound_names(node.target)
+    if isinstance(node, ast.withitem) and node.optional_vars is not None:
+        return _bound_names(node.optional_vars)
+    if isinstance(node, ast.ExceptHandler) and node.name:
+        return {node.name}
+    if isinstance(node, (ast.Import, ast.ImportFrom)):
+        return {(a.asname or a.name).split(".")[0] for a in node.names}
+    if isinstance(node, ast.Delete):
+        return set().union(*(_bound_names(t) for t in node.targets))
+    if isinstance(node, ast.match_case):
+        return _bound_names(node.pattern)
+    return set()
+
+
+def _agree(*envs: dict[str, str]) -> dict[str, str]:
+    """The bindings every path agrees on."""
+    first, *rest = envs
+    return {k: v for k, v in first.items() if all(e.get(k) == v for e in rest)}
+
+
+class _ReadFinder:
+    """The repo paths a script reads, from the value each path expression has where the read happens.
+
+    A read is `open()` in a reading mode, `.read_text()`/`.read_bytes()`/`.open()` on a path, a
+    module loaded by file (`spec_from_file_location`, `SourceFileLoader`, `runpy.run_path`), a copy
+    source, an argv element of a subprocess or `os.exec*`/`os.spawn*` call (running a repo script is
+    a need of the job too), or an argument to one of the script's own functions that reads that
+    parameter. Writes (`open(.., "w")`, `write_text`, `mkdir`) are not reads.
+
+    Names are tracked in program order: an assignment replaces the value, branches keep only what
+    every path agrees on, and a loop body sees what its first and later iterations agree on. A
+    function sees a module name only when every module-level assignment to it gives the same value.
+    A string constant is a path from the repo root (where the job runs the script), so
+    `FILE = "docs/x.yml"; open(FILE)` counts.
     """
 
-    def __init__(self, script: str, tree: ast.AST) -> None:
+    def __init__(self, script: str, tree: ast.Module) -> None:
         self.script = script
-        self.env: dict[str, str] = {}
-        assigns: dict[str, list[ast.AST]] = {}
+        self.tree = tree
+        self.funcs: dict[str, ast.AST] = {}
+        defined: dict[str, int] = {}
         for node in ast.walk(tree):
-            targets: list[ast.AST] = []
-            value = None
-            if isinstance(node, ast.Assign):
-                targets, value = node.targets, node.value
-            elif isinstance(node, (ast.AnnAssign, ast.AugAssign, ast.NamedExpr)):
-                targets, value = [node.target], node.value
-            elif isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
-                targets, value = [node.target], None
-            elif isinstance(node, (ast.With, ast.AsyncWith)):
-                targets = [item.optional_vars for item in node.items if item.optional_vars is not None]
-            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
-                args = node.args
-                targets = [ast.Name(id=a.arg) for a in [*args.posonlyargs, *args.args, *args.kwonlyargs]]
-            for target in targets:
-                for name in ast.walk(target):
-                    if isinstance(name, ast.Name):
-                        ok = isinstance(target, ast.Name) and value is not None and not isinstance(node, ast.AugAssign)
-                        assigns.setdefault(name.id, []).append(value if ok else None)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                defined[node.name] = defined.get(node.name, 0) + 1
+                self.funcs[node.name] = node
+        self.funcs = {n: f for n, f in self.funcs.items() if defined[n] == 1}
+        self.param_reads: dict[str, dict[str, set[str]]] = {}  # function -> parameter -> suffixes read
+        self.globals = self._stable_globals()
+
+    # -- values --
+
+    def _stable_globals(self) -> dict[str, str]:
+        values: dict[str, list[ast.AST | None]] = {}
+        global_in_funcs: set[str] = set()
+        for node in ast.walk(self.tree):
+            if isinstance(node, ast.Global):
+                global_in_funcs.update(node.names)
+        for node in _own_nodes(self.tree.body):
+            names = _binds(node)
+            if not names:
+                continue
+            value = node.value if isinstance(node, ast.Assign) and all(
+                isinstance(t, ast.Name) for t in node.targets) else None
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                value = node.value
+            for name in names:
+                values.setdefault(name, []).append(value)
+        env: dict[str, str] = {}
         changed = True
         while changed:
             changed = False
-            for name, values in assigns.items():
-                if name in self.env or any(v is None for v in values):
+            for name, nodes in values.items():
+                if name in env or name in global_in_funcs or any(v is None for v in nodes):
                     continue
-                results = {self.eval(v) for v in values}
+                results = {self.eval(v, env) for v in nodes}
                 if len(results) == 1 and None not in results:
-                    self.env[name] = results.pop()
+                    env[name] = results.pop()
                     changed = True
+        return env
 
-    def eval(self, node: ast.AST) -> str | None:
+    def _string(self, node: ast.AST, env: dict[str, str]) -> str | None:
+        literal = _literal(node)
+        return literal if literal is not None else self.eval(node, env) if isinstance(node, ast.Name) else None
+
+    def eval(self, node: ast.AST, env: dict[str, str]) -> str | None:
+        if isinstance(node, ast.Constant):
+            return _norm(node.value) if isinstance(node.value, str) and node.value else None
         if isinstance(node, ast.Name):
-            if node.id == "__file__":
-                return self.script
-            return self.env.get(node.id)
+            return self.script if node.id == "__file__" else env.get(node.id)
         if isinstance(node, ast.Attribute):
             if node.attr == "parent":
-                base = self.eval(node.value)
+                base = self.eval(node.value, env)
                 return None if base is None else _dirname(base)
             return None
         if isinstance(node, ast.Subscript):
             if isinstance(node.value, ast.Attribute) and node.value.attr == "parents":
                 index = node.slice
                 if isinstance(index, ast.Constant) and isinstance(index.value, int) and index.value >= 0:
-                    out = self.eval(node.value.value)
+                    out = self.eval(node.value.value, env)
                     for _ in range(index.value + 1):
                         out = None if out is None else _dirname(out)
                     return out
             return None
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
-            base, part = self.eval(node.left), _literal(node.right)
+            base, part = self.eval(node.left, env), self._string(node.right, env)
             return None if base is None or part is None else _join(base, part)
         if isinstance(node, ast.Call):
             func = _dotted(node.func)
+            if func in _PATH_CALLS or func in _IDENTITY_OS:
+                if len(node.args) != 1 or (node.keywords and func not in _PATH_CALLS):
+                    return None
+                return self.eval(node.args[0], env)
             if node.keywords:
                 return None
-            if func in _PATH_CALLS or func in _IDENTITY_OS:
-                if len(node.args) != 1:
-                    return None
-                arg = node.args[0]
-                literal = _literal(arg)
-                if literal is not None:
-                    return _norm(literal) if func in _PATH_CALLS and literal else None
-                return self.eval(arg)
             if func == "os.path.dirname" and len(node.args) == 1:
-                base = self.eval(node.args[0])
+                base = self.eval(node.args[0], env)
                 return None if base is None else _dirname(base)
             if func == "os.path.join" and node.args:
-                base = self.eval(node.args[0])
-                parts = [_literal(a) for a in node.args[1:]]
+                base = self.eval(node.args[0], env)
+                parts = [self._string(a, env) for a in node.args[1:]]
                 return None if base is None or None in parts else _join(base, *parts)
             if isinstance(node.func, ast.Attribute):
                 method = node.func.attr
                 if method in _IDENTITY_METHODS and not node.args:
-                    return self.eval(node.func.value)
+                    return self.eval(node.func.value, env)
                 if method == "joinpath" and node.args:
-                    base = self.eval(node.func.value)
-                    parts = [_literal(a) for a in node.args]
+                    base = self.eval(node.func.value, env)
+                    parts = [self._string(a, env) for a in node.args]
                     return None if base is None or None in parts else _join(base, *parts)
         return None
 
+    # -- reads --
+
+    def _sink_args(self, call: ast.Call) -> list[ast.AST]:
+        """The argument expressions this call reads or runs."""
+        func = _dotted(call.func) or ""
+        last = call.func.attr if isinstance(call.func, ast.Attribute) else func
+        if func in {"open", "io.open"} and call.args:
+            return [call.args[0]] if _reads_mode(call, 1) else []
+        if isinstance(call.func, ast.Attribute) and not call.args and last in _READ_METHODS:
+            return [call.func.value]
+        if isinstance(call.func, ast.Attribute) and last == "open" and func not in {"os.open"}:
+            return [call.func.value] if _reads_mode(call, 0) else []
+        if last in _LOAD_CALLS and (func == last or func == f"{_LOAD_MODULES[last]}.{last}"):
+            index, keyword = _LOAD_CALLS[last]
+            args = [call.args[index]] if len(call.args) > index else []
+            return args + [k.value for k in call.keywords if k.arg == keyword]
+        if last == "add_argument":
+            # A path option's default is what the script opens unless the job passes the option.
+            return [k.value for k in call.keywords if k.arg == "default"]
+        if func in _RUN_CALLS or func.startswith(("os.exec", "os.spawn", "os.posix_spawn")):
+            out = []
+            for arg in [*call.args, *(k.value for k in call.keywords if k.arg == "args")]:
+                out.extend(arg.elts if isinstance(arg, (ast.List, ast.Tuple)) else [arg])
+            return [a for a in out if not isinstance(a, ast.Starred)]
+        return []
+
+    def _call_reads(self, call: ast.Call, env: dict[str, str]) -> list[str]:
+        """Path values this call reads: its own sinks, or a read its callee does with an argument."""
+        out = [v for v in (self.eval(a, env) for a in self._sink_args(call)) if v is not None]
+        callee = self.funcs.get(call.func.id) if isinstance(call.func, ast.Name) else None
+        reads = self.param_reads.get(call.func.id, {}) if callee is not None else {}
+        if reads:
+            args = callee.args
+            positional = [a.arg for a in [*args.posonlyargs, *args.args]]
+            bound = dict(zip(positional, call.args))
+            bound.update({k.arg: k.value for k in call.keywords if k.arg})
+            for param, suffixes in reads.items():
+                value = self.eval(bound[param], env) if param in bound else None
+                if value is not None:
+                    out.extend(v for v in (_join(value, s) if s else value for s in suffixes) if v is not None)
+        return out
+
+    def record(self, expr: ast.AST | None, env: dict[str, str], shadow: frozenset[str] = frozenset()) -> None:
+        """Note every read inside `expr`; names a lambda or comprehension rebinds are unknown in it."""
+        if expr is None:
+            return
+        if shadow:
+            env = {k: v for k, v in env.items() if k not in shadow}
+        if isinstance(expr, ast.Lambda):
+            self.record(expr.body, env, frozenset(_local_names(expr)))
+            return
+        if isinstance(expr, (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)):
+            names = frozenset().union(*(_bound_names(g.target) for g in expr.generators))
+            for child in ast.iter_child_nodes(expr):
+                self.record(child, env, names)
+            return
+        if isinstance(expr, ast.Call):
+            self.reads.extend(self._call_reads(expr, env))
+        for child in ast.iter_child_nodes(expr):
+            if isinstance(child, ast.expr) or isinstance(child, (ast.keyword, ast.comprehension)):
+                self.record(child, env)
+
+    # -- statements --
+
+    def run(self) -> set[str]:
+        """Concrete reads of the whole module; also fills param_reads for calls into its functions."""
+        for _ in range(5):
+            before = {f: {p: set(s) for p, s in ps.items()} for f, ps in self.param_reads.items()}
+            self.reads: list[str] = []
+            self.block(self.tree.body, dict(self.globals), frozenset())
+            if self.param_reads == before:
+                break
+        return {r for r in self.reads if _PARAM not in r}
+
+    def function(self, func: ast.AST, outer_locals: frozenset[str], def_env: dict[str, str]) -> None:
+        local = _local_names(func)
+        hidden = outer_locals | local
+        env = {k: v for k, v in self.globals.items() if k not in hidden}
+        params = [a.arg for a in [*func.args.posonlyargs, *func.args.args, *func.args.kwonlyargs]]
+        assigned = {n for node in _own_nodes(func.body) for n in _binds(node)}
+        for param in params:
+            if param not in assigned:
+                env[param] = _PARAM + param
+        start = len(self.reads)
+        self.block(func.body, env, frozenset(hidden))
+        found: dict[str, set[str]] = {}
+        for value in self.reads[start:]:
+            if value.startswith(_PARAM):
+                name, _, suffix = value[len(_PARAM):].partition("/")
+                found.setdefault(name, set()).add(suffix)
+        # A call that leaves out a parameter reads its default.
+        args = func.args
+        positional = [*args.posonlyargs, *args.args]
+        defaults = [*zip(positional[len(positional) - len(args.defaults):], args.defaults),
+                    *((a, d) for a, d in zip(args.kwonlyargs, args.kw_defaults) if d is not None)]
+        for arg, default in defaults:
+            value = self.eval(default, def_env)
+            if value is not None:
+                self.reads.extend(v for v in (_join(value, s) if s else value
+                                              for s in found.get(arg.arg, ())) if v is not None)
+        if found and func.name in self.funcs and self.funcs[func.name] is func:
+            merged = self.param_reads.setdefault(func.name, {})
+            for name, suffixes in found.items():
+                merged.setdefault(name, set()).update(suffixes)
+
+    def block(self, body: list[ast.stmt], env: dict[str, str], locals_: frozenset[str]) -> dict[str, str]:
+        env = dict(env)
+        for stmt in body:
+            env = self.stmt(stmt, env, locals_)
+        return env
+
+    def _kill(self, env: dict[str, str], names: set[str]) -> dict[str, str]:
+        return {k: v for k, v in env.items() if k not in names}
+
+    def _loop(self, stmt, env, locals_, head) -> dict[str, str]:
+        state = env
+        for _ in range(5):
+            entry = head(state)
+            after = self.block(stmt.body, entry, locals_)
+            merged = _agree(state, after)
+            if merged == state:
+                break
+            state = merged
+        return self.block(stmt.orelse, state, locals_)
+
+    def stmt(self, stmt: ast.stmt, env: dict[str, str], locals_: frozenset[str]) -> dict[str, str]:
+        walrus = {n.target.id for n in ast.walk(stmt) if isinstance(n, ast.NamedExpr)
+                  } if not isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) else set()
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for expr in [*stmt.decorator_list, *stmt.args.defaults, *stmt.args.kw_defaults]:
+                self.record(expr, env)
+            self.function(stmt, locals_, env)
+            return self._kill(env, {stmt.name})
+        if isinstance(stmt, ast.ClassDef):
+            for expr in [*stmt.decorator_list, *stmt.bases]:
+                self.record(expr, env)
+            self.block(stmt.body, env, locals_)
+            return self._kill(env, {stmt.name})
+        if isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+            self.record(stmt.value, env)
+            targets = stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]
+            value = self.eval(stmt.value, env) if stmt.value is not None else None
+            env = self._kill(env, set().union(*(_bound_names(t) for t in targets)) | walrus)
+            if value is not None and len(targets) == 1 and isinstance(targets[0], ast.Name):
+                env[targets[0].id] = value
+            return env
+        if isinstance(stmt, ast.If):
+            self.record(stmt.test, env)
+            env = self._kill(env, walrus)
+            return _agree(self.block(stmt.body, env, locals_), self.block(stmt.orelse, env, locals_))
+        if isinstance(stmt, (ast.For, ast.AsyncFor)):
+            self.record(stmt.iter, env)
+            env = self._kill(env, walrus)
+            target = _bound_names(stmt.target)
+            return self._loop(stmt, env, locals_, lambda e: self._kill(e, target))
+        if isinstance(stmt, ast.While):
+            def head(e):
+                self.record(stmt.test, e)
+                return self._kill(e, walrus)
+            return self._loop(stmt, self._kill(env, walrus), locals_, head)
+        if isinstance(stmt, (ast.With, ast.AsyncWith)):
+            names: set[str] = set(walrus)
+            for item in stmt.items:
+                self.record(item.context_expr, env)
+                names |= _binds(item)
+            return self.block(stmt.body, self._kill(env, names), locals_)
+        if isinstance(stmt, (ast.Try, getattr(ast, "TryStar", ast.Try))):
+            after_body = self.block(stmt.body, env, locals_)
+            assigned = {n for node in _own_nodes(stmt.body) for n in _binds(node)}
+            entry = self._kill(env, assigned)
+            ends = [self.block(stmt.orelse, after_body, locals_)]
+            for handler in stmt.handlers:
+                self.record(handler.type, entry)
+                ends.append(self.block(handler.body, self._kill(entry, _binds(handler)), locals_))
+            return self.block(stmt.finalbody, _agree(*ends), locals_)
+        if isinstance(stmt, ast.Match):
+            self.record(stmt.subject, env)
+            ends = [env]
+            for case in stmt.cases:
+                case_env = self._kill(env, _binds(case))
+                self.record(case.guard, case_env)
+                ends.append(self.block(case.body, case_env, locals_))
+            return _agree(*ends)
+        for child in ast.iter_child_nodes(stmt):
+            if isinstance(child, ast.expr):
+                self.record(child, env)
+        return self._kill(env, _binds(stmt) | walrus)
+
 
 def read_paths(script: str, root: Path) -> set[str]:
-    """Repo files `script` names by a statically known path (`ROOT / "a/b"`, `open("a/b")`, ...).
+    """Repo files `script` reads or runs by a statically known path (`ROOT / "a/b"`, `open(FILE)`, ...).
 
-    Only paths that are files in `root` count; directories, globs and anything built from a
-    variable that is not always the same repo path are skipped.
+    Only paths that are files in `root` count; directories, globs and anything built from a value
+    that is not known where the read happens are skipped.
     """
     try:
         tree = ast.parse((root / script).read_text(encoding="utf-8"))
     except (OSError, SyntaxError, UnicodeDecodeError):
         return set()
-    paths = _RepoPaths(script, tree)
-    found: set[str] = set()
-    for node in ast.walk(tree):
-        rel = None
-        if isinstance(node, ast.Call) and _dotted(node.func) in {"open", "io.open"} and node.args:
-            literal = _literal(node.args[0])
-            rel = _norm(literal) if literal else paths.eval(node.args[0])
-        elif isinstance(node, (ast.BinOp, ast.Call, ast.Subscript, ast.Attribute)):
-            rel = paths.eval(node)
-        if rel and rel != script and (root / rel).is_file():
-            found.add(rel)
-    return found
+    return {rel for rel in _ReadFinder(script, tree).run() if rel and rel != script and (root / rel).is_file()}
 
 
 def _job_run_text(root: Path, workflow: str, job: str) -> str:
@@ -875,6 +1164,107 @@ class SparseCheckoutReadTests(unittest.TestCase):
             """
         )
         self.assertEqual(self._misses({"tests/test_risk_tier.py": body, "docs/x.md": ""}), [])
+
+    def _read_files(self, body: str) -> list[str]:
+        files = {f"docs/{n}": "" for n in ("old.md", "live.md", "gen.md", "w.md", "a.md", "x.md", "c.yml", "d.md",
+                                            "h.md", "p.md", "r.md", "j.json")}
+        files["tools/run.py"] = ""
+        misses = self._misses({"tests/test_risk_tier.py": textwrap.dedent(body), **files})
+        return sorted(m.split(" reads ", 1)[1].split(",", 1)[0] for m in misses)
+
+    def test_f1_only_reads_count_with_the_value_live_at_the_read(self) -> None:
+        # Codex F1 on b57e775d: a repo path later replaced by a tmp path, and writes, counted as reads.
+        body = """\
+            import json
+            import os
+            import tempfile
+            from pathlib import Path
+            ROOT = Path(__file__).resolve().parents[1]
+
+            def test_writes_and_superseded_paths():
+                out = ROOT / "docs/old.md"
+                out = Path(tempfile.mkdtemp()) / "old.md"
+                out.read_text()
+                (ROOT / "docs/gen.md").write_text("x")
+                open(ROOT / "docs/w.md", "w").write("x")
+                with open(os.path.join(ROOT, "docs", "a.md"), mode="a") as f:
+                    f.write("x")
+                (ROOT / "docs/x.md").exists()
+
+            def test_reads_see_the_live_value():
+                p = Path(tempfile.mkdtemp()) / "live.md"
+                p = ROOT / "docs/live.md"
+                p.read_text()
+                with open(ROOT / "docs/r.md") as f:
+                    f.read()
+                json.load((ROOT / "docs/j.json").open())
+        """
+        self.assertEqual(self._read_files(body), ["docs/j.json", "docs/live.md", "docs/r.md"])
+
+    def test_f1_branches_and_loops_keep_only_agreed_values(self) -> None:
+        body = """\
+            import sys
+            from pathlib import Path
+            ROOT = Path(__file__).resolve().parents[1]
+
+            def test_branch(tmp):
+                p = ROOT / "docs/old.md"
+                if sys.argv:
+                    p = Path(tmp)
+                p.read_text()
+                for q in (1, 2):
+                    p.read_text()
+                    p = ROOT / "docs/x.md"
+                r = ROOT / "docs/live.md"
+                for q in (1, 2):
+                    r.read_text()
+        """
+        self.assertEqual(self._read_files(body), ["docs/live.md"])
+
+    def test_f2_constant_string_paths_resolve(self) -> None:
+        # Codex F2 on b57e775d: FILE = "docs/x.yml"; open(FILE) was never resolved.
+        body = """\
+            from pathlib import Path
+            ROOT = Path(__file__).resolve().parents[1]
+            CONFIG = "docs/c.yml"
+            NAME = "x.md"
+            CHANGED = "docs/old.md"
+            CHANGED = "docs/gen.md"
+
+            def test_constants():
+                open(CONFIG).read()
+                (ROOT / "docs" / NAME).read_text()
+                open(CHANGED).read()
+                local = "docs/live.md"
+                Path(local).read_text()
+        """
+        self.assertEqual(self._read_files(body), ["docs/c.yml", "docs/live.md", "docs/x.md"])
+
+    def test_runs_defaults_and_helpers_count_as_reads(self) -> None:
+        body = """\
+            import argparse
+            import subprocess
+            import sys
+            from pathlib import Path
+            ROOT = Path(__file__).resolve().parents[1]
+
+            def load(path=ROOT / "docs/d.md"):
+                return path.read_text()
+
+            def read_it(path):
+                return load(path)
+
+            def write_it(path):
+                path.write_text("x")
+
+            def test_calls():
+                subprocess.run([sys.executable, str(ROOT / "tools/run.py")], check=True)
+                load()
+                read_it(ROOT / "docs/h.md")
+                write_it(ROOT / "docs/gen.md")
+                argparse.ArgumentParser().add_argument("--map", type=Path, default=ROOT / "docs/p.md")
+        """
+        self.assertEqual(self._read_files(body), ["docs/d.md", "docs/h.md", "docs/p.md", "tools/run.py"])
 
     def test_scripts_are_scanned_unless_tests_only(self) -> None:
         # A plain script the job runs is scanned too; tests_only is the scan before it was.
