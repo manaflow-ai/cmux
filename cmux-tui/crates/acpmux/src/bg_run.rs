@@ -370,12 +370,12 @@ const STOP_LINE_MAX: usize = 128;
 #[cfg(unix)]
 pub fn request_stop(dir: &Path, id: &str, generation: &str) -> bool {
     use std::io::Write;
-    use std::os::unix::fs::{FileTypeExt, OpenOptionsExt};
+    use std::os::unix::fs::FileTypeExt;
     let path = ctl_path(dir, id);
     if !std::fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_fifo()) {
         return false;
     }
-    let opened = std::fs::OpenOptions::new()
+    let opened = crate::home_fs::OpenOptions::new()
         .write(true)
         .custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW)
         .open(&path);

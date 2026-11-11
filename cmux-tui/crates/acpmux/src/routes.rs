@@ -637,12 +637,12 @@ pub fn file_from_json(params: &Value) -> Result<RouteFile, RouteError> {
 fn write_file(path: &Path, file: &RouteFile) -> Result<(), RouteError> {
     let text = toml::to_string_pretty(file).map_err(|e| RouteError::Failed(e.to_string()))?;
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| RouteError::Failed(e.to_string()))?;
+        crate::home_fs::create_dirs(parent).map_err(|e| RouteError::Failed(e.to_string()))?;
     }
     let tmp = path.with_extension("toml.tmp");
-    std::fs::write(&tmp, text).map_err(|e| RouteError::Failed(e.to_string()))?;
+    crate::home_fs::write(&tmp, text).map_err(|e| RouteError::Failed(e.to_string()))?;
     crate::router_socket::owner_only(&tmp);
-    std::fs::rename(&tmp, path).map_err(|e| RouteError::Failed(e.to_string()))
+    crate::home_fs::rename(&tmp, path).map_err(|e| RouteError::Failed(e.to_string()))
 }
 
 /// Write a new route (`replace`: over an existing one).
@@ -688,7 +688,7 @@ pub fn remove(dir: Option<&Path>, home: &Path, id: &str) -> Result<String, Route
         // names only a token file that is removed with it.
         std::fs::remove_file(&route.path).map_err(|e| RouteError::Failed(e.to_string()))?;
     } else {
-        crate::home_fs::rename(&route.path, &backups.join(&name))
+        crate::home_fs::rename(&route.path, backups.join(&name))
             .map_err(|e| RouteError::Failed(e.to_string()))?;
     }
     // Chats bound to it fall back to their inherited route, and a workspace,
@@ -726,8 +726,8 @@ pub fn restore(dir: Option<&Path>, home: &Path, backup: &str) -> Result<Route, R
     if to.exists() {
         return Err(RouteError::Exists(format!("a route {id:?} exists again")));
     }
-    std::fs::create_dir_all(dir).map_err(|e| RouteError::Failed(e.to_string()))?;
-    std::fs::rename(&from, &to).map_err(|e| RouteError::Failed(e.to_string()))?;
+    crate::home_fs::create_dirs(dir).map_err(|e| RouteError::Failed(e.to_string()))?;
+    crate::home_fs::rename(&from, &to).map_err(|e| RouteError::Failed(e.to_string()))?;
     find(Some(dir), &id)
 }
 

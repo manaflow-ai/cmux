@@ -586,8 +586,8 @@ pub fn mcp_config_path(home: &Path, session_id: &str) -> PathBuf {
 /// Remove the session's MCP config when the session ends.
 pub fn remove_mcp_config(home: &Path, session_id: &str) {
     let path = mcp_config_path(home, session_id);
-    let _ = std::fs::remove_file(crate::bg_hook::denied_path(&path));
-    let _ = std::fs::remove_file(path);
+    let _ = crate::home_fs::remove_file(crate::bg_hook::denied_path(&path));
+    let _ = crate::home_fs::remove_file(path);
 }
 
 pub fn resolve(inputs: &Inputs) -> AgentTools {
@@ -1072,9 +1072,9 @@ impl AgentTools {
         let mut args = Vec::new();
         // Each launch starts the hook's turned-away calls afresh: one from a launch with other
         // servers is not a retry in this one.
-        let _ = std::fs::remove_file(crate::bg_hook::denied_path(config_file));
+        let _ = crate::home_fs::remove_file(crate::bg_hook::denied_path(config_file));
         if self.servers.is_empty() {
-            let _ = std::fs::remove_file(config_file);
+            let _ = crate::home_fs::remove_file(config_file);
         }
         if let Some(config) = self.mcp_config() {
             match write_private(config_file, config.to_string().as_bytes()) {
@@ -1085,7 +1085,7 @@ impl AgentTools {
                 // Never fall back to inline JSON: that puts the token in argv. An earlier
                 // launch's file goes too, so the hook never reads servers this one lacks.
                 Err(e) => {
-                    let _ = std::fs::remove_file(config_file);
+                    let _ = crate::home_fs::remove_file(config_file);
                     tracing::warn!(
                         "agent tools: MCP config {} not written, session gets no MCP servers: {e:#}",
                         config_file.display()

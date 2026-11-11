@@ -87,7 +87,8 @@ impl OpenOptions {
         self
     }
 
-    pub(crate) fn open(&self, path: &Path) -> io::Result<File> {
+    pub(crate) fn open(&self, path: impl AsRef<Path>) -> io::Result<File> {
+        let path = path.as_ref();
         #[cfg(unix)]
         {
             unix::open(path, self)
@@ -108,7 +109,8 @@ impl OpenOptions {
 }
 
 /// `std::fs::DirBuilder::new().recursive(true).mode(mode).create(dir)`.
-pub(crate) fn create_dir_all(dir: &Path, mode: u32) -> io::Result<()> {
+pub(crate) fn create_dir_all(dir: impl AsRef<Path>, mode: u32) -> io::Result<()> {
+    let dir = dir.as_ref();
     #[cfg(unix)]
     {
         unix::create_dir_all(dir, mode)
@@ -152,12 +154,14 @@ pub(crate) fn private_dir(dir: &Path) -> io::Result<()> {
 
 /// `std::fs::set_permissions(path, Permissions::from_mode(mode))`.
 #[cfg(unix)]
-pub(crate) fn set_mode(path: &Path, mode: u32) -> io::Result<()> {
+pub(crate) fn set_mode(path: impl AsRef<Path>, mode: u32) -> io::Result<()> {
+    let path = path.as_ref();
     unix::set_mode(path, mode)
 }
 
 /// `std::fs::rename(from, to)`.
-pub(crate) fn rename(from: &Path, to: &Path) -> io::Result<()> {
+pub(crate) fn rename(from: impl AsRef<Path>, to: impl AsRef<Path>) -> io::Result<()> {
+    let (from, to) = (from.as_ref(), to.as_ref());
     #[cfg(unix)]
     {
         unix::rename(from, to)
@@ -171,7 +175,8 @@ pub(crate) fn rename(from: &Path, to: &Path) -> io::Result<()> {
 }
 
 /// `std::fs::remove_file(path)`.
-pub(crate) fn remove_file(path: &Path) -> io::Result<()> {
+pub(crate) fn remove_file(path: impl AsRef<Path>) -> io::Result<()> {
+    let path = path.as_ref();
     #[cfg(unix)]
     {
         unix::remove(path, 0)
@@ -183,8 +188,56 @@ pub(crate) fn remove_file(path: &Path) -> io::Result<()> {
     }
 }
 
-/// `std::fs::remove_dir_all(path)`: a symlink at `path` is removed, never followed.
-pub(crate) fn remove_dir_all(path: &Path) -> io::Result<()> {
+/// Whether anything is at `path` itself (`std::fs::symlink_metadata(path).is_ok()`), read in the
+/// held home when `path` is below it: a writer that decides by what is there reads the folder it
+/// writes, not a replacement made at the same path.
+pub(crate) fn exists_nofollow(path: impl AsRef<Path>) -> bool {
+    let path = path.as_ref();
+    #[cfg(unix)]
+    {
+        unix::exists_nofollow(path)
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::symlink_metadata(path).is_ok()
+    }
+}
+
+/// `std::fs::remove_dir(path)`: an empty folder.
+pub(crate) fn remove_dir(path: impl AsRef<Path>) -> io::Result<()> {
+    let path = path.as_ref();
+    #[cfg(unix)]
+    {
+        unix::remove(path, libc::AT_REMOVEDIR)
+    }
+    #[cfg(not(unix))]
+    {
+        held(path)?;
+        std::fs::remove_dir(path)
+    }
+}
+
+/// `std::fs::hard_link(original, link)`: `link` becomes another name of `original`, both
+/// reached from the held home when they are below it (`linkat`, never following a symlink at
+/// `original`).
+pub(crate) fn hard_link(original: impl AsRef<Path>, link: impl AsRef<Path>) -> io::Result<()> {
+    let (original, link) = (original.as_ref(), link.as_ref());
+    #[cfg(unix)]
+    {
+        unix::hard_link(original, link)
+    }
+    #[cfg(not(unix))]
+    {
+        held(original)?;
+        held(link)?;
+        std::fs::hard_link(original, link)
+    }
+}
+
+/// `std::fs::remove_dir_all(path)`: a symlink at `path` is removed, never followed, and any other
+/// file that is not a folder is refused (`NotADirectory`) and left in place, as `std::fs` does.
+pub(crate) fn remove_dir_all(path: impl AsRef<Path>) -> io::Result<()> {
+    let path = path.as_ref();
     #[cfg(unix)]
     {
         unix::remove_dir_all(path)
@@ -194,6 +247,80 @@ pub(crate) fn remove_dir_all(path: &Path) -> io::Result<()> {
         held(path)?;
         std::fs::remove_dir_all(path)
     }
+}
+
+/// `std::fs::create_dir_all(dir)`: missing folders made with the default mode (0777, less the
+/// umask).
+pub(crate) fn create_dirs(dir: impl AsRef<Path>) -> io::Result<()> {
+    create_dir_all(dir, 0o777)
+}
+
+/// `std::fs::create_dir(dir)` with `mode` (as `DirBuilder::mode`): one folder, its parent there
+/// already; an existing one is `AlreadyExists`.
+pub(crate) fn create_dir(dir: impl AsRef<Path>, mode: u32) -> io::Result<()> {
+    let dir = dir.as_ref();
+    #[cfg(unix)]
+    {
+        unix::create_dir(dir, mode)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = mode;
+        held(dir)?;
+        std::fs::create_dir(dir)
+    }
+}
+
+/// `std::fs::write(path, contents)`: made or cut to nothing, then written.
+pub(crate) fn write(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> io::Result<()> {
+    use std::io::Write as _;
+    OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(path)?
+        .write_all(contents.as_ref())
+}
+
+/// `std::fs::File::create(path)`.
+pub(crate) fn create_file(path: impl AsRef<Path>) -> io::Result<File> {
+    OpenOptions::new().write(true).create(true).truncate(true).open(path)
+}
+
+/// `std::fs::copy(from, to)`: `to` made or cut to nothing, given `from`'s bytes and permissions;
+/// the bytes copied.
+pub(crate) fn copy(from: impl AsRef<Path>, to: impl AsRef<Path>) -> io::Result<u64> {
+    let mut source = OpenOptions::new().read(true).open(from)?;
+    let permissions = source.metadata()?.permissions();
+    let mut target = create_file(to)?;
+    let copied = io::copy(&mut source, &mut target)?;
+    target.set_permissions(permissions)?;
+    Ok(copied)
+}
+
+/// `std::fs::set_permissions(path, permissions)`.
+pub(crate) fn set_permissions(
+    path: impl AsRef<Path>,
+    permissions: std::fs::Permissions,
+) -> io::Result<()> {
+    let path = path.as_ref();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        unix::set_mode(path, permissions.mode())
+    }
+    #[cfg(not(unix))]
+    {
+        held(path)?;
+        std::fs::set_permissions(path, permissions)
+    }
+}
+
+/// `std::os::unix::fs::symlink(original, link)`: `link` made (`symlinkat`) naming `original` as
+/// it is written.
+#[cfg(unix)]
+pub(crate) fn symlink(original: impl AsRef<Path>, link: impl AsRef<Path>) -> io::Result<()> {
+    unix::symlink(original.as_ref(), link.as_ref())
 }
 
 /// `std::fs::write(path, bytes)`, then synced: a copy written aside before a rename puts it in
@@ -393,6 +520,24 @@ mod unix {
         mkdir_at(at.dirfd(), &at.name, mode)
     }
 
+    pub(super) fn create_dir(dir: &Path, mode: u32) -> io::Result<()> {
+        if crate::config::held_home_dir(dir).is_none() {
+            use std::os::unix::fs::DirBuilderExt;
+            return std::fs::DirBuilder::new().mode(mode).create(dir);
+        }
+        let at = at(dir, None)?;
+        // SAFETY: a valid descriptor (or AT_FDCWD) and a NUL-terminated name.
+        check(unsafe { libc::mkdirat(at.dirfd(), at.name.as_ptr(), mode as libc::mode_t) })
+            .map(drop)
+    }
+
+    pub(super) fn symlink(original: &Path, link: &Path) -> io::Result<()> {
+        let target = c(original.as_os_str())?;
+        let at = at(link, None)?;
+        // SAFETY: a NUL-terminated target, a valid descriptor (or AT_FDCWD) and name.
+        check(unsafe { libc::symlinkat(target.as_ptr(), at.dirfd(), at.name.as_ptr()) }).map(drop)
+    }
+
     pub(super) fn set_mode(path: &Path, mode: u32) -> io::Result<()> {
         let at = at(path, None)?;
         // SAFETY: a valid descriptor (or AT_FDCWD) and a NUL-terminated name.
@@ -431,8 +576,13 @@ mod unix {
         });
         match folder {
             Ok(folder) => empty(&folder)?,
-            // A symlink or a file: removed itself, as `std::fs::remove_dir_all` does a link.
+            // Not a folder (`ELOOP`: a symlink on Linux; `ENOTDIR`: a symlink on some systems, or
+            // a file): a symlink is removed itself, as `std::fs::remove_dir_all` removes a link;
+            // anything else is refused and kept, as `std::fs::remove_dir_all` refuses a file.
             Err(error) if matches!(error.raw_os_error(), Some(libc::ELOOP | libc::ENOTDIR)) => {
+                if !is_symlink_at(at.dirfd(), &at.name)? {
+                    return Err(io::Error::from_raw_os_error(libc::ENOTDIR));
+                }
                 // SAFETY: as above.
                 return check(unsafe { libc::unlinkat(at.dirfd(), at.name.as_ptr(), 0) }).map(drop);
             }
@@ -440,6 +590,35 @@ mod unix {
         }
         // SAFETY: as above.
         check(unsafe { libc::unlinkat(at.dirfd(), at.name.as_ptr(), libc::AT_REMOVEDIR) }).map(drop)
+    }
+
+    /// Whether `name` in `dir` is a symlink itself (`fstatat` with `AT_SYMLINK_NOFOLLOW`).
+    fn is_symlink_at(dir: libc::c_int, name: &CStr) -> io::Result<bool> {
+        // SAFETY: an all-zero `stat` is a valid value for fstatat to fill.
+        let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+        // SAFETY: a valid descriptor (or AT_FDCWD), a NUL-terminated name and a `stat` to fill.
+        check(unsafe { libc::fstatat(dir, name.as_ptr(), &mut stat, libc::AT_SYMLINK_NOFOLLOW) })?;
+        Ok(stat.st_mode & libc::S_IFMT == libc::S_IFLNK)
+    }
+
+    pub(super) fn exists_nofollow(path: &Path) -> bool {
+        at(path, None).is_ok_and(|at| is_symlink_at(at.dirfd(), &at.name).is_ok())
+    }
+
+    pub(super) fn hard_link(original: &Path, link: &Path) -> io::Result<()> {
+        let (original, link) = (at(original, None)?, at(link, None)?);
+        // SAFETY: valid descriptors (or AT_FDCWD) and NUL-terminated names; flags 0 links a
+        // symlink itself, never its target.
+        check(unsafe {
+            libc::linkat(
+                original.dirfd(),
+                original.name.as_ptr(),
+                link.dirfd(),
+                link.name.as_ptr(),
+                0,
+            )
+        })
+        .map(drop)
     }
 
     /// Removes everything in the open folder `dir`, never through a symlink.
