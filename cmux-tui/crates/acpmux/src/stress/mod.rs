@@ -50,6 +50,13 @@ pub(crate) fn open_fds() -> Option<usize> {
 }
 
 /// Resident memory of this process in bytes. None off Linux.
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn rss_bytes() -> Option<u64> {
+    None
+}
+
+/// Resident memory of this process in bytes (`/proc/self/statm`).
+#[cfg(target_os = "linux")]
 pub(crate) fn rss_bytes() -> Option<u64> {
     let statm = std::fs::read_to_string("/proc/self/statm").ok()?;
     let pages: u64 = statm.split_whitespace().nth(1)?.parse().ok()?;

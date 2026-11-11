@@ -84,9 +84,105 @@ export type FoldAnchor = {
   toggle: HTMLElement;
   /// Where the line was drawn when clicked (its viewport top).
   top: number;
-  /// When the hold ends (performance.now()).
+  /// When the hold ends (performance.now()), once its change is placed (`pending`).
   until: number;
+  /// How long the hold lasts after its change is placed: the fold, the settle, at least FOLD_HOLD_MIN_MS.
+  span?: number;
+  /// The latest the hold waits for its change to be placed (`FOLD_DRAW_WAIT_MS` after the click).
+  latest?: number;
+  /// The hold waits for the click's change to be drawn and its row placed (`notePlacement`), and only
+  /// then runs `span`. A hold built by hand (no `latest`) is timed from `until` alone.
+  pending?: boolean;
+  /// The control the reader clicked and the state it said then (`toggleState`): the change is drawn
+  /// once it says another. A control that says nothing counts as drawn.
+  control?: HTMLElement;
+  from?: string;
+  /// Finds the held line and the control again when an update draws them anew (`lineSelector`), in `root`.
+  find?: string;
+  controlFind?: string;
+  root?: ParentNode;
 };
+
+/// The longest a hold waits for the click's change to be drawn and placed (Leo, 2026-11-10, on a
+/// recording at load ~260: "when things get slow this tool call expansion situatoin gets insanely
+/// f***ed"). The hold was timed from the click alone (about 400 ms). Under load the page laid out what
+/// opened, and the transcript measured the row's new height, later than that: no placement pass ran in
+/// between, and the first one after found the hold over. It neither put the line back nor stopped
+/// following the latest row, and the view jumped to the bottom with the clicked line gone from it. The
+/// hold now starts its span on the first pass that has the change placed; this only bounds a change
+/// that never comes. The reader's own scroll lets go sooner.
+export const FOLD_DRAW_WAIT_MS = 5_000; // motion-allow: a hold's upper bound, not an animation
+
+/// What a disclosure control says of its state: a `<summary>`'s details open or not, its own
+/// `aria-expanded` or `aria-pressed`, or its header button's `aria-expanded` (a `data-header-toggle`
+/// line). Undefined for a control that says nothing (a diagram's chart or code switch).
+export function toggleState(control: HTMLElement): string | undefined {
+  if (control.tagName === "SUMMARY") {
+    const details = control.parentElement;
+    return details?.tagName === "DETAILS" ? String((details as HTMLDetailsElement).open) : undefined;
+  }
+  if (typeof control.getAttribute !== "function") return undefined;
+  const own = control.getAttribute("aria-expanded") ?? control.getAttribute("aria-pressed");
+  if (own !== null) return own;
+  return control.querySelector?.("[aria-expanded]:not([aria-haspopup])")?.getAttribute("aria-expanded") ?? undefined;
+}
+
+/// The id-keyed lines a streamed update can draw anew (a call's, a group's, a run's: the ids outlast
+/// a regroup, keepOpenedLineModel.ts) and a transcript row; anything else is not found again.
+const LINE_IDS = ["data-tool-id", "data-tool-group", "data-tool-run"] as const;
+
+/// A selector that finds `node` again once React draws it anew, or undefined. The id is looked for
+/// under each of the three names: a group that grows into a run draws its key as `data-tool-run`.
+export function lineSelector(node: HTMLElement): string | undefined {
+  if (typeof node.getAttribute !== "function") return undefined;
+  const escape = (value: string) => value.replace(/["\\]/g, "\\$&");
+  for (const name of LINE_IDS) {
+    const value = node.getAttribute(name);
+    if (!value) continue;
+    const tag = node.tagName.toLowerCase();
+    return LINE_IDS.map((any) => `${tag}[${any}="${escape(value)}"]`).join(", ");
+  }
+  const row = node.getAttribute("data-row-id");
+  return row && node.classList?.contains("acpmux-row") ? `.acpmux-row[data-row-id="${escape(row)}"]` : undefined;
+}
+
+/// When `anchor` lets go: `latest` while it waits for its change to be placed, else `until`.
+function deadline(anchor: FoldAnchor): number {
+  return anchor.pending && anchor.latest !== undefined ? anchor.latest : anchor.until;
+}
+
+/// `node` if it is still drawn, else what `find` finds in the hold's transcript now.
+function drawnAgain(
+  node: HTMLElement,
+  find: string | undefined,
+  root: ParentNode | undefined,
+): HTMLElement | undefined {
+  if (node.isConnected) return node;
+  return (find && root?.querySelector<HTMLElement>(find)) || undefined;
+}
+
+/// The held line as drawn now: the same node, or the one an update drew in its place (found by its
+/// id); undefined once it is gone.
+function heldLine(anchor: FoldAnchor): HTMLElement | undefined {
+  const line = drawnAgain(anchor.toggle, anchor.find, anchor.root);
+  if (line) anchor.toggle = line;
+  return line;
+}
+
+/// Tells a pending hold, on each placement pass before `keepFold`, whether the click's change is in:
+/// the control says another state than when clicked (or says none), and the row is not `unplaced`
+/// (drawn at a height the transcript has not measured yet). The first pass that has it starts the
+/// hold's span, so the line stays put however long the render took. Under load no pass may run
+/// between the click and that one: the hold waits through the gap, up to `latest`.
+export function notePlacement(anchor: FoldAnchor, unplaced: boolean, now = performance.now()): void {
+  if (!anchor.pending) return;
+  const control = anchor.control ? drawnAgain(anchor.control, anchor.controlFind, anchor.root) : undefined;
+  if (control) anchor.control = control;
+  const drawn = anchor.from === undefined || !control || toggleState(control) !== anchor.from;
+  if (!drawn || unplaced) return;
+  anchor.pending = false;
+  anchor.until = Math.max(anchor.until, Math.min(anchor.latest ?? anchor.until, now + (anchor.span ?? 0)));
+}
 
 /// A message row's first line, on its own line under the row (messageLineLook.ts, stacked: a sent
 /// message, an agent message, a received line, a folded group's head). It toggles its row, so a click
@@ -123,18 +219,53 @@ export function foldHoldTarget(toggle: HTMLElement, scroller?: HTMLElement): HTM
   return row;
 }
 
-/// Holds `toggle` where it is drawn now, for its fold and a little after.
-export function holdFold(toggle: HTMLElement, now = performance.now()): FoldAnchor {
-  const until = now + Math.max(foldMs(toggle) + FOLD_SETTLE_MS, FOLD_HOLD_MIN_MS);
-  return { toggle, top: toggle.getBoundingClientRect().top, until };
+/// Holds `toggle` where it is drawn now, for its fold and a little after, counted from the first
+/// placement pass that has the click's change placed (`notePlacement`): `control` is what the reader
+/// clicked, whose state says when that change is drawn.
+export function holdFold(toggle: HTMLElement, now = performance.now(), control?: HTMLElement): FoldAnchor {
+  const span = Math.max(foldMs(toggle) + FOLD_SETTLE_MS, FOLD_HOLD_MIN_MS);
+  const anchor: FoldAnchor = {
+    toggle,
+    top: toggle.getBoundingClientRect().top,
+    until: now + span,
+    span,
+    latest: now + Math.max(FOLD_DRAW_WAIT_MS, span),
+    pending: true,
+  };
+  const find = lineSelector(toggle);
+  if (find) anchor.find = find;
+  const from = control ? toggleState(control) : undefined;
+  if (control && from !== undefined) {
+    anchor.control = control;
+    anchor.from = from;
+    const controlFind = control === toggle ? find : lineSelector(control);
+    if (controlFind) anchor.controlFind = controlFind;
+  }
+  const root = typeof toggle.closest === "function" ? toggle.closest(".acpmux-scroll") : null;
+  if (root) anchor.root = root;
+  return anchor;
 }
 
 /// The hold for a click on `toggle`: the one its press started (`pressed`, same line, still on), kept
 /// at the place the line was pressed at and timed from the click, so a line that streaming moved
 /// between press and release goes back to where the reader pressed it; else a new one.
-export function clickFold(toggle: HTMLElement, pressed: FoldAnchor | undefined, now = performance.now()): FoldAnchor {
-  const fresh = holdFold(toggle, now);
-  return pressed && pressed.toggle === toggle && foldHolding(pressed, now) ? { ...fresh, top: pressed.top } : fresh;
+export function clickFold(
+  toggle: HTMLElement,
+  pressed: FoldAnchor | undefined,
+  now = performance.now(),
+  control?: HTMLElement,
+): FoldAnchor {
+  const fresh = holdFold(toggle, now, control);
+  if (!pressed || !foldHolding(pressed, now)) return fresh;
+  if (pressed.toggle === toggle) fresh.top = pressed.top;
+  // The same click's control (its press, or the click before the row's own anchored-collapse ask):
+  // its state from before the click, so a change already drawn is not taken for the state it left.
+  if (control && pressed.control && (pressed.control === control || pressed.toggle === toggle)) {
+    fresh.control = pressed.control;
+    fresh.from = pressed.from;
+    if (pressed.controlFind) fresh.controlFind = pressed.controlFind;
+  }
+  return fresh;
 }
 
 /// Whether a wheel event is the reader scrolling the transcript: up or down, not sideways (a code
@@ -146,8 +277,9 @@ export function verticalWheel(event: { deltaX: number; deltaY: number }): boolea
 /// Puts the held line back where it was clicked by moving `scroller`'s offset. False once the hold
 /// is over (its time is up, or the line left the transcript), and the view is the reader's again.
 export function keepFold(anchor: FoldAnchor, scroller: HTMLElement, now = performance.now()): boolean {
-  if (now > anchor.until || !anchor.toggle.isConnected) return false;
-  const moved = anchor.toggle.getBoundingClientRect().top - anchor.top;
+  const line = heldLine(anchor);
+  if (!line || now > deadline(anchor)) return false;
+  const moved = line.getBoundingClientRect().top - anchor.top;
   if (Math.abs(moved) >= 0.5) scroller.scrollTop += moved;
   return true;
 }
@@ -180,5 +312,5 @@ export function trimmedFoldRoom(
 
 /// Whether `anchor` still holds its line (its time is not up and the line is still drawn).
 export function foldHolding(anchor: FoldAnchor | undefined, now = performance.now()): boolean {
-  return anchor !== undefined && now <= anchor.until && anchor.toggle.isConnected;
+  return anchor !== undefined && now <= deadline(anchor) && heldLine(anchor) !== undefined;
 }
