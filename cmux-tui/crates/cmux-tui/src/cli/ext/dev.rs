@@ -666,8 +666,6 @@ fn placements(manifest: &Value, shown: bool) -> Vec<Value> {
                 }
                 "cmux.session.info.section/1" => "the agent pane's Session Info".into(),
                 "cmux.pane/1" => "a tab (Open in the Command Palette)".into(),
-                "cmux.chat.widget/1" => "chat messages that name the app".into(),
-                "cmux.newtab.widget/1" => "the new tab page".into(),
                 "cmux.sidebar.rows/1" => "workspace rows in the sidebar".into(),
                 other => other.to_string(),
             };
@@ -680,13 +678,7 @@ fn placements(manifest: &Value, shown: bool) -> Vec<Value> {
 fn probe_interface(manifest: &Value) -> Option<String> {
     let implements = manifest.get("implements")?.as_object()?;
     let has_export = |name: &str| implements.get(name).and_then(|e| e.get("export")).is_some();
-    const PREFERRED: [&str; 5] = [
-        "cmux.section/1",
-        "cmux.newtab.widget/1",
-        "cmux.pane/1",
-        "cmux.session.info.section/1",
-        "cmux.chat.widget/1",
-    ];
+    const PREFERRED: [&str; 3] = ["cmux.section/1", "cmux.pane/1", "cmux.session.info.section/1"];
     PREFERRED
         .iter()
         .find(|name| has_export(name))

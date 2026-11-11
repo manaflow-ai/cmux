@@ -161,7 +161,6 @@
     "webviews/src/pages/settings/components/HostSections.tsx": {"count": 1, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},
     "webviews/src/pages/settings/hostSections.test.tsx": {"count": 3, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
     "webviews/test/chief-views-page.test.tsx": {"count": 1, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
-    "webviews/test/new-tab-widgets.test.tsx": {"count": 1, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
     "Native/OptChat/optchat-chief/src/chief_settings.rs": {"count": 1, "reason": "safe: sample agent id in an inline unit test of the trust check; nothing depends on the host"},
     "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/GroupJoinHoldTests.swift": {"count": 4, "reason": "safe: sample machine id and name in a unit test's sidebar fixture; nothing depends on the host"},
     "cmux-tui/crates/acpmux/src/opaque_agent_id.rs": {"count": 1, "reason": "safe: sample link text in an inline unit test of the opaque-id rewrite; nothing depends on the host"}
