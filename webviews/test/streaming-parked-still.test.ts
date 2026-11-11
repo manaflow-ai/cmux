@@ -17,8 +17,11 @@
 // the app's own split of one picture, and a reader sees only the picture. Each item still drawn must
 // have moved by exactly that scroll; an item gone while the scroll alone would leave it in view is a
 // blank flash. The picture moves only while the reader's own scroll is under way: from the frame their
-// first wheel event acted on until the browser says that scroll has ended (`scrollend` after their last
-// wheel event). The test reads that from the order of events, never from a clock, so a starved runner
+// first wheel event acted on until that scroll has ended: the browser's `scrollend` after their last
+// wheel event, and no step of the app's own easing of a notch (wheelGlide.ts) in the frame. A notch
+// is the reader's distance, eased by the app over a motion step; each step writes the offset, and
+// Chromium fires `scrollend` after the first, so `scrollend` alone settled the scroll mid-notch and
+// counted the rest of the reader's own notch as late. The test reads that from the order of events, never from a clock, so a starved runner
 // that stretches frames, skips one mid-scroll, or delivers the wheel late, changes nothing it measures.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -29,7 +32,7 @@ import { warmViteServer } from "./support/warmDevServer";
 
 /// One painted frame: its time, the offset and how far it rests from the end, the view's edges, how
 /// many wheel events the page had seen when it was read, whether the scroller's scroll had ended since
-/// the last of them, and the screen top of each row and reply block in view.
+/// the last of them with no eased notch step in this frame, and the screen top of each row and reply block in view.
 type Sample = {
   t: number;
   top: number;
@@ -48,6 +51,8 @@ type Probe = Window & {
     done: boolean;
     wheels: number;
     ended: boolean;
+    /// The app eased a notch's step (MOTION_SCROLL_EVENT) since the last frame was read.
+    eased: boolean;
     run?: Promise<unknown>;
   };
   __streamingText: { run(options: { cadence: string }): Promise<unknown> };
@@ -167,7 +172,7 @@ await requireBrowserLane("streaming-parked-still.test.ts", async () => {
     await page.waitForTimeout(500);
     await page.evaluate(() => {
       const w = window as unknown as Probe;
-      w.__still = { samples: [], sampling: false, done: false, wheels: 0, ended: false };
+      w.__still = { samples: [], sampling: false, done: false, wheels: 0, ended: false, eased: false };
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       // Each wheel event, before the page's own handlers see it (and after the read of the frame
       // painted before it, which paintedFrames.ts runs from its window capture first).
@@ -177,13 +182,18 @@ await requireBrowserLane("streaming-parked-still.test.ts", async () => {
       };
       // The scroll the browser eased in for them has ended (or an offset the page wrote has landed).
       const ended = () => (w.__still.ended = true);
+      // A step of the app's easing of a notch, sent on the frame it writes the offset in
+      // (threadMinimap/scrollMotion.ts MOTION_SCROLL_EVENT): the reader's scroll is still under way.
+      const eased = () => (w.__still.eased = true);
       scroller.addEventListener("wheel", wheel, { capture: true, passive: true });
       scroller.addEventListener("scrollend", ended, { passive: true });
+      scroller.addEventListener("acpmux-motion-scroll", eased);
       // Read after each frame paints (paintedFrames.ts), until the page is done.
       window.cmuxAfterPaint((t) => {
         if (w.__still.done) {
           scroller.removeEventListener("wheel", wheel, { capture: true });
           scroller.removeEventListener("scrollend", ended);
+          scroller.removeEventListener("acpmux-motion-scroll", eased);
           return false;
         }
         if (w.__still.sampling) {
@@ -213,11 +223,12 @@ await requireBrowserLane("streaming-parked-still.test.ts", async () => {
               ) || 0,
             fromEnd: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
             wheels: w.__still.wheels,
-            ended: w.__still.ended,
+            ended: w.__still.ended && !w.__still.eased,
             view: [view.top, view.bottom],
             items,
           });
         }
+        w.__still.eased = false;
         return true;
       });
       w.__still.run = w.__streamingText.run({ cadence: "claude" });
