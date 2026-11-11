@@ -461,6 +461,51 @@ fn bases_fall_back_to_the_default_tip() {
     assert!(!machine.join("upstream.txt").exists());
 }
 
+/// A clean checkout of a pushed feature branch, on a local branch with no
+/// upstream, in a clone that fetches only another branch (so no
+/// `origin/HEAD`, `origin/main` or `origin/master`): the seed bases on the
+/// remote branch that has HEAD and sends almost nothing. RED before: no base
+/// was found (`no_base`) and the start copied the whole folder (46,516 files,
+/// 1.8 GB for a cmux checkout) instead of cloning it on the machine.
+#[test]
+fn a_pushed_head_with_no_upstream_and_no_default_branch_seeds_from_the_remote() {
+    let f = Fixture::new();
+    git(&f.work, &["checkout", "-q", "-b", "feature", "--no-track"]);
+    write(&f.work.join("src/feature.rs"), "pub fn feature() {}\n");
+    git(&f.work, &["add", "-A"]);
+    git(&f.work, &["commit", "-q", "-m", "feature"]);
+    git(&f.work, &["push", "-q", "origin", "HEAD:feature"]);
+    // The person's clone tracks one other branch only, and the local branch
+    // has another name with no upstream.
+    git(&f.work, &["checkout", "-q", "-b", "local-name", "--no-track"]);
+    git(&f.work, &["branch", "-q", "-D", "feature"]);
+    git(&f.work, &["update-ref", "-d", "refs/remotes/origin/HEAD"]);
+    git(&f.work, &["update-ref", "-d", "refs/remotes/origin/main"]);
+    git(&f.work, &["fetch", "-q", "origin", "+refs/heads/feature:refs/remotes/origin/feature"]);
+    let head = git(&f.work, &["rev-parse", "HEAD"]);
+    let planned = plan(&f.work, &f.path("seed.bundle")).unwrap();
+    assert_eq!(planned.params.base, head, "the remote branch that has HEAD");
+    assert_eq!(planned.bases, vec![head.clone()]);
+    // The bundle names HEAD as its prerequisite: no commit goes, only the state.
+    assert_eq!(bundle_prerequisites(&f.path("seed.bundle")), vec![head.clone()]);
+    let machine = f.machine(&planned, &f.path("seed.bundle"), "machine");
+    git(&machine, &["checkout", "-q", "--detach", &planned.params.work]);
+    assert_eq!(
+        std::fs::read_to_string(machine.join("src/feature.rs")).unwrap(),
+        "pub fn feature() {}\n"
+    );
+
+    // A commit made since the push: the base is the pushed commit under it.
+    write(&f.work.join("later.txt"), "later\n");
+    git(&f.work, &["add", "later.txt"]);
+    git(&f.work, &["commit", "-q", "-m", "not pushed"]);
+    let planned = plan(&f.work, &f.path("later.bundle")).unwrap();
+    assert_eq!(planned.params.base, head, "the newest pushed commit under HEAD");
+    let machine = f.machine(&planned, &f.path("later.bundle"), "machine-later");
+    git(&machine, &["checkout", "-q", "--detach", &planned.params.work]);
+    assert!(machine.join("later.txt").exists());
+}
+
 /// A submodule whose commit is on its remote seeds at that commit even with
 /// uncommitted changes in it: the changes stay on this Mac and the plan
 /// names the submodule, so the folder is cloned on the machine instead of

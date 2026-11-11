@@ -44,6 +44,16 @@ fn serve_hostile_fs(
     home: &Path,
     capabilities: &'static [&'static str],
 ) -> &'static Mutex<Vec<Planted>> {
+    serve_fs_asked(socket, home, capabilities, Box::leak(Box::default()))
+}
+
+/// [`serve_hostile_fs`] that keeps every request's `cmd` in `asked`, in order.
+fn serve_fs_asked(
+    socket: &Path,
+    home: &Path,
+    capabilities: &'static [&'static str],
+    asked: &'static Mutex<Vec<String>>,
+) -> &'static Mutex<Vec<Planted>> {
     let listener = UnixListener::bind(socket).unwrap();
     let service: &'static FsService =
         Box::leak(Box::new(FsService::new(Roots::new([home.to_path_buf()]))));
@@ -59,6 +69,7 @@ fn serve_hostile_fs(
                     let id = request["id"].clone();
                     let cmd = request["cmd"].as_str().unwrap_or_default().to_string();
                     let path = request["path"].as_str().unwrap_or_default().to_string();
+                    asked.lock().unwrap().push(cmd.clone());
                     let planted = planted.lock().unwrap().clone();
                     let advertised = (cmd == "identify" && !capabilities.is_empty())
                         .then(|| json!({ "capabilities": capabilities }));
@@ -946,6 +957,69 @@ fn push_output(socket: &Path, local: &Path, remote: &Path) -> (bool, Value, Vec<
         .filter_map(|line| serde_json::from_str(line).ok())
         .collect();
     (output.status.success(), answer, progress)
+}
+
+/// A copy into a folder the machine does not have yet makes each of its folders with one
+/// `fs.mkdir` and asks nothing else about them: a folder this push made holds nothing of
+/// the machine's. RED before: three to five `fs.stat`/`fs.list`/`fs.mkdir` questions one
+/// after another for every folder before the first write, so a cmux checkout's 4,706
+/// folders sat at "0 of 46,516 files" for over twenty minutes on a Cloud link.
+#[test]
+fn a_copy_into_a_new_folder_asks_nothing_about_the_folders_it_makes() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let folder = root.join("site");
+    let mut folders = 0;
+    for top in ["app", "docs", "lib"] {
+        folders += 1;
+        for mid in 0..10 {
+            folders += 1;
+            std::fs::create_dir_all(folder.join(format!("{top}/m{mid}"))).unwrap();
+            std::fs::write(folder.join(format!("{top}/m{mid}/a.txt")), format!("{top}{mid}\n"))
+                .unwrap();
+            for leaf in 0..3 {
+                folders += 1;
+                let leaf = folder.join(format!("{top}/m{mid}/l{leaf}/deep"));
+                folders += 1;
+                std::fs::create_dir_all(&leaf).unwrap();
+                std::fs::write(leaf.join("b.txt"), "b\n").unwrap();
+            }
+        }
+    }
+    let (_sockets, socket, home) = machine_home(&root);
+    let asked: &'static Mutex<Vec<String>> = Box::leak(Box::default());
+    serve_fs_asked(
+        &socket,
+        &home,
+        &["fs-v1", "fs-symlink-v1", "fs-write-deflate-v1", "fs-write-nofollow-v1"],
+        asked,
+    );
+    let remote = home.join("work/site");
+    let (ok, summary, progress) = push_output(&socket, &folder, &remote);
+    assert!(ok, "{summary}");
+    assert_eq!(summary["written"], json!(3 * 10 * (1 + 3)), "{summary}");
+    for top in ["app", "docs", "lib"] {
+        assert_eq!(
+            std::fs::read_to_string(remote.join(format!("{top}/m9/l2/deep/b.txt"))).unwrap(),
+            "b\n"
+        );
+    }
+    let asked = asked.lock().unwrap().clone();
+    let count = |cmd: &str| asked.iter().filter(|asked| *asked == cmd).count();
+    // The folder itself and each of its folders, once.
+    assert_eq!(count("fs.mkdir"), 1 + folders, "{asked:?}");
+    // A few questions about the folder and its three top folders, none about the rest.
+    let questions = count("fs.stat") + count("fs.list");
+    assert!(questions <= 24, "{questions} fs.stat/fs.list for {folders} new folders: {asked:?}");
+    // Every progress line is one the card reads: the copy's files, or a step before them.
+    for line in &progress {
+        let step = &line["progress"];
+        assert!(
+            step.get("files_total").is_some()
+                || matches!(step["phase"].as_str(), Some("prepare" | "folders")),
+            "{line}"
+        );
+    }
 }
 
 /// A machine served over a fresh home: (its temp folders, socket, home).

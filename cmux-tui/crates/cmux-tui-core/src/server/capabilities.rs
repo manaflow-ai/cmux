@@ -87,6 +87,9 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_START_KEYED_REASON_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_VM_KIND_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_MODEL_CAPABILITY);
+        // The start takes `permission_mode` wherever it is served; only a start on the caller's
+        // own Cloud VM acts on it (agent_session_start.rs `start_policy`).
+        capabilities.push(AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY);
         // A phone's channel (hostd's `cloud-acpmux`) is enforced here: the carrier's signed
         // owner role (carrier_role.rs), the phone floor on its start (agent_session_start.rs)
         // and on every prompt (acpmux, `via: cloud-mobile`), and the adapter's commands only
@@ -96,7 +99,6 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     if mux.serves_owner_cloud_start() {
         capabilities.push(AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY);
-        capabilities.push(AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_update() {

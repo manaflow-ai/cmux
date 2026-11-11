@@ -92,8 +92,8 @@ pub const AGENT_SESSION_START_MODEL_CAPABILITY: &str = "agent-session-start-mode
 pub const AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY: &str = "agent-session-start-owner-cloud-v1";
 /// `permission_mode` on `agent-session-start` (`fullAccess`, `standard` or `ask`): the person's
 /// `agents.defaultPermissionMode` on the caller's app, which a start on the caller's own Cloud VM
-/// takes as a new chat on that app takes it ([`start_policy`]). Advertised with
-/// [`AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY`]; anywhere else the start keeps policy `ask`.
+/// takes as a new chat on that app takes it ([`start_policy`]). Advertised wherever the start is
+/// served; a start anywhere but the caller's own Cloud VM reads the field and keeps policy `ask`.
 pub const AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY: &str =
     "agent-session-start-permission-mode-v1";
 

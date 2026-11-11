@@ -44,6 +44,7 @@ test("the host's push fills the card, field by field, each checked", () => {
     token: "never shown",
   });
   expect(pushed).toEqual({
+    advancedAt: expect.any(Number),
     key: "k-1",
     task: "fix the build",
     state: "starting",
@@ -55,7 +56,7 @@ test("the host's push fills the card, field by field, each checked", () => {
     network: "limited",
   });
   const odd = cloudStartPushed(begun(), { key: "k-1", step: "done", secrets: -1, network: "open", machine: 7 });
-  expect(odd).toEqual(begun());
+  expect(odd).toEqual({ ...begun(), advancedAt: expect.any(Number) });
   expect(cloudStartPushed(begun(), { key: "k-1", machine: "x".repeat(100) })?.machine).toHaveLength(64);
   expect(cloudStartPushed(begun(), { key: "k-1", folder: "/Users/me/src" })?.folder).toBe("paint");
 });
@@ -261,7 +262,7 @@ test("the host's question shows in the card and leaves it when the host takes it
   const asked = cloudStartPushed(begun(), { key: "k-1", ask: question });
   expect(asked?.ask).toEqual(question);
   expect(cloudStartPushed(asked, { key: "k-1", step: "folder" })?.ask).toEqual(question);
-  expect(cloudStartPushed(asked, { key: "k-1", ask: null })).toEqual(begun());
+  expect(cloudStartPushed(asked, { key: "k-1", ask: null })).toEqual({ ...begun(), advancedAt: expect.any(Number) });
   // Another start's question, or one after the start failed, shows nothing.
   expect(cloudStartPushed(begun(), { key: "k-2", ask: question })).toEqual(begun());
   const failed = cloudStartEnded(begun(), "k-1", { ok: false, code: "cloud_start_failed", message: "x" });
@@ -298,7 +299,14 @@ test("a failed start drops its question and says whether Retry can help", () => 
     message: "Slow",
     retryable: true,
   });
-  expect(retry).toEqual({ ...begun(), state: "failed", code: "cloud_start_failed", message: "Slow", retryable: true });
+  expect(retry).toEqual({
+    ...begun(),
+    advancedAt: expect.any(Number),
+    state: "failed",
+    code: "cloud_start_failed",
+    message: "Slow",
+    retryable: true,
+  });
   const final = cloudStartEnded(asked, "k-1", { ok: false, code: "cloud_start_failed", message: "No" });
   expect(final?.retryable).toBeUndefined();
   expect(final?.ask).toBeUndefined();
