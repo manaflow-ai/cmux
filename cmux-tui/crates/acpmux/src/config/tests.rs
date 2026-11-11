@@ -472,12 +472,46 @@ fn the_program_a_launch_runs_names_its_family() {
         (&["/usr/bin/env", "X=1", "/opt/bin/opencode", "acp"], "opencode"),
         (&["/usr/bin/env", "-u", "HOME", "gemini", "--experimental-acp"], "gemini"),
         (&["npx", "-y", "@agentclientprotocol/codex-acp@1.10.0"], "codex"),
-        (&["python3", "-u", "/opt/tests/fake_codex_app_server.py"], "codex"),
+        (&["node", "/opt/codex-acp/dist/codex-acp.js"], "codex"),
         (&["/opt/bin/pi-acp"], "pi"),
     ];
     for (argv, family) in cases {
         assert_eq!(derive_family("lane", &prof(HarnessKind::Acp, argv)), *family, "{argv:?}");
     }
+}
+
+/// A program whose name only contains an agent's name is not that agent: the family is the
+/// profile's own (`my-opencode-wrapper`, `claude-proxy`, a stand-in `fake_codex_app_server.py`).
+#[test]
+fn a_part_of_a_programs_name_names_no_family() {
+    let cases: &[(&str, &[&str])] = &[
+        ("wrapper", &["/opt/bin/my-opencode-wrapper"]),
+        ("proxy", &["/opt/bin/claude-proxy", "acp"]),
+        ("lane", &["python3", "-u", "/opt/tests/fake_codex_app_server.py"]),
+        ("lane", &["/usr/bin/env", "X=1", "/opt/bin/gemini-beta"]),
+    ];
+    for (name, argv) in cases {
+        let profile = prof(HarnessKind::Acp, argv);
+        assert_eq!(derive_family(name, &profile), *name, "{argv:?}");
+    }
+}
+
+/// A policy check takes no family from the profile's name: an entry named `codex` or
+/// `opencode` that runs a program of no known name has no family's modes
+/// (`web_modes::profile_mode_family`), while its explicit `family` and the Claude Code kind do.
+#[test]
+fn a_policy_family_never_comes_from_the_profiles_name() {
+    for name in ["codex", "opencode", "claude-work"] {
+        let profile = prof(HarnessKind::Acp, &["/opt/bin/agent", "acp"]);
+        assert_eq!(crate::web_modes::profile_mode_family(name, &profile), "", "{name}");
+    }
+    let mut declared = prof(HarnessKind::Acp, &["/opt/bin/agent"]);
+    declared.family = Some("codex".into());
+    assert_eq!(crate::web_modes::profile_mode_family("lane", &declared), "codex");
+    let kind = prof(HarnessKind::ClaudeStdio, &["/opt/bin/agent"]);
+    assert_eq!(crate::web_modes::profile_mode_family("lane", &kind), "claude");
+    let program = prof(HarnessKind::Acp, &["/opt/bin/codex-acp"]);
+    assert_eq!(crate::web_modes::profile_mode_family("lane", &program), "codex");
 }
 
 /// The Web's refusal of Codex and OpenCode still reads every word of a launch (fail closed): a
