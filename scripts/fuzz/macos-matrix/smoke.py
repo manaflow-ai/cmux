@@ -6,7 +6,7 @@ fuzz.py, and it reuses fuzz.py's guest connection: every app call goes through t
 bundled `cmux app call` over SSH, every screenshot is a VNC frame of the guest display. The
 guest needs no python3 and no Accessibility grant.
 
-The first run shows its steps one at a time (#37241): the "Sign In to Your Agents" tool window when
+Onboarding is off by default (2026-11-09); with CMUX_NEXT_ONBOARDING=1 the first run shows its steps one at a time (#37241): the "Sign In to Your Agents" tool window when
 the acpmux harness read lists an agent, then, once that window closed, the Bring your history page
 over the main window. The smoke goes through them first, right after the window step, as a person
 does before using the app: it closes the Agents window through its close button (debug.onboarding
@@ -217,7 +217,8 @@ class Smoke:
         windows = self.wait(self.windows, 30)
         if not self.step("window", bool(windows), {"windows": len(windows or [])}):
             return
-        self.result["first_run"] = self.first_run()
+        # Onboarding is off unless the app runs with CMUX_NEXT_ONBOARDING=1 (2026-11-09): no step to wait for.
+        self.result["first_run"] = self.first_run() if os.environ.get("CMUX_NEXT_ONBOARDING") == "1" else {"skipped": "onboarding off"}
 
         before = self.terminals()
         opened = self.call("action.run", {"action": "newTab", "focus": True, "wait": True})

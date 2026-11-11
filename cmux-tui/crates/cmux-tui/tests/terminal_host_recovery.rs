@@ -5346,6 +5346,9 @@ mod parallel_new_tabs;
 #[path = "terminal_host_recovery/startup_adoption_order.rs"]
 mod startup_adoption_order;
 
+#[path = "terminal_host_recovery/startup_kitty_wave.rs"]
+mod startup_kitty_wave;
+
 #[path = "terminal_host_recovery/host_scrollback.rs"]
 mod host_scrollback;
 

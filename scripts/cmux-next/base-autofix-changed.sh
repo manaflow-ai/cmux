@@ -13,10 +13,15 @@
 # when the tip's exports were stale; the stamp is derived now (defaults_guard.py source-stamp), not
 # committed, and a held settings export fails its run, so the next run's SINCE still covers it.
 #
+# A re-pin of CCmuxAppFFI adds the pseudo path Packages/macOS/CmuxNext/Package.swift#CCmuxAppFFI
+# (base-autofix-ffi-pin.sh): the action exports are written from the pinned Rust catalog, so the pin
+# is their input, while the rest of Package.swift is not.
+#
 # Usage: scripts/cmux-next/base-autofix-changed.sh SINCE   (run in the checkout)
 set -euo pipefail
 since="${1:-}"
 [[ -n "$since" ]] || { echo "no commit to diff from" >&2; exit 1; }
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(git rev-parse --show-toplevel)"
 head="$(git -C "$root" rev-parse HEAD)"
 scratch="$(mktemp -d)"
@@ -29,4 +34,9 @@ git -C "$root" rev-parse --path-format=absolute --git-common-dir | sed 's#$#/obj
 # commits to offer, the whole snapshot would come down (about 550 MB); the path diff reads trees only.
 git -C "$scratch" -c core.alternateRefsCommand=true fetch --quiet --no-tags --depth=1 --filter=blob:none "$(git -C "$root" remote get-url origin)" "$since" \
   || { echo "cannot fetch ${since:0:12}" >&2; exit 1; }
-git -C "$scratch" diff --name-only --no-renames "$since" "$head"
+names="$(git -C "$scratch" diff --name-only --no-renames "$since" "$head")"
+[[ -z "$names" ]] || printf '%s\n' "$names"
+if grep -qx 'Packages/macOS/CmuxNext/Package\.swift' <<<"$names"; then
+  (cd "$scratch" && bash "$here/base-autofix-ffi-pin.sh" "$since" "$head" \
+    "$(git -C "$root" remote get-url origin)")
+fi

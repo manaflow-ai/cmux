@@ -107,6 +107,9 @@ const STDIO_MCP_SERVERS: [&str; 8] = [
 /// Worker threads of a stdio MCP server: it answers one client's requests
 /// on one pipe. Still a multi-thread runtime, so `block_in_place` works.
 const MCP_WORKERS: usize = 2;
+/// The longest a stopping daemon waits for its queued log lines to be written: a log output
+/// that takes no bytes must not keep a stopped daemon from exiting.
+const LOG_FLUSH_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// The worker count `args` (without the program name) runs with: None is
 /// tokio's default, one per core.
@@ -255,12 +258,25 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             dev,
             take_over,
         }) => {
-            tracing_subscriber::fmt()
+            let logs = tracing_subscriber::fmt()
                 .with_env_filter(
                     tracing_subscriber::EnvFilter::try_new(&log).unwrap_or_else(|_| "info".into()),
                 )
-                .with_target(false)
-                .init();
+                .with_target(false);
+            // A logging thread only queues its line: a log output that takes no bytes (a full
+            // pipe, a stalled disk) never stops the daemon (`log_sink.rs`).
+            match crate::log_sink::Sink::start(std::io::stdout()) {
+                Ok(sink) => {
+                    sink.install();
+                    logs.with_writer(sink).init();
+                }
+                Err(e) => {
+                    logs.init();
+                    tracing::warn!(
+                        "no log writer thread, lines are written where they are logged: {e}"
+                    );
+                }
+            }
             // An acknowledged reply waits on the event journal's sync, which a utility disk tier
             // throttles 15-30x under another app's disk work (STATUS 11554): the daemon stays at
             // the default tier, and only its background threads yield.
@@ -281,6 +297,8 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 take_over,
             })
             .await;
+            // The lines logged so far reach the log before the process ends.
+            crate::log_sink::flush(LOG_FLUSH_BUDGET);
             if let Err(error) = result {
                 // A systemd start can race the daemon that is handing over
                 // this home. Keep its lock refusal a distinct, prevented

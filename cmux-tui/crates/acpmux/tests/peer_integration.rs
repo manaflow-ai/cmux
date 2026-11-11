@@ -1073,6 +1073,7 @@ async fn an_app_prompt_forwarded_by_a_peer_waits_for_the_owning_daemons_trust() 
         record: root.join("home").join("trust.json"),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     }));
     let (port, peer_token) = listen_with_peer_token(b.clone(), "trust").await;
     let mut cb = client(b.clone()).await;
@@ -1320,6 +1321,7 @@ async fn an_app_trust_answer_for_a_peers_folder_is_checked_and_recorded_by_the_p
         record: record.clone(),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     }));
     let (port, peer_token) = listen_with_peer_token(b.clone(), "trust-set").await;
     let (relay, from_b) = recording_relay(port).await;
@@ -1405,6 +1407,7 @@ async fn explicit_peer_trust_is_sessionless_and_keeps_each_machines_record_separ
         record: root.join(name).join("trust.json"),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     };
     let a = hub(config(PermissionPolicy::Ask)).await;
     let mut cfg = config(PermissionPolicy::Ask);
@@ -1519,6 +1522,7 @@ async fn explicit_peer_trust_rejects_unknown_invalid_or_ambiguous_selectors_with
         record: record.clone(),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     }));
     let mut local = client(a.clone()).await;
     for method in [method::ACP_TRUST_GET, method::ACP_TRUST_SET] {
@@ -1552,6 +1556,7 @@ async fn explicit_peer_trust_and_session_start_cannot_select_a_third_daemon() {
         record: root.join(name).join("trust.json"),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     };
     let config = || {
         let mut cfg = config(PermissionPolicy::Ask);
@@ -1638,6 +1643,7 @@ async fn explicit_peer_trust_rejects_a_known_disconnected_peer_without_local_wri
         record: record.clone(),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     }));
     // Keep the port reserved but do not listen; no other test can turn this into a live peer.
     let bound = tokio::net::TcpSocket::new_v4().unwrap();
@@ -2323,6 +2329,78 @@ async fn peered_watcher_sees_a_pending_prompt_and_only_the_persons_proof_allows_
         })
         .await;
     assert_eq!(decided["msg"]["outcome"]["optionId"], "yes", "{decided}");
+}
+
+/// A peer's notices name its session as its list row does: a watcher on A gets the peer's
+/// `_acpmux/permission_pending` and `_acpmux/session_changed` with `qualifiedSessionId` equal to
+/// the row's (`peer/id`), beside the raw `sessionId` and `peer`, so an app that found the prompt
+/// by the row's qualified id matches the live notice and its withdrawal to it.
+#[tokio::test]
+async fn a_peer_sessions_notices_carry_its_rows_qualified_id() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "noticeqid").await;
+    let mut cb = plain(b.clone()).await;
+    let s = cb
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "far-qid"}}}),
+        )
+        .await
+        .unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+    cb.call(method::MUX_ATTACH, json!({"sessionId": remote_id, "limit": 0})).await.unwrap();
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut watcher = plain(a.clone()).await;
+    let listed = watcher.call(method::MUX_SESSIONS, json!({})).await.unwrap();
+    let row = listed["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["sessionId"] == remote_id.as_str() && r["peer"] == "b")
+        .cloned()
+        .unwrap_or_else(|| panic!("B's session is not listed on A: {listed}"));
+    let qualified = row["qualifiedSessionId"].as_str().expect("the row's qualified id").to_owned();
+    assert_eq!(qualified, format!("b/{remote_id}"), "{row}");
+    watcher.call(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
+
+    cb.next += 1;
+    let prompt_id = cb.next;
+    cb.tx
+        .send(
+            Message::request(
+                prompt_id,
+                method::SESSION_PROMPT,
+                json!({"sessionId": remote_id, "prompt": [{"type": "text", "text": "ask: deploy"}]}),
+            )
+            .to_line(),
+        )
+        .await
+        .unwrap();
+    let pending =
+        watcher.wait(method::MUX_PERMISSION_PENDING, |p| p["sessionId"] == remote_id).await;
+    assert_eq!(pending["peer"], "b", "{pending}");
+    assert_eq!(pending["sessionId"], remote_id.as_str(), "the raw id stays: {pending}");
+    assert_eq!(pending["qualifiedSessionId"], qualified.as_str(), "{pending}");
+    let perm = pending["permissionId"].as_str().expect("the prompt's id").to_owned();
+
+    // Answered on B: A's watcher hears the peer's row change, under the same qualified id.
+    cb.call(
+        method::MUX_PERMISSION_RESPOND,
+        json!({"sessionId": remote_id, "permissionId": perm, "optionId": "no"}),
+    )
+    .await
+    .unwrap();
+    let changed = watcher
+        .wait(method::MUX_SESSION_CHANGED, |p| {
+            p["sessionId"] == remote_id && p["kind"] == "permission_decision"
+        })
+        .await;
+    assert_eq!(changed["peer"], "b", "{changed}");
+    assert_eq!(changed["qualifiedSessionId"], qualified.as_str(), "{changed}");
+    assert_eq!(changed["session"]["qualifiedSessionId"], qualified.as_str(), "{changed}");
 }
 
 /// Prompt bookmarks of a peer's chat live on the daemon that owns it: A forwards both

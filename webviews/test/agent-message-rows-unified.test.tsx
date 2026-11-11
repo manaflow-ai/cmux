@@ -135,7 +135,8 @@ test("an unverified sender gets the marker only: no 'self-declared' words anywhe
   const container = await render(<IncomingMessageLine id="m-declared" message={message} onOpen={() => undefined} />);
   await openAll(container);
   const marker = container.querySelector(".cv-unverified");
-  expect(marker?.getAttribute("title")).toBe("Sender not verified");
+  // The name it gave is its claim (UnverifiedMark.tsx).
+  expect(marker?.getAttribute("title")).toBe(`Claimed to be ${message.name}, not proven`);
   expect(container.innerHTML).not.toContain("self-declared");
   expect(container.innerHTML).not.toContain("unauthenticated");
   expect(container.textContent).toContain("gcp-codex-swarm-05/cloud-start-matrix");
@@ -449,7 +450,7 @@ test("a lane batch's hover lists its messages newest first by their time, not th
 
 // Review of #37653: acpmux may say a thread's newest sender is unverified only on the thread (its
 // sender record, or an older acpmux's suffix on its `from`), not on each message. That message's
-// row and the group's hover still show "Sender not verified".
+// row and the group's hover still mark its sender's name as a claim.
 test("a thread's unverified sender marks its newest message's row and hover", async () => {
   const { flattenInboxRows } = await import("../src/agent-session/acpmux/conversation/laneNoticeBatches");
   const { GroupHoverLookContext, MessageGroupHover, hoverMessages, inboxHover } =
@@ -494,7 +495,9 @@ test("a thread's unverified sender marks its newest message's row and hover", as
   );
   const items = [...container.querySelectorAll(".cv-group-hover__item")];
   expect(items[0]?.textContent).toContain("second");
-  expect(items[0]?.querySelector(".cv-unverified")?.getAttribute("title")).toBe("Sender not verified");
+  expect(items[0]?.querySelector(".cv-unverified")?.getAttribute("title")).toBe(
+    "Claimed to be vm-1/lane-b, not proven",
+  );
   expect(items[1]?.querySelector(".cv-unverified")).toBeNull();
   // The notice card's own hover reads the same.
   expect(inboxHover(notice.threads).messages.map((m) => [m.text, m.unverified === true])).toEqual([
