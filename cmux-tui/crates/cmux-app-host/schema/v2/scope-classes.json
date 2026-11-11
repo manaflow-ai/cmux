@@ -1,5 +1,5 @@
 {
-  "$comment": "Risk class of every manifest v2 scope (plans/cmux-next/app-platform.md 12.5). One table for the validator, the supervisor's consent sheet and the store. Rules apply in order; the first match wins.",
+  "$comment": "Risk class of every manifest v2 scope (plans/cmux-next/app-platform.md 12.5). One table for the validator, the supervisor's consent sheet and the store. Rules apply in order; the first match wins. cmux_app_manifest::capabilities checks it against generated/scopes.json: every op scope is decided by one rule (a scope that two patterns match gets a literal rule first), and a rule no op scope uses says in gates what it gates instead (extensibility-DESIGN.md 13).",
   "classes": {
     "standard": "Granted with the app; listed in Settings and revocable.",
     "sensitive": "Shown highlighted on the consent sheet; revocable.",
@@ -7,18 +7,19 @@
     "elevated": "Never granted at install. Any tier gets it only by an explicit user grant in the native confirmation sheet, with a warning (origin user)."
   },
   "rules": [
-    { "pattern": "^process:spawn:[a-z0-9][a-z0-9-]{0,63}$", "class": "restricted", "serverOnly": true },
-    { "pattern": "^op:[a-z][a-zA-Z0-9_.-]{0,95}$", "class": "sensitive", "serverOnly": true },
-    { "pattern": "^terminal:backend$", "class": "elevated" },
+    { "pattern": "^process:spawn:[a-z0-9][a-z0-9-]{0,63}$", "class": "restricted", "serverOnly": true, "gates": "a native app server's spawn of one bundled binary (server.scopes)" },
+    { "pattern": "^op:[a-z][a-zA-Z0-9_.-]{0,95}$", "class": "sensitive", "serverOnly": true, "gates": "an app server's call of one named host op (server.scopes)" },
+    { "pattern": "^terminal:backend$", "class": "elevated", "gates": "implementing cmux.terminal.backend/1 or cmux.terminal.connector/1 (interface ops, not catalog ops)" },
     { "pattern": "^project:(read|write)$", "class": "restricted", "$comment": "the user's folders (plans/cmux-next/projects.md): paths stay on the Mac; no app reads or edits them without an explicit grant" },
     { "pattern": "^palette_usage:(read|write)$", "class": "restricted", "$comment": "the user's palette usage history (palette-ranking.md 5.3): local to the Mac, read and written by the app's palette only" },
     { "pattern": "^stash:(read|write)$", "class": "restricted", "$comment": "the user's stashed web pages (stash-v1): what they read, and a restore opens URLs; first-party apps only" },
     { "pattern": "^sidebar:write$", "class": "elevated", "$comment": "the user's sidebar document (sidebar-doc-v1): apps read it with the app, change it only by an explicit user grant, like sidebar_layout:write" },
     { "pattern": "^sidebar_layout:write$", "class": "elevated", "$comment": "the user's own sidebar arrangement (sidebar-sections.md 5): apps read it with the app, change it only by an explicit user grant" },
     { "pattern": "^(feed:answer|terminal:input|fs:write|clipboard:write|mcp:expose|usage:read)$", "class": "restricted" },
-    { "pattern": "^[a-z][a-z0-9_.-]{0,160}:answer$", "class": "restricted" },
-    { "pattern": "^[a-z][a-z0-9_.-]{0,160}:input$", "class": "restricted" },
-    { "pattern": "^[a-z][a-z0-9_.-]{0,160}:keys$", "class": "restricted", "$comment": "create and revoke credentials of the family, for example coderouter:keys" },
+    { "pattern": "^[a-z][a-z0-9_.-]{0,160}:answer$", "class": "restricted", "gates": "answers in a family other than feed (manifest scopes the schema allows; no catalog op needs one yet)" },
+    { "pattern": "^[a-z][a-z0-9_.-]{0,160}:input$", "class": "restricted", "gates": "input to a family other than terminal (manifest scopes the schema allows; no catalog op needs one yet)" },
+    { "pattern": "^[a-z][a-z0-9_.-]{0,160}:keys$", "class": "restricted", "$comment": "create and revoke credentials of the family, for example coderouter:keys", "gates": "provider ops the Mac app answers (coderouter:keys); they are not in scopes.json yet" },
+    { "pattern": "^integration:read$", "class": "standard", "$comment": "listing the team's connections and policy (integration.list); without this rule the generic :read rule and the provider rule integration:<provider> both match, and only their order made it standard. A provider cannot be named read." },
     { "pattern": "^[a-z][a-z0-9_.-]{0,160}:read$", "class": "standard" },
     { "pattern": "^integration:[a-z0-9-]{1,32}:read$", "class": "standard" },
     { "pattern": "^(storage:(local|synced)|embed:run)$", "class": "standard" },
