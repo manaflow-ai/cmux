@@ -336,8 +336,7 @@ fn c_abi_a_known_allow_is_an_option_the_daemon_offered_as_one() {
         None,
     );
     let allow = |permission: &str, option: &str| {
-        call(pane.0, "is_known_allow", json!({"permission": permission, "option": option}))
-            .unwrap()
+        call(pane.0, "is_known_allow", json!({"permission": permission, "option": option})).unwrap()
     };
     assert_eq!(allow("p1", "yes"), json!({"allow": true}));
     assert_eq!(allow("p1", "no"), json!({"allow": false}));
