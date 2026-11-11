@@ -51,7 +51,13 @@ export function animateScroll(
   curve: CubicBezier,
   then?: () => void,
   cancelled?: () => void,
-  options: { explicit?: boolean } = {},
+  options: {
+    explicit?: boolean;
+    /// How far to scroll while `offset` has nothing to measure (its row not drawn yet): the landing
+    /// as the layout has it now. Its moves never count toward settling, so the settle runs on until
+    /// the row is drawn and measured, or its frames run out.
+    unmeasured?: () => number | undefined;
+  } = {},
 ): void {
   const intent = userScrollIntent(node);
   if (intent.isHeld() && !options.explicit) return;
@@ -191,7 +197,13 @@ export function settleScroll(
   node: HTMLElement,
   offset: () => number | undefined,
   frames: number,
-  options: { explicit?: boolean } = {},
+  options: {
+    explicit?: boolean;
+    /// How far to scroll while `offset` has nothing to measure (its row not drawn yet): the landing
+    /// as the layout has it now. Its moves never count toward settling, so the settle runs on until
+    /// the row is drawn and measured, or its frames run out.
+    unmeasured?: () => number | undefined;
+  } = {},
 ): void {
   const intent = userScrollIntent(node);
   if (intent.isHeld() && !options.explicit) return;
@@ -214,15 +226,18 @@ export function settleScroll(
   unsubscribeIntent = intent.subscribe(end);
   const step = () => {
     // A scroller with no layout (hidden, or a DOM without one) has nothing to measure.
-    const by = node.clientHeight > 0 ? offset() : undefined;
-    if (by !== undefined) {
+    const laidOut = node.clientHeight > 0;
+    const by = laidOut ? offset() : undefined;
+    const estimate = laidOut && by === undefined ? options.unmeasured?.() : undefined;
+    const move = by ?? estimate;
+    if (move !== undefined && Number.isFinite(move)) {
       const max = Math.max(0, node.scrollHeight - node.clientHeight);
-      const to = Math.max(0, Math.min(max, node.scrollTop + by));
+      const to = Math.max(0, Math.min(max, node.scrollTop + move));
       if (Math.abs(to - node.scrollTop) > 0.5) {
         node.scrollTop = to;
         announceScroll(node);
         steady = 0;
-      } else steady += 1;
+      } else if (by !== undefined) steady += 1;
     }
     left -= 1;
     if (steady >= 3 || left <= 0) end();
