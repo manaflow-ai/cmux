@@ -24,7 +24,8 @@ import Testing
 /// test ends the key's turn as the main run loop does before it steps the tick. Before, the test stepped the tick inside
 /// the key's turn: the snap waited for that pass, and the tick showed nothing.
 ///
-/// The rig's driver is manual: the test ends the key's turn and steps the one frame tick.
+/// The rig's driver is manual: the test ends the key's turn and steps the one frame tick. For its last press it ends no
+/// turn and steps the ticks of the wait's bound.
 @MainActor
 @Suite(.serialized, .closesItsWindows)
 struct KeyResizeReduceMotionKeyTurnTests {
@@ -62,13 +63,15 @@ struct KeyResizeReduceMotionKeyTurnTests {
         // the size drawn ahead never goes to Ghostty. The snap must not wait for it past its bound.
         let before = host.frame, bound = Int(TerminalFramePresenter.resizeHoldTicks) + 1
         try #require(PaneResize.press("p2", .right, model: rig.model, view: rig.root), "the last press moved nothing")
+        // The wait must run for the bound to be the subject: a press that drew no size ahead shows at the first tick.
+        #expect(surfaces.contains { $0.frameOwnership.pendingAhead != nil }, "the last press drew no size ahead: the snap has nothing to wait for")
         var ticks = 0
         while host.frame == before, ticks <= bound {
             _ = rig.frame()
             ticks += 1
         }
         #expect(host.frame != before && ticks <= bound,
-                "a press whose turn's presenter pass never came showed after \(ticks) frame ticks, not within the bound \(bound) (moved: \(host.frame != before))")
+                "a press whose turn's presenter pass never came: p2 moved \(host.frame != before) in \(ticks) frame ticks; it must move within the bound \(bound)")
     }
 
     /// The rest of the key's turn, as the main run loop ends it: the presenter's pass before the commit gives Ghostty each
