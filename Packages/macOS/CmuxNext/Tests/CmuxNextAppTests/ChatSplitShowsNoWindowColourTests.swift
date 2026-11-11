@@ -179,8 +179,9 @@ struct ChatSplitShowsNoWindowColourTests {
                 : [CGPoint(x: 600, y: bar == .top ? header / 2 : oldFrame.maxY - footer / 2)]
             if oldFrame.height > oldRest.height + 8 {
                 tall += 1
-                // Where the chat held at its rest height left its pane empty: below that height, to the pane's bottom edge.
-                ys += [(oldRest.height + oldFrame.maxY - footer) / 2, oldFrame.maxY - footer - 12]
+                // Where the chat held at its rest height left its pane empty: from its area's bottom edge at rest to its
+                // area's bottom edge now (both above a strip at the bottom: a point in the strip's rows is not the chat's).
+                ys += [(oldRest.height - footer + oldFrame.maxY - footer) / 2, oldFrame.maxY - footer - 12]
                 if vertical != nil { tabs.append(CGPoint(x: list / 2, y: oldFrame.maxY - 20)) }
             }
             // The new pane's chat has its pane's rect too: under its header, and above its footer at its bottom edge.
@@ -308,9 +309,11 @@ struct ChatSplitShowsNoWindowColourTests {
             var points = (sharesTabRow ? [450] : [header / 2, 450]).map { CGPoint(x: oldRest.minX + list + 60, y: $0) }
             // Beside a shared tab row: no chat ground.
             var clear: [CGPoint] = []
-            // The part of the old pane past its rest width, next to the new pane (the chat covers it, as it follows
-            // its pane): in its middle and at its far edge, in the header's rows, in the middle rows and at the bottom.
-            let gap = newPaneOnTheLeft ? (min: oldFrame.minX, max: oldRest.minX) : (min: oldRest.maxX, max: oldFrame.maxX)
+            // The part of the old pane's chat past its rest place, next to the new pane (the chat covers it, as it
+            // follows its pane): in its middle and at its far edge, in the header's rows, in the middle rows and at the
+            // bottom. On a Split Left that part starts after the pane's vertical list, which is at the pane's leading
+            // edge in every frame and is clear.
+            let gap = newPaneOnTheLeft ? (min: oldFrame.minX + list, max: oldRest.minX + list) : (min: oldRest.maxX, max: oldFrame.maxX)
             if gap.max - gap.min > 8 {
                 bands += 1
                 let xs = [(gap.min + gap.max) / 2, newPaneOnTheLeft ? gap.min + 3 : gap.max - 3]
