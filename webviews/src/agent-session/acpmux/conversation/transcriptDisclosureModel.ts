@@ -97,8 +97,8 @@ function level(key: string): number {
 /// `ids`: the calls and rows the fold holds (`namesOne`). `below`: the fold's own level (`level`);
 /// only lines under it are forgotten. `keep`: lines that take the fold's place, never its children.
 /// `views`: the chat's other views (`chat#view`) too. `from`: the lowest level forgotten.
-/// A forgotten line is written closed, not deleted: a line whose default is open (a steered turn's
-/// runs under `nested-open`) would open again with its parent (review of #41213).
+/// A forgotten line goes back to its default, as on the parent's first open: closed, or open where
+/// the turn's look opens it (a steered turn's runs under `nested-open`).
 function forgetInside(
   sessionId: string,
   ids: ReadonlySet<string>,
@@ -113,7 +113,7 @@ function forgetInside(
     if (id !== sessionId && !(views && id.startsWith(`${sessionId}#`))) continue;
     for (const [key, value] of session) {
       if (!value || keep.has(key) || level(key) >= below || level(key) < from || !namesOne(key, ids)) continue;
-      session.set(key, false);
+      session.delete(key);
       changed = true;
     }
   }

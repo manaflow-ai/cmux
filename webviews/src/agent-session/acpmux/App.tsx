@@ -413,6 +413,7 @@ import { isFindRow, type ChatFind } from "./conversation/chatFind";
 import { revealedSaid, saidRows, type SaidReveal } from "./conversation/saidReveal";
 import { ChatFindScope } from "./conversation/ChatFindScope";
 import {
+  closeTurnRuns,
   ACTIVITY_LINE,
   DATE,
   THINKING,
@@ -10736,11 +10737,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     }
     // In Thinking and Verbose a turn's "Worked for" is open unless toggled there (viewFolds.ts):
     // the reader's open or close overrides the view, and Normal's own folds stay as they were.
-    if (view !== "normal" && isWorkedFold(id))
+    if (view !== "normal" && isWorkedFold(id)) {
       setViewToggles((current) =>
         new Map(current).set(view, toggleViewTurnFold(turnRowsRef.current, current.get(view) ?? NO_FOLD_TOGGLES, id)),
       );
-    else setExpanded((current) => toggleTurnFold(turnRowsRef.current, current, id, covers));
+      // Its runs of messages close with it in this view too.
+      setExpanded((current) => {
+        const next = new Set(current);
+        closeTurnRuns(turnRowsRef.current, next, id);
+        return next.size === current.size ? current : next;
+      });
+    } else setExpanded((current) => toggleTurnFold(turnRowsRef.current, current, id, covers));
   }, []);
   const loadReplay = useCallback(
     // l10n-allow: never shown; the replay says replay.failed.

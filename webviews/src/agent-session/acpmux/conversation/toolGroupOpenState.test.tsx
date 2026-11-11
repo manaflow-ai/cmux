@@ -553,7 +553,7 @@ function OpenByDefault({ id }: { id: string }) {
   return <button type="button" aria-label={id} data-probe={id} aria-expanded={open} onClick={() => setOpen(!open)} />;
 }
 
-test("a reset line whose default is open stays closed: the reset writes it closed", async () => {
+test("a reset forgets only lines the reader opened: one they closed over an open default stays closed", async () => {
   const container = await mount(
     <DisclosureSession.Provider value="open-default">
       <OpenByDefault id="c1" />
@@ -561,8 +561,7 @@ test("a reset line whose default is open stays closed: the reset writes it close
   );
   const probe = () => container.querySelector<HTMLButtonElement>('[data-probe="c1"]')!;
   await act(async () => probe().click());
-  await act(async () => probe().click());
-  expect(probe().getAttribute("aria-expanded")).toBe("true");
+  expect(probe().getAttribute("aria-expanded")).toBe("false");
   await act(async () => forgetInsideTurn("open-default", new Set(["c1"])));
   expect(probe().getAttribute("aria-expanded")).toBe("false");
 });

@@ -2668,7 +2668,8 @@ export function mergeShortNotes(rows: readonly AcpmuxRow[], keep?: ReadonlySet<s
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index]!;
     const previous = out.at(-1);
-    if (run(previous) && isShortNote(row) && !keep?.has(row.id) && run(rows[index + 1])) {
+    // A stretch being joined is a run already (`items`): its first run is not read again per note.
+    if ((items !== undefined || run(previous)) && isShortNote(row) && !keep?.has(row.id) && run(rows[index + 1])) {
       const next = rows[index + 1]!;
       items ??= [...(previous!.items ?? [])];
       joined ??= [...(previous!.joined ?? [previous!.id])];
@@ -2763,14 +2764,19 @@ export function toggleTurnFold(
   const open = keys.some((key) => expanded.has(key));
   for (const key of keys) next.delete(key);
   if (!open) next.add(key ?? id);
-  // A turn's fold opens with every line in it closed (Lucas, 2026-11-11): the runs of messages and
-  // of background work it holds are opened by key here, not in the disclosure store.
-  if (id.startsWith(`${WORKED}-`))
-    for (const inside of turnInsideIds(rows, id)) {
-      next.delete(messageRunRowId(inside));
-      next.delete(backgroundRunRowId(inside));
-    }
+  closeTurnRuns(rows, next, id);
   return next;
+}
+
+/// A turn's fold opens with every line in it closed (Lucas, 2026-11-11): the runs of messages and of
+/// background work it holds are opened by key in `expanded`, not in the disclosure store, so a click
+/// on "Worked for" `id` clears their keys from `expanded`, in place. Any view's click (App.tsx).
+export function closeTurnRuns(rows: readonly AcpmuxRow[], expanded: Set<string>, id: string): void {
+  if (!id.startsWith(`${WORKED}-`)) return;
+  for (const inside of turnInsideIds(rows, id)) {
+    expanded.delete(messageRunRowId(inside));
+    expanded.delete(backgroundRunRowId(inside));
+  }
 }
 
 /// The rows and calls inside the turn of "Worked for" `id`, its prompt and steers left out: what the
