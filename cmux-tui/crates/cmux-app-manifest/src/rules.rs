@@ -1,8 +1,9 @@
 //! Rules the schema cannot express.
 
+use crate::capabilities::scope_info;
 use crate::interfaces::{KNOWN_HOST_CAPABILITIES, KNOWN_INTERFACES, option_errors};
 use crate::issue::{Issue, escape};
-use crate::scopes::{ScopeClass, scope_info};
+use crate::scopes::ScopeClass;
 use serde_json::Value;
 
 /// Publishers reserved for first-party apps.
