@@ -277,6 +277,7 @@ class Verdicts(unittest.TestCase):
         self.assertTrue(all(c["hosts"] == "cmux18" and c.get("whole_host") for c in calls), calls[:2])
         self.assertTrue(all("fuzz_mode" not in c["opts"] for c in calls))
 
+    @unittest.skip("flaky on feat-cmux-next (red in 1 of 2 Linux runs), line 302: 1 not greater than or equal to 2 (https://github.com/manaflow-ai/cmux/issues/41322)")
     def test_go_dir_gates_each_round(self):
         import threading
         tmp = Path(tempfile.mkdtemp())

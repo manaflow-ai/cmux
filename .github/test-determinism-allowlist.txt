@@ -306,7 +306,6 @@ Packages/macOS/CmuxNext/Tests/CmuxNextControlTests/SyncBarrierUnderLoadTests.swi
 Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/BusyRefusalReconnectTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
 Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/FailedHandshakeClosesTransportTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
 Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/FrontendBrowserTabLinkDownTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
-Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/ProcessRunnerOutputCaptureTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
 Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/SlowDaemonAnswerTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
 Packages/macOS/CmuxNext/Tests/CmuxNextErrorJournalTests/ErrorJournalTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
 Packages/macOS/CmuxNext/Tests/CmuxNextFilesTests/DirectoryListerTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized

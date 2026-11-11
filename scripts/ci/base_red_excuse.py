@@ -4835,6 +4835,115 @@ WS_CHECK_UNIT = r"(?: \[[^\]\n]+\])?"
 WS_CHECK_SHARD = re.compile(r" \d+/\d+$")  # "[test_lane_place.py 2/4]": a big suite's shard
 # The checkout root a ws-check run's paths start with: fast-checks.yml's workspace, or ws-check-heads.yml's clone.
 WS_CHECK_ROOT = re.compile(r"(?:/[\w.-]+)*/_work/(?:cmuxterm-hq/cmuxterm-hq|_temp/lw)/")
+# A cmux-ci run's run-name (cmuxterm-hq fast-checks.yml): `Fast checks SNAPSHOT`, then ` tests REPO@SHA` (the tested
+# repo and commit) or ` job ID` (the lane-gh broker's cmux-ci job, 32 hex digits). LW#4369 at 4f84acf0 (2026-11-11):
+# the broker's merge-tested run 43048550008 was named `Fast checks 48b2f601... job 49c43a9c...`, which the run-name
+# match before this read as "the WS_CHECK_RESULT ... is from another checkout", though its receipt named that snapshot.
+WS_CHECK_RUN_NAME = r"Fast checks {}(?: tests \S+| job [0-9a-f]{{32}})?"
+# The broker cuts a hosted repo's snapshot to these paths of the tested tree (its fast_checks_hosts entry).
+WS_CHECK_HOSTS_FILE = "machines/lane-gh-broker.json"
+HEX40 = re.compile(r"[0-9a-f]{40}")
+
+
+def ws_check_mirror(repo: str) -> Path | None:
+    """This host's mirror of REPO (GH_MIRROR_ROOT, else ~/Projects/.wt-mirrors: wt's and gh_mirror_reads'), or None."""
+    owner, _, name = repo.partition("/")
+    root = Path(os.environ.get("GH_MIRROR_ROOT") or Path.home() / "Projects" / ".wt-mirrors")
+    mirror = root / owner / f"{name}.git"
+    return mirror if (mirror / "HEAD").is_file() and (mirror / "objects").is_dir() else None
+
+
+@once_per_judgement("git squash tree")
+def ws_check_squash_tree(repo: str, head: str, tip: str) -> str:
+    """The tree a merge-tested ws-check run of HEAD must have tested for HEAD to land on base tip TIP: HEAD merged with
+    TIP (the tree a pinned squash makes), cut to the paths its fast_checks_hosts entry names, as the lane-gh broker cuts
+    its snapshot (cmuxterm-hq tools/lane-gh-broker ci_snapshot and ci_merged_tree: HEAD's own tree when TIP has HEAD,
+    else `git merge-tree --write-tree TIP HEAD`). Read from git only: git_cache(REPO) over this host's mirror's objects
+    (ws_check_mirror), fetching a commit neither has. Refused when git cannot answer, the merge conflicts or the merged
+    tree names no paths: never guessed."""
+    git = git_cache(repo)
+    if git is None or not (HEX40.fullmatch(head) and HEX40.fullmatch(tip)):
+        raise Refused(f"no git repository for {repo} to merge {head[:12]} with {tip[:12]} in")
+    where = source_cache() / (repo.replace("/", "__") + ".git")
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "", "SSH_ASKPASS": ""}
+    mirror = ws_check_mirror(repo)
+    if mirror is not None:  # read through, never written: every object made here goes to the cache
+        env["GIT_ALTERNATE_OBJECT_DIRECTORIES"] = str(mirror / "objects")
+
+    def run(*args: str, text: str | None = None) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", "--git-dir", str(where), *args], capture_output=True, text=True, env=env,
+                              timeout=GIT_SECONDS, input=text, stdin=None if text is not None else subprocess.DEVNULL)
+
+    def shallow() -> bool:
+        said = run("rev-parse", "--is-shallow-repository")
+        return said.returncode != 0 or said.stdout.strip() != "false"  # an unanswered check counts as shallow
+
+    def unshallow() -> None:
+        if shallow() and (run("fetch", "-q", "--no-tags", "--filter=blob:none", "--unshallow", "origin", head,
+                              tip).returncode or shallow()):
+            raise Refused(f"git's {repo} cache is shallow (git_commit's one-commit fetches) and its whole history "
+                          f"could not be fetched, so {head[:12]} cannot be merged with {tip[:12]} by their history")
+
+    try:
+        for commit in (head, tip):
+            if run("cat-file", "-e", f"{commit}^{{commit}}").returncode:
+                # The whole history (no --depth): merge-tree needs the merge-base. No blobs until a merge reads them.
+                if run("fetch", "-q", "--no-tags", "--filter=blob:none", "origin", commit).returncode or \
+                        run("cat-file", "-e", f"{commit}^{{commit}}").returncode:
+                    raise Refused(f"git cannot read {repo} commit {commit[:12]} (not in this host's mirror or cache, "
+                                  "and its fetch failed)")
+        # Present is not complete: git_commit fills this cache one commit deep (`--depth=1`), so both commits can be
+        # here with their parents cut off, and merge-base or merge-tree then reads two unrelated histories (cmux#41386
+        # F1). Any shallow boundary may cut this merge's history, so the cache is made whole first, or nothing is said.
+        unshallow()
+        if run("merge-base", "--is-ancestor", head, tip).returncode == 0:
+            done = run("rev-parse", f"{head}^{{tree}}")
+            merged = done.stdout.strip() if not done.returncode else ""
+        else:
+            done = run("merge-tree", "--write-tree", "--no-messages", "--name-only", tip, head)
+            lines = done.stdout.splitlines()
+            if done.returncode == 1 and lines and HEX40.fullmatch(lines[0]):
+                files = [line for line in lines[1:] if line]
+                raise Refused(f"{head[:12]} does not merge cleanly with the base tip {tip[:12]} (conflicts in: "
+                              f"{', '.join(files[:5]) or 'unknown'}): no run tested the tree a squash would make")
+            merged = lines[0] if not done.returncode and lines else ""
+        if shallow():  # another reader's one-commit fetch cut the history while this merge read it
+            raise Refused(f"git's {repo} cache went shallow while {head[:12]} was merged with {tip[:12]}; judge again")
+        if not HEX40.fullmatch(merged):
+            raise Refused(f"git cannot merge {head[:12]} with {tip[:12]}: {done.stderr.strip()[-200:] or 'no tree'}")
+        shown = run("show", f"{merged}:{WS_CHECK_HOSTS_FILE}")
+        try:
+            entry = (json.loads(shown.stdout).get("fast_checks_hosts") or {}).get(repo) if not shown.returncode else None
+        except (ValueError, AttributeError):
+            entry = None
+        paths = entry.get("paths") if isinstance(entry, dict) else None
+        if not (isinstance(paths, list) and paths and all(isinstance(path, str) and path for path in paths)):
+            raise Refused(f"{head[:12]} merged with {tip[:12]} names no {repo} paths in {WS_CHECK_HOSTS_FILE}")
+        keep = [listed for path in paths if (listed := run("ls-tree", merged, "--", path).stdout.strip())]
+        made = run("mktree", text="\n".join(keep) + "\n") if keep else None
+        cut = made.stdout.strip() if made is not None and not made.returncode else ""
+    except (OSError, subprocess.SubprocessError) as error:
+        raise Refused(f"git cannot merge {head[:12]} with {tip[:12]}: {type(error).__name__}: {error}"[:300]) from None
+    if not HEX40.fullmatch(cut):
+        raise Refused(f"{head[:12]} merged with {tip[:12]} has none of {', '.join(paths)}")
+    return cut
+
+
+def ws_check_tested_tree(repo: str, base: str, sha: str, snapshot: dict, tip: str) -> None:
+    """Refused unless the head SHA's snapshot run (SNAPSHOT: {"run", "tree"}, ws_check_verdict) tested the tree a pinned
+    squash of SHA onto BASE's tip TIP makes (ws_check_squash_tree), compared by tree id only. A run that tested an older
+    base, another head, or names no tree is no verdict on what lands."""
+    where = f"'{WS_CHECK}' on {sha}: run {snapshot.get('run')}"
+    tested = snapshot.get("tree")
+    if not (isinstance(tested, str) and HEX40.fullmatch(tested)):
+        raise Refused(f"{where} names no tested tree in its receipt, so it cannot be held to {sha[:12]} merged with "
+                      f"{base}")
+    if not HEX40.fullmatch(tip or ""):
+        raise Refused(f"{where}: {base} has no tip to merge {sha[:12]} with")
+    want = ws_check_squash_tree(repo, sha, tip)
+    if tested != want:
+        raise Refused(f"{where} tested tree {tested[:12]}, not {sha[:12]} merged with {base}'s tip {tip[:12]} "
+                      f"({want[:12]}): it tested another base or head. Run ws-check again at this head")
 
 
 def ws_check_status(repo: str, sha: str, github) -> dict | None:
@@ -4931,9 +5040,12 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
             receipt = {}
         if not (isinstance(receipt, dict) and result.get("head") and receipt.get("source_sha") == result.get("head")
                 and str(receipt.get("run_id")) == link[1]
-                and re.fullmatch(r"Fast checks " + re.escape(str(result.get("head"))) + r"(?: tests \S+)?",
+                and re.fullmatch(WS_CHECK_RUN_NAME.format(re.escape(str(result.get("head")))),
                                  run.get("display_title") or "")):
             raise Refused(f"{where}: the WS_CHECK_RESULT of run {link[1]} is from another checkout")
+        # Which checkout or runner ran it says nothing; what it tested does. A head's snapshot run is held to its tree
+        # (ws_check_red: the head merged with the base tip, ws_check_squash_tree); a base commit's is read as before.
+        found["snapshot"] = {"run": link[1], "tree": receipt.get("source_tree")}
     if (int(named[1]), int(named[2])) != (len(failed), result.get("steps")) or not failed[0].startswith(named[3]):
         raise Refused(f"{where}: its status (\"{description}\") does not match run {link[1]}'s WS_CHECK_RESULT")
     steps = {}
@@ -5050,7 +5162,9 @@ def ws_check_red(repo: str, base: str, sha: str, github) -> dict:
     merge_base = ((diff.get("merge_base_commit") or {}).get("sha")) or ""
     commits = [commit["sha"] for commit in github.json(f"repos/{repo}/commits?sha={base}&per_page={WS_CHECK_COMMITS}")
                or [] if isinstance(commit, dict) and isinstance(commit.get("sha"), str)]
-    verdicts = ((commit, *ws_check_verdict(repo, commit, github)) for commit in commits)
+    if head.get("snapshot"):
+        ws_check_tested_tree(repo, base, sha, head["snapshot"], commits[0] if commits else "")
+    verdicts =((commit, *ws_check_verdict(repo, commit, github)) for commit in commits)
     verdicts = (found for found in verdicts if found[1] != "none")
     newest = next(verdicts, None)
     if newest is None:
