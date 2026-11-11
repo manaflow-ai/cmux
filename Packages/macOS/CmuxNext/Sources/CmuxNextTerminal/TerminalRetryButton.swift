@@ -55,7 +55,7 @@ final class TerminalRetryButton: ClickableButton {
         switch status {
         case .disconnected(.turnedOffByOrganization, _): false
         case .disconnected(_, reconnecting: false): true
-        case .connected, .restoring, .disconnected, .exited: false
+        case .connected, .restoring, .starting, .disconnected, .exited: false
         }
     }
 
