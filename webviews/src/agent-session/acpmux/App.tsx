@@ -4680,12 +4680,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// (and the prompt, for its New Cloud chat action).
   const [cloudHeld, setCloudHeld] = useState<"checking" | { refusal: string; prompt: string; cwd?: string }>();
   const cloudWaitsForCheck = cloudHeld === "checking";
+  /// The held send came from the New Tab page: the page locks while it waits, as during a start,
+  /// so the send that goes is what the page shows. A check that fails (Check again) drops a page's
+  /// held send and unlocks the page, its prompt still in it.
+  const cloudHeldOnPage = useRef(false);
+  const cloudPageHeld = cloudWaitsForCheck && cloudHeldOnPage.current && !sandbox.unread;
   const sendToCloudLatest = useRef<typeof sendToCloud>(() => false);
   const sendToCloud = (
     text: string,
     attachments: ComposerAttachment[],
     start: Omit<CloudStart, "task" | "attachments">,
     fromPage = false,
+    /// A held send going (`cloudAfterCheck`): whether the chat composer still shows the prompt as it
+    /// was held. Edited meanwhile, the composer keeps the edit and the start takes nothing from it.
+    heldStillShown?: boolean,
   ): string | boolean => {
     const refused = cloudPageRefusal({ offerable: sandboxOfferable, checked: sandbox.checked });
     if (refused === "cloud_chat_starting") return translate("cloudStart.chatStartingHere");
@@ -4693,19 +4701,28 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // The tab's check hasn't answered (cloudRun.ts cloudPageRefusal): this send waits for it and
       // goes by itself, the prompt held where it was typed. A read now, since the handshake's may
       // have missed its 15 s; a read that fails again shows Check again (sandboxUnchecked).
-      cloudAfterCheck.hold(() => {
-        const went = sendToCloudLatest.current(text, attachments, start, fromPage);
-        if (typeof went === "string") {
-          setCloudHeld({ refusal: went, prompt: text, ...(start.cwd ? { cwd: start.cwd } : {}) });
-          return;
-        }
-        setCloudHeld(undefined);
-        // The chat composer kept the prompt while the send waited (it answered false): the start
-        // takes it out now, as a Send that went at once does, unless the person changed it meanwhile.
-        // A page send needs nothing: the page locks while its start runs (`cloudStarting`).
-        const handle = composerHandle.current;
-        if (went === true && handle && heldPromptShown(handle.draft(), { text, attachments })) handle.take();
-      }, { prompt: text, ...(start.cwd ? { cwd: start.cwd } : {}) });
+      // The composer's text as it was held, raw (the send's text is trimmed and expanded): an
+      // unchanged composer matches it exactly.
+      const shownAtHold = fromPage ? undefined : composerHandle.current?.draft();
+      cloudAfterCheck.hold(
+        () => {
+          const handle = composerHandle.current;
+          const stillShown = !fromPage && heldPromptShown(handle?.draft(), shownAtHold);
+          const went = sendToCloudLatest.current(text, attachments, start, fromPage, stillShown);
+          if (typeof went === "string") {
+            setCloudHeld({ refusal: went, prompt: text, ...(start.cwd ? { cwd: start.cwd } : {}) });
+            return;
+          }
+          setCloudHeld(undefined);
+          // The chat composer kept the prompt while the send waited (it answered false): the start
+          // takes it out now, as a Send that went at once does, unless the person changed it meanwhile.
+          // A page send needs nothing: the page stays locked from the hold through its start
+          // (`cloudPageHeld`, `cloudStarting`), so it holds no edit the start would lose.
+          if (went === true && stillShown) handle?.take();
+        },
+        { prompt: text, ...(start.cwd ? { cwd: start.cwd } : {}) },
+      );
+      cloudHeldOnPage.current = fromPage;
       setCloudHeld("checking");
       void sandbox.read();
       return false;
@@ -4724,7 +4741,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ...(team ? { team } : {}),
     };
     // A page's send leaves the page: its draft comes back in the chat composer, compared there.
-    const started = beginCloudSend(request, false, fromPage ? undefined : composerHandle.current?.draft(), fromPage);
+    const preserved = fromPage || heldStillShown === false ? undefined : composerHandle.current?.draft();
+    const started = beginCloudSend(request, false, preserved, fromPage);
     // A composer's send leaves the composer open and empty, as a local send does: the prompt shows
     // as the message (CloudStartView) and comes back if the start fails (`cloudStartHeld`).
     return Boolean(started) && !fromPage;
@@ -4741,11 +4759,27 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       setCloudHeld(undefined);
     } else if (sandboxOffered) {
       cloudAfterCheck.offered();
+    } else if (sandbox.unread && cloudHeldOnPage.current) {
+      cloudAfterCheck.drop();
+      setCloudHeld(undefined);
     } else if (sandbox.checked && !sandboxOfferable) {
       const held = cloudAfterCheck.take();
-      setCloudHeld({ refusal: translate("cloudStart.chatStartingHere"), prompt: held?.prompt ?? "", ...(held?.cwd ? { cwd: held.cwd } : {}) });
+      setCloudHeld({
+        refusal: translate("cloudStart.chatStartingHere"),
+        prompt: held?.prompt ?? "",
+        ...(held?.cwd ? { cwd: held.cwd } : {}),
+      });
     }
-  }, [cloudAfterCheck, cloudWaitsForCheck, sandboxOffered, sandboxOfferable, sandbox.checked, sandbox.mode, snapshot.sessionId]);
+  }, [
+    cloudAfterCheck,
+    cloudWaitsForCheck,
+    sandboxOffered,
+    sandboxOfferable,
+    sandbox.checked,
+    sandbox.unread,
+    sandbox.mode,
+    snapshot.sessionId,
+  ]);
   // Another New Tab, or leaving Cloud, ends what the held send said.
   useEffect(() => {
     cloudAfterCheck.drop();
@@ -12424,9 +12458,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                     onClick={() => {
                                       const { prompt, cwd } = cloudHeld;
                                       setCloudHeld(undefined);
-                                      void openCloudChatWith({ ...(prompt ? { prompt } : {}), ...(cwd ? { cwd } : {}) }).catch(
-                                        () => undefined,
-                                      );
+                                      void openCloudChatWith({
+                                        ...(prompt ? { prompt } : {}),
+                                        ...(cwd ? { cwd } : {}),
+                                      }).catch(() => undefined);
                                     }}
                                   >
                                     {t("cloudStart.openNewCloudChat")}
@@ -12453,7 +12488,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                             }
                           : {}),
                         // The page stays locked through a stall: its send would start a chat in this tab.
-                        cloudStarting: cloudSendHeld,
+                        cloudStarting: cloudSendHeld || cloudPageHeld,
                         onCloud: (
                           harness: string,
                           text: string,

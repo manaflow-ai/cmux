@@ -218,8 +218,18 @@ test("a held send's start takes its prompt out of the composer only while the co
   expect(heldPromptShown({ text: "hey", attachments: [chip] }, { text: "hey", attachments: [chip] })).toBe(true);
   expect(heldPromptShown({ text: "hey there", attachments: [chip] }, { text: "hey", attachments: [chip] })).toBe(false);
   expect(heldPromptShown({ text: "hey", attachments: [] }, { text: "hey", attachments: [chip] })).toBe(false);
-  expect(heldPromptShown({ text: "hey", attachments: [{ id: "b" }] }, { text: "hey", attachments: [chip] })).toBe(false);
+  expect(heldPromptShown({ text: "hey", attachments: [{ id: "b" }] }, { text: "hey", attachments: [chip] })).toBe(
+    false,
+  );
   expect(heldPromptShown(undefined, { text: "hey", attachments: [] })).toBe(false);
+  expect(heldPromptShown({ text: "hey", attachments: [] }, undefined)).toBe(false);
+});
+
+test("a held send compares the composer with its own text as held, not the send's trimmed text", () => {
+  // Codex #40942 F2: an untouched "hey " failed against the sent "hey" and stayed for a second send.
+  const held = { text: "hey ", attachments: [] };
+  expect(heldPromptShown({ text: "hey ", attachments: [] }, held)).toBe(true);
+  expect(heldPromptShown({ text: "hey there", attachments: [] }, held)).toBe(false);
 });
 
 test("a held send the check refuses is dropped and gives back its prompt and folder for New Cloud chat", () => {

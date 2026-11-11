@@ -181,14 +181,15 @@ export function cloudPageRefusal(tab: { offerable: boolean; checked: boolean }):
   return tab.checked ? undefined : "cloud_checking";
 }
 
-/// Whether the composer still shows the prompt a held Cloud send carried (its text and chips), so
-/// the send's start may take it out: once the held send goes, a second Return can't send it again.
-/// A prompt the person changed meanwhile stays.
+/// Whether the composer still shows what it showed when a Cloud send was held (its raw text and
+/// chips), so the send's start may take it out: once the held send goes, a second Return can't send
+/// it again. A prompt the person changed meanwhile stays. Compared raw: the send's own text is
+/// trimmed and expanded, so it never matches an untouched composer's.
 export function heldPromptShown(
   shown: { text: string; attachments: { id: string }[] } | undefined,
-  sent: { text: string; attachments: { id: string }[] },
+  sent: { text: string; attachments: { id: string }[] } | undefined,
 ): boolean {
-  if (!shown || shown.text !== sent.text || shown.attachments.length !== sent.attachments.length) return false;
+  if (!shown || !sent || shown.text !== sent.text || shown.attachments.length !== sent.attachments.length) return false;
   return shown.attachments.every((attachment, index) => attachment.id === sent.attachments[index]?.id);
 }
 
