@@ -124,9 +124,14 @@ export function headsBackground(row: AcpmuxRow): boolean {
 /// beside that walk avoids a second O(rows) pass on every streamed snapshot.
 export function collectFoldedBackgroundId(closed: Set<string>, row: AcpmuxRow, expanded: Folds): void {
   if (row.kind !== BACKGROUND_TURN || !row.background) return;
-  // Inline there is no line to open, so a folding turn's replies stay hidden whatever `expanded` holds.
-  const open = expanded.has(row.id) && !backgroundTurnsInline(experimentArm(backgroundTurnLook));
-  if (foldsBackground(row) && !open) closed.add(row.background.id);
+  // Inline there is no line to open: a running or quiet turn's reply stays hidden whatever `expanded`
+  // holds, and any other turn's reply draws, as a silent one that ended with something to say has no
+  // line left to open to it.
+  const inline = backgroundTurnsInline(experimentArm(backgroundTurnLook));
+  const hides = inline
+    ? foldsBackground(row) && (row.background.running || row.background.quiet === true)
+    : foldsBackground(row) && !expanded.has(row.id);
+  if (hides) closed.add(row.background.id);
   else closed.delete(row.background.id);
 }
 

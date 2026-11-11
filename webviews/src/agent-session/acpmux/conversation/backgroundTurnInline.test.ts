@@ -58,6 +58,15 @@ test("a running background turn draws its calls as they come, its reply not yet"
   expect(view).toEqual(["prompt", "reply", "summary", "check"]);
 });
 
+test("a silent turn no call took that ended with something to say draws its reply", () => {
+  const rows = transcript({
+    quiet: false,
+    trigger: "task_notification",
+    cause: { kind: "monitor", status: "event", weight: "silent" },
+  });
+  expect(ids(turnView(rows, new Set()))).toContain("note");
+});
+
 test("a background turn with something to say draws as before", () => {
   const view = ids(turnView(transcript({ quiet: false }), new Set()));
   expect(view).toEqual(["prompt", "reply", "summary", "check", "note", "backgroundEnd-bg"]);
