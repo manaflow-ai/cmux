@@ -682,7 +682,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
                               (f"*/{inner}", False), (f"/tmp/*/*/{inner}", False), (f"/var/tmp/*/{inner}", False),
                               ("/tmp/*/cmux DEV cap2616865988.app/Contents/../Contents/MacOS/cmux DEV", False),
                               (f"/tmp/*/{inner[:-8]}{'x' * 300}/../cmux DEV", False),
-                              (f"/tmp/*/{inner}\0", False)):
+                              (f"/tmp/*/{inner[:-8]}{'x' * 300}", False), (f"/tmp/*/{inner}\0", False)):
             moved.write_text(head + "\n" + json.dumps({**json.loads(body), "procPath": where}))
             said = why(app, born - 1, found=moved)
             self.assertEqual(said is None, counts, (where, said))
@@ -809,7 +809,8 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         between = ("seed = smoke.seed_cookie_sync_home\n"
                    "def seed_after_another_run(home, bundle_id):\n"
                    "    import json, subprocess, sys, time\n"
-                   "    now = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime()) + '.0000 +0000'\n"
+                   "    at = time.time()\n"
+                   "    now = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(at)) + ('%.4f' % (at % 1))[1:] + ' +0000'\n"
                    "    body = {'pid': 4190005, 'parentPid': 1, 'procLaunch': now, 'captureTime': now,\n"
                    "            'procPath': '/tmp/*/Stub healthy.app/Contents/MacOS/stub'}\n"
                    "    writer = ('import os, sys, time\\n'\n"
@@ -1024,6 +1025,35 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertEqual((report["verdict"], report["arm"], report["exit"]), ("fail", "seeded", -6))
         self.assertIn("the seeded launch's evidence is not complete: RuntimeError: no evidence today", output)
         self.assertIn("FAIL: seeded home: the app exited", output)
+        verdicts = gate_verdicts()
+        self.assertEqual(verdicts.attempt_result(status, report), verdicts.CRASH)
+        self.assert_cleaned_up(report)
+
+    def test_a_seeded_crash_stays_a_crash_when_the_evidence_and_its_warning_both_fail(self):
+        # As a log that went away while the evidence was told: the arm's verdict was a failure before that.
+        refuse = ("def refuse(*_a, **_k):\n    raise RuntimeError('no evidence today')\nsmoke.explain = refuse\n"
+                  "say = smoke.log\n"
+                  "def log(message):\n"
+                  "    if message.startswith('warning: the seeded launch'):\n"
+                  "        raise BrokenPipeError('the log went away')\n"
+                  "    say(message)\n"
+                  "smoke.log = log")
+        status, output, report = self.run_smoke("sync-crash", "--seconds", "2", "--startup-timeout", "10",
+                                                "--arms", "empty,seeded", "--seeded-seconds", "2", setup=refuse)
+        self.assertEqual(status, smoke.FAIL, output)
+        self.assertEqual((report["verdict"], report["arm"], report["exit"]), ("fail", "seeded", -6))
+        self.assertEqual(report["arms"]["seeded"]["verdict"], "fail")
+        verdicts = gate_verdicts()
+        self.assertEqual(verdicts.attempt_result(status, report), verdicts.CRASH)
+        self.assert_cleaned_up(report)
+
+    def test_a_first_arm_crash_stays_a_crash_when_its_evidence_cannot_be_kept(self):
+        refuse = "def refuse(*_a, **_k):\n    raise OSError('no evidence today')\nsmoke.explain = refuse"
+        status, output, report = self.run_smoke("crash", "--seconds", "2", "--startup-timeout", "10", setup=refuse)
+        self.assertEqual(status, smoke.FAIL, output)
+        self.assertEqual((report["verdict"], report["exit"]), ("fail", -6))
+        self.assertIn("this launch's evidence is not complete: OSError: no evidence today", output)
+        self.assertIn("FAIL: the app exited", output)
         verdicts = gate_verdicts()
         self.assertEqual(verdicts.attempt_result(status, report), verdicts.CRASH)
         self.assert_cleaned_up(report)
