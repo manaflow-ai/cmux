@@ -211,6 +211,9 @@ LOCK_SITE_WORDS = ("journal_segment_retention", "journal_retention", "output_cle
                    "journal_maintenance", "history_ops")
 
 
+LOCK_SITE_LIST = 20  # diagnostics.rs DETAIL_SITES
+
+
 def lock_sites(owner):
     """The registry lock of this owner since its start (server-stats `locks`): the hold
     histogram, and by site (a source file and line, no data) the acquisitions and the hold
@@ -232,8 +235,12 @@ def lock_sites(owner):
     ours = [row for row in sites.values()
             if any(word in str(row["site"]) for word in LOCK_SITE_WORDS)]
     ours.sort(key=lambda row: -int(row.get("hold_max_us") or 0))
+    seen = registry.get("sites")
+    # The daemon gives 2 lists of at most 20 sites each (by hold total, by hold p99): with more
+    # sites seen, a site that is in neither list is ABSENT here, and that proves no "no hold".
+    cut = isinstance(seen, int) and not isinstance(seen, bool) and seen > LOCK_SITE_LIST
     return {"hold_us": registry.get("hold_us"), "stalls": registry.get("stalls"),
-            "sites_seen": registry.get("sites"), "longest_holds": longest,
+            "sites_seen": seen, "site_lists_cut": cut, "longest_holds": longest,
             "retention_sites": ours}
 
 
@@ -749,6 +756,8 @@ def space_arm(args, state, before, report):
 IN_PLACE_KEYS = ("registry_bytes", "wal_bytes", "records", "segments", "pruned_ranges",
                  "retention_floor", "journal_head", "history_cursor", "roster_cursor")
 NO_REBUILD = "output cleanup: no rebuild in this start"
+# A failure by TIME, not a loss: no retention pass deleted in the dwell (a slow fold, floor 0).
+NO_DELETE_IN_DWELL = "no segment was deleted in place in the dwell"
 
 
 def in_place_arm(args, state, before, report):
@@ -783,9 +792,9 @@ def in_place_arm(args, state, before, report):
     step["samples"] = sampler.phase(ready, owner.elapsed())
     step["locks"] = lock_sites(owner)
     step["no_rebuild_line"] = NO_REBUILD in owner.log_text()
-    # Not under the name `served`: this folder's History fold can be behind the head (the
-    # generator leaves it there), so the answer is shown and is not part of the verdict.
-    step["served_after"] = served(owner)
+    # In the verdict as each other answer of the head build: `served` waits for the History
+    # fold at the head (the retention pass folds before it deletes).
+    step["served"] = served(owner)
     step["exit"] = owner.stop()
     after = counts(args, state)
     step["after"] = {key: after.get(key) for key in IN_PLACE_KEYS}
@@ -799,7 +808,7 @@ def in_place_arm(args, state, before, report):
     if not step["no_rebuild_line"]:
         step["error"] = "the owner did not say that it starts no rebuild"
     elif step["segments_deleted"] <= 0:
-        step["error"] = "no segment was deleted in place in the dwell"
+        step["error"] = NO_DELETE_IN_DWELL
     say("RMP", step)
     report["steps"].append(step)
 
@@ -1045,7 +1054,7 @@ def table(report):
                                "advanced", "lost_by_the_advance", "lost_after_third",
                                "bases_after", "error", "dwell_s", "locks", "samples",
                                "locks_debug_build", "no_rebuild_line", "segments_deleted",
-                               "served_after", "kept_name_bytes")}
+                               "kept_name_bytes")}
             if name == "second-swap":
                 keep["build"] = {key: step.get("build", {}).get(key) for key in
                                  ("ready_s", "staging_started_s", "built_s", "cleanup_lines",
@@ -1191,6 +1200,25 @@ def main():
              if arm.startswith(("control-", "second-swap"))}
     served_differs = {arm: pair for arm, pair in differs.items() if arm not in apart}
     rosters = {arm: value.get("roster") for arm, value in answers.items() if "roster" in value}
+    # The served agent roster (agent.list), by count and mark, against start 1 of the main arm.
+    def roster_mark(value):
+        roster = (value or {}).get("roster") or {}
+        return None if "error" in roster or "agents" not in roster else [
+            roster["agents"], roster.get("ids_sha256")]
+
+    roster_unread = sorted(arm for arm, value in answers.items()
+                           if "error" not in value and roster_mark(value) is None)
+    roster_differs, roster_apart = {}, {}
+    if roster_mark(first) is not None:
+        for arm, value in answers.items():
+            mark = roster_mark(value)
+            if mark is not None and mark != roster_mark(first):
+                (roster_apart if arm.startswith(("control-", "second-swap"))
+                 else roster_differs)[arm] = [roster_mark(first), mark]
+    # Failures by time, not by a loss: the History fold was not at the head after the last try
+    # (SERVED_TRIES, 3 s apart), or no retention pass deleted in the dwell of the in-place arm.
+    by_time = sorted(set(head_pending) | {step["arm"] for step in report["steps"]
+                                          if step.get("error") == NO_DELETE_IN_DWELL})
     say("RMP-VERDICT", {"lost_in": lost, "failed": failed, "served_not_read_in": unread,
                         "head_served_not_read_in": head_unread,
                         "head_served_with_the_fold_not_at_the_head_in": head_pending,
@@ -1198,11 +1226,17 @@ def main():
                         "head_served_differs_named_apart": apart,
                         "head_served_one_page_only_in": one_page,
                         "head_served_roster": rosters,
+                        "head_served_roster_not_read_in": roster_unread,
+                        "head_served_roster_differs_from_start_1_in": roster_differs,
+                        "head_served_roster_differs_named_apart": roster_apart,
+                        "failed_by_time_not_by_a_loss_in": by_time,
                         "raised_not_clean_in": not_clean, "control": control,
                         "an_older_build_as_the_last_writer_shows_less": shows_less,
                         "bases_changed_by_an_older_build_in": bases_changed,
                         "older_build_not_as_its_control_in": not_as_control})
-    bad = lost or failed or bases_changed or head_unread or head_pending or served_differs
+    # A full page proves only "at least": the run fails (this tool reads one page).
+    bad = (lost or failed or bases_changed or head_unread or head_pending or served_differs
+           or one_page or roster_unread or roster_differs)
     return 1 if bad or not ok else 0
 
 if __name__ == "__main__":
