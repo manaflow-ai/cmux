@@ -184,7 +184,8 @@ import { experimentArm } from "../../experiments/experiment";
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
 import { editableTarget, wheelScrollsDown } from "./conversation/wheelChain";
-import { type OlderReserve, olderReserve } from "./conversation/olderReserve";
+import { type OlderReserve, olderReserve, payOlderRoom } from "./conversation/olderReserve";
+import { hasPromptTops, keepPromptTops, knownPromptTop } from "./conversation/transcriptHeights";
 import { holdWebSwap, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
 import { playChatSwitch, type ChatSwitchPlay } from "./chatSwitch";
 import { chatSwitchMotion } from "./chatSwitch.experiment";
@@ -2024,6 +2025,10 @@ function TranscriptView({
   if (sessionChanged) olderRows.current.clear();
   /// The room above the rows for history not loaded yet, and the row it is held against.
   const olderRoom = useRef<OlderReserve | undefined>(undefined);
+  /// Room paid back as the reader scrolls up (`payOlderRoom`): a count that places again, and the
+  /// offset the last scroll event read.
+  const [roomPaid, setRoomPaid] = useState(0);
+  const roomPaidFrom = useRef<number | undefined>(undefined);
   /// Rows that arrived while the chat loaded (blank or partly blank, then text): their first mount
   /// fades in once (Leo, 2026-11-07, ask-69299b9711: "blank to fast fade in to text").
   const loadFade = useRef<LoadFadeWindow | undefined>(undefined);
@@ -2925,6 +2930,10 @@ function TranscriptView({
           canLoadOlder,
           earlier: earlier?.length,
           promptCount,
+          // Exact where this chat was held whole before at this width (transcriptHeights.ts).
+          knownAbove: hasPromptTops(sessionId, rowWidth)
+            ? (row) => knownPromptTop(sessionId, rowWidth, row.id)
+            : undefined,
         });
     olderRoom.current = reserved.state;
     const layout = placedWithOrigin(placed, reserved.reserve);
@@ -2955,7 +2964,31 @@ function TranscriptView({
     earlier,
     promptCount,
     roomGone,
+    // Room paid back as the reader rose (in olderRoom.current) places again.
+    roomPaid,
   ]);
+  // A chat held whole keeps each prompt's measured place (transcriptHeights.ts), so the next open on
+  // its tail holds exactly the older history's room. In idle time, once the rows stop changing: one
+  // pass over the rows per placement that settles, never per frame.
+  useEffect(() => {
+    if (canLoadOlder || !sessionId || rows.length === 0) return;
+    const placed = measured.layout;
+    const width = scaledRowWidth;
+    const keep = () => {
+      const origin = placed.origin ?? 0;
+      const prompts: { id: string; top: number }[] = [];
+      for (let index = 0; index < rows.length; index += 1)
+        if (rows[index]!.kind === "user")
+          prompts.push({ id: rows[index]!.id, top: placed.geometry.topAt(index) - origin });
+      keepPromptTops(sessionId, width, prompts);
+    };
+    if (typeof requestIdleCallback === "function") {
+      const handle = requestIdleCallback(keep, { timeout: 2000 });
+      return () => cancelIdleCallback(handle);
+    }
+    const timer = setTimeout(keep, 500);
+    return () => clearTimeout(timer);
+  }, [canLoadOlder, sessionId, rows, measured, scaledRowWidth]);
   // The transcript's height is the rows' as drawn, under the thread's top padding: the rows' total
   // alone placed the latest row's bottom that far under the view.
   // The bottom stack's room follows the rows, so the latest row ends above it.
@@ -4511,6 +4544,19 @@ function TranscriptView({
     if (room > 0 && layoutScrollTop(node) < room) {
       wheelGlide.current?.stop();
       node.scrollTop = physicalScrollTop(node, room);
+    }
+    // Room a page showed short (conversation/olderReserve.ts `owed`) is paid back as the reader rises,
+    // under each step's height, so the thumb keeps moving up with them instead of stepping down once.
+    // Read among the rows (less the room above them), so room paid or a page landing is no rise.
+    const paidAt = layoutScrollTop(node) - room;
+    const paidFrom = roomPaidFrom.current;
+    roomPaidFrom.current = paidAt;
+    if (!gone && paidFrom !== undefined && paidFrom > paidAt && !followingRef.current && olderRoom.current?.owed) {
+      const paid = payOlderRoom(olderRoom.current, paidFrom - paidAt);
+      if (paid !== olderRoom.current) {
+        olderRoom.current = paid;
+        setRoomPaid((count) => count + 1);
+      }
     }
     giveRoomNearTop();
     checkOlderNow.current();

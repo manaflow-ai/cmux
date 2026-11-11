@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { AcpmuxRow } from "../model";
-import { OLDER_RESERVE_MAX, type OlderReserve, olderReserve } from "./olderReserve";
+import { OLDER_RESERVE_MAX, type OlderReserve, olderReserve, payOlderRoom } from "./olderReserve";
 
 // A turn: a prompt and a reply, each 100px tall.
 const turn = (n: number): AcpmuxRow[] =>
@@ -27,18 +27,25 @@ const pass = (
   });
 
 describe("olderReserve", () => {
-  test("pages that land take their height out of the room: the rows' end stays put", () => {
-    // 10 of 50 turns held: 40 more at 200px a turn, held long (OLDER_RESERVE_HEADROOM) at 300px.
+  test("pages that land take their height out of the room: the rows' end never moves down", () => {
+    // 10 of 50 turns held: 40 more at the loaded turns' 200px a turn, leaning 2% high (8160).
     let rows = turns(40, 50);
     let step = pass(undefined, rows, { earlier: 40 });
-    expect(step.reserve).toBe(12000);
-    const end = step.reserve + rows.length * 100;
+    expect(step.reserve).toBe(8160);
+    let end = step.reserve + rows.length * 100;
+    const ends: number[] = [];
     for (let from = 30; from >= 10; from -= 10) {
       rows = turns(from, 50);
       step = pass(step.state, rows, { earlier: from });
-      expect(step.reserve + rows.length * 100).toBe(end);
+      const now = step.reserve + rows.length * 100;
+      // A refinement only takes back the lean (the thumb moves up, with the reader); it never adds.
+      expect(now).toBeLessThanOrEqual(end);
+      end = now;
+      ends.push(now);
     }
-    expect(step.reserve).toBe(6000);
+    // 6160 held (the 6120 estimate is within 64px); 4160 refined to 4080; 2080 held.
+    expect(ends).toEqual([10160, 10080, 10080]);
+    expect(step.reserve).toBe(2080);
   });
 
   test("a row above the pin that draws taller takes the room, not the rows under it", () => {
@@ -54,7 +61,11 @@ describe("olderReserve", () => {
       canLoadOlder: true,
       earlier: 39,
     });
-    expect(step.reserve).toBe(12000 - 350);
+    // The 150px it grew comes out of the room, and the rows under the pin stay. The landed turn ran
+    // 350px against the tail's 200: the 39 still unloaded are estimated at its 350 (leaning 2%), over
+    // the room held, so the difference is owed, not added at once.
+    expect(step.reserve).toBe(first.reserve - 350);
+    expect(step.state?.owed).toBe(Math.round(350 * 39 * 1.02) - step.reserve);
   });
 
   test("no room once nothing older is left, nor without a count of what is", () => {
@@ -64,7 +75,7 @@ describe("olderReserve", () => {
 
   test("a room that runs out stays exhausted when more pages and counts arrive", () => {
     const first = pass(undefined, turns(49, 50), { earlier: 1 });
-    expect(first.reserve).toBe(300);
+    expect(first.reserve).toBe(204);
     // The estimate was short: three turns landed and more are left.
     const step = pass(first.state, turns(46, 50), { earlier: 10 });
     expect(step.reserve).toBe(0);
@@ -82,26 +93,31 @@ describe("olderReserve", () => {
     expect(step.reserve + 3 * 100).toBe(first.reserve + 1 * 100);
   });
 
-  test("late counts never add room after the first frame", () => {
+  test("a first frame with no count seeds the room once, when the count comes; later counts add none", () => {
+    // Leo, 2026-11-11: "the thumb turns from a tiny thing that would imply a big chat to just a medium
+    // sized thumb at the top". A chat drawn before its summary held no room for good, so every page
+    // grew the content above the reader and the thumb shrank page after page.
     const rows = turns(40, 50);
     const none = pass(undefined, rows, {});
     expect(none.reserve).toBe(0);
     expect(pass(none.state, rows, {}).reserve).toBe(0);
-    expect(pass(none.state, rows, { earlier: 40 }).reserve).toBe(0);
-    expect(pass(none.state, rows, { promptCount: 50 }).reserve).toBe(0);
+    const seeded = pass(none.state, rows, { earlier: 40 });
+    expect(seeded.reserve).toBe(8160);
+    // Seeded: a later, larger count adds nothing between pages.
+    expect(pass(seeded.state, rows, { earlier: 400 }).reserve).toBe(8160);
   });
 
   test("the first frame uses promptCount before earlier prompts arrive", () => {
     const rows = turns(40, 50);
     const first = pass(undefined, rows, { promptCount: 50 });
-    expect(first.reserve).toBe(12000);
-    expect(pass(first.state, rows, { earlier: 400, promptCount: 500 }).reserve).toBe(12000);
+    expect(first.reserve).toBe(8160);
+    expect(pass(first.state, rows, { earlier: 400, promptCount: 500 }).reserve).toBe(8160);
   });
 
   test("shrinking rows above the pin never refills consumed room", () => {
     const first = pass(undefined, turns(40, 50), { promptCount: 50 });
     const page = pass(first.state, turns(30, 50), { earlier: 30 });
-    expect(page.reserve).toBe(10000);
+    expect(page.reserve).toBe(6160);
     const resized = (state: OlderReserve | undefined, top: number) =>
       olderReserve(state, {
         sessionId: "s",
@@ -112,8 +128,8 @@ describe("olderReserve", () => {
         promptCount: 50,
       });
     const collapsed = resized(page.state, 1000);
-    expect(collapsed.reserve).toBe(10000);
-    expect(resized(collapsed.state, 2000).reserve).toBe(9000);
+    expect(collapsed.reserve).toBe(6160);
+    expect(resized(collapsed.state, 2000).reserve).toBe(5160);
   });
 
   test("a removed pin keeps only the remaining room without another estimate", () => {
@@ -135,7 +151,7 @@ describe("olderReserve", () => {
     const empty = pass(first.state, [], {});
     expect(pass(empty.state, rows, { promptCount: 500 }).reserve).toBe(0);
     const initiallyEmpty = pass(undefined, [], {});
-    expect(pass(initiallyEmpty.state, rows, { promptCount: 50 }).reserve).toBe(12000);
+    expect(pass(initiallyEmpty.state, rows, { promptCount: 50 }).reserve).toBe(8160);
   });
 
   test("another chat starts its own room, and the room is capped", () => {
@@ -150,5 +166,69 @@ describe("olderReserve", () => {
     });
     expect(other.reserve).toBe(OLDER_RESERVE_MAX);
     expect(other.state?.sessionId).toBe("t");
+  });
+
+  test("a page whose turns are taller than the estimate's owes the shortfall, paid as the reader rises", () => {
+    // The tail's turns are 200px; the older turns are 400px. Each page refines the average.
+    const first = pass(undefined, turns(40, 50), { earlier: 40 });
+    expect(first.reserve).toBe(8160);
+    // Ten older turns land at 400px each: the 30 still to come are estimated at the landed turns'
+    // 400px (12240 leaning 2%), over the whole sample's 300px, against the 4160 left. Added at once
+    // it would push the thumb down; it is owed instead.
+    const step = olderReserve(first.state, {
+      sessionId: "s",
+      rows: turns(30, 50),
+      rowTop: (index) => (index < 20 ? index * 200 : 4000 + (index - 20) * 100),
+      rowsHeight: 6000,
+      canLoadOlder: true,
+      earlier: 30,
+    });
+    expect(step.reserve).toBe(4160);
+    expect(step.state?.owed).toBe(8080);
+    // A 100px scroll up pays 75px of it; a scroll down pays nothing.
+    const paid = payOlderRoom(step.state, 100)!;
+    expect(paid.room).toBe(4235);
+    expect(paid.end).toBe(step.state!.end + 75);
+    expect(paid.owed).toBe(8005);
+    expect(payOlderRoom(paid, -100)).toBe(paid);
+    // The next pass holds what was paid, and still owes the rest.
+    const next = olderReserve(paid, {
+      sessionId: "s",
+      rows: turns(30, 50),
+      rowTop: (index) => (index < 20 ? index * 200 : 4000 + (index - 20) * 100),
+      rowsHeight: 6000,
+      canLoadOlder: true,
+      earlier: 30,
+    });
+    expect(next.reserve).toBe(4235);
+    expect(next.state?.owed).toBe(8005);
+    // Paid in full, nothing more is owed.
+    expect(payOlderRoom(next.state, 100_000)!.owed).toBeUndefined();
+  });
+
+  test("a later count that names fewer prompts does not shrink the room", () => {
+    // 50 prompts by the summary; then a prompt index cut at its cap names only 5 older than the rows.
+    const first = pass(undefined, turns(40, 50), { promptCount: 50 });
+    expect(first.reserve).toBe(8160);
+    const step = pass(first.state, turns(30, 50), { earlier: 5 });
+    // The page took its 2000px; 30 prompts are still left by the first count: 6120 is within 64px of
+    // the 6160 held, so the room stays.
+    expect(step.reserve).toBe(6160);
+    expect(step.state?.prompts).toBe(50);
+  });
+
+  test("a chat held whole before opens with the exact room", () => {
+    const rows = turns(40, 50);
+    // From the last whole visit: 7321px of history above the first loaded prompt.
+    const step = olderReserve(undefined, {
+      sessionId: "s",
+      rows,
+      rowTop: (index) => index * 100,
+      rowsHeight: rows.length * 100,
+      canLoadOlder: true,
+      earlier: 40,
+      knownAbove: (row) => (row.id === "u40" ? 7321 : undefined),
+    });
+    expect(step.reserve).toBe(7321);
   });
 });
