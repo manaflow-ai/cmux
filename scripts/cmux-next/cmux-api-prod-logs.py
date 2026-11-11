@@ -11,10 +11,12 @@ The run log is PUBLIC (the repo is public), so nothing is printed unless it is k
   serialized object, whatever it holds.
 - Only typed fields of a printed line survive (PUBLIC_FIELDS): small ints, short lowercase tokens, and ids.
   Ids (team, user, an id-like token or path segment) print only as `h:` plus a sha256 prefix, for correlation.
-- Per request: time, kind, outcome, method, status, and the path with every non-word segment hashed.
+- Per request: time, kind, outcome, method, status, and the path; a segment prints as is only when it is a fixed
+  route word (ROUTE_SEGMENTS), every other segment prints hashed.
 - Never a header, body, query string, free-text error, email, IP, token, or the event's own key names.
 - Needles are read from the dispatch event file, never from the environment (step env is echoed in the log),
-  and print hashed.
+  and print hashed. They filter the public rows only (never raw event text), and the header says only whether
+  any row was kept (`kept_any`), so a dispatcher can't use the run to probe for text.
 
   python3 -I cmux-api-prod-logs.py --from 2026-11-11T13:20:00Z --minutes 30 [--needles "team_x,/auth/"] < token
 
@@ -235,7 +237,25 @@ TOKEN_OK = re.compile(r"^[a-z][a-z0-9_.:-]{0,47}$")
 ID_OK = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 # A token that is really an id: a known id prefix, or a run of 8+ digits/hex.
 ID_LIKE = re.compile(r"^(?:team|user|usr|org|member|inv|run|vm|ws|tok|key|sess)_|[0-9a-f]{8,}|\d{6,}", re.I)
-SEGMENT_OK = re.compile(r"^(?:[a-z][a-z-]{0,31}|v\d{1,2})$")
+# Fixed route words: static segments of the path literals in backend/apps/api/src. A path segment prints as is
+# only when it is one of these (or v1, v2, ...); any other segment, a request's own words included, prints hashed.
+ROUTE_SEGMENTS = frozenset({
+    "abandoned", "acpmux", "admin", "api", "attachments", "attest", "auth", "automation", "begin", "billing", "bind",
+    "brain-impl", "by-key", "callback", "card", "carrier", "challenge", "chat", "checkout", "chief-cc", "chief-job",
+    "chief-opencode", "chiefs", "claude-david", "clear", "client-config", "client-session", "cloud", "cmux.vcf",
+    "commit", "complete", "completions", "content", "conv", "count_tokens", "credits", "customers", "defaults",
+    "devices", "discover", "entries", "exec", "export", "fault", "files", "free", "github", "github-actions",
+    "google", "grants", "hands", "harness-login-copy", "home", "hooks", "host", "identity", "inference",
+    "integrations", "intent", "internal", "invite", "invites", "keyset", "levels", "machines", "meshes", "messages",
+    "meter_events", "model-gateway", "models", "multipart", "mux", "network", "notes", "openapi.json", "ops",
+    "outbox", "overlay-policy", "overlay-server-codes", "overlay-servers", "pair", "pair-codes", "payment_intents",
+    "plan", "policy", "prefix-report", "presence-key", "preview", "pubsub", "read", "reconcile", "redeem",
+    "registry", "replay", "retire", "sandboxes", "sendblue", "sessions", "signed", "socket", "sso", "stack", "start",
+    "stat", "status", "stripe", "subscription_items", "subscriptions", "summary", "sync", "target", "team-mode",
+    "team-vm", "ticket", "token", "topup", "trajectories", "upload", "upstash", "url", "v1", "vm-creations", "vms",
+    "wait", "wire",
+})
+VERSION_SEGMENT = re.compile(r"^v\d{1,2}$")
 METHODS = frozenset({"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"})
 
 
@@ -264,7 +284,7 @@ def public_path(url):
     if not path.startswith("/"):
         return None
     segs = path.split("/")[1:][:12]
-    return "/" + "/".join(s if not s or SEGMENT_OK.match(s) else tag(s) for s in segs)
+    return "/" + "/".join(s if not s or s in ROUTE_SEGMENTS or VERSION_SEGMENT.match(s) else tag(s) for s in segs)
 
 
 def dig(o, *path):
@@ -340,6 +360,25 @@ def line(e, counts=None):
     return rec
 
 
+def matches(row, needles):
+    """A needle matches only what is published: the row's text, or the hash tag the row prints for an id."""
+    text = json.dumps(row)
+    return any(n in text or tag(n) in text for n in needles)
+
+
+def publish(events, needles):
+    """(header, rows) for the public log. Needles filter the public rows, never raw event text, so a dispatcher can't
+    probe for tenant text; and the header says only whether any row was kept, not how many."""
+    counts = {}
+    rows = [line(e, counts) for e in events]
+    rows.sort(key=lambda r: r.pop("_ts", 0))
+    if needles:
+        rows = [r for r in rows if matches(r, needles)]
+    head = {"needles": [tag(n) for n in needles], "events_in_window": len(events), "kept_any": bool(rows),
+            "rows_cut": len(rows) > MAX_ROWS, **counts}
+    return head, rows[:MAX_ROWS]
+
+
 def query(token, frm, to, offset=None):
     body = {"queryId": f"cmux-api-prod-logs-{int(time.time())}", "timeframe": {"from": frm, "to": to}, "view": "events", "limit": 1000,
             "parameters": {"filters": [{"key": "$metadata.service", "operation": "eq", "type": "string", "value": SERVICE}]}}
@@ -393,14 +432,10 @@ def main():
         if not offset:
             complete = True
             break
-    kept = [e for e in events if not needles or any(n in json.dumps(e) for n in needles)]
-    counts = {}
-    rows = [line(e, counts) for e in kept]
-    rows.sort(key=lambda r: r.pop("_ts", 0))
-    print(json.dumps({"service": SERVICE, "window_utc": [args.frm, minutes], "needles": [tag(n) for n in needles],
-                      "events_in_window": len(events), "pages": pages, "truncated": not complete, "kept": len(rows),
-                      "printed": min(len(rows), MAX_ROWS), "rows_cut": len(rows) > MAX_ROWS, **counts}, indent=1))
-    for r in rows[:MAX_ROWS]:
+    head, rows = publish(events, needles)
+    print(json.dumps({"service": SERVICE, "window_utc": [args.frm, minutes], "pages": pages, "truncated": not complete, **head},
+                     indent=1))
+    for r in rows:
         print(json.dumps(r, separators=(",", ":")))
     return 0
 

@@ -88,8 +88,8 @@ class DefaultDenyTests(unittest.TestCase):
     def test_the_path_hashes_id_segments_and_drops_the_query(self):
         row, _, text = published(event({"msg": "x"}, url="https://api.cmux.dev/v1/invites/card/AbC123secret?x=1"))
         self.assertEqual(row["path"], "/v1/invites/card/" + logs.tag("AbC123secret"))
-        row, _, text = published(event({"msg": "x"}))
-        self.assertEqual(row["path"], "/v1/teams/" + logs.tag(TEAM) + "/members")
+        row, _, text = published(event({"msg": "x"}, url="https://api.cmux.dev/v1/hands/" + TEAM + "/pair?invite=abc"))
+        self.assertEqual(row["path"], "/v1/hands/" + logs.tag(TEAM) + "/pair")
         self.assertNotIn(TEAM, text)
         self.assertNotIn("invite=abc", text)
         self.assertEqual(row["method"], "POST")
@@ -116,6 +116,31 @@ class DefaultDenyTests(unittest.TestCase):
         self.assertNotIn("log", row)
         self.assertEqual(counts, {"logs_dropped_unlisted": 1})
         self.assertNotIn("invocation without a harness marker: not metered", logs.PUBLIC_MSGS)
+
+    def test_a_404_path_made_of_words_prints_hashed(self):
+        row, _, text = published(event({"msg": "x"}, url="https://api.cmux.dev/v1/do-not-share-this/merger-plan", status=404))
+        self.assertEqual(row["path"], "/v1/" + logs.tag("do-not-share-this") + "/" + logs.tag("merger-plan"))
+        self.assertNotIn("share", text)
+        self.assertNotIn("merger", text)
+        self.assertEqual(row["status"], 404)
+
+    def test_the_kept_count_is_boolean_and_needles_never_read_raw_event_text(self):
+        secret = event({"msg": "the merger closes friday", "team": TEAM}, url="https://api.cmux.dev/v1/home/url")
+        listed = event({"msg": "team selection unreachable", "team": TEAM}, url="https://api.cmux.dev/v1/auth/token")
+        head, rows = logs.publish([secret, secret, listed], ["merger closes"])
+        self.assertIs(head["kept_any"], False)
+        self.assertNotIn("kept", head)
+        self.assertNotIn("printed", head)
+        self.assertEqual(rows, [])
+        head, rows = logs.publish([secret, secret, listed], [TEAM])
+        self.assertIs(head["kept_any"], True)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["log"]["team"], logs.tag(TEAM))
+        head, rows = logs.publish([secret, listed], ["/auth/"])
+        self.assertIs(head["kept_any"], True)
+        self.assertEqual([r["path"] for r in rows], ["/v1/auth/token"])
+        self.assertNotIn(TEAM, json.dumps([head, rows]))
+        self.assertEqual(head["logs_dropped_unlisted"], 1)
 
 
 if __name__ == "__main__":
