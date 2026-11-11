@@ -25,6 +25,10 @@ import Testing
 /// The kinds come from `TabContent.Kind.allCases` and each fixture is made in a switch with no default, so a new kind
 /// does not compile here until it has a fixture, and then has this contract or fails.
 ///
+/// One stated exception (`PaneKeyResizeHeld`, one conformance: `InternalPageView.holdsInKeyResize`): the docked Home
+/// and the Home page tab are HELD (`HeldHome`, the last tests here), with the measured reason at the protocol. No other
+/// page states it.
+///
 /// The app's own pane content (`PaneContentView`) shows the kind in p2 of p1 | p2; one press on p2 (`PaneResize.press`)
 /// moves the divider. The test is the spring's clock, one frame per step.
 ///
@@ -278,6 +282,7 @@ struct PaneContentFollowsPaneAllKindsTests {
         let start = Self.rect(page)
         try #require(start.width > 100 && start.height > 100, "the \(home) Home is at \(start) before the press")
         #expect(start == Self.rect(area), "at rest the \(home) Home is at \(start), its area at \(Self.rect(area))")
+        #expect(page.holdsInKeyResize, "the \(home) Home does not state the key resize exception")
         let sizes = Sizes(of: page), inner = Sizes(of: page.content)
 
         // One press on p2: the divider between p1 and p2 moves, so p2's left edge moves and its width changes.
@@ -312,5 +317,15 @@ struct PaneContentFollowsPaneAllKindsTests {
         #expect(landed.width != start.width, "the press did not change the pane's width: \(landed), was \(start)")
         #expect(Self.rect(page) == landed, "\(home): after the landing the Home is at \(Self.rect(page)), its area at \(landed)")
         #expect(sizes.taken.count == 1, "\(home): the Home took \(sizes.taken.count) sizes for one press, not one: \(sizes.taken)")
+    }
+
+    /// The exception is the Home's alone: a page of another kind follows its pane (the file viewer's page in the kinds
+    /// above), and states no hold.
+    @Test func noPageButTheHomeStatesTheKeyResizeException() {
+        _ = NSApplication.shared
+        for page in [InternalPageID.files, .settings] {
+            #expect(!InternalPageView(key: "pane-follows-\(page.rawValue)", page: page, content: NSView()).holdsInKeyResize,
+                    "the \(page.rawValue) page states the key resize exception: only the Home may (PaneKeyResizeHeld)")
+        }
     }
 }

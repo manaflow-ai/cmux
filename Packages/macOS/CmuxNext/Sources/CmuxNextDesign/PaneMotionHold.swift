@@ -32,6 +32,39 @@ public protocol PaneMotionHolding: NSView {
     var paneMotionHoldArea: PaneContentAreaView? { get }
 }
 
+/// THE EXCEPTION to "what a pane shows has its content area's size in every frame of a keyboard resize"
+/// (``PaneContentAreaView``): pane content that states this keeps the size it had when the hold began, on the hold's
+/// edges, cut by the area where the pane is smaller and beside the area's ground where it is larger, and takes the
+/// pane's size once, after the landing. That is what every page did before 2026-11-11.
+///
+/// Following is the default; a kind takes this only with a measured reason and the work that ends it, stated here.
+/// Not a setting, and no way out for a new kind whose layout is slow per frame: fix that layout.
+///
+/// THE ONE CONFORMANCE: the app's internal page view, for the docked Home and the Home page tab only
+/// (`InternalPageView.holdsInKeyResize`).
+///
+/// Reason, measured (Release builds, aws-m4pro-8, macOS 26.7, 120 Hz, hold mx5 of cmux#41105, 3 takes each): when the
+/// Home followed, the motion missed 13 to 15 of about 125 refreshes at a moving pane (docked Home) and 7 to 22 (Home
+/// page tab), each second refresh in the first 8 frames after each key press; held, 0. The frame's layout pass took
+/// 2.8 ms at the median and 5.6 ms at p95, against 0.9 ms and 1.3 ms held. A main-thread sample puts the cost in the
+/// Home's own layout at each new width (`HomeNativeTranscriptView.layout`, the first-run panel's fitting size, the
+/// SwiftUI message list's render). A Home that follows and drops each second refresh stutters the whole window, so it
+/// stays held until that layout costs no missed refresh. All of these numbers are of the empty Home with the first-run
+/// panel; a long transcript was not measured.
+///
+/// Ends with: the Home layout cost work of the pane-resize order (PR 3 of cmux#41105's series: a seeded Home of 50, 500
+/// and 5000 rows, rows laid out per frame not growing with the row count). The commit that makes the Home follow
+/// deletes this protocol and its conformance and moves the two pages from `HeldHome` to the kinds that follow in
+/// `PaneContentFollowsPaneAllKindsTests`.
+///
+/// A conversation tab (the same Home view straight in the pane) is not in this: it followed its pane before
+/// 2026-11-11 too, so it is not worse than it was.
+@MainActor
+public protocol PaneKeyResizeHeld: NSView {
+    /// Whether it keeps its size through a keyboard resize now.
+    var holdsInKeyResize: Bool { get }
+}
+
 /// A container in a pane's content area that hears the area's hold (FRAME OWNER REFACTOR S3: a terminal's host, a
 /// browser's chrome), because its producer (the terminal surface, the page) draws its pixels on another thread or in
 /// another process. Every view shown in the area takes the area's size in each frame; this one also gets the hold's
