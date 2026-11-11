@@ -52,6 +52,11 @@ public actor WorkspaceProjection {
     private var metadata: [String: RowMetadata] = [:]
     private var removedMetadata: [String: RowMetadata] = [:]
     private var surfaceRows: [Int: Int] = [:]
+    /// Rows read by whole-list passes (list scans, index rebuilds, reorders,
+    /// the arrangement) since this projection was made: the work a delta adds
+    /// beyond its own row. `WorkspaceProjectionCostTests` holds a one-row
+    /// delta's share of it the same at 1,000 workspaces as at 200.
+    private(set) var scannedRows = 0
 
     public init() {}
 
@@ -138,6 +143,7 @@ public actor WorkspaceProjection {
             var sessions = Set(old.pending.keys).union(agents.pending.keys).union(old.waitingFor.keys).union(agents.waitingFor.keys)
             for session in Set(old.chatTitles.keys).union(agents.chatTitles.keys)
                 where old.chatTitles[session] != agents.chatTitles[session] { sessions.insert(session) }
+            scannedRows += rows.count
             for row in rows {
                 for tab in Self.tabs(row.value) {
                     guard let surface = tab["surface"] as? Int,
@@ -345,6 +351,7 @@ public actor WorkspaceProjection {
         guard var current = tree, !IDs.isEmpty else { return nil }
         var changed = Set<String>()
         for id in IDs {
+            scannedRows += rows.count + 2 * (current.workspaces.count + current.homeWorkspaces.count)
             guard let index = rows.firstIndex(where: { $0.key == id }) else {
                 // A closed row is removed from the current tree below.
                 continue
@@ -356,12 +363,14 @@ public actor WorkspaceProjection {
         }
         // Closed workspaces no longer have a raw row; remove them from the
         // value tree and all index maps.
+        scannedRows += rows.count + current.workspaces.count + current.homeWorkspaces.count
         let live = Set(rows.map(\.key))
         for old in current.workspaces + current.homeWorkspaces where !live.contains(old.id) {
             remove(old, from: &current)
             changed.insert(old.id)
         }
         if topology {
+            scannedRows += 2 * (current.workspaces.count + current.homeWorkspaces.count)
             reorder(&current)
             current.apply(arrangement)
         }
@@ -444,7 +453,8 @@ public actor WorkspaceProjection {
     // MARK: Raw lookup helpers
 
     private func rowIndex(workspace: Int?, key: String?) -> Int? {
-        rows.firstIndex { row in
+        scannedRows += rows.count
+        return rows.firstIndex { row in
             (key != nil && row.key == key) || (workspace != nil && row.handle == workspace)
         }
     }
@@ -490,6 +500,7 @@ public actor WorkspaceProjection {
     }
 
     private func rebuildSurfaceIndex() {
+        scannedRows += rows.count
         surfaceRows = [:]
         for (index, row) in rows.enumerated() {
             for surface in Self.metadata(for: row.value).surfaces { surfaceRows[surface] = index }
