@@ -133,7 +133,7 @@ fn session_children_follows_a_child_only_a_later_watch_page_names() {
     assert_eq!(fake.frame()["method"], json!("_acpmux/attach"));
     let rest = fake.frame();
     assert_eq!(rest["method"], json!("_acpmux/sessions"));
-    assert_eq!(rest["params"], json!({"cursor": "w1"}), "the watch's params, less `enabled`");
+    assert_eq!(rest["params"], json!({"localOnly": true, "cursor": "w1"}), "the list's params");
     let _ = client.event(WAIT).expect("the early record");
 
     fake.notify(
@@ -144,6 +144,42 @@ fn session_children_follows_a_child_only_a_later_watch_page_names() {
     let change = client.event(WAIT).expect("the followed child's change");
     assert_eq!(change["event"], json!("agent-session-changed"), "{change}");
     assert_eq!(change["change"]["sessionId"], json!(CHILD));
+}
+
+/// The attach turns its watch on with a one-row page and reads only this machine's own sessions
+/// for the descendants: a peer's session is never one. Asked whole, the watch answered every
+/// peer's sessions too, 31 MB on a Mac that mirrors ~10,000 of them, on every attach.
+#[test]
+fn an_attach_reads_its_descendants_from_this_machines_own_list_not_a_whole_watch() {
+    let fixture = Fixture {
+        watch: vec![json!({"sessionId": CHILD, "startedBy": SESSION})],
+        ..Fixture::default()
+    };
+    let mut fake = FakeAcpmux::start_with("children-own-list", fixture);
+    let mux = mux_with(&fake, "asa-children-own-list");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "children-own-list");
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let (mut watch, mut own) = (None, None);
+    while watch.is_none() || own.is_none() {
+        let frame = fake.raw_frame();
+        match frame["method"].as_str() {
+            Some("_acpmux/watch") => watch = Some(frame),
+            Some("_acpmux/sessions") => own = Some(frame),
+            _ => {}
+        }
+    }
+    let (watch, own) = (watch.unwrap(), own.unwrap());
+    assert_eq!(watch["params"]["limit"], json!(1), "a whole watch lists every peer's sessions: {watch}");
+    assert_eq!(own["params"]["localOnly"], json!(true), "{own}");
+    let _ = client.event(WAIT).expect("the early record");
+    fake.notify(
+        "_acpmux/session_changed",
+        json!({"sessionId": CHILD, "kind": "status", "recordKind": "status", "seq": 4,
+               "session": {"sessionId": CHILD, "status": "idle"}}),
+    );
+    let change = client.event(WAIT).expect("the followed child's change");
+    assert_eq!(change["change"]["sessionId"], json!(CHILD), "{change}");
 }
 
 /// A watch list that cannot be read whole (a bad page, or one after the first that fails)

@@ -78,15 +78,23 @@ impl FakeAcpmux {
         }
     }
 
-    /// The next frame the daemon sent to acpmux.
-    /// The next frame the daemon sent to acpmux (its session watch skipped).
+    /// The next frame the daemon sent to acpmux (its session watch and the attach's first read of
+    /// this machine's list skipped).
     pub(super) fn frame(&self) -> Value {
         loop {
             let frame = self.frames.recv_timeout(WAIT).expect("a frame to acpmux");
-            if frame["method"] != json!("_acpmux/watch") {
+            if !Self::watch_frame(&frame) {
                 return frame;
             }
         }
+    }
+
+    /// The attach's session watch, or its first read of this machine's own list.
+    fn watch_frame(frame: &Value) -> bool {
+        frame["method"] == json!("_acpmux/watch")
+            || (frame["method"] == json!("_acpmux/sessions")
+                && frame["params"]["localOnly"] == json!(true)
+                && frame["params"].get("cursor").is_none())
     }
 
     /// The next frame the daemon sent to acpmux, its session watch included.
@@ -103,7 +111,7 @@ impl FakeAcpmux {
         let deadline = Instant::now() + Duration::from_millis(200);
         while let Some(left) = deadline.checked_duration_since(Instant::now()) {
             match self.frames.recv_timeout(left) {
-                Ok(frame) if frame["method"] == json!("_acpmux/watch") => continue,
+                Ok(frame) if Self::watch_frame(&frame) => continue,
                 Ok(frame) => panic!("the daemon must not reach acpmux: {frame}"),
                 Err(_) => return,
             }
@@ -330,7 +338,13 @@ fn serve(
                     "lastSeq": 1,
                 }))
             }
-            "_acpmux/watch" => {
+            // A watch with a page size turns the notices on; the attach reads this machine's own
+            // list after it (`localOnly`). A whole watch (no limit) answers that list itself.
+            "_acpmux/watch" if !params["limit"].is_null() => Some(json!({"sessions": []})),
+            "_acpmux/watch" | "_acpmux/sessions"
+                if frame["method"] == json!("_acpmux/watch")
+                    || (params["localOnly"] == json!(true) && params["cursor"].is_null()) =>
+            {
                 let mut sessions = vec![json!({"sessionId": "acp_unrelated"})];
                 if fixture.watch_pages {
                     Some(json!({"sessions": sessions, "nextCursor": "w1"}))
