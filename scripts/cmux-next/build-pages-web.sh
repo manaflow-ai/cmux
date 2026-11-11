@@ -62,7 +62,7 @@ task-manager
 tasks
 "
 # The browser chrome's pages (CmuxNextPages BrowserChromeWebHost).
-PAGES="$PAGES page-info site-settings site-data certificate"
+PAGES="$PAGES site-settings site-data certificate"
 # The Import Cookies card (BrowserCookieImportCard, through BrowserChromeWebHost).
 PAGES="$PAGES cookie-import"
 # The sidebar's chat history blocks (CmuxNextSidebar SidebarChatHistoryHost: one page per block shown).

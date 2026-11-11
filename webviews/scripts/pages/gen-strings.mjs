@@ -335,8 +335,8 @@ export const PAGES = {
     out: "webviews/src/pages/tasks/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/tasks/Localizable.xcstrings" }],
   },
-  // The browser's Page Info bubble (cmux-page://cmux.page-info/); its table lives next to its
-  // component in webviews/src/browser-chrome/page-info.
+  // The browser's Page Info windows (site settings, site data, the certificate viewer); their table
+  // lives next to their components in webviews/src/browser-chrome/page-info.
   "browser-chrome-page-info": {
     out: "webviews/src/browser-chrome/page-info/generated/strings.json",
     catalogs: [{ file: "webviews/src/browser-chrome/page-info/Localizable.xcstrings" }],
