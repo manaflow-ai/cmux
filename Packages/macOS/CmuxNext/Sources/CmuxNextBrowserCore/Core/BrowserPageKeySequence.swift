@@ -14,6 +14,9 @@ public nonisolated struct BrowserPageKeySequence: Sendable {
         case scrollToTop
         /// A first `g`: it waits for the next key.
         case held
+
+        /// The action the step runs by id, or nil for a single key (its binding decides).
+        public var action: String? { self == .scrollToTop ? BrowserPageScroll.top.actionID : nil }
     }
 
     /// How long a first `g` waits for the second.
@@ -25,7 +28,16 @@ public nonisolated struct BrowserPageKeySequence: Sendable {
 
     /// What `key`, typed at `now`, does.
     public mutating func feed(_ key: BrowserPageKey, at now: ContinuousClock.Instant) -> Step {
-        .key(key)
+        guard key.character == "g", !key.shift else {
+            pendingG = nil
+            return .key(key)
+        }
+        if let first = pendingG, now - first <= Self.window {
+            pendingG = nil
+            return .scrollToTop
+        }
+        pendingG = now
+        return .held
     }
 
     /// Forgets a waiting `g` (the page lost the keyboard, the setting went off).
