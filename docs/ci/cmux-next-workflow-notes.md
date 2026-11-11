@@ -457,6 +457,19 @@ for its own commands, prints their output and keeps its name, id and outcome. A 
 line names the step the commands under it belong to; the longest commands start first.
 Not here: "Pushed commits add no violations" deepens the clone and writes its step summary.
 
+## note-27b
+
+Above `checks: Prepare check Python (PyYAML) and timeout` in `.github/workflows/cmux-next.yml`.
+
+portable-placement may put this job on a free mini, whose Homebrew python3 has no
+PyYAML and whose PATH has no GNU `timeout`. On 2026-11-11 the job went red there
+with `ModuleNotFoundError: No module named 'yaml'` (56 times) and `timeout: command
+not found` (cmux13s-mac-mini-glaeda-5 job 130627140300, cmuxs-mac-mini-6-glaeda-3
+job 130624833630), and passed on Blacksmith Linux at the same tree. The job brings
+its own venv first on PATH wherever it lands, as cmux-next-guards.yml's tooling
+tests do; tests/test_portable_jobs_bring_their_python.py keeps every mini-eligible
+job that runs Python tests doing so.
+
 ## note-28
 
 Above `checks: UI font (the system font)` in `.github/workflows/cmux-next.yml`.
@@ -1789,6 +1802,15 @@ Above `same-tree-cmux-tui: if` in `.github/workflows/cmux-next.yml`.
 A superseded push reports nothing (its newer head is tested); a pull
 request's cold tree is named in path_route's summary, skipped here.
 
+A same-tree run dispatched with `same_tree_state=failed` reads the tree's
+publish record (its `completion.json` on R2, keyed by the tree key its
+reason names) before it reports red: a tree published since dispatches the
+ready tree jobs and marks the stale statuses pending. A re-run keeps the
+dispatch inputs, so before this a re-run repeated the old verdict forever
+(cmux#40449, run 43009515785). A red it does report leaves a `reported`
+tree wait marker, so the key's next publication re-dispatches every tier it
+reported (`scripts/ci/cmux_next_same_tree_failed.py`).
+
 ## note-178
 
 Above `swift-canary-fleet: if` in `.github/workflows/cmux-next.yml`.
@@ -2819,6 +2841,9 @@ Above `crash-ends-app` in `.github/workflows/cmux-next.yml`.
 
 The crash gate runs in cmux-scheme-compile on the app that job built. This
 job is its check: red when a crash froze the app instead of ending it.
+A push's compile that a newer push replaced while it waited for its
+concurrency group is no red here: the newer push's run carries the verdict
+(scripts/ci/needs_verdict.py SUPERSEDED_RULE).
 
 ## note-327
 
