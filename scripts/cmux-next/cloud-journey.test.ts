@@ -1624,6 +1624,34 @@ except probe.OutOfTime as cut:
     }
   });
 
+  test("a text file of one huge line is read in pieces: bounded memory, and a key across a piece's edge is found", () => {
+    const dir = mkdtempSync(join(tmpdir(), "key-probe-line-"));
+    const big = join(dir, "one-line.txt");
+    // 64 MiB with no line break: one key's name across the first 4 MiB read's edge, another deeper in.
+    const M = 1 << 20;
+    const body = Buffer.alloc(64 * M, "abc de ");
+    Buffer.from(" MISTRAL_API_KEY=Qd7Kx2Mn4Lw9Vb3Rz8Hj1Fc6Gs5Yp0Ta ").copy(body, 4 * M - 266);
+    Buffer.from(" GROQ_API_KEY=Xg9Bq4Rw8Cf3Uv1Zd5Oi0Ph2Js7Ly6Mk ").copy(body, 37 * M);
+    writeFileSync(big, body);
+    const script = `
+import importlib.util, json, sys, time
+spec = importlib.util.spec_from_file_location("probe", sys.argv[1])
+probe = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(probe)
+try:
+    print(json.dumps(sorted({w for _, w in probe.scan_file(sys.argv[2], time.monotonic() + 20)})))
+except MemoryError:
+    print(json.dumps("MemoryError"))
+`;
+    try {
+      // Under 192 MiB: reading the line whole takes several copies of it.
+      const r = spawnSync("bash", ["-c", 'ulimit -v 196608; exec python3 -I -c "$0" "$1" "$2"', script, KEY_PROBE_PY, big], { encoding: "utf8" });
+      expect(JSON.parse(r.stdout || "null")).toEqual(["GROQ_API_KEY", "MISTRAL_API_KEY"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("a huge login file is read only in part, and still names its kind", () => {
     const root = plant({
       "proc/5/comm": "bash\n",

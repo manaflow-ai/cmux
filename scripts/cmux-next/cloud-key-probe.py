@@ -641,18 +641,25 @@ def scan_file(path, deadline=math.inf):
             return [(None, what) for what in sorted(seen)]
         # Whole lines a chunk at a time (a partial last line waits for the next chunk); only the lines the prefilter
         # hits are decoded and checked, and their numbers are counted from the newlines before them.
-        line, rest = 1, b""
+        # A line longer than one read is checked in pieces, each carrying the last OVERLAP bytes of the one before (a key's
+        # name across the cut) without checking their hits again, so one huge line holds no more than a read or two.
+        line, rest, carried, got = 1, b"", 0, set()
         while True:
             if time.monotonic() > deadline:
                 raise OutOfTime(out)
             chunk = f.read(CHUNK)
             block = rest + chunk
             cut = len(block) if not chunk else block.rfind(b"\n") + 1
-            whole, rest = block[:cut], block[cut:]
+            skip, carried = carried, 0
+            if chunk and len(block) - cut > CHUNK:
+                cut, carried = len(block) - OVERLAP, OVERLAP
+            whole, rest = block[:cut], block[cut - carried:]
             seen_to, last = 0, -1
             for hit in PREFILTER.finditer(whole):
                 if time.monotonic() > deadline:
                     raise OutOfTime(out)
+                if hit.start() < skip:
+                    continue
                 start = whole.rfind(b"\n", 0, hit.start()) + 1
                 if start == last:
                     continue
@@ -683,7 +690,10 @@ def scan_file(path, deadline=math.inf):
                         break
                     stop += max(HIT_SPAN, stop - end)
                 seen |= context_kinds(after, len(whole[start:end].decode("utf-8", "replace")))
-                out.extend((line, what) for what in sorted(seen))
+                for what in sorted(seen):
+                    if (line, what) not in got:
+                        got.add((line, what))
+                        out.append((line, what))
             line += whole.count(b"\n", seen_to)
             if not chunk:
                 return out
