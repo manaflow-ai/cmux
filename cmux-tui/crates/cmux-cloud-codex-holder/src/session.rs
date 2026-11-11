@@ -110,8 +110,16 @@ impl Session {
                 command.env(key, value);
             }
         }
-        let mut child =
-            command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()?;
+        // The broker and what it starts die with the holder, even by SIGKILL;
+        // the group's drop after the broker's exit ends what it left behind.
+        let group = cmux_process::ChildGroup::new()?;
+        let mut child = command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .process_group(group.id())
+            .kill_on_drop(true)
+            .spawn()?;
         let input = child.stdin.take();
         let output = child.stdout.take();
         let pid = child.id().and_then(|pid| i32::try_from(pid).ok());
@@ -119,6 +127,7 @@ impl Session {
         let (exit_sender, exited) = watch::channel(false);
         tokio::spawn(async move {
             let _ = child.wait().await;
+            drop(group);
             let _ = exit_sender.send(true);
         });
         let session = Arc::new(Self {

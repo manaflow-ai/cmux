@@ -27,6 +27,8 @@ zeroize.workspace = true
 # cmux-server-core, never the reverse.
 cmux-server = { path = "../cmux-server" }
 cmux-server-core = { path = "../cmux-server-core" }
+# Role processes die with cmux-host (`ChildGroup`).
+cmux-process.workspace = true
 libc.workspace = true
 serde.workspace = true
 serde_json.workspace = true
