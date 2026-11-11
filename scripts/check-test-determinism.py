@@ -618,13 +618,14 @@ def _strip_comment(line: str, path_suffix: str) -> str:
 
 
 # The last whole file the lexer read: scan_text's passes (comments, blocks, function names) share one lexing.
-_LAST_WHOLE_TEXT: list[tuple[str, str, tuple[bytes, bytes]]] = []
+_LAST_WHOLE_TEXT: list[tuple[str, str, tuple[bytes, bytes, tuple[int, ...]]]] = []
 
 
-def _whole_text_positions(text: str, path_suffix: str) -> tuple[bytes, bytes]:
+def _whole_text_positions(text: str, path_suffix: str) -> tuple[bytes, bytes, tuple[int, ...]]:
+    """`_lexical_positions_and_unresolved` over a whole file, shared by the passes over that file."""
     if _LAST_WHOLE_TEXT and _LAST_WHOLE_TEXT[0][0] is text and _LAST_WHOLE_TEXT[0][1] == path_suffix:
         return _LAST_WHOLE_TEXT[0][2]
-    positions = _lexical_positions(text, path_suffix)
+    positions = _lexical_positions_and_unresolved(text, path_suffix)
     _LAST_WHOLE_TEXT[:] = [(text, path_suffix, positions)]
     return positions
 
@@ -701,13 +702,70 @@ def _line_comment_marker_length(
     return 2 if source.startswith("//", index) else 0
 
 
+_JAVASCRIPT_CONTROL_HEAD_KEYWORDS = frozenset({"if", "while", "for", "with"})
+
+
+def _javascript_word_before(source: str, end: int, comments: bytearray) -> tuple[str, int]:
+    """The identifier or keyword that ends just before END (skipping blanks and comments), and where it starts;
+    ("", END) when there is none."""
+    previous = end - 1
+    while previous >= 0 and (source[previous].isspace() or comments[previous]):
+        previous -= 1
+    start = previous + 1
+    while start > 0 and source[start - 1].isascii() and (source[start - 1].isalnum() or source[start - 1] in "_$"):
+        start -= 1
+    return source[start : previous + 1], start
+
+
+def _javascript_paren_closes_control_head(
+    source: str,
+    close: int,
+    executable: bytearray,
+    comments: bytearray,
+) -> Optional[bool]:
+    """Whether the `)` at CLOSE ends the head of an `if`, `while`, `for` (also `for await`) or `with`, after which a
+    statement (and so a regex literal) starts. None when its `(` is not in SOURCE (the text starts inside the
+    parentheses): undecidable."""
+    depth = 0
+    index = close
+    while index >= 0:
+        if executable[index]:
+            character = source[index]
+            if character == ")":
+                depth += 1
+            elif character == "(":
+                depth -= 1
+                if depth == 0:
+                    break
+        index -= 1
+    if index < 0:
+        return None
+    word, start = _javascript_word_before(source, index, comments)
+    if word == "await":
+        word, start = _javascript_word_before(source, start, comments)
+        if word != "for":
+            return False
+    if word not in _JAVASCRIPT_CONTROL_HEAD_KEYWORDS:
+        return False
+    before = start - 1
+    while before >= 0 and (source[before].isspace() or comments[before]):
+        before -= 1
+    # `x.if (...)` is a method call, not a statement head.
+    return not (before >= 0 and source[before] == ".")
+
+
 def _javascript_regex_literal_starts_at(
     source: str,
     index: int,
     executable: bytearray,
     comments: bytearray,
-) -> bool:
-    """Return whether a slash starts a JavaScript regex literal."""
+) -> Optional[bool]:
+    """Return whether a slash starts a JavaScript regex literal, or None when the text cannot tell.
+
+    The one undecidable case is a slash after a `}` that ends a block (`if (a) {} /x/.test(s)`, a regex) or an
+    object or function expression (`({}) / 2`, a division), and a `)` whose `(` the text does not hold. The lexer
+    never guesses there: it records the slash as unresolved (see `_lexical_positions_and_unresolved`).
+    """
     previous = index - 1
     while previous >= 0 and (
         source[previous].isspace() or comments[previous]
@@ -747,7 +805,15 @@ def _javascript_regex_literal_starts_at(
             return False
         return token in _JAVASCRIPT_REGEX_PREFIX_KEYWORDS
 
-    if character in ")]}'\"`.":
+    if character == ")":
+        return _javascript_paren_closes_control_head(source, previous, executable, comments)
+    if character == "}":
+        # `<Tag a={b} />`: the slash of a self-closing JSX tag, not a regex literal (`/>/` after a block is
+        # never written that way).
+        if source.startswith("/>", index):
+            return False
+        return None
+    if character in "]'\"`.":
         return False
     if character == "<" and previous + 1 == index:
         # `</div>`: a JSX closing tag, not `<` followed by a regex literal.
@@ -787,7 +853,18 @@ def _lexical_positions(
     line: str,
     path_suffix: str = "",
 ) -> tuple[bytes, bytes]:
-    """Return compact executable-code and line-comment masks for source text.
+    """Return compact executable-code and line-comment masks for source text (`_lexical_positions_and_unresolved`
+    without the unresolved slashes)."""
+    executable, comments, _ = _lexical_positions_and_unresolved(line, path_suffix)
+    return executable, comments
+
+
+def _lexical_positions_and_unresolved(
+    line: str,
+    path_suffix: str = "",
+) -> tuple[bytes, bytes, tuple[int, ...]]:
+    """Return compact executable-code and line-comment masks for source text, and the offsets of each JavaScript
+    slash the lexer could not tell a regex literal from a division (read as a division, but unresolved).
 
     The network detector intentionally accepts URLs in string arguments to real
     clients (for example, ``fetch("https://...")``), so stripping every string
@@ -804,6 +881,7 @@ def _lexical_positions(
     """
     executable = bytearray(len(line))
     comments = bytearray(len(line))
+    unresolved: list[int] = []
     # Contexts are (kind, nesting, closing_delimiter). Interpolation contexts
     # use nesting as their delimiter depth; Swift raw string text stores its
     # opening hash count there. Nested quote/template contexts sit above them.
@@ -999,19 +1077,19 @@ def _lexical_positions(
             index = comment_end
             continue
 
-        if (
-            path_suffix in _JAVASCRIPT_SUFFIXES
-            and character == "/"
-            and _javascript_regex_literal_starts_at(
+        if path_suffix in _JAVASCRIPT_SUFFIXES and character == "/":
+            starts_regex = _javascript_regex_literal_starts_at(
                 line,
                 index,
                 executable,
                 comments,
             )
-        ):
-            contexts.append(("regex-text", 0, "/"))
-            index += 1
-            continue
+            if starts_regex is None:
+                unresolved.append(index)
+            elif starts_regex:
+                contexts.append(("regex-text", 0, "/"))
+                index += 1
+                continue
 
         executable[index] = True
         if character == "\\" and index + 1 < len(line):
@@ -1103,7 +1181,7 @@ def _lexical_positions(
                 contexts[-1] = (kind, brace_depth - 1, delimiter)
         index += 1
 
-    return bytes(executable), bytes(comments)
+    return bytes(executable), bytes(comments), tuple(unresolved)
 
 
 @lru_cache(maxsize=128)
@@ -1180,7 +1258,7 @@ def _masked_lines(text: str, path_suffix: str, *, with_masked: bool = True) -> l
     triple-quoted string) or block comment masks every line it spans. Without WITH_MASKED each line's `masked`
     is its text (for a caller that reads only the marks).
     """
-    executable, comments = _whole_text_positions(text, path_suffix)
+    executable, comments, _ = _whole_text_positions(text, path_suffix)
     masked = text
     if with_masked:
         # One character per position: 1 code, 2 comment, 0 literal text (a string, template or regex literal).
@@ -4646,6 +4724,9 @@ def _logical_network_chunks(
 # ---------------------------------------------------------------------------
 
 MODULE_SCOPE = "<module>"
+# The name of every line from a slash the lexer could not read as a regex literal or a division to the file's end:
+# the braces after it may be miscounted, so no function is named (the finding fails --strict as unresolved).
+UNRESOLVED_SCOPE_PREFIX = "<unresolved"
 
 _PY_SCOPE = re.compile(r"^(\s*)(?:async\s+def|def|class)\s+(\w+)")
 _SWIFT_DECLARATION = re.compile(
@@ -4748,7 +4829,21 @@ def _brace_line_functions(text: str, path_suffix: str) -> list[str]:
     def qualified() -> str:
         return ".".join(name for name in stack if name) or MODULE_SCOPE
 
-    for lexed in _masked_lines(text, path_suffix):
+    unresolved = _whole_text_positions(text, path_suffix)[2]
+    unresolved_line = unresolved_name = None
+    if unresolved:
+        before = text[: unresolved[0]].splitlines(keepends=True)
+        partial = bool(before) and before[-1] == before[-1].rstrip("\r\n\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029")
+        unresolved_line = len(before) if partial else len(before) + 1
+        column = len(before[-1]) + 1 if partial else 1
+        unresolved_name = (
+            f"{UNRESOLVED_SCOPE_PREFIX}: regex literal or division at {unresolved_line}:{column}>"
+        )
+
+    for line_number, lexed in enumerate(_masked_lines(text, path_suffix), start=1):
+        if unresolved_name is not None and line_number >= unresolved_line:
+            names.append(unresolved_name)
+            continue
         line, masked = lexed.text, lexed.masked
         deepest = qualified()
         deepest_depth = len(stack)
@@ -4788,6 +4883,8 @@ def file_functions(text: str, path_suffix: str) -> set[str]:
     """Every function (or type, or JS test) name TEXT declares, qualified, with each enclosing name on its own."""
     found = {MODULE_SCOPE}
     for name in line_functions(text, path_suffix):
+        if name.startswith(UNRESOLVED_SCOPE_PREFIX):
+            continue
         parts = name.split(".")
         found.update(".".join(parts[: count + 1]) for count in range(len(parts)))
     return found
@@ -5134,6 +5231,16 @@ _ATTRIBUTION_CONSTRUCTS: list[tuple[str, str, str]] = [
     ("js one-line block comment", "web/tests/a7.test.js", "    f(/* { */ 1);\n"),
     ("js line comment after a string with an apostrophe", "web/tests/a8.test.ts",
      "    const a = \"it's\"; // {\n"),
+    # A `)` that ends an if, while, for or with head starts a statement: the slash after it opens a regex literal.
+    ("js regex literal after an if head", "web/tests/b1.test.ts", "    if (ok) /foo{bar/.test(value);\n"),
+    ("js regex literal after a while head", "web/tests/b2.test.ts", "    while (ok) /a{/.exec(s);\n"),
+    ("js regex literal after a for head", "web/tests/b3.test.ts", "    for (const x of xs) /a{/.test(x);\n"),
+    ("js regex literal after a for await head", "web/tests/b4.test.ts",
+     "    for await (const x of xs) /a{/.test(x);\n"),
+    ("js regex literal after a with head", "web/tests/b5.test.js", "    with (o) /a{/.test(s);\n"),
+    # The `)` of a call is an expression's end: the slash after it divides (inside the head), and the head's own
+    # `)` still starts a regex literal.
+    ("js division after a call's ) in an if head", "web/tests/b6.test.ts", "    if (f(x) / 2) /a{/.test(s);\n"),
     ("swift multi-line string", "cmuxTests/A1Tests.swift", "        let json = \"\"\"\n        {\"a\": 1\n        \"\"\"\n"),
     ("swift raw string with quotes", "cmuxTests/A2Tests.swift", "        let s = #\"a \"{\" b\"#\n"),
     ("swift multi-line raw string", "cmuxTests/A3Tests.swift",
@@ -5213,10 +5320,26 @@ ATTRIBUTION_FIXTURES += [
     ),
 ]
 
+# A slash after a block's `}` may start a regex literal (after a block) or divide (after an object): the lexer does
+# not guess, and every line from there on names no function.
+ATTRIBUTION_FIXTURES.append(
+    (
+        "js slash after a } is unresolved",
+        "web/tests/b7.test.ts",
+        _js_attribution_fixture("    if (ok) { run(); }\n    /a{/.test(s);\n"),
+        RULE_SLEEP_THEN_ASSERT,
+        {7: f"{UNRESOLVED_SCOPE_PREFIX}: regex literal or division at 4:5>"},
+    )
+)
+
 # Guards: what the lexer must still read as code (each passed before the lexer too).
 ATTRIBUTION_GUARDS: list[tuple[str, str, str, str, dict[int, str]]] = [
     ("js division is no regex literal", "web/tests/g1.test.ts",
      _js_attribution_fixture("    const r = { a: x / 2, b: y / 3 };\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
+    ("js division after a call's )", "web/tests/g4.test.ts",
+     _js_attribution_fixture("    const r = { w: f(x) / 2, h: g(y) / 3 };\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
+    ("jsx self-closing tag after an attribute's }", "web/tests/g5.test.tsx",
+     _js_attribution_fixture("    const el = <Tile size={2} />;\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
     ("jsx text: an apostrophe and a closing tag", "web/tests/g2.test.tsx",
      _js_attribution_fixture("    const el = cond && <p>Don't {name}</p>;\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
     ("python comment holding a triple quote", "tests/test_g3.py",
@@ -5232,11 +5355,35 @@ ATTRIBUTION_GUARDS: list[tuple[str, str, str, str, dict[int, str]]] = [
 
 
 def _attribution_self_test() -> list[str]:
+    import contextlib
+    import io
+    import tempfile
+
     failures: list[str] = []
     for label, rel, source, rule, want in ATTRIBUTION_FIXTURES + ATTRIBUTION_GUARDS:
         got = {f.line: f.function for f in scan_text(rel, source) if f.rule == rule}
         if got != want:
             failures.append(f"ATTRIBUTION {label} ({rel}): expected {want}, got {got}")
+    # An unresolved finding fails --strict with its own message, and no allowlist entry hides it.
+    unresolved_source = _js_attribution_fixture("    if (ok) { run(); }\n    /a{/.test(s);\n")
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        (root / "web/tests").mkdir(parents=True)
+        (root / "web/tests/b7.test.ts").write_text(unresolved_source)
+        (root / "allow.txt").write_text(
+            f"web/tests/b7.test.ts\tpane.b\t{RULE_SLEEP_THEN_ASSERT}\told debt\n"
+        )
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            code = main(["--repo-root", tmp, "--allowlist", "allow.txt", "--strict"])
+        output = out.getvalue()
+    if (
+        code != 1
+        or "web/tests/b7.test.ts:7: sleep-then-assert unresolved: the lexer cannot tell whether the slash at 4:5"
+        not in output
+        or "1 unresolved" not in output
+    ):
+        failures.append(f"ATTRIBUTION unresolved --strict: expected an 'unresolved' failure, got {code}: {output!r}")
     return failures
 
 
@@ -7592,6 +7739,9 @@ def main(argv: list[str]) -> int:
 
     allow = {entry.key() for entry in entries}
     active, suppressed = filter_allowlisted(findings, allow)
+    # A finding after a slash the lexer could not read names no function: it fails on its own, never allowlisted.
+    unresolved = [finding for finding in active if finding.function.startswith(UNRESOLVED_SCOPE_PREFIX)]
+    active = [finding for finding in active if not finding.function.startswith(UNRESOLVED_SCOPE_PREFIX)]
     # Only a full scan sees every finding an entry could match (--roots narrows it; isolated-import runs with
     # --strict only), so only a full scan judges an entry stale.
     stale: list[AllowlistEntry] = []
@@ -7615,11 +7765,13 @@ def main(argv: list[str]) -> int:
             "missing_function": [
                 {"path": e.path, "function": e.function, "rule": e.rule, "allowlist_line": e.line} for e in missing
             ],
+            "unresolved": [f.to_dict() for f in unresolved],
             "counts": {
                 "active": len(active),
                 "suppressed": len(suppressed),
                 "stale": len(stale),
                 "missing_function": len(missing),
+                "unresolved": len(unresolved),
                 "total": len(findings),
             },
         }
@@ -7627,6 +7779,14 @@ def main(argv: list[str]) -> int:
     else:
         for finding in active:
             print(finding.format())
+        for finding in unresolved:
+            where = finding.function[len(UNRESOLVED_SCOPE_PREFIX) + 2 : -1]
+            print(
+                f"{finding.path}:{finding.line}: {finding.rule} unresolved: the lexer cannot tell whether the slash "
+                f"at {where.rsplit(' at ', 1)[-1]} starts a {where.rsplit(' at ', 1)[0]}, so the function this "
+                f"finding sits in is unknown; make that slash unambiguous (parenthesize the regex or the division): "
+                f"{finding.snippet}"
+            )
         for entry in stale:
             print(
                 f"{allowlist_path.name}:{entry.line}: stale entry: {entry.path} {entry.function} {entry.rule} "
@@ -7641,12 +7801,12 @@ def main(argv: list[str]) -> int:
         print(
             f"test-determinism: {len(active)} active finding(s), "
             f"{len(suppressed)} allowlisted, {len(findings)} total, {len(stale)} stale allowlist entr(ies), "
-            f"{len(missing)} naming a missing function"
+            f"{len(missing)} naming a missing function, {len(unresolved)} unresolved"
         )
-        if (active or stale or missing) and not args.strict:
+        if (active or stale or missing or unresolved) and not args.strict:
             print("(non-strict mode: not failing. Run with --strict to enforce.)")
 
-    if args.strict and (active or stale or missing):
+    if args.strict and (active or stale or missing or unresolved):
         return 1
     return 0
 
