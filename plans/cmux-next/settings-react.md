@@ -281,7 +281,18 @@ these from the daemon first:
    `server ensure` (the detached owner inherits it; no new flag, so the settings owner, the
    keybindings owner and the daemon's other readers of the file stay on one path). A
    `server restart` gives the next owner the old owner's value unless the restarting client sets
-   its own. `settings.snapshot` answers `path`. Test: `cmux-tui/crates/cmux-tui/tests/ensure_settings_file.rs`.
+   its own (an empty value is no value). The client that spawns the owner makes a relative value
+   absolute from its own directory, so a restart from another directory keeps the file.
+   `settings.snapshot` answers `path`. Test: `cmux-tui/crates/cmux-tui/tests/ensure_settings_file.rs`.
+   Open, to decide before the app sets the variable: terminal children inherit it from the owner.
+   A test daemon started in a cmux terminal with only `HOME` isolation would then write the
+   user's file, so the review asked to remove it from terminal children
+   (`shell_integration::keys_to_unset_in_child`). But the `cmux` CLI in a terminal finds the
+   owner's file only by that variable: `cmux mcp` and `cmux setup mcp` (`mcp.enabled`,
+   `cli/mcp.rs`), `cmux settings validate` without a file, the version report's cohort and the
+   update notice (`feature_flags::settings`), `remote.ultraMode`. Without it they read the
+   default file while `cmux settings set` writes the owner's file. Not removed yet. One way:
+   those readers ask the owner for `path` first, then the variable goes.
    Swift half, to do (no Swift changed yet):
    - Launch: `DaemonLauncher.forApp` gets `CMUX_NEXT_CONFIG_FILE = CmuxConfigFile.launchURL().path`
      in `daemonEnvironment`, always, also for the default file. As read in

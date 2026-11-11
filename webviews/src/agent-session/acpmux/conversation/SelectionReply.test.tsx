@@ -41,7 +41,11 @@ afterEach(() => {
   unsink?.();
   unsink = undefined;
   configureSelectionReply("chip");
-  for (const key of KEYS) scope[key] = saved.get(key);
+  for (const key of KEYS) {
+    const value = saved.get(key);
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
   dom?.window.close();
   dom = undefined;
 });

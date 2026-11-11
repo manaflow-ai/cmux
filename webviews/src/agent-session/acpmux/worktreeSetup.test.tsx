@@ -38,7 +38,10 @@ function mount(): HTMLElement {
 afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
-  for (const [key, value] of saved) scope[key] = value;
+  for (const [key, value] of saved) {
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
   saved.clear();
   dom?.window.close();
   dom = undefined;

@@ -564,6 +564,7 @@ mod shutdown_refusal;
 mod sizing;
 mod slow_request_log;
 mod socket_and_render;
+mod subscribe_cap;
 mod subscribe_scroll_on_attach;
 mod terminal_close_if_unplaced;
 mod terminal_progress_follower;
