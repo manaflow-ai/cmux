@@ -224,6 +224,16 @@ the person's prompt. What the receiver gets depends on who you are to it:
 - An inbox notice ends with how to reply. Answer in your turn, with
   `inbox_reply` or the `send` tool (`acpmux send NAME` without them); never
   with your harness's own SendMessage, which reaches no acpmux session.
+- In a Claude Code agent acpmux started, Claude Code's own cross-session
+  messaging is off (no `ListAgents`; its peer list was every Claude Code on the
+  machine, other daemons' too, and a message it held showed nowhere).
+  `SendMessage` to an acpmux session is refused with the command to use:
+  `"$ACPMUX_BIN" send NAME --wait "…"` (its reply in this turn) or the `send`
+  tool. `SendMessage` still reaches your own subagents. `acpmux ls` is the peer
+  list. A profile that sets `CLAUDE_CODE_HARBOR_KITE` itself keeps its value.
+  That variable is an undocumented Claude Code switch: if a later Claude Code
+  renames it, `ListAgents` may list other Claude Code sessions again, but the
+  refusal above still applies.
 - `wait` right after `send --no-wait` waits for the turn the message brings;
   it never answers with the idle state from before the message.
 
@@ -321,7 +331,7 @@ $X daemon shutdown --end-agents             # done: end its agents too, then rm 
 ## 5. Permissions
 
 ```bash
-acpmux pending                               # every pending request, and how to answer it
+acpmux pending                               # every pending request, and how to answer it; also messages a chat's Claude Code holds
 acpmux session deny NAME                     # allowing is the cmux app's alone (the chat's permission card)
 acpmux session rules NAME '{"autoDeny": ["rm -rf"], "ask": ["execute"]}'
 acpmux run --on-permission deny|fail …       # never hang a script on a prompt (fail = exit 5)
@@ -330,7 +340,12 @@ acpmux run --on-permission deny|fail …       # never hang a script on a prompt
 `acpmux pending --json` gives each request a `needsYou` link
 (`cmux://needs-you/<permissionId>`). Put it in a reply to point the user at an
 open ask instead of restating it; cmux draws it as a chip that opens the ask in
-its Needs you list.
+its Needs you list. Its `heldMessages` lists another session's message that a
+chat's Claude Code holds instead of reading it (`session`, `fromName`, `from`,
+`cause`, `messageUuid`, `heldAt`; also `heldMessages` of `session info`). Claude
+Code gives acpmux no way to release it: it waits for that chat's approval or
+expires, so have the sender send it with `acpmux send` instead. acpmux keeps
+held messages in memory only: after a daemon restart they no longer show.
 
 Show UI instead of describing it. A reply in cmux draws `![alt](/abs/path.png)`,
 a bare image path (`.png`, `.jpg`, `.gif`, `.webp`), a `file://` URL or an

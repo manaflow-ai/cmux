@@ -56,9 +56,13 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// no content is shown; `resume` maps the strip once and shows the selection then (PL-script A2).
     private(set) var isSuspended = false
     /// The window gives this pane's fullscreen page the whole screen (`WindowController+FullScreen`):
-    /// the strip hides with the rest of the window's chrome.
+    /// the strip hides with the rest of the window's chrome, and the panes beside it hide.
     var presentsPage = false {
-        didSet { if presentsPage != oldValue { view.hidesStrip = snapshotHidesStrip || presentsPage } }
+        didSet {
+            guard presentsPage != oldValue else { return }
+            view.hidesStrip = snapshotHidesStrip || presentsPage
+            if presentsPage { workspace?.presentedPane = layoutPaneID } else if workspace?.presentedPane == layoutPaneID { workspace?.presentedPane = nil }
+        }
     }
     private var snapshotHidesStrip = false // the last snapshot's own choice, kept under `presentsPage`
     private var windowController: WindowController? { view.window?.delegate as? WindowController }
@@ -110,6 +114,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let views = spare ?? Spare(services: services)
         (stripModel, view) = (views.stripModel, views.view)
         stripModel.intentHandler = { [weak self] intent in self?.handle(intent) }
+        stripModel.closeSuccessor = { [weak state] in state?.selection.closeRule.successor(of: $0, old: $1, surviving: $2, shown: $3) } // the window's one close rule
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         view.stripView.hoverCards = services.hoverCards
         view.stripView.onHoverTab = { [weak self] id in self?.noteHover(id) }
@@ -347,11 +352,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if stripModel.showsNewTabButton != snapshot.takesNewTabs { stripModel.showsNewTabButton = snapshot.takesNewTabs }
         if !snapshot.items.isEmpty { LaunchReveal.shared.markReady(.tabs) }
         let selectNew = pendingSelect.take(shown: snapshot.tabs, record: pane.tabs) // once listed (OutboundTab)
-        if let selectNew { state?.selection.select(selectNew, in: paneKey) }
-        // Members of a collapsed group are hidden: a closed selected tab's successor skips them while a shown tab survives (close-focus.md).
-        let collapsed = Set(snapshot.groups.filter(\.isCollapsed).map(\.id))
-        let hidden = Set(snapshot.items.filter { $0.groupID.map(collapsed.contains) ?? false }.map(\.id.rawValue))
-        let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue), defaultIndex: snapshot.defaultIndex, hidden: hidden)
+        if let selectNew { state?.selection.selectMade(selectNew, in: paneKey, inPlaceOf: stripModel.successors[StripTabID(selectNew)]?.rawValue, tabs: snapshot.items.map(\.id.rawValue)) }
+        // Members of a collapsed group are hidden (`hiddenTabs`): a closed selected tab's successor skips them while a shown tab survives (close-focus.md).
+        let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue), defaultIndex: snapshot.defaultIndex, hidden: stripModel.hiddenTabs, replaced: stripModel.successors, closing: { daemon.store.closingTabIDs })
         setStripSelection(selected.map { StripTabID($0) })
         let selectedID = stripModel.selectedID
         sendTopologyIfChanged() // focus learns the selection before the show: the keyboard leaves the old tab first (showSelected)

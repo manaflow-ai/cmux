@@ -28,6 +28,15 @@ configs:
   # `scripts/testflight-build.sh --config TestFlightStaging`; production
   # (TestFlight) stays the default.
   TestFlightStaging: release
+  # AppStore: the public App Store build, App Store Connect app "cmux" (bundle
+  # com.cmux.app, the record the classic ios/ app used; this app replaces it as
+  # an update). The TestFlight configuration with the production identity:
+  # production Stack project, Worker and Cloud, App Store signing, push and Sign
+  # in with Apple. Built only by `scripts/testflight-build.sh --config AppStore`
+  # (.github/workflows/ios-app-store.yml on main). A phone updating from the
+  # classic app keeps its Keychain items and settings: ClassicLeftovers
+  # (CmuxMobileLive) deletes them once at the first launch.
+  AppStore: release
 options:
   bundleIdPrefix: dev.cmux.mobile
   deploymentTarget:
@@ -132,6 +141,23 @@ settings:
       CMUX_MOBILE_API_BASE: $(CMUX_MOBILE_STAGING_API_BASE)
       CMUX_MOBILE_CLOUD_API_BASE: $(CMUX_MOBILE_STAGING_CLOUD_API_BASE)
       CMUX_MOBILE_STACK_ENVIRONMENT: development
+    AppStore:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: CMUX_MOBILE_PRODUCTION CMUX_MOBILE_APPSTORE
+      SWIFT_OPTIMIZATION_LEVEL: -O
+      CMUX_MOBILE_TAG: ""
+      # The extensions are com.cmux.app.notification-content and
+      # com.cmux.app.notification-service; the Keychain groups are
+      # 7WLXT3NR37.com.cmux.app (the default, the classic app's too) and
+      # 7WLXT3NR37.com.cmux.app.push; the App Group (when on) is group.com.cmux.app.
+      CMUX_MOBILE_APP_BUNDLE_ID: com.cmux.app
+      CMUX_MOBILE_DISPLAY_NAME: cmux
+      # The version is the base MARKETING_VERSION above: the review package
+      # (cmux-next-ios/AppStoreReview/metadata/version/<MARKETING_VERSION>) is named for it.
+      CMUX_MOBILE_API_BASE: $(CMUX_MOBILE_PROD_API_BASE)
+      CMUX_MOBILE_CLOUD_API_BASE: $(CMUX_MOBILE_PROD_CLOUD_API_BASE)
+      CMUX_MOBILE_APP_PROFILE: cmux App Store CI
+      CMUX_MOBILE_CONTENT_EXTENSION_PROFILE: cmux App Store CI Notification Content
+      CMUX_MOBILE_SERVICE_EXTENSION_PROFILE: cmux App Store CI Notification Service
 packages:
   CmuxMobileKit:
     path: CmuxMobileKit
@@ -221,6 +247,17 @@ targets:
           # Push (production APNs), Sign in with Apple, and its own keychain
           # group. The "cmux Internal Distribution" App Store profile
           # authorizes each key; testflight-build.sh signs manually with it.
+          CMUX_MOBILE_ENTITLEMENTS_NO: App/CmuxMobileApp-TestFlight.entitlements
+          CMUX_MOBILE_ENTITLEMENTS_YES: App/CmuxMobileApp-TestFlight-Group.entitlements
+          CMUX_MOBILE_PUSH: "YES"
+          CMUX_MOBILE_APPLE_SIGN_IN: "YES"
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER: $(CMUX_MOBILE_APP_PROFILE)
+        AppStore:
+          # The TestFlight entitlements: every value comes from the bundle id
+          # (push, Sign in with Apple, $(AppIdentifierPrefix)com.cmux.app and
+          # the .push group), signed with the "cmux App Store CI" profile (scripts/asc_ensure_signing.py makes it).
           CMUX_MOBILE_ENTITLEMENTS_NO: App/CmuxMobileApp-TestFlight.entitlements
           CMUX_MOBILE_ENTITLEMENTS_YES: App/CmuxMobileApp-TestFlight-Group.entitlements
           CMUX_MOBILE_PUSH: "YES"
@@ -344,6 +381,10 @@ targets:
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: Apple Distribution
           PROVISIONING_PROFILE_SPECIFIER: $(CMUX_MOBILE_CONTENT_EXTENSION_PROFILE)
+        AppStore:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER: $(CMUX_MOBILE_CONTENT_EXTENSION_PROFILE)
     info:
       path: NotificationContent/Info.plist
       properties:
@@ -399,6 +440,10 @@ targets:
           CODE_SIGN_IDENTITY: Apple Distribution
           PROVISIONING_PROFILE_SPECIFIER: $(CMUX_MOBILE_SERVICE_EXTENSION_PROFILE)
         TestFlightStaging:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER: $(CMUX_MOBILE_SERVICE_EXTENSION_PROFILE)
+        AppStore:
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: Apple Distribution
           PROVISIONING_PROFILE_SPECIFIER: $(CMUX_MOBILE_SERVICE_EXTENSION_PROFILE)

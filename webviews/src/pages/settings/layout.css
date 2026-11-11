@@ -338,6 +338,31 @@
   opacity: 1;
 }
 
+/* The running Switch or Go Back: its spinner and the host's stage in place of its text, at full
+   strength though disabled (it is the one thing happening), digits that do not jitter as the
+   percentage counts. Every other one is disabled and dims as usual. */
+.channel-switch[data-busy] {
+  gap: var(--ds-space-1);
+}
+
+.channel-switch[data-busy]:disabled {
+  opacity: 1;
+  color: var(--ds-color-muted);
+}
+
+.channel-run-label {
+  font-variant-numeric: tabular-nums;
+}
+
+.channel-run-spinner {
+  flex: none;
+}
+
+/* The bar under the running row (App Update's .app-update-progress), clear of the row's text. */
+.channel-progress {
+  margin-top: var(--ds-space-1);
+}
+
 /* P3: the Theme section. */
 .theme-studio {
   margin-bottom: 4px;
