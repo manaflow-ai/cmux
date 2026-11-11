@@ -705,6 +705,33 @@ test("the `/` menu says Loading commands… before the list is read, then No com
   expect(asks.map((ask) => ask[1]).filter((text) => text !== "/zzz")).toEqual([]);
 });
 
+// Round 4 (verifier M7): a command list that could not be read said "No commands". It says it
+// couldn't load them, with Try Again (a click or Tab), which the host runs.
+test("the `/` menu says Couldn't load commands. with Try Again when the list could not be read (M7)", async () => {
+  const cmux = { name: "model", description: "", source: "cmux" as const };
+  let retries = 0;
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat([], { commands: [cmux], commandsFailed: true })}
+        onRetryCommands={() => void retries++}
+      />,
+    );
+  });
+  const field = await typePrompt("/zzz");
+  const empty = container.querySelector("#acpmux-slash-menu .acpmux-slash-empty");
+  expect(empty?.textContent).toContain(translate("composer.loadCommandsFailed"));
+  expect(empty?.textContent).not.toContain(translate("composer.noCommands"));
+  const retry = container.querySelector<HTMLButtonElement>("#acpmux-slash-menu .acpmux-slash-retry");
+  expect(retry?.textContent).toBe(translate("composer.retryCommands"));
+  await act(async () => retry!.click());
+  expect(retries).toBe(1);
+  await press(field, "Tab");
+  expect(retries).toBe(2);
+  expect(promptValue()).toBe("/zzz");
+});
+
 test("a Codex skill typed without its `$` goes to the agent as `/$name`, other text as typed", async () => {
   const asks: unknown[][] = [];
   await act(async () => {

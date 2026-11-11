@@ -4,7 +4,7 @@
 // draws nothing. Settings > Devices and Settings > Mobile.
 import { afterAll, describe, expect, test } from "bun:test";
 import { installDom } from "./testDom";
-import { partRead } from "./store";
+import { PART_READ_TIMEOUT, partRead, type PartSchedule } from "./store";
 import { TransportError } from "./transport";
 
 const restore = installDom();
@@ -21,6 +21,10 @@ describe("partRead", () => {
     expect(partRead({ status: "pending", error: null }, false)).toBe("pending");
     expect(partRead({ status: "success", error: null }, true)).toBe("read");
     expect(partRead(error("cmux.settings.devices.failed"), false)).toBe("failed");
+  });
+  test("a read past its deadline is failed, not none", () => {
+    expect(partRead(error(PART_READ_TIMEOUT), false)).toBe("failed");
+    expect(partRead(error(PART_READ_TIMEOUT), false, true)).toBe("failed");
   });
   test("a part with data stays read when a later re-read fails", () => {
     expect(partRead(error("cmux.settings.devices.failed"), true)).toBe("read");
@@ -78,5 +82,54 @@ test("a host without an iPhone part draws no Mobile card", async () => {
   expect(page.provider.host.iphone ?? null).toBeNull();
   expect(readState(page.container, "mobile")).toBeNull();
   expect(page.container.querySelector('[data-card="mobile"]')).toBeNull();
+  page.unmount();
+});
+
+// Round 4 (verifier, non-blocking): a host part that never answers left its card's placeholder up
+// forever. Past its deadline (an injected timer here) the card shows its failed state with Try
+// Again; Try Again reads again under a fresh deadline, and a reply that comes late fills the card.
+test("a Devices read that never answers ends in Try Again at its deadline, and a late reply fills the card", async () => {
+  const timers: { fire: () => void; ms: number; cancelled: boolean }[] = [];
+  const schedule: PartSchedule = (fire, ms) => {
+    const timer = { fire, ms, cancelled: false };
+    timers.push(timer);
+    return () => void (timer.cancelled = true);
+  };
+  const live = () => timers.filter((timer) => !timer.cancelled);
+  let release: () => void = () => undefined;
+  const page = await renderPage({
+    path: "/settings/devices",
+    partDeadline: { schedule },
+    setup: (provider) => {
+      const holder = provider as unknown as { devices: unknown };
+      const real = holder.devices;
+      holder.devices = new Promise((resolve) => (release = () => resolve(real)));
+    },
+  });
+  await settle();
+  expect(readState(page.container, "devices")).toBe("pending");
+  const deadline = live().find((timer) => timer.ms === 10_000);
+  expect(deadline).toBeDefined();
+
+  deadline!.fire();
+  await settle();
+  expect(readState(page.container, "devices")).toBe("failed");
+  expect(page.container.querySelector('[data-part-retry="devices"]')).not.toBeNull();
+
+  // Try Again: the placeholder again, under a fresh deadline.
+  const before = timers.length;
+  await click(page.container.querySelector('[data-part-retry="devices"]')!);
+  await settle();
+  expect(readState(page.container, "devices")).toBe("pending");
+  expect(timers.length).toBeGreaterThan(before);
+  live().at(-1)!.fire();
+  await settle();
+  expect(readState(page.container, "devices")).toBe("failed");
+
+  // The reply comes late: it replaces the error and the card draws.
+  release();
+  await settle();
+  expect(readState(page.container, "devices")).toBeNull();
+  expect(page.container.querySelector('[data-devices-group="this"]')).not.toBeNull();
   page.unmount();
 });
