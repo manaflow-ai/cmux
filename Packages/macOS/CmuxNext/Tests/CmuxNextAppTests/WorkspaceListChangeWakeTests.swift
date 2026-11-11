@@ -64,9 +64,16 @@ import Testing
     struct Counts: Sendable {
         var added = Change()
         var closed = Change()
+        /// The close at the press (`InstantClose.begin`): the row leaves in the key's own turn, before the daemon answers.
+        var pressed = Change()
         /// One hidden workspace moved to another window in the registry: its owner changed, no list did.
         var moved = Change()
     }
+
+    /// The most listed rows the sidebar's structural stages may read for ONE closed or new row (`rows_walked`: the
+    /// model set, the list's splice compare, the list's viewports), at any session size. A window of 60 workspaces
+    /// reads each row some 4 times today (about 240); the bound is above that and far below a walk of 826 rows.
+    static let rowWalkBound = 400
 
     /// One measured window per size, for the whole suite: a window of 826 workspaces takes seconds to open.
     private static var measured: [SessionFixtureSize: Counts] = [:]
@@ -167,12 +174,20 @@ import Testing
             _ = registry.apply { $0.move([Fixture.key(11)], to: controller.state.id) }
             try #require(owner == other, "fixture: the eleventh workspace did not move")
             try #require(registry.value.window(other) == nil, "fixture: the other window is still registered")
-            return Counts(added: added, closed: closed, moved: moved)
+            // The close at the press, last: another hidden workspace (the seventh) leaves the window's rows in this turn.
+            let leaving = try #require(store.workspaces.first { $0.key?.rawValue == Fixture.key(7) }, "fixture: no seventh workspace")
+            let listed = controller.sidebar.model.sections.reduce(0) { $0 + $1.workspaces.count }
+            var left: [String] = []
+            let pressed = await measure(store) { left = InstantClose.begin([leaving.id], in: controller.state.id, windows: services.windows) }
+            ClosingWorkspaces.shared.end(leaving.id, refused: false, in: nil)
+            try #require(left == [leaving.id], "fixture: the press closed \(left), not the seventh workspace")
+            try #require(listed >= size.workspaces - 2, "fixture: the sidebar listed \(listed) workspaces of \(size.workspaces) before the press")
+            return Counts(added: added, closed: closed, pressed: pressed, moved: moved)
         }
         measured[size] = counts
         // Every count, also when the test passes: which observers one list change wakes, at each size.
-        let rows = ["section_sets", "rebuilds", "row_maps", "row_invalidations", "order_builds", "layout_rows", "list_reloads", "ffi_calls"]
-        for (name, change) in [("added", counts.added), ("closed", counts.closed), ("moved", counts.moved)] {
+        let rows = ["rows_walked", "viewport_rows", "section_sets", "rebuilds", "row_maps", "row_invalidations", "order_builds", "layout_rows", "list_reloads", "ffi_calls"]
+        for (name, change) in [("added", counts.added), ("closed", counts.closed), ("moved", counts.moved), ("pressed", counts.pressed)] {
             for site in change.wakes.keys.sorted() { print("WorkspaceListChange \(size.rawValue) \(name) wakes \(site): \(change.wakes[site] ?? 0)") }
             print("WorkspaceListChange \(size.rawValue) \(name) wakes total: \(change.total); sidebar: "
                 + rows.map { "\($0) \(change.sidebar[$0] ?? 0)" }.joined(separator: ", "))
@@ -242,6 +257,60 @@ import Testing
                         "one workspace \(name) in a session of \(size.workspaces) named the link places of \(woken) workspaces again (bound \(Self.linkPlaceBound))")
                 #expect(woken <= atLarge.wakes(of: Self.linkPlaces),
                         "one workspace \(name) names the link places of \(woken) workspaces again at \(size.rawValue), \(atLarge.wakes(of: Self.linkPlaces)) at large")
+            }
+        }
+    }
+
+    /// ONE row changed (a workspace closed by the daemon's event, a workspace closed at the press): the
+    /// sidebar's structural stages read the rows that changed, never every listed row. Today each stage walks the
+    /// whole list: the model set arranges and compares every row, the list compares the section and builds two
+    /// viewports of every row.
+    ///
+    /// KNOWN ISSUE (SIDEBAR ROW CHANGE): stage 1 took the scroll rule's two reads of every row away (`viewport_rows`,
+    /// `oneChangedRowReadsTheScrollsRowsInView`). The model set and the list's splice compare still read every row
+    /// once each (about 2 x 826 at `real`), so the total is over the bound at each size above `large` until the
+    /// model takes the one-row change itself (stage 2). The issue is there at each size above `large` and not at
+    /// `large` (the only size a run without `CMUX_TEST_SESSION_SIZES` has), so it is a known issue only there: a
+    /// count over the bound at `large` fails, and so does a count inside the bound at `real` (stage 2 takes the
+    /// known issue away in the commit that lowers the count).
+    @Test(.timeLimit(.minutes(10)))
+    func oneChangedRowWalksNoOtherRowOfTheSidebar() async throws {
+        let small = try await Self.counts(.large)
+        for size in Self.sizes {
+            let counts = try await Self.counts(size)
+            // Not the added workspace here: its row comes through the placement (stage 2 of SIDEBAR ROW CHANGE has
+            // its count cases).
+            for (name, change, atLarge) in [("closed", counts.closed, small.closed), ("closed at the press", counts.pressed, small.pressed)] {
+                let walked = change.sidebar["rows_walked"] ?? 0, sets = change.sidebar["section_sets"] ?? 0
+                #expect(sets > 0, "fixture: one workspace \(name) at \(size.rawValue) set no sidebar sections (the pass did not run)")
+                withKnownIssue("SIDEBAR ROW CHANGE stage 2: the model set and the splice compare read every listed row") {
+                    #expect(walked <= Self.rowWalkBound,
+                            "one workspace \(name) in a session of \(size.workspaces) made the sidebar read \(walked) rows (bound \(Self.rowWalkBound))")
+                    #expect(walked <= max(atLarge.sidebar["rows_walked"] ?? 0, 16),
+                            "one workspace \(name) makes the sidebar read \(walked) rows at \(size.rawValue), \(atLarge.sidebar["rows_walked"] ?? 0) at large")
+                } when: {
+                    size.workspaces > SessionFixtureSize.large.workspaces
+                }
+            }
+        }
+    }
+
+    /// Stage 1 of the same (SIDEBAR ROW CHANGE): the scroll rule of the list reload reads the rows in view, in a whole
+    /// window of the session as in the list alone (`SidebarRowChangeScrollTests`). 200 is above two viewports of a
+    /// 900 pt window and far below 826 rows.
+    @Test(.timeLimit(.minutes(10)))
+    func oneChangedRowReadsTheScrollsRowsInView() async throws {
+        let small = try await Self.counts(.large)
+        for size in Self.sizes {
+            let counts = try await Self.counts(size)
+            for (name, change, atLarge) in [("closed", counts.closed, small.closed), ("closed at the press", counts.pressed, small.pressed)] {
+                let read = change.sidebar["viewport_rows"] ?? 0, reloads = change.sidebar["list_reloads"] ?? 0
+                #expect(reloads > 0, "fixture: one workspace \(name) at \(size.rawValue) reloaded no list")
+                #expect(read > 0, "fixture: one workspace \(name) at \(size.rawValue): the scroll rule read no row (the counter is not on its path)")
+                #expect(read <= 200 * max(reloads, 1),
+                        "one workspace \(name) in a session of \(size.workspaces): the scroll rule read \(read) rows in \(reloads) reloads")
+                #expect(read <= max(atLarge.sidebar["viewport_rows"] ?? 0, 16) + 8,
+                        "one workspace \(name): the scroll rule read \(read) rows at \(size.rawValue), \(atLarge.sidebar["viewport_rows"] ?? 0) at large")
             }
         }
     }

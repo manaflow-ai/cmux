@@ -50,7 +50,7 @@ await requireBrowserLane("transcript-lone-system-rows.test.ts", async () => {
     const page = await browser.newPage({ viewport: { width: 1000, height: 900 }, deviceScaleFactor: 2 });
     const port = (vite!.httpServer!.address() as { port: number }).port;
     await page.goto(
-      `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width: 900, theme: "Catppuccin Mocha", reducedMotion: "true" })}`,
+      `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width: 900, theme: "Catppuccin Mocha", reducedMotion: "true", exp: "background-turn-look", arm: "line" })}`,
     );
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 120_000,

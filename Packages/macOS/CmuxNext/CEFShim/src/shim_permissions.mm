@@ -10,6 +10,8 @@
 
 #include "cmux_page_path.h"
 #include "include/cef_permission_handler.h"
+#include "include/cef_request_context.h"
+#include "include/cef_values.h"
 #include "permission_prompt_policy.h"
 #include "shim_internal.h"
 
@@ -33,6 +35,27 @@ int TokenOf(uint64_t prompt_id) {
   return static_cast<int>(prompt_id % 0x7fffffff) + 1;
 }
 
+// Chromium counts each prompt that ends ignored and, at the fourth for one site and kind, blocks
+// the site for a week: the page then reads `denied`, a stored answer. No switch turns the count
+// off (PermissionDecisionAutoBlocker::RecordIgnoreAndEmbargo), so the site's notification entry
+// is removed before each request cmux ends unanswered: the count is 1 after it, never 4. Other
+// kinds' entries of the site stay.
+void ForgetNotificationPromptCount(CefRefPtr<CefBrowser> browser, const CefString& origin) {
+  if (!browser) return;
+  CefRefPtr<CefRequestContext> context = browser->GetHost()->GetRequestContext();
+  if (!context) return;
+  CefRefPtr<CefValue> stored =
+      context->GetWebsiteSetting(origin, CefString(), CEF_CONTENT_SETTING_TYPE_PERMISSION_AUTOBLOCKER_DATA);
+  if (!stored || stored->GetType() != VTYPE_DICTIONARY) return;
+  CefRefPtr<CefDictionaryValue> counts = stored->GetDictionary();
+  if (!counts || !counts->HasKey(kNotificationsAutoblockKey)) return;
+  CefRefPtr<CefDictionaryValue> kept = counts->Copy(false);
+  kept->Remove(kNotificationsAutoblockKey);
+  CefRefPtr<CefValue> value = CefValue::Create();
+  value->SetDictionary(kept);
+  context->SetWebsiteSetting(origin, CefString(), CEF_CONTENT_SETTING_TYPE_PERMISSION_AUTOBLOCKER_DATA, value);
+}
+
 class Handler : public CefPermissionHandler {
  public:
   bool OnShowPermissionPrompt(CefRefPtr<CefBrowser> browser, uint64_t prompt_id, const CefString& requesting_origin,
@@ -47,8 +70,8 @@ class Handler : public CefPermissionHandler {
       case PermissionPromptRoute::kChromium:
         return false;
       case PermissionPromptRoute::kEndUnanswered:
-        // IGNORE ends the request now and stores no content setting (DENY would). Chromium's
-        // count of ignored prompts, which blocks a site after a few, is off (CEFSwitches).
+        // IGNORE ends the request now and stores no content setting (DENY would).
+        ForgetNotificationPromptCount(browser, requesting_origin);
         callback->Continue(CEF_PERMISSION_RESULT_IGNORE);
         return true;
       case PermissionPromptRoute::kHost:

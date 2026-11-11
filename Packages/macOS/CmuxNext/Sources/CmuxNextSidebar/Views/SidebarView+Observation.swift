@@ -55,6 +55,8 @@ extension SidebarViewComponents {
         var noColorBlocks: Bool
         /// Where leading glyphs sit in the icon column (`sidebar.leadingColumn`): every row lays out again.
         var leadingColumn: SidebarLeadingColumnLook
+        /// One list's "Workspaces" heading (`sidebar.listHeading`): the list lays out again with or without it.
+        var listHeading: Bool
         /// What a pinned row with its own icon leads with (`sidebar.pinnedRowLeading`): every row lays out again.
         var pinnedRowLeading: SidebarPinnedRowLeading
         /// Every token the titlebar row's width reads past the view's own inputs (the reserve, the accessory, the
@@ -102,6 +104,7 @@ extension SidebarViewComponents {
             groupLineJoinsBar = SidebarGroupLine.joinsBar
             noColorBlocks = SidebarNoColorGroupLook.tunable.value != .plain
             leadingColumn = SidebarLeadingColumnLook.tunable.value
+            listHeading = SidebarTunables.listHeading.value
             pinnedRowLeading = SidebarPinnedRowLeading.tunable.value
             titlebarRow = [SidebarStyle.toolbarButtonSize, SidebarStyle.titlebarPlusTrailingInset, TitlebarBandButton.side,
                            Metrics.trafficLightInset, Metrics.space1, Metrics.space2, Metrics.space3]
@@ -192,7 +195,7 @@ extension SidebarViewComponents {
         if lastState != nil, profileChanged, model.docDrag != nil { updateBands(reloadsList: false) }
         if listChanged {
             if profileChanged {
-                showSpace()
+                showSpace(leaving: lastState?.activeProfile, entering: state.activeProfile)
             } else if selectionChanged, rowsChanged, !model.followsUserIntent, list.showsSelectionRow,
                       list.patchSelection(from: lastState?.selected, oldSelection: lastState?.selection ?? []) {
                 // A click moves no row (Leo 2026-10-20): it draws its selection, and rows that changed with it

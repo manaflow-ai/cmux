@@ -26,7 +26,7 @@ struct NotificationMoveToTopOnAgentFinishTests {
     }
 
     @Test func onlyAnAgentsFinishedTurnMovesItsWorkspaceWithTheSettingOn() throws {
-        let settings = Self.attention(["moveToTopOnAgentFinish": .bool(true)])
+        let settings = Self.attention(["moveToTop": .bool(false), "moveToTopOnAgentFinish": .bool(true)])
         #expect(Self.moves(settings, try Self.notification(source: "agent", level: "info")), "a finished agent did not move its workspace")
         #expect(!Self.moves(settings, try Self.notification(source: "agent", level: "warning")), "an agent's question moved its workspace")
         #expect(!Self.moves(settings, try Self.notification(source: "agent", level: "error")), "an agent's error moved its workspace")
@@ -34,14 +34,22 @@ struct NotificationMoveToTopOnAgentFinishTests {
         #expect(!Self.moves(settings, try Self.notification(source: "terminal", level: "info")), "a terminal bell moved its workspace")
     }
 
-    @Test func itIsOptInAndTheEveryNotificationSettingStillMovesOnAny() throws {
+    /// The user, 2026-11-09: "we should move workspaces that have notifications to top like imessage
+    /// (if it is off, we need to make it on by default)". Every notification moves its workspace by
+    /// default; `moveToTop: false` keeps the order the user made, and the finished-turn opt-in still works.
+    @Test func everyNotificationMovesItsWorkspaceByDefaultAndTheSettingTurnsItOff() throws {
         let finished = try Self.notification(source: "agent", level: "info")
         let bell = try Self.notification(source: "terminal", level: "info")
+        let question = try Self.notification(source: "agent", level: "warning")
         let defaults = Self.attention([:])
-        #expect(!Self.moves(defaults, finished) && !Self.moves(defaults, bell), "a default sidebar reordered on a notification")
-        let row = try #require(SettingsSchema.descriptor(for: ["notifications", "attention", "moveToTopOnAgentFinish"]), "no settings row")
-        #expect(row.defaultValue == .bool(false))
-        let every = Self.attention(["moveToTop": .bool(true)])
-        #expect(Self.moves(every, finished) && Self.moves(every, bell))
+        #expect(Self.moves(defaults, finished) && Self.moves(defaults, bell) && Self.moves(defaults, question),
+                "a default sidebar did not move a notified workspace to the top")
+        #expect(AttentionSettings().movesToTop, "AttentionSettings() does not move on a notification")
+        let row = try #require(SettingsSchema.descriptor(for: ["notifications", "attention", "moveToTop"]), "no settings row")
+        #expect(row.defaultValue == .bool(true))
+        let off = Self.attention(["moveToTop": .bool(false)])
+        #expect(!Self.moves(off, finished) && !Self.moves(off, bell), "moveToTop false still reordered the sidebar")
+        let finishOnly = Self.attention(["moveToTop": .bool(false), "moveToTopOnAgentFinish": .bool(true)])
+        #expect(Self.moves(finishOnly, finished) && !Self.moves(finishOnly, bell))
     }
 }

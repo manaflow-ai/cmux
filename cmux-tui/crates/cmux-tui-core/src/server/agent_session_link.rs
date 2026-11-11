@@ -15,9 +15,9 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{SyncSender, sync_channel};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, sync_channel};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
@@ -36,6 +36,25 @@ pub(super) const MAX_LINE_BYTES: usize = 32 << 20;
 pub(super) const MAX_IN_FLIGHT: usize = 16;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const THREAD_STACK_BYTES: usize = 256 * 1024;
+
+/// The cheap request a long call asks beside itself to learn whether acpmux still answers
+/// ([`AcpmuxLink::call_while_alive_until`]): acpmux serves each request of a connection on its own task,
+/// so its status answers while a `session/new` is still starting a harness.
+pub(crate) const LIVENESS_PROBE: &str = "_acpmux/status";
+
+/// How a call on work of unknown length waits ([`AcpmuxLink::call_while_alive_until`]): it waits for its
+/// answer while acpmux keeps answering, and fails only when acpmux went silent or the whole wait
+/// passed a generous ceiling. A busy machine makes the call slower, never makes it fail.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Patience {
+    /// How long the answer is waited for before acpmux is asked whether it still answers.
+    pub(crate) quiet: Duration,
+    /// How long that question ([`LIVENESS_PROBE`]) may take: no answer within it is a silent
+    /// acpmux, and the call fails.
+    pub(crate) probe: Duration,
+    /// The longest the call waits in all, however alive acpmux stays.
+    pub(crate) ceiling: Duration,
+}
 
 /// Why a call failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,6 +114,9 @@ pub(crate) struct AcpmuxLink {
     pending: Arc<Pending>,
     next_id: AtomicU64,
     closed: Arc<AtomicBool>,
+    /// A reply waited for past its call's timeout ([`AcpmuxLink::call_while_alive_or_late`]): `close`
+    /// leaves the socket open for it, and the wait closes it when it ends.
+    late: AtomicBool,
 }
 
 impl AcpmuxLink {
@@ -112,6 +134,7 @@ impl AcpmuxLink {
             pending: Arc::default(),
             next_id: AtomicU64::new(1),
             closed: Arc::new(AtomicBool::new(false)),
+            late: AtomicBool::new(false),
         });
         let pending = link.pending.clone();
         let closed = link.closed.clone();
@@ -129,6 +152,120 @@ impl AcpmuxLink {
         params: Value,
         timeout: Duration,
     ) -> Result<Value, LinkError> {
+        let (id, receiver) = self.send(method, params)?;
+        let result = receiver.recv_timeout(timeout).unwrap_or(Err(LinkError::Timeout));
+        self.forget(id);
+        result
+    }
+
+    /// [`AcpmuxLink::call_while_alive_until`] for a request acpmux goes on with after the caller
+    /// stops waiting (`session/new` spawns its agent whether or not anyone still reads the
+    /// answer): a reply that comes after the call failed with [`LinkError::Timeout`], within
+    /// `grace` more, goes to `late`, on a thread of its own, so what it made can be undone. The
+    /// link stays open for that wait, a `close` meanwhile included, and closes when it ends.
+    pub(crate) fn call_while_alive_or_late(
+        self: &Arc<Self>,
+        method: &str,
+        params: Value,
+        patience: Patience,
+        until: Instant,
+        grace: Duration,
+        late: impl FnOnce(&AcpmuxLink, Value) + Send + 'static,
+    ) -> Result<Value, LinkError> {
+        let until = until.min(Instant::now() + patience.ceiling);
+        let (id, receiver) = self.send(method, params)?;
+        let result = self.wait_while_alive(&receiver, until, patience);
+        if result != Err(LinkError::Timeout) {
+            self.forget(id);
+            return result;
+        }
+        self.late.store(true, Ordering::Release);
+        let link = self.clone();
+        let waited = std::thread::Builder::new()
+            .name("mux-acpmux-late".into())
+            .stack_size(THREAD_STACK_BYTES)
+            .spawn(move || {
+                if let Ok(Ok(reply)) = receiver.recv_timeout(grace) {
+                    late(&link, reply);
+                }
+                link.forget(id);
+                link.late.store(false, Ordering::Release);
+                link.close();
+            });
+        if waited.is_err() {
+            self.late.store(false, Ordering::Release);
+            self.forget(id);
+        }
+        result
+    }
+
+    /// Sends a request whose work has no length known up front (a harness starting in a big
+    /// folder, on a machine under load) and waits for its result as long as acpmux still answers:
+    /// each time `patience.quiet` goes by with no result, acpmux is asked [`LIVENESS_PROBE`]
+    /// beside it. Any answer to that (a refusal too) is a live acpmux and the wait goes on; no
+    /// answer within `patience.probe`, a closed link, or `patience.ceiling` in all, and the call
+    /// fails as [`LinkError::Timeout`] (or [`LinkError::Closed`]). A fixed wall clock failed the
+    /// starts of big folders on a busy machine whose acpmux was still working (cmux#40385's
+    /// matrix: `agent_session.timeout` on a 20,000-file folder).
+    ///
+    /// The ceiling is the earlier of `until` and the patience's own, so a run of calls can share
+    /// one (a chat start's).
+    pub(crate) fn call_while_alive_until(
+        &self,
+        method: &str,
+        params: Value,
+        patience: Patience,
+        until: Instant,
+    ) -> Result<Value, LinkError> {
+        let until = until.min(Instant::now() + patience.ceiling);
+        let (id, receiver) = self.send(method, params)?;
+        let result = self.wait_while_alive(&receiver, until, patience);
+        self.forget(id);
+        result
+    }
+
+    fn wait_while_alive(
+        &self,
+        receiver: &Receiver<Result<Value, LinkError>>,
+        until: Instant,
+        patience: Patience,
+    ) -> Result<Value, LinkError> {
+        loop {
+            let left = until.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Err(LinkError::Timeout);
+            }
+            match receiver.recv_timeout(patience.quiet.min(left)) {
+                Ok(result) => return result,
+                Err(RecvTimeoutError::Disconnected) => return Err(LinkError::Closed),
+                Err(RecvTimeoutError::Timeout) => {}
+            }
+            let left = until.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Err(LinkError::Timeout);
+            }
+            match self.call(LIVENESS_PROBE, json!({}), patience.probe.min(left)) {
+                // Answered, refused, or a link with every slot taken by other live calls.
+                Ok(_)
+                | Err(LinkError::Rpc(..) | LinkError::MethodNotFound(_) | LinkError::Busy)
+                | Err(LinkError::BadList(_)) => {}
+                Err(LinkError::Closed) => {
+                    // The answer may have come just before the close.
+                    return receiver.try_recv().unwrap_or(Err(LinkError::Closed));
+                }
+                Err(LinkError::Timeout) => {
+                    return receiver.try_recv().unwrap_or(Err(LinkError::Timeout));
+                }
+            }
+        }
+    }
+
+    /// Writes a request and holds its reply slot: its id and the slot's receiver.
+    fn send(
+        &self,
+        method: &str,
+        params: Value,
+    ) -> Result<(u64, Receiver<Result<Value, LinkError>>), LinkError> {
         if self.closed.load(Ordering::Acquire) {
             return Err(LinkError::Closed);
         }
@@ -146,9 +283,7 @@ impl AcpmuxLink {
             self.forget(id);
             return Err(LinkError::Closed);
         }
-        let result = receiver.recv_timeout(timeout).unwrap_or(Err(LinkError::Timeout));
-        self.forget(id);
-        result
+        Ok((id, receiver))
     }
 
     /// A `_acpmux/sessions` or `_acpmux/watch` with no `limit`, its whole list: past
@@ -242,8 +377,12 @@ impl AcpmuxLink {
             .map_err(|_| LinkError::Closed)
     }
 
-    /// Ends the socket; the reader thread reports the close.
+    /// Ends the socket; the reader thread reports the close. While a late reply is waited for
+    /// ([`AcpmuxLink::call_while_alive_or_late`]) that wait ends it instead.
     pub(crate) fn close(&self) {
+        if self.late.load(Ordering::Acquire) {
+            return;
+        }
         self.closed.store(true, Ordering::Release);
         let stream = self.stream.lock().unwrap_or_else(|e| e.into_inner());
         let _ = stream.shutdown(std::net::Shutdown::Both);
@@ -377,9 +516,9 @@ impl crate::mux::Mux {
             return keys;
         }
         let Ok(link) = AcpmuxLink::connect(&socket, |_| {}) else { return keys };
-        let deadline = std::time::Instant::now() + WORKSPACE_LOOKUP_BUDGET;
+        let deadline = Instant::now() + WORKSPACE_LOOKUP_BUDGET;
         for session in sessions {
-            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            let left = deadline.saturating_duration_since(Instant::now());
             if left.is_zero() {
                 break;
             }

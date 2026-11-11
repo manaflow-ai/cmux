@@ -64,12 +64,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // after they ask (the shim ends the request unanswered, permission_prompt_policy.h),
         // so no web notification is ever shown.
         result.append("disable-features=SystemNotifications")
-        // Chromium counts prompts that end unanswered and blocks the site for a week after a few
-        // (its embargo): a site that asks for notifications on every visit would read `denied`
-        // from the fourth on, a stored answer a later notification feature would have to undo.
-        // The host's own prompts (location) never end ignored or dismissed (shim_permissions.mm).
-        result.append("disable-features=BlockPromptsIfIgnoredOften")
-        result.append("disable-features=BlockPromptsIfDismissedOften")
+        // Chromium counts prompts that end unanswered and blocks the site for a week after four
+        // (its embargo). No switch or feature turns that count off (permission_decision_auto_blocker.cc),
+        // so the shim clears the site's own count before it ends a request (shim_permissions.mm).
         // Chromium's periodic call-stack profiler runs in the browser process (the
         // app) and suspends its threads at 10 Hz while it collects. Its profiles go
         // to UMA, which cmux does not upload; in some idle sessions it raised the

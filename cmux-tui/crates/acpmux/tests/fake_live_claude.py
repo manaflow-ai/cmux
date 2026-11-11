@@ -29,6 +29,7 @@ LISTED = [
     },
     {"value": "haiku-4-5", "displayName": "Haiku 4.5", "disabled": True},
     {"value": "opus-5", "displayName": "Opus 5", "supportsFastMode": False},
+    {"value": "claude-fable-5-2", "displayName": "Claude Fable 5.2", "description": "From gateway"},
     {"value": "cc-update-required-2", "displayName": "Update Claude Code"},
 ]
 

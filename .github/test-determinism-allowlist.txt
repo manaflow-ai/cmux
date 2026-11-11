@@ -242,3 +242,114 @@ webviews/test/thread-rail-bookmark-every-row.test.tsx	sleep-then-assert	debt fro
 webviews/test/agent-pane-idle-probe.test.ts	sleep-then-assert	the timeouts are the probe's input: the test counts setTimeout calls, it never sleeps to wait for state
 tests/test_cmux_next_guardrails_observation.py	assert-on-duration	test_the_rules_are_fast is a performance guard: the observation rules over 100 copies of every fixture must finish far under 3 s (regex backtracking makes it minutes); no correctness assertion waits on time
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/HomeNeedsYouTests.swift	sleep-then-assert	absence checks from #37378 (a not-live empty view keeps the section; with the setting off a change reads nothing): each sleep follows the observed read or toggle, and no event marks that nothing happened; give FeedNeedsYou a processed-change counter to await, then remove
+# Debt the gate first saw on 2026-11-11 when it began scanning cmux-next-ios/**/Tests/ and reading Swift
+# Duration bounds (clock.now - start < .seconds(N)): grandfathered so it fails only on new findings.
+# RetryButtonHoldTests (a 1 s wall-clock bound that failed CI at 1.29 s) was the case that showed the gap.
+Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/StackRateLimitBoundaryTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohClientSessionTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxLivenessTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/MobileCoreRPCStalledWriteRecoveryTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/iOS/CmuxMobileSSH/Tests/CmuxMobileSSHTests/SSHHandshakeDeadlineTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AcpmuxLaunchReadyWaitTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AcpmuxMailboxReaderTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AcpmuxPeerUpdateTargetTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AcpmuxSlowDaemonTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AgentPaneMachineLinkTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AgentPaneMenuReportWaitTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AgentPaneVideoTranscriptTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/NativeNewTabModelTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/ProcessLauncherTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/AgentActivityOneShotCancelTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/BrowserCloseHistoryTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/BrowserPageNativeInputTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/BrowserTabCloseLeavesAtOnceTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ChangelogReelTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudAPIClientRunTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudCLITargetTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudCapRefusalRunTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudChildProcessInputTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudCredentialTransferTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudDiffPlacementTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudGitHubSetupTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudMachineUpdateTargetTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudOpenMachineWaitsForLinkTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudResumingStartTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CrashWatcherTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/DaemonRecoveryAfterFailedStartsTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/HomeSheetOpensInstantlyTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/HoverWakeTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/NewTabPrewarmStallTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/PeerProcessScanTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/PersonalGroupCloseCleanupTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/RapidWorkspaceCreateTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/RemoteLinkFirstDialTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SSHMachineSecretsTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SSHProcessRunnerDeadlineTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SplitSpringMotionTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/TerminalGridReportCoalescerTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/UpdatePulledEdgesTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/WorkTurnOrderTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests/BrowserContextMenuParityTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests/CEFPageCaptureLifetimeTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests/CEFQuitCreationTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests/ChromiumHostProcessTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextCloudTests/CloudCarrierStreamsTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextControlTests/ActionBatchTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextControlTests/AsyncProcessTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextControlTests/ControlLaneTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextControlTests/ControlSocketIsolationTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextControlTests/MainActorWorkQueueTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextControlTests/MainTaskBoardSpanTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextControlTests/MainThreadWatchdogTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextControlTests/NestedRunLoopWatchTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextControlTests/SyncBarrierUnderLoadTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/BusyRefusalReconnectTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/FailedHandshakeClosesTransportTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/FrontendBrowserTabLinkDownTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/ProcessRunnerOutputCaptureTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/SlowDaemonAnswerTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextErrorJournalTests/ErrorJournalTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextFilesTests/DirectoryListerTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextFilesTests/FileOrderTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextHomeEngineTests/ChiefWelcomeTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextMobileTests/MobileHostControlPipeTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextPhoneTests/PhoneProcessRunnerTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextScreenshotsTests/ScreenshotFolderReaderTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextScreenshotsTests/ScreenshotListingTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileAgentChatTests/DiffPrepareTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileChiefTests/ChiefOutboxTargetTests.swift	sleep-then-assert	debt the widened gate first saw; remove once determinized
+cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileChiefTests/HomeRetryTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/ConnectivityMatrixTests.swift	sleep-then-assert	debt the widened gate first saw; remove once determinized
+cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/DaemonTerminalHistoryTests.swift	sleep-then-assert	debt the widened gate first saw; remove once determinized
+cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/DaemonTerminalSessionTests.swift	sleep-then-assert	debt the widened gate first saw; remove once determinized
+cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/DaemonTerminalSizeClaimTests.swift	sleep-then-assert	debt the widened gate first saw; remove once determinized
+cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/FeedRefreshTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/FeedStoreChurnTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/LinkProbeTests.swift	sleep-then-assert	debt the widened gate first saw; remove once determinized
+cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/LiveTests.swift	sleep-then-assert	debt the widened gate first saw; remove once determinized
+cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/LiveTests.swift	yield-count-poll	debt the widened gate first saw; remove once determinized
+cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/LongChatOpenLiveTests.swift	sleep-then-assert	debt the widened gate first saw; remove once determinized
+cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/PresenceListenerTests.swift	yield-count-poll	debt the widened gate first saw; remove once determinized
+cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/TerminalFloodTests.swift	sleep-then-assert	debt the widened gate first saw; remove once determinized
+cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileModelTests/BoundedWaitTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileNotificationsTests/PushAppGroupLaunchTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileTerminalTests/ComposerSubmitTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileTerminalTests/TerminalBenchProbeAccountingTests.swift	sleep-then-assert	debt the widened gate first saw; remove once determinized
+cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileTerminalTests/TerminalSizeClaimTests.swift	sleep-then-assert	debt the widened gate first saw; remove once determinized
+cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileTerminalTests/TerminalSurfaceOcclusionTests.swift	sleep-then-assert	debt the widened gate first saw; remove once determinized
+cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileWorkspacesTests/TabClosePromptPlanTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileWorkspacesTests/ToastRulesTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileWorkspacesTests/WorkspacesTests.swift	sleep-then-assert	debt the widened gate first saw; remove once determinized
+tests/browser-parity/sites/youtube-search.test.mjs	assert-on-duration	debt the widened gate first saw; remove once determinized
+tests/browser-parity/unit/budget.test.mjs	assert-on-duration	debt the widened gate first saw; remove once determinized
+tests/test_r2_cas.py	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/Shared/CmuxMessagesLab/Tests/MessagesLabHomeTests/HomeQuoteRebuildCostTests.swift	assert-on-duration	a clock difference held in a name, first seen when assert-on-duration followed names; move to a scaling ratio or a recorded clock
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/AgentSessionOpenLateDaemonTests.swift	assert-on-duration	a clock difference held in a name, first seen when assert-on-duration followed names; move to a scaling ratio or a recorded clock
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ClassicUpgradeHugeSimulationTests.swift	assert-on-duration	a clock difference held in a name, first seen when assert-on-duration followed names; move to a scaling ratio or a recorded clock
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudMoveTests.swift	assert-on-duration	a clock difference held in a name, first seen when assert-on-duration followed names; move to a scaling ratio or a recorded clock
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarHoverCardDwellTests.swift	assert-on-duration	a clock difference held in a name, first seen when assert-on-duration followed names; move to a scaling ratio or a recorded clock
+Packages/macOS/CmuxNext/Tests/CmuxNextControlTests/ActionRunCreatedTests.swift	assert-on-duration	a clock difference held in a name, first seen when assert-on-duration followed names; move to a scaling ratio or a recorded clock
+Packages/macOS/CmuxNext/Tests/CmuxNextErrorJournalTests/ErrorJournalDemandReadTests.swift	assert-on-duration	a clock difference held in a name, first seen when assert-on-duration followed names; move to a scaling ratio or a recorded clock
+tests/test_cmux_next_base_tier.py	assert-on-duration	a clock difference held in a name, first seen when assert-on-duration followed names; move to a scaling ratio or a recorded clock
+webviews/test/agent-pane-chat-unavailable.test.ts	assert-on-duration	a clock difference held in a name, first seen when assert-on-duration followed names; move to a scaling ratio or a recorded clock
+tests/test_base_red_excuse.py	assert-on-duration	a clock difference held in a name; cmux#41236 moves it to a scaling ratio, remove this line when it lands

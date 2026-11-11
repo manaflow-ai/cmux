@@ -199,6 +199,19 @@ impl ResourceMutationPlan {
         Ok(Some(before))
     }
 
+    /// Declare that the deltas are a topology projection's
+    /// (`ResourceEffectProjection::changes`): the commit drops the upserts
+    /// the journal already states, and a full projection's (`restates_all`),
+    /// unpruned, may seed the registry's public fold. Every plan built from
+    /// a projection declares it: one that did not journaled an upsert of
+    /// every live resource on each commit (2.5 MB for one `tab.update` in a
+    /// session of 826 workspaces).
+    pub(crate) fn projected(mut self, restates_all: bool) -> Self {
+        self.restates_all = restates_all;
+        self.prunes_stated = true;
+        self
+    }
+
     /// Write state rows in the patch's transaction.
     pub(crate) fn with_state_write(mut self, write: PlanStateWrite) -> Self {
         self.state_write = Some(write);

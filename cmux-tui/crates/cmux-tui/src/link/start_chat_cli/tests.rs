@@ -621,6 +621,7 @@ fn a_copy_answers_whether_this_macs_acpmux_trusts_the_chats_folder() {
         record: record.to_path_buf(),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     };
     let record = home.join("trust.json");
     let folder = project.to_string_lossy().into_owned();
@@ -1555,19 +1556,22 @@ fn ensures_line_names_the_machine_or_the_platforms_code() {
         (json!(false), Value::Null)
     );
     assert_eq!(ensure_answer(Ok(json!({"created": true})))["error_code"], json!("bad_answer"));
-    let not_found =
-        ensure_answer(Err(E::Status { status: 404, code: "cloud_environment.not_found" }));
+    let not_found = ensure_answer(Err(E::Status {
+        status: 404,
+        code: "cloud_environment.not_found",
+        facts: None,
+    }));
     assert_eq!(not_found["error_code"], json!("cloud_environment.not_found"));
     assert_eq!(
-        ensure_answer(Err(E::Status { status: 404, code: "" }))["error_code"],
+        ensure_answer(Err(E::Status { status: 404, code: "", facts: None }))["error_code"],
         json!("unavailable")
     );
     assert_eq!(
-        ensure_answer(Err(E::Status { status: 404, code: "not_found" }))["error_code"],
+        ensure_answer(Err(E::Status { status: 404, code: "not_found", facts: None }))["error_code"],
         json!("unavailable")
     );
     assert_eq!(
-        ensure_answer(Err(E::Status { status: 500, code: "" }))["error_code"],
+        ensure_answer(Err(E::Status { status: 500, code: "", facts: None }))["error_code"],
         json!("refused")
     );
     assert_eq!(ensure_answer(Err(E::Unreachable("x".into())))["error_code"], json!("unreachable"));
@@ -1641,8 +1645,9 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     assert_eq!(plan_with(&path, &flagless, &mut "t\n".as_bytes(), &never)["machine"], Value::Null);
 
     // A platform that made no machine (no route here, no sign-in) leaves it to the App; no credential reads as 401.
-    let no_route =
-        |_: &Ensure, _: &str| -> Result<Value, E> { Err(E::Status { status: 404, code: "" }) };
+    let no_route = |_: &Ensure, _: &str| -> Result<Value, E> {
+        Err(E::Status { status: 404, code: "", facts: None })
+    };
     let fallback =
         plan_with(&path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &no_route);
     assert_eq!(
@@ -1659,7 +1664,7 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
 
     // A refused environment, or a failure after which the machine may exist, refuses the send.
     let theirs = |_: &Ensure, _: &str| -> Result<Value, E> {
-        Err(E::Status { status: 404, code: "cloud_environment.not_found" })
+        Err(E::Status { status: 404, code: "cloud_environment.not_found", facts: None })
     };
     let refused =
         plan_with(&path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &theirs);
@@ -1670,9 +1675,85 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
         plan_with(&path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &lost)["error_code"],
         json!("unreachable")
     );
-    assert!(made_no_machine(&E::Status { status: 503, code: "workspace_machine.unconfigured" }));
-    assert!(!made_no_machine(&E::Status { status: 503, code: "machine.placement_unavailable" }));
-    assert!(!made_no_machine(&E::Status { status: 400, code: "machine.conflict" }));
+    assert!(made_no_machine(&E::Status {
+        status: 503,
+        code: "workspace_machine.unconfigured",
+        facts: None
+    }));
+    assert!(!made_no_machine(&E::Status {
+        status: 503,
+        code: "machine.placement_unavailable",
+        facts: None
+    }));
+    assert!(!made_no_machine(&E::Status { status: 400, code: "machine.conflict", facts: None }));
+
+    // A cap: the App's own create would meet the same cap, so the send is refused with its code.
+    let capped = |_: &Ensure, _: &str| -> Result<Value, E> {
+        let facts = cmux_cloud_machine::refusals::Facts {
+            retryable: Some(false),
+            limit: Some(20),
+            used: Some(20),
+            orphans: Some(3),
+            ..Default::default()
+        };
+        Err(E::Status { status: 403, code: "cloud.quota.vm_limit", facts: Some(facts) })
+    };
+    let refused =
+        plan_with(&path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &capped);
+    assert_eq!(
+        (refused["ok"].clone(), refused["error_code"].clone()),
+        (json!(false), json!("cloud.quota.vm_limit")),
+        "{refused}"
+    );
+    // Shown with its reason, final.
+    let error = refused["error"].as_str().unwrap();
+    assert!(
+        error.contains("20 of 20 machines") && error.contains("3 of them left over"),
+        "{error}"
+    );
+    assert_eq!(
+        (refused["handling"].clone(), refused["retryable"].clone()),
+        (json!("final"), json!(false))
+    );
+
+    // A rate limit: the line says to wait its window.
+    let limited = ensure_answer(Err(E::Status {
+        status: 429,
+        code: "cloud.rate_limited",
+        facts: Some(cmux_cloud_machine::refusals::Facts {
+            retryable: Some(true),
+            retry_after_s: Some(42),
+            ..Default::default()
+        }),
+    }));
+    assert_eq!(
+        (
+            limited["handling"].clone(),
+            limited["retryable"].clone(),
+            limited["retry_after_s"].clone()
+        ),
+        (json!("retry_after"), json!(true), json!(42)),
+        "{limited}"
+    );
+}
+
+/// Every code of cmux-platform's refusal table (cmux-platform#1192) is the platform's answer for
+/// the send: a cap, a plan, a rate limit or a machine's state is shown or retried, never left to
+/// the App's own create, which would meet it again. Only a refused sign-in (`auth.forbidden`,
+/// the case #30574 wrote the fallback for) still falls back.
+#[test]
+fn no_platform_refusal_falls_back_to_the_apps_create() {
+    use crate::cli::PlatformCallError as E;
+    for row in cmux_cloud_machine::refusals::PLATFORM {
+        let error = E::Status { status: row.status, code: row.code, facts: None };
+        assert_eq!(
+            made_no_machine(&error),
+            row.code == "auth.forbidden",
+            "{} {}",
+            row.status,
+            row.code
+        );
+    }
 }
 
 /// The reserve's and the bind's plan refusal reach the App with its code (the pane's "This team has
@@ -1680,8 +1761,11 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
 #[test]
 fn a_reservation_plan_refusal_keeps_its_code() {
     use crate::cli::PlatformCallError as E;
-    let answer =
-        super::reservations::answer(Err(E::Status { status: 403, code: "cloud.plan.required" }));
+    let answer = super::reservations::answer(Err(E::Status {
+        status: 403,
+        code: "cloud.plan.required",
+        facts: None,
+    }));
     assert_eq!(answer["error_code"], json!("cloud.plan.required"));
     assert_eq!(answer["ok"], json!(false));
 }
@@ -1945,8 +2029,8 @@ fn an_uncertain_bind_never_turns_into_a_second_paid_cold_create() {
     for error in [
         E::Unreachable("answer lost".into()),
         E::Unreadable(200),
-        E::Status { status: 500, code: "" },
-        E::Status { status: 409, code: "reservation.bound" },
+        E::Status { status: 500, code: "", facts: None },
+        E::Status { status: 409, code: "reservation.bound", facts: None },
     ] {
         let bind = |call: &Call, _: &str| {
             assert_eq!(call.send_key.as_deref(), Some(send.to_lowercase().as_str()));
@@ -1979,9 +2063,9 @@ fn an_uncertain_bind_never_turns_into_a_second_paid_cold_create() {
         "vm_0123456789abcdef0123"
     );
     for error in [
-        E::Status { status: 404, code: "lease.not_found" },
-        E::Status { status: 409, code: "reservation.expired" },
-        E::Status { status: 409, code: "reservation.terminal" },
+        E::Status { status: 404, code: "lease.not_found", facts: None },
+        E::Status { status: 409, code: "reservation.expired", facts: None },
+        E::Status { status: 409, code: "reservation.terminal", facts: None },
     ] {
         let request = json!({"key": key(), "account": ACCOUNT, "reservation_key": key(), "credential_on_stdin": true}).to_string();
         let bind = |_: &Call, _: &str| Err(error.clone());
