@@ -6,6 +6,7 @@
 
 #[cfg(unix)]
 mod action_hint;
+mod agent_help;
 mod agent_input_hint;
 mod agent_message;
 #[cfg(unix)]
@@ -1499,6 +1500,7 @@ fn scope_help_with_keys(
         "browser" => Cow::Borrowed(scope_help::BROWSER_HELP),
         "notification" => Cow::Borrowed(scope_help::NOTIFICATION_HELP),
         "attention" => Cow::Borrowed(scope_help::ATTENTION_HELP),
+        "agent" if catalog.is_japanese() => Cow::Borrowed(agent_help::AGENT_HELP_JA),
         "agent" => Cow::Borrowed(AGENT_HELP),
         "agent open" => Cow::Borrowed(crate::localization::catalog().app_control.agent_open_usage),
         "agent open-tab" => {

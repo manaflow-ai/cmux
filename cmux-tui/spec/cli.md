@@ -1442,8 +1442,12 @@ caller's pane and the new one both keep 40 terminal columns after the split;
 else it opens below the caller. A terminal is narrower than its pane: the
 client draws a border box and, by default, a scrollbar column in the pane, 3
 columns and 2 rows in all, and the snapshot's `cols` and `rows` are the
-terminal's. So a lone caller pane needs 86 columns (an 83-column terminal) for
-a column. Every later agent opens below the space's last agent pane, and the
+terminal's. The rule assumes this default frame: a client that draws no
+scrollbar column gives its terminals one column more than the rule counts.
+So a lone caller pane needs 86 columns (an 83-column terminal) for a column.
+The first agent below the caller has no row minimum (no agent pane is there
+yet to take a tab): below a caller pane under 22 rows it gets fewer than 8
+terminal rows. Every later agent opens below the space's last agent pane, and the
 agents of that stack share its height, while each of them keeps 8 terminal
 rows; else the agent opens as a new tab in that last agent pane (`placement`
 `tab`) and no pane moves. A tab, not a refusal: a script that starts agents in
