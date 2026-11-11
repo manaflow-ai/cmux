@@ -682,7 +682,7 @@ pub struct ChordFacts<'a> {
     /// The menu search saw every item (no AX error, no branch cut).
     pub complete: bool,
     pub background: bool,
-    /// A background Command chord (posting it would lose its Shift).
+    /// The chord has Command.
     pub command: bool,
     pub denies_any: bool,
     /// The layout's keys are the ANSI codes posted (checked only when needed).
@@ -693,7 +693,6 @@ pub struct ChordFacts<'a> {
 
 pub const REFUSE_TOO_DEEP: &str = "this app's menus could not all be read to check this shortcut against the Computer Use deny list; use the app's menu items in the tree";
 pub const REFUSE_LAYOUT: &str = "this shortcut cannot be checked against the Computer Use deny list on this keyboard layout; use the app's menu items in the tree";
-pub const REFUSE_SERVICES_UNPLACEABLE: &str = "a Services shortcut assigned in System Settings uses a key this check cannot place, so shortcuts cannot be checked against the Computer Use deny list; use the app's menu items in the tree";
 pub const REFUSE_SERVICES_UNREAD: &str = "the Services shortcuts could not be read yet; try again in a moment, or use the app's menu items in the tree";
 pub const REFUSE_SERVICE: &str = "this shortcut runs a Service, which can hand the selection to an app on the Computer Use deny list; use the app's menu items in the tree";
 pub const REFUSE_DISABLED: &str = "the menu item for this shortcut is disabled right now";
@@ -712,13 +711,18 @@ pub const REFUSE_BLOCKED: &str = "the menu item for this shortcut would reach an
 ///   layout is not ANSI, or it is (or may be) a Services shortcut.
 pub fn decide_chord(f: &ChordFacts) -> ChordAction {
     if f.background
-        && f.complete
+        && (f.complete || !f.denies_any)
         && let ShortcutPick::Press(i) = pick_shortcut(f.matches)
     {
         return ChordAction::PressItem(i);
     }
     if !f.denies_any {
-        if f.command && matches!(pick_shortcut(f.matches), ShortcutPick::Disabled(_)) {
+        // Protected apps (sign-in, security prompts, cmux Remote) are blocked
+        // with an empty deny list too.
+        if f.matches.iter().any(|m| m.blocked) {
+            return ChordAction::Refuse(REFUSE_BLOCKED);
+        }
+        if f.background && f.command && matches!(pick_shortcut(f.matches), ShortcutPick::Disabled(_)) {
             return ChordAction::Refuse(REFUSE_DISABLED);
         }
         return ChordAction::Post;
@@ -734,7 +738,6 @@ pub fn decide_chord(f: &ChordFacts) -> ChordAction {
     }
     match f.is_service {
         ServiceCheck::Unread => ChordAction::Refuse(REFUSE_SERVICES_UNREAD),
-        ServiceCheck::Unplaceable => ChordAction::Refuse(REFUSE_SERVICES_UNPLACEABLE),
         ServiceCheck::Match => ChordAction::Refuse(REFUSE_SERVICE),
         ServiceCheck::NoMatch => ChordAction::Post,
     }
@@ -745,8 +748,24 @@ pub fn decide_chord(f: &ChordFacts) -> ChordAction {
 pub enum ServiceCheck {
     NoMatch,
     Match,
-    /// The services' own list has not been read.
+    /// The Services shortcuts have not been read.
     Unread,
-    /// A person's assignment uses a key this check cannot place.
-    Unplaceable,
+}
+
+/// The person's Services shortcuts in `defaults read pbs NSServicesStatus`
+/// output: every `key_equivalent` value (quoted values verbatim), empty ones
+/// left out.
+pub fn person_equivalents(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = text;
+    while let Some(i) = rest.find("key_equivalent") {
+        rest = &rest[i + "key_equivalent".len()..];
+        let Some(eq) = rest.find('=') else { break };
+        // From the "=" on, the rest of this dictionary: its first value is ours.
+        let (values, _) = dump_dict_values(&rest[eq..]);
+        if let Some(v) = values.into_iter().next().filter(|v| !v.is_empty()) {
+            out.push(v);
+        }
+    }
+    out
 }

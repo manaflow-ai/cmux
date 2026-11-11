@@ -588,13 +588,18 @@ fn chords_are_held_to_the_deny_list_in_both_deliveries() {
     assert_eq!(roles::decide_chord(&ChordFacts { ansi_layout: false, ..base(&undo) }), A::Refuse(roles::REFUSE_LAYOUT));
     assert_eq!(roles::decide_chord(&ChordFacts { is_service: S::Match, ..base(&undo) }), A::Refuse(roles::REFUSE_SERVICE));
     assert_eq!(roles::decide_chord(&ChordFacts { is_service: S::Unread, ..base(&off) }), A::Refuse(roles::REFUSE_SERVICES_UNREAD));
-    assert_eq!(roles::decide_chord(&ChordFacts { is_service: S::Unplaceable, ..base(&[]) }), A::Refuse(roles::REFUSE_SERVICES_UNPLACEABLE));
     assert_eq!(roles::decide_chord(&base(&undo)), A::Post);
     assert_eq!(roles::decide_chord(&base(&off)), A::Post);
-    // Nothing denied: posted, except a disabled background Command item (it would lose its Shift).
-    assert_eq!(roles::decide_chord(&ChordFacts { denies_any: false, complete: false, ansi_layout: false, is_service: S::Unread, ..base(&later) }), A::Post);
-    assert_eq!(roles::decide_chord(&ChordFacts { denies_any: false, command: true, ..base(&off) }), A::Refuse(roles::REFUSE_DISABLED));
-    assert_eq!(roles::decide_chord(&ChordFacts { denies_any: false, command: false, ..base(&off) }), A::Post);
+    // Nothing denied: posted, whatever the walk, layout or Services say...
+    assert_eq!(roles::decide_chord(&ChordFacts { denies_any: false, complete: false, ansi_layout: false, is_service: S::Unread, ..base(&undo) }), A::Post);
+    // ...except a protected app's item (blocked with an empty deny list too).
+    assert_eq!(roles::decide_chord(&ChordFacts { denies_any: false, ..base(&later) }), A::Refuse(roles::REFUSE_BLOCKED));
+    // A disabled background Command item is reported (posted, it would lose its Shift).
+    assert_eq!(roles::decide_chord(&ChordFacts { denies_any: false, background: true, command: true, ..base(&off) }), A::Refuse(roles::REFUSE_DISABLED));
+    assert_eq!(roles::decide_chord(&ChordFacts { denies_any: false, background: true, command: false, ..base(&off) }), A::Post);
+    assert_eq!(roles::decide_chord(&ChordFacts { denies_any: false, background: false, command: true, ..base(&off) }), A::Post);
+    // Nothing denied, background: an incomplete walk still presses the item.
+    assert_eq!(roles::decide_chord(&ChordFacts { denies_any: false, background: true, complete: false, ..base(&undo) }), A::PressItem(0));
 }
 
 #[test]
@@ -634,10 +639,32 @@ fn services_keys_on_non_character_keys_are_placed() {
     assert_eq!(keymap::service_shortcut("\u{f717}", true), Some((code(Key::F(20)), cmd)));
     // F21..F24 (no Mac key) are placed where no chord lands, not dropped.
     assert_eq!(keymap::service_shortcut("\u{f71b}", true), Some((keymap::NO_KEY, cmd)));
-    // An unplaceable key fails (the caller then treats the list as unread).
-    assert_eq!(keymap::service_shortcut("\u{f7ff}", true), None);
+    // A key no posted chord can produce (Help, a non-ANSI letter) is placed
+    // at NO_KEY, not dropped and not a failed read.
+    assert_eq!(keymap::service_shortcut("\u{f746}", true), Some((keymap::NO_KEY, cmd)));
+    assert_eq!(keymap::service_shortcut("@\u{f6}", false), Some((keymap::NO_KEY, cmd)));
     // The person's assignments carry Command only where they say "@".
     let (t, _) = keymap::char_key('t').unwrap();
     assert_eq!(keymap::service_shortcut("^~t", false), Some((t, keymap::FLAG_CONTROL | alt)));
     assert_eq!(keymap::service_shortcut("@t", false), Some((t, cmd)));
+}
+
+#[test]
+fn person_services_shortcuts_parse_from_defaults_output() {
+    let text = r#"{
+    "(null) - Send to Raycast AI - x" =     {
+        "enabled_context_menu" = 1;
+        "key_equivalent" = "@^t";
+    };
+    "com.apple.Terminal - New Terminal at Folder - x" =     {
+        "key_equivalent" = "^~\r";
+    };
+    "com.apple.Notes - Add to Notes - x" =     {
+        "key_equivalent" = "";
+    };
+}"#;
+    assert_eq!(roles::person_equivalents(text), vec!["@^t".to_string(), "^~\r".to_string()]);
+    let (t, _) = keymap::char_key('t').unwrap();
+    assert_eq!(keymap::service_shortcut("@^t", false), Some((t, keymap::FLAG_COMMAND | keymap::FLAG_CONTROL)));
+    assert_eq!(keymap::service_shortcut("^~\r", false), Some((keymap::KEY_RETURN, keymap::FLAG_CONTROL | keymap::FLAG_ALTERNATE)));
 }

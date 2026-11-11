@@ -292,7 +292,14 @@ pub fn service_shortcut(equivalent: &str, implied_command: bool) -> Option<(u16,
     if let Some(code) = special {
         return Some((code, flags));
     }
-    let (code, shift) = char_key(key)?;
+    // Other function-key characters (Help, Insert, ...): no posted chord.
+    if (0xF700..=0xF8FF).contains(&(key as u32)) {
+        return Some((NO_KEY, flags));
+    }
+    // A key this table cannot place (a non-ANSI letter, Help, Insert): no
+    // chord cmux posts can produce it, since press_keys posts only from this
+    // same table, so it cannot collide with one.
+    let Some((code, shift)) = char_key(key) else { return Some((NO_KEY, flags)) };
     if shift || key.is_ascii_uppercase() {
         // A capital or shifted character means Shift (services write "B" for ⇧⌘B).
         flags |= FLAG_SHIFT;

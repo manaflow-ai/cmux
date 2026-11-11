@@ -1,7 +1,9 @@
 //! Synthetic input as CGEvents. Background delivery posts to the target
 //! process (`CGEventPostToPid`) with the target window's number in the mouse
 //! fields, so the window gets the event without activation and the person's
-//! pointer never moves. Foreground delivery posts at the HID tap.
+//! pointer never moves. Foreground delivery posts at the HID tap, except key
+//! chords while an app is denied, which go to the raised target's process
+//! (so no other app's global hotkey fires).
 //!
 //! Events come from a private event source, so the person's held modifier
 //! keys never leak into an agent's event (and the reverse).

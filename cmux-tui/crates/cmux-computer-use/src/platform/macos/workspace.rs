@@ -527,32 +527,17 @@ pub fn service_shortcuts() -> Option<Vec<(u16, u64)>> {
     }
     // A list stops counting only when it is older than SERVICES_STALE AND a
     // refresh after that has failed (an idle pause alone keeps it).
-    let stale = st.last.as_ref().is_some_and(|(at, _)| at.elapsed() > SERVICES_STALE)
-        && st.failed_at.is_some_and(|f| st.last.as_ref().is_some_and(|(at, _)| f > *at + SERVICES_STALE));
+    // An old list does not count while its refresh is in flight, nor after
+    // a refresh past the window failed.
+    let old = st.last.as_ref().is_some_and(|(at, _)| at.elapsed() > SERVICES_STALE);
+    let stale = old
+        && (st.refreshing || st.failed_at.is_some_and(|f| st.last.as_ref().is_some_and(|(at, _)| f > *at + SERVICES_STALE)));
     if stale {
         return None;
     }
     st.last.as_ref().map(|(_, list)| list.clone())
 }
 
-/// The Services shortcuts the person assigned (System Settings > Keyboard >
-/// Keyboard Shortcuts > Services): pbs NSServicesStatus key_equivalent, read
-/// now through CFPreferences (no subprocess, synchronized first). Command
-/// only where the entry says "@". None when an entry cannot be placed.
-pub fn person_service_shortcuts() -> Option<Vec<(u16, u64)>> {
-    Cf::synchronize_preferences("pbs");
-    let mut out = Vec::new();
-    if let Some(status) = Cf::preference("NSServicesStatus", "pbs") {
-        for entry in status.dict_values() {
-            let Some(value) = entry.get("key_equivalent").and_then(|v| v.as_string()) else { continue };
-            if value.is_empty() {
-                continue;
-            }
-            out.push(super::keymap::service_shortcut(&value, false)?);
-        }
-    }
-    Some(out)
-}
 
 /// Whether the current keyboard layout is one the key codes here are written
 /// for (U.S. or ABC): the Services check maps characters to ANSI key codes,
@@ -581,13 +566,16 @@ const PBS_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// One read of both sources; None when `pbs -dump` failed (not run, timed
 /// out, non-zero exit, or no services at all).
-fn read_service_shortcuts() -> Option<Vec<(u16, u64)>> {
+/// Runs a short command in its own process group and returns its output
+/// and whether it exited 0, or None when it did not finish within
+/// PBS_TIMEOUT (then the whole group is killed and reaped).
+fn run_bounded(program: &str, args: &[&str]) -> Option<(String, bool)> {
     use std::io::Read;
     use std::os::unix::process::CommandExt;
-    // In its own process group, so a timeout kills pbs and anything it
-    // started (a grandchild holding the pipe would keep the reader alive).
-    let mut child = std::process::Command::new("/System/Library/CoreServices/pbs")
-        .arg("-dump")
+    // Its own process group, so a timeout kills it and anything it started
+    // (a grandchild holding the pipe would keep the reader alive).
+    let mut child = std::process::Command::new(program)
+        .args(args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -604,49 +592,57 @@ fn read_service_shortcuts() -> Option<Vec<(u16, u64)>> {
         kill_group(&mut child);
         return None;
     };
-    // The output is read on a thread and handed over a channel, so the wait
-    // is one bounded recv_timeout; the child is killed and reaped on every
-    // path that does not see it finish.
+    // The output is read on a thread and handed over a channel: one bounded
+    // recv_timeout. Then the exit status, bounded too.
     let (tx, rx) = mpsc::channel::<Option<String>>();
     let reader = std::thread::Builder::new().name("cu-pbs-read".into()).spawn(move || {
         let mut out = String::new();
         let _ = tx.send(stdout.read_to_string(&mut out).ok().map(|_| out));
     });
-    let dump = match reader {
+    let out = match reader {
         Ok(_) => rx.recv_timeout(PBS_TIMEOUT).ok().flatten(),
         Err(_) => None,
     };
-    // The output ended: pbs exits at once. Its status is read with a bound
-    // too; past it the group is killed.
-    let status = match dump {
-        Some(_) => {
-            let deadline = std::time::Instant::now() + PBS_TIMEOUT;
-            loop {
-                match child.try_wait() {
-                    Ok(Some(status)) => break Some(status),
-                    Ok(None) if std::time::Instant::now() < deadline => {
-                        std::thread::sleep(Duration::from_millis(10)); // bounded wait for an exiting child
-                    }
-                    _ => {
-                        kill_group(&mut child);
-                        break None;
-                    }
-                }
+    let Some(out) = out else {
+        kill_group(&mut child);
+        return None;
+    };
+    let deadline = std::time::Instant::now() + PBS_TIMEOUT;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Some((out, status.success())),
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(10)); // bounded wait for an exiting child
+            }
+            _ => {
+                kill_group(&mut child);
+                return None;
             }
         }
-        None => {
-            kill_group(&mut child);
-            None
-        }
-    };
-    let (Some(dump), Some(status)) = (dump, status) else { return None };
-    if !status.success() || !dump.contains("NSBundlePath") {
+    }
+}
+
+/// One read of both sources: the services' own key equivalents
+/// (`pbs -dump`, Command implied) and the person's assignments
+/// (`defaults read pbs NSServicesStatus`, Command only where they say "@").
+/// None when either read failed.
+fn read_service_shortcuts() -> Option<Vec<(u16, u64)>> {
+    let (dump, ok) = run_bounded("/System/Library/CoreServices/pbs", &["-dump"])?;
+    if !ok || !dump.contains("NSBundlePath") {
         return None;
     }
-    // The services' own key equivalents imply Command. One that cannot be
-    // placed fails the whole read (never a silent gap).
-    super::roles::service_equivalents(&dump)
+    let mut list: Vec<(u16, u64)> = super::roles::service_equivalents(&dump)
         .iter()
         .map(|e| super::keymap::service_shortcut(e, true))
-        .collect()
+        .collect::<Option<_>>()?;
+    // No NSServicesStatus (nothing assigned) is a non-zero exit with no output.
+    let (status, ok) = run_bounded("/usr/bin/defaults", &["read", "pbs", "NSServicesStatus"])?;
+    if ok {
+        for e in super::roles::person_equivalents(&status) {
+            list.push(super::keymap::service_shortcut(&e, false)?);
+        }
+    } else if !status.trim().is_empty() {
+        return None;
+    }
+    Some(list)
 }

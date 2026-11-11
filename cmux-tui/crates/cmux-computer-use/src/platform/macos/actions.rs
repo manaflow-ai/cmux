@@ -439,68 +439,58 @@ pub(super) fn press_keys(
     // walk (to press its item: posted, it would lose its Shift); every other
     // chord is posted as typed.
     if menu_chord && (denies_any || (background && command)) {
-        // A background chord first looks for an item to press through AX:
-        // then no key is posted and nothing else can take the chord.
-        if background {
-            let (items, complete) = shortcut_matches(d, t.window.pid, combo, true);
-            let matches: Vec<roles::ShortcutMatch> = items.iter().map(|(_, m)| m.clone()).collect();
-            // An incomplete walk may have skipped an earlier, blocked item;
-            // that matters only while something is denied.
-            if (complete || !denies_any)
-                && let roles::ShortcutPick::Press(i) = roles::pick_shortcut(&matches)
-            {
-                items[i].0.perform("AXPress").map_err(|e| ax_error(e, "press the shortcut's menu item"))?;
-                return Ok(ActionOutcome::delivered("ax_menu_shortcut"));
-            }
-        }
-        // Keys will be posted: AppKit picks the item or Service at key time,
-        // so every match counts.
-        let (items, complete) = if denies_any || background {
-            shortcut_matches(d, t.window.pid, combo, false)
-        } else {
-            (Vec::new(), true)
+        // A background chord stops at the first enabled match (pressed
+        // through AX, no key posted); keys that will be posted need every
+        // match, since AppKit picks the item or Service at key time.
+        let mut walk = shortcut_matches(d, t.window.pid, combo, background);
+        let first_enabled_ok = |items: &[(Ax, roles::ShortcutMatch)], complete: bool| {
+            let m: Vec<roles::ShortcutMatch> = items.iter().map(|(_, m)| m.clone()).collect();
+            matches!(roles::pick_shortcut(&m), roles::ShortcutPick::Press(_)) && (complete || !denies_any)
         };
+        if background && !first_enabled_ok(&walk.0, walk.1) && (denies_any || command) {
+            walk = shortcut_matches(d, t.window.pid, combo, false);
+        }
+        let (items, complete) = walk;
         let matches: Vec<roles::ShortcutMatch> = items.iter().map(|(_, m)| m.clone()).collect();
-        let ansi_layout = !denies_any || workspace::ansi_layout();
+        let press = background && first_enabled_ok(&items, complete);
+        let ansi_layout = press || !denies_any || workspace::ansi_layout();
         // The person's assignments (any modifiers) are read now; the
         // services' own shortcuts (always with Command) come from the
         // background read, needed only for a Command chord.
-        let is_service = if denies_any && ansi_layout {
-            match workspace::person_service_shortcuts() {
-                None => roles::ServiceCheck::Unplaceable,
-                Some(mine) if keymap::is_service_shortcut(code, flags, &mine) => roles::ServiceCheck::Match,
-                Some(_) if !command => roles::ServiceCheck::NoMatch,
-                Some(_) => match workspace::service_shortcuts() {
-                    None => roles::ServiceCheck::Unread,
-                    Some(list) if keymap::is_service_shortcut(code, flags, &list) => roles::ServiceCheck::Match,
-                    Some(_) => roles::ServiceCheck::NoMatch,
-                },
+        // Both the services' own shortcuts and the person's assignments come
+        // from one background read; flags are compared exactly, so a chord
+        // without Command can only match a person's assignment.
+        let is_service = if denies_any && !press && ansi_layout {
+            match workspace::service_shortcuts() {
+                None => roles::ServiceCheck::Unread,
+                Some(list) if keymap::is_service_shortcut(code, flags, &list) => roles::ServiceCheck::Match,
+                Some(_) => roles::ServiceCheck::NoMatch,
             }
         } else {
             roles::ServiceCheck::NoMatch
         };
-        // The AX press was tried above; this decides about posted keys.
-        let facts = roles::ChordFacts {
-            matches: &matches,
-            complete,
-            background: false,
-            command: command && background,
-            denies_any,
-            ansi_layout,
-            is_service,
-        };
+        let facts =
+            roles::ChordFacts { matches: &matches, complete, background, command, denies_any, ansi_layout, is_service };
         match roles::decide_chord(&facts) {
+            roles::ChordAction::PressItem(i) => {
+                items[i].0.perform("AXPress").map_err(|e| ax_error(e, "press the shortcut's menu item"))?;
+                return Ok(ActionOutcome::delivered("ax_menu_shortcut"));
+            }
             roles::ChordAction::Refuse(why) => {
-                let item = matches
-                    .iter()
-                    .find(|m| m.blocked)
-                    .or_else(|| matches.first())
-                    .filter(|m| !m.title.is_empty())
-                    .map(|m| format!(" (menu item {:?})", m.title))
-                    .unwrap_or_default();
+                // Name the menu item only when it is the reason.
+                let item = if why == roles::REFUSE_BLOCKED {
+                    matches.iter().find(|m| m.blocked)
+                } else if why == roles::REFUSE_DISABLED {
+                    matches.first()
+                } else {
+                    None
+                }
+                .filter(|m| !m.title.is_empty())
+                .map(|m| format!(" (menu item {:?})", m.title))
+                .unwrap_or_default();
                 return Err(DesktopError::Unsupported(format!("{why}{item}")));
             }
-            roles::ChordAction::PressItem(_) | roles::ChordAction::Post => {}
+            roles::ChordAction::Post => {}
         }
     }
     // Space, Return and the arrows open a focused pop-up's menu.
