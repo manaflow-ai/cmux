@@ -432,6 +432,7 @@ async fn a_trust_check_with_no_answer_during_a_restart_answers_that_the_daemon_r
         record: dir.join("trust.json"),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     }));
     let req = NewRequest { cwd: Some(folder.clone()), ..NewRequest::default() };
     let s = hub.new_session(req).await.unwrap();
@@ -489,6 +490,7 @@ async fn the_shutdown_cannot_begin_between_the_trust_check_and_its_refusal() {
         record: dir.join("trust.json"),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     }));
     let req = NewRequest { cwd: Some(folder.clone()), ..NewRequest::default() };
     let s = hub.new_session(req).await.unwrap();

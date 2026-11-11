@@ -377,5 +377,69 @@ import UIKit
             #expect(next.frame.minY >= cell.frame.maxY - 0.5, "the row below starts under the bubble")
         }
     }
+
+    /// CMUX-54, Aziz 2026-11-10 ("the text has an exaggerated padding both below it and above it
+    /// within the text box background's bounds"): a long prompt (a Chief turn's `<chat>` view, a few
+    /// hundred summary lines) drew in a bubble far taller than its text, the text centered in it with
+    /// hundreds of points of empty bubble above and below. A native prompt bubble is as tall as the
+    /// text its label draws plus its 11 pt padding, and the text starts 11 pt under its top.
+    @Test func aLongPromptsBubbleHugsItsText() async throws {
+        let shapes: [String] = [
+            "%d+256|user: engine->codex gpt-6-sol high; 'make me a workspace' failed (socket sandboxed), none made; QA ws_10e08619 wants blockers ASAP",
+            "%d+128|a25 ws_f25e7ead fixes Claude-terminal Feed details; a26 ws_eeea7723 iOS Create Team. a22 Phone-Mac #34526 at 53a400f2, suites/e2e running, unmerged.",
+            "%d+1|tool: mcp__optchat__send {\"text\":\"Panes fit window: a49 is done. The fix is in [#37445](https://github.com/manaflow-ai/cmux/pull/37445) and stays unmerged\"}",
+            "%d+1|echo: outcome: done. sent",
+            "%d+4|user 2003: “is cmux internal iOS failing? if so fix it?”; spawned a51 (ws_3b1966b8fdf399628b7f1ad4cf05b6b7, cmuxterm-hq, shown, medium) — owed: tell user…",
+            "%d+2|a51 IOS INTERNAL CI: builds skipped since dcac15b, trigger reports success; synced CmuxTabsKit 2c32c2e and CmuxConversation 62e6c76; run 42336657004 archiving",
+        ]
+        var lines: [String] = ["<chat>"]
+        for line in 0 ..< 240 {
+            lines.append(String(format: shapes[line % shapes.count], arguments: [line * 8]))
+        }
+        lines.append("</chat>Your task:")
+        lines.append("")
+        lines.append("Work Linear ticket CMUX-54 (`linear issue view CMUX-54`; linear skill).")
+        let long: String = lines.joined(separator: "\n")
+        let chat = try await chat(prompt: { (n: Int) -> String in n == 29 ? long : "prompt \(n)" })
+        defer { chat.window.isHidden = true }
+        let ids: [String] = chat.list.layout.items.map { (item: ChatTranscriptLayout.Item) -> String in item.id }
+        let found: String? = ids.first { (id: String) -> Bool in
+            guard case .prompt(let text, _, _, _) = chat.list.row(id)?.kind else { return false }
+            return text == long
+        }
+        let id = try #require(found, "the long prompt's row")
+        let top = try #require(chat.list.layout.top(of: id))
+        chat.surface.following = false
+        chat.scroll.contentOffset.y = top - 100
+        await chat.frames(20)
+        let cell = try #require(chat.list.cell(for: id) as? ChatNativeRowCell, "the prompt is a native bubble")
+        let labels: [UILabel] = cell.contentView.subviews.compactMap { (view: UIView) -> UILabel? in
+            guard let label = view as? UILabel, !label.isHidden, (label.attributedText?.length ?? 0) > 0 else { return nil }
+            return label
+        }
+        let label = try #require(labels.first, "the bubble's text")
+        // The bubble's top as drawn (its layer tree rendered, not a window snapshot, which is blank
+        // off screen), on the chat's black: evidence for the ticket.
+        let shotRect = CGRect(x: 0, y: 0, width: cell.bounds.width, height: min(cell.bounds.height, 640))
+        let shot = UIGraphicsImageRenderer(bounds: shotRect, format: {
+            let format = UIGraphicsImageRendererFormat(); format.scale = 3; return format
+        }()).image { context in
+            UIColor.black.setFill(); context.fill(shotRect)
+            cell.overrideUserInterfaceStyle = .dark
+            cell.layoutIfNeeded()
+            cell.layer.render(in: context.cgContext)
+        }
+        if let png = shot.pngData() { Attachment.record(png, named: "long-prompt-bubble-top.png") }
+        let drawn = label.textRect(forBounds: label.bounds, limitedToNumberOfLines: 0).height
+        let fits = label.sizeThatFits(CGSize(width: label.bounds.width, height: .greatestFiniteMagnitude)).height
+        let frameHeight: CGFloat = label.bounds.height
+        let rowHeight: CGFloat = cell.bounds.height
+        let detail = "label frame \(frameHeight) pt, draws \(drawn) pt (fits \(fits)), row \(rowHeight) pt, label at y \(label.frame.minY)"
+        // Above the text: the empty bubble UILabel leaves when it centers text shorter than its frame.
+        #expect(frameHeight - drawn <= 6, "the text is centered in \(frameHeight - drawn) pt of extra frame: \(detail)")
+        #expect(fits <= frameHeight + 1, "the text draws past its frame: \(detail)")
+        #expect(abs(label.frame.minY - 11) <= 0.5, "the text starts 11 pt under the bubble's top: \(detail)")
+        #expect(abs(rowHeight - (frameHeight + 22)) <= 0.5, "the bubble is the text plus its padding: \(detail)")
+    }
 }
 #endif

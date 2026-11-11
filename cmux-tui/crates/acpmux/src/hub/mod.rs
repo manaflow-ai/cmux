@@ -74,6 +74,8 @@ mod peer_notice_cost_tests;
 #[cfg(test)]
 mod prompt_accept_tests;
 #[cfg(test)]
+mod remote_table_bench;
+#[cfg(test)]
 mod review_queue_tests;
 #[cfg(test)]
 mod sender_claim_tests;
@@ -290,6 +292,7 @@ pub(crate) mod peer_snapshot;
 pub use peer_lease::PeerLease;
 mod peers;
 mod remote_rows;
+mod remote_table;
 pub(crate) use peers::{
     PEER_LAGGED, PEER_PERMISSION_PENDING, PEER_SETTLE_BUDGET, is_permission_ask,
 };
@@ -360,6 +363,37 @@ pub(crate) mod views;
 mod warm;
 mod watch_events;
 pub(crate) mod watches;
+
+/// The longest `match` a durable watch takes (`_acpmux/watch_add`): a stubbed reply chunk keeps
+/// that much of its text's end (`paging.rs` `stub_msg`), so a match across chunks is never lost.
+pub const MAX_MATCH_BYTES: usize = 2 * 1024;
+
+/// Every `match` a request brings (`_acpmux/events`, `_acpmux/watch_add`) passes here: one past
+/// [`MAX_MATCH_BYTES`] would make each stub keep that much of both its text's ends, past any page's
+/// bound.
+pub fn validate_match(pattern: Option<&str>) -> Result<(), crate::rpc::RpcError> {
+    match pattern {
+        Some(p) if p.len() > MAX_MATCH_BYTES => Err(crate::rpc::RpcError::invalid_params(format!(
+            "match is at most {MAX_MATCH_BYTES} bytes: a watch on a peer chat keeps that much of each long reply's end to find a match across replies"
+        ))),
+        _ => Ok(()),
+    }
+}
+
+/// A `match` saved before the cap, cut to [`MAX_MATCH_BYTES`] at a char boundary. Returns whether
+/// it was cut.
+pub(crate) fn cap_match(pattern: &mut Option<String>) -> bool {
+    let Some(p) = pattern else { return false };
+    if p.len() <= MAX_MATCH_BYTES {
+        return false;
+    }
+    let mut end = MAX_MATCH_BYTES;
+    while !p.is_char_boundary(end) {
+        end -= 1;
+    }
+    p.truncate(end);
+    true
+}
 
 impl Hub {
     /// Run durable watches: the loop that reconciles them on hub events and the
@@ -724,7 +758,9 @@ pub struct Hub {
     pub(crate) fatal: crate::supervise::Fatal,
     pub started_at: u64,
     pub(super) peers: StdMutex<HashMap<String, Arc<crate::peer::Peer>>>,
-    pub(super) remote_sessions: StdMutex<remote_rows::RemoteRows>,
+    /// The peers' rows, published as a snapshot (`remote_table.rs`): a reader loads it with no
+    /// lock and never holds up a writer; writers (peer notices, purges) take turns.
+    pub(super) remote_sessions: remote_table::RemoteTable,
     /// The same person's machines and sessions the mesh hub lists (`mesh_book.rs`).
     pub(super) mesh_book: StdMutex<mesh_book::MeshBook>,
     /// Read answers larger than one hub message, held for their asker (`mesh_read_parts.rs`).
