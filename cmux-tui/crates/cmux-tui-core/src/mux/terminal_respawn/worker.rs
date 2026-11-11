@@ -17,8 +17,13 @@ impl Mux {
     /// frontend restarts every kept tab at its connect: 170 launches began in
     /// the same 30 ms, competed with the person's terminal for the CPU, and
     /// macOS refused some of their PTY opens.
-    pub(in crate::mux) fn spawn_respawn_worker(mux: Arc<Self>, plan: RespawnPlan) {
+    pub(in crate::mux) fn spawn_respawn_worker(mux: Arc<Self>, mut plan: RespawnPlan) {
         let terminal_id = plan.terminal_id.clone();
+        // Not started from here until its turn (`line_pause.rs`): marked on
+        // the scheduling thread, so a request that needs this terminal right
+        // after the one that scheduled it finds the mark.
+        mux.terminal_respawns.wait_in_line(&terminal_id);
+        mux.hold_respawn_line_under_memory_pressure();
         // A first attempt takes its place in line here, on the scheduling
         // thread, so the order is the order of scheduling (the visible
         // workspace first at a start). A try after a backoff takes its
@@ -43,11 +48,18 @@ impl Mux {
                 || mux.shutting_down.load(Ordering::Acquire) || mux.session_shutdown.began();
             // A terminal the person sees (shown when it took its place,
             // selected while it waits, or lost while hidden respawns still
-            // wait) or asked for (`RespawnPlan::asked`) does not wait for the
-            // hidden ones in line or for their turns to end. The slots still
-            // bound such terminals among themselves.
+            // wait), asked for (`RespawnPlan::asked`) or needed while it
+            // waits (`Mux::start_waiting_respawn_now`) does not wait for the
+            // hidden ones in line, for their turns to end, or for the end of
+            // a stop of the line. The slots still bound such terminals among
+            // themselves.
             let asked = plan.asked;
-            let shown_now = || asked || mux.respawn_slot_shown(plan.slot);
+            let (slot, waiting_id) = (plan.slot, plan.terminal_id.clone());
+            let shown_now = || {
+                asked
+                    || mux.terminal_respawns.needed_now(&waiting_id)
+                    || mux.respawn_slot_shown(slot)
+            };
             // A try after a backoff waits it out with no place in the line,
             // then takes its place at the end, as a try with no wait does.
             // It used to take no turn at all: it launched when its wait
@@ -57,11 +69,16 @@ impl Mux {
                 Some(ticket) => ticket,
                 None if mux.wait_respawn_backoff(plan.delay) => gate.ticket(),
                 None => {
+                    mux.terminal_respawns.left_line(&plan.terminal_id);
                     mux.abandon_terminal_respawn(&plan.terminal_id);
                     return;
                 }
             };
-            let Some(turn) = gate.turn_first_if(ticket, stopping, shown_now) else {
+            let turn = gate.turn_first_if(ticket, stopping, shown_now);
+            // Needed while it waited: a next try after a failed launch goes
+            // first too (`retry.rs` copies `asked`).
+            plan.asked |= mux.terminal_respawns.left_line(&plan.terminal_id);
+            let Some(turn) = turn else {
                 mux.abandon_terminal_respawn(&plan.terminal_id);
                 return;
             };
@@ -92,6 +109,7 @@ impl Mux {
             eprintln!("cmux-tui: no thread to respawn terminal {terminal_id}: {error}");
             // The plan marked it respawning: take the mark back, so the tab
             // shows its end and nothing waits on a respawn that never runs.
+            mux.terminal_respawns.left_line(&terminal_id);
             mux.abandon_terminal_respawn(&terminal_id);
         }
     }

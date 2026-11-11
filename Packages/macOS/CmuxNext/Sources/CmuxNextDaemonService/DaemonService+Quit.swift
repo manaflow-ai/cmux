@@ -41,9 +41,11 @@ extension DaemonService {
     /// that does not wait for its first show (a dead tab with the store's
     /// `relaunch` record and no `onShow`: one whose terminal ran an agent; the
     /// rest start in `wakeParkedTabs`) in place (`restart-tab`),
-    /// in its recorded directory, else home. One relaunch runs at a time per
-    /// service (a reconnect while it runs does not start a second), and a
-    /// closed connection cancels it.
+    /// in its recorded directory, else home. The tabs of the workspaces a
+    /// window shows are asked for first (`shownWorkspaceIDs`): the daemon
+    /// starts the restarts in the order of the requests. One relaunch runs
+    /// at a time per service (a reconnect while it runs does not start a
+    /// second), and a closed connection cancels it.
     func relaunchKeptLayoutIfNeeded(_ connection: DaemonConnection) {
         guard keptLayoutRelaunch == nil else { return }
         guard isLocal, supports(DaemonCapability.endTerminalsKeepLayout.rawValue),
@@ -53,10 +55,12 @@ extension DaemonService {
             return
         }
         let logger = logger
+        let shown = shownWorkspaceIDs?() ?? []
+        startedFirstTabs = []
         keptLayoutRelaunch = Task { [weak self] in
             defer { self?.keptLayoutRelaunch = nil }
             do {
-                let result = try await connection.relaunchKeptTabs()
+                let result = try await connection.relaunchKeptTabs(shown: shown)
                 if result.relaunched > 0 { logger.info("kept layout: restarted \(result.relaunched) terminals") }
                 for failure in result.failures {
                     logger.error("kept layout: a kept tab stays dead: \(failure, privacy: .public)")

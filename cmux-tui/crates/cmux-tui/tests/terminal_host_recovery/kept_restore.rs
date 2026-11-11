@@ -582,3 +582,79 @@ fn a_restart_the_person_asks_for_goes_before_the_restore_starts_that_have_not_be
     // time after the first.
     assert_eq!(restarted.len(), AGENTS + 1, "{restarted:?}");
 }
+
+/// A restart that is not started yet (it waits in the respawn gate's line)
+/// starts at once when somebody needs its terminal: the frontend sends
+/// `restart-tab` for its tab again (the person shows the tab's workspace, or
+/// asks for the restart again). That second request was refused
+/// (`tab-not-dead`) and the terminal came back after every restore start
+/// ahead of it: with the person's session, the agent of the workspace the
+/// person went to was the last of 170.
+///
+/// 4 kept agent tabs in hidden workspaces, 1 slot, each launch held 2 s in
+/// its turn. The restore asks for the 4 restarts one after another, so the
+/// last tab is the last in line (3 turns = 6 s behind the first). A second
+/// `restart-tab` for the last tab is accepted, and its terminal comes back
+/// with the first one (number 1 or 2 of 4), not as number 4.
+#[test]
+fn a_restart_that_waits_in_line_starts_at_once_when_its_tab_is_asked_for_again() {
+    const AGENTS: usize = 4;
+    const HOLD_MS: u64 = 2_000;
+    let _exclusive = exclusive_process_test();
+    let mut harness = RecoveryHarness::start("kept-restore-asked-again");
+    let terminals = create_workspaces(&harness, "agent", AGENTS);
+    run_agent_sessions(&harness, &all_tabs(&harness));
+    // The newest workspace is the shown one; its tab is not restarted.
+    create_workspaces(&harness, "shown", 1);
+    end_sessions_keep_layout(&mut harness);
+    harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_SLOTS".into(), "1".into()));
+    harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_DELAY_MS".into(), HOLD_MS.to_string()));
+    no_agent_resume(&mut harness);
+    harness.restart();
+    // The kept agent tabs in the order of their workspaces `agent-<index>`,
+    // each with the id its terminal had when it ran.
+    let tree = request(&harness.socket, serde_json::json!({"id": 400, "cmd": "list-workspaces"}));
+    let mut restore = tree["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|workspace| {
+            let index =
+                workspace["name"].as_str()?.strip_prefix("agent-")?.parse::<usize>().ok()?;
+            let tab = workspace["screens"][0]["panes"][0]["tabs"][0].clone();
+            Some((index, tab))
+        })
+        .collect::<Vec<_>>();
+    restore.sort_by_key(|(index, _)| *index);
+    assert_eq!(restore.len(), AGENTS, "the restart did not keep the agent workspaces: {tree}");
+    let tabs = restore.iter().map(|(_, tab)| tab.clone()).collect::<Vec<_>>();
+    assert_kept_for_connect(&tabs);
+    let restart = |id: usize, tab: &serde_json::Value| {
+        request_response(
+            &harness.socket,
+            serde_json::json!({"id": id, "cmd": "restart-tab", "surface": tab["tab_resource_id"]}),
+        )
+    };
+    // The restore: one request after another, so the line has their order.
+    for (index, tab) in tabs.iter().enumerate() {
+        let restarted = restart(410 + index, tab);
+        assert_eq!(restarted["ok"], true, "restart-tab was refused: {restarted}");
+    }
+    let wanted = terminals[AGENTS - 1].clone();
+    let again = restart(420, &tabs[AGENTS - 1]);
+    assert_eq!(
+        again["ok"], true,
+        "the second restart-tab for a restart that waits in line was refused: {again}"
+    );
+
+    let restarted = restarts(&harness, AGENTS);
+    let place = restarted.iter().position(|(_, terminal)| *terminal == wanted).unwrap();
+    assert!(
+        place <= 1,
+        "the terminal that was asked for again came back as number {} of {}, {} ms after the \
+         first: it waited for the restore starts ahead of it",
+        place + 1,
+        restarted.len(),
+        restarted[place].0 - restarted[0].0
+    );
+}

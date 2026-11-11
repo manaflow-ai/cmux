@@ -45,6 +45,9 @@ struct GateState {
     first_waiting: usize,
     /// Turns that run now of waiters that went first.
     first_active: usize,
+    /// The line is stopped ([`StartupAdoptionGate::set_line_paused`]): no
+    /// ticket of the line gets a turn.
+    line_paused: bool,
 }
 
 impl GateState {
@@ -187,7 +190,8 @@ impl StartupAdoptionGate {
             let admitted = if goes_first {
                 state.first_active < self.slots
             } else {
-                state.first_waiting == 0
+                !state.line_paused
+                    && state.first_waiting == 0
                     && state.active + state.first_active < self.slots
                     && state.serving == ticket.number
             };
@@ -222,6 +226,23 @@ impl StartupAdoptionGate {
     /// Wakes waiters so they re-check `give_up` (shutdown, a waited-on terminal).
     pub(super) fn wake_all(&self) {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.wakes += 1;
+        self.changed.notify_all();
+    }
+
+    /// Stops the line (`paused`) or lets it go on: while it is stopped, no
+    /// ticket of the line gets a turn, and the turns that run go on to
+    /// their end. A waiter that goes first ([`Self::turn_first_if`]) is not
+    /// stopped. The respawn gate stops its line while the memory pressure of
+    /// the Mac is above normal (`terminal_respawn/line_pause.rs`): only macOS
+    /// has a caller, so the line never stops on another system.
+    #[cfg(any(target_os = "macos", test))]
+    pub(super) fn set_line_paused(&self, paused: bool) {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.line_paused == paused {
+            return;
+        }
+        state.line_paused = paused;
         state.wakes += 1;
         self.changed.notify_all();
     }
