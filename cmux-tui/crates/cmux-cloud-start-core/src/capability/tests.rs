@@ -228,7 +228,7 @@ fn a_late_answer_for_a_team_the_person_left_is_not_kept() {
         status: 200,
         body: answer("team_b", T0 + 20),
     });
-    assert_eq!(late.state.held.map(|held| held.team), Some("team_a".to_owned()));
+    assert_eq!(late.state.held.as_ref().map(|held| held.team.as_str()), Some("team_a"));
     let a = used(&late.state, Some("team_a"), T0 + 50);
     assert_eq!((a.header.as_deref(), a.fetch), (Some(TOKEN), false));
 }
