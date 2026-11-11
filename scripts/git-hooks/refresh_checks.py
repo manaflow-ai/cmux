@@ -35,6 +35,7 @@ BRANCH = "feat-cmux-next"
 CHECKS = "cmux-next-checks"
 SOURCE_DIR = "scripts/cmux-next"
 MASKER = "scripts/swift_source_mask.py"
+WORKFLOW_JOBS = "tests/workflow_jobs.py"  # check-single-host-fallbacks.py reads runs-on through it
 RELEASE_DOWNLOAD = "scripts/ci/github_release_download.py"  # the gate's release download fallback
 STAMP = ".source"  # "<commit> <scripts/cmux-next tree>" of the copy, or "worktree" for an install from a dirty tree
 ENTRY_POINTS = {"prepush-gate.py": "cmux_next_prepush_gate.py", "git_batch.py": "git_batch.py",
@@ -172,6 +173,11 @@ def refresh(repo: Path, hook_dir: Path, commit: str) -> str | None:
         if masker:
             files.append(("100644", Path(MASKER).name))
             contents.append(masker)
+        # check-single-host-fallbacks.py reads runs-on through the shared resolver beside itself (install-git-hooks.sh).
+        resolver = git(repo, "cat-file", "blob", f"{commit}:{WORKFLOW_JOBS}", check=False)
+        if resolver:
+            files.append(("100644", Path(WORKFLOW_JOBS).name))
+            contents.append(resolver)
         # The gate loads its release download fallback from beside itself (prepush-gate.py, release_download).
         helper = git(repo, "cat-file", "blob", f"{commit}:{RELEASE_DOWNLOAD}", check=False)
         if helper:

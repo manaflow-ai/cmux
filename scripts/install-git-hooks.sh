@@ -213,6 +213,10 @@ git ls-files -z scripts/cmux-next | "$PYTHON3_BIN" -I -c "$COPY_CHECKERS" "$TRUS
 if [[ -f scripts/swift_source_mask.py ]]; then
     cp -p scripts/swift_source_mask.py "$TRUSTED_CHECKS_STAGE/swift_source_mask.py"
 fi
+# check-single-host-fallbacks.py reads runs-on through tests/workflow_jobs.py; the installed copy reads it here.
+if [[ -f tests/workflow_jobs.py ]]; then
+    cp -p tests/workflow_jobs.py "$TRUSTED_CHECKS_STAGE/workflow_jobs.py"
+fi
 # The commit and tree the copy is made from, for refresh_checks.py; "worktree" when scripts/cmux-next differs from HEAD.
 if git diff --quiet HEAD -- scripts/cmux-next && git rev-parse -q --verify HEAD >/dev/null; then
     printf '%s %s\n' "$(git rev-parse HEAD)" "$(git rev-parse HEAD:scripts/cmux-next)" > "$TRUSTED_CHECKS_STAGE/.source"

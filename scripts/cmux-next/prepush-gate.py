@@ -1613,6 +1613,7 @@ def pyyaml_install_command(python: str, purelib: str | None = None, stdlib: str 
 
 
 FALLBACKS_STATUSES = ("found", "incomplete")
+FALLBACKS_RESOLVER = "tests/workflow_jobs.py"  # the shared resolve step the checker reads runs-on through
 FALLBACKS_INCOMPLETE = "incomplete"
 
 
@@ -1655,19 +1656,29 @@ def single_host_fallback_problems(repo: Path, base: str, head: str, trusted_scri
         return []  # a branch older than the declaration
     if trusted_scripts is None:
         script = blob_at(repo, head, FALLBACKS_SCRIPT)
+        resolver = blob_at(repo, head, FALLBACKS_RESOLVER)
     else:
         installed = trusted_scripts / Path(FALLBACKS_SCRIPT).name
         script = installed.read_bytes() if installed.is_file() else None
+        beside = trusted_scripts / Path(FALLBACKS_RESOLVER).name
+        resolver = beside.read_bytes() if beside.is_file() else None
     if script is None:
         log(f"prepush-gate: WARNING: no {Path(FALLBACKS_SCRIPT).name} in the hook's checks copy yet, so the single-host "
             "fallback check did not run; `scripts/install-git-hooks.sh` from origin/feat-cmux-next adds it.")
         return []
+    # The checker reads runs-on through the shared resolver beside it. A checker that needs one the install lacks
+    # (an install from before it) refuses with the reinstall command; it never reads the pushed copy.
+    if resolver is None and b"load_workflow_jobs" in script:
+        return [NoVerdict(f"prepush-gate: {STALE_INSTALL} (it has no {Path(FALLBACKS_RESOLVER).name}, which "
+                          f"{Path(FALLBACKS_SCRIPT).name} reads runs-on through).")]
     # The checker runs under this interpreter: the hook's own Python (its python3-path), as every other layer does.
     if not has_pyyaml(sys.executable):
         return [f"PyYAML missing: run {pyyaml_install_command(sys.executable)}"]
     with tempfile.TemporaryDirectory(prefix="cmux-fallbacks-") as tmp:
         work = Path(tmp)
         (work / "check.py").write_bytes(script)
+        if resolver is not None:
+            (work / Path(FALLBACKS_RESOLVER).name).write_bytes(resolver)
 
         def keyed(rev: str) -> tuple[dict[str, str], list[str]] | str:
             """(the findings at REV by key, the messages of its incomplete ones), or the reason the checker gave no
