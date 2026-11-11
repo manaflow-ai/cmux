@@ -31,7 +31,18 @@
 //! shared slice once the config names a cap. Where `systemd-run` is
 //! missing or cannot make a scope (no user manager, as in a container), the
 //! harness starts as before; that answer is asked once per `systemd-run` and
-//! limits. macOS gets the process-group half of the valve on the holder track
+//! limits.
+//!
+//! A scope lives while any process in it does, and nothing in it ends with
+//! the harness: a descendant without a parent-death signal (a type checker's
+//! headless server, an LSP, a dev server) kept a scope and 3.7 GB alive for
+//! two days after its harness exited (a cloud VM, 2026-11-11). So each
+//! scope gets a unit name acpmux makes ([`unit_name`]), recorded from the
+//! very argv that starts the harness ([`SessionScope::of`]), and acpmux stops
+//! that unit once the harness has exited or the session ends
+//! ([`SessionScope::stop`]). Only a unit acpmux named for a harness it started
+//! in [`SESSIONS_SLICE`] is ever stopped: never one found by name, never a
+//! host scope (`agent_host/scope.rs`). macOS gets the process-group half of the valve on the holder track
 //! (cx-t2sqm.3); its harnesses run at background CPU class once started (`cpu_class.rs`).
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
@@ -97,7 +108,136 @@ fn prefix(
         .into_iter()
         .find(|properties| can_scope(&runner, properties, env, limits))?;
     let description = format!("acpmux session {session}");
-    Some(scope_argv(&runner.to_string_lossy(), Some(SESSIONS_SLICE), &description, &properties))
+    let mut argv =
+        scope_argv(&runner.to_string_lossy(), Some(SESSIONS_SLICE), &description, &properties);
+    // Named here, so the unit to stop is known from the start: the harness's
+    // own cgroup is not, until `systemd-run` has made the scope and exec'd it.
+    argv.insert(argv.len().saturating_sub(1), format!("--unit={}", unit_name(session)));
+    Some(argv)
+}
+
+/// The `systemctl` beside `runner`, else the system's: a `systemd-run`
+/// wrapper on the PATH (one a host installs in `~/.local/bin`) has none beside it.
+fn systemctl_for(runner: &std::path::Path) -> std::path::PathBuf {
+    let beside = runner.with_file_name("systemctl");
+    if beside.is_file() {
+        return beside;
+    }
+    ["/usr/bin/systemctl", "/bin/systemctl"]
+        .into_iter()
+        .map(std::path::PathBuf::from)
+        .find(|path| path.is_file())
+        .unwrap_or(beside)
+}
+
+/// The variables `systemctl --user` finds the user manager by.
+const MANAGER_ENV: [&str; 2] = ["XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"];
+
+/// What every session scope's unit name starts with.
+const UNIT_PREFIX: &str = "acpmux-session-";
+
+/// A new, unique scope unit name for `session`'s harness: the session id
+/// (only `[A-Za-z0-9_]`, at most 64 characters) and a fresh UUID, so a
+/// second harness of the same session (a restart, a failover) never meets
+/// the first one's unit.
+fn unit_name(session: &str) -> String {
+    let id: String =
+        session.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).take(64).collect();
+    format!("{UNIT_PREFIX}{id}-{}.scope", uuid::Uuid::now_v7().simple())
+}
+
+/// Whether `unit` is a name [`unit_name`] makes.
+fn is_session_unit(unit: &str) -> bool {
+    unit.strip_prefix(UNIT_PREFIX).and_then(|rest| rest.strip_suffix(".scope")).is_some_and(
+        |middle| {
+            !middle.is_empty()
+                && middle.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        },
+    )
+}
+
+/// The scope a session's harness was started in: its unit, and the
+/// `systemctl` beside the `systemd-run` that made it. Stopped at most once.
+#[derive(Debug)]
+pub(crate) struct SessionScope {
+    unit: String,
+    systemctl: std::path::PathBuf,
+    /// What `systemctl --user` needs to find the user manager `systemd-run`
+    /// made the scope with, from the harness command's own env.
+    env: BTreeMap<String, String>,
+    stopped: std::sync::atomic::AtomicBool,
+}
+
+impl SessionScope {
+    /// The session scope `cmd` starts its harness in, read from the argv
+    /// [`command`] built: a `systemd-run --scope` into [`SESSIONS_SLICE`]
+    /// with a unit [`unit_name`] made. None for anything else: a harness
+    /// started without systemd, a probe, a host scope, a foreign unit.
+    pub(crate) fn of(cmd: &std::process::Command) -> Option<Self> {
+        let program = std::path::Path::new(cmd.get_program());
+        if program.file_name()? != "systemd-run" || !program.is_absolute() {
+            return None;
+        }
+        let args: Vec<&str> = cmd.get_args().map_while(|a| a.to_str()).collect();
+        let options = args.get(..args.iter().position(|a| *a == "--")?)?;
+        let slice = format!("--slice={SESSIONS_SLICE}");
+        if !options.contains(&"--scope") || !options.contains(&slice.as_str()) {
+            return None;
+        }
+        let unit = options.iter().find_map(|a| a.strip_prefix("--unit="))?;
+        let env = cmd
+            .get_envs()
+            .filter_map(|(key, value)| Some((key.to_str()?, value?.to_str()?)))
+            .filter(|(key, _)| MANAGER_ENV.contains(key))
+            .map(|(key, value)| (key.to_owned(), value.to_owned()))
+            .collect();
+        is_session_unit(unit).then(|| Self {
+            unit: unit.to_owned(),
+            systemctl: systemctl_for(program),
+            env,
+            stopped: std::sync::atomic::AtomicBool::new(false),
+        })
+    }
+
+    /// The scope's unit name.
+    #[cfg(test)]
+    pub(crate) fn unit(&self) -> &str {
+        &self.unit
+    }
+
+    /// Stops the scope (`systemctl --user stop --no-block`): everything still
+    /// in it gets SIGTERM, then SIGKILL after systemd's stop timeout. Once;
+    /// later calls do nothing. Best effort and bounded ([`PROBE_TIMEOUT`]):
+    /// a scope that already went (`--collect` once it emptied) or a user
+    /// manager that does not answer is logged at debug and left. Blocks for
+    /// that call, so async callers run it on a blocking thread.
+    #[cfg(target_os = "linux")]
+    pub(crate) fn stop(&self) {
+        if self.stopped.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        let argv: Vec<String> = ["--user", "stop", "--no-block", "--", self.unit.as_str()]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        if run_bounded(&self.systemctl, &argv, &self.env, false).is_none() {
+            tracing::debug!(unit = %self.unit, "stopping the session scope did not succeed (it may be gone)");
+        }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    pub(crate) fn stop(&self) {
+        self.stopped.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// [`Self::stop`] on a blocking thread, for async callers.
+    pub(crate) async fn stop_async(self: &std::sync::Arc<Self>) {
+        if self.stopped.load(std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        let scope = self.clone();
+        let _ = tokio::task::spawn_blocking(move || scope.stop()).await;
+    }
 }
 
 /// The slice every session scope joins. Dash-free: systemd reads dashes in a
@@ -985,6 +1125,98 @@ mod tests {
         assert!(started.elapsed() < std::time::Duration::from_millis(500), "it waited");
         let _ = held.send(());
         holder.join().unwrap();
+    }
+
+    fn std_command(argv: &[String]) -> std::process::Command {
+        let mut cmd = std::process::Command::new(&argv[0]);
+        cmd.args(&argv[1..]);
+        cmd
+    }
+
+    /// The argv [`prefix`] builds for `session`, then `harness`.
+    fn session_argv(runner: &str, slice: Option<&str>, unit: Option<&str>) -> Vec<String> {
+        let props = properties(&from(&[]), 0);
+        let mut argv = scope_argv(runner, slice, "acpmux session s1", &props);
+        if let Some(unit) = unit {
+            argv.insert(argv.len() - 1, format!("--unit={unit}"));
+        }
+        argv.push("claude".to_owned());
+        argv
+    }
+
+    #[test]
+    fn a_session_scope_is_recorded_from_the_argv_that_starts_its_harness() {
+        let unit = unit_name("0b5e-17/../x");
+        assert!(unit.starts_with("acpmux-session-0b5e_17____x-"), "{unit}");
+        assert!(is_session_unit(&unit), "{unit}");
+        assert_ne!(unit, unit_name("0b5e-17/../x"), "each harness gets its own unit");
+        let argv = session_argv("/usr/bin/systemd-run", Some(SESSIONS_SLICE), Some(&unit));
+        let scope = SessionScope::of(&std_command(&argv)).expect("a session scope");
+        assert_eq!(scope.unit(), unit);
+    }
+
+    #[test]
+    fn a_unit_acpmux_did_not_name_for_a_session_is_never_recorded() {
+        let ours = unit_name("s1");
+        let none = |argv: Vec<String>| SessionScope::of(&std_command(&argv)).is_none();
+        // The probe (no slice), a host's scope, another slice.
+        assert!(none(session_argv("/usr/bin/systemd-run", None, Some(&ours))));
+        assert!(none(session_argv("/usr/bin/systemd-run", Some("acpmuxhosts.slice"), Some(&ours))));
+        assert!(none(session_argv("/usr/bin/systemd-run", Some("app.slice"), Some(&ours))));
+        // A unit acpmux did not name: someone else's, or none at all.
+        for foreign in ["user-service.scope", "run-rc13b446.scope", "acpmux-session-.scope"] {
+            let argv = session_argv("/usr/bin/systemd-run", Some(SESSIONS_SLICE), Some(foreign));
+            assert!(none(argv), "{foreign}");
+        }
+        assert!(none(session_argv("/usr/bin/systemd-run", Some(SESSIONS_SLICE), None)));
+        // A unit named after the separator is the harness's own argument.
+        let mut after = session_argv("/usr/bin/systemd-run", Some(SESSIONS_SLICE), None);
+        after.push(format!("--unit={ours}"));
+        assert!(none(after));
+        // Not systemd-run, or not an absolute one.
+        assert!(none(session_argv("/usr/bin/env", Some(SESSIONS_SLICE), Some(&ours))));
+        assert!(none(session_argv("systemd-run", Some(SESSIONS_SLICE), Some(&ours))));
+        assert!(none(vec!["claude".to_owned()]));
+        for bad in
+            ["acpmux-session-a b.scope", "acpmux-session-a/b.scope", "acpmux-session-a.service"]
+        {
+            assert!(!is_session_unit(bad), "{bad}");
+        }
+    }
+
+    /// No `systemd-run` (a Mac, a container): the harness starts as itself,
+    /// so there is no scope to stop and no stop is ever tried.
+    #[test]
+    fn without_systemd_there_is_no_scope_and_no_stop() {
+        let empty = tempfile::tempdir().unwrap();
+        let env = BTreeMap::from([("PATH".to_owned(), empty.path().display().to_string())]);
+        let cmd = command("claude", Some("s1"), &env, false);
+        assert_eq!(cmd.as_std().get_program(), "claude");
+        assert!(SessionScope::of(cmd.as_std()).is_none());
+        // A remote harness is never wrapped either.
+        let cmd = command("claude", Some("s1"), &BTreeMap::new(), true);
+        assert!(SessionScope::of(cmd.as_std()).is_none());
+    }
+
+    /// The recorded unit is stopped through the `systemctl` beside the
+    /// `systemd-run` that made it, once however often it is asked.
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn a_recorded_scope_is_stopped_once() {
+        let root = tempfile::tempdir().unwrap();
+        let runner = root.path().join("systemd-run");
+        crate::test_exec::write_executable(&runner, "#!/bin/sh\nexit 0\n");
+        crate::test_exec::write_executable(
+            root.path().join("systemctl"),
+            "#!/bin/sh\necho \"$*\" >> \"$(dirname \"$0\")/systemctl.log\"\n",
+        );
+        let unit = unit_name("s1");
+        let argv = session_argv(&runner.to_string_lossy(), Some(SESSIONS_SLICE), Some(&unit));
+        let scope = SessionScope::of(&std_command(&argv)).expect("a session scope");
+        scope.stop();
+        scope.stop();
+        let log = std::fs::read_to_string(root.path().join("systemctl.log")).unwrap();
+        assert_eq!(log, format!("--user stop --no-block -- {unit}\n"));
     }
 
     #[test]

@@ -99,6 +99,10 @@ pub enum Inbound {
 #[path = "agent_idle_tests.rs"]
 mod idle_tests;
 
+#[cfg(all(test, target_os = "linux"))]
+#[path = "agent_scope_tests.rs"]
+mod scope_tests;
+
 /// Tests only: how often the readers on this thread's runtime woke to check their agent's
 /// process while its output was quiet (`agent_idle_tests.rs`).
 #[cfg(test)]
@@ -670,6 +674,9 @@ pub struct ChildAgent {
     run_class: std::sync::OnceLock<crate::cpu_class::CpuClass>,
     /// Its harness was put in `run_class` (once).
     run_class_entered: std::sync::atomic::AtomicBool,
+    /// The systemd scope its harness was started in (`session_scope.rs`): stopped once the
+    /// harness exited or was ended, so nothing it left behind keeps the scope alive.
+    scope: Option<Arc<crate::session_scope::SessionScope>>,
     /// Tests only: a pause in its stdin writer (`InputSeam`).
     #[cfg(test)]
     pub(crate) input_seam: InputSeam,
@@ -700,6 +707,8 @@ struct Spawned {
     pid: Option<u32>,
     /// The exit event of `child`, opened while it is unreaped.
     exit: Option<leader_exit::LeaderExit>,
+    /// The systemd scope its harness was started in (`session_scope.rs`), stopped once it exits.
+    scope: Option<Arc<crate::session_scope::SessionScope>>,
     stdin: Box<dyn tokio::io::AsyncWrite + Unpin + Send>,
     stdout: Box<dyn tokio::io::AsyncRead + Unpin + Send>,
     stderr: Box<dyn tokio::io::AsyncRead + Unpin + Send>,
@@ -743,6 +752,8 @@ impl Spawned {
         crate::cpu_class::start_at_normal(&mut cmd);
         // Never the daemon's OOM protection (`oom_rank.rs`).
         crate::oom_rank::agent_at_exec(&mut cmd);
+        // The scope this harness starts in, read from the argv that starts it.
+        let scope = crate::session_scope::SessionScope::of(cmd.as_std()).map(Arc::new);
         let mut child = cmd.spawn().map_err(|e| spawn_error(&format!("spawn agent {name}"), e))?;
         // Not at a background class another process set on this daemon (`cpu_class.rs`, item 1):
         // the child is held and not reaped, so its pid is its own.
@@ -772,6 +783,7 @@ impl Spawned {
             child: Some(child),
             pid,
             exit,
+            scope,
             stdin: Box::new(stdin),
             stdout: Box::new(stdout),
             stderr: Box::new(stderr),
@@ -792,6 +804,7 @@ impl Spawned {
             child: None,
             pid: None,
             exit: None,
+            scope: None,
             stdin: pipes.stdin,
             stdout: pipes.stdout,
             stderr: pipes.stderr,
@@ -882,6 +895,7 @@ impl ChildAgent {
             child,
             pid,
             exit,
+            scope,
             stdin,
             stdout,
             stderr,
@@ -918,6 +932,7 @@ impl ChildAgent {
             preview_format,
             run_class,
             run_class_entered: std::sync::atomic::AtomicBool::new(false),
+            scope,
             writer_stop: std::sync::OnceLock::new(),
             #[cfg(test)]
             input_seam: InputSeam::default(),
@@ -1216,6 +1231,8 @@ impl ChildAgent {
                 }
                 drop(p);
                 let code = agent_for_exit.wait_exit().await;
+                // The harness is gone: so is its scope, with whatever it left running there.
+                agent_for_exit.stop_scope().await;
                 if let Some(stop) = agent_for_exit.writer_stop.get() {
                     stop.agent_ended().await;
                 }
@@ -1225,6 +1242,19 @@ impl ChildAgent {
             });
         }
         Ok(agent)
+    }
+
+    /// Stops the systemd scope its harness was started in, if it has one (once).
+    async fn stop_scope(&self) {
+        if let Some(scope) = &self.scope {
+            scope.stop_async().await;
+        }
+    }
+
+    /// The unit of the systemd scope its harness was started in (tests).
+    #[cfg(test)]
+    pub(crate) fn scope_unit(&self) -> Option<&str> {
+        self.scope.as_deref().map(crate::session_scope::SessionScope::unit)
     }
 
     async fn wait_exit(&self) -> Option<i32> {
@@ -1343,6 +1373,7 @@ impl ChildAgent {
         *guard = None;
         #[cfg(unix)]
         end_still_running(under).await;
+        self.stop_scope().await;
     }
 
     /// Stop the agent within a bound: SIGTERM to its process group, wait up
@@ -1413,6 +1444,7 @@ impl ChildAgent {
         }
         #[cfg(unix)]
         end_still_running(under).await;
+        self.stop_scope().await;
     }
 
     /// The simulation's in-process agent ends, as a killed child does: its task stops and its
@@ -2100,6 +2132,7 @@ impl ChildAgent {
             preview_format: None,
             run_class: std::sync::OnceLock::new(),
             run_class_entered: std::sync::atomic::AtomicBool::new(false),
+            scope: None,
             writer_stop: std::sync::OnceLock::new(),
             #[cfg(test)]
             input_seam: InputSeam::default(),
