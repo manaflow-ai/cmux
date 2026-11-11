@@ -184,6 +184,9 @@ class Journey(Matrix):
         self.owned: set[str] = set()
         self.cell_creations_before: set[str] | None = None
         self.home_pane: str | None = None  # the pane the cells open their new chat tabs in
+        # The first cell's chat pane, in the launch window's own (local) workspace: later cells open their new
+        # chat there by target, so a start that focused its machine's workspace never decides where it opens.
+        self.launch_pane: str | None = None
 
     # -- app calls
     def call(self, method: str, params: dict | None = None, timeout: int = 90) -> dict:
@@ -340,11 +343,21 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
     # A start opens its chat in the machine's own workspace and focus follows it; the next chat then opened
     # beside it on a New Tab page with no composer (run 43021965230's removed cells). Back to the first
     # workspace, then open, then take the pane the open added.
-    journey.call("action.run", {"action": "selectWorkspaceByNumber", "index": 1})
+    # Run 43071400243: after the first start, every later chat opened in the machine's workspace, a chat on
+    # that machine ("Cloud isn't available for this chat", code unsupported). So later cells open by target
+    # in the first cell's pane, in the launch window's local workspace.
+    opened: dict = {}
+    if journey.launch_pane:
+        opened = journey.call("action.run", {"action": "palette.newAgentChat", "target": journey.launch_pane})
+        if not opened.get("error"):
+            journey.home_pane = journey.launch_pane
+    if not journey.launch_pane or opened.get("error"):
+        journey.call("action.run", {"action": "selectWorkspaceByNumber", "index": 1})
     # The panes showing an agent tab now (untargeted: the focused one, or every one when none is focused).
-    shown = journey.pane("chat_state")
+    shown = journey.pane("chat_state", journey.home_pane) if journey.home_pane else journey.pane("chat_state")
     listed_before = set(shown.get("agent_panes") or ([shown["pane"]] if shown.get("pane") else []))
-    opened = journey.call("action.run", {"action": "palette.newAgentChat"})
+    if not journey.launch_pane or opened.get("error"):
+        opened = journey.call("action.run", {"action": "palette.newAgentChat"})
     if opened.get("error"):
         cell["result"] = f"fail: new chat tab: {opened['error']}"
         return cell
@@ -364,6 +377,7 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
             journey.home_pane = listed[-1]
         time.sleep(1)
     journey.home_pane = journey.home_pane or pane
+    journey.launch_pane = journey.launch_pane or pane
     if not pane:
         cell["result"] = (f"fail: no new chat pane ({clean(str(state.get('error')), 200)}; "
                           f"the open said {clean(json.dumps(opened), 160)})")
@@ -464,7 +478,8 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
         time.sleep(3)
     cell["outcome"] = outcome or "timeout"
     if outcome == "started":
-        journey.home_pane = None  # this tab closed into the machine's chat; the next cell finds its own pane
+        # This tab closed into the machine's chat; the next cell opens by target in the launch pane.
+        journey.home_pane = journey.launch_pane
     cell["message"] = clean(message, 300)
     made, seen = new_machines(journey, before, creations_before)
     made = sorted(set(made) | recorded)
@@ -488,6 +503,18 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
                 problems.append("started in a team the account is not in")
         # The reply is read from the machine the app's record names; one only seen is read too (reading
         # deletes nothing), but it is not ours to delete, so the cell says so.
+        if not made:
+            # Positive evidence for a machine the record no longer names: its agent's transcript holds this
+            # cell's own prompt word (cj + 8 random hex), which no other run or person sends (run 43071400243
+            # left vm_9f340437d7c0cbb6d188 because the record had dropped it).
+            ours = [m for m in seen if guest_has(journey, m, word)]
+            if ours:
+                made = sorted(ours)
+                seen = [m for m in seen if m not in ours]
+                journey.owned.update(made)
+                cell["machines_made"] = made
+                cell["machines_seen_not_ours"] = seen
+                cell["owned_by_prompt_word"] = made
         machine = made[0] if made else (seen[0] if seen else "")
         if machine and not made:
             problems.append(f"started {machine}, which the app's creation record does not name: not deleted")
