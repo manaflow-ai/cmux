@@ -9,7 +9,7 @@
 // frame on screen in one snapshot and gone in the next is a flip, and none may happen (direct.ts `adoptFrames`).
 // Replies stream Claude-like, a few words a chunk; seeded loss rates and a reconnect in the middle.
 import { afterEach, expect, test } from "bun:test";
-import { AcpmuxDirectClient, type EventRecord } from "../src/agent-session/acpmux/direct";
+import { AcpmuxDirectClient, OrderedRows, type EventRecord } from "../src/agent-session/acpmux/direct";
 import { rowFrameKey, type AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { prng } from "../bench/godFixture";
 import { FakeDaemon, logFor, VirtualClock } from "../bench/stateGrowth";
@@ -120,3 +120,29 @@ for (const reconnect of [false, true])
       }
     expect(failures).toEqual([]);
   });
+
+const reply = (id: string, text: string): AcpmuxRow => ({ id, version: 1, at: 0, kind: "assistant", text });
+
+// An older page names the reply it was cut from anew, among many new replies of its own: only that one takes the
+// frame, never a short older reply whose letters happen to come in it in order.
+test("an older page gives a cut reply's frame to that reply alone, and its updates keep it", () => {
+  const cut = "guard in `step2` runs after the total, so the first pass lets a value past the ceiling through.";
+  const previous = new Map([["assistant-50", reply("assistant-50", cut)]]);
+  const rows = new OrderedRows();
+  rows.set("assistant-10", reply("assistant-10", "Let me look at the file."));
+  rows.set("assistant-12", reply("assistant-12", "yes please, the guard runs"));
+  rows.set("assistant-49", reply("assistant-49", `Turn 2: the ${cut}`));
+  rows.adoptFrames(previous);
+  expect([...rows.values()].map(rowFrameKey)).toEqual(["assistant-10", "assistant-12", "assistant-50"]);
+  rows.set("assistant-49", reply("assistant-49", `Turn 2: the ${cut} More.`));
+  expect(rowFrameKey(rows.get("assistant-49")!)).toBe("assistant-50");
+});
+
+test("a short reply that went is never taken for part of a long new one", () => {
+  const previous = new Map([["assistant-50", reply("assistant-50", "Let me look at the file.")]]);
+  const rows = new OrderedRows();
+  const long = `${"Looking at every line of the transcript module here, then the tests. ".repeat(6)}All done.`;
+  rows.set("assistant-49", reply("assistant-49", long));
+  rows.adoptFrames(previous);
+  expect(rowFrameKey(rows.get("assistant-49")!)).toBe("assistant-49");
+});

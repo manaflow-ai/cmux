@@ -1858,25 +1858,25 @@ function promptImages(value: unknown): PromptImage[] {
 /// More than one slot of the kept order changed, or it was rebuilt (`OrderedRows.changedSlot`).
 const MANY_SLOTS = Symbol("many");
 
-/// Transcript rows in the daemon's event order: each row keeps the sequence number of the event
-/// that created it, so two wall clocks (or one millisecond) never put a prompt under its reply.
-/// A row made without an event (a prompt sending or failed, a notice, the typing row) orders after
-/// the events seen when it was made, so later turns go below it; after a lag rebuild, which
-/// replays events older than it, it moves after them again.
-/// Whether two texts are one message at different completeness: the shorter is the longer with
-/// pieces missing (the chunks a repair read back), so its characters come in the longer in order.
-/// Linear in the longer; a text under 8 characters matches only itself.
+/// Whether two texts are one message at different completeness: one holds the other's opening or
+/// ending whole (a repair read back chunks before or after it, or split a reply a lost call had
+/// joined), and the shorter is at least half as long, so a short reply is never taken for part of a
+/// long one. Linear in the longer; under 8 characters, only itself.
 function sameWords(a: string | undefined, b: string | undefined): boolean {
   const [x, y] = [a?.trim() ?? "", b?.trim() ?? ""];
   if (!x || !y) return false;
   if (x === y) return true;
   const [short, long] = x.length <= y.length ? [x, y] : [y, x];
-  if (short.length < 8) return false;
-  let at = 0;
-  for (let index = 0; index < long.length && at < short.length; index++) if (long[index] === short[at]) at++;
-  return at === short.length;
+  if (short.length < 8 || short.length * 2 < long.length) return false;
+  const holds = (text: string, other: string) => text.includes(other.slice(0, 20)) || text.includes(other.slice(-20));
+  return holds(long, short) || holds(short, long);
 }
 
+/// Transcript rows in the daemon's event order: each row keeps the sequence number of the event
+/// that created it, so two wall clocks (or one millisecond) never put a prompt under its reply.
+/// A row made without an event (a prompt sending or failed, a notice, the typing row) orders after
+/// the events seen when it was made, so later turns go below it; after a lag rebuild, which
+/// replays events older than it, it moves after them again.
 export class OrderedRows extends Map<string, AcpmuxRow> {
   private readonly order = new Map<string, number>();
   /// The newest event that wrote each streamed reply (`assistant`), where it differs from the one
@@ -2024,28 +2024,37 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// page or a reconnect's replay names it anew; as a new frame it unmounted and faded in again
   /// while the tool calls around it, keyed by their call ids, stayed (Leo, 2026-11-11: "it keeps
   /// showing and then hiding, and then showing and then hiding your responses, or my responses").
-  /// A new message takes the frame of a message of its kind that went, whose words it holds or that
-  /// holds its words; its later updates keep that frame (``set``).
+  /// Each message of a kind that went gives its frame to the new message of that kind whose words it
+  /// holds or that holds its words, the nearest to it in length (an older page brings many new
+  /// replies, and only the one it was cut from is it); that message's later updates keep the frame
+  /// (``set``). Gone and new messages are few beside the chat: an older page's replies are new, but
+  /// a page that names no shown message again leaves none gone, and returns at once.
   adoptFrames(previous: ReadonlyMap<string, AcpmuxRow>): void {
     const isMessage = (row: AcpmuxRow) => row.kind === "user" || row.kind === "assistant";
     const gone = [...previous.values()].filter((row) => isMessage(row) && !this.has(row.id));
     for (const id of this.frames.keys()) if (!this.has(id)) this.frames.delete(id);
     if (gone.length === 0) return;
-    const taken = new Set<string>();
+    const fresh = [...this.values()].filter(
+      (row) => isMessage(row) && row.frame === undefined && !previous.has(row.id),
+    );
     // Written outside any event: the row keeps its place and its last write.
     const current = this.current;
     this.current = undefined;
-    for (const row of this.values()) {
-      if (!isMessage(row) || row.frame !== undefined || previous.has(row.id)) continue;
-      const old = gone.find((candidate) => {
-        const frame = rowFrameKey(candidate);
-        return candidate.kind === row.kind && !taken.has(frame) && sameWords(candidate.text, row.text);
-      });
-      if (!old) continue;
-      const frame = rowFrameKey(old);
-      taken.add(frame);
-      this.frames.set(row.id, frame);
-      this.set(row.id, row);
+    for (const old of gone) {
+      const length = old.text?.trim().length ?? 0;
+      let best: AcpmuxRow | undefined;
+      for (const row of fresh)
+        if (
+          row.kind === old.kind &&
+          !this.frames.has(row.id) &&
+          sameWords(old.text, row.text) &&
+          (!best ||
+            Math.abs((row.text?.trim().length ?? 0) - length) < Math.abs((best.text?.trim().length ?? 0) - length))
+        )
+          best = row;
+      if (!best) continue;
+      this.frames.set(best.id, rowFrameKey(old));
+      this.set(best.id, best);
     }
     this.current = current;
   }
