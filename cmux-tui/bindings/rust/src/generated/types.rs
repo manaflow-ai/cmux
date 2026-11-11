@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR c9a8b4079643ab2ae73b51d2a6a8dc792b825fb7a95b6ba95bb5d41812017868.
+// cmux-tui mux protocol 12, IR 09524e2fd737a388dda32ab192f1b1fc1851e677b7a7d6025774d70cc387be6e.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1831,6 +1831,35 @@ pub struct SendExpectAgent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsCommandConnections {
+    pub accepted: u64,
+    pub kind: String,
+    pub refused: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsCommandRow {
+    pub count: u64,
+    pub hist: Vec<u64>,
+    pub kind: String,
+    pub max_ns: u64,
+    pub name: String,
+    pub total_ns: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsCommands {
+    pub connections: Vec<ServerStatsCommandConnections>,
+    pub hist_bounds_ns: Vec<u64>,
+    pub name_limit: u64,
+    pub names: u64,
+    pub rows: Vec<ServerStatsCommandRow>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsConnections {
     pub accepted: u64,
     pub active: u64,
@@ -2073,6 +2102,8 @@ pub struct ServerStatsResourceProjection {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsResult {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub commands: Option<ServerStatsCommands>,
     pub connections: ServerStatsConnections,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub disk: Option<ServerStatsDisk>,

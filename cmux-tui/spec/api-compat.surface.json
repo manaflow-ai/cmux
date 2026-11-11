@@ -20178,6 +20178,77 @@
     },
     "response:send-key": {},
     "response:server-stats": {
+      "/data/commands": {
+        "ty": "object"
+      },
+      "/data/commands/connections": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/commands/connections/*": {
+        "ty": "object"
+      },
+      "/data/commands/connections/*/accepted": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/commands/connections/*/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/commands/connections/*/refused": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/commands/hist_bounds_ns": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/commands/hist_bounds_ns/*": {
+        "ty": "uint64"
+      },
+      "/data/commands/name_limit": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/commands/names": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/commands/rows": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/commands/rows/*": {
+        "ty": "object"
+      },
+      "/data/commands/rows/*/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/commands/rows/*/hist": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/commands/rows/*/hist/*": {
+        "ty": "uint64"
+      },
+      "/data/commands/rows/*/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/commands/rows/*/max_ns": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/commands/rows/*/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/commands/rows/*/total_ns": {
+        "ty": "uint64",
+        "required": true
+      },
       "/data/connections": {
         "ty": "object",
         "required": true

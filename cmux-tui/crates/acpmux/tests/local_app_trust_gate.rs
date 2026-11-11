@@ -44,6 +44,7 @@ fn paths(d: &Path) -> Paths {
         record: d.join("home").join("trust.json"),
         agent_home: Some(d.join("agent-home")),
         cmux_worktrees: Some(d.join("home").join(".cmux").join("worktrees")),
+        peer_scratch: None,
     }
 }
 

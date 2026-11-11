@@ -779,6 +779,9 @@ extension ShellModel {
             tokens: DeviceHubAccountToken { try await auth.accessToken() }
         )
         let service = ScreenSharingService(configuration: configuration)
+        #if DEBUG
+        if let demo = ScreenSharingService.demoMode() { service.useDemo(demo) }
+        #endif
         screenSharing = service
         ScreenSharingService.current = service
     }
