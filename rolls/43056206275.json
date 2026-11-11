@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43056206275",
+  "recorded_at": "2026-11-11T16:21:38Z",
+  "reason": "cmux-tui 6e84f2b3c85f changes the image's cmux-tui (pinned d1a8e8440839)",
+  "dry_run": false,
+  "cmux_tui": "6e84f2b3c85f4f74df587c2b839e487616a2a42f",
+  "fixes": [
+    {
+      "sha": "6e84f2b3c85f4f74df587c2b839e487616a2a42f",
+      "mergedAt": "2026-11-11T15:53:20Z",
+      "subject": "cmux-tui tests: the docs of the two load-proof daemon tests say their limits (follow-up of #40830) (#40869)"
+    },
+    {
+      "sha": "164febeba54fbbc38dbf2d7da98bef6988d91f94",
+      "mergedAt": "2026-11-11T07:45:53-08:00",
+      "subject": "acpmux tests: slow_notice starts acpmux through the hermetic helper (#41299)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T16:21:38Z",
+    "snapshot_id": "sh-352276d7821848248934a5623b14b5ac",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43056206275): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "0abc17c8fcd6bcfbb113227c19015c8d11d4d583",
+    "image": "cloud-native-auto-6e84f2b3-43056206275-1",
+    "revision": "ci-43056206275-1",
+    "at": "2026-11-11T16:21:38Z"
+  },
+  "rolled_back": false
+}
