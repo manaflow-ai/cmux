@@ -56,6 +56,8 @@ pub struct FakeDesktop {
     pub restores: Mutex<Vec<FocusSnapshot>>,
     /// Whether `restore_focus` works.
     pub restore_works: bool,
+    /// The menu guard the engine set ([`Desktop::set_menu_guard`]).
+    pub menu_guard: Mutex<Option<std::sync::Arc<dyn crate::desktop::MenuGuard>>>,
 }
 
 impl FakeDesktop {
@@ -116,6 +118,7 @@ impl FakeDesktop {
             focus_reads: Mutex::new(0),
             restores: Mutex::new(vec![]),
             restore_works: true,
+            menu_guard: Mutex::new(None),
         }
     }
 
@@ -146,6 +149,10 @@ impl FakeDesktop {
 }
 
 impl Desktop for FakeDesktop {
+    fn set_menu_guard(&self, guard: std::sync::Arc<dyn crate::desktop::MenuGuard>) {
+        *self.menu_guard.lock().unwrap() = Some(guard);
+    }
+
     fn info(&self) -> PlatformInfo {
         PlatformInfo { os: "fake".into(), display_server: "fake".into(), detail: String::new() }
     }

@@ -247,17 +247,128 @@ fn start_launch(bundle_id: &str) -> DResult<mpsc::Receiver<LaunchResult>> {
     Ok(rx)
 }
 
-/// The bundle id of the installed app LaunchServices finds by display name
-/// ("TextEdit", "Terminal"), cached; None when there is none.
-pub fn bundle_id_for_name(name: &str) -> Option<String> {
+/// The bundle ids of every installed app known by `name` (case-insensitive):
+/// its localized display name in the person's language ("Systemeinstellungen"
+/// on a German Mac), its bundle name, and its file name, across the app
+/// folders, plus the app LaunchServices finds by that name. Several ids for a
+/// shared name; none for an unknown one. The index is rebuilt after
+/// NAME_INDEX_TTL, so installed and removed apps show up.
+pub fn apps_named(name: &str) -> Vec<String> {
     use std::collections::HashMap;
     use std::sync::{Mutex, OnceLock};
-    static CACHE: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
-    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    if let Some(hit) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(name) {
-        return hit.clone();
+    use std::time::Instant;
+    // (built at, folder index, answers so far: a menu walk asks once per item
+    // and per sibling, so LaunchServices is asked once per name per TTL).
+    type Index = (Instant, HashMap<String, Vec<String>>, HashMap<String, Vec<String>>);
+    static INDEX: OnceLock<Mutex<Option<Index>>> = OnceLock::new();
+    let key = name.trim().to_lowercase();
+    if key.is_empty() {
+        return Vec::new();
     }
-    let found = autoreleasepool(|_| {
+    let cell = INDEX.get_or_init(|| Mutex::new(None));
+    {
+        let mut guard = cell.lock().unwrap_or_else(|e| e.into_inner());
+        if guard.as_ref().is_none_or(|(at, _, _)| at.elapsed() > NAME_INDEX_TTL) {
+            *guard = Some((Instant::now(), build_name_index(), HashMap::new()));
+        }
+        if let Some(hit) = guard.as_ref().and_then(|(_, _, answers)| answers.get(&key)) {
+            return hit.clone();
+        }
+    }
+    let mut ids = {
+        let guard = cell.lock().unwrap_or_else(|e| e.into_inner());
+        guard.as_ref().and_then(|(_, index, _)| index.get(&key).cloned()).unwrap_or_default()
+    };
+    if let Some(id) = launch_services_id(name.trim())
+        && !ids.contains(&id)
+    {
+        ids.push(id);
+    }
+    if let Some((_, _, answers)) = cell.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        answers.insert(key, ids.clone());
+    }
+    ids
+}
+
+/// How long the app-name index is reused.
+const NAME_INDEX_TTL: Duration = Duration::from_secs(60);
+
+fn app_folders() -> Vec<std::path::PathBuf> {
+    let mut dirs: Vec<std::path::PathBuf> = [
+        "/Applications",
+        "/Applications/Utilities",
+        "/System/Applications",
+        "/System/Applications/Utilities",
+        "/System/Cryptexes/App/System/Applications",
+        "/System/Library/CoreServices",
+        "/System/Library/CoreServices/Applications",
+    ]
+    .iter()
+    .map(std::path::PathBuf::from)
+    .collect();
+    if let Some(home) = std::env::var_os("HOME") {
+        dirs.push(std::path::PathBuf::from(home).join("Applications"));
+    }
+    dirs
+}
+
+fn build_name_index() -> std::collections::HashMap<String, Vec<String>> {
+    let mut map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    let mut add = |name: &str, id: &str| {
+        let key = name.trim().to_lowercase();
+        if key.is_empty() || id.is_empty() {
+            return;
+        }
+        let ids = map.entry(key).or_default();
+        if !ids.iter().any(|x| x == id) {
+            ids.push(id.to_string());
+        }
+    };
+    autoreleasepool(|_| {
+        let Ok(fm_cls) = class(c"NSFileManager") else { return };
+        let Ok(bundle_cls) = class(c"NSBundle") else { return };
+        // SAFETY: +defaultManager returns the shared file manager.
+        let fm: Option<Retained<AnyObject>> = unsafe { msg_send![fm_cls, defaultManager] };
+        let Some(fm) = fm else { return };
+        for dir in app_folders() {
+            let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) != Some("app") {
+                    continue;
+                }
+                let Some(p) = path.to_str().and_then(Cf::string) else { continue };
+                let p_obj: *const AnyObject = p.ptr().cast();
+                // SAFETY: +bundleWithPath: takes an NSString; nil or an NSBundle.
+                let bundle: Option<Retained<AnyObject>> = unsafe { msg_send![bundle_cls, bundleWithPath: p_obj] };
+                let Some(bundle) = bundle else { continue };
+                let Some(id) = ns_string(unsafe { msg_send![&*bundle, bundleIdentifier] }) else { continue };
+                // The localized display name, without .app (-displayNameAtPath:).
+                if let Some(display) = ns_string(unsafe { msg_send![&*fm, displayNameAtPath: p_obj] }) {
+                    add(display.strip_suffix(".app").unwrap_or(&display), &id);
+                }
+                for key in [c"CFBundleDisplayName", c"CFBundleName"] {
+                    let Some(k) = key.to_str().ok().and_then(Cf::string) else { continue };
+                    let k_obj: *const AnyObject = k.ptr().cast();
+                    // SAFETY: -objectForInfoDictionaryKey: returns nil or an object; only a string is read.
+                    let value: Option<Retained<AnyObject>> =
+                        unsafe { msg_send![&*bundle, objectForInfoDictionaryKey: k_obj] };
+                    if let Some(v) = value.and_then(|v| ns_string(Some(v))) {
+                        add(&v, &id);
+                    }
+                }
+                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                    add(stem, &id);
+                }
+            }
+        }
+    });
+    map
+}
+
+/// The bundle id of the app LaunchServices finds by name, if any.
+fn launch_services_id(name: &str) -> Option<String> {
+    autoreleasepool(|_| {
         let ws = shared_workspace().ok()?;
         let n = Cf::string(name)?;
         let n_obj: *const AnyObject = n.ptr().cast();
@@ -270,7 +381,5 @@ pub fn bundle_id_for_name(name: &str) -> Option<String> {
         let bundle: Option<Retained<AnyObject>> = unsafe { msg_send![bundle_cls, bundleWithPath: &*path] };
         let bundle = bundle?;
         ns_string(unsafe { msg_send![&*bundle, bundleIdentifier] })
-    });
-    cache.lock().unwrap_or_else(|e| e.into_inner()).insert(name.to_string(), found.clone());
-    found
+    })
 }

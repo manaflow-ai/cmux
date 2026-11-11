@@ -405,67 +405,88 @@ impl Walk {
     }
 
     /// The menu bar, breadth-first (every top menu's items before any
-    /// submenu's), at most `budget` nodes and MENU_DEPTH levels; items
-    /// `blocked` says reach a denied app are left out. Sets `truncated` when
-    /// the budget or depth cuts it short.
+    /// submenu's), at most `budget` nodes and MENU_DEPTH levels
+    /// ([`roles::breadth_first`]); items `blocked` says reach a denied app are
+    /// left out. Sets `truncated` when the budget or depth cuts it short.
     fn menu_bar(
         &mut self,
         bar: Ax,
         budget: usize,
-        blocked: &dyn Fn(&[String], &str) -> bool,
+        blocked: &dyn Fn(&roles::MenuItemContext) -> bool,
     ) -> Result<Element, AXError> {
-        struct Slot {
-            element: Element,
-            parent: Option<usize>,
+        struct Node {
+            ax: Ax,
+            top_index: Option<usize>,
+            menus: usize,
+            siblings: std::rc::Rc<Vec<String>>,
         }
-        let mut slots: Vec<Slot> = Vec::new();
-        // (element, depth, parent slot, menu titles above it)
-        let mut queue: VecDeque<(Ax, usize, Option<usize>, Vec<String>)> = VecDeque::new();
-        queue.push_back((bar, 0, None, Vec::new()));
-        while let Some((ax, depth, parent, path)) = queue.pop_front() {
-            if slots.len() >= budget {
-                self.truncated = true;
-                break;
-            }
+        let mut described: Vec<Element> = Vec::new();
+        let mut failure: Option<AXError> = None;
+        let root = Node { ax: bar, top_index: None, menus: 0, siblings: std::rc::Rc::new(Vec::new()) };
+        let (slots, truncated) = roles::breadth_first(root, budget, MENU_DEPTH, |n, depth| {
             let index = self.elements.len();
-            let (element, children) = match self.describe(&ax, index) {
+            let (element, children) = match self.describe(&n.ax, index) {
                 Ok(v) => v,
-                Err(AX_INVALID_ELEMENT) if parent.is_some() => continue,
-                Err(e) => return Err(e),
+                Err(e) => {
+                    if depth == 0 {
+                        failure = Some(e);
+                    }
+                    return None;
+                }
             };
-            let title = ax.string("AXTitle").unwrap_or_default();
-            if parent.is_some() && blocked(&path, &title) {
-                continue;
+            let role = n.ax.string("AXRole").unwrap_or_default();
+            if role == "AXMenuItem" {
+                let title = n.ax.string("AXTitle").unwrap_or_default();
+                let ctx = roles::MenuItemContext {
+                    title: &title,
+                    top_index: n.top_index,
+                    depth: n.menus,
+                    siblings: &n.siblings,
+                };
+                if blocked(&ctx) {
+                    return None;
+                }
             }
-            self.elements.push(ax.clone());
-            let slot = slots.len();
-            slots.push(Slot { element, parent });
+            self.elements.push(n.ax.clone());
+            described.push(element);
             let children: Vec<Ax> = children
                 .map(|c| c.items().into_iter().filter_map(Ax::from_cf).collect())
                 .unwrap_or_default();
-            if children.is_empty() {
-                continue;
-            }
-            if depth + 1 >= MENU_DEPTH {
-                self.truncated = true;
-                continue;
-            }
-            let mut below = path.clone();
-            if !title.is_empty() {
-                below.push(title);
-            }
-            for child in children {
-                queue.push_back((child, depth + 1, Some(slot), below.clone()));
+            let is_menu = role == "AXMenu";
+            let siblings = if is_menu {
+                std::rc::Rc::new(children.iter().map(|c| c.string("AXTitle").unwrap_or_default()).collect())
+            } else {
+                n.siblings.clone()
+            };
+            Some(
+                children
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, ax)| Node {
+                        ax,
+                        top_index: if depth == 0 { Some(i) } else { n.top_index },
+                        menus: n.menus + usize::from(is_menu),
+                        siblings: siblings.clone(),
+                    })
+                    .collect(),
+            )
+        });
+        if let Some(e) = failure {
+            return Err(e);
+        }
+        if truncated {
+            self.truncated = true;
+        }
+        // Children come after their parents: attach from the end.
+        let parents: Vec<Option<usize>> = slots.iter().map(|s| s.parent).collect();
+        while described.len() > 1 {
+            let i = described.len() - 1;
+            let Some(element) = described.pop() else { break };
+            if let Some(p) = parents[i] {
+                described[p].children.insert(0, element);
             }
         }
-        // Children were pushed after their parents: attach from the end.
-        while slots.len() > 1 {
-            let Some(last) = slots.pop() else { break };
-            if let Some(p) = last.parent {
-                slots[p].element.children.insert(0, last.element);
-            }
-        }
-        slots.pop().map(|s| s.element).ok_or(AX_INVALID_ELEMENT)
+        described.pop().ok_or(AX_INVALID_ELEMENT)
     }
 
     fn node(&mut self, ax: Ax, depth: usize) -> Result<Element, AXError> {
@@ -570,14 +591,13 @@ impl ElementCache {
     /// With `options.menus`, the app's menu bar follows the window: every
     /// menu's items while the menus stay closed, so an agent presses a menu
     /// item (click or perform_action) and it runs with no menu opening over
-    /// the person's screen. `blocked` (menu titles above, item title) hides
-    /// items that would reach a denied app.
+    /// the person's screen. `blocked` hides items that would reach a denied app.
     pub fn tree(
         &self,
         window_id: &str,
         window: Ax,
         options: TreeOptions,
-        blocked: &dyn Fn(&[String], &str) -> bool,
+        blocked: &dyn Fn(&roles::MenuItemContext) -> bool,
     ) -> DResult<UiTree> {
         let names: Vec<Cf> = NODE_ATTRS.iter().filter_map(|n| Cf::string(n)).collect();
         let ptrs: Vec<CFTypeRef> = names.iter().map(Cf::ptr).collect();
@@ -616,26 +636,34 @@ impl ElementCache {
     }
 }
 
-/// The titles of the menus above a menu item, outermost first (the menu bar
-/// item, then each submenu's item), up to 8 levels.
-pub fn menu_path(item: &Ax) -> Vec<String> {
-    let mut path = Vec::new();
-    let mut current = item.element("AXParent");
+/// Where a menu item sits: the index of the menu bar item it is under, how
+/// many menus it is inside, and the titles of the items of its own menu.
+pub fn menu_context(item: &Ax) -> (Option<usize>, usize, Vec<String>) {
+    let parent = item.element("AXParent");
+    let siblings = parent
+        .as_ref()
+        .filter(|p| p.string("AXRole").as_deref() == Some("AXMenu"))
+        .map(|p| p.elements("AXChildren").iter().map(|c| c.string("AXTitle").unwrap_or_default()).collect())
+        .unwrap_or_default();
+    let mut menus = 0usize;
+    let mut top_item: Option<Ax> = None;
+    let mut current = parent;
     for _ in 0..16 {
         let Some(node) = current else { break };
-        let role = node.string("AXRole").unwrap_or_default();
-        if matches!(role.as_str(), "AXMenuItem" | "AXMenuBarItem")
-            && let Some(title) = node.string("AXTitle").filter(|t| !t.is_empty())
-        {
-            path.push(title);
-        }
-        if role == "AXMenuBar" || role == "AXApplication" {
-            break;
+        match node.string("AXRole").as_deref() {
+            Some("AXMenu") => menus += 1,
+            Some("AXMenuBarItem") => top_item = Some(node.clone()),
+            Some("AXMenuBar") => {
+                let index = top_item
+                    .as_ref()
+                    .and_then(|t| node.elements("AXChildren").iter().position(|c| c.same(t)));
+                return (index, menus, siblings);
+            }
+            _ => {}
         }
         current = node.element("AXParent");
     }
-    path.reverse();
-    path
+    (None, menus, siblings)
 }
 
 /// Whether the element is a menu item (or menu bar item) of an app's menu bar.

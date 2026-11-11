@@ -747,3 +747,19 @@ fn a_batch_step_that_fails_says_why() {
     let message = result["message"].as_str().unwrap_or_default();
     assert!(message.contains("nonsense"), "the step's error text reaches the agent: {:?}", out.body);
 }
+
+#[test]
+fn the_menu_guard_follows_the_deny_list_as_settings_change() {
+    let d = Arc::new(FakeDesktop::standard());
+    let e = engine(d.clone(), PolicyConfig { denied_apps: vec![], ..PolicyConfig::default() });
+    let guard = d.menu_guard.lock().unwrap().clone().expect("the engine sets a menu guard");
+    assert!(!guard.denies_any());
+    assert!(!guard.app_blocked("com.apple.Terminal", "Terminal"));
+    e.set_config(PolicyConfig { denied_apps: vec!["com.apple.Terminal".into()], ..PolicyConfig::default() });
+    assert!(guard.denies_any());
+    assert!(guard.app_blocked("com.apple.Terminal", "Terminal"));
+    assert!(!guard.app_blocked("com.apple.TextEdit", "TextEdit"));
+    // Emptying the list again unblocks it at once.
+    e.set_config(PolicyConfig { denied_apps: vec![], ..PolicyConfig::default() });
+    assert!(!guard.app_blocked("com.apple.Terminal", "Terminal"));
+}

@@ -274,60 +274,214 @@ pub fn step_reached(read: f64, target: f64, min: f64, max: f64) -> bool {
     (read - target).abs() <= ((max - min).abs() * 0.02).max(f64::EPSILON)
 }
 
-/// How a menu item could reach another app.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MenuLaunch {
-    /// Under Services: hands the selection to another app's service.
-    Services,
-    /// Under Recent Items or Open With: opens an app (or a document in one).
-    AppEntry,
+/// Where a menu item sits in an app's menu bar, for the deny list. Built from
+/// structure, never from titles, so it holds in every language.
+#[derive(Clone, Debug, Default)]
+pub struct MenuItemContext<'a> {
+    /// The item's title.
+    pub title: &'a str,
+    /// Index of the menu bar item it is under (0: the Apple menu, 1: the
+    /// app's own menu, which holds Services).
+    pub top_index: Option<usize>,
+    /// How many menus it is inside: 1 for an item of a menu bar menu, 2 or
+    /// more inside a submenu.
+    pub depth: usize,
+    /// The titles of the items in the same menu (the item's own included).
+    pub siblings: &'a [String],
 }
 
-/// Whether the menu titles above an item (outermost first) put it where it
-/// can open or hand data to another app. English titles (macOS menus are
-/// localized; other languages are not recognized yet).
-pub fn menu_launch(path: &[String]) -> Option<MenuLaunch> {
-    if path.iter().any(|t| t == "Services") {
-        Some(MenuLaunch::Services)
-    } else if path.iter().any(|t| t == "Recent Items" || t == "Open With") {
-        Some(MenuLaunch::AppEntry)
-    } else {
-        None
+/// An item title as an app name: without a trailing "…" or "...", and
+/// without a trailing " (…)" ("TextEdit (default)"). The second value says
+/// whether that suffix was a version ("Xcode (16.4)"), which names one of
+/// several installed copies.
+pub fn menu_app_name(title: &str) -> (&str, bool) {
+    let mut t = title.trim();
+    t = t.strip_suffix('\u{2026}').or_else(|| t.strip_suffix("...")).unwrap_or(t).trim_end();
+    if t.ends_with(')')
+        && let Some(i) = t.rfind(" (")
+    {
+        let inner = &t[i + 2..t.len() - 1];
+        let version = !inner.is_empty() && inner.chars().all(|c| c.is_ascii_digit() || c == '.');
+        return (t[..i].trim_end(), version);
     }
+    (t, false)
 }
 
-/// The app name of an Open With or Recent Items entry: "TextEdit (default)"
-/// and "Xcode (16.4)" name TextEdit and Xcode.
-pub fn entry_app_name(title: &str) -> &str {
-    let t = title.trim();
-    match t.rfind(" (") {
-        Some(i) if t.ends_with(')') => t[..i].trim_end(),
-        _ => t,
+/// Whether a submenu is a launch list: under the Apple menu (Recent Items:
+/// apps, documents, servers) or the app menu (Services), or one where most
+/// items name installed apps (Open With in any app and any language).
+pub fn is_launch_list(ctx: &MenuItemContext, resolve: &dyn Fn(&str) -> Vec<String>) -> bool {
+    if ctx.depth < 2 {
+        return false;
     }
+    if matches!(ctx.top_index, Some(0 | 1)) {
+        return true;
+    }
+    let named: Vec<&String> = ctx.siblings.iter().filter(|t| !t.trim().is_empty()).collect();
+    let apps = named.iter().filter(|t| !resolve(menu_app_name(t).0).is_empty()).count();
+    named.len() >= 2 && apps * 2 >= named.len()
 }
 
-/// Whether the deny list hides and refuses a menu item, given its title, the
-/// menu titles above it and a resolver from app names to bundle ids. An entry
-/// whose app cannot be told (a document, a service) is refused whenever any
-/// app is denied: it could reach one.
+/// Whether the deny list hides and refuses a menu item. `resolve` gives the
+/// bundle ids of every installed app with a display name (in any language),
+/// several for a shared name, none for an unknown one.
+/// - In any menu, an item whose title names an app is blocked when any app
+///   of that name is denied or protected ("System Settings…", "Terminal",
+///   "Benutzte Objekte > Terminal").
+/// - In a launch list (Recent Items, Services, Open With), while any app is
+///   denied, an item that names no app, names it only by version, or is a
+///   document or service is blocked too: it could reach a denied app.
 pub fn menu_item_blocked(
     guard: &dyn crate::desktop::MenuGuard,
-    path: &[String],
-    title: &str,
-    resolve: &dyn Fn(&str) -> Option<String>,
+    ctx: &MenuItemContext,
+    resolve: &dyn Fn(&str) -> Vec<String>,
 ) -> bool {
-    match menu_launch(path) {
-        None => false,
-        Some(MenuLaunch::Services) => guard.denies_any(),
-        Some(MenuLaunch::AppEntry) => {
-            let name = entry_app_name(title);
-            if name.is_empty() {
-                return false;
-            }
-            match resolve(name) {
-                Some(id) => guard.app_blocked(&id, name),
-                None => guard.app_blocked("", name) || guard.denies_any(),
-            }
+    let (name, version) = menu_app_name(ctx.title);
+    if name.is_empty() {
+        return false;
+    }
+    let ids = resolve(name);
+    if ids.iter().any(|id| guard.app_blocked(id, name)) || guard.app_blocked("", name) {
+        return true;
+    }
+    guard.denies_any() && is_launch_list(ctx, resolve) && (ids.is_empty() || version || ids.len() > 1)
+}
+
+/// Why pressing a menu-bar element is refused, if it is: one that opens a
+/// submenu would open a menu over the person's screen.
+pub fn submenu_refusal(role: &str, has_submenu: bool) -> Option<&'static str> {
+    (role == "AXMenuItem" && has_submenu).then_some(
+        "this menu item opens a submenu; press one of the submenu's items (they are in the tree under it)",
+    )
+}
+
+/// A key-equivalent match found while searching the menus in AppKit's order.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ShortcutMatch {
+    pub title: String,
+    pub enabled: bool,
+    pub blocked: bool,
+}
+
+/// What a shortcut does, given its matches in menu order (depth-first).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ShortcutPick {
+    /// Press the match at this index.
+    Press(usize),
+    /// The first enabled match is blocked: AppKit would run it, so nothing runs.
+    Blocked(String),
+    /// Only disabled matches.
+    Disabled(String),
+    /// No match.
+    None,
+}
+
+/// AppKit runs the first enabled item with the key equivalent; disabled
+/// ones are passed over. A blocked first enabled match refuses the shortcut
+/// (a later item must not run in its place).
+pub fn pick_shortcut(matches: &[ShortcutMatch]) -> ShortcutPick {
+    if let Some((i, m)) = matches.iter().enumerate().find(|(_, m)| m.enabled) {
+        return if m.blocked { ShortcutPick::Blocked(m.title.clone()) } else { ShortcutPick::Press(i) };
+    }
+    match matches.first() {
+        Some(m) => ShortcutPick::Disabled(m.title.clone()),
+        None => ShortcutPick::None,
+    }
+}
+
+/// Whether a chord the menu search did not find may still be posted as a key
+/// event: not while any app is denied when it has Command and another
+/// modifier (a service's shortcut can hand data to a denied app, and an
+/// incomplete search cannot rule that out).
+pub fn unmatched_chord_allowed(has_command: bool, other_modifiers: bool, denies_any: bool) -> bool {
+    !(has_command && other_modifiers && denies_any)
+}
+
+/// Whether background keys may go to the target window: it is the key
+/// window, or the app's only standard window while no other unminimized
+/// window (a dialog, a panel) is the key window.
+pub fn keys_reach_target(
+    is_key: bool,
+    standard_windows: usize,
+    target_is_standard: bool,
+    other_key_window: bool,
+) -> bool {
+    is_key || (standard_windows <= 1 && target_is_standard && !other_key_window)
+}
+
+/// One step of stepping a value toward `target`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Step {
+    /// Keep stepping from `next`.
+    Continue,
+    /// The value did not move: the end of the range.
+    AtEnd,
+    /// The step passed the target; `back` says whether to step back (the
+    /// previous value was nearer).
+    Passed { back: bool },
+    /// The step moved away from the target.
+    Away,
+}
+
+pub fn step_outcome(current: f64, next: f64, target: f64, going_up: bool) -> Step {
+    if (next - current).abs() < f64::EPSILON {
+        return Step::AtEnd;
+    }
+    if (next > current) != going_up {
+        return Step::Away;
+    }
+    let passed = if going_up { next > target } else { next < target };
+    if passed {
+        return Step::Passed { back: (next - target).abs() > (current - target).abs() };
+    }
+    Step::Continue
+}
+
+/// Whether a stepped value is reported confirmed: the stepping ended on its
+/// own (not at the step cap) within one step of the target.
+pub fn step_confirmed(capped: bool, read: f64, target: f64, min: f64, max: f64) -> bool {
+    !capped && step_reached(read, target, min, max)
+}
+
+/// One node kept by [`breadth_first`]: its parent's slot and its depth.
+pub struct BfsSlot<N> {
+    pub node: N,
+    pub parent: Option<usize>,
+    pub depth: usize,
+}
+
+/// Breadth-first from `root`, keeping at most `budget` nodes and not
+/// expanding below `max_depth` levels. `visit` returns a node's children
+/// (kept) or None (left out with everything under it). The bool says whether
+/// the budget or the depth cut the walk short.
+pub fn breadth_first<N>(
+    root: N,
+    budget: usize,
+    max_depth: usize,
+    mut visit: impl FnMut(&N, usize) -> Option<Vec<N>>,
+) -> (Vec<BfsSlot<N>>, bool) {
+    let mut slots: Vec<BfsSlot<N>> = Vec::new();
+    let mut truncated = false;
+    let mut queue = std::collections::VecDeque::new();
+    queue.push_back((root, None::<usize>, 0usize));
+    while let Some((node, parent, depth)) = queue.pop_front() {
+        if slots.len() >= budget {
+            truncated = true;
+            break;
+        }
+        let Some(children) = visit(&node, depth) else { continue };
+        let slot = slots.len();
+        slots.push(BfsSlot { node, parent, depth });
+        if children.is_empty() {
+            continue;
+        }
+        if depth + 1 >= max_depth {
+            truncated = true;
+            continue;
+        }
+        for child in children {
+            queue.push_back((child, Some(slot), depth + 1));
         }
     }
+    (slots, truncated)
 }

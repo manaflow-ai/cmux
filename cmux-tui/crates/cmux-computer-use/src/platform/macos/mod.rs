@@ -46,9 +46,14 @@ impl MacDesktop {
     /// Open With and Services entries that reach a denied or protected app).
     fn menu_item_blocked(&self, item: &Ax) -> bool {
         let Some(guard) = self.guard() else { return false };
-        let path = ax::menu_path(item);
+        let (top_index, depth, siblings) = ax::menu_context(item);
         let title = item.string("AXTitle").unwrap_or_default();
-        roles::menu_item_blocked(&*guard, &path, &title, &workspace::bundle_id_for_name)
+        let ctx = roles::MenuItemContext { title: &title, top_index, depth, siblings: &siblings };
+        roles::menu_item_blocked(&*guard, &ctx, &workspace::apps_named)
+    }
+
+    fn denies_any(&self) -> bool {
+        self.guard().is_some_and(|g| g.denies_any())
     }
 }
 
@@ -329,10 +334,8 @@ impl Desktop for MacDesktop {
         let t = self.target(window_id)?;
         let (_, window) = self.ax_window(&t)?;
         let guard = self.guard();
-        let blocked = |path: &[String], title: &str| {
-            guard.as_ref().is_some_and(|g| {
-                roles::menu_item_blocked(&**g, path, title, &workspace::bundle_id_for_name)
-            })
+        let blocked = |ctx: &roles::MenuItemContext| {
+            guard.as_ref().is_some_and(|g| roles::menu_item_blocked(&**g, ctx, &workspace::apps_named))
         };
         self.elements.tree(&t.id(), window, options, &blocked)
     }

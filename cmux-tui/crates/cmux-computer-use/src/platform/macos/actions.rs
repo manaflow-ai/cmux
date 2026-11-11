@@ -76,24 +76,18 @@ impl MacDesktop {
             return Ok(());
         }
         let role = el.string("AXRole").unwrap_or_default();
-        if role == "AXMenuItem"
-            && el.elements("AXChildren").iter().any(|c| c.string("AXRole").as_deref() == Some("AXMenu"))
-        {
-            return Err(DesktopError::Unsupported(
-                "this menu item opens a submenu; press one of the submenu's items (they are in the tree under it)".into(),
-            ));
+        let has_submenu =
+            el.elements("AXChildren").iter().any(|c| c.string("AXRole").as_deref() == Some("AXMenu"));
+        if let Some(why) = roles::submenu_refusal(&role, has_submenu) {
+            return Err(DesktopError::Unsupported(why.into()));
         }
         if self.menu_item_blocked(el) {
             return Err(DesktopError::Unsupported(
                 "this menu item would open or hand data to an app on the Computer Use deny list".into(),
             ));
         }
-        self.key_route(t, Delivery::Background).map(|_| ()).map_err(|_| {
-            DesktopError::Unsupported(format!(
-                "menu commands act on the app's key window, and window {} is not it; use the key window's id",
-                t.window.id
-            ))
-        })
+        // Menu commands act on the app's key window: the same rule as keys.
+        self.key_route(t, Delivery::Background).map(|_| ())
     }
 
     /// The route for key events. Keys posted to a process go to its key
@@ -126,7 +120,7 @@ impl MacDesktop {
         let other_key_window = app
             .element("AXFocusedWindow")
             .is_some_and(|f| !f.same(&win) && f.bool("AXMinimized") != Some(true));
-        if is_key || (windows <= 1 && target_is_standard && !other_key_window) {
+        if roles::keys_reach_target(is_key, windows, target_is_standard, other_key_window) {
             return Ok(Route::Pid { pid: t.window.pid, window: t.window.id });
         }
         Err(DesktopError::Unsupported(format!(
@@ -301,7 +295,7 @@ pub(super) fn click(
         && let Some(row) = selectable(&el)
         && select_only(&row)
     {
-        let mut out = if row.bool("AXSelected") == Some(true) {
+        let mut out = if row.bool("AXSelected") == Some(true) && only_selected(&row) {
             ActionOutcome::confirmed("ax_select")
         } else {
             ActionOutcome::delivered("ax_select")
@@ -430,22 +424,31 @@ pub(super) fn press_keys(
     // window, so it is pressed only when keys would reach the target window.
     let route = d.key_route(&t, delivery)?;
     if delivery == Delivery::Background && combo.modifiers.contains(&crate::keys::Modifier::Meta) {
-        match menu_item_for(d, t.window.pid, combo) {
-            MenuMatch::Enabled(item) => {
-                item.perform("AXPress").map_err(|e| ax_error(e, "press the shortcut's menu item"))?;
+        let (items, complete) = shortcut_matches(d, t.window.pid, combo);
+        let found: Vec<roles::ShortcutMatch> = items.iter().map(|(_, m)| m.clone()).collect();
+        match roles::pick_shortcut(&found) {
+            roles::ShortcutPick::Press(i) => {
+                items[i].0.perform("AXPress").map_err(|e| ax_error(e, "press the shortcut's menu item"))?;
                 return Ok(ActionOutcome::delivered("ax_menu_shortcut"));
             }
-            MenuMatch::Disabled(title) => {
+            roles::ShortcutPick::Disabled(title) => {
                 return Err(DesktopError::Unsupported(format!(
                     "the menu item for this shortcut ({title:?}) is disabled right now"
                 )));
             }
-            MenuMatch::Blocked(title) => {
+            roles::ShortcutPick::Blocked(title) => {
                 return Err(DesktopError::Unsupported(format!(
                     "the menu item for this shortcut ({title:?}) would reach an app on the Computer Use deny list"
                 )));
             }
-            MenuMatch::None => {}
+            roles::ShortcutPick::None => {
+                let others = combo.modifiers.iter().any(|m| *m != crate::keys::Modifier::Meta);
+                if !complete || !roles::unmatched_chord_allowed(true, others, d.denies_any()) {
+                    return Err(DesktopError::Unsupported(
+                        "no menu item has this shortcut, and posted as keys it could run a service that hands data to an app on the Computer Use deny list; use the app's menu items in the tree".into(),
+                    ));
+                }
+            }
         }
     }
     // Space, Return and the arrows open a focused pop-up's menu.
@@ -675,30 +678,21 @@ pub(super) fn perform_action(
     Ok(outcome_after(&route, before, &el))
 }
 
-enum MenuMatch {
-    Enabled(Ax),
-    Disabled(String),
-    Blocked(String),
-    None,
-}
-
-/// The menu item of `pid`'s menu bar whose key equivalent is `combo`, as
-/// AppKit finds it: depth-first in menu order, the first enabled match (a
-/// disabled match is reported only when no enabled one exists). Items the
-/// deny list blocks are never pressed. Bounded: 6 levels, 2000 items.
-fn menu_item_for(d: &MacDesktop, pid: i32, combo: &KeyCombo) -> MenuMatch {
+/// Every menu item of `pid`'s menu bar whose key equivalent is `combo`, in
+/// AppKit's order (depth-first, menu order), with whether each is enabled
+/// and whether the deny list blocks it. The bool is false when the search
+/// stopped at its bounds (6 levels, 2000 items) before the end.
+fn shortcut_matches(d: &MacDesktop, pid: i32, combo: &KeyCombo) -> (Vec<(Ax, roles::ShortcutMatch)>, bool) {
     let Some(bar) = Ax::application(pid).and_then(|a| a.element("AXMenuBar")) else {
-        return MenuMatch::None;
+        return (Vec::new(), true);
     };
-    let mut first_disabled: Option<String> = None;
-    let mut first_blocked: Option<String> = None;
+    let mut found = Vec::new();
     let mut seen = 0usize;
-    // Depth-first with an explicit stack (children pushed in reverse).
     let mut stack: Vec<(Ax, usize)> = bar.elements("AXChildren").into_iter().rev().map(|c| (c, 0)).collect();
     while let Some((node, depth)) = stack.pop() {
         seen += 1;
         if seen > 2000 {
-            break;
+            return (found, false);
         }
         if node.string("AXRole").as_deref() == Some("AXMenuItem") {
             let number = |name: &str| node.attr(name).ok().flatten().and_then(|v| v.as_f64()).map(|v| v as i64);
@@ -712,27 +706,31 @@ fn menu_item_for(d: &MacDesktop, pid: i32, combo: &KeyCombo) -> MenuMatch {
                     number("AXMenuItemCmdModifiers").unwrap_or(0),
                 )
             {
-                let title = node.string("AXTitle").unwrap_or_default();
-                if d.menu_item_blocked(&node) {
-                    first_blocked.get_or_insert(title);
-                } else if node.bool("AXEnabled") == Some(false) {
-                    first_disabled.get_or_insert(title);
-                } else {
-                    return MenuMatch::Enabled(node);
-                }
+                let m = roles::ShortcutMatch {
+                    title: node.string("AXTitle").unwrap_or_default(),
+                    enabled: node.bool("AXEnabled") != Some(false),
+                    blocked: d.menu_item_blocked(&node),
+                };
+                found.push((node.clone(), m));
             }
         }
-        if depth < 6 {
-            for child in node.elements("AXChildren").into_iter().rev() {
-                stack.push((child, depth + 1));
-            }
+        let children = node.elements("AXChildren");
+        if depth >= 6 && !children.is_empty() {
+            return (found, false);
+        }
+        for child in children.into_iter().rev() {
+            stack.push((child, depth + 1));
         }
     }
-    match (first_disabled, first_blocked) {
-        (Some(t), _) => MenuMatch::Disabled(t),
-        (None, Some(t)) => MenuMatch::Blocked(t),
-        (None, None) => MenuMatch::None,
-    }
+    (found, true)
+}
+
+/// Whether `row` is its table's only selected row (true when the table does
+/// not say).
+fn only_selected(row: &Ax) -> bool {
+    let Some(table) = row.element("AXParent") else { return true };
+    let selected = table.elements("AXSelectedRows");
+    selected.is_empty() || (selected.len() == 1 && selected[0].same(row))
 }
 
 /// Selects `row` alone, as a plain click does: the table's AXSelectedRows set
@@ -797,32 +795,29 @@ fn step_to(el: &Ax, value: &str) -> DResult<Option<ActionOutcome>> {
         }
         el.perform(action).map_err(|e| ax_error(e, "step the value"))?;
         let Some(next) = number("AXValue") else { break };
-        let step = (next - current).abs();
-        if step < f64::EPSILON {
-            capped = false;
-            break; // at the end of the range
-        }
-        // A step must move toward the target (an inverted or wrapping
-        // control does not): stop and say so instead of stepping on.
-        if (next > current) != going_up {
-            return Err(DesktopError::Unsupported(format!(
-                "stepping this element moved its value away from {target} ({current} to {next}); set it with a click or a drag instead"
-            )));
-        }
-        let passed = if going_up { next > target } else { next < target };
-        if passed {
-            // Keep whichever of the last two values is nearer the target.
-            if (next - target).abs() > (current - target).abs() {
-                let back = if going_up { "AXDecrement" } else { "AXIncrement" };
-                el.perform(back).map_err(|e| ax_error(e, "step the value"))?;
+        match roles::step_outcome(current, next, target, going_up) {
+            roles::Step::Continue => current = next,
+            roles::Step::AtEnd => {
+                capped = false;
+                break;
             }
-            capped = false;
-            break;
+            roles::Step::Away => {
+                return Err(DesktopError::Unsupported(format!(
+                    "stepping this element moved its value away from {target} ({current} to {next}); set it with a click or a drag instead"
+                )));
+            }
+            roles::Step::Passed { back } => {
+                if back {
+                    let back = if going_up { "AXDecrement" } else { "AXIncrement" };
+                    el.perform(back).map_err(|e| ax_error(e, "step the value"))?;
+                }
+                capped = false;
+                break;
+            }
         }
-        current = next;
     }
     let read = number("AXValue").unwrap_or(current);
-    let mut out = if !capped && roles::step_reached(read, target, min, max) {
+    let mut out = if roles::step_confirmed(capped, read, target, min, max) {
         ActionOutcome::confirmed("ax_step")
     } else {
         ActionOutcome::delivered("ax_step")

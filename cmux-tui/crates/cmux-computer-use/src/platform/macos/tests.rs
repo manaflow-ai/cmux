@@ -304,36 +304,132 @@ impl crate::desktop::MenuGuard for PolicyGuard {
     }
 }
 
+/// Installed apps by display name, as a German Mac lists them: two apps share
+/// "Ghostty" (an allowed copy and the denied one).
+fn resolve(name: &str) -> Vec<String> {
+    match name.to_lowercase().as_str() {
+        "terminal" => vec!["com.apple.Terminal".into()],
+        "textedit" => vec!["com.apple.TextEdit".into()],
+        "systemeinstellungen" | "system settings" => vec!["com.apple.systempreferences".into()],
+        "schlüsselbundverwaltung" | "keychain access" => vec!["com.apple.keychainaccess".into()],
+        "vorschau" | "preview" => vec!["com.apple.Preview".into()],
+        "ghostty" => vec!["com.example.ghostty-viewer".into(), "com.mitchellh.ghostty".into()],
+        "xcode" => vec!["com.apple.dt.Xcode".into()],
+        _ => vec![],
+    }
+}
+
+fn blocked_in(guard: &PolicyGuard, top: Option<usize>, depth: usize, siblings: &[&str], title: &str) -> bool {
+    let siblings: Vec<String> = siblings.iter().map(|s| s.to_string()).collect();
+    let ctx = roles::MenuItemContext { title, top_index: top, depth, siblings: &siblings };
+    roles::menu_item_blocked(guard, &ctx, &resolve)
+}
+
 #[test]
-fn a_denied_app_is_never_reachable_through_recent_items_open_with_or_services() {
-    let guard = PolicyGuard(crate::policy::PolicyConfig::default()); // denies Terminal, Keychain, ...
-    let path = |p: &[&str]| p.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-    let resolve = |name: &str| match name {
-        "Terminal" => Some("com.apple.Terminal".to_string()),
-        "TextEdit" => Some("com.apple.TextEdit".to_string()),
-        "Keychain Access" => Some("com.apple.keychainaccess".to_string()),
-        _ => None,
-    };
-    let blocked = |p: &[&str], title: &str| roles::menu_item_blocked(&guard, &path(p), title, &resolve);
-    // Apple menu > Recent Items: a denied app is hidden and refused; an allowed one is not.
-    assert!(blocked(&["Apple", "Recent Items"], "Terminal"));
-    assert!(blocked(&["Apple", "Recent Items"], "Keychain Access"));
-    assert!(!blocked(&["Apple", "Recent Items"], "TextEdit"));
-    // A recent document (its app cannot be told) is refused while any app is denied.
-    assert!(blocked(&["Apple", "Recent Items"], "notes.txt"));
-    // Finder File > Open With: "Terminal" and "Terminal (default)" alike.
-    assert!(blocked(&["File", "Open With"], "Terminal (default)"));
-    assert!(!blocked(&["File", "Open With"], "TextEdit (default)"));
-    // Services can hand the selection to any app: refused while any app is denied.
-    assert!(blocked(&["TextEdit", "Services"], "New Terminal at Folder"));
-    // Everything else in the Apple menu stays reachable (the person allows it).
-    assert!(!blocked(&["Apple"], "About This Mac"));
-    assert!(!blocked(&["File"], "Save"));
-    // With an empty deny list nothing is refused (protected apps still are).
+fn a_denied_app_is_never_reachable_through_menus_in_any_language() {
+    let guard = PolicyGuard(crate::policy::PolicyConfig::default()); // Terminal, Keychain, System Settings, Ghostty, ...
+    // German Apple menu > Benutzte Objekte (Recent Items): by structure (Apple menu, a submenu), not by title.
+    let recent = ["Programme", "Terminal", "TextEdit", "notizen.txt", "Menü löschen"];
+    assert!(blocked_in(&guard, Some(0), 2, &recent, "Terminal"));
+    assert!(!blocked_in(&guard, Some(0), 2, &recent, "TextEdit"));
+    // A document or an unknown entry there could open in a denied app.
+    assert!(blocked_in(&guard, Some(0), 2, &recent, "notizen.txt"));
+    // German app menu > Dienste (Services): every entry, while any app is denied.
+    assert!(blocked_in(&guard, Some(1), 2, &["Neues Terminal beim Ordner", "Notiz erstellen"], "Notiz erstellen"));
+    // Öffnen mit (Open With), in a File menu: a list of apps, found by its items.
+    let open_with = ["TextEdit (Standard)", "Terminal", "Vorschau", "Andere …"];
+    assert!(blocked_in(&guard, Some(3), 2, &open_with, "Terminal"));
+    assert!(!blocked_in(&guard, Some(3), 2, &open_with, "TextEdit (Standard)"));
+    assert!(!blocked_in(&guard, Some(3), 2, &open_with, "Vorschau"));
+    // Apple menu "Systemeinstellungen…" launches a denied app: blocked by the app it names.
+    assert!(blocked_in(&guard, Some(0), 1, &["Über diesen Mac", "Systemeinstellungen…", "Sperren"], "Systemeinstellungen…"));
+    assert!(blocked_in(&guard, Some(0), 1, &[], "System Settings…"));
+    // The rest of the Apple menu stays reachable (the person allows it).
+    for t in ["Über diesen Mac", "Bildschirm sperren", "Ruhezustand", "Abmelden …", "Sofort beenden …"] {
+        assert!(!blocked_in(&guard, Some(0), 1, &[], t), "{t}");
+    }
+    // Same-name apps: one denied copy blocks the name; a version suffix in a launch list is ambiguous.
+    assert!(blocked_in(&guard, Some(3), 2, &["Ghostty", "Xcode (16.4)"], "Ghostty"));
+    assert!(blocked_in(&guard, Some(3), 2, &["Ghostty", "Xcode (16.4)", "Xcode (17.0)"], "Xcode (16.4)"));
+    // Ordinary menus are untouched, also when an item happens to be in a submenu.
+    assert!(!blocked_in(&guard, Some(2), 1, &["Sichern", "Drucken …"], "Sichern"));
+    assert!(!blocked_in(&guard, Some(4), 2, &["Fett", "Kursiv", "Unterstrichen"], "Fett"));
+    // With an empty deny list only protected apps are blocked.
     let open = PolicyGuard(crate::policy::PolicyConfig { denied_apps: vec![], ..Default::default() });
-    let blocked_open = |p: &[&str], title: &str| roles::menu_item_blocked(&open, &path(p), title, &resolve);
-    assert!(!blocked_open(&["Apple", "Recent Items"], "Terminal"));
-    assert!(!blocked_open(&["TextEdit", "Services"], "New Terminal at Folder"));
-    assert_eq!(roles::entry_app_name("Xcode (16.4)"), "Xcode");
-    assert_eq!(roles::entry_app_name("Preview"), "Preview");
+    assert!(!blocked_in(&open, Some(0), 2, &recent, "Terminal"));
+    assert!(!blocked_in(&open, Some(1), 2, &["Notiz erstellen"], "Notiz erstellen"));
+    assert_eq!(roles::menu_app_name("Xcode (16.4)"), ("Xcode", true));
+    assert_eq!(roles::menu_app_name("TextEdit (Standard)"), ("TextEdit", false));
+    assert_eq!(roles::menu_app_name("Systemeinstellungen…"), ("Systemeinstellungen", false));
+    assert_eq!(roles::menu_app_name("Andere ..."), ("Andere", false));
+}
+
+#[test]
+fn shortcuts_run_the_first_enabled_item_as_appkit_does() {
+    use roles::{ShortcutMatch as M, ShortcutPick as P};
+    let m = |t: &str, enabled: bool, blocked: bool| M { title: t.into(), enabled, blocked };
+    assert_eq!(roles::pick_shortcut(&[]), P::None);
+    assert_eq!(roles::pick_shortcut(&[m("A", false, false), m("B", true, false)]), P::Press(1));
+    assert_eq!(roles::pick_shortcut(&[m("A", false, false)]), P::Disabled("A".into()));
+    // A blocked first enabled match refuses: a later item must not run in its place.
+    assert_eq!(roles::pick_shortcut(&[m("Svc", true, true), m("B", true, false)]), P::Blocked("Svc".into()));
+    // A blocked disabled item is passed over like any disabled one.
+    assert_eq!(roles::pick_shortcut(&[m("Svc", false, true), m("B", true, false)]), P::Press(1));
+    // A chord no menu item has: posted, except Command plus another modifier while any app is denied.
+    assert!(roles::unmatched_chord_allowed(true, false, true));
+    assert!(!roles::unmatched_chord_allowed(true, true, true));
+    assert!(roles::unmatched_chord_allowed(true, true, false));
+}
+
+#[test]
+fn keys_and_menu_commands_reach_only_the_key_window() {
+    assert!(roles::keys_reach_target(true, 3, true, false));
+    assert!(roles::keys_reach_target(false, 1, true, false));
+    // A dialog or panel is the key window: Return must not reach it.
+    assert!(!roles::keys_reach_target(false, 1, true, true));
+    assert!(!roles::keys_reach_target(false, 2, true, false));
+    assert!(!roles::keys_reach_target(false, 1, false, false));
+    assert_eq!(roles::submenu_refusal("AXMenuItem", false), None);
+    assert!(roles::submenu_refusal("AXMenuItem", true).is_some());
+    assert_eq!(roles::submenu_refusal("AXMenuBarItem", true), None);
+}
+
+#[test]
+fn stepping_stops_at_the_target_the_end_or_a_wrong_way_step() {
+    use roles::Step;
+    assert_eq!(roles::step_outcome(0.5, 0.4, 0.25, false), Step::Continue);
+    assert_eq!(roles::step_outcome(0.3, 0.2, 0.25, false), Step::Passed { back: false });
+    assert_eq!(roles::step_outcome(0.26, 0.16, 0.25, false), Step::Passed { back: true });
+    assert_eq!(roles::step_outcome(0.0, 0.0, 0.25, true), Step::AtEnd);
+    assert_eq!(roles::step_outcome(0.5, 0.6, 0.25, false), Step::Away);
+    assert!(roles::step_confirmed(false, 0.26, 0.25, 0.0, 1.0));
+    assert!(!roles::step_confirmed(true, 0.25, 0.25, 0.0, 1.0));
+}
+
+#[test]
+fn the_menu_walk_is_breadth_first_within_budget_and_depth() {
+    // A tree: 0 -> [1, 2], 1 -> [3, 4], 2 -> [5], 3 -> [6]; node 4 is left out.
+    let kids = |n: u32| -> Vec<u32> {
+        match n {
+            0 => vec![1, 2],
+            1 => vec![3, 4],
+            2 => vec![5],
+            3 => vec![6],
+            _ => vec![],
+        }
+    };
+    let (slots, truncated) = roles::breadth_first(0u32, 100, 10, |n, _| (*n != 4).then(|| kids(*n)));
+    let order: Vec<u32> = slots.iter().map(|s| s.node).collect();
+    assert_eq!(order, vec![0, 1, 2, 3, 5, 6]);
+    assert!(!truncated);
+    assert_eq!(slots[3].parent, Some(1)); // 3 under 1
+    assert_eq!(slots[5].depth, 3);
+    // Budget: every top-level item before any deeper one, and the cut is reported.
+    let (slots, truncated) = roles::breadth_first(0u32, 3, 10, |n, _| Some(kids(*n)));
+    assert_eq!(slots.iter().map(|s| s.node).collect::<Vec<_>>(), vec![0, 1, 2]);
+    assert!(truncated);
+    // Depth: nothing below max_depth levels, reported.
+    let (slots, truncated) = roles::breadth_first(0u32, 100, 2, |n, _| Some(kids(*n)));
+    assert_eq!(slots.iter().map(|s| s.node).collect::<Vec<_>>(), vec![0, 1, 2]);
+    assert!(truncated);
 }
