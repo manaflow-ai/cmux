@@ -74,11 +74,14 @@ await requireBrowserLane("transcript-row-word-lift-browser.test.ts", async () =>
       glyph: ".cv-agent-activity__icon",
     },
     {
-      name: "background reaction line",
+      // A failure's line under the default background-turn-look (inline): its rows already draw under
+      // it, so it opens nothing and is no button, like "Subagent finished" with no report.
+      name: "background reaction line (opens nothing)",
       entry: "agent-pane.background-reactions",
-      line: "button.cv-background-turn",
+      line: "div.cv-background-turn",
       words: ".cv-agent-activity__sentence",
       glyph: ".cv-agent-activity__icon",
+      lights: false,
     },
     {
       name: "Subagent finished, no report (only its name chip opens)",
