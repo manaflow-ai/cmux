@@ -29,4 +29,17 @@ import Testing
         let switches = CEFSwitches.current(forkAPIVersion: 29, bundleIdentifier: bundle, environment: [:])
         #expect(!switches.arguments.contains("disable-notifications"))
     }
+
+    /// 3319e649 passed `disable-features=BlockPromptsIfIgnoredOften` and `...IfDismissedOften` to
+    /// stop Chromium blocking a site after a few unanswered permission prompts. Chromium has no
+    /// feature of either name (components/permissions at 154 and the shipped 157 framework hold
+    /// neither string): its count of ignored prompts has no switch at all
+    /// (PermissionDecisionAutoBlocker::RecordIgnoreAndEmbargo). The two switches did nothing and
+    /// said otherwise, so they must not be on the command line; the shim clears the site's count
+    /// itself (shim_permissions.mm).
+    @Test(arguments: ["com.cmuxterm.app.next", "com.cmuxterm.app.nightly", "com.cmuxterm.app.debug.tag"])
+    func noSwitchNamesAnEmbargoFeatureChromiumDoesNotHave(bundle: String) {
+        let switches = CEFSwitches.current(forkAPIVersion: 29, bundleIdentifier: bundle, environment: [:])
+        #expect(!switches.arguments.contains { $0.contains("BlockPromptsIf") })
+    }
 }

@@ -115,6 +115,9 @@ mod launch_roots;
 mod launchers;
 pub mod lineage;
 pub(crate) mod list_guard;
+mod live_ages;
+#[cfg(test)]
+mod live_ages_tests;
 mod live_models;
 mod locate;
 pub mod media_handles;
@@ -357,6 +360,15 @@ pub(crate) mod views;
 mod warm;
 mod watch_events;
 pub(crate) mod watches;
+
+impl Hub {
+    /// Run durable watches: the loop that reconciles them on hub events and the
+    /// `REMOTE_WORKERS` that page peer chats. The daemon starts them once at startup; a test
+    /// that needs real watch paging starts them on its own hub.
+    pub fn start_watches(self: &Arc<Self>) {
+        watches::Watches::start(self);
+    }
+}
 mod web_control;
 mod web_token;
 mod work_below;
@@ -783,6 +795,8 @@ pub struct Hub {
     /// The model ids Codex chats reported that each live list lacked, by profile name, each
     /// already probed again for once (`recheck_live_models`).
     pub(super) live_rechecks: StdMutex<HashMap<String, std::collections::HashSet<String>>>,
+    /// When each live list's probe last started (`hub/live_ages.rs`): a read probes an old one again.
+    pub(super) live_ages: StdMutex<live_ages::LiveAges>,
     /// (harness, model) pairs whose backend refused them, with its message (model_availability.rs).
     pub(super) refused_models: StdMutex<HashMap<(String, String), String>>,
     /// False while the daemon finishes startup work (login environment,
@@ -1193,6 +1207,7 @@ impl Hub {
             acp_from_disk: StdMutex::new(std::collections::HashSet::new()),
             live_models: StdMutex::new(HashMap::new()),
             live_rechecks: StdMutex::new(HashMap::new()),
+            live_ages: StdMutex::new(live_ages::LiveAges::default()),
             refused_models: StdMutex::new(HashMap::new()),
             startup_ready: tokio::sync::watch::channel(true).0,
             startup_work_done: tokio::sync::watch::channel(true).0,
@@ -2401,7 +2416,7 @@ impl Hub {
         text: &str,
     ) -> Result<Option<String>, RpcError> {
         if session.moving().is_some() {
-            return Err(RpcError::invalid_params(queue::moving_error().message));
+            return Err(RpcError::invalid_params(queue::moving_error(session).message));
         }
         let draft = (!text.trim().is_empty()).then(|| text.to_owned());
         {

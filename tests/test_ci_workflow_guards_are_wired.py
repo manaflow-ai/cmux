@@ -48,6 +48,9 @@ UNWIRED: set[str] = {
     # lane = "manual" (no new CI tests, CLAUDE.md). It checks pool reads against .github/runners.json and that
     # copy against main's; run it by hand when a pool read or the pools change. Exit: as below.
     "tests/test_ci_runner_pools_copy.py",
+    # lane = "manual" (no new CI tests, CLAUDE.md). It reads workflows and scripts only as data: which callers
+    # read reload.sh's App path after --build-only without --keep-app. Run it after adding such a caller. Exit: as below.
+    "tests/test_reload_build_only_app_path_readers.py",
     # lane = "manual" (no new CI tests, CLAUDE.md). It reads workflows only as data: which files exist and which
     # call a reusable declared workflow, for scripts/ci/hosted_light_rescue.py's scope. Exit: as below.
     "tests/test_ci_hosted_light_rescue.py",
@@ -78,6 +81,10 @@ UNWIRED: set[str] = {
     # lane = "manual" for the same rule. It checks that generate-nightly-deltas checks out only scripts/ of the
     # build ref and that the reel's apt install retries; run it by hand after changing either.
     "tests/test_nightly_deltas_sparse_checkout.py",
+    # lane = "manual" for the same rule. It runs the warm nightly-next builder's checkout step from nightly.yml in
+    # a temp workspace that a sparse checkout was left in, and needs the whole tree after it; run it by hand after
+    # changing that step or a sparse checkout in a job that shares the builder's workspace.
+    "tests/test_nightly_warm_checkout_sparse.py",
     # lane = "manual" for the same rule. It reads nightly.yml only to keep the pinned Sparkle key of
     # nightly_next_artifact_check.py equal to NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY; run it by hand when that
     # helper or the workflows that call it change.

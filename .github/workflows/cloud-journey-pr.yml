@@ -120,11 +120,5 @@ jobs:
           CMUX_PATH: ${{ steps.build-cmux-tui.outputs.path }}
           JOURNEY_MODEL: stub
           TARGET: staging
-        run: |
-          # cloud-journey-ci.sh passes when the pair is empty; here an empty pair (a misnamed or missing
-          # secret) is this check's red, never a silent skip.
-          if [ -z "$CMUX_DOGFOOD_STACK_EMAIL" ] || [ -z "$CMUX_DOGFOOD_STACK_PASSWORD" ]; then
-            echo "::error title=Cloud journey cannot run::no Stack pair in this environment (CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD in cmux-next-vm-image-dev)"
-            exit 1
-          fi
-          bash scripts/cmux-next/cloud-journey-ci.sh
+        # An empty pair (a misnamed or missing secret) is this check's red in cloud-journey-ci.sh, never a skip.
+        run: bash scripts/cmux-next/cloud-journey-ci.sh
