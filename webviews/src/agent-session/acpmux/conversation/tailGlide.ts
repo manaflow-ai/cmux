@@ -274,6 +274,13 @@ export function createTailGlide(): TailGlide {
       }
     },
     place(thread, glide, anchor, track = true) {
+      // A row the virtualizer unmounted mid-glide: its glide ends with it, and the clips it guarded
+      // on the row above with it, so that row never stays clipped over nothing until the glide's
+      // time runs out (its last lines hidden). O(playing).
+      for (const animation of playing) {
+        const row = glides.get(animation);
+        if (row && !row.isConnected) cancelOn(row);
+      }
       if (!thread || !track || foldMs(thread) <= 0) {
         last = undefined;
         return;

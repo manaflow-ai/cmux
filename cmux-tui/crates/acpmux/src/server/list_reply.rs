@@ -97,7 +97,7 @@ async fn reply(
         }) else {
             return Ok(serde_json::from_str(&text).unwrap_or(Value::Null));
         };
-        if let Some(whole) = conn.send_serialized(&id, method, &text, seen, reads == REBUILDS) {
+        if let Some(whole) = conn.send_serialized(&id, method, text, seen, reads == REBUILDS) {
             REPLY.with(|r| r.borrow_mut().2 = Some(whole));
             break;
         }
@@ -378,11 +378,37 @@ fn masked(result: Value) -> String {
 }
 
 /// The reply line for `id` whose result is `result`, serialized: the bytes
-/// `Message::ok(id, result).to_line()` writes.
+/// `Message::ok(id, result).to_line()` writes. The daemon makes it with [`reply_line_in`].
+#[cfg(test)]
 pub(super) fn reply_line(id: &Value, result: &str) -> String {
     let id = id.to_string();
     let mut line = String::with_capacity(id.len() + result.len() + 32);
     for part in ["{\"id\":", &id, ",\"jsonrpc\":\"2.0\",\"result\":", result, "}\n"] {
+        line.push_str(part);
+    }
+    line
+}
+
+/// [`reply_line`], made in `result`'s own buffer when no one else holds it and its spare
+/// capacity holds the frame (a page made by `list_guard::page_text`): no second buffer of the
+/// page's size. A shared result (the cached whole list) is copied as before.
+pub(super) fn reply_line_in(id: &Value, result: Arc<String>) -> String {
+    let id = id.to_string();
+    let head = ["{\"id\":", &id, ",\"jsonrpc\":\"2.0\",\"result\":"].concat();
+    match Arc::try_unwrap(result) {
+        Ok(mut text) if text.capacity() - text.len() >= head.len() + 2 => {
+            text.insert_str(0, &head);
+            text.push_str("}\n");
+            text
+        }
+        Ok(text) => reply_line_parts(&head, &text),
+        Err(shared) => reply_line_parts(&head, &shared),
+    }
+}
+
+fn reply_line_parts(head: &str, result: &str) -> String {
+    let mut line = String::with_capacity(head.len() + result.len() + 2);
+    for part in [head, result, "}\n"] {
         line.push_str(part);
     }
     line
@@ -429,5 +455,34 @@ mod tests {
         for p in [json!({"limit": 5}), json!({"cursor": "k1.2"}), json!({"status": 3})] {
             assert!(!whole(&p), "{p}");
         }
+    }
+
+    #[test]
+    fn a_page_becomes_its_reply_line_in_its_own_buffer() {
+        use crate::hub::list_guard::page_text;
+        let rows = [r#"{"sessionId":"a"}"#, r#"{"sessionId":"b","t":"x\n"}"#];
+        for next in [None, Some(Value::String("h1.2".into()).to_string())] {
+            let text = page_text(next.clone(), &rows);
+            let parsed: Value = serde_json::from_str(&text).unwrap();
+            assert_eq!(parsed["sessions"][1]["sessionId"], "b");
+            assert_eq!(parsed.get("nextCursor").is_some(), next.is_some());
+            for id in [json!(7), json!("req-1")] {
+                let page = Arc::new(page_text(next.clone(), &rows));
+                let (at, room) = (page.as_ptr(), page.capacity());
+                let line = reply_line_in(&id, page);
+                assert_eq!(line, reply_line(&id, &text));
+                assert_eq!((line.as_ptr(), line.capacity()), (at, room), "made in place");
+                // A shared result (the cached whole list) is copied and stays as it was.
+                let shared = Arc::new(text.clone());
+                assert_eq!(reply_line_in(&id, shared.clone()), reply_line(&id, &text));
+                assert_eq!(*shared, text);
+            }
+        }
+        // An id too long for the spare room still gives the same line.
+        let id = json!("i".repeat(4096));
+        assert_eq!(
+            reply_line_in(&id, Arc::new(page_text(None, &rows))),
+            reply_line(&id, &page_text(None, &rows))
+        );
     }
 }

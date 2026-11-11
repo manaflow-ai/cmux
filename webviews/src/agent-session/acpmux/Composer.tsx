@@ -33,6 +33,7 @@ import {
   type LinkItem,
 } from "./attachments";
 import type { SendGesture } from "./heldPrompt";
+import { useTurnHandover } from "./composer/turnHandover";
 import { awaitsOriginals } from "./promptBudget";
 import type { UploadProgressReport, UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
@@ -2163,9 +2164,12 @@ function ComposerFrame({
     !snapshot.isWorking &&
     snapshot.switching?.phase === "starting" &&
     snapshot.rows.some((row) => row.queued !== undefined);
-  const stop = !shell && (snapshot.isWorking || holding) && !text.trim();
+  // A turn that ended with a queued prompt acpmux runs next keeps Stop until that turn starts, so
+  // the slot never flickers between two turns (composer/turnHandover.ts).
+  const handingOver = useTurnHandover(snapshot.isWorking, snapshot.queue, snapshot.summary?.queuePaused === true);
+  const stop = !shell && (snapshot.isWorking || holding || handingOver) && !text.trim();
   // Stop shows for the whole turn, a typed prompt or not; Esc stops only from an empty prompt.
-  const running = !shell && (snapshot.isWorking || holding);
+  const running = !shell && (snapshot.isWorking || holding || handingOver);
   const hasDraft = Boolean(text.trim() || attachments.length || pending.length);
   // Esc stops the turn on a double press (escapeStop.ts). The Quick Composer's page-level Esc hides
   // its panel, so only the pane counts an Esc that reaches the page.
