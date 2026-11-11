@@ -3662,6 +3662,7 @@ _PY_ASSIGNMENT = re.compile(r"^\s*([A-Za-z_]\w*)\s*(?::\s*[\w\[\]., |]+)?=(?!=)\
 _BRACE_ASSIGNMENT = re.compile(r"^\s*(?:(?:let|var|const)\s+)?([A-Za-z_]\w*)\s*(?::\s*[^=]+)?=(?![=>])\s*(\S.*)$")
 _ONE_LINE_STRING = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`(?:\\.|[^`\\])*`')
 _BRACES = re.compile(r"[{}]")
+_DECLARATION = re.compile(r"^\s*(?:let|var|const)\s")
 _PY_DEF = re.compile(r"^(\s*)(?:async\s+)?def\s")
 _RELATIONAL_HELPER = re.compile(
     r"\b(?:XCTAssert(?:LessThan|GreaterThan)\w*|assert(?:Less|Greater)\w*|toBe(?:LessThan|GreaterThan)\w*)\s*\("
@@ -3776,7 +3777,16 @@ def _classify_assignment(value: str, timings: set[str], readings: set[str]) -> O
     if _is_timing_ratio(value, timings | readings):
         return None
     if _CLOCK_DIFFERENCE_CALL.search(value):
-        return "timing"
+        # A difference is a duration only when one side is a clock reading: `Date().timeIntervalSince(t0)`,
+        # `t0.timeIntervalSinceNow`, `start.duration(to: .now)`, `end.timeIntervalSince(start)` of two readings.
+        # Two fixed instants (`Date(timeIntervalSince1970: 10).timeIntervalSince(epoch)`) measure nothing.
+        if (
+            _CLOCK_READ.search(value)
+            or re.search(r"\.timeIntervalSinceNow\b|\bprocess\.hrtime\s*\(|\bto\s*:\s*\.now\b", value)
+            or _names_in(value, readings | timings)
+        ):
+            return "timing"
+        return None
     minus = re.search(r"(?<![-=<>*/+eE])-(?![->=])", value)
     if minus:
         left = value[: minus.start()]
@@ -3812,8 +3822,11 @@ def detect_assert_on_duration_through_name(code_lines: list[str], path_suffix: s
     if not any(key in source for key in _CLOCK_KEYS):
         return []
     python = path_suffix == ".py"
-    # Each scope is (opening indent or brace depth, timings, readings); module level is the outermost.
-    scopes: list[tuple[int, set[str], set[str]]] = [(-1, set(), set())]
+    # Each scope is (opening indent or brace depth, {name: kind}); module level is the outermost. A kind is
+    # "timing", "reading" or None (a name bound to anything else, which shadows an outer timing of that name).
+    # A name resolves through every visible scope, innermost first: a block nested in a test still sees the
+    # test's `took_n`, and its own `let took` hides the outer one only until the block ends.
+    scopes: list[tuple[int, dict[str, Optional[str]]]] = [(-1, {})]
     depth = 0
     flagged: list[int] = []
     for index, line in enumerate(code_lines):
@@ -3825,27 +3838,30 @@ def detect_assert_on_duration_through_name(code_lines: list[str], path_suffix: s
                 scopes.pop()
             definition = _PY_DEF.match(line)
             if definition:
-                scopes.append((indent, set(), set()))
+                scopes.append((indent, {}))
                 continue
-        _, timings, readings = scopes[-1]
+        visible: dict[str, Optional[str]] = {}
+        for _, bindings in scopes:
+            visible.update(bindings)
+        timings = {name for name, kind in visible.items() if kind == "timing"}
+        readings = {name for name, kind in visible.items() if kind == "reading"}
         if _asserts_absolute_bound_on(line, timings):
             flagged.append(index)
         assignment = (_PY_ASSIGNMENT if python else _BRACE_ASSIGNMENT).match(line)
         if assignment:
             name, value = assignment.group(1), assignment.group(2)
             kind = _classify_assignment(value, timings, readings)
-            timings.discard(name)
-            readings.discard(name)
-            if kind == "timing":
-                timings.add(name)
-            elif kind == "reading":
-                readings.add(name)
+            target = scopes[-1][1]
+            if not python and not _DECLARATION.match(line):
+                # `took = ...` with no let/var/const rebinds the innermost scope that declared it.
+                target = next((bindings for _, bindings in reversed(scopes) if name in bindings), target)
+            target[name] = kind
         if not python and ("{" in line or "}" in line):
             # A brace in a one-line string literal does not open a block (comments are already stripped).
             for character in _BRACES.findall(_ONE_LINE_STRING.sub("", line)):
                 if character == "{":
                     depth += 1
-                    scopes.append((depth, set(), set()))
+                    scopes.append((depth, {}))
                 elif character == "}":
                     if len(scopes) > 1 and scopes[-1][0] == depth:
                         scopes.pop()
@@ -4787,6 +4803,36 @@ def _self_test() -> int:
                 "        model.load()\n"
                 "        let spent = Date().timeIntervalSince(t0)\n"
                 "        XCTAssertLessThan(spent, 0.25)\n"
+                "    }\n"
+            ),
+            {RULE_ASSERT_ON_DURATION},
+        ),
+        # An absolute bound on a timing taken in an enclosing block, asserted in a nested one (a closure, an `if`,
+        # a `for`): the name resolves through every visible scope, not only the innermost.
+        (
+            "web/tests/duration_outer_timing_nested_block.test.ts",
+            (
+                "it('loads fast', async () => {\n"
+                "  const started = performance.now();\n"
+                "  await load();\n"
+                "  const took = performance.now() - started;\n"
+                "  for (const row of rows) {\n"
+                "    expect(took).toBeLessThan(500);\n"
+                "  }\n"
+                "});\n"
+            ),
+            {RULE_ASSERT_ON_DURATION},
+        ),
+        (
+            "cmuxTests/duration_outer_timing_nested_block.swift",
+            (
+                "    func testFast() async {\n"
+                "        let start = ContinuousClock.now\n"
+                "        await model.load()\n"
+                "        let took = ContinuousClock.now - start\n"
+                "        if model.isReady {\n"
+                "            XCTAssertLessThan(took, .seconds(1))\n"
+                "        }\n"
                 "    }\n"
             ),
             {RULE_ASSERT_ON_DURATION},
@@ -6622,6 +6668,70 @@ def _self_test() -> int:
                 "expect(stored).toBeGreaterThanOrEqual(floor);\n"
                 "const cutoff = Date.now() - 60_000;\n"
                 "expect(stored).toBeGreaterThan(cutoff);\n"
+            ),
+        ),
+        # The scaling ratio with its first timing in an enclosing block and the second in a nested one: both names
+        # resolve, so the ratio and the relative bound are still a ratio (not two absolute bounds).
+        (
+            "web/tests/n39.test.ts",
+            (
+                "it('scales linearly', () => {\n"
+                "  let began = performance.now();\n"
+                "  run(n);\n"
+                "  const took_n = performance.now() - began;\n"
+                "  for (const attempt of [1]) {\n"
+                "    const start = performance.now();\n"
+                "    run(4 * n);\n"
+                "    const took_4n = performance.now() - start;\n"
+                "    expect(took_4n / took_n).toBeLessThan(8);\n"
+                "    expect(took_4n).toBeLessThan(8 * took_n);\n"
+                "  }\n"
+                "});\n"
+            ),
+        ),
+        (
+            "cmuxTests/n40.swift",
+            (
+                "    func testScales() {\n"
+                "        let clock = ContinuousClock()\n"
+                "        let first = clock.now\n"
+                "        run(n)\n"
+                "        let tookN = clock.now - first\n"
+                "        do {\n"
+                "            let begin = clock.now\n"
+                "            run(4 * n)\n"
+                "            let took4N = clock.now - begin\n"
+                "            XCTAssertLessThan(took4N, tookN * 8)\n"
+                "        }\n"
+                "    }\n"
+            ),
+        ),
+        # A nested `let took` hides the outer timing only inside its block: after the block the outer name is the
+        # one in scope again, and inside it the shadowing count is no duration.
+        (
+            "web/tests/n41.test.ts",
+            (
+                "it('counts', () => {\n"
+                "  const took = performance.now() - began;\n"
+                "  {\n"
+                "    const took = rows.length;\n"
+                "    expect(took).toBeLessThan(5);\n"
+                "  }\n"
+                "});\n"
+            ),
+        ),
+        # Two fixed instants: their difference is a configured span, not a measured one.
+        (
+            "cmuxTests/n42.swift",
+            (
+                "    func testSpan() {\n"
+                "        let epoch = Date(timeIntervalSince1970: 0)\n"
+                "        let later = Date(timeIntervalSince1970: 10)\n"
+                "        let span = later.timeIntervalSince(epoch)\n"
+                "        XCTAssertLessThan(span, 11)\n"
+                "        let span2 = Date(timeIntervalSince1970: 5).timeIntervalSince(Date(timeIntervalSince1970: 0))\n"
+                "        XCTAssertLessThan(span2, 6)\n"
+                "    }\n"
             ),
         ),
         # A timing checked only to be positive: no bound on how long it took.
