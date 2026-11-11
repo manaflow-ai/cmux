@@ -500,7 +500,8 @@ import Testing
         let socket = "/tmp/x/cmux-link-0123456789ab.sock"
         let noKey = CloudCarrierDial.serveStartError(code: "handshake", detail: "the Keychain refused the carrier key (-128)", socket: socket)
         #expect(CloudLinkError.endsWaits(noKey))
-        #expect(CloudLinkError.failureReason(noKey) == "handshake: the Keychain refused the carrier key (-128)")
+        #expect(CloudLinkError.failureReason(noKey) == "the Keychain refused the carrier key (-128)")
+        #expect(CloudCarrierDial.carrierRefusal(noKey).retryable == false, "asking again starts a helper that refuses the same way")
         #expect(CloudCarrierDial.carrierRefusal(noKey).code == "handshake")
         #expect(noKey.description == "Could not connect to the Cloud machine (handshake: the Keychain refused the carrier key (-128)). Click Connect to try again.")
         let perConnection = CloudCarrierDial.serveRefusal(code: "handshake", detail: "pin mismatch")

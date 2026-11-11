@@ -133,7 +133,8 @@ public struct CloudCarrierDial: Equatable, Sendable {
         case .failed(let code, let message)?:
             return .init(code: code, message: message.isEmpty ? text : message, retryable: code != "bad_request")
         case .helperRefused(let code, let message)?:
-            return .init(code: code, message: message.isEmpty ? text : message, retryable: true)
+            // Asking again starts a helper that refuses the same way: only the person's Retry, after a fix, helps.
+            return .init(code: code, message: message.isEmpty ? text : message, retryable: false)
         case .disconnected(let reason)? where reason == "relay":
             return .init(code: "relay", message: text, retryable: true)
         case .notUp(let state)? where state == "parked_timeout":

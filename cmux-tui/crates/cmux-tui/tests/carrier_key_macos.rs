@@ -11,7 +11,8 @@ use std::process::Command;
 const BIN: &str = env!("CARGO_BIN_EXE_cmux-tui");
 
 fn key_public(home: &Path) -> String {
-    // A Keychain prompt would block this run; the test harness's deadline ends a blocked one.
+    // A Keychain read here would ask to approve the item (and, with prompts off, fail): this run
+    // must succeed without one. nextest's slow-timeout ends a run that blocks.
     let out = Command::new(BIN)
         .args(["carrier", "key", "--public"])
         .env_clear()

@@ -98,7 +98,12 @@ fn store_for(team_signed: bool, exe: Option<&Path>, home: Option<&Path>) -> Resu
         return Ok(Store::Keychain);
     }
     let home = home.ok_or("no home folder for this build's carrier key")?;
-    let build = crate::app_identity::AppIdentity::from_bundle(exe).map_or_else(
+    // A link to the bundled `cmux` from outside the bundle (a PATH shim) is that bundle's build.
+    let identity = crate::app_identity::AppIdentity::from_bundle(exe).or_else(|| {
+        let real = std::fs::canonicalize(exe?).ok()?;
+        crate::app_identity::AppIdentity::from_bundle(Some(&real))
+    });
+    let build = identity.map_or_else(
         || cmux_agent_pane_policy::build_identity::BuildIdentity::new(None, None),
         |identity| identity.build(),
     );
@@ -185,10 +190,10 @@ mod file_key {
         let meta = std::fs::symlink_metadata(folder)
             .map_err(|e| format!("the carrier key folder could not be read: {e}"))?;
         if meta.file_type().is_symlink() || !meta.is_dir() {
-            return Err("the carrier key folder is not a folder; refused".into());
+            return Err(format!("{} is not a folder; refused", folder.display()));
         }
         if meta.uid() != own_uid() {
-            return Err("the carrier key folder belongs to another user; refused".into());
+            return Err(format!("{} belongs to another user; refused", folder.display()));
         }
         if meta.mode() & 0o777 != 0o700 {
             std::fs::set_permissions(folder, Permissions::from_mode(0o700))
@@ -209,27 +214,26 @@ mod file_key {
             Ok(file) => file,
             Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
             Err(e) if e.raw_os_error() == Some(libc::ELOOP) => {
-                return Err("the carrier key file is a symbolic link; refused".into());
+                return Err(format!("{} is a symbolic link; refused", path.display()));
             }
-            Err(e) => return Err(format!("the carrier key file could not be read: {e}")),
+            Err(e) => return Err(format!("{} could not be read: {e}", path.display())),
         };
-        let meta =
-            file.metadata().map_err(|e| format!("the carrier key file could not be read: {e}"))?;
+        let shown = path.display();
+        let meta = file.metadata().map_err(|e| format!("{shown} could not be read: {e}"))?;
         if !meta.is_file() {
-            return Err("the carrier key file is not a regular file; refused".into());
+            return Err(format!("{shown} is not a regular file; refused"));
         }
         if meta.uid() != own_uid() {
-            return Err("the carrier key file belongs to another user; refused".into());
+            return Err(format!("{shown} belongs to another user; refused"));
         }
         if meta.mode() & 0o077 != 0 {
-            return Err("the carrier key file is readable by others; refused".into());
+            return Err(format!("{shown} is open to other users; refused"));
         }
         if meta.len() != 32 {
-            return Err("the carrier key file is not 32 bytes".into());
+            return Err(format!("{shown} is not 32 bytes; remove it to make a new key"));
         }
         let mut key = Zeroizing::new([0_u8; 32]);
-        file.read_exact(key.as_mut())
-            .map_err(|e| format!("the carrier key file could not be read: {e}"))?;
+        file.read_exact(key.as_mut()).map_err(|e| format!("{shown} could not be read: {e}"))?;
         Ok(Some(key))
     }
 
@@ -269,6 +273,8 @@ mod keychain {
         static kSecAttrAccessible: CFStringRef;
     }
 
+    /// The item's service, for the refusal's recovery step.
+    const SERVICE_NAME: &str = super::SERVICE;
     /// `errSecUserCanceled`: a prompt for the item was dismissed or denied.
     const USER_CANCELED: i32 = -128;
     /// `errSecInteractionNotAllowed`: the item needs a prompt, and prompts are off.
@@ -286,8 +292,9 @@ mod keychain {
     fn refused(code: i32) -> String {
         match code {
             INTERACTION_NOT_ALLOWED | USER_CANCELED | AUTH_FAILED => format!(
-                "the Keychain wants this Mac's approval to use the carrier key, and the Cloud \
-                 connection helper cannot ask for it ({code})"
+                "the login Keychain is locked or asks to approve the carrier key, which the Cloud \
+                 connection helper cannot do; unlock it, or remove the Keychain item \
+                 {SERVICE_NAME} (another cmux build made it) so a new key is made ({code})"
             ),
             _ => format!("the Keychain refused the carrier key ({code})"),
         }
@@ -310,7 +317,9 @@ mod keychain {
     /// Keychain's access prompt, and then a read that needs the person's
     /// approval answers `errSecInteractionNotAllowed` at once instead of
     /// blocking the connect path on a prompt nobody can answer. The switch is
-    /// the process's; the carrier helper makes no Keychain call that should prompt.
+    /// the process's and its guard turns prompts back on (not to what they
+    /// were): every caller (`prepare` of dial and serve, `secrets`, `key`)
+    /// runs once, before its async runtime starts, in a one-shot process.
     pub(super) fn load_or_create(service: &str, account: &str) -> Result<[u8; 32], String> {
         let _no_prompt = SecKeychain::disable_user_interaction()
             .map_err(|e| format!("the Keychain could not turn its prompts off ({})", e.code()))?;

@@ -38,7 +38,7 @@ struct CloudConnectRefusedStartTests {
             _ = try await CloudMove.connected(session, invocation)
             Issue.record("a machine whose helper cannot start connected")
         } catch let failure as CloudMove.Failure {
-            #expect(failure.message == CloudMoveStrings.notConnected("Refused VM", because: "handshake: the Keychain refused the carrier key (-128)"))
+            #expect(failure.message == CloudMoveStrings.notConnected("Refused VM", because: "the Keychain refused the carrier key (-128)"))
             #expect(failure.retry == .move(machineID: id), "the card offers Retry")
         }
         // Without the fix the wait connects again for its whole 180 s (the suite's time limit fails it first).

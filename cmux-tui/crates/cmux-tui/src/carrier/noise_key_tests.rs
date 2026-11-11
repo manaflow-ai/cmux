@@ -52,6 +52,16 @@ fn a_team_signed_build_keeps_the_keychain() {
 }
 
 #[test]
+fn a_link_to_the_bundled_cmux_from_outside_the_bundle_is_that_build() {
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("home");
+    let exe = bundle(root.path(), "cmux DEV fix", "com.cmuxterm.app.debug.fix", None, b"1");
+    let shim = root.path().join("cmux");
+    std::os::unix::fs::symlink(&exe, &shim).unwrap();
+    assert_eq!(store_for(false, Some(&shim), Some(&home)), store_for(false, Some(&exe), Some(&home)));
+}
+
+#[test]
 fn an_ad_hoc_build_without_a_home_has_no_store_and_no_keychain_fallback() {
     let root = tempfile::tempdir().unwrap();
     let exe = bundle(root.path(), "cmux DEV a", "com.cmuxterm.app.debug.a", None, b"d");
@@ -134,7 +144,8 @@ fn a_key_file_others_can_read_or_of_the_wrong_size_is_refused() {
     let key = file_key::load_or_create(&path).unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
     let refused = file_key::load_or_create(&path).unwrap_err();
-    assert!(refused.contains("readable by others"), "{refused}");
+    assert!(refused.contains("open to other users"), "{refused}");
+    assert!(refused.contains(&path.display().to_string()), "the refusal names the file: {refused}");
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
     assert_eq!(file_key::load_or_create(&path).unwrap(), key);
     std::fs::write(&path, [1_u8; 31]).unwrap();

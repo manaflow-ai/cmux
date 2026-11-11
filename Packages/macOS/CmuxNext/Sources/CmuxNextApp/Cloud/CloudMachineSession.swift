@@ -397,6 +397,7 @@ final class CloudMachineSession {
     /// A start's or a move's wait: true once the daemon answers, a resume failed, or the link failed in a
     /// way no new connect changes (``linkRefused``); a paused machine resumes once, an ended link redials.
     func linkUp(within limit: Duration) async -> Bool {
+        forgetStaleRefusal()
         let beats = CloudWait.StartRedials() // what each beat does is Rust's (`start_redial`)
         return await CloudWait.holds(within: limit, redialing: CloudWait.startRedial, redial: {
             guard !linkRefused else { return }
@@ -404,6 +405,13 @@ final class CloudMachineSession {
         }) { [daemon] in
             self.resumeFailure != nil || self.linkRefused || (daemon.connection != nil && AgentTabStore.registryHost(of: daemon) != nil)
         }
+    }
+
+    /// A refusal with no connect in flight is an earlier connect's: a wait that begins now does not end on
+    /// it (its first beat connects again, which asks the helper anew). A connect a guard skipped (a script's on a
+    /// machine that is not live) would otherwise leave it set, and the wait would end at once on an old answer.
+    func forgetStaleRefusal() {
+        if !appConnecting { linkRefused = false }
     }
 
     /// The link a wait brought up holds: a live daemon and no failed resume (``linkUp(within:)`` also ends on one).

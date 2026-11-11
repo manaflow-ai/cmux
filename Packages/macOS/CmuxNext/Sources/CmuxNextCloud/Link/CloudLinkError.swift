@@ -60,7 +60,10 @@ public enum CloudLinkError: Error, Equatable, Sendable, CustomStringConvertible,
     public static func failureReason(_ error: any Error) -> String? {
         let reason: String
         switch error as? CloudLinkError {
-        case .failed(let code, let message)?, .helperRefused(let code, let message)?: reason = message.isEmpty ? code : message
+        case .failed(let code, let message)?: reason = message.isEmpty ? code : message
+        // The helper's own words without its step's name (`handshake: ...`), which says nothing to a person.
+        case .helperRefused(let code, let message)?:
+            reason = message.isEmpty ? code : message.hasPrefix(code + ": ") ? String(message.dropFirst(code.count + 2)) : message
         case .helperNotRunning(let why)?: reason = why
         case .notUp(let state)?: reason = state
         case .disconnected?, nil: return droppedReason(error)
