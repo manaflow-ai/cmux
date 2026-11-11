@@ -9,6 +9,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import shlex
 import subprocess
@@ -262,7 +263,7 @@ class InstallGitHooksTests(unittest.TestCase):
         """Only the tools the hook needs on PATH, plus a recording rustfmt."""
         bin_dir = self.root / ("bin-rustfmt" if with_rustfmt else "bin-plain")
         bin_dir.mkdir(exist_ok=True)
-        for tool in ("git", "bash", "sh", "sed", "awk", "grep", "cut", "sort", "head", "cat", "env", "dirname", "basename", "mktemp", "rm", "mv", "mkdir", "rmdir", "find", "tail"):
+        for tool in ("git", "bash", "sh", "sed", "awk", "grep", "cut", "sort", "head", "cat", "env", "dirname", "basename", "mktemp", "rm", "mv", "mkdir", "rmdir", "find", "tail", "sleep"):
             found = shutil.which(tool)
             if found and not (bin_dir / tool).exists():
                 (bin_dir / tool).symlink_to(found)
@@ -699,6 +700,60 @@ mkdir -p node_modules/.bin
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("rustup toolchain install 1.95.0", result.stderr)
         self.assertEqual(len(self.rustfmt_log.read_text().splitlines()), 1)
+
+    # A program the checkout carries: any run of it leaves ran-<name>, then it
+    # does the real tool's job (if there is one) so the hook would go on.
+    def plant(self, directory, name):
+        real = shutil.which(name, path=str(self.root / "bin-rustfmt"))
+        marker = self.root / f"ran-{name}"
+        directory.mkdir(parents=True, exist_ok=True)
+        tool = directory / name
+        tool.write_text(f"#!/bin/sh\n: > {shlex.quote(str(marker))}\n"
+                        + (f'exec {shlex.quote(real)} "$@"\n' if real else "exit 1\n"))
+        tool.chmod(0o755)
+        return marker
+
+    def test_a_checkout_rustup_on_path_never_runs(self):
+        """Codex review of #41001 (F1): rustup was called by name, so a checkout staging Rust
+        files and a rust-toolchain file ran its own rustup put ahead on PATH."""
+        self.assertEqual(self.install().returncode, 0)
+        self.stage_rust_package("cmux-tui", "2021")
+        (self.repo / "cmux-tui/rust-toolchain.toml").write_text('[toolchain]\nchannel = "1.95.0"\n')
+        base = self.formatter_env(with_rustfmt=True)["PATH"]
+        for label, entry, directory in (
+            ("absolute entry", str(self.repo / "tools/bin"), self.repo / "tools/bin"),
+            ("relative entry", "tools/bin", self.repo / "tools/bin"),
+            ("empty entry (the current directory)", "", self.repo),
+        ):
+            with self.subTest(label):
+                marker = self.plant(directory, "rustup")
+                self.rustfmt_log.unlink(missing_ok=True)
+                env = self.formatter_env(with_rustfmt=True)
+                env["PATH"] = f"{entry}{os.pathsep}{base}"
+                result = self.run_pre_commit(env)
+                (directory / "rustup").unlink()
+                self.assertFalse(marker.exists(), result.stderr)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("rustup toolchain install 1.95.0", result.stderr, "PATH's rustfmt formats instead")
+                self.assertEqual(len(self.rustfmt_log.read_text().splitlines()), 1, result.stderr)
+
+    def test_no_tool_the_checkout_puts_on_path_runs(self):
+        """The whole class: every program the hook runs (git, sed, env, rustfmt, bun...) is
+        resolved outside the checkout, so a checkout's own copy first on PATH never runs."""
+        self.assertEqual(self.install().returncode, 0)
+        self.stage_rust_package("cmux-tui", "2021")
+        (self.repo / "cmux-tui/rust-toolchain.toml").write_text('[toolchain]\nchannel = "1.95.0"\n')
+        env = self.formatter_env(with_rustfmt=True)
+        self.fake_rustup(self.root / "bin-rustfmt", "1.99.0", "/nonexistent")
+        plants = self.repo / "plants/bin"
+        names = ("git", "sed", "grep", "head", "cut", "sort", "awk", "cat", "mkdir", "mv", "rm", "find",
+                 "env", "mktemp", "tail", "sleep", "rustup", "rustfmt", "bun", "npm", "node", "swift-format")
+        markers = [self.plant(plants, name) for name in names]
+        env["PATH"] = f"{plants}{os.pathsep}{env['PATH']}"
+        result = self.run_pre_commit(env)
+        self.assertEqual([marker.name for marker in markers if marker.exists()], [], result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.rustfmt_log.read_text().splitlines()), 1, result.stderr)
 
     def test_merge_driver_does_not_follow_checked_out_script_changes(self):
         result = self.install()
@@ -1558,6 +1613,391 @@ mkdir -p node_modules/.bin
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(f"pid {holder.pid}", result.stderr)
         self.assertNotIn("85305", result.stderr)
+
+
+# Detector: every command the pre-commit hook runs is a shell builtin, a function
+# the hook defines, or a tool the hook's one resolver (resolve_tool) returned.
+# A bash tokenizer over simple commands, pipelines, lists, compound commands,
+# $(...), backticks and <(...), not a regex over lines.
+SHELL_BUILTINS = frozenset("""
+: [ alias bg bind break builtin caller cd command compgen complete compopt continue declare dirs disown
+echo enable exit export false fc fg getopts hash help history jobs kill let local logout mapfile popd
+printf pushd pwd read readarray readonly return set shift shopt suspend test times trap true type
+typeset ulimit umask unalias unset wait
+""".split())  # eval, exec, source and . run other code: never accepted as plain builtins.
+OPENING_KEYWORDS = frozenset(("if", "then", "else", "elif", "do", "while", "until", "!", "{", "time"))
+CLOSING_KEYWORDS = frozenset(("fi", "done", "}"))
+SEPARATORS = frozenset((";", "&", "&&", "||", "|", "|&", "(", "\n"))
+REDIRECTIONS = ("<<<", ">>", "&>>", "&>", ">&", "<&", "<>", ">|", "<", ">")
+OPERATORS = (";;", "&&", "||", "|&") + REDIRECTIONS + (";", "&", "|", "(", ")")
+ASSIGNMENT = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)(\[[^]]*\])?\+?=(.*)", re.S)
+# The only right-hand side that makes a variable a resolved tool: one resolve_tool call.
+RESOLVED = re.compile(r'"\$\(resolve_tool [^()`|;&]+?(?: \|\| true)?\)"')
+COPY = re.compile(r'"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?"')
+VARIABLE_WORD = re.compile(r'"?\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?"?')
+# The resolver's own interpreter: the absolute path the installer wrote beside the
+# hook, read once, then checked by the resolver's boot step.
+RESOLVER_INTERPRETER = "PYTHON3_BIN"
+# Commands that run their argument as a program; env's comes after its options.
+EXEC_WRAPPERS = {"TOOL_ENV"}
+# Unresolved commands the detector lets through. Keep it empty.
+UNRESOLVED_ALLOWLIST: frozenset = frozenset()
+
+
+class BashCommands:
+    """The simple commands a bash script runs, with its functions and assignments."""
+
+    def __init__(self, source):
+        self.source = source
+        self.commands = []  # (line, [raw words])
+        self.functions = set()
+        self.assignments = {}  # name -> [raw right-hand sides]
+        self.dynamic_assignments = []  # raw words of `printf -v "$x"` commands
+        self.parse(self.tokenize(source, 0, closer=False)[0])
+
+    def line(self, position):
+        return self.source.count("\n", 0, position) + 1
+
+    def tokenize(self, s, i, closer):
+        tokens, depth = [], 0
+        while i < len(s):
+            c = s[i]
+            if c in " \t":
+                i += 1
+            elif s.startswith("\\\n", i):
+                i += 2
+            elif c == "\n":
+                tokens.append(("op", "\n", i))
+                i += 1
+            elif c == "#":
+                i = s.find("\n", i) if "\n" in s[i:] else len(s)
+            elif c == ")" and closer and depth == 0:
+                return tokens, i + 1
+            elif s.startswith("((", i):
+                end = self.matching_paren(s, i)
+                tokens.append(("arith", s[i:end], i))
+                i = end
+            elif s[i:i + 2] in ("<(", ">("):
+                inner, end = self.tokenize(s, i + 2, closer=True)
+                self.parse(inner)
+                tokens.append(("word", s[i:end], i))
+                i = end
+            elif s.startswith("<<", i) and not s.startswith("<<<", i):
+                raise ValueError(f"line {self.line(i)}: here-documents are not parsed; use a here-string")
+            else:
+                op = next((op for op in OPERATORS if s.startswith(op, i)), None)
+                if op:
+                    depth += {"(": 1, ")": -1}.get(op, 0)
+                    tokens.append(("op", op, i))
+                    i += len(op)
+                else:
+                    end = self.word_end(s, i)
+                    tokens.append(("word", s[i:end], i))
+                    i = end
+        if closer:
+            raise ValueError("unterminated substitution")
+        return tokens, i
+
+    @staticmethod
+    def matching_paren(s, i):
+        depth = 0
+        for j in range(i, len(s)):
+            depth += {"(": 1, ")": -1}.get(s[j], 0)
+            if depth == 0:
+                return j + 1
+        raise ValueError("unterminated arithmetic")
+
+    def dollar(self, s, i):
+        """s[i] is $: the index after the expansion, parsing any command substitution in it."""
+        if s.startswith("$((", i):
+            return self.matching_paren(s, i + 1)
+        if s.startswith("$(", i):
+            inner, end = self.tokenize(s, i + 2, closer=True)
+            self.parse(inner)
+            return end
+        if s.startswith("${", i):
+            depth, j = 0, i + 1
+            while j < len(s):
+                if s[j] == "\\":
+                    j += 2
+                    continue
+                if s[j] == "$" and j + 1 < len(s) and s[j + 1] in "({":
+                    j = self.dollar(s, j)
+                    continue
+                if s[j] == '"':
+                    j = self.double_quoted(s, j + 1)
+                    continue
+                depth += {"{": 1, "}": -1}.get(s[j], 0)
+                j += 1
+                if depth == 0:
+                    return j
+            raise ValueError("unterminated ${")
+        if s.startswith("$'", i):
+            j = i + 2
+            while s[j] != "'":
+                j += 2 if s[j] == "\\" else 1
+            return j + 1
+        return i + 1
+
+    def backticks(self, s, i):
+        j = i
+        while s[j] != "`":
+            j += 2 if s[j] == "\\" else 1
+        nested = BashCommands(s[i:j].replace("\\`", "`"))
+        self.commands += nested.commands
+        self.functions |= nested.functions
+        for name, values in nested.assignments.items():
+            self.assignments.setdefault(name, []).extend(values)
+        self.dynamic_assignments += nested.dynamic_assignments
+        return j + 1
+
+    def double_quoted(self, s, i):
+        while s[i] != '"':
+            if s[i] == "\\":
+                i += 2
+            elif s[i] == "$":
+                i = self.dollar(s, i)
+            elif s[i] == "`":
+                i = self.backticks(s, i + 1)
+            else:
+                i += 1
+        return i + 1
+
+    def word_end(self, s, i):
+        start = i
+        while i < len(s) and s[i] not in " \t\n;&|()<>":
+            if s[i] == "\\":
+                i += 2
+            elif s[i] == "'":
+                i = s.index("'", i + 1) + 1
+            elif s[i] == '"':
+                i = self.double_quoted(s, i + 1)
+            elif s[i] == "`":
+                i = self.backticks(s, i + 1)
+            elif s[i] == "$":
+                i = self.dollar(s, i)
+            else:
+                i += 1
+        if s.startswith("(", i) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*\+?=", s[start:i]):
+            i += 1  # an array assignment: NAME=(words...)
+            while s[i] != ")":
+                if s[i] in " \t\n":
+                    i += 1
+                elif (end := self.word_end(s, i)) > i:
+                    i = end
+                else:
+                    raise ValueError(f"line {self.line(i)}: unparsed array assignment")
+            i += 1
+        return i
+
+    def assign(self, name, value):
+        self.assignments.setdefault(name, []).append(value)
+
+    def parse(self, tokens):
+        i, expect_command, cases = 0, True, []
+        while i < len(tokens):
+            kind, text, position = tokens[i]
+            if kind == "op" and text in SEPARATORS:
+                expect_command, i = True, i + 1
+            elif kind == "op" and text == ";;":
+                cases[-1] = "pattern"
+                expect_command, i = True, i + 1
+            elif kind == "op" and text == ")":
+                expect_command, i = False, i + 1
+            elif kind == "op":  # a redirection and its target
+                i += 2
+            elif cases and cases[-1] == "pattern":
+                if text == "esac":
+                    cases.pop()
+                    expect_command, i = False, i + 1
+                    continue
+                while not (tokens[i][0] == "op" and tokens[i][1] == ")"):
+                    i += 1
+                cases[-1] = "body"
+                expect_command, i = True, i + 1
+            elif not expect_command or kind == "arith":
+                expect_command, i = False, i + 1
+            elif ASSIGNMENT.fullmatch(text):
+                match = ASSIGNMENT.fullmatch(text)
+                self.assign(match.group(1), match.group(3))
+                i += 1
+            elif text in OPENING_KEYWORDS:
+                i += 1
+            elif text in CLOSING_KEYWORDS:
+                expect_command, i = False, i + 1
+            elif text == "esac":
+                cases.pop()
+                expect_command, i = False, i + 1
+            elif text == "case":
+                if tokens[i + 2][1] != "in":
+                    raise ValueError(f"line {self.line(position)}: unparsed case")
+                cases.append("pattern")
+                i += 3
+            elif text in ("for", "select"):
+                if tokens[i + 1][0] == "word":
+                    self.assign(tokens[i + 1][1], "<loop>")
+                while tokens[i][1] not in (";", "\n"):
+                    i += 1
+            elif text == "[[":
+                while tokens[i][1] != "]]":
+                    i += 1
+                expect_command, i = False, i + 1
+            elif text == "function":
+                raise ValueError(f"line {self.line(position)}: write functions as name() {{")
+            elif i + 2 < len(tokens) and tokens[i + 1][1] == "(" and tokens[i + 2][1] == ")":
+                self.functions.add(text)
+                i += 3
+            else:
+                words = []
+                while i < len(tokens) and not (tokens[i][0] == "op" and tokens[i][1] in SEPARATORS | {";;", ")"}):
+                    if tokens[i][0] == "op":
+                        i += 2
+                    else:
+                        words.append(tokens[i][1])
+                        i += 1
+                self.command(position, words)
+                expect_command = False
+
+    def command(self, position, words):
+        self.commands.append((self.line(position), words))
+        name, arguments = words[0], words[1:]
+        if name in ("local", "declare", "typeset", "export", "readonly"):
+            for word in arguments:
+                if ASSIGNMENT.fullmatch(word):
+                    self.assign(ASSIGNMENT.fullmatch(word).group(1), ASSIGNMENT.fullmatch(word).group(3))
+        elif name == "read":
+            skip = False
+            for word in arguments:
+                if skip:
+                    skip = False
+                elif word in ("-a", "-d", "-n", "-N", "-p", "-t", "-u", "-i"):
+                    skip = True
+                elif not word.startswith("-"):
+                    self.assign(word, "<read>")
+        elif name == "printf" and arguments[:1] == ["-v"]:
+            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", arguments[1]):
+                self.assign(arguments[1], "<printf>")
+            else:
+                self.dynamic_assignments.append(words)
+
+    def resolved_variables(self):
+        resolved, changed = set(), True
+        while changed:
+            changed = False
+            for name, values in self.assignments.items():
+                if name not in resolved and all(
+                        RESOLVED.fullmatch(value) or (COPY.fullmatch(value) and COPY.fullmatch(value).group(1) in resolved)
+                        for value in values):
+                    resolved.add(name)
+                    changed = True
+        return resolved
+
+    def violations(self):
+        """Every command that is neither a builtin, a function here, nor a resolved tool."""
+        resolved = self.resolved_variables()
+        if self.assignments.get(RESOLVER_INTERPRETER) == ["<read>"]:
+            resolved.add(RESOLVER_INTERPRETER)
+
+        def is_resolved(variable):
+            # TOOL_* variables are written only by the resolver's boot loader:
+            # none may be assigned anywhere else.
+            return variable in resolved or (variable.startswith("TOOL_") and variable not in self.assignments)
+
+        found = []
+
+        def check(line, words):
+            word = words[0]
+            if not any(c in word for c in "$\"'`\\"):
+                if word in ("command", "builtin") and len(words) > 1 and words[1] not in ("-v", "-V"):
+                    check(line, words[1:])
+                elif word in SHELL_BUILTINS or word in self.functions:
+                    pass
+                elif word not in UNRESOLVED_ALLOWLIST:
+                    found.append((line, word))
+                return
+            match = VARIABLE_WORD.fullmatch(word)
+            if not match or not is_resolved(match.group(1)):
+                found.append((line, word))
+                return
+            if match.group(1) in EXEC_WRAPPERS:
+                rest = list(words[1:])
+                while rest and (rest[0].startswith("-") or ASSIGNMENT.fullmatch(rest[0])):
+                    rest = rest[2:] if rest[0] in ("-u", "-C", "-S") else rest[1:]
+                if rest:
+                    check(line, rest)
+
+        for line, words in self.commands:
+            check(line, words)
+        return found
+
+
+class PreCommitToolResolutionDetectorTests(unittest.TestCase):
+    HOOK = SOURCE / "scripts/git-hooks/pre-commit"
+
+    def test_every_command_the_pre_commit_hook_runs_is_a_builtin_or_a_resolved_tool(self):
+        """Codex review of #41001 (F1): `rustup which` ran by name, ahead of every check."""
+        hook = BashCommands(self.HOOK.read_text(encoding="utf-8"))
+        self.assertEqual(hook.violations(), [], "run it through resolve_tool, never by name")
+        self.assertEqual(UNRESOLVED_ALLOWLIST, frozenset())
+
+    def test_only_the_boot_loader_writes_tool_variables(self):
+        source = self.HOOK.read_text(encoding="utf-8")
+        hook = BashCommands(source)
+        self.assertEqual(hook.dynamic_assignments, [["printf", "-v", '"$name"', "'%s'", '"$value"']])
+        self.assertIn("tool) [[ \"$name\" =~ ^TOOL_[A-Z0-9_]+$ ]] && printf -v", source)
+        self.assertEqual(hook.assignments.get(RESOLVER_INTERPRETER), ["<read>"])
+        self.assertIn('IFS= read -r PYTHON3_BIN < "$PYTHON_PATH_FILE"', source)
+
+    # The hook defines resolve_tool; a fixture script gets a stand-in.
+    def violations(self, script):
+        return [word for _, word in BashCommands("resolve_tool() { :; }\n" + script).violations()]
+
+    def test_detector_catches_an_unresolved_rustup(self):
+        self.assertEqual(self.violations(
+            'pinned="$(rustup which --toolchain "$toolchain" rustfmt 2>/dev/null || true)"\n'), ["rustup"])
+
+    def test_detector_catches_names_in_every_command_position(self):
+        cases = {
+            "x=`sed -n p file`\n": ["sed"],
+            '"$TOOL_GIT" diff | grep -q x\n': ["grep"],
+            'while read -r line; do :; done < <(git diff --cached)\n': ["git"],
+            'true && rustfmt a.rs\n': ["rustfmt"],
+            'if ! cat f >/dev/null; then echo; fi\n': ["cat"],
+            'f() { local d; d="$(cd / && rustup show)"; }\n': ["rustup"],
+            'case "$1" in a|b) bun install ;; *) : ;; esac\n': ["bun"],
+            '[[ -n "$(head -n 1 f)" ]] && echo\n': ["head"],
+            'echo "$(printf "%s" "$(node -v)")"\n': ["node"],
+            'x="${y:-$(swift-format --version)}"\n': ["swift-format"],
+            '"$TOOL_ENV" -u BUN_OPTIONS rustup which\n': ["rustup"],
+            'X=/tmp/rustup\n"$X" which\n': ['"$X"'],
+            'f() { "$@"; }\n': ['"$@"'],
+            'eval "$cmd"\n': ["eval"],
+            'source ./x.sh\n': ["source"],
+            'command rustup which\n': ["rustup"],
+            'R="$(resolve_tool rustup || echo ./rustup)"\n"$R" which\n': ['"$R"'],
+            'TOOL_RUSTUP=./rustup\n"$TOOL_RUSTUP" which\n': ['"$TOOL_RUSTUP"'],
+        }
+        for script, expected in cases.items():
+            with self.subTest(script=script):
+                self.assertEqual(self.violations(script), expected)
+
+    def test_detector_accepts_builtins_functions_and_resolved_tools(self):
+        script = (
+            'f() { printf "%s\\n" "$1"; }\n'
+            'R="$(resolve_tool rustup || true)"\n'
+            'P="$R"\n'
+            'tool="$(resolve_tool "$1")" || exit 1\n'
+            'if [[ -n "$R" ]] && (( 1 > 0 )); then "$P" which; f x | "$TOOL_GREP" -q x; fi\n'
+            'for ((i = 0; i < 2; i++)); do "$TOOL_SLEEP" 1; done\n'
+            'for p in a b; do case "$p" in a) : ;; esac; done\n'
+            '"$TOOL_ENV" -u BUN_OPTIONS "$tool" install\n'
+            'command -v rustup >/dev/null\n'
+        )
+        self.assertEqual(self.violations(script), [])
+
+    def test_detector_refuses_what_it_cannot_parse(self):
+        with self.assertRaises(ValueError):
+            BashCommands("cat <<EOF\nx\nEOF\n")
 
 
 if __name__ == "__main__":
