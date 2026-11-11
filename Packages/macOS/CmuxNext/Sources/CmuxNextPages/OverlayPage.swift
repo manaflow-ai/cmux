@@ -3,7 +3,7 @@ public import CmuxNextSettings
 
 public extension PageDescriptor {
     /// The overlay page (webviews/src/pages/overlay): the React drawing of what shows over a window's
-    /// content, dialogs (`#/dialog`) and toasts (`#/toasts`). Its native owners stream it state and take
+    /// content: dialogs (`#/dialog`); toasts are native views (`CmuxToastOverlayHost`). Its native owners stream it state and take
     /// its presses under `cmux.overlay.`; it calls nothing else. A first click in an inactive window
     /// only brings the window forward (no dialog button answers it).
     static let overlay = PageDescriptor(id: "cmux.overlay", resource: "overlay", namespaces: ["cmux.overlay."],
@@ -22,8 +22,7 @@ public final class OverlayPagePool<Provider: PageProvider> {
     /// Its views refuse page probes (``PageWebView/refusesProbes``) from the moment they are made: a pool of
     /// overlays that show what automation must never read or answer (dialogs: a typed password, a consent).
     public let refusesProbes: Bool
-    /// A first click in an inactive window reaches its views' pages (``PageEngineOptions/acceptsFirstMouse``):
-    /// the toasts', whose buttons answered the first click as native controls before they moved to the page.
+    /// A first click in an inactive window reaches its views' pages (``PageEngineOptions/acceptsFirstMouse``).
     /// A dialog's pool keeps the descriptor's answer: a first click only brings its window forward.
     public let acceptsFirstMouse: Bool
     /// The app's overlay pages' shared web content process (``PageOverlayProcess``); nil gives each view its own.

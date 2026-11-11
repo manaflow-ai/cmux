@@ -2353,7 +2353,7 @@ class HookTests(Fixture):
                          "scripts/merge-pbxproj.py", "scripts/merge-baseline.py", "scripts/merge-daemon-capabilities.py", "scripts/merge-insertions.py",
                          "scripts/ci/merge_main_resolver.py", "scripts/ci/validate_test_execution_registry.py",
                          "scripts/ci/test_execution_registry.py", "scripts/ci/workload_entrypoints.py",
-                         "scripts/normalize-pbxproj.py", *checks):
+                         "scripts/normalize-pbxproj.py", "scripts/webviews_bun_version.py", *checks):
             source, target = SOURCE / relative, self.repo / relative
             if not source.exists() or target.exists():
                 continue
