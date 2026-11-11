@@ -264,10 +264,28 @@ jobs:
           # right side. The string '0' is truthy, so a push really fetches full history.
           fetch-depth: ${{ github.event_name == 'push' && '0' || '2' }}
           filter: blob:none
-          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          # Only what a render reads: the folders and files of the `paths` list above (every routed path
+          # is inside these; tests/test_ci_gallery_health_merge_ref.py keeps it so), and scripts/ and
+          # .github/ for this job's own tools. The whole tree minus verify/ fetched ~600 MB of blobs this
+          # job never opens (cmux-tui, Packages' Swift, web/, docs): ~60 s of every shard's ~8-minute job
+          # (2026-11-11 timing records). `git restore ... -- .` in the base replay keeps to these paths.
+          sparse-checkout-cone-mode: false
           sparse-checkout: |
-            /*
-            !/cmux-next-ios/verify/
+            /webviews/
+            /scripts/
+            /.github/
+            /config/vite-plus/
+            /schemas/
+            /design/icons/neko-candidates/
+            /Resources/ghostty/themes/
+            /Resources/cmux-themes/
+            /Resources/markdown-viewer/
+            /Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/
+            /Packages/macOS/CmuxNext/Sources/**/*.xcstrings
+            /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WebTheme.swift
+            /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift
+            /web/data/model-catalog/
+            /release-notes/next/highlights/
           persist-credentials: false
 
       - name: Resolve the head and the merge
@@ -322,8 +340,14 @@ jobs:
           BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
+          # Each part in its own log group, so its time shows in the log and in the controller's
+          # /v1/github/job-groups: the step takes ~45 s a shard while bun install (~1.5 s) and touched.ts
+          # alone (~1.5 s on Linux) explain little of it (2026-11-11). Find the cost before cutting it.
           cd webviews
+          echo "::group::bun install"
           bun install --frozen-lockfile
+          echo "::endgroup::"
+          echo "::group::changed files"
           if [ "$EVENT" = pull_request ]; then
             # The merge's first parent is the base it was merged with: the diff is the pull request's change.
             git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
@@ -336,8 +360,12 @@ jobs:
             # A new branch tip with no previous commit to compare: render everything.
             echo .github/workflows/gallery-health.yml > "$RUNNER_TEMP/changed.txt"
           fi
+          echo "$(wc -l < "$RUNNER_TEMP/changed.txt") changed files"
+          echo "::endgroup::"
           if [ -s "$RUNNER_TEMP/changed.txt" ]; then
+            echo "::group::touched entries"
             bun scripts/gallery/touched.ts --changed "$RUNNER_TEMP/changed.txt" --out "$RUNNER_TEMP/touched.json"
+            echo "::endgroup::"
             # The checker itself changed: render everything with it. So does a routed file no entry
             # imports (a theme, a font, a string catalog, a lockfile): it is global to every page, and
             # rendering nothing would pass with no verdict.
@@ -353,6 +381,35 @@ jobs:
           else
             echo 'all=false' >> "$GITHUB_OUTPUT"
             echo 'ids=' >> "$GITHUB_OUTPUT"
+          fi
+
+      # Merge-time signal for the job's own time (cmuxterm-hq docs/handbook/fast-job-outgrows-its-budget.md):
+      # the gallery grows a few cases with most pull requests, and at a fixed shard count each shard's
+      # render grows with it, from ~15 to ~24 minutes in four days before anyone saw it (2026-11-07..11).
+      # A full render of 11,424 cases over 16 shards (714 a shard) ran its job in about 8.5 minutes at p90
+      # against a 10-minute budget (2026-11-11). The pull request that takes a shard past
+      # MAX_CASES_PER_SHARD fails here, naming the shard count that fits, so the matrix grows with the
+      # gallery instead of the job's time. Shard 0 only: one error, not sixteen.
+      - name: Hold each shard within its time budget
+        # Before the render and the base replay: the replay restores the base's webviews/, which would then be
+        # counted. It goes on so the render still gives its verdict; "Fail past the case budget" fails the job.
+        id: cap
+        if: ${{ !cancelled() && matrix.shard == 0 && steps.entries.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          SHARDS: ${{ strategy.job-total }}
+          MAX_CASES_PER_SHARD: "800"
+        run: |
+          set -euo pipefail
+          cd webviews
+          bun scripts/gallery/manifest.ts --frame component --out "$RUNNER_TEMP/full-manifest.json"
+          cases=$(jq length "$RUNNER_TEMP/full-manifest.json")
+          per=$(( (cases + SHARDS - 1) / SHARDS ))
+          need=$(( (cases + MAX_CASES_PER_SHARD - 1) / MAX_CASES_PER_SHARD ))
+          echo "a full render is $cases cases: $per a shard over $SHARDS shards (at most $MAX_CASES_PER_SHARD)"
+          if [ "$per" -gt "$MAX_CASES_PER_SHARD" ]; then
+            echo "::error title=gallery health outgrows its shards::a full render is $cases cases, $per a shard over $SHARDS shards; past $MAX_CASES_PER_SHARD a shard's job runs over its 10-minute budget. Raise the matrix in .github/workflows/gallery-health.yml (and --shard-count) to $need shards."
+            exit 1
           fi
 
       # GITHUB_ENV takes effect in the next step: resolve the browser before either head or base
@@ -436,7 +493,10 @@ jobs:
           # Everything but the checker goes back to the base, so only the webviews tree differs.
           git restore --source="$BASE_SHA" --staged --worktree -- . ':(exclude)scripts/gallery-matrix'
           cd webviews
+          # Each part in its own log group, so the replay's time is attributed (job-groups) before it is cut.
+          echo "::group::base bun install"
           bun install --frozen-lockfile
+          echo "::endgroup::"
           bun scripts/gallery/manifest.ts --frame component --entries "$entries" --out "$RUNNER_TEMP/base-entries.json"
           # Every case (theme, width) of each red state, and nothing else. A state the base does not have
           # renders nothing there, so the classifier calls it the head's own.
@@ -444,7 +504,9 @@ jobs:
             | map(select(((.params.entry // "") + "#" + (.params.variant // "")) as $state | any($red[]; . == $state)))' \
             "$RUNNER_TEMP/base-entries.json" > "$RUNNER_TEMP/base-manifest.json"
           echo "base replay: $(jq length "$RUNNER_TEMP/base-manifest.json") of $(jq length "$RUNNER_TEMP/base-entries.json") cases of those entries"
+          echo "::group::base gallery build"
           CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/base-gallery" bun run gallery:build
+          echo "::endgroup::"
           cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
           # Red on the base is the point here: its exit says so, and its verdict is read from health.json
           # below. A replay that wrote no health.json gave no verdict, and says so here.
@@ -456,8 +518,10 @@ jobs:
           bases=()
           for pass in 1 2; do
             rc=0
+            echo "::group::base render $pass"
             bun health.ts --manifest "$RUNNER_TEMP/base-manifest.json" --gallery-dir "$RUNNER_TEMP/base-gallery" \
               --retries 0 --concurrency 1 --output-dir "$RUNNER_TEMP/health/base/$pass" || rc=$?
+            echo "::endgroup::"
             if [ ! -s "$RUNNER_TEMP/health/base/$pass/health.json" ]; then
               echo "::error::the base replay of $entries wrote no health.json (health.ts exited $rc): no base verdict, so nothing is excused"
               exit 1
@@ -469,6 +533,12 @@ jobs:
             --base-name "base ${BASE_SHA:0:12}" --annotate | tee "$RUNNER_TEMP/verdict.txt" || rc=$?
           grep -v '^::' "$RUNNER_TEMP/verdict.txt" >> "$GITHUB_STEP_SUMMARY" || true
           exit "$rc"
+
+      - name: Fail past the case budget
+        if: ${{ !cancelled() && steps.cap.outcome == 'failure' }}
+        run: |
+          echo "::error::gallery health outgrows its shards: see the step \"Hold each shard within its time budget\""
+          exit 1
 
       - name: Record what was rendered
         if: ${{ always() && steps.resolve.outcome == 'success' }}

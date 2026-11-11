@@ -710,21 +710,23 @@ def scan_file(path, deadline=math.inf):
             whole, rest = block[:cut], block[cut - carried:]
             # `dead`: a line whose escapes lead nowhere. escape_hit reads the whole line, so each of its other `\u00`
             # hits would read it again: a line of many escapes cost its length times their number.
-            seen_to, last, dead = 0, -1, -1
+            # `start` and `end` bound the line of the last hit (`end` at its newline): a hit before `end` is on that line,
+            # and the next line's bounds are searched from there, so each byte is searched once however many hits a line has.
+            seen_to, last, dead, start, end = 0, -1, -1, 0, -1
             for hit in PREFILTER.finditer(whole):
                 if time.monotonic() > deadline:
                     raise OutOfTime(out)
-                start = whole.rfind(b"\n", 0, hit.start()) + 1
+                if hit.start() > end:
+                    start = whole.rfind(b"\n", max(end, 0), hit.start()) + 1
+                    end = whole.find(b"\n", hit.start())
+                    end = len(whole) if end < 0 else end
                 if start == last or (start == dead and hit.group(0) == b"\\u00"):
                     continue
-                stop_at = whole.find(b"\n", hit.start())
-                if escape_hit(hit, whole[start:len(whole) if stop_at < 0 else stop_at].decode("utf-8", "replace")):
+                if escape_hit(hit, whole[start:end].decode("utf-8", "replace")):
                     dead = start
                     continue
                 line += whole.count(b"\n", seen_to, start)
                 seen_to = last = start
-                end = whole.find(b"\n", hit.start())
-                end = len(whole) if end < 0 else end
                 seen = {what for _, what in scan_text(whole[start:end].decode("utf-8", "replace"))}
                 # A value on a later line: the stretch after the hit, read ahead past this chunk's end if need be
                 # (what is read ahead is kept for the next chunk).
