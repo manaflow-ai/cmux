@@ -9938,5 +9938,388 @@ class DerivedStatusByParts(StepFixture, unittest.TestCase):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[self.VERDICT], **self.PURPOSE)
 
 
+
+# cmux#41205 at ba8ff399 and cmux#41220 at c7b757f0 (2026-11-11): both red in cmux-next-guards.yml's own-change job
+# (step "cmux-next spawn-owner ratchet", job 130449502223) and tooling-tests (test_spawn_owner_ratchet.py's
+# test_the_committed_baseline_holds_on_this_tree, job 130449577217), for `check-spawn-owner: cmux-tui/crates/acpmux/
+# src/hub/remote_table_bench.rs has 1 spawn line(s) with no owner (a new file).`, a file #41040 added on base. #41227
+# fixed it on base and run 43000928251 passed both jobs, but merge_hold and the broker's update_branch refused: "not
+# a declared guard job (GUARD_JOBS)". The jobs, their steps and logs are the real ones (tests/fixtures/
+# base_red_excuse_spawn_owner: the head jobs, the base run's two jobs, the merge-base run 42998467090's two jobs).
+SPAWN_FIXTURES = Path(__file__).resolve().parent / "fixtures/base_red_excuse_spawn_owner"
+SPAWN_HEAD, SPAWN_MERGE_BASE, SPAWN_BASE = ("ba8ff399dcc62d673464541c395094e92193c4bd",
+                                            "0238fcd45607926b7546c5b1714f4e4a75cb2689",
+                                            "83cfd4d7e998b01b6fd31b45fee39658ed1f079f")
+SPAWN_HEAD_RUN, SPAWN_BASE_RUN, SPAWN_PRIOR_RUN, SPAWN_WORKFLOW = 42998810174, 43000928251, 42998467090, 379181907
+OWN_CHANGE = "cmux-next size cap, crash ratchet, localization debt ratchet, no new generated files"
+
+
+class SpawnOwnerGitHub:
+    """GitHub as judge() read it for cmux#41205 at ba8ff399, from the real jobs and logs; CHANGED is the PR's diff."""
+
+    def __init__(self, changed=("tests/test_ci_sparse_checkout_imports.py",), placed=True):
+        self.jobs, self.logs = {}, {}
+        for job_id in (130449502223, 130449577217, 130456563743, 130456666797, 130448365318, 130448465080):
+            self.jobs[job_id] = json.loads((SPAWN_FIXTURES / f"job-{job_id}.json").read_text())
+            if job_id in (130456563743, 130456666797):
+                continue  # the base run's passing jobs: their steps are read, never their logs
+            text = (SPAWN_FIXTURES / f"job-{job_id}.log").read_text()
+            self.logs[job_id] = text
+            if placed:
+                # The real stamps put the runner's own steps and the next step in one second, which step_owners does
+                # not place (cmux#41220 places them by the workflow's step headers). PLACED serves each red job as
+                # its one failed step's real lines, framed (framed_steps, framed_log): every line it prints, as
+                # printed, at times step_owners places.
+                self.jobs[job_id]["steps"], self.logs[job_id] = self.failed_step_only(self.jobs[job_id], text)
+        self.changed = list(changed)
+        self.runs = {
+            SPAWN_HEAD_RUN: {"id": SPAWN_HEAD_RUN, "workflow_id": SPAWN_WORKFLOW, "event": "pull_request",
+                             "head_sha": SPAWN_HEAD, "created_at": "2026-11-11T09:52:21Z", "name": "cmux-next guards",
+                             "path": ".github/workflows/cmux-next-guards.yml", "status": "completed",
+                             "conclusion": "failure"},
+            SPAWN_BASE_RUN: {"id": SPAWN_BASE_RUN, "workflow_id": SPAWN_WORKFLOW, "event": "push",
+                             "head_branch": "feat-cmux-next", "head_sha": SPAWN_BASE, "created_at": "2026-11-11T10:07:24Z",
+                             "status": "completed", "conclusion": "failure"},
+            SPAWN_PRIOR_RUN: {"id": SPAWN_PRIOR_RUN, "workflow_id": SPAWN_WORKFLOW, "event": "push",
+                              "head_branch": "feat-cmux-next", "head_sha": SPAWN_MERGE_BASE,
+                              "created_at": "2026-11-11T09:49:55Z", "status": "completed", "conclusion": "failure"},
+        }
+        self.pull = {"number": 41205, "state": "open", "mergeable": True, "mergeable_state": "clean",
+                     "labels": [{"name": "risk:low"}], "user": {"login": "agent-author", "type": "User"},
+                     "author_association": "MEMBER", "body": "", "head": {"sha": SPAWN_HEAD},
+                     "base": {"ref": "feat-cmux-next"}}
+        self.comments = [ship_comment(SPAWN_HEAD)]
+        self.routes: list[str] = []
+
+    def json(self, route, *, paginate=False):
+        self.routes.append(route)
+        path, _, query = route.partition("?")
+        if f"/compare/feat-cmux-next...{SPAWN_HEAD}" in route:
+            return {"merge_base_commit": {"sha": SPAWN_MERGE_BASE,
+                                          "commit": {"committer": {"date": "2026-11-11T09:49:40Z"}}},
+                    "files": [{"filename": name} for name in self.changed]}
+        if f"/compare/{SPAWN_MERGE_BASE}...{SPAWN_BASE}" in route:
+            return {"status": "ahead"}
+        if "/actions/runs/" in path and path.endswith("/jobs"):
+            run = int(path.split("/actions/runs/", 1)[1].split("/", 1)[0])
+            return [{"jobs": [copy.deepcopy(job) for job in self.jobs.values() if job["run_id"] == run]}]
+        if f"/actions/workflows/{SPAWN_WORKFLOW}/runs" in path:
+            runs = [copy.deepcopy(run) for run in self.runs.values() if run["event"] == "push"]
+            if "head_sha=" in query:
+                sha = query.split("head_sha=", 1)[1].split("&", 1)[0]
+                runs = [run for run in runs if run["head_sha"] == sha]
+            if "created=" in query:
+                runs = [run for run in runs if run["id"] == SPAWN_PRIOR_RUN]
+            return {"workflow_runs": sorted(runs, key=lambda run: run["created_at"], reverse=True)}
+        if "/actions/runs?head_sha=" in route:
+            return [{"total_count": 1, "workflow_runs": [copy.deepcopy(self.runs[SPAWN_HEAD_RUN])]}]
+        if "/actions/runs/" in path:
+            return copy.deepcopy(self.runs[int(path.rsplit("/", 1)[1])])
+        if path.endswith("/annotations"):
+            return [[]] if paginate else []
+        if path.endswith(f"/commits/{SPAWN_HEAD}/pulls"):
+            return [self.pull]
+        if path.endswith("/pulls/41205"):
+            return copy.deepcopy(self.pull)
+        if path.endswith("/issues/41205/comments"):
+            return [list(self.comments)] if paginate else list(self.comments)
+        if path.endswith("/pulls/41205/reviews"):
+            return [[]] if paginate else []
+        if f"/commits/{SPAWN_MERGE_BASE}/check-runs" in path:
+            name = urllib.parse.unquote(query.split("check_name=", 1)[1].split("&", 1)[0])
+            return {"check_runs": [{"name": name, "status": "completed", "conclusion": job["conclusion"]}
+                                   for job in self.jobs.values() if job["run_id"] == SPAWN_PRIOR_RUN
+                                   and job["name"] == name]}
+        raise AssertionError(route)
+
+    @staticmethod
+    def failed_step_only(job, text):
+        """(steps, log) of JOB with only its one failed step, whose section of TEXT is the one with an error line."""
+        (step,) = [step for step in job["steps"] if step["conclusion"] == "failure"]
+        after = next(later for later in job["steps"] if later["number"] > step["number"]
+                     and later["conclusion"] == "success")  # the step that ran next, so the red one is not last
+        lines = [excuse.STAMP.sub("", line).lstrip("\ufeff") for line in text.splitlines()]
+        starts = [n for n, line in enumerate(lines) if excuse.STEP_START.match(line)] + [len(lines)]
+        (at,) = [k for k, (a, b) in enumerate(zip(starts, starts[1:]))
+                 if any(line.startswith("##[error]") for line in lines[a:b])]
+        section, header = lines[starts[at]:starts[at + 1]], lines[starts[at + 1]]
+        return (framed_steps([(step["name"], "failure", 3, 9), (after["name"], "success", 10, 12)]),
+                framed_log([(step["name"], 3, line) for line in section] + [(after["name"], 10, header)],
+                           job["name"]))
+
+    def log(self, repo, job):
+        return self.logs[job["id"]]
+
+    def run(self, args):
+        # SuiteChecks' GraphQL read: each suite's check runs of the name, from these jobs.
+        assert args[:2] == ["api", "graphql"], args
+        query = next(arg for arg in args if arg.startswith("query="))
+        name = next(arg for arg in args if arg.startswith("name="))[len("name="):]
+        return json.dumps({"data": {"nodes": [
+            {"id": f"CS_{run}", "checkRuns": {"pageInfo": {"hasNextPage": False}, "nodes": [
+                {"conclusion": (job["conclusion"] or "").upper() or None}
+                for job in self.jobs.values() if job["run_id"] == int(run) and job["name"] == name]}}
+            for run in re.findall(r'"CS_(\d+)"', query)]}})
+
+
+class SpawnOwnerFixedOnBase(unittest.TestCase):
+    """cmux#41205's two cmux-next-guards.yml reds are fixed on base: excused for a land and for update_branch's base
+    merge, and refused when the PR's diff reaches what the check reads."""
+
+    def judge(self, github, purpose=None):
+        return excuse.judge(REPO, "feat-cmux-next", SPAWN_HEAD, [SPAWN_HEAD_RUN], github, purpose=purpose)
+
+    def test_41205_at_ba8ff399_is_fixed_on_base_for_a_land(self):
+        said = self.judge(SpawnOwnerGitHub())
+        self.assertEqual(len(said), 2, said)
+        own = next(line for line in said if line.startswith(f"excused '{OWN_CHANGE}': fixed on base ("))
+        self.assertIn(f"passes at {SPAWN_BASE[:12]} in feat-cmux-next run {SPAWN_BASE_RUN}", own)
+        self.assertIn("PR does not touch scripts/cmux-next/check-spawn-owner.py, "
+                      "scripts/cmux-next/spawn-owner-baseline.tsv, cmux-tui/crates/acpmux/", own)
+        self.assertIn("check-spawn-owner cmux-tui/crates/acpmux/src/hub/remote_table_bench.rs: 1 spawn line(s) with "
+                      "no owner (a new file)", own)
+        tooling = next(line for line in said if line.startswith("excused 'tooling-tests': fixed on base ("))
+        self.assertIn("PR does not touch tests/test_spawn_owner_ratchet.py, tests/git_fixture_env.py, "
+                      "scripts/cmux-next/check-spawn-owner.py", tooling)
+        self.assertIn("test_the_committed_baseline_holds_on_this_tree", tooling)
+
+    def test_41205_at_ba8ff399_is_fixed_on_base_for_update_branch(self):
+        said = self.judge(SpawnOwnerGitHub(), purpose=excuse.PER_STEP_PURPOSE)
+        self.assertEqual(sorted(line.split("': ", 1)[0] for line in said),
+                         [f"excused '{OWN_CHANGE}", "excused 'tooling-tests"])
+        self.assertTrue(all(": fixed on base (" in line for line in said), said)
+
+    def test_the_real_stamps_get_a_base_merge_and_no_land_until_they_are_placed(self):
+        # As GitHub serves them: step_owners does not place these logs (the runner's steps share a second with the
+        # next one), so a land is refused on that, never on GUARD_JOBS; update_branch's base merge gets through.
+        with self.assertRaisesRegex(excuse.Refused, "does not map one to one onto its steps") as raised:
+            self.judge(SpawnOwnerGitHub(placed=False))
+        self.assertNotIn("not a declared guard job", str(raised.exception))
+        said = self.judge(SpawnOwnerGitHub(placed=False), purpose=excuse.PER_STEP_PURPOSE)
+        self.assertEqual(sorted(line.split("': ", 1)[0] for line in said),
+                         [f"excused '{OWN_CHANGE}", "excused 'tooling-tests"])
+        self.assertTrue(all(": fixed on base (run 42998810174 / " in line for line in said), said)
+
+    def test_the_per_step_reading_matches_the_finding_with_the_merge_bases(self):
+        # No SHIP at the head: the job-level rule refuses, and update_branch's per-step reading matches the spawn-owner
+        # step's finding (test_reds.CHECK_RULE) with the merge-base run's, where the red was the base's.
+        github = SpawnOwnerGitHub()
+        github.comments = []
+        said = self.judge(github, purpose=excuse.PER_STEP_PURPOSE)
+        own = next(line for line in said if line.startswith(f"excused '{OWN_CHANGE}': fixed on base ("))
+        self.assertIn("step 'cmux-next spawn-owner ratchet': passes in feat-cmux-next run 43000928251", own)
+        self.assertIn(f"red in feat-cmux-next run {SPAWN_PRIOR_RUN}", own)
+        # A finding the merge-base did not have is the PR's own: the per-step reading refuses it.
+        github = SpawnOwnerGitHub()
+        github.comments = []
+        github.logs[130448365318] = github.logs[130448365318].replace("remote_table_bench.rs", "other_bench.rs")
+        evidence = excuse.step_evidence(excuse.failed_view(
+            github.jobs[130449502223], github.logs[130449502223], base=False, **UNKNOWN),
+            "cmux-next spawn-owner ratchet")
+        self.assertEqual(evidence[0], {"check-spawn-owner cmux-tui/crates/acpmux/src/hub/remote_table_bench.rs: 1 "
+                                       "spawn line(s) with no owner (a new file)"})
+        with unittest.mock.patch.object(excuse, "green_since", side_effect=excuse.Refused("off")), \
+                self.assertRaisesRegex(excuse.Refused, "failures not in feat-cmux-next run 42998467090 at the "
+                                                       "merge-base, so not the base's: 'cmux-next spawn-owner ratchet'"):
+            self.judge(github, purpose=excuse.PER_STEP_PURPOSE)
+
+    def test_a_diff_that_reaches_the_check_is_refused(self):
+        for path in ("scripts/cmux-next/check-spawn-owner.py", "scripts/cmux-next/spawn-owner-baseline.tsv",
+                     "cmux-tui/crates/acpmux/src/hub/mod.rs", "cmux-tui/crates/acpmux/src/hub/remote_table_bench.rs"):
+            with self.subTest(path=path), self.assertRaisesRegex(excuse.Refused, "reads paths the PR changes"):
+                self.judge(SpawnOwnerGitHub(changed=(path,)))
+        with self.assertRaisesRegex(excuse.Refused, "reads paths the PR changes: tests/test_spawn_owner_ratchet.py"):
+            self.judge(SpawnOwnerGitHub(changed=("tests/test_spawn_owner_ratchet.py",)))
+
+    def test_a_check_line_of_another_shape_is_refused(self):
+        # A baseline raised above the base's prints `... raises PATH`: not a finding this rule keys, so not excused.
+        github = SpawnOwnerGitHub()
+        raised = ("check-spawn-owner: scripts/cmux-next/spawn-owner-baseline.tsv raises cmux-tui/crates/acpmux/src/a.rs"
+                  " to 1 (base HEAD^1: 0). The baseline only goes down.")
+        text = github.logs[130449502223]
+        at = text.index("next: spawn the task")
+        stamp = text[:at].rsplit("\n", 1)[1]
+        github.logs[130449502223] = text[:at] + raised + "\n" + stamp + text[at:]
+        with self.assertRaisesRegex(excuse.Refused, "not its check rule's: check-spawn-owner: scripts/cmux-next/"
+                                                    "spawn-owner-baseline.tsv raises"):
+            self.judge(github)
+
+    def test_the_check_rule_is_a_named_failure(self):
+        line = ("check-spawn-owner: cmux-tui/crates/acpmux/src/hub/remote_table_bench.rs has 1 spawn line(s) with no "
+                "owner (a new file).")
+        self.assertEqual(excuse.test_reds.failed_names([line]),
+                         {"check-spawn-owner cmux-tui/crates/acpmux/src/hub/remote_table_bench.rs: 1 spawn line(s) "
+                          "with no owner (a new file)"})
+        self.assertEqual(excuse.test_reds.failed_names(["AssertionError: 1 != 0 : " + line]), set(),
+                         "a quoted finding is a test's output, never a finding of its own")
+
+
+class GreenSinceForABaseMerge(unittest.TestCase):
+    """dep-fleet-6 (2026-11-11): update_branch's base merge gets through when the newest base verdict for the job is a
+    pass made after the head's red run, whatever the job lists declare; a land never does."""
+
+    def github(self):
+        github = SpawnOwnerGitHub()
+        github.comments = []  # no SHIP: the job-level rule refuses, whatever is declared
+        prior = [job for job in github.jobs.values() if job["run_id"] == SPAWN_PRIOR_RUN]
+        for job in prior:
+            del github.jobs[job["id"]]  # no merge-base verdict: the per-step rule refuses too
+        return github
+
+    def test_an_undeclared_job_green_since_gets_its_base_merge(self):
+        with unittest.mock.patch.object(excuse, "GUARD_JOBS", frozenset()):
+            said = excuse.judge(REPO, "feat-cmux-next", SPAWN_HEAD, [SPAWN_HEAD_RUN], self.github(),
+                                purpose=excuse.PER_STEP_PURPOSE)
+        own = next(line for line in said if line.startswith(f"excused '{OWN_CHANGE}': fixed on base ("))
+        self.assertIn(f"(run {SPAWN_HEAD_RUN} / {OWN_CHANGE}, job 130449502223", own)
+        self.assertIn(f"green in feat-cmux-next run {SPAWN_BASE_RUN} at {SPAWN_BASE[:12]}", own)
+        self.assertIn("for a base merge alone", own)
+
+    def test_a_land_still_refuses_it(self):
+        for purpose in (None, "land"):
+            with self.subTest(purpose=purpose), unittest.mock.patch.object(excuse, "GUARD_JOBS", frozenset()), \
+                    self.assertRaisesRegex(excuse.Refused, "not a declared guard job") as raised:
+                excuse.judge(REPO, "feat-cmux-next", SPAWN_HEAD, [SPAWN_HEAD_RUN], self.github(), purpose=purpose)
+            self.assertNotIn("green since", str(raised.exception))
+
+    def test_a_base_pass_older_than_the_red_run_is_not_green_since(self):
+        github = self.github()
+        github.runs[SPAWN_BASE_RUN]["created_at"] = "2026-11-11T09:52:00Z"
+        with unittest.mock.patch.object(excuse, "GUARD_JOBS", frozenset()), \
+                self.assertRaisesRegex(excuse.Refused, "green since: .* is not newer than the red run"):
+            excuse.judge(REPO, "feat-cmux-next", SPAWN_HEAD, [SPAWN_HEAD_RUN], github,
+                         purpose=excuse.PER_STEP_PURPOSE)
+
+
+class GuardJobsFollowTheWorkflows(unittest.TestCase):
+    """The detector for a guard job declaration that drifts from the workflows (2026-11-11, cmux#41205): every job of
+    every workflow that runs on pull requests is a declared guard job, a package job, or excluded with a reason, and
+    every hard-coded copy of a guard job's name is a name GitHub reports for a job of the workflows."""
+
+    # Workflows that run on pull requests and declare no guard job, each with why. A new one fails
+    # test_every_pull_request_workflow_is_classified until it is classified here or in excuse.GUARD_WORKFLOWS.
+    NOT_GUARD_WORKFLOWS = {
+        "product builds and tests (Swift, Rust, web, backend, cloud, iOS), whose reds read product code": (
+            "app-platform.yml", "auth-refresh-tests.yml", "automation-bench.yml", "backend-migrations.yml",
+            "backend.yml", "ci.yml", "cloud-journey-pr.yml", "cloud-vm-guest-install.yml", "cloud-vm-image-lock.yml",
+            "cloudflare-relay.yml", "cmux-cloud-cli.yml", "cmux-next-crash-class.yml", "cmux-next-cua-helper-identity.yml",
+            "cmux-next-media.yml", "cmux-next-motion-golden.yml", "cmux-next-remote-daemon.yml",
+            "cmux-next-shell-integration.yml", "cmux-next-shim-cpp.yml", "cmux-tui-sdks.yml", "cmux-tui-spec.yml",
+            "cmux-tui-windows-check.yml", "cmux-vm-clients.yml", "cmux-vm-cloud.yml", "cmux-vm.yml", "cmux-vnc.yml",
+            "coderouter-ci.yml", "fleet-test-compile.yml", "gallery-advisory.yml", "gallery-health.yml",
+            "indexnow-tests.yml", "ios-reliability-matrix.yml", "ios-review-gate.yml", "iroh-v2.yml", "mux.yml",
+            "nightly-next-canary.yml", "nightly-next-cua-signed-host.yml", "nightly-next-launch-smoke.yml",
+            "r2-upload-tests.yml", "relay-tls.yml", "rust-workspaces.yml", "signing-keychain-macos.yml",
+            "swift-acpmux-protocol.yml", "swift-linux-packages.yml", "swift-packages-linux.yml",
+            "terminal-hang-diagnostics.yml", "test-ios.yml", "vendored-agent-cursor.yml", "web-complexity.yml",
+            "web-complexity-trusted.yml", "web-validation.yml", "cmux-next-ios-kit.yml", "cmux-actions.yml",
+            "cmux-skill-contract.yml", "agent-brands.yml"),
+        "bots, labels, receipts, comments and policy reads of the pull request or GitHub, not of the tree": (
+            "cla-policy-guard.yml", "cla.yml", "classic-frozen-guard.yml", "contributor-welcome.yml", "labels-sync.yml",
+            "merge-freeze.yml", "merge-receipt.yml", "namespace-autofix.yml", "pr-body-checks.yml", "risk-tier.yml",
+            "thunderdome-label.yml", "cmux-next-pr-autofix-closed-cancel.yml", "cmux-next-pr-autofix.yml",
+            "cmux-next-pr-closed-cancel.yml", "language-boundaries.yml", "required-checks-drift.yml",
+            "cmux-next-chromium-currency.yml", "ci-cache-receipts.yml"),
+        "guard checks of their own whose reds are judged as any job's: no guard test declares its reads yet": (
+            "ci-artifact-transport.yml", "classic-api-guard.yml", "cmux-next-batch.yml", "cmux-next-car-guards.yml",
+            "cmux-next-fast-gates.yml", "fleet-artifact-cdn.yml", "ios-shared-packages-sync.yml", "pr-checks.yml",
+            "release-rails.yml", "repair-nightly-appcast-content-types.yml", "risk-tier-tests.yml"),
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        cls.yaml = excuse.yaml_module()
+        cls.workflows = {}
+        for path in sorted(excuse.WORKFLOWS.glob("*.y*ml")):
+            doc = cls.yaml.safe_load(path.read_text())
+            if isinstance(doc, dict):
+                cls.workflows[path.name] = doc
+
+    def triggers(self, doc):
+        on = doc.get(True, doc.get("on"))
+        return {on} if isinstance(on, str) else set(on or ())
+
+    def pull_request_workflows(self):
+        return {file for file, doc in self.workflows.items()
+                if self.triggers(doc) & {"pull_request", "pull_request_target"}}
+
+    def reported_names(self):
+        """Every job name GitHub reports for the workflows' jobs with a fixed name, as it reports it (cut at 100)."""
+        names = set()
+        for file, doc in self.workflows.items():
+            for job_id, job in (doc.get("jobs") or {}).items():
+                try:
+                    names.update(excuse.github_job_name(name)
+                                 for name in excuse._check_matcher(str(job_id), job, file)["exact"])
+                except excuse.Refused:
+                    pass
+        return names
+
+    def test_the_committed_guard_jobs_are_the_workflows(self):
+        self.assertEqual(json.loads(excuse.GUARD_JOBS_FILE.read_text()), excuse.derive_guard_jobs(),
+                         "run: python3 scripts/ci/base_red_excuse.py --write-rollups")
+        self.assertEqual(excuse.GUARD_JOBS, frozenset(excuse.derive_guard_jobs()["jobs"]))
+
+    def test_every_pull_request_workflow_is_classified(self):
+        listed = [file for files in self.NOT_GUARD_WORKFLOWS.values() for file in files]
+        self.assertEqual(len(listed), len(set(listed)), "a workflow is listed twice")
+        guard = set(excuse.GUARD_WORKFLOWS) | {file for file, _ in excuse.GUARD_JOB_IDS}
+        self.assertEqual(sorted(self.pull_request_workflows() - guard - set(listed)), [],
+                         "a workflow that runs on pull requests is neither in excuse.GUARD_WORKFLOWS nor "
+                         "NOT_GUARD_WORKFLOWS: classify its jobs")
+        self.assertEqual(sorted(set(listed) - set(self.workflows)), [], "a classified workflow is gone")
+        self.assertEqual(sorted(set(listed) & guard), [], "a guard workflow is listed as not one")
+
+    def test_every_job_of_a_guard_workflow_is_declared_or_excluded_with_a_reason(self):
+        declared = set(excuse.GUARD_JOB_IDS)
+        for file, excluded in excuse.GUARD_WORKFLOWS.items():
+            jobs = set((self.workflows[file].get("jobs") or {}))
+            with self.subTest(file=file):
+                ours = {job for f, job in declared if f == file}
+                self.assertEqual(sorted(jobs - ours - set(excluded)), [],
+                                 f"{file}: a job is neither declared (GUARD_JOB_IDS) nor excluded (GUARD_WORKFLOWS)")
+                self.assertEqual(sorted((ours | set(excluded)) - jobs), [], f"{file}: a classified job is gone")
+                self.assertEqual(sorted(ours & set(excluded)), [], f"{file}: a job is declared and excluded")
+                self.assertTrue(all(isinstance(why, str) and len(why) > 10 for why in excluded.values()))
+        self.assertEqual(sorted({file for file, _ in declared} - set(excuse.GUARD_WORKFLOWS)), [])
+
+    def test_a_renamed_or_new_guard_job_fails_the_detector(self):
+        with tempfile.TemporaryDirectory() as root:
+            for file in {file for file, _ in excuse.GUARD_JOB_IDS}:
+                (Path(root) / file).write_text((excuse.WORKFLOWS / file).read_text())
+            renamed = Path(root) / "cmux-next-guards.yml"
+            text = renamed.read_text()
+            renamed.write_text(text.replace(f"name: {OWN_CHANGE}", "name: cmux-next own change checks"))
+            self.assertNotEqual(excuse.derive_guard_jobs(Path(root)), json.loads(excuse.GUARD_JOBS_FILE.read_text()))
+            renamed.write_text(text.replace("\n  own-change-checks:", "\n  own-change-checks-v2:"))
+            with self.assertRaisesRegex(excuse.Refused, "no job own-change-checks"):
+                excuse.derive_guard_jobs(Path(root))
+
+    def test_the_suffixes_and_package_jobs_name_jobs_of_the_workflows(self):
+        guards = self.workflows["ci-guards.yml"]["jobs"]
+        for suffix in excuse.GUARD_JOB_SUFFIXES:
+            job_id, group = suffix.split(" / ")
+            self.assertIn(job_id, guards)
+            self.assertIn(f"matrix.group == '{group}'", (excuse.WORKFLOWS / "ci-guards.yml").read_text())
+        names = self.reported_names()
+        for name in excuse.PACKAGE_JOBS:
+            self.assertIn(name, names)
+
+    def test_every_hard_coded_copy_of_a_guard_job_name_is_a_name_github_reports(self):
+        # The same drift in the other lists that name a guard job: each must be a job name GitHub reports today
+        # (pr_red_checks_comment's static checks name was its 101-character `name:`, never reported: GitHub cuts it).
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        import base_red_checks, car_guards, next_batch, pr_red_checks_comment  # noqa: E401,PLC0415
+        names = self.reported_names()
+        copies = [base_red_checks.CHECKS_JOB, next_batch.CHECKS_JOB, excuse.FFI_PIN_JOB, excuse.GUARD_GROUP_JOB,
+                  *car_guards.REUSE["guard"],
+                  *(value for kind, value in pr_red_checks_comment.TRACKED if kind == "name")]
+        self.assertEqual(sorted(set(copies) - names), [])
+        replay = (ROOT / "scripts/ci/affected_tests_replay.py").read_text()
+        no_tests = ast.literal_eval(re.search(r"^NO_TESTS = (\(.*\))$", replay, re.M).group(1))
+        for prefix in [prefix for prefix in no_tests if prefix.startswith("cmux-next checks")]:
+            self.assertTrue(any(name.startswith(prefix) for name in names), prefix)
+
+
 if __name__ == "__main__":
     unittest.main()

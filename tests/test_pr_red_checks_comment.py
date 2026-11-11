@@ -270,7 +270,8 @@ def test_the_line_quotes_the_failing_steps_red_never_a_passing_steps_negative_ca
     # changed"), printed by a passing negative-case test. This line is built from the failed steps' names and the
     # job's failure annotations (`##[error]` lines), never from plain log text, so a passing step's stderr is never
     # quoted or compared here (base_red_excuse.failed_steps_log keeps any step whose section has an `##[error]`).
-    name = "cmux-next static checks (vt-link-graph, nightly static capabilities, defaults snapshot, page strings)"
+    # The name as GitHub reports it: its 101-character `name:` cut to 97 characters and "...".
+    name = "cmux-next static checks (vt-link-graph, nightly static capabilities, defaults snapshot, page stri..."
     licenses = "The nightly's Ghostty license checks pass on fixtures"
     strings = "Every page's strings generate with no missing translation"
     exit_line = {"annotation_level": "failure", "message": "Process completed with exit code 1."}
