@@ -850,12 +850,29 @@ class GlaedaKeptLog(unittest.TestCase):
             self.assertEqual(len(self.gh_calls.read_text().splitlines()), 1, named)
         self.assertEqual(self.glaeda_calls.read_text(), "")
 
-    def test_every_classifier_log_reader_asks_glaeda_gh_first(self):
-        # the class of reader: each GET .../actions/jobs/ID/logs in scripts/ci goes through glaeda_log first
-        ci = ROOT / "scripts/ci"
-        for name in ("base_red_excuse.py", "classify_failures.py", "guard_attribution.py", "main_compile_attribution.py"):
-            text = (ci / name).read_text()
-            self.assertIn("glaeda_log.cached_job_log(", text, name)
+    # Readers of GET .../actions/jobs/ID/logs that do not ask glaeda-gh, and why. A new reader asks it first (or
+    # says here why it cannot): a replay or classifier that reads a log the host's mirror kept spends a read for
+    # nothing (cmux#41244's replay: about 150 reads, stopped at 51 runs).
+    UNCACHED_LOG_READERS = {
+        "base_red_checks.py": "runs in the push workflow with the Actions token (urllib), where no glaeda-gh is",
+        "cmux_next_tree_notify.py": "not switched yet: follow-up to the glaeda job-log cache",
+        "cmux_tui_tree_handoff.py": "not switched yet: follow-up to the glaeda job-log cache",
+        "nightly_ghostty_helper_reuse.py": "not switched yet: follow-up to the glaeda job-log cache",
+        "package_bisect.py": "not switched yet: follow-up to the glaeda job-log cache",
+        "web_test_failure_census.py": "not switched yet: follow-up to the glaeda job-log cache",
+    }
+
+    def test_every_job_log_reader_asks_glaeda_gh_first(self):
+        route = re.compile(r"actions/jobs/\{[^}]*\}/logs")
+        readers = {path.name for path in (ROOT / "scripts/ci").glob("*.py") if route.search(path.read_text())}
+        uncached = {name for name in readers
+                    if "glaeda_log.cached_job_log(" not in (ROOT / "scripts/ci" / name).read_text()}
+        self.assertEqual(uncached - set(self.UNCACHED_LOG_READERS), set(),
+                         "a new job log reader: ask glaeda_log.cached_job_log first, or name why not")
+        self.assertEqual(set(self.UNCACHED_LOG_READERS) - uncached, set(), "this reader asks glaeda-gh now: drop it")
+        self.assertGreaterEqual(readers - uncached, {"base_red_excuse.py", "classify_failures.py", "guard_attribution.py",
+                                                      "main_compile_attribution.py", "next_batch.py",
+                                                      "affected_tests_replay.py"})
 
 
 class PortableGhLog(unittest.TestCase):
