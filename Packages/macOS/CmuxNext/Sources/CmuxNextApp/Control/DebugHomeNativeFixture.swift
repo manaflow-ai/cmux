@@ -35,6 +35,8 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     /// reads are held until released (`{"hold": true}`), for ui-state-fixes M1 captures.
     var nextNewChief = false
     var nextHold = false
+    /// The next page opens its transcript once the store read the inbox (`{"after_inbox": true}`).
+    var nextAfterInbox = false
     /// The capture fixture's client cache (ui-state-fixes M2): in this launch's temporary folder, which
     /// a capture's quit and reopen keeps.
     static var captureCacheURL: URL {
@@ -49,10 +51,11 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let fixture = HomeNativeFixture(attachments: next.attachments, openPanel: openPanel, compose: next.compose,
                                         transcriptLoad: nextTranscriptLoad, cacheURL: nextCache ? Self.captureCacheURL : nil,
-                                        newChief: nextNewChief, holdReads: nextHold)
+                                        newChief: nextNewChief, holdReads: nextHold, afterInbox: nextAfterInbox)
         next = (false, false)
         nextNewChief = false
         nextHold = false
+        nextAfterInbox = false
         nextTranscriptLoad = nil
         nextCache = false
         fixture.onShow = { [weak homes = self.homes] in homes?.startsOwnAgents($0) }
@@ -295,7 +298,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     }
 
     static func open(services: AppServices, attachments: Bool = false, compose: Bool = false, fresh: Bool = false,
-                     transcriptLoad: String? = nil, cache: String? = nil, newChief: Bool = false, hold: Bool = false) -> JSONValue {
+                     transcriptLoad: String? = nil, cache: String? = nil, newChief: Bool = false, hold: Bool = false, afterInbox: Bool = false) -> JSONValue {
         let load = transcriptLoad.flatMap(HomeNativeFixture.TranscriptLoad.init(rawValue:))
         if let transcriptLoad, load == nil { return .object(["error": .string("transcript must be loading or failed")]) }
         if let cache, cache != "reset", cache != "keep" { return .object(["error": .string("cache must be reset or keep")]) }
@@ -308,6 +311,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.nextCache = cache != nil
         (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.nextNewChief = newChief
         (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.nextHold = hold
+        (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.nextAfterInbox = afterInbox
         let window = services.windows.active, view = fresh ? services.pages.openNew(.homeNativeFixture, in: window, focus: true) : services.pages.show(.homeNativeFixture, in: window, focus: true)
         return .object(["ok": .bool(view != nil), "page": .string(InternalPageID.homeNativeFixture.rawValue)])
     }
