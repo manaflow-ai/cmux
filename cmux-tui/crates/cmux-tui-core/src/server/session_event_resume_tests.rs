@@ -166,9 +166,18 @@ impl Sent {
 impl Stream {
     /// The messages until the stream sends none for [`QUIET`].
     fn drain(&self) -> Sent {
+        let (sent, end) = self.drain_or_end();
+        assert_eq!(end, None, "the stream ended");
+        sent
+    }
+
+    /// Like [`Stream::drain`], for a stream that can end: its items and,
+    /// when it ended, its `stream_end` message.
+    fn drain_or_end(&self) -> (Sent, Option<Value>) {
         let mut sent = Sent { messages: Vec::new(), bytes: 0, last: Duration::ZERO };
+        let mut end = None;
         let mut quiet_since = Instant::now();
-        while quiet_since.elapsed() < QUIET {
+        while end.is_none() && quiet_since.elapsed() < QUIET {
             let Some(message) = self.outbound.try_pop() else {
                 std::thread::sleep(Duration::from_micros(200));
                 continue;
@@ -177,10 +186,14 @@ impl Stream {
             sent.last = self.requested.elapsed();
             sent.bytes += message.len() + 1;
             let message: Value = serde_json::from_str(&message).expect("outbound JSON");
+            if message["type"] == "stream_end" {
+                end = Some(message);
+                continue;
+            }
             assert_eq!(message["type"], "stream_item", "{message}");
             sent.messages.push(message);
         }
-        sent
+        (sent, end)
     }
 
     fn close(self) {
@@ -421,6 +434,78 @@ fn a_connection_that_does_not_ask_and_sends_a_live_position_gets_every_live_reco
     let asked = open(&mux, true, 3, Some(&held));
     assert_eq!(asked.drain().terminal_records(), Vec::<String>::new());
     asked.close();
+
+    mux.shutdown();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Replace the stored launch spec of `surface`'s terminal with `text` and
+/// return the text it had. A text that is no JSON makes each read of the
+/// terminal's durable row fail, on the registry's connection and on a
+/// stream's reader.
+fn replace_launch_spec(mux: &Mux, surface: &Surface, text: &str) -> String {
+    let id = terminal_id(surface);
+    let registry = mux.workspace_registry.lock().unwrap();
+    let connection = registry.connection.get();
+    let previous = connection
+        .query_row(
+            "SELECT launch_spec_json FROM terminal_hosts WHERE terminal_id = \
+             (SELECT terminal_id FROM resource_terminals WHERE public_id = ?1)",
+            [id.as_str()],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap();
+    let updated = connection
+        .execute(
+            "UPDATE terminal_hosts SET launch_spec_json = ?2 WHERE terminal_id = \
+             (SELECT terminal_id FROM resource_terminals WHERE public_id = ?1)",
+            [id.as_str(), text],
+        )
+        .unwrap();
+    assert_eq!(updated, 1, "one terminal row");
+    previous
+}
+
+/// A live fact the stream could not read (the registry read of the
+/// terminal's durable row failed) was not sent. No cursor the client gets
+/// after it may say a live position at or after that fact: a resume from the
+/// client's last cursor sends the terminal's record.
+#[cfg(unix)]
+#[test]
+fn a_live_record_the_stream_could_not_read_is_not_in_a_later_cursor() {
+    let (root, mux, terminals) = session("resume-unread", 2, 2);
+    let mut clock = crate::workspace_registry::unix_epoch_ms().unwrap() + 60_000;
+    print(&terminals, &mut clock);
+    let unread = terminal_id(&terminals[0]);
+
+    let first = open(&mux, true, 1, None);
+    let mut held = last_cursor(&first.drain());
+
+    // The first terminal's row can not be read while both print: its live
+    // fact is the older of the two.
+    let stored = replace_launch_spec(&mux, &terminals[0], "not json");
+    print(&terminals, &mut clock);
+    let (sent, _end) = first.drain_or_end();
+    assert!(
+        !sent.terminal_records().contains(&unread),
+        "the record of a terminal whose row can not be read was sent"
+    );
+    if let Some(message) = sent.messages.last() {
+        held = message["cursor"].clone();
+    }
+    first.close();
+    replace_launch_spec(&mux, &terminals[0], &stored);
+
+    // The client was not sent the first terminal's fact: its cursor must
+    // not be after it.
+    let resumed = open(&mux, true, 2, Some(&held));
+    let records = resumed.drain().terminal_records();
+    assert!(
+        records.contains(&unread),
+        "the cursor {held} said the client has a live fact that was not sent: \
+         the resume sent {records:?}, not {unread}"
+    );
+    resumed.close();
 
     mux.shutdown();
     let _ = std::fs::remove_dir_all(&root);
