@@ -1,6 +1,7 @@
 //! Sign-out erases every peer copy, including a leased peer whose connection already ended.
-//! The rows lock orders the barrier and clear after every accepted listing/capture. Existing
-//! peer instances stay barred even if they reconnect; only a new instance may cache again.
+//! The rows writer lock (`RemoteTable::fence`) orders the barrier and clear after every accepted
+//! listing/capture. Existing peer instances stay barred even if they reconnect; only a new
+//! instance may cache again.
 
 use super::*;
 
@@ -54,7 +55,7 @@ impl Hub {
     /// for the store's existing retry and is reported as an error rather than success.
     pub fn clear_peer_snapshots(&self) -> Result<Value, RpcError> {
         let reply = {
-            let _rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+            let _rows = self.remote_sessions.fence();
             self.peer_snapshots.begin_clear()
         };
         if let Some(reply) = reply
