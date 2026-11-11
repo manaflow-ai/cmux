@@ -73,6 +73,7 @@ parser.add_argument("--budget-key-ms", type=float, default=16.7)
 parser.add_argument("--hang-stacks", action="store_true",
                     help="as the every-action sweep: hang watchdog at 8 ms, the agent pane mock (Cmd-N opens its New Tab page), "
                          "and each run's longest main-thread stall with its whole stack (64 frames) in the row and the log")
+parser.add_argument("--slow-wait", type=float, default=40, help="slow phase: seconds between marking WebKit slow and the first run")
 parser.add_argument("--native-new-tab", action="store_true", help="run with tabs.nativeNewTabPage on (Cmd-T opens the native New Tab page)")
 parser.add_argument("--arms", default=None,
                     help="the arms to time (bench_arms.py; default warm,quick,cold, or warm alone with --budget-frames: a "
@@ -523,6 +524,11 @@ def main():
         for phase in opts.phases.split(","):
             if phase == "load":
                 start_load()
+            if phase == "slow":
+                # As on a Mac at load 250, where one New Tab spare took over a second: the pool is emptied and
+                # WebKit's setup marked slow (WebKitSetupGate), then the runs start after its recheck wait.
+                rpc("debug.new_tab", {"action": "drop_spare", "slow": True})
+                time.sleep(opts.slow_wait)  # test harness: the gate's recheck interval (30 s) and a warm
             try:
                 rows += bench(phase + suffix, window)
             finally:
