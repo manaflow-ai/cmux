@@ -498,12 +498,12 @@ extension CloudHandlers {
             defaultValue: "This action is unavailable for this Cloud machine.", bundle: .module))
     }
 
-    /// A machine change (resize, snapshot, template, restore, fork): an agent's or a script's run waits for the person's Allow (``CloudMachineChanges``), Don't Allow a refusal; a person's own run goes as before, `sheet` showing its answer.
+    /// A machine change (resize, snapshot, template, restore, fork): an agent's or a script's run waits for the person's Allow (``CloudChangeRuns``), Don't Allow a refusal; a person's own run goes as before, `sheet` showing its answer.
     static func change(_ label: String, _ id: ActionID, _ invocation: ActionInvocation, _ registry: ActionRegistry, _ context: AppActionContext, sheet: Bool = false, pending: [String: ActionResultValue],
-                       ask: CloudMachineChanges.Ask? = nil, _ work: @escaping @MainActor (_ allow: @escaping @MainActor () async -> Bool) async throws -> CloudAnswer) {
+                       ask: CloudChangeRuns.Ask? = nil, _ work: @escaping @MainActor (_ allow: @escaping @MainActor () async -> Bool) async throws -> CloudAnswer) {
         let wait = sheet ? snapshotAnswerWait : machineAnswerWait, allow = allows(id, invocation, registry, context)
         if origin(of: invocation) == .user { if sheet { answer(label, invocation, context, pendingAfter: wait, pending: pending) { try await work(allow) } } else { result(label, context, pendingAfter: wait, pending: pending) { try await work(allow).fields } }; return }
-        let key = CloudMachineChanges.key(action: id.rawValue, machine: (try? machine(invocation, context))?.machineID ?? "", arguments: invocation.arguments, caller: invocation.callerAgentSession, account: context.services.cloud.account)
+        let key = CloudChangeRuns.key(action: id.rawValue, machine: (try? machine(invocation, context))?.machineID ?? "", arguments: invocation.arguments, caller: invocation.callerAgentSession, account: context.services.cloud.account)
         result(label, context) {
             do { return try await context.services.cloud.machineChanges.run(key, within: wait, pending: pending, ask: ask ?? { allows(id, invocation, registry, context, shown: $0) }) { allow in
                 let answer = try await work(allow); return sheet ? answer.fields.merging(["text": .string(answer.text)]) { field, _ in field } : answer.fields } } catch CloudMachineCreateFlow.Failure.declined { throw ActionFailure(message: CloudChangeRequest.declined) }

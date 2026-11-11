@@ -1,6 +1,6 @@
 public import CmuxNextActions
 public import CmuxNextCloud
-public import Foundation
+import Foundation
 
 /// Cloud machine changes an agent or a script asked for (`cmux vm resize`, `fork`, `snapshot-machine`, `restore-machine`,
 /// `promote-template`), which wait for the person's Allow in the ``CloudChangeRequest`` dialog. The dialog stays. A run
@@ -9,7 +9,7 @@ public import Foundation
 /// and gets its end: the change's own answer, or its failure (Don't Allow included), so no caller reads a declined change
 /// as done. The App keeps one per Cloud service.
 @MainActor
-public final class CloudMachineChanges {
+public final class CloudChangeRuns {
     public typealias Fields = [String: ActionResultValue]
     /// Shows the person's dialog when it runs, telling `shown` its id, and answers their yes.
     public typealias Ask = @MainActor (_ shown: @escaping @MainActor (Int) -> Void) -> @MainActor () async -> Bool
