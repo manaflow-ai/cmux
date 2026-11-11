@@ -474,10 +474,14 @@ export async function runLocal(args: { manifest: string; galleryDir: string; out
     const jobs = selected.flatMap((item) => args.engines.map((engine) => ({ item, engine })));
     const results: Record<string, unknown>[] = new Array(jobs.length);
     let next = 0;
-    await Promise.all(Array.from({ length: Math.min(concurrency, jobs.length) || 1 }, async () => {
+    // Every browser launches before any case renders: a launch that fails stops the run with no
+    // worker still launching or rendering, and the cleanup below closes each one that started.
+    for (let worker = 0; worker < (Math.min(concurrency, jobs.length) || 1); worker++) {
       const browsers = new Map<Engine, Browser>();
       workers.push(browsers);
       for (const engine of args.engines) browsers.set(engine, await launch(engine));
+    }
+    await Promise.all(workers.map(async (browsers) => {
       while (next < jobs.length) {
         const index = next++;
         results[index] = await renderOne(browsers, jobs[index]!.item, jobs[index]!.engine);
