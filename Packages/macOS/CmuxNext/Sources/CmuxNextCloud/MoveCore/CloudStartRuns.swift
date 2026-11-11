@@ -216,6 +216,20 @@ public final class CloudStartRuns<Answer: Sendable, Machine: Sendable> {
     private func prune() { trim(keeping: Self.limit - 1) }
 }
 
+/// Cloud machine changes an agent or a script asked for (`cmux vm resize`, `fork`, `snapshot-machine`), which wait for
+/// the person's Allow: their runs by what they ask (the same ask again joins its run), and the answer of each run whose
+/// dialog is open, for a caller who joins it then. The App keeps one per Cloud service.
+@MainActor
+public final class CloudChangeRuns<Answer: Sendable> {
+    public let runs = CloudStartRuns<Answer, Bool>()
+    public var asks: [CloudStartRunKey: Answer] = [:]
+
+    public init() {}
+
+    // A generic main-actor class: its isolated deinit crashes the Release optimizer (#23050).
+    nonisolated deinit {}
+}
+
 /// What a `cmux cloud start-session` run asks for (``CloudStartRuns``): the same key is the same run.
 public struct CloudStartRunKey: Hashable, Sendable {
     /// `id:<machine id>` or `name:<machine name>`.

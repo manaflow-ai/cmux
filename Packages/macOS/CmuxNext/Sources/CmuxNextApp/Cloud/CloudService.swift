@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCloudCredentials
@@ -124,8 +125,8 @@ final class CloudService {
     @ObservationIgnored let startSessionAsks = CloudStartSessionAsks()
     /// `cmux cloud start-session` runs, joined by a repeat of the same ask (``CloudStartSessionRuns``).
     @ObservationIgnored let startSessionRuns = CloudStartSessionRuns()
-    /// Machine changes an agent or a script asked for, joined by a repeat of the same ask (``CloudMachineChanges``).
-    @ObservationIgnored let machineChanges = CloudMachineChanges()
+    /// Machine changes an agent or a script asked for, joined by a repeat of the same ask (``CloudChangeRuns``).
+    @ObservationIgnored let machineChanges = CloudChangeRuns<[String: ActionResultValue]>()
     /// The machines a start is bringing up now, which the automatic machine update leaves alone (``CloudStartGate``).
     @ObservationIgnored let startGate = CloudStartGate()
     @ObservationIgnored let signedOutCreation = CloudSignedOutCreationContinuation()

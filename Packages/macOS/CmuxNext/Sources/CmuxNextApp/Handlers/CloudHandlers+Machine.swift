@@ -606,11 +606,3 @@ extension CloudHandlers {
         runTracked("set idle pause", context) { try await set(machineID, minutes) }
     }
 }
-
-/// Machine changes an agent or a script asked for (``CloudHandlers/change(_:_:_:_:_:sheet:pending:ask:_:)``), by what
-/// they ask: their runs, and the answer of each run whose dialog is open, for a caller who joins it then. One per
-/// ``CloudService``.
-@MainActor final class CloudMachineChanges {
-    let runs = CloudStartRuns<[String: ActionResultValue], Bool>()
-    var asks: [CloudStartRunKey: [String: ActionResultValue]] = [:]
-}
