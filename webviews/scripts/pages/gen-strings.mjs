@@ -317,11 +317,6 @@ export const PAGES = {
     out: "webviews/src/pages/artifacts/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/artifacts/Localizable.xcstrings" }],
   },
-  // The overlay page's toast stack (cmux-page://cmux.overlay/, route /toasts); its table lives next to it.
-  "overlay-toasts": {
-    out: "webviews/src/pages/overlay/toasts/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/overlay/toasts/Localizable.xcstrings" }],
-  },
   // The Stats page (cmux-page://cmux.stats/, hq#1920); its table lives next to it.
   stats: {
     out: "webviews/src/pages/stats/generated/strings.json",

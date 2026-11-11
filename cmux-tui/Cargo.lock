@@ -39,6 +39,7 @@ dependencies = [
  "cmux-relay",
  "cmux-remote",
  "cmux-remote-protocol",
+ "cmux-scope",
  "cmux-sdk",
  "cmux-server",
  "cmux-server-core",
@@ -1853,6 +1854,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-scope"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "cmux-sdk"
 version = "1.0.0"
 dependencies = [
@@ -2186,6 +2196,7 @@ dependencies = [
  "ghostty-vt",
  "jsonschema",
  "libc",
+ "memchr",
  "notify",
  "parking_lot",
  "proptest",

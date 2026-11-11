@@ -138,17 +138,19 @@ try {
     ).toEqual(INFO.frames);
   });
 
-  test("a dropped video spins in its tile, then shows its poster and length, and a click plays it", async () => {
+  // Leo, 2026-11-10: "it's 99% of the time fine for it to just to be a path and stuff, so idk why it's
+  // so slow".
+  test("a dropped video is its tile at once while the host reads it, then shows its poster and length, and a click plays it", async () => {
     await render([video()]);
     expect(calls.map(({ method, params }) => [method, params])).toEqual([["video.info", { src: PATH }]]);
-    // While the host reads it: a busy tile, and the send waits.
-    const busy = host.querySelector(".acpmux-attachment-image.acpmux-attachment-pending");
-    expect(busy?.getAttribute("aria-busy")).toBe("true");
+    // While the host reads it: the tile in its box with its play glyph, ready to send, nothing spinning.
+    expect(host.querySelector(".acpmux-attachment-pending, [aria-busy='true']")).toBeNull();
+    expectUnreadVideoTile();
     expect(state?.reading).toBe(1);
 
     await act(async () => calls[0]!.answer(INFO));
     expect(state?.attachments[0]?.video).toEqual(INFO);
-    // Then the speech in it: the send waits for that too (within the same deadline), and nothing spins.
+    // Then the speech in it, read within the same deadline; nothing spins.
     expect(calls.at(-1)?.method).toBe("video.transcript");
     expect(calls.at(-1)?.params).toEqual({ src: PATH });
     expect(state?.reading).toBe(1);
@@ -226,10 +228,10 @@ try {
     expect(failed.querySelector(".acpmux-attachment-retry")).not.toBeNull();
   });
 
-  test("a rejected video.info request ends the spinner and leaves the file ready to send", async () => {
+  test("a rejected video.info request ends its read and leaves the file ready to send", async () => {
     await render([video()]);
     expect(state?.reading).toBe(1);
-    expect(host.querySelector(".acpmux-attachment-pending")).not.toBeNull();
+    expectUnreadVideoTile();
 
     // A disconnected or outdated host may refuse the native video.info call.
     await act(async () => calls[0]!.fail(new Error("video.info unavailable")));
@@ -268,12 +270,11 @@ try {
     const [first, second] = calls.filter((call) => call.method === "video.info");
     expect(second).toBeDefined();
     expect(state?.reading).toBe(1);
-    // The first composer's read ends late: the second's tile still spins.
+    // The first composer's read ends late: the second's read is still out.
     await act(async () => first!.answer(undefined));
     expect(state?.reading).toBe(1);
-    expect(host.querySelector(".acpmux-attachment-pending")).not.toBeNull();
     await act(async () => second!.answer(INFO));
-    // No speech in it: the send waits no more.
+    // No speech in it: nothing is read any more.
     await act(async () => calls.at(-1)!.answer({ segments: [] }));
     expect(state?.reading).toBe(0);
   });
