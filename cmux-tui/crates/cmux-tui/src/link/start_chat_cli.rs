@@ -430,11 +430,11 @@ fn plan_with_calls(
     let mut line = keys.json();
     let fields = match planned {
         Ok(Destination::Machine(id)) => {
-            let pane = match Ledger::update(ledger, |pins| pins.target_pane(&send, &id)) {
-                Ok(pane) => pane,
+            let (pane, made) = match Ledger::update(ledger, |pins| pins.retry_facts(&send, &id)) {
+                Ok(facts) => facts,
                 Err(error) => return refused("ledger_failed", format!("{error:#}")),
             };
-            json!({"ok": true, "machine": id, "target_pane": pane})
+            json!({"ok": true, "machine": id, "target_pane": pane, "ensured": made})
         }
         Ok(Destination::New) if ensures(&request, project_key.as_deref()) => {
             let ask = Ensure {
@@ -464,7 +464,7 @@ fn plan_with_calls(
                     let Some(id) = line.get("machine").and_then(Value::as_str) else { return line };
                     // Pinned before the App opens anything there, as a machine the App made.
                     if let Err(error) = Ledger::update(ledger, |pins| {
-                        pins.record(id, &send);
+                        pins.record_made(id, &send, line["created"] == true);
                         if let Some(workspace) = workspace {
                             pick::claim(pins, workspace, &request.account, id);
                         }
@@ -972,7 +972,7 @@ pub(super) fn pin(
     match Ledger::update(ledger, |pins| {
         let send = Send::new(key, account);
         let before = pins.machine(&send);
-        pins.record(machine, &send);
+        pins.record_pin(machine, &send);
         if let Some(workspace) = workspace {
             let repick = before.as_deref().is_some_and(|before| {
                 before != machine

@@ -144,6 +144,32 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
         onStartWithoutFolder: () => undefined,
       },
     },
+    "folder-too-big-short-pane": {
+      note: "Twenty-four repositories in a short pane: the list scrolls inside four rows, so Pick a folder and Start without a folder stay in view.",
+      height: 260,
+      props: {
+        start: {
+          ...begun,
+          folder: "src",
+          state: "failed",
+          code: "cloud_folder_too_big",
+          refusedHere: true,
+          message:
+            "~/src is too big to copy to a Cloud machine (at least 20 GB in 51,204 files). It holds repositories of its own: pick one to start in, or start without a folder.",
+          tooBig: {
+            folder: "~/src",
+            repos: Array.from({ length: 24 }, (_, index) => ({
+              name: `service-${String(index + 1).padStart(2, "0")}`,
+              path: `/Users/me/src/service-${index + 1}`,
+            })),
+            more: true,
+          },
+        },
+        onPickRepo: () => undefined,
+        onPickFolder: () => undefined,
+        onStartWithoutFolder: () => undefined,
+      },
+    },
     "folder-too-big-plain": {
       note: "A plain folder too big to copy with no repository inside: the limit, Pick a folder, Start without a folder.",
       props: {
