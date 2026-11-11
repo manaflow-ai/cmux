@@ -30,9 +30,11 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
@@ -40,27 +42,33 @@ REDIRECTS = ("&>>", "&>", "<<<", "<<-", "<<", "<>", "<&", ">&", ">>", ">|", "<",
 WORD_END = " \t\n;&|()<>"
 SPECIAL = "\\'\"$`"
 SPECIAL_PARAMS = "$?#@*!-0123456789"
+# A ${ }'s name, after an optional # (length) or ! (indirection), with its subscript: the operator follows it.
+PARAM_HEAD = re.compile(r"[#!]?(?:[A-Za-z_]\w*|\d+|[@*#?$!-])(?:\[[^\]]*\])?")
 ASSIGNMENT = re.compile(r"[A-Za-z_]\w*(?:\[[^\]]*\])?\+?=")
 MAX_DEPTH = 32  # substitutions and expansions inside one another; deeper text is Unparsed, never a RecursionError
 # Reserved words after which a command starts again: a ( there is a subshell, a (( arithmetic, a case or [[ itself.
 START_WORDS = {"!", "{", "}", "if", "then", "else", "elif", "do", "while", "until", "time"}
-# Words before a command's name that are not its name.
-# Command wrappers: each runs the command after its options, so unwrap() reads through them. Per wrapper, its options
-# that take no argument, those that take one (-n 5, -n5, --adjustment=5), and how many operands come before the
-# command (timeout's DURATION). env's NAME=value words are skipped, and its -S string is split into words.
+# Command wrappers: each runs the command after its options, so unwrap() reads through them. Per wrapper: its options
+# that take no argument, those that take one (-n 5, -n5, --adjustment=5), its long options whose argument is optional
+# (only as --opt=ARG), and how many operands come before the command (timeout's DURATION). A long option may be cut
+# to any unique prefix, as getopt reads it. env's NAME=value words are skipped, and its -S string is split into words.
+# An option that is in none of these makes unwrap() UNRESOLVED: what runs cannot be told.
 WRAPPERS = {
     "time": ({"-p", "-a", "-v", "-q", "--portability", "--append", "--verbose", "--quiet"},
-             {"-f", "-o", "--format", "--output"}, 0),
-    "env": ({"-i", "-", "-0", "-v", "--ignore-environment", "--null", "--debug"}, {"-u", "-C", "--unset", "--chdir"},
-            0),
-    "nice": (set(), {"-n", "--adjustment"}, 0),
-    "nohup": (set(), set(), 0),
-    "command": ({"-p"}, set(), 0),
-    "exec": ({"-c", "-l"}, {"-a"}, 0),
-    "builtin": (set(), set(), 0),
-    "timeout": ({"-v", "--verbose", "--preserve-status", "--foreground"}, {"-s", "-k", "--signal", "--kill-after"}, 1),
-    "stdbuf": (set(), {"-i", "-o", "-e", "--input", "--output", "--error"}, 0),
-    "setsid": ({"-c", "-f", "-w", "--ctty", "--fork", "--wait"}, set(), 0),
+             {"-f", "-o", "--format", "--output"}, set(), 0),
+    # GNU env's whole option table (teamleaderleo/leo-workspace#4382 review at cc43afa6, F3).
+    "env": ({"-i", "-0", "-v", "--ignore-environment", "--null", "--debug", "--list-signal-handling"},
+            {"-u", "-C", "-a", "-S", "--unset", "--chdir", "--argv0", "--split-string"},
+            {"--default-signal", "--ignore-signal", "--block-signal"}, 0),
+    "nice": (set(), {"-n", "--adjustment"}, set(), 0),
+    "nohup": (set(), set(), set(), 0),
+    "command": ({"-p"}, set(), set(), 0),
+    "exec": ({"-c", "-l"}, {"-a"}, set(), 0),
+    "builtin": (set(), set(), set(), 0),
+    "timeout": ({"-v", "--verbose", "--preserve-status", "--foreground"}, {"-s", "-k", "--signal", "--kill-after"},
+                set(), 1),
+    "stdbuf": (set(), {"-i", "-o", "-e", "--input", "--output", "--error"}, set(), 0),
+    "setsid": ({"-c", "-f", "-w", "--ctty", "--fork", "--wait"}, set(), set(), 0),
 }
 KEYWORDS = {"!", "{", "}", "if", "then", "else", "elif", "do", "while", "until"}  # time is in WRAPPERS
 
@@ -474,6 +482,9 @@ class _Parser:
             return Sub(self.o[i], self.o[j], "$(", script), j
         if s.startswith("${", i):
             parts, j = [], i + 2
+            head = PARAM_HEAD.match(s, j)
+            if quoted and head and s[head.end():head.end() + 1] in tuple("#%/^,"):
+                quoted = False  # a pattern: in double quotes too, its single quotes quote, as bash reads it
             while j < n and s[j] != "}":
                 if quoted and s[j] == "'":  # literal, as bash reads it: a $( ) after it runs
                     parts.append(Lit(self.o[j], self.o[j + 1]))
@@ -568,32 +579,155 @@ def name(text: str, word: Word) -> str:
     return re.sub(r"[\"'\\]", "", literal(text, word))
 
 
-def unwrap(argv: list[str], assigned: list | None = None) -> list[str] | None:
+ENV_ESCAPES = {"_": " ", "t": "\t", "n": "\n", "r": "\r", "f": "\f", "v": "\v", "\\": "\\", "'": "'", '"': '"',
+               "#": "#", "$": "$"}
+ENV_VAR = re.compile(r"\$\{[A-Za-z_]\w*\}")
+
+
+def _split(value: str) -> list[tuple[str, list[tuple[int, int]]]] | None:
+    """VALUE split into words as GNU env -S splits its string, each with, per character, the (start, end) range of
+    VALUE it comes from: words at blanks or an unquoted \\_, '...' (only \\\\ and \\' escaped in it), "..." and \\
+    escapes, \\c ending it and an unquoted # that starts a word starting a comment. Each ${NAME} env expands is "\0".
+    None when env refuses VALUE (a $ without braces, an unknown escape, an open quote)."""
+    words, word, spans, quote, inword, k, n = [], [], [], None, False, 0, len(value)
+
+    def end():
+        nonlocal word, spans, inword
+        if inword:
+            words.append(("".join(word), spans))
+        word, spans, inword = [], [], False
+
+    while k < n:
+        c = value[k]
+        if quote == "'":
+            if c == "'":
+                quote, k = None, k + 1
+            elif c == "\\" and value[k + 1:k + 2] in ("\\", "'"):
+                word.append(value[k + 1])
+                spans.append((k, k + 2))
+                k += 2
+            else:
+                word.append(c)
+                spans.append((k, k + 1))
+                k += 1
+            continue
+        if c == "\\":
+            nxt = value[k + 1:k + 2]
+            if nxt == "c" and quote is None:
+                break
+            if nxt == "_" and quote is None:
+                end()
+                k += 2
+                continue
+            if nxt not in ENV_ESCAPES:
+                return None
+            word.append(ENV_ESCAPES[nxt])
+            spans.append((k, k + 2))
+            inword, k = True, k + 2
+            continue
+        if c == "$":
+            m = ENV_VAR.match(value, k)
+            if not m:
+                return None
+            word.append("\0")
+            spans.append((k, m.end()))
+            inword, k = True, m.end()
+            continue
+        if quote == '"':
+            if c == '"':
+                quote = None
+            else:
+                word.append(c)
+                spans.append((k, k + 1))
+            k += 1
+            continue
+        if c in " \t\n\r\f\v":
+            end()
+        elif c == "#" and not inword:
+            break
+        elif c in "'\"":
+            quote, inword = c, True
+        else:
+            word.append(c)
+            spans.append((k, k + 1))
+            inword = True
+        k += 1
+    if quote:
+        return None
+    end()
+    return words
+
+
+def split_string(value: str) -> list[str] | None:
+    """VALUE split into words as env -S splits it (_split): "\0" for each ${NAME} env expands; None when env refuses
+    it."""
+    got = _split(value)
+    return None if got is None else [w for w, _ in got]
+
+
+class _Unresolved(list):
+    def __repr__(self):
+        return "UNRESOLVED"
+
+
+# What unwrap() returns when a wrapper's option is one it does not know, or env's -S string does not split: a
+# command runs, and which one cannot be told. It is an empty list, so `if not run` covers it with None.
+UNRESOLVED: list = _Unresolved()
+
+
+def unwrap(argv: list[str], assigned: list | None = None, where: list | None = None,
+           names: frozenset = frozenset()) -> list[str] | None:
     """The command ARGV runs and its arguments, read through NAME=value words, reserved words (!, if, do, ...) and
     the command wrappers in WRAPPERS with their options: `time -p env -i X=1 nice -n 5 mktemp t` runs
-    ["mktemp", "t"]. An env -S string is split into words. None when ARGV runs nothing (command -v, an env with no
-    command) or when a wrapper has an option this does not know, so a caller cannot tell what runs. Each NAME=value
-    word read through goes on ASSIGNED as (its index in ARGV, or that of the env -S string it came from; the word):
-    those before the command, after time, and env's (and exec's, as the knob lint reads it); after another wrapper,
-    NAME=value is the command's name."""
+    ["mktemp", "t"]. An env -S string is split into words (_split). None when ARGV runs nothing (command -v, --help,
+    an env with no command); UNRESOLVED when a wrapper has an option this does not know or an -S string env would
+    refuse, so a caller cannot tell what runs and fails closed.
+
+    Each NAME=value word read through goes on ASSIGNED as (index, word, spans): those before the command, after time,
+    and env's (and exec's, as the knob lint reads it); after another wrapper, NAME=value is the command's name. WHERE
+    gets (index, spans) for each word returned. INDEX is the ARGV word it comes from; SPANS is None for that whole
+    word, or for a word of an env -S string, per character the (start, end) range of ARGV[INDEX] it comes from.
+    NAMES holds the indexes of ARGV words that are never NAME=value, whatever their text (a quoted "X"=1)."""
     argv, k, assigns = list(argv), 0, True
-    origin = list(range(len(argv)))
+    origin: list = [(i, None) for i in range(len(argv))]
+
+    def named(j: int) -> bool:  # an ARGV word NAMES holds, as it is (no word of an -S string)
+        return origin[j][1] is None and origin[j][0] in names
+
+    def split_at(at: int, off: int) -> bool:
+        """Put the words of argv[at][off:] (an -S string) in its place, after argv[at]; False when env refuses it."""
+        got = _split(argv[at][off:])
+        if got is None:
+            return False
+        index, outer = origin[at]
+        mapped = []
+        for _, spans in got:
+            shifted = [(lo + off, hi + off) for lo, hi in spans]
+            mapped.append((index, shifted if outer is None else [(outer[lo][0], outer[hi - 1][1]) for lo, hi in
+                                                                 shifted]))
+        argv[at + 1:at + 1] = [w for w, _ in got]
+        origin[at + 1:at + 1] = mapped
+        return True
+
     while k < len(argv):
-        if argv[k] in KEYWORDS or assigns and ASSIGNMENT.match(argv[k]):
+        if argv[k] in KEYWORDS or assigns and ASSIGNMENT.match(argv[k]) and not named(k):
             if assigned is not None and argv[k] not in KEYWORDS:
-                assigned.append((origin[k], argv[k]))
+                assigned.append((origin[k][0], argv[k], origin[k][1]))
             k += 1
             continue
         base = argv[k].rsplit("/", 1)[-1]
         if base not in WRAPPERS:
+            if where is not None:
+                where.extend(origin[k:])
             return argv[k:]
-        flags, takes, operands = WRAPPERS[base]
+        flags, takes, optional, operands = WRAPPERS[base]
+        longs = sorted(o for o in flags | takes | optional if o.startswith("--"))
         k += 1
         while k < len(argv):
             opt = argv[k]
-            if base == "env" and (opt == "-" or ASSIGNMENT.match(opt)):
+            if base == "env" and (opt == "-" or ASSIGNMENT.match(opt) and not named(k)):
                 if assigned is not None and opt != "-":
-                    assigned.append((origin[k], opt))
+                    assigned.append((origin[k][0], opt, origin[k][1]))
                 k += 1  # env's - (as -i) and its NAME=value words
                 continue
             if not opt.startswith("-") or opt == "-":
@@ -601,58 +735,170 @@ def unwrap(argv: list[str], assigned: list | None = None) -> list[str] | None:
             k += 1
             if opt == "--":
                 break
-            if base == "command" and opt in ("-v", "-V"):
-                return None  # it looks the command up and runs nothing
-            short_s = base == "env" and not opt.startswith("--") and "S" in opt and all(
-                "-" + c in flags for c in opt[1:opt.index("S")])  # -S, -iS'cmd': flags, then S and its string
-            if base == "env" and (short_s or opt == "--split-string" or opt.startswith("--split-string=")):
-                value = opt.split("=", 1)[1] if opt.startswith("--split-string=") else opt[opt.index("S") + 1:] if (
-                    short_s) else ""
-                at = origin[k - 1]
-                if not value:
-                    if k >= len(argv):
-                        return None
-                    value, at, k = argv[k], origin[k], k + 1
-                argv[k:k] = value.split()
-                origin[k:k] = [at] * len(value.split())
-                continue
             if opt.startswith("--"):
-                key = opt.split("=", 1)[0]
-                if key in takes:
-                    k += 0 if "=" in opt else 1
-                elif key not in flags or "=" in opt:
+                key, eq, val = opt.partition("=")
+                if key in ("--help", "--version"):
                     return None
+                names = [o for o in longs if o == key] or [o for o in longs if o.startswith(key)]
+                if len(names) != 1:
+                    return UNRESOLVED
+                key = names[0]
+                if key == "--split-string":
+                    if not eq:
+                        if k >= len(argv):
+                            return UNRESOLVED
+                        k += 1
+                    if not split_at(k - 1, len(opt) - len(val) if eq else 0):
+                        return UNRESOLVED
+                    del argv[k - 1], origin[k - 1]  # its words take its place
+                    k -= 1
+                elif key in takes:
+                    k += 0 if eq else 1
+                elif eq and key not in optional:
+                    return UNRESOLVED  # a flag given an argument
                 continue
             if base == "nice" and opt[1:].isdigit():
                 continue  # nice -5
             for j in range(1, len(opt)):  # short options, grouped (-cl) or with an argument attached (-n5, -oL)
-                if "-" + opt[j] in takes:
+                c = "-" + opt[j]
+                if base == "command" and c in ("-v", "-V"):
+                    return None  # it looks the command up and runs nothing
+                if base == "env" and c == "-S":
+                    if j + 1 < len(opt):
+                        ok = split_at(k - 1, j + 1)
+                    elif k < len(argv):
+                        k += 1
+                        ok = split_at(k - 1, 0)
+                    else:
+                        return UNRESOLVED
+                    if not ok:
+                        return UNRESOLVED
+                    del argv[k - 1], origin[k - 1]
+                    k -= 1
+                    break
+                if c in takes:
                     k += 0 if j + 1 < len(opt) else 1
                     break
-                if "-" + opt[j] not in flags:
-                    return None
+                if c not in flags:
+                    return UNRESOLVED
         assigns = base in ("time", "env", "exec")  # env reads NAME=value after --, too
         k += operands
     return None
 
 
+@dataclass
+class Resolved:
+    """What a command runs, read through its wrappers (unwrap()): WORDS, the command's words with its name first (an
+    env -S string's words each a Word over the characters of the -S argument it comes from), each one's VALUE (quotes
+    removed, "\0" for each part only a run can tell), and the NAME=value words read through (ASSIGNED, each with its
+    value). WORDS is None when it runs nothing, and UNRESOLVED when that cannot be told."""
+    words: list | None
+    values: list
+    assigned: list
+
+
+def _value(text: str, word: Word) -> tuple[str, list[tuple[int, int]]]:
+    """WORD's value with its quotes removed, "\0" for each part only a run can tell (an expansion, a substitution, an
+    ANSI-C $'...'), and per character the (start, end) range of TEXT it comes from."""
+    out, spans, quote = [], [], None
+    for p in sorted(word.parts, key=lambda p: p.start):
+        if not isinstance(p, Lit):
+            out.append("\0")
+            spans.append((p.start, p.end))
+            continue
+        k = p.start
+        while k < p.end:
+            c = text[k]
+            if quote == "'":
+                if c == "'":
+                    quote = None
+                else:
+                    out.append(c)
+                    spans.append((k, k + 1))
+                k += 1
+            elif quote == '"':
+                if c == '"':
+                    quote = None
+                    k += 1
+                elif c == "\\" and k + 1 < p.end and text[k + 1] in '$`"\\\n':
+                    if text[k + 1] != "\n":
+                        out.append(text[k + 1])
+                        spans.append((k, k + 2))
+                    k += 2
+                else:
+                    out.append(c)
+                    spans.append((k, k + 1))
+                    k += 1
+            elif c == "\\" and k + 1 < p.end:
+                if text[k + 1] != "\n":
+                    out.append(text[k + 1])
+                    spans.append((k, k + 2))
+                k += 2
+            elif c == "$" and text[k + 1:k + 2] == "'":
+                e = k + 2
+                while e < p.end and text[e] != "'":
+                    e += 2 if text[e] == "\\" else 1
+                out.append("\0")
+                spans.append((k, min(e + 1, p.end)))
+                k = e + 1
+            elif c in "'\"":
+                quote = c
+                k += 1
+            else:
+                out.append(c)
+                spans.append((k, k + 1))
+                k += 1
+    return "".join(out), spans
+
+
+def _clip(word: Word, start: int, end: int) -> Word:
+    """The part of WORD from START to END: its literal parts cut to it, and every other part that overlaps it."""
+    parts = []
+    for p in word.parts:
+        if isinstance(p, Lit):
+            if max(p.start, start) < min(p.end, end):
+                parts.append(Lit(max(p.start, start), min(p.end, end)))
+        elif p.start < end and start < p.end:
+            parts.append(p)
+    return Word(start, end, parts)
+
+
+def resolve(text: str, cmd: Command) -> Resolved:
+    """What CMD runs (unwrap()), with each word mapped back to TEXT: the command's words, an env -S string's words
+    included, each a Word at the characters it sits on (teamleaderleo/leo-workspace#4368 review at cfd7897e, F3)."""
+    words, values = cmd.words, [_value(text, w) for w in cmd.words]
+    argv = [value for value, _ in values]
+    # A quoted "X"=1 is a command's name (or an -S string), never an assignment, whatever its value.
+    names = frozenset(i for i, w in enumerate(words) if not ASSIGNMENT.match(text, w.start))
+    assigned, where = [], []
+    run = unwrap(argv, assigned, where, names)
+
+    def at(index: int, spans) -> Word:
+        word, (_, chars) = words[index], values[index]
+        if spans is None:
+            return word
+        if not spans:
+            return Word(word.start, word.start, [])
+        return _clip(word, chars[spans[0][0]][0], chars[spans[-1][1] - 1][1])
+
+    got = [(at(i, spans), raw) for i, raw, spans in assigned]
+    if run is None or run is UNRESOLVED:
+        return Resolved(run, [], got)
+    return Resolved([at(i, spans) for i, spans in where], run, got)
+
+
 def words_run(text: str, cmd: Command) -> list[Word] | None:
-    """CMD's words from the command it runs on (unwrap()), its name first: None when that cannot be told, or when
-    the command is inside one of its words (an env -S string)."""
-    argv = ["X=" if ASSIGNMENT.match(text, w.start) else name(text, w) or "\0" for w in cmd.words]
-    run = unwrap(argv)
-    if not run or argv[len(argv) - len(run):] != run:
-        return None
-    return cmd.words[len(argv) - len(run):]
+    """CMD's words from the command it runs on (resolve()), its name first: None when that cannot be told."""
+    return resolve(text, cmd).words or None
 
 
 def template_words(text: str, cmd: Command) -> list[Word]:
-    """CMD's mktemp template words: an argument of a command named mktemp (after its wrappers, unwrap()) whose own
-    literal text has XXXXXX."""
-    words = words_run(text, cmd)
-    if not words or name(text, words[0]).rsplit("/", 1)[-1] != "mktemp":
+    """CMD's mktemp template words: an argument of a command named mktemp (after its wrappers, resolve()) whose own
+    literal text has XXXXXX; inside an env -S string, the characters of the word env makes."""
+    run = resolve(text, cmd)
+    if not run.words or run.values[0].rsplit("/", 1)[-1] != "mktemp":
         return []
-    return [w for w in words[1:] if "XXXXXX" in literal(text, w)]
+    return [w for w in run.words[1:] if "XXXXXX" in literal(text, w)]
 
 
 def exempt(text: str) -> set[int]:
@@ -694,14 +940,22 @@ SHELLS = {"sh", "bash", "zsh", "ksh", "dash", "mksh", "ash"}
 
 def shebang(text: str) -> str | None:
     """What TEXT's #! line runs: "shell", "other", "unresolved" (unwrap() cannot tell what it runs, so a sweep reports
-    it, never reads it line by line unnoticed), or None with no #! line. The line is split at whitespace, as env -S
-    splits its string."""
+    it and reads the file whole, never line by line unnoticed), or None with no #! line. The line is read both ways a
+    kernel reads it: Linux passes all after the interpreter as one argument, macOS splits it at blanks; env -S splits
+    its string as env does (split_string). Shell in either reading is shell; "other" only when both resolve to a
+    program that is no shell."""
     if not text.startswith("#!"):
         return None
-    run = unwrap(text.split("\n", 1)[0][2:].split())
-    if not run:
-        return "unresolved"
-    return "shell" if run[0].rsplit("/", 1)[-1] in SHELLS else "other"
+    line = text.split("\n", 1)[0][2:].strip()
+    head = line.split(None, 1)
+    kinds = set()
+    for argv in (head, line.split()):
+        run = unwrap(argv) if argv else None
+        if not run or "\0" in run[0]:
+            kinds.add("unresolved")
+        elif not any(c.isspace() for c in run[0]):  # a name with a blank in it runs nothing (env "bash -e" on Linux)
+            kinds.add("shell" if run[0].rsplit("/", 1)[-1] in SHELLS else "other")
+    return "shell" if "shell" in kinds else "unresolved" if "unresolved" in kinds or not kinds else "other"
 RUN_BLOCK = re.compile(r"(\s*)(?:-\s+)?run:\s*\|[-+0-9]*\s*(?:#.*)?$")
 
 
@@ -910,6 +1164,22 @@ QUOTE_STATE = (
     ("cat <<EOF\n${x:-'$(printf secret > /tmp/out.$$)'}\nEOF", True),
     ("cat <<'EOF'\n${x:-'$(printf secret > /tmp/out.$$)'}\nEOF", True),
     ("mktemp \"/tmp/${x:-'$USER'}.XXXXXX\"", False),
+    # manaflow-ai/cmuxterm-hq#9393 review at c6948ffc, F2: in double quotes, the single quotes of a pattern (#, ##, %,
+    # %%, /, //, ^, ,) still quote it, so the $( ) in them never runs; those of -, =, ? and + are literal. Bash decides
+    # each through bash_writes().
+    ("mktemp \"/tmp/${x#'$(printf secret > /tmp/out.$$)'}.XXXXXX\"", False),
+    ("mktemp \"/tmp/${x##'$(printf secret > /tmp/out.$$)'}.XXXXXX\"", False),
+    ("mktemp \"/tmp/${x%'$(printf secret > /tmp/out.$$)'}.XXXXXX\"", False),
+    ("mktemp \"/tmp/${x%%'$(printf secret > /tmp/out.$$)'}.XXXXXX\"", False),
+    ("mktemp \"/tmp/${x/'$(printf secret > /tmp/out.$$)'/b}.XXXXXX\"", False),
+    ("mktemp \"/tmp/${x//a/'$(printf secret > /tmp/out.$$)'}.XXXXXX\"", False),
+    ("mktemp \"/tmp/${x^'$(printf secret > /tmp/out.$$)'}.XXXXXX\"", False),
+    ("mktemp \"/tmp/${x#${y:-'$(printf secret > /tmp/out.$$)'}}.XXXXXX\"", False),
+    ("mktemp \"/tmp/${x#'a'$(printf secret > /tmp/out.$$)}.XXXXXX\"", True),
+    ("mktemp \"/tmp/${x:='$(printf secret > /tmp/out.$$)'}.XXXXXX\"", True),
+    ("mktemp \"/tmp/${x:+'$(printf secret > /tmp/out.$$)'}.XXXXXX\"", True),
+    ("x=1; mktemp \"/tmp/${x:+'$(printf secret > /tmp/out.$$)'}.XXXXXX\"", True),
+    ("mktemp \"/tmp/${#x}${x:-'$(printf secret > /tmp/out.$$)'}.XXXXXX\"", True),
 )
 
 
@@ -921,9 +1191,39 @@ WRAPPERS_SAFE = ("time -p", "env", "env -i", "env -i PATH=/usr/bin:/bin", "env -
                  "nice", "nice -n 5", "nice -n5", "nice -5", "nice --adjustment=5", "nohup", "command", "command -p",
                  "exec", "exec -a name", "exec -c", "exec -cl", "timeout 5", "timeout -s KILL 5",
                  "timeout --kill-after=1 5", "timeout --preserve-status 5s", "stdbuf -oL", "stdbuf -o L",
-                 "stdbuf --output=L -eL", "setsid", "setsid -f", "time -p env -i nice -n 1 timeout 5")
+                 "stdbuf --output=L -eL", "setsid", "setsid -f", "time -p env -i nice -n 1 timeout 5",
+                 # teamleaderleo/leo-workspace#4382 review at cc43afa6, F3: GNU env's whole option table.
+                 "env --default-signal=PIPE", "env --default-signal", "env --ignore-signal=INT", "env --block-signal",
+                 "env -a name", "env -aname", "env --argv0=name", "env --list-signal-handling", "env -v", "env -0i",
+                 "timeout -v 5", "timeout --signal=KILL 5", "timeout --foreground -k 1 5")
 WRAPPERS_UNSAFE = ("env -u mktemp", "env -C mktemp", "timeout mktemp", "nice -n mktemp", "exec -a mktemp",
-                   "command -v mktemp", "env --bogus mktemp", "stdbuf -o mktemp", "timeout -s mktemp 5")
+                   "command -v mktemp", "env --bogus mktemp", "stdbuf -o mktemp", "timeout -s mktemp 5",
+                   "env -a mktemp", "nice --bogus mktemp", "timeout --bogus 5 mktemp",
+                   "setsid --bogus mktemp", "time --bogus mktemp", "exec -z mktemp")
+# A command inside env's -S string (teamleaderleo/leo-workspace#4368 review at cfd7897e, F3): env splits it into words
+# as it splits any -S string, ${NAME} expanded; a $ without braces, or a $( ), makes env refuse it. The template words
+# inside it are exempt where they sit in the -S argument, and nothing else is.
+ENV_SPLIT = (
+    ('env -S "mktemp /tmp/$USER.XXXXXX"', False),
+    ("env -S 'mktemp /tmp/${USER}.XXXXXX'", False),
+    ("env -S'mktemp /tmp/${USER}.XXXXXX'", False),
+    ('env -iS"mktemp -d /tmp/$USER.XXXXXX"', False),
+    ('env --split-string="mktemp /tmp/$USER.XXXXXX"', False),
+    ('d=$(env -S "mktemp -d /tmp/$USER.XXXXXX")', False),
+    ('env -S "nice -n 5 mktemp /tmp/$USER.XXXXXX"', False),
+    ("env -S 'env -S \"mktemp /tmp/${USER}.XXXXXX\"'", False),
+    ('env -S "mktemp /tmp/$USER.XXXXXX" > /tmp/out.$$', True),
+    ('env -S "mktemp /tmp/$USER.XXXXXX /tmp/out.$$"', True),
+    ("env -S 'mktemp /tmp/$USER.XXXXXX'", True),
+    ("env -S 'mktemp \"/tmp/$(id -u).XXXXXX\"'", True),
+    ('env -S "printf s > /tmp/out.$$"', True),
+    ('env -S "mktemp" /tmp/$USER.XXXXXX', False),
+    # teamleaderleo/leo-workspace#4368 review at cfd7897e, F4: env -i and command -p find mktemp on the default PATH,
+    # past the fake one; bash_writes() runs the fake by its own path, so nothing reaches the real temp folder.
+    ("d=$(env -i mktemp -d)", False),
+    ("env -i mktemp", False),
+    ("command -p mktemp -d", False),
+)
 
 
 def _wrappers() -> list[tuple[str, bool]]:
@@ -999,7 +1299,7 @@ def corpus() -> list[tuple[str, bool]]:
     for line in UNPARSED:
         out[line] = True
     for line, unsafe in (NOT_COMMANDS + EXPANSIONS + tuple(_data_subs()) + tuple(_case_in_subs()) + QUOTE_STATE
-                         + tuple(_wrappers())):
+                         + tuple(_wrappers()) + ENV_SPLIT):
         out[line] = unsafe
     out[_deep(MAX_DEPTH)] = False
     out[_deep(MAX_DEPTH, "; echo > /tmp/out.$$")] = True
@@ -1046,6 +1346,13 @@ FILES = (
     ("scripts/env-split-safe", "#!/usr/bin/env -S bash -e\ncat <<EOF\nhello\nEOF\nd=$(mktemp -d /tmp/$USER.XXXXXX)\n",
      False),
     ("scripts/shebang-unresolved", "#!/usr/bin/env --bogus bash\nd=$(mktemp -d /tmp/$USER.XXXXXX)\n", True),
+    # manaflow-ai/cmux#41336 review at c1c62c86, F2: env -S splits its string as env does, quotes included, so
+    # 'bash' is bash; a string it cannot split (an open quote, a $ it would expand) leaves the #! line unresolved.
+    ("scripts/env-split-quoted", "#!/usr/bin/env -S 'bash' -e\ncat <<EOF\n# $(printf s > /tmp/out.$$)\nEOF\n", True),
+    ("scripts/env-split-dquoted", '#!/usr/bin/env -S "bash" -e\ncat <<EOF\n# $(printf s > /tmp/out.$$)\nEOF\n', True),
+    ("scripts/env-split-open-quote", "#!/usr/bin/env -S 'bash -e\nd=$(mktemp -d /tmp/$USER.XXXXXX)\n", True),
+    ("scripts/env-split-expands", "#!/usr/bin/env -S ${SHELL} -e\nd=$(mktemp -d /tmp/$USER.XXXXXX)\n", True),
+    ("scripts/env-split-python", "#!/usr/bin/env -S 'python3' -u\nimport os\n", False),
     ("scripts/shebang-python", "#!/usr/bin/env python3\nimport os\n", False),
     ("scripts/workflow-safe.yml", "jobs:\n  a:\n    steps:\n      - run: |\n          d=$(mktemp -d \\\n"
      "            /tmp/$USER.XXXXXX)\n", False),
@@ -1055,21 +1362,61 @@ FILES = (
 # The differential detector: what bash does with a fixture, beside what the tree reads in it. bash_writes() runs it
 # in a scratch folder of its own; a sweep checks that every fixture bash writes a guessable name with is one the tree
 # flags and the corpus calls unsafe. Real /tmp names are never touched: each /tmp in the text is moved into the folder.
+MKTEMP_WORD = re.compile(r"(?<![\w./-])mktemp(?![\w.-])")
 TMP_PATH = re.compile(r"(?<![\w.])(?:/private)?/tmp(?![\w.-])")
 MKTEMP = """#!/bin/sh
 out=$(TMPDIR=%s %s "$@") || exit $?
 printf '%%s\\n' "$out" >> %s
 printf '%%s\\n' "$out"
+if [ -n "$SHELL_TREE_PEAK" ] && read -r me < /proc/$$/stat; then
+  me=${me##*) }; set -- $me; session=$4; n=0
+  for f in /proc/[0-9]*/stat; do
+    read -r line < "$f" 2>/dev/null || continue
+    line=${line##*) }; set -- $line
+    [ "$4" = "$session" ] && n=$((n + 1))
+  done
+  printf '%%s\\n' "$n" >> "$SHELL_TREE_PEAK"
+fi
 """
+# The most processes one bash run may hold at once. Bash keeps one live process per level of nested substitutions,
+# so a fixture nested deeper than this is never run (the tree alone reads it): near a host's process limit, bash's
+# fork retries and backs off for seconds, past any time budget. bash_verdicts() keeps the runs in flight under
+# PROCESS_BUDGET together.
+MAX_BASH_PROCESSES = 48
+PROCESS_BUDGET = 64
 
 
-def bash_writes(text: str, timeout: float = 10) -> bool | None:
+class BashTimeout(RuntimeError):
+    """A bash run past its time; its process group (PGID) is killed, and the message names the fixture."""
+
+    def __init__(self, text: str, timeout: float, pgid: int):
+        super().__init__(f"bash ran past {timeout:g} s on this fixture, and its process group {pgid} was killed: "
+                         f"{text}")
+        self.pgid = pgid
+
+
+def bash_processes(text: str) -> int:
+    """An upper bound on the processes bash holds at once running TEXT with no loop that forks in the background:
+    bash and the fake mktemp with its substitution, and one per (, backtick pair, | and &."""
+    return 4 + text.count("(") + text.count("`") // 2 + text.count("|") + text.count("&")
+
+
+def bash_writes(text: str, timeout: float = 10, stats: dict | None = None) -> bool | None:
     """Whether bash, running TEXT in a scratch folder (each /tmp in it moved there; PATH a folder of its own, whose
     mktemp makes its names there and logs them; TMPDIR unset, so ${TMPDIR:-...} defaults run), creates a file or folder
-    no mktemp made; None when bash -n refuses TEXT."""
-    bash = shutil.which("bash")
-    if subprocess.run([bash, "-n"], input=text, text=True, capture_output=True).returncode:
+    no mktemp made; None when bash -n refuses TEXT or it would hold more than MAX_BASH_PROCESSES at once. Bash reads
+    no stdin (it is /dev/null). Past TIMEOUT its whole process group is killed and BashTimeout names TEXT. STATS, when
+    given, gets "runs" (0 or 1) and "peak": the most processes bash's session held when a mktemp ran (on Linux)."""
+    if stats is not None:
+        stats.update(runs=0, peak=0)
+    if bash_processes(text) > MAX_BASH_PROCESSES:
         return None
+    bash = shutil.which("bash")
+    try:
+        if subprocess.run([bash, "-n"], input=text, text=True, capture_output=True, timeout=timeout).returncode:
+            return None
+    except subprocess.TimeoutExpired:
+        raise BashTimeout(text, timeout, 0) from None
     root = tempfile.mkdtemp(prefix="shell-tree-")
     try:
         tmp, bindir, work = (os.path.join(root, d) for d in ("t", "bin", "work"))
@@ -1082,23 +1429,37 @@ def bash_writes(text: str, timeout: float = 10) -> bool | None:
         for tool in ("cat", "cp", "mkdir", "touch", "tee", "env", "nice", "nohup", "timeout", "stdbuf", "setsid"):
             os.symlink(shutil.which(tool), os.path.join(bindir, tool))
         open(os.path.join(work, "a"), "w").close()
-        script = TMP_PATH.sub(tmp, text)
+        # Each mktemp is the fake by its own path, so env -i and command -p (the default PATH) never reach the real
+        # one, which would make its name in the real temp folder (teamleaderleo/leo-workspace#4368 at cfd7897e, F4).
+        script = MKTEMP_WORD.sub(os.path.join(bindir, "mktemp"), TMP_PATH.sub(tmp, text))
         if TMP_PATH.search(script.replace(root, "")) or "umask" in script:
             raise ValueError("a /tmp path or a umask is left in the script: " + script)
         with open(os.path.join(root, "script"), "w") as f:
             f.write(script)
         env = {"PATH": bindir, "HOME": root, "USER": "u", "LC_ALL": "C"}
+        peak_log = os.path.join(root, "peak")
+        if stats is not None:
+            env["SHELL_TREE_PEAK"] = peak_log
         # Reading its output to the end waits for every process that holds it, process substitutions included; on
         # the timeout the whole process group is stopped.
         run = subprocess.Popen([bash, "--noprofile", "--norc", os.path.join(root, "script")], cwd=work, env=env,
                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                start_new_session=True, umask=0o022)
+        pgid = run.pid  # start_new_session: bash leads a group of its own, and only that group is killed
+        if stats is not None:
+            stats["runs"] = 1
         try:
             run.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
-            os.killpg(run.pid, 9)
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
             run.communicate()
-            raise
+            raise BashTimeout(text, timeout, pgid) from None
+        if stats is not None and os.path.exists(peak_log):
+            with open(peak_log) as f:
+                stats["peak"] = max((int(n) for n in f.read().split()), default=0)
         # A name is mktemp's when the fake logged it, or when its mode is the 0600 file or 0700 folder mktemp makes:
         # under env -i, the real mktemp runs from the default PATH. Under umask 022 nothing else makes those modes.
         made = []
@@ -1120,9 +1481,25 @@ def bash_writes(text: str, timeout: float = 10) -> bool | None:
 
 
 def bash_verdicts(texts: list[str]) -> list[bool | None]:
-    """bash_writes() of each of TEXTS, several bash runs at a time."""
+    """bash_writes() of each of TEXTS, several bash runs at a time, with the processes they may hold together
+    (bash_processes) kept under PROCESS_BUDGET."""
+    room = threading.Condition()
+    free = [PROCESS_BUDGET]
+
+    def one(text: str) -> bool | None:
+        cost = min(bash_processes(text), MAX_BASH_PROCESSES)
+        with room:
+            room.wait_for(lambda: free[0] >= cost)
+            free[0] -= cost
+        try:
+            return bash_writes(text)
+        finally:
+            with room:
+                free[0] += cost
+                room.notify_all()
+
     with ThreadPoolExecutor(max_workers=min(16, (os.cpu_count() or 1) * 2)) as pool:
-        return list(pool.map(bash_writes, texts))
+        return list(pool.map(one, texts))
 
 
 if __name__ == "__main__":

@@ -133,7 +133,7 @@ def code(line: str) -> str:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import shell_tree  # noqa: E402
 
-SHELL_TREE_SHA256 = "8f3ecc553c1bb55ded4d518bcc81d1f7e2ef7ede4071a37ded9e358aec58f715"
+SHELL_TREE_SHA256 = "b00541ca8a12e0fa6d4e670139169b096d8fa821de79a952b0be7675df84aaa5"
 
 
 def without_templates(line: str) -> str:
@@ -161,9 +161,9 @@ def skipped(path: str) -> bool:
             or path.endswith(SKIP_SUFFIXES))
 
 
-def hits(root: Path = ROOT) -> list[tuple[str, int, str, str]]:
-    """(path, line number, the line, what was found): one hit per set -C or guessable name, each with its own text, so
-    an allowance approves that hit and no other on its line."""
+def hits(root: Path = ROOT) -> list[tuple[str, int, str, str, int]]:
+    """(path, line number, the line, what was found, its offset in the line): one hit per set -C or guessable name,
+    each with its own text and place, so an allowance approves that hit and no other on its line."""
     files = subprocess.run(["git", "-C", str(root), "ls-files", "--", *DIRS], capture_output=True, text=True,
                            check=True).stdout.splitlines()
     out = []
@@ -177,23 +177,25 @@ def hits(root: Path = ROOT) -> list[tuple[str, int, str, str]]:
         # A #! line shell_tree cannot resolve is a hit of its own: what reads the file is unknown.
         if shell_tree.shebang(text) == "unresolved":
             first = text.split("\n", 1)[0]
-            out.append((path, 1, first, first))
+            out.append((path, 1, first, first, 0))
         # The file is read whole where it is shell (shell_tree.scan_file), so a here-document, a continued line or
         # a quote across lines keeps its context; the hit keeps the line's own text.
         for n, (line, scan) in enumerate(zip(text.split("\n"), shell_tree.scan_file(path, text)), 1):
             for m in [*NOCLOBBER.finditer(scan), *SHARED_TMP.finditer(scan)]:
-                out.append((path, n, code(line).strip() or line.strip(), m.group(0)))
+                out.append((path, n, line, m.group(0), m.start()))
     return out
 
 
-def approves(entry: tuple[str, str], hit: tuple[str, int, str, str]) -> bool:
-    """Whether the allowance ENTRY ((path, a piece of the line)) is HIT's own: the piece is on its line and holds
-    what the hit found, never only another name beside it."""
-    (path, piece), (p, _, line, found) = entry, hit
-    return p == path and piece in line and found in piece
+def approves(entry: tuple[str, str], hit: tuple[str, int, str, str, int]) -> bool:
+    """Whether the allowance ENTRY ((path, a piece of the line)) is HIT's own: the piece is on its line at a place
+    that covers the hit's span, never only beside it, and never another hit with the same text (review of
+    manaflow-ai/cmux#41336 at c1c62c86, F1)."""
+    (path, piece), (p, _, line, found, at) = entry, hit
+    starts = [i for i in range(len(line)) if line.startswith(piece, i)]
+    return p == path and any(i <= at and at + len(found) <= i + len(piece) for i in starts)
 
 
-def allowed(hit: tuple[str, int, str, str], allowlist=ALLOWED) -> bool:
+def allowed(hit: tuple[str, int, str, str, int], allowlist=ALLOWED) -> bool:
     """An allowance approves HIT, or what it found is a name the app picks (APP_NAMES), never a set -C."""
     found = hit[3]
     return any(approves(e, hit) for e in allowlist) or (
@@ -202,7 +204,7 @@ def allowed(hit: tuple[str, int, str, str], allowlist=ALLOWED) -> bool:
 
 def unapproved(found, allowlist=ALLOWED) -> list[str]:
     """The hits in FOUND that no entry of ALLOWLIST (or an app name) approves."""
-    return [f"{h[0]}:{h[1]}: {h[3]} in {h[2][:160]}" for h in found if not allowed(h, allowlist)]
+    return [f"{h[0]}:{h[1]}: {h[3]} in {h[2].strip()[:160]}" for h in found if not allowed(h, allowlist)]
 
 
 def scratch_hits(files) -> set[str]:
