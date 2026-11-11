@@ -5384,6 +5384,41 @@ def _attribution_self_test() -> list[str]:
         or "1 unresolved" not in output
     ):
         failures.append(f"ATTRIBUTION unresolved --strict: expected an 'unresolved' failure, got {code}: {output!r}")
+
+    # A scoped run (--roots, which judges no entry stale or missing) still fails an unresolved finding:
+    # --write-allowlist leaves it out, and an entry naming it is refused.
+    def scoped(allowlist: Optional[str], *flags: str) -> tuple[int, str, str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "web/tests").mkdir(parents=True)
+            (root / "web/tests/b7.test.ts").write_text(unresolved_source)
+            if allowlist is not None:
+                (root / "allow.txt").write_text(allowlist)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+                code = main(["--repo-root", tmp, "--allowlist", "allow.txt", "--roots", "web/tests", *flags])
+            written = (root / "allow.txt").read_text() if (root / "allow.txt").exists() else ""
+        return code, out.getvalue(), written
+
+    unresolved_function = f"{UNRESOLVED_SCOPE_PREFIX}: regex literal or division at 4:5>"
+    code, output, written = scoped(None, "--write-allowlist")
+    if code != 0 or UNRESOLVED_SCOPE_PREFIX in written or "1 unresolved finding(s) not written" not in output:
+        failures.append(
+            f"ATTRIBUTION unresolved --write-allowlist: expected no entry for it, got {code}: {output!r} {written!r}"
+        )
+    code, output, _ = scoped(written, "--strict")
+    if code != 1 or "1 unresolved" not in output:
+        failures.append(
+            f"ATTRIBUTION unresolved --strict --roots after --write-allowlist: expected exit 1, got {code}: {output!r}"
+        )
+    code, output, _ = scoped(
+        f"web/tests/b7.test.ts\t{unresolved_function}\t{RULE_SLEEP_THEN_ASSERT}\told debt\n", "--strict"
+    )
+    if code != 2 or "is no function" not in output:
+        failures.append(
+            f"ATTRIBUTION unresolved allowlist entry --strict --roots: expected it refused (exit 2), got {code}: "
+            f"{output!r}"
+        )
     return failures
 
 
