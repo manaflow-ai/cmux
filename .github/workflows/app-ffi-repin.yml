@@ -4,10 +4,10 @@
 # head while its checks run instead of moving it on every publish (each move
 # cancelled the checks, and on 2026-11-09 nothing landed for 6 hours). The
 # releases published while a head was held are pinned here: the held PR's
-# merge changes Package.swift, and this run opens the next re-pin PR at once,
-# without waiting for another FFI push. A Package.swift change by any other PR
-# runs it too; with nothing newer published, or a head still held, it changes
-# nothing. app-ffi-pin.json is listed for when the pin moves there (#37645).
+# merge changes app-ffi-pin.json (and the checksum line of Package.swift's
+# loader block), and this run opens the next re-pin PR at once, without waiting
+# for another FFI push. A Package.swift change by any other PR runs it too; with
+# nothing newer published, or a head still held, it changes nothing.
 name: app FFI re-pin
 
 on:
