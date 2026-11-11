@@ -1418,6 +1418,120 @@ mkdir -p node_modules/.bin
         self.assertNotEqual(clash.returncode, 0, clash.stdout + clash.stderr)
         self.git("merge", "--abort")
 
+    def test_typescript_imports_merge_per_name(self):
+        """Two branches that each import a new name from one module change that module's one
+        import line; the merge keeps both names. A name either side dropped stays dropped, and
+        a line both sides changed below the imports is still the author's conflict."""
+        shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
+        self.git("config", "user.name", "t")
+        self.git("config", "user.email", "t@example.com")
+        self.assertEqual(self.install().returncode, 0)
+        app = self.repo / "webviews/src/demo/App.tsx"
+        app.parent.mkdir(parents=True, exist_ok=True)
+        head = 'import React, { useMemo, useState } from "react";\nimport { a, b } from "./ab";\n'
+        body = "\nexport function App() {\n  return null;\n}\n"
+        app.write_text(head + 'import { old } from "./old";\n' + body)
+        self.commit_all("base")
+        base = self.git("rev-parse", "HEAD").stdout.strip()
+
+        def branch(name, text):
+            self.git("checkout", "--quiet", "-b", name, base)
+            app.write_text(text)
+            self.commit_all(name)
+
+        # Same line, a name each; a new statement on one side; a name one side dropped.
+        branch("lane", 'import React, { useMemo, useRef, useState } from "react";\nimport { a, b, c } from "./ab";\n'
+                       'import { old } from "./old";\nimport { lane } from "./lane";\n' + body)
+        branch("trunk", 'import React, { useEffect, useMemo, useState } from "react";\nimport { a } from "./ab";\n'
+                       'import { old, other } from "./old";\n' + body)
+        merged = self.git("merge", "--no-edit", "lane", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        self.assertEqual(app.read_text(), 'import React, { useEffect, useMemo, useState, useRef } from "react";\n'
+                                          'import { a, c } from "./ab";\nimport { old, other } from "./old";\n'
+                                          'import { lane } from "./lane";\n' + body)
+
+        # A statement one side removed whole, while the other left it as it was, goes.
+        branch("drop", head + body)
+        branch("keep", head + 'import { old } from "./old";\nimport { keep } from "./keep";\n' + body)
+        merged = self.git("merge", "--no-edit", "drop", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        self.assertEqual(app.read_text(), head + 'import { keep } from "./keep";\n' + body)
+
+        # A line past the print width breaks one name per line, as the formatter writes it.
+        long_names = [f"someLongExportedName{index}" for index in range(6)]
+        branch("long-a", head.replace("a, b }", "a, b, " + ", ".join(long_names[:3]) + " }") + 'import { old } from "./old";\n' + body)
+        branch("long-b", head.replace("a, b }", "a, b, " + ", ".join(long_names[3:]) + " }") + 'import { old } from "./old";\n' + body)
+        merged = self.git("merge", "--no-edit", "long-a", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        names = ["a", "b", *long_names[3:], *long_names[:3]]
+        self.assertIn("import {\n" + "".join(f"  {name},\n" for name in names) + '} from "./ab";\n', app.read_text())
+
+        # Both sides changing the default import, or one statement's lines with a comment in
+        # them, leave the file to the line merge: still a conflict.
+        branch("default-a", head.replace("import React,", "import ReactA,") + 'import { old } from "./old";\n' + body)
+        branch("default-b", head.replace("import React,", "import ReactB,") + 'import { old } from "./old";\n' + body)
+        clash = self.git("merge", "--no-edit", "default-a", check=False)
+        self.assertNotEqual(clash.returncode, 0)
+        self.assertIn("<<<<<<<", app.read_text())
+        self.git("merge", "--abort")
+        branch("comment-a", head.replace("{ a, b }", "{ a, b /* why */, x }") + 'import { old } from "./old";\n' + body)
+        branch("comment-b", head.replace("{ a, b }", "{ a, b, y }") + 'import { old } from "./old";\n' + body)
+        clash = self.git("merge", "--no-edit", "comment-a", check=False)
+        self.assertNotEqual(clash.returncode, 0)
+        self.git("merge", "--abort")
+
+        # The order is merged too: side-effect imports run in it, so theirs moving one wins
+        # over ours leaving it, and a namespace one side renamed is the new name.
+        effects = 'import "./reset.css";\nimport "./polyfill";\nimport * as A from "./a";\n'
+        branch("effects-base", effects + body)
+        effects_base = self.git("rev-parse", "HEAD").stdout.strip()
+        app.write_text('import "./polyfill";\nimport "./reset.css";\nimport * as B from "./a";\n' + body)
+        self.commit_all("reorder and rename")
+        self.git("checkout", "--quiet", "-b", "effects-ours", effects_base)
+        app.write_text(effects + 'import { q } from "./q";\n' + body)
+        self.commit_all("add q")
+        merged = self.git("merge", "--no-edit", "effects-base", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        self.assertEqual(app.read_text(), 'import "./polyfill";\nimport "./reset.css";\nimport * as B from "./a";\n'
+                                          'import { q } from "./q";\n' + body)
+
+        # Left to the line merge, and so still conflicts: a name added as a value on one side and
+        # a type on the other (declared twice), a statement one side changed and the other
+        # deleted, a line that is not an import put among them (a directive), and CRLF files.
+        for name, ours_text, theirs_text in (
+            ("value-type", head.replace("a, b", "a, b, C"), head.replace("a, b", "a, b, type C")),
+            ("change-delete", head.replace("a, b", "a, b, c"), head.replace('import { a, b } from "./ab";\n', "")),
+            ("directive", head.replace("a, b", "a, b, c"), '"use client";\n' + head.replace("a, b", "a, b, d")),
+        ):
+            branch(name + "-a", ours_text + 'import { old } from "./old";\n' + body)
+            branch(name + "-b", theirs_text + 'import { old } from "./old";\n' + body)
+            clash = self.git("merge", "--no-edit", name + "-a", check=False)
+            self.assertNotEqual(clash.returncode, 0, name)
+            self.git("merge", "--abort")
+        crlf = lambda text: text.replace("\n", "\r\n").encode()
+        self.git("checkout", "--quiet", "-b", "crlf-base", base)
+        app.write_bytes(crlf(head + body))
+        self.commit_all("crlf base")
+        crlf_base = self.git("rev-parse", "HEAD").stdout.strip()
+        app.write_bytes(crlf(head.replace("a, b", "a, b, c") + body))
+        self.commit_all("crlf c")
+        self.git("checkout", "--quiet", "-b", "crlf-d", crlf_base)
+        app.write_bytes(crlf(head.replace("a, b", "a, b, d") + body))
+        self.commit_all("crlf d")
+        clash = self.git("merge", "--no-edit", "crlf-base", check=False)
+        self.assertNotEqual(clash.returncode, 0)
+        self.git("merge", "--abort")
+
+        # The imports merge and a line both sides changed in the body stays a conflict.
+        branch("body-a", head.replace("a, b", "a, b, x") + 'import { old } from "./old";\n' + body.replace("null", "1"))
+        branch("body-b", head.replace("a, b", "a, b, y") + 'import { old } from "./old";\n' + body.replace("null", "2"))
+        clash = self.git("merge", "--no-edit", "body-a", check=False)
+        self.assertNotEqual(clash.returncode, 0)
+        self.assertTrue(app.read_text().startswith('import React, { useMemo, useState } from "react";\nimport { a, b, y, x } from "./ab";\n'),
+                        app.read_text())
+        self.assertIn("<<<<<<<", app.read_text())
+        self.git("merge", "--abort")
+
     def test_repo_relative_python_is_rejected_without_execution(self):
         tools = self.repo / "tools"
         tools.mkdir()
