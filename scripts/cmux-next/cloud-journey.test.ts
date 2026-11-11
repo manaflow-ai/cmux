@@ -1513,6 +1513,48 @@ describe("clean-room provider key probe", () => {
     }
   });
 
+  test("a key set through an index, a call, a Dockerfile, make or fish, or ended by a control byte, is read", () => {
+    const keys = ["Wf8Ap3Qv7Be2Tu0Yc4Nh9Og1Ir6Kx5Lj", "Xg9Bq4Rw8Cf3Uv1Zd5Oi0Ph2Js7Ly6Mk", "Yh0Cr5Sx9Dg4Vw2Ae6Pj1Qi3Kt8Mz7Nl", "Zi1Ds6Ty0Eh5Wx3Bf7Qk2Rj4Lu9Na8Om", "Aj2Et7Uz1Fi6Xy4Cg8Rl3Sk5Mv0Ob9Pn", "Bk3Fu8Va2Gj7Yz5Dh9Sm4Tl6Nw1Pc0Qo", "Cl4Gv9Wb3Hk8Za6Ei0Tn5Um7Ox2Qd1Rp", "Dm5Hw0Xc4Il9Ab7Fj1Uo6Vn8Py3Re2Sq"];
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      "workspace/project/a.py": `os.environ["MISTRAL_API_KEY"] = "${keys[0]}"\n`,
+      "workspace/project/b.js": `process.env['GROQ_API_KEY']='${keys[1]}';\n`,
+      "workspace/project/c.py": `os.environ.setdefault("XAI_API_KEY", "${keys[2]}")\n`,
+      "workspace/project/d.dockerfile": `FROM base\nENV MISTRAL_API_KEY ${keys[3]}\n`,
+      "workspace/project/e.mk": `GROQ_API_KEY ?= ${keys[4]}\n`,
+      "workspace/project/f.fish": `set -gx XAI_API_KEY ${keys[5]}\n`,
+    });
+    // Unquoted values in a binary file, ended by a NUL or by a record's control bytes (a shell-history database row).
+    const page = Buffer.alloc(8192);
+    Buffer.from("SQLite format 3\0").copy(page, 0);
+    Buffer.from(`MISTRAL_API_KEY=${keys[6]}\0\0`).copy(page, 3000);
+    writeFileSync(join(root, "workspace/project/g.db"), page);
+    const rows = Buffer.alloc(8192);
+    Buffer.from("SQLite format 3\0").copy(rows, 0);
+    Buffer.from(`export GROQ_API_KEY=${keys[7]}\x01\x05`).copy(rows, 5000);
+    writeFileSync(join(root, "workspace/project/h.sqlite"), rows);
+    try {
+      const { probe, out } = run(root);
+      for (const v of keys) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /workspace/project/[a name].db: MISTRAL_API_KEY",
+        "file /workspace/project/[a name].js:1: GROQ_API_KEY",
+        "file /workspace/project/[a name].py:1: MISTRAL_API_KEY",
+        "file /workspace/project/[a name].py:1: XAI_API_KEY",
+        // An extension the probe does not list is part of the hidden name.
+        "file /workspace/project/[a name]: GROQ_API_KEY",
+        "file /workspace/project/[a name]:1: GROQ_API_KEY",
+        "file /workspace/project/[a name]:1: XAI_API_KEY",
+        "file /workspace/project/[a name]:2: MISTRAL_API_KEY",
+      ]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("the budget holds inside one large file, and what that file showed is kept", () => {
     const named = "Hv5Kp8Qx2Lt7Rz4Nw9Bd3Fj6Cm1Gs0Ya";
     const dir = mkdtempSync(join(tmpdir(), "key-probe-deadline-"));

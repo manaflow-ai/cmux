@@ -101,9 +101,21 @@ PLACEHOLDERS = {"", "cmux-vm-edge-placeholder"}
 # a YAML block scalar's header (`|`, `|-`, `>+2`), a comment after a space, a YAML tag (`!!str`, `!vault`) or anchor
 # (`&key`). Its alternatives start on different characters, so a failed match does not backtrack through them.
 GAP = r'(?:\s+|(?<=\s)#[^\r\n]*|[|>][-+1-9]{0,2}(?=\s)|![^\s]*|&[^\s]+)*'
+# A value: up to a quote, a space, a separator or a control byte (a NUL or a record's bytes end it in a binary file).
+VALUE = r'[^"\'\s,;)}\x00-\x1f\x7f]*'
 # A name, then its value in a lookahead: a match takes only the name, so a name that is not a key's
-# (`env={MISTRAL_API_KEY:...}`) never takes the key's name with it, and every name is tried.
-ASSIGN = re.compile(r'["\']?\b([A-Za-z][A-Za-z0-9_]*)\b(?=["\']?\s*[:=]' + GAP + r'["\']?([^"\'\s,;)}]*))')
+# (`env={MISTRAL_API_KEY:...}`) never takes the key's name with it, and every name is tried. Between them `:` or `=`,
+# also behind an index's closing quote and bracket (`os.environ["NAME"] = `) or as make's `?=` and `+=`.
+ASSIGN = re.compile(
+    r'["\']?\b(?P<name>[A-Za-z][A-Za-z0-9_]*)\b(?=["\']?\]?\s*[?+]?[:=]' + GAP + r'["\']?(?P<value>' + VALUE + r'))'
+)
+# The forms with no `:` or `=`: a call's quoted first argument, then `,` (`setdefault("NAME", value)`), and spaces after
+# a Dockerfile `ENV` or fish's `set -x`. Each pattern starts on its own literal, so neither is tried at every character.
+CALL_ASSIGN = re.compile(r'\(\s*["\'](?P<name>[A-Za-z][A-Za-z0-9_]*)["\']\s*,' + GAP + r'["\']?(?P<value>' + VALUE + r')')
+WORD_ASSIGN = re.compile(
+    r'\b(?:ENV|set(?:\s+-[A-Za-z]+)+)[ \t]+(?P<name>[A-Za-z][A-Za-z0-9_]*)[ \t]' + GAP + r'["\']?(?P<value>' + VALUE + r')'
+)
+ASSIGNS = (ASSIGN, CALL_ASSIGN, WORD_ASSIGN)
 # In a file a key's name alone is common (code that reads it, docs that name it): only a literal that looks
 # like a secret counts there, at least 16 characters of token alphabet with a letter and a digit, and no
 # reference (`$X`, `process.env.X`, `os.environ[...]`) or stand-in word.
@@ -448,10 +460,10 @@ def named_kinds(text):
     for reading in readings(text):
         if not NAME_ENDING.search(reading):
             continue
-        for m in ASSIGN.finditer(reading):
-            if m.group(1).upper() in KEY_NAMES and literal_secret(m.group(2)):
-                found(m.group(2))
-                seen.add(m.group(1).upper())
+        for m in (m for p in ASSIGNS for m in p.finditer(reading)):
+            if m["name"].upper() in KEY_NAMES and literal_secret(m["value"]):
+                found(m["value"])
+                seen.add(m["name"].upper())
     return seen
 
 
@@ -465,9 +477,9 @@ def scan_text(text):
 
 
 # A key's name or a refresh token's field, then `:` or `=`: its value follows, on this line or a later one.
-OPENER = re.compile(r'(?:"refresh_token"|\b[A-Za-z][A-Za-z0-9_]*(?:_KEY|_TOKEN|_JSON|_key|_token|_json)\b["\']?)\s*[:=]'
+OPENER = re.compile(r'(?:"refresh_token"|\b[A-Za-z][A-Za-z0-9_]*(?:_KEY|_TOKEN|_JSON|_key|_token|_json)\b["\']?\]?)\s*[?+]?[:=]'
                     + GAP + r'["\']?')
-VALUE_TO_END = re.compile(r'[^"\'\s,;)}]*')
+VALUE_TO_END = re.compile(VALUE)
 # How far past its line a value is followed before it counts as ended: past any real key.
 MAX_VALUE = 1 << 20
 
@@ -501,10 +513,10 @@ def context_kinds(text, line_end):
                     seen.add("an OAuth refresh token")
         if not NAME_ENDING.search(reading):
             continue
-        for m in ASSIGN.finditer(reading):
-            if m.start() < end and m.group(1).upper() in KEY_NAMES and literal_secret(m.group(2)):
-                found(m.group(2))
-                seen.add(m.group(1).upper())
+        for m in (m for p in ASSIGNS for m in p.finditer(reading)):
+            if m.start() < end and m["name"].upper() in KEY_NAMES and literal_secret(m["value"]):
+                found(m["value"])
+                seen.add(m["name"].upper())
     return seen
 
 
