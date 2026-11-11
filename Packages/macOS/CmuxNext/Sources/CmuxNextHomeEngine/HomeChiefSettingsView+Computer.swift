@@ -160,7 +160,7 @@ extension HomeChiefSettingsView {
 
     #if DEBUG || CMUX_BENCH_HOOKS
     /// The picker with sample machines, the first attached and still generically named (captures).
-    public func debugShowComputers(open: Bool) {
+    public func debugShowComputers() {
         cloudComputers = {
             [.init(id: "capture-1", title: "Cloud Machine 5", isGenericName: true), .init(id: "capture-2", title: "inference-gateway"),
              .init(id: "capture-3", title: "lease-lease_21_c6c62cab"), .init(id: "capture-4", title: "cloud-chats"),
@@ -170,7 +170,6 @@ extension HomeChiefSettingsView {
         showComputer("machine:capture-1")
         computerRow.isHidden = false
         onResize()
-        if open { Task { @MainActor [computerPicker] in computerPicker.performClick(nil) } }
     }
     #endif
 
