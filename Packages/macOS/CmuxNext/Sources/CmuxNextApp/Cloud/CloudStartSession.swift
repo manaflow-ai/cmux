@@ -235,6 +235,7 @@ struct CloudStartSession {
         let still = { [services] (machine: String) throws in try Self.checked(account, now: services.cloud.account, request.asked(machine: machine)) }
         try still(request.name ?? request.machineID ?? "")
         if let local = request.fromFolder, case .failure(let r) = await AgentPaneCloudStart.checkedFolder(local, home: NSHomeDirectory()) { throw ActionFailure(message: Self.message(r, folder: local)) } // before any machine
+        if let refused = await services.cloud.agentCheck.limitRefusal(harness: request.agent, login: request.login, userID: services.cloud.auth.user?.id, teamID: services.cloud.auth.teamID, otherTeams: services.cloud.auth.loginScopes) { throw ActionFailure(message: refused) } // and its agent: a used-up Claude limit leases none
         let steps = CloudStartSteps(logger: services.cloud.logger)
         let session = try await machine(request, invocation, account: account, byPerson: byPerson, capCard: capCard, askedBy: askedBy)
         steps.done("machine") // the list read and the take, or the create's answer
@@ -396,6 +397,7 @@ struct CloudStartSession {
         try Self.checked(account, now: cloud.account, request.asked(machine: name))
         guard cloud.hasCurrentList(within: Self.listFresh) else { throw ActionFailure(message: CloudStartSessionStrings.listUnread(request.asked(machine: name))) }
         if let named = machines.cloud.first(where: { $0.machine.title == name }) { return named }
+        if let reason = await cloud.agentCheck.loginRefusal(harness: request.agent, login: request.login, userID: cloud.auth.user?.id, teamID: cloud.auth.teamID, otherTeams: cloud.auth.loginScopes, dogfood: DevTools.isEnabled) { throw ActionFailure(message: CloudStartSessionStrings.loginRefused(Self.loginRefusal(reason), request.asked(machine: name))) } // a new machine: the login rules' refusal before it is made
         do {
             return try await cloud.startSessionRuns.creating(name, account: account) { [machines] in
                 // Another ask's creation may have ended first.
