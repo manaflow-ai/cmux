@@ -74,6 +74,7 @@ class GitTree:
                 batch.stdin.close()
             finally:
                 batch.wait(timeout=GIT_SECONDS)
+                batch.stdout.close()
 
     def _git(self, *args: str) -> bytes:
         try:
@@ -177,11 +178,15 @@ class GitTree:
         except OSError as why:
             self._batch = None
             batch.kill()
+            batch.wait()
+            batch.stdout.close()
             raise Unreadable(f"git cat-file in {self.root} ended reading {path}: {why}") from None
         if not header:
             self._batch = None
             batch.kill()
-            raise Unreadable(f"git cat-file in {self.root} ended reading {path} (exit {batch.wait()})")
+            code = batch.wait()
+            batch.stdout.close()
+            raise Unreadable(f"git cat-file in {self.root} ended reading {path} (exit {code})")
         if len(header) == 2 and header[1] == "missing":
             raise NeedsFullTree(
                 f"{self.ref}: {path} (blob {oid[:12]}) is in the tree but not in this clone's objects, a partial "

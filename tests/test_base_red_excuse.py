@@ -5118,7 +5118,8 @@ class SparseTreeReads(unittest.TestCase):
             with self.subTest(path=path):
                 with self.assertRaisesRegex(git_tree.Unreadable, re.escape(said)):
                     self.tree.text(path)
-                self.assertFalse(self.tree.is_file(path))
+                # A binary file is still a regular file of the tree (rglob lists it); only its text is refused.
+                self.assertEqual(self.tree.is_file(path), path == "bin.dat")
 
     def test_a_blob_a_partial_clone_lacks_needs_a_full_tree(self):
         partial = self.tmp / "partial"
