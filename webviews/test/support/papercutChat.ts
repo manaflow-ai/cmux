@@ -118,6 +118,10 @@ export async function papercutPane(
     /// Each `_acpmux/events` answer (an older page) is sent this many ms late, as a read from a
     /// remote or busy acpmux lands. Unset, it is answered at once.
     eventsLatencyMs?: number;
+    /// Answer as acpmux does for a long chat: the prompt index (`hub/paging.rs` `prompt_index`, every
+    /// prompt before `beforeSeq` in one reply) and the attach's `turnOpener`. Unset, the index is
+    /// answered as a page and the attach names no opener (the lanes written against that keep it).
+    daemonIndexes?: boolean;
     /// Serve a production build of the pane (vite build of its dev entry) instead of the dev server,
     /// for timing: the dev server runs React's development build. `minify: false` keeps function
     /// names for a profile.
@@ -143,11 +147,22 @@ export async function papercutPane(
       case "_acpmux/attach": {
         const selected = sessions.find((one) => one.sessionId === params?.sessionId) ?? session;
         const from = options.attachPage ? Math.max(0, events.length - options.attachPage) : 0;
+        // acpmux names the opener of the turn its page starts inside with the page
+        // (`server/requests/turn_opener.rs`); without it the pane waits on a read of its own.
+        let turnOpener: (typeof events)[number] | null = null;
+        for (let at = from - 1; options.daemonIndexes && at >= 0 && from > 0; at--) {
+          const event = events[at]!;
+          if (event.kind === "user_message" && event.dir === "mux") {
+            turnOpener = { ...event, sessionId: selected.sessionId };
+            break;
+          }
+        }
         return {
           session: selected,
           lastSeq: events.length,
           events: events.slice(from).map((event) => ({ ...event, sessionId: selected.sessionId })),
           hasMore: from > 0,
+          ...(options.daemonIndexes && options.attachPage ? { turnOpener } : {}),
         };
       }
       case "_acpmux/events": {
@@ -156,7 +171,7 @@ export async function papercutPane(
         // The prompt index (`hub/paging.rs` `prompt_index`): every prompt before `beforeSeq`, in one
         // reply. Answered as a page instead, the rail and the room above the rows read a long chat
         // as a few prompts long.
-        if (params?.promptIndex === true)
+        if (options.daemonIndexes && params?.promptIndex === true)
           return {
             events: events.filter(
               (event) => event.seq < before && event.kind === "user_message" && event.dir === "mux",

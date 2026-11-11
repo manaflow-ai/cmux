@@ -74,6 +74,7 @@ async function run(name: string, engine: BrowserType) {
     attachPage: 160,
     session: { turnCount: prompts },
     eventsLatencyMs: LATENCY,
+    daemonIndexes: true,
     // DEV=1 measures the dev server (React's development build); timing is of the production build.
     ...(process.env.DEV === "1" ? {} : { production: { minify: process.env.PROFILE === "1" ? false : undefined } }),
   });
@@ -371,16 +372,67 @@ async function run(name: string, engine: BrowserType) {
   }
 }
 
+/// The engine's own cost of the same wheel on a static page as tall as the chat (paragraphs, no
+/// script): the frame p95 a headless engine on this host reaches with no app work at all. WebKit
+/// on a Linux CI host paints in software and does not reach 60 Hz here even so; the app's frames
+/// are held to the budget or to this floor, whichever is higher.
+async function scrollFloor(engine: BrowserType): Promise<number> {
+  const browser = await engine.launch({ headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1100, height: 800 } });
+    await page.setContent(
+      `<div id="s" style="height:800px;overflow:auto;font:14px/20px sans-serif">${Array.from(
+        { length: 2400 },
+        (_, index) =>
+          `<p style="margin:0 0 24px;padding:8px 12px;border-radius:8px;background:#f4f4f4">Turn ${index}: ${"some reply text that wraps across the line ".repeat(4)}</p>`,
+      ).join("")}</div>`,
+    );
+    return await page.evaluate(
+      ({ steps }) =>
+        new Promise<number>((done) => {
+          const scroller = document.getElementById("s")!;
+          scroller.scrollTop = scroller.scrollHeight;
+          const at: number[] = [];
+          let frame = 0;
+          const tick = (now: number) => {
+            at.push(now);
+            scroller.scrollTop -= steps[frame % steps.length]!;
+            frame += 1;
+            if (frame < 600) requestAnimationFrame(tick);
+            else {
+              const gaps = at
+                .slice(1)
+                .map((each, index) => each - at[index]!)
+                .sort((a, b) => a - b);
+              done(gaps[Math.floor(gaps.length * 0.95)]!);
+            }
+          };
+          requestAnimationFrame(tick);
+        }),
+      { steps: [40.25, 95.5, 61.75, 128.125, 72.5, 101.25].map((step) => step * STEP) },
+    );
+  } finally {
+    await browser.close();
+  }
+}
+
+/// A vsync interval's jitter: a 60 Hz rAF interval reads 16.6 to 16.8 ms.
+const FRAME_JITTER_MS = 0.5;
+
 let failed = false;
 for (const name of ENGINES) {
   const engine = name === "webkit" ? webkit : name === "chromium" ? chromium : undefined;
   if (!engine) throw new Error(`unknown engine ${name}`);
+  const floor = await scrollFloor(engine);
+  console.log(`transcript-scroll-up ${name} staticScrollP95: ${round2(floor)}`);
+  const budget = Math.max(FRAME_BUDGET_MS, floor) + FRAME_JITTER_MS;
   const result = await run(name, engine);
   const misses = [
     !result.reachedTop && "did not reach the first prompt",
     result.blankFrames > 0 && `${result.blankFrames} blank frames`,
     result.driftMax >= 1 && `drift ${result.driftMax} px`,
-    result.frameP95 >= FRAME_BUDGET_MS && `p95 frame ${result.frameP95} ms`,
+    result.frameP95 > budget && `p95 frame ${result.frameP95} ms over ${round2(budget)}`,
+    (result.longTasks ?? 0) > 0 && `${result.longTasks} long tasks (${result.longTaskMs} ms)`,
     result.thumbSizeChangePct > 5 && `thumb size changed ${result.thumbSizeChangePct} %`,
     result.thumbDown > 0 && `thumb moved down on ${result.thumbDown} frames`,
   ].filter(Boolean);
