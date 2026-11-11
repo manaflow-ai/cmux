@@ -204,6 +204,9 @@ struct AgentPaneHandOff {
         }
     }
 
+    /// The most a Cloud start or Sandboxed send waits for the send line, while it moves.
+    nonisolated static let lineDrainLimit: Duration = .seconds(60)
+
     private static let cloudLog = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
 
     /// `cloud.startChat`, and a refusal made here, before the App's start ran (the folder check, the
@@ -283,7 +286,9 @@ struct AgentPaneHandOff {
         guard model.sessionId == nil else { return AgentPaneModel.unsupported(method) }
         let notNow = AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")
         let transport = model.transport
-        guard await transport.lineDrained(within: .seconds(5)) else { return notNow }
+        // A start waits for the line while it moves (a busy daemon sends slowly); a fixed 5 s refused
+        // a slow but working line as `unavailable_now`. A line that stops moving still refuses.
+        guard await transport.lineDrained(quiet: .seconds(5), limit: Self.lineDrainLimit) else { return notNow }
         if let refusal = model.sandboxRuns.refusal { return AgentPaneReply.failure(code: refusal, message: refusal) }
         let replacements = transport.replacements
         guard replacements.beginSandbox() else { return notNow }

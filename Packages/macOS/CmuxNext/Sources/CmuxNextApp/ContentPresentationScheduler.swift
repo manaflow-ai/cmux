@@ -82,20 +82,20 @@ final class ContentPresentationScheduler {
     private func drain() {
         var created = false
         var remaining: [ObjectIdentifier] = []
+        // The queue is taken first: a show can queue a pane (a stale strip's sync can apply the layout); it waits behind the panes kept here.
+        let queued = order
+        order = []
         // The focused pane first; the others keep their order.
-        let focused = order.filter { pending[$0]?.isFocusedInWorkspace == true }
-        for key in focused + order.filter({ !focused.contains($0) }) {
+        let focused = queued.filter { pending[$0]?.isFocusedInWorkspace == true }
+        for key in focused + queued.filter({ !focused.contains($0) }) {
             guard let pane = pending[key] else { continue }
-            if pane.selectedContentIsAlive || !created {
-                let alive = pane.selectedContentIsAlive
-                pending[key] = nil
-                BenchSpans.measure("presentation.frame") { pane.showSelected() }
-                if !alive, pane.selectedContentIsAlive { created = true }
-            } else {
-                remaining.append(key)
-            }
+            let alive = pane.selectedContentIsAlive
+            guard alive || !created else { remaining.append(key); continue }
+            pending[key] = nil
+            BenchSpans.measure("presentation.frame") { pane.showSelected() }
+            if !alive, pane.selectedContentIsAlive { created = true }
         }
-        order = remaining
+        order = remaining + order
         createdThisFrame = created
         schedule()
     }

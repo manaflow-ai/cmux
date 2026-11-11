@@ -314,9 +314,11 @@ jobs:
             /scripts/ci/portable_job_placement.py
             /scripts/ci/pr_runner_pool.py
             /scripts/ci/github_spend.py
+            /scripts/ci/deadline_http.py
             /scripts/ci/side_lane_placement.py
             /scripts/ci/next_macos_cascade.py
             /scripts/ci/simple_pool_picker.py
+            /scripts/ci/warm_distance.py
           sparse-checkout-cone-mode: false
 
       - name: Decide whether a nightly build is needed
@@ -956,7 +958,10 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux'
     # Holds only the release App credentials (CMUX_RELEASE_APP_*).
     environment: nightly-next-promote
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && vars.CI_NIGHTLY_SIGN_RUNNER || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}
+    # Ends on the nightly slot's label as a literal, never vars.CI_NIGHTLY_NEXT_BUILD_RUNNER: main's
+    # repository-variable check (scripts/ci/signing_runner_variables.py) holds a variable a signing job
+    # reads to blacksmith-*/ubuntu-*, and that variable names an owned Mac (#26450).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && vars.CI_NIGHTLY_SIGN_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 130 || 10 }}
     permissions:
       contents: read
@@ -1024,6 +1029,7 @@ jobs:
             scripts/ci/signing-runner-claim.sh
             scripts/ci/glaeda-signing-hooks.txt
             .github/release-surface.txt
+            scripts/ci/nightly_next_fix_forward.py
           sparse-checkout-cone-mode: false
 
       - name: Decide the promotion
@@ -1154,7 +1160,7 @@ jobs:
     # was given to release-surface-ack on this run; guard.approvedBy() reads it.
     environment: nightly-next-promote
     # Retired (if: false). Should it run again: promote-nightly-next's route and the whole Mac, never GitHub-hosted.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && vars.CI_NIGHTLY_SIGN_RUNNER || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && vars.CI_NIGHTLY_SIGN_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 130 || 10 }}
     permissions:
       contents: read
@@ -2290,6 +2296,10 @@ jobs:
           fi
           git -c core.hooksPath=/dev/null checkout -q --force --detach "$BUILD_SHA"
           git update-ref refs/remotes/origin/nightly-warm-base "$BUILD_SHA"
+          # Go writes its module cache read-only; a clone whose acpmux build ran before
+          # tailnet-go.sh set -modcacherw still has one, and git clean cannot remove it
+          # (run 42940891027: "failed to remove .build/go-path/pkg/mod/...: Permission denied").
+          chmod -R u+w .build/go-path 2>/dev/null || true
           git clean -ffdxq -e /cmux-tui/target/ -e /Native/OptChat/optchat-chief/target/ -e /cmux-next-ios/rust/target/
           git reset -q --hard "$BUILD_SHA"
           git submodule sync -q --recursive
@@ -5277,8 +5287,10 @@ jobs:
             scripts/ci/cmux_next_media_runner.py
             scripts/ci/pr_runner_pool.py
             scripts/ci/github_spend.py
+            scripts/ci/deadline_http.py
             scripts/ci/nightly-steps/visual-gate-resolve-mode.sh
             scripts/ci/nightly-steps/visual-gate-pick-runner.sh
+            scripts/ci/warm_distance.py
           sparse-checkout-cone-mode: false
 
       - name: Resolve the visual gate mode
@@ -6567,6 +6579,22 @@ jobs:
     steps:
       - *hold-the-whole-mac
 
+      # The kept clone remembers the last checkout's sparse mode. After the signer's pattern checkout
+      # (core.sparseCheckout=true, no cone setting) git reads the cone request below as the one pattern
+      # `scripts`, so the root .xcode-version stays out and Select Xcode fails here (runs 42819750253,
+      # 42829570644: no deltas). The warm checkout's manual sparse test runs this step.
+      - &forget-kept-sparse-mode
+        name: Forget the kept clone's sparse-checkout mode
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: |
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          [ -d "$ws/.git" ] || exit 0
+          for key in core.sparseCheckout core.sparseCheckoutCone index.sparse extensions.worktreeConfig; do
+            git -C "$ws" config --local --unset-all "$key" 2>/dev/null || true
+          done
+          rm -f "$ws/.git/config.worktree" "$ws/.git/info/sparse-checkout"
+
       # Only scripts/ (and, by cone mode, the root .xcode-version) is read from it, so it is sparse: a full
       # clone took 96 s of the whole-Mac hold (run 42033609306, 14:11:49-14:13:25Z).
       - &legacy-route-shared-3
@@ -6710,6 +6738,7 @@ jobs:
       # First, before any checkout or secret: the whole mini (glaeda's exclusive class), as the signing jobs.
       - *hold-the-whole-mac
       - *clean-owned-workdir
+      - *forget-kept-sparse-mode
       - *legacy-route-shared-3
       - name: Checkout publication tooling at the workflow commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

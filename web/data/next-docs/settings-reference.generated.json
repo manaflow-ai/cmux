@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 622,
+  "count": 624,
   "sections": [
     {
       "id": "general",
@@ -5554,7 +5554,7 @@
           "title": "Open Pull Requests in cmux GitHub Page",
           "help": "A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Opening Links"
         },
         {
@@ -6610,6 +6610,14 @@
           "group": "Cloud Workspaces"
         },
         {
+          "key": "cloud.turnCheckpoints",
+          "title": "Save a Checkpoint Before Each Cloud Chat Turn",
+          "help": "Saves the whole Cloud machine between turns of a Cloud chat, so Back to Before This Turn restores it in seconds. Keeps the newest few checkpoints of each chat. Off: no checkpoints are saved.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Cloud Workspaces"
+        },
+        {
           "key": "cloud.useMyClaudeLoginOnMyCloudMachines",
           "title": "Use My Claude Login on My Own Cloud Machines",
           "help": "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead.",
@@ -6738,6 +6746,14 @@
       "id": "development",
       "title": "Development",
       "rows": [
+        {
+          "key": "app.internalDeveloperMode",
+          "title": "Internal Developer Mode",
+          "help": "Shows the debug commands (playgrounds, Debug Settings, diagnostics) in the Command Palette as \"Debug: …\" rows. There is no Debug menu.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Internal Developer Mode"
+        },
         {
           "key": "deviceHub.url",
           "title": "Device Hub Address",

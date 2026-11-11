@@ -30,7 +30,6 @@ import {
   type SeatImpact,
   type TeamInviteResult,
 } from "./model";
-import { parseOutbox } from "../outbox";
 import type { HomeRecipient } from "./recipients";
 
 export const MessagesSheetOps = {
@@ -101,15 +100,6 @@ const wireRecipient = (recipient: HomeRecipient) =>
     ? { contact: recipient.contact.id }
     : { address: recipient.address.value, addressKind: recipient.address.kind };
 
-/** `start`'s outcome with its unanswered first send (`pending`) checked as the outbox checks a kept
- * row: a malformed one is dropped, never shown. */
-export function firstSendOutcome(outcome: ComposeOutcome): ComposeOutcome {
-  if (outcome.kind !== "opened") return outcome;
-  const { pending, ...opened } = outcome;
-  const rows = parseOutbox({ pending: { [opened.conversation]: Array.isArray(pending) ? pending : [] } });
-  return rows.length ? { ...opened, pending: rows } : opened;
-}
-
 /** The actions over the page's host. */
 export function hostActions(host: PageClient, strings: Strings) {
   const outcome = async <T>(op: string, params: Record<string, unknown>, fallback: (error: unknown) => T) => {
@@ -155,14 +145,8 @@ export function hostActions(host: PageClient, strings: Strings) {
         );
       return teamInviteOutcome(result, address.value, strings);
     },
-    start: async (recipients, text) =>
-      firstSendOutcome(
-        await outcome<ComposeOutcome>(
-          MessagesSheetOps.start,
-          { recipients: recipients.map(wireRecipient), text },
-          refused,
-        ),
-      ),
+    start: (recipients, text) =>
+      outcome(MessagesSheetOps.start, { recipients: recipients.map(wireRecipient), text }, refused),
     newChief: () => action(MessagesSheetActions.newChief),
     openInvite: () => action(MessagesSheetActions.invite),
     openTeamInvite: (address) => action(MessagesSheetActions.inviteToTeam, { email: address.value }),
