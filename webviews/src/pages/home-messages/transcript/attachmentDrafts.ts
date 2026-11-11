@@ -335,9 +335,34 @@ export class AttachmentDrafts {
    * shows `failed` on the file. */
   add(conversation: string, file: File, upload: Upload, failed: string): string {
     const id = `f${this.next++}`;
+    this.write(conversation, [...this.files(conversation), { id, file, progress: { sent: 0, total: file.size } }]);
+    this.start(conversation, id, file, upload, failed);
+    return id;
+  }
+
+  /** Undo or redo puts files the person took out back in `conversation`'s tray at `index`, as they
+   * were (picture, progress, finished part); one whose upload was stopped uploads again through
+   * `upload` (https://github.com/manaflow-ai/cmux/issues/38148). */
+  restore(
+    conversation: string,
+    items: readonly PendingAttachment[],
+    index: number,
+    upload: (file: File) => Upload,
+    failed: string,
+  ): void {
+    const ids = new Set(items.map((item) => item.id));
+    const rest = this.files(conversation).filter((item) => !ids.has(item.id));
+    const at = Math.min(index, rest.length);
+    this.write(conversation, [...rest.slice(0, at), ...items, ...rest.slice(at)]);
+    for (const item of items)
+      if (!item.part && !item.error && !this.uploads.has(item.id))
+        this.start(conversation, item.id, item.file, upload(item.file), failed);
+  }
+
+  /** Runs `upload` for the tray item `id`; removing the item stops it. */
+  private start(conversation: string, id: string, file: File, upload: Upload, failed: string): void {
     const controller = new AbortController();
     this.uploads.set(id, controller);
-    this.write(conversation, [...this.files(conversation), { id, file, progress: { sent: 0, total: file.size } }]);
     upload(
       controller.signal,
       (progress) => this.patch(conversation, id, { progress }),
@@ -349,8 +374,9 @@ export class AttachmentDrafts {
           if (!controller.signal.aborted) this.patch(conversation, id, { error: failed });
         },
       )
-      .finally(() => this.uploads.delete(id));
-    return id;
+      .finally(() => {
+        if (this.uploads.get(id) === controller) this.uploads.delete(id);
+      });
   }
 
   /** Changes one file (a picture read, progress, the finished part, a failure); a removed one stays removed. */

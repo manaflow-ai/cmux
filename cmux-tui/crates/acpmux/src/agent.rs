@@ -11,7 +11,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::process::Child;
 use tokio::sync::{Mutex, mpsc, oneshot};
 
@@ -972,7 +972,8 @@ impl ChildAgent {
             let inbound = inbound.clone();
             let generation = agent.generation;
             tokio::spawn(async move {
-                let mut lines = BufReader::new(stderr).lines();
+                // Lossy: a line that is not UTF-8 never ends the pipe (`lossy_lines`).
+                let mut lines = crate::lossy_lines::LossyLines::new(BufReader::new(stderr));
                 while let Ok(Some(line)) = lines.next_line().await {
                     let _ = inbound
                         .send(Inbound::Stderr(line, None, Some((generation, StderrPipe::Stderr))))
@@ -987,7 +988,7 @@ impl ChildAgent {
             let tap = tap.clone();
             let agent_for_exit = agent.clone();
             tokio::spawn(async move {
-                let mut lines = BufReader::new(stdout).lines();
+                let mut lines = crate::lossy_lines::LossyLines::new(BufReader::new(stdout));
                 // The leader can exit while a descendant still holds stdout
                 // open; watch it so its exit is reported regardless. The
                 // kernel's exit event where there is one: a quiet agent then
