@@ -1224,7 +1224,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "environment-picker-cloud-team-long": {
-      note: "Active team with a long name (Leo, 2026-11-10: \"this broken too\", the strip read \"Cl...\" and \"leo@cmux.com'...\" beside empty room). The control takes the room the team needs: Cloud never cuts, and the team's name cuts only once the strip is full.",
+      note: 'Active team with a long name (Leo, 2026-11-10: "this broken too", the strip read "Cl..." and "leo@cmux.com\'..." beside empty room). The control takes the room the team needs: Cloud never cuts, and the team\'s name cuts only once the strip is full.',
       props: {
         ...baseProps,
         environments: true,

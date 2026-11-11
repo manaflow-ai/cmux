@@ -227,9 +227,7 @@ function GalleryNewChatPickers({ start, cloud }: NonNullable<Props["newChat"]>) 
       <div className="acpmux-composer-gallery-shell">
         <div className="acpmux-composer-gallery-copy">
           <strong>{cloud ? "New chat, Cloud picked" : "New chat on this Mac"}</strong>
-          <span>
-            {cloud ? "The Cloud machine starts it in Manual." : "acpmux on this Mac names the start mode."}
-          </span>
+          <span>{cloud ? "The Cloud machine starts it in Manual." : "acpmux on this Mac names the start mode."}</span>
         </div>
         {answered && (
           <ComposerPickers
@@ -553,7 +551,7 @@ export default componentEntry<Props>({
       play: async (ctx) => expectModeChip(ctx, "Bypass permissions"),
     },
     "new-chat-cloud": {
-      note: "The same new chat with Cloud picked: the Cloud machine starts it in Claude's asking mode, so the chip names Manual with its shield, never this Mac's Bypass permissions and never the bare word Mode (Leo 2026-11-10: \"the \"mode\" is weird\").",
+      note: 'The same new chat with Cloud picked: the Cloud machine starts it in Claude\'s asking mode, so the chip names Manual with its shield, never this Mac\'s Bypass permissions and never the bare word Mode (Leo 2026-11-10: "the "mode" is weird").',
       props: { newChat: { start: { modeId: "bypassPermissions", name: "Bypass permissions" }, cloud: true } },
       play: async (ctx) => expectModeChip(ctx, "Manual"),
     },
