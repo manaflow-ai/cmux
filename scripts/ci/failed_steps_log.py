@@ -48,6 +48,16 @@ def lines_of(log: str) -> list[str]:
 # <script's first line>` for a run: step, `Run owner/action@ref` for a uses: step (and a job hook's `Run '/setup.sh'`),
 # `Post job cleanup.` for a post step. "Complete job" opens with no such line.
 STEP_START = re.compile(r"^(?:##\[group\]Run |Post job cleanup\.$)")
+# What the runner prints, outside any step's group, right before the header of a step that uses an action it had not
+# downloaded at "Set up job" (a local composite's own `uses:`; cmux-next swift test, feat-cmux-next run 43082766736, job
+# 130740086032: `Prepare all required actions`, `Getting action download info` and `Download action repository
+# 'WarpBuilds/cache@...' (SHA:...)` at 19:01:08-10, then `##[group]Run ./.github/actions/cache-restore`). They are
+# stamped in that step's times, never the step before's: _aligned_starts reads a run of them just before a STEP_START
+# line as that line's segment's for its times (RUNNER_PREAMBLE), so the step before it is not read as running past its
+# end. Only these exact lines, and only a run of them that ends at a STEP_START line.
+RUNNER_PREAMBLE = re.compile(r"^(?:Prepare all required actions|Getting action download info"
+                             r"|Download action repository '[^']+' \(SHA:[0-9a-f]{40}\)"
+                             r"|Download immutable action package '[^']+')$")
 
 
 def _stamp_time(value) -> datetime | None:
@@ -240,12 +250,21 @@ def _aligned_starts(steps: list[dict], lines: list[str], texts: list[str], windo
         if not (isinstance(want, tuple) and len(want) == 3 and isinstance(want[0], str) and want[0]):
             return None
         expected.append(want)
-    # Each segment: a STEP_START line and the lines after it up to the next one, as the earliest and latest stamp.
-    bounds = [*starts, len(lines)]
+    # Each segment: a STEP_START line and the lines after it up to the next one, as the earliest and latest stamp. The
+    # runner's action download lines right before a STEP_START line (RUNNER_PREAMBLE) are timed with the segment they
+    # open, not the one before it; they stay that one's lines (no test, error or `##[group]` is ever one of them).
+    leads = []
+    for s, n in enumerate(starts):
+        floor = starts[s - 1] + 1 if s else n  # "Set up job" prints its own downloads before the first header
+        while n > floor and RUNNER_PREAMBLE.match(texts[n - 1]):
+            n -= 1
+        leads.append(n)
+    bounds = [*leads[1:], len(lines)]
     low: list[datetime | None] = []
     high: list[datetime | None] = []
     for s in range(len(starts)):
-        found = [at for n in range(bounds[s], bounds[s + 1]) if (at := _line_time(lines[n])) is not None]
+        found = [at for n in range(starts[s], bounds[s]) if (at := _line_time(lines[n])) is not None]
+        found += [at for n in range(leads[s], starts[s]) if (at := _line_time(lines[n])) is not None]
         low.append(min(found) if found else None)
         high.append(max(found) if found else None)
     if low[0] is None:
