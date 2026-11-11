@@ -103,7 +103,7 @@ fn a_peer_notice_costs_the_same_however_many_rows_other_peers_list() {
     assert!(among < alone * 4, "among 50 peers {among:?}, alone {alone:?}");
     // The rows the notices changed are still the peer's, once each.
     let peer = large_peers.last().unwrap();
-    let rows = large.remote_sessions.lock().unwrap();
+    let rows = large.remote_sessions.read();
     assert_eq!(rows.values().filter(|r| r.peer == peer.name).count(), ROWS);
 }
 

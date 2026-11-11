@@ -102,7 +102,7 @@ test("the doodle-decorated card wears the same material", () => {
 test("where the composer wears the glass material, the card's rim and depth are that material's", () => {
   const override = /@media not \(prefers-reduced-transparency: reduce\) \{([\s\S]*?)\n\}/.exec(material)?.[1] ?? "";
   expect(override).toContain("--composer-material-rim: var(--glass-material-rim)");
-  expect(override).toContain("--composer-material-depth: var(--glass-material-depth)");
+  expect(override).toContain("--composer-material-depth: var(--glass-material-depth-composer)");
   expect(override).toContain("data-reduce-transparency");
   expect(override).toMatch(/data-cmux-see-through[^{]*data-glass="lens"/);
   expect(declaration(material, "--composer-material-depth")).toBe("0 0 transparent");

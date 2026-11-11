@@ -489,3 +489,52 @@ fn a_committed_read_that_panics_frees_its_connection() {
     drop(mux);
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// Nine clients listing tabs kept every pooled reader busy, and `identify`'s
+/// terminal revision read (one meta row) waited for one: p50 0.1 -> 5-7 ms
+/// (events lane O1). The O(1) point reads of the frequent cheap requests
+/// (`identify` and `list-workspaces`' terminal revision, `session.ping`'s
+/// cursor) must not wait for heavy reads, however many run.
+#[test]
+fn point_reads_do_not_wait_for_a_full_reader_pool() {
+    use crate::workspace_registry::registry_connection::COMMITTED_READERS;
+    let (mux, root) = persistent_mux("point-reads");
+    mux.new_workspace(None, Some((80, 24))).unwrap();
+    let revision = mux.terminal_registry_revision().unwrap();
+    let cursor = crate::resource_api::public_session_cursor(&mux).unwrap();
+    let (entered, inside) = std::sync::mpsc::sync_channel(COMMITTED_READERS);
+    let mut releases = Vec::new();
+    let mut holders = Vec::new();
+    for _ in 0..COMMITTED_READERS {
+        let (release, released) = std::sync::mpsc::sync_channel(1);
+        holders.push(hold_committed_read(&mux, entered.clone(), released));
+        releases.push(release);
+    }
+    for _ in 0..COMMITTED_READERS {
+        inside.recv_timeout(Duration::from_secs(10)).unwrap();
+    }
+
+    let (answer, answered) = std::sync::mpsc::channel();
+    let reader = mux.clone();
+    std::thread::spawn(move || {
+        let _ = answer.send((
+            reader.terminal_registry_revision().ok(),
+            crate::resource_api::public_session_cursor(&reader).ok(),
+        ));
+    });
+    let during = answered.recv_timeout(Duration::from_secs(5));
+    for release in releases {
+        release.send(()).unwrap();
+    }
+    for holder in holders {
+        assert_eq!(holder.join().unwrap(), revision);
+    }
+    let (during_revision, during_cursor) =
+        during.expect("a point read waited for a reader held by a heavy read");
+    assert_eq!(during_revision, Some(revision));
+    assert_eq!(during_cursor, Some(cursor));
+    assert_eq!(mux.registry_connection.committed_readers_open(), COMMITTED_READERS);
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(root);
+}
