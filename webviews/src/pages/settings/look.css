@@ -401,3 +401,26 @@
   min-height: var(--ds-control-primary);
   padding-inline-start: var(--ds-space-3);
 }
+
+/* The Settings pop-up menus mark the chosen row as Aside does (Lucas 2026-11-12: the check sat on
+   the highlight's left edge): every label starts on AppKit's plain leading, with no state column, and
+   the check is a small muted mark on the trailing side, the shortcut's place, centred on its row. The
+   label keeps clear of it, so a long one ellipsizes before the mark. Only this page's selects; the
+   app's other menus keep the shared leading check column (ui/popupSurface.css). */
+:root[data-settings-look="refined"] .ui-popup.ui-select-popup:has(.ui-menu-check) {
+  --ui-menu-lead: var(--cmux-menu-icon-x);
+}
+
+:root[data-settings-look="refined"] .ui-popup.ui-select-popup .ui-menu-item {
+  padding-inline-end: calc(
+    var(--cmux-menu-trailing) - var(--cmux-menu-highlight-inset) + var(--cmux-menu-icon-size) +
+      var(--cmux-menu-icon-gap)
+  );
+}
+
+:root[data-settings-look="refined"] .ui-popup.ui-select-popup .ui-menu-item .ui-menu-check {
+  inset-inline-start: auto;
+  inset-inline-end: calc(var(--cmux-menu-trailing) - var(--cmux-menu-highlight-inset));
+  color: var(--polish-muted);
+  font-size: var(--text-caption);
+}
