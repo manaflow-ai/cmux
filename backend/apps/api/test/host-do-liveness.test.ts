@@ -217,6 +217,26 @@ describe("HostDO replica publisher liveness", () => {
     console.log(`time-to-detect, pinging publisher gone silent: ${clock.now - last} ms (before: never; the reader's op waited forever)`)
   })
 
+  it("holds a publisher whose first ping comes after the first look to the bound from then on", async () => {
+    const { owner, host } = await enroll("liveness-late-ping-publisher")
+    const stub = ns.get(ns.idFromName(host))
+    const pub = await replicaSocket(host, owner.installToken)
+    await pub.until((f) => f.t === "welcome" && f.role === "publisher")
+    const acceptedAt = await runInDurableObject(stub, async (_i, state) => (state.getWebSockets("replica:publisher")[0]!.deserializeAttachment() as { at: number }).at)
+    const clock = await onFakeClock(stub, acceptedAt)
+    // The first look: no ping yet, so it stays open, and the next look is armed a bound later.
+    clock.now = acceptedAt + STALE_AFTER_MS
+    await runAlarm(stub)
+    expect(await socketState(stub, "replica:publisher")).toEqual([OPEN])
+    expect(await runInDurableObject(stub, async (_i, state) => state.storage.getAlarm())).toBe(acceptedAt + 2 * STALE_AFTER_MS)
+    // Then it pings (which never wakes the object) and goes silent: the next look closes it.
+    pub.send("ping")
+    await pub.until((f) => f.t === "pong")
+    clock.now = acceptedAt + 2 * STALE_AFTER_MS
+    await runAlarm(stub)
+    expect(await pub.closedWith()).toMatchObject({ code: STALE_CODE, reason: expect.stringMatching(/^stale/) })
+  })
+
   it("leaves a publisher that never pings to its token expiry, as before (today's Macs send no ping)", async () => {
     const { owner, host } = await enroll("liveness-legacy-publisher")
     const stub = ns.get(ns.idFromName(host))

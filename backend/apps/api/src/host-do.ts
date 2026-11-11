@@ -184,8 +184,8 @@ export class HostDO extends DurableObject<Env> {
   }
 
   /**
-   * When `ws` counts as dead if nothing more comes from it, or null when it is not held to the
-   * liveness bound. The last sign of life is the latest of its accept, its last frame and the
+   * When `ws` counts as dead if nothing more comes from it (for a replica socket that has not pinged:
+   * when to look at it again; `heldToBound` decides whether silence closes it). The last sign of life is the latest of its accept, its last frame and the
    * runtime's last auto-response to its `ping` (which never wakes the object).
    */
   private staleAt(ws: WebSocket, now: number): number | null {
@@ -195,10 +195,16 @@ export class HostDO extends DurableObject<Env> {
     const last = Math.max(a.at ?? 0, a.seen ?? 0, pinged ?? 0)
     if (!isReplica(a)) return last + STALE_AFTER_MS
     if (pinged !== null) return last + STALE_AFTER_MS
-    // A replica socket that has not pinged yet is looked at once, a bound after its accept; one that
-    // never pings (today's publishers) is left to its token expiry, as before.
-    const probe = (a.at ?? 0) + STALE_AFTER_MS
-    return probe > now ? probe : null
+    // A replica socket that has not pinged yet is never closed for silence (today's publishers send no
+    // ping; their lifetime stays the token's), but is looked at again every bound: a ping does not wake
+    // the object, so a socket that starts pinging late is held to the bound from the next look on.
+    const at = a.at ?? now
+    return at + (Math.floor((now - at) / STALE_AFTER_MS) + 1) * STALE_AFTER_MS
+  }
+
+  /** Relay sockets always; replica sockets once they have pinged. */
+  private heldToBound(ws: WebSocket): boolean {
+    return !isReplica(ws.deserializeAttachment()) || this.ctx.getWebSocketAutoResponseTimestamp(ws) !== null
   }
 
   /** The alarm closes replica sockets whose token expired and sockets gone silent, then waits for the next of either. */
@@ -225,7 +231,7 @@ export class HostDO extends DurableObject<Env> {
         continue
       }
       const stale = this.staleAt(ws, now)
-      if (stale !== null && stale <= now) this.closeDead(ws, STALE_CODE, `stale: no ping or frame for ${Math.round(STALE_AFTER_MS / 1000)} s`)
+      if (stale !== null && stale <= now && this.heldToBound(ws)) this.closeDead(ws, STALE_CODE, `stale: no ping or frame for ${Math.round(STALE_AFTER_MS / 1000)} s`)
     }
     await this.armAlarm()
   }
