@@ -7,6 +7,7 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import { GALLERY_NOW } from "../../../gallery/clock";
 import { activity, assistant, chat, thought, tool, user } from "../../../gallery/fixtures/acpmux";
+import type { Play } from "../../../gallery/play";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { liveTurnWork } from "./liveTurnWork.experiment";
 
@@ -24,7 +25,7 @@ const running = () =>
         run("rg -n scheduleReconnect src"),
         run("git log -5 --oneline src/net"),
         thought("The backoff timer is armed twice when the socket closes during a retry."),
-        run("bun test src/net/reconnect.test.ts --rerun-each 10", "running"),
+        run("bun test src/net/reconnect.test.ts --rerun-each 10", "in_progress"),
       ],
       1,
     ),
@@ -40,12 +41,21 @@ const withReply = () =>
         "reconnect can race the first. I'm moving the arm into one place and rerunning the test.",
       1.5,
     ),
-    activity([run("bun run lint src/net"), run("bun test src/net/reconnect.test.ts --rerun-each 20", "running")], 1),
+    activity(
+      [run("bun run lint src/net"), run("bun test src/net/reconnect.test.ts --rerun-each 20", "in_progress")],
+      1,
+    ),
   ]);
 
 /// Between steps: the calls all finished, the agent thinks.
 const thinking = () =>
   live([prompt(), activity([run("rg -n scheduleReconnect src"), thought("Now check who else arms the timer.")], 1)]);
+
+/// Waits for the turn's live line, which both arms draw at the bottom: the stage is then what the arm
+/// shows for the running turn.
+const liveLine: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-row[data-row-id="thinking-live"]'), { capMs: 10_000 });
+};
 
 export default agentPaneEntry({
   id: "agent-pane.live-turn-work",
@@ -54,7 +64,7 @@ export default agentPaneEntry({
   height: 520,
   covers: ["agent-session/acpmux/conversation/turns.ts#codexRuns", "agent-session/acpmux/conversation/Thinking.tsx"],
   keywords: ["running turn", "live line", "status", "tool calls", "chatgpt", "streaming"],
-  experiment: { definition: liveTurnWork, script: [] },
+  experiment: { definition: liveTurnWork, script: [{ name: "The live line shows", run: liveLine }] },
   variants: {
     running: {
       note: "A test run in flight: the prompt, then one live line naming it; the finished calls and the thought leave no row.",

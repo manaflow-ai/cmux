@@ -1639,6 +1639,20 @@ impl Hub {
         }
     }
 
+    /// How many requests wait on the agent of the session `key` now; None when it has none
+    /// running.
+    pub async fn agent_pending_requests(&self, key: &str) -> Option<usize> {
+        let session = self.resolve(key).ok()?;
+        let child = session.child.lock().await.clone()?;
+        Some(child.pending_requests().await)
+    }
+
+    /// How many client requests this hub's connections serve now, each holding its work slot
+    /// on its connection (`server/in_flight.rs`): a cancelled one leaves at once.
+    pub fn requests_in_flight(&self) -> usize {
+        self.requests_in_flight.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     pub(super) async fn child_for(
         self: &Arc<Self>,
         session: &Arc<Session>,

@@ -84,6 +84,23 @@ thread."
 - Pressed, it holds where the view was and points down: a second press, or Esc, goes back there. A scroll by
   hand lets go of the way back. Esc that something else takes (the composer's Stop, a menu) is left to it.
 
+## Putting a waiting card away
+
+Leo, 2026-11-11, on the composer hat holding a started chat's question: "there's no close button :(".
+Every card over the composer that waits on the person can be put away (the composer hat's questions,
+`question/HatQuestions.tsx`; the shared notice, `ui/Notice.tsx`):
+
+- One control: the shared × (`ui/DismissButton.tsx`), a 12 pt glyph in a `--ds-control-icon` box.
+  Escape with the focus inside the card does the same; Esc that a control inside used first is left to it.
+- The hat's × fades in while the pointer is over the band or the focus is in it, and keeps its room at
+  rest: the head's text is laid out beside it either way, so revealing it moves nothing. With no hover
+  (touch) it shows at rest. Never over the card's corner in no room of its own (it would cover the pager).
+- Dismissing marks the question seen in that chat, on this device (`question/hatSeen.ts`, kept with the
+  pinned asks' dismissals in `waitingAskStore.ts`): it leaves the hat; the ask itself still waits where it
+  was asked (its card, its chat, the sidebar's Needs you dot).
+- A started chat's name has the head's line to itself and its question the line under it, so neither is
+  cut at a fixed share of the band.
+
 ## Tokens only
 
 Every colour, radius, size and motion of these controls is a token: `unread.css`, `jumpPair.css` and

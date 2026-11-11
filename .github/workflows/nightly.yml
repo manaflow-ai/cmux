@@ -233,7 +233,43 @@ env:
   NIGHTLY_NEXT_BROWSER_DATA_IMPORT: full
 
 jobs:
+  # Fails the run in minutes when a label its jobs would wait on has no online runner, instead of every job sitting
+  # queued for hours (2026-11-10: CI_NIGHTLY_MINI named cmux-lawrence-2-light, whose runners went offline at 00:45Z;
+  # the nightly sat queued for 3+ h). It must not run on the label it judges, so it takes GitHub-hosted Ubuntu, holds
+  # no secret and reads only vars.CI_RUNNER_STATE (scripts/ci/nightly_runner_preflight.py). It never cancels anything;
+  # an unreadable or stale census lets the run go on. A failure files the nightly's failure incident with the job's
+  # token (report-nightly-failure never runs then). hq docs/handbook/runner-var-points-at-dead-host.md.
+  runner-preflight:
+    permissions:
+      issues: write # a failure opens or updates the nightly's failure incident (notify() in the script)
+    if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '' && inputs.nightly_next_post_publish == '')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
+    timeout-minutes: 3
+    steps:
+      - name: Check out the preflight
+        if: github.repository == 'manaflow-ai/cmux'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          sparse-checkout: |
+            /scripts/ci/nightly_runner_preflight.py
+            /scripts/ci/deadline_http.py
+          sparse-checkout-cone-mode: false
+      - name: Every routing label has an online runner
+        if: github.repository == 'manaflow-ai/cmux'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          CI_NIGHTLY_MINI: ${{ vars.CI_NIGHTLY_MINI }}
+          CI_NIGHTLY_MINI_BUILDER: ${{ vars.CI_NIGHTLY_MINI_BUILDER }}
+          CI_NIGHTLY_ONLY_RUNNER: ${{ vars.CI_NIGHTLY_ONLY_RUNNER }}
+          NIGHTLY_SCHEDULE: ${{ github.event.schedule }}
+        run: python3 scripts/ci/nightly_runner_preflight.py
+
   decide:
+    needs: runner-preflight
     environment:
       name: ci-routing-agent
       deployment: false

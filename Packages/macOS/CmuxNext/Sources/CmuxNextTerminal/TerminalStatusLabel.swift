@@ -21,6 +21,15 @@ final class TerminalStatusLabel {
     private var generation = 0
     /// The words the label shows when the wait ends (the latest status's).
     private var waitingText: String?
+    /// A status that says more when it lasts (a pane still starting: other words and Close after
+    /// ``TerminalStatusBanner/overdueDelay(for:stall:)``): when it began (on ``clock``), how long until
+    /// it says more, those words, and the task of that deadline with its number. The task is armed
+    /// only while the label shows, so a status that clears within its reveal delay costs no second timer.
+    private var lasting: Lasting?
+    /// Whether the label shows a lasting status's later words.
+    private(set) var isOverdue = false
+    /// Close in the label of a pane that still starts was pressed; with none set, no Close is offered.
+    var onClose: (@MainActor () -> Void)?
     private let clock: RevealClock
     /// Adds a newly built label to the host.
     private let install: (TerminalStatusBanner) -> Void
@@ -46,6 +55,12 @@ final class TerminalStatusLabel {
     /// Whether a label waits out its reveal delay (diagnostics and tests).
     var isWaiting: Bool { waiting != nil }
 
+    /// The title of the Close on screen, nil while the label offers none.
+    var closeTitle: String? { banner?.shownCloseTitle }
+
+    /// Presses the offered Close as a click on it does; false while none is offered (tests).
+    func pressClose() -> Bool { banner?.pressClose() ?? false }
+
     /// Shows the label for `status` (with the host loss, its cause and the daemon's stall), hides it,
     /// or waits. A label on screen stays (with the new words); a hidden one waits its status's delay
     /// first. A change while it still waits keeps the longer wait from the same start, so
@@ -56,18 +71,27 @@ final class TerminalStatusLabel {
               stall: TerminalShellStall?) -> Bool {
         guard let text = TerminalStatusBanner.text(for: status, hostLoss: hostLoss, cause: cause, stall: stall) else {
             endWait()
+            endLasting()
             guard let banner, !banner.isHidden else { return false }
             banner.hide()
+            return true
+        }
+        // A status that lasted past its deadline says its later words at once, on screen or not.
+        if let later = overdueText(status, stall: stall) {
+            endWait()
+            showNow(later, inBetween: false, fadeIn: false, closes: true)
             return true
         }
         let inBetween = TerminalStatusBanner.isInBetween(status, stall: stall)
         if let banner, !banner.isHidden {
             banner.show(text, inBetween: inBetween, fadeIn: false)
+            armOverdue()
             return true
         }
         guard let delay = TerminalStatusBanner.revealDelay(for: status, stall: stall) else {
             endWait()
             showNow(text, inBetween: inBetween, fadeIn: false)
+            armOverdue()
             return true
         }
         wait(.seconds(delay), text: text)
@@ -81,6 +105,7 @@ final class TerminalStatusLabel {
     func prepareView() {
         guard banner == nil else { return }
         let made = TerminalStatusBanner()
+        made.onClose = { [weak self] in self?.onClose?() }
         install(made)
         banner = made
         if let waitingText { made.setText(waitingText, inBetween: true) }
@@ -122,6 +147,7 @@ final class TerminalStatusLabel {
         waiting = nil
         waitingText = nil
         showNow(text, inBetween: true, fadeIn: true)
+        armOverdue()
         didReveal()
     }
 
@@ -131,10 +157,79 @@ final class TerminalStatusLabel {
         waitingText = nil
     }
 
-    private func showNow(_ text: String, inBetween: Bool, fadeIn: Bool) {
-        prepareView()
-        banner?.show(text, inBetween: inBetween, fadeIn: fadeIn)
+    /// Notes when a status that says more later began. Returns its later words once its deadline
+    /// has passed, nil before; any other status ends it.
+    private func overdueText(_ status: TerminalConnectionStatus, stall: TerminalShellStall?) -> String? {
+        guard let delay = TerminalStatusBanner.overdueDelay(for: status, stall: stall),
+              let text = TerminalStatusBanner.overdueText(for: status, stall: stall) else {
+            endLasting()
+            return nil
+        }
+        let now = clock.elapsed()
+        var pending = lasting ?? Lasting(start: now, delay: .seconds(delay), text: text)
+        pending.text = text
+        let late = isOverdue || now >= pending.start + pending.delay
+        if late {
+            pending.task?.cancel()
+            pending.task = nil
+            isOverdue = true
+        }
+        lasting = pending
+        return late ? text : nil
     }
+
+    /// Arms the deadline of the lasting status the label shows (one task; nothing when armed, past or none).
+    private func armOverdue() {
+        guard var pending = lasting, pending.task == nil, !isOverdue else { return }
+        generation &+= 1
+        let generation = generation
+        let clock = clock
+        let deadline = pending.start + pending.delay
+        pending.generation = generation
+        // A bounded, cancellable delay that is the intended behavior (when a pane that still starts
+        // says so); the next other status cancels it. Its clock is injected.
+        pending.task = Task { [weak self] in
+            // wakeup-allow: one-shot injected deadline of a lasting status; the next other status cancels it.
+            do { try await clock.wake(deadline) } catch { return }
+            guard !Task.isCancelled else { return }
+            self?.overdueReached(generation)
+        }
+        lasting = pending
+    }
+
+    private func overdueReached(_ reached: Int) {
+        guard let pending = lasting, pending.generation == reached, !isOverdue else { return }
+        lasting?.task = nil
+        isOverdue = true
+        endWait()
+        showNow(pending.text, inBetween: false, fadeIn: false, closes: true)
+        didReveal()
+    }
+
+    private func endLasting() {
+        lasting?.task?.cancel()
+        lasting = nil
+        isOverdue = false
+    }
+
+    private func showNow(_ text: String, inBetween: Bool, fadeIn: Bool, closes: Bool = false) {
+        prepareView()
+        banner?.show(text, inBetween: inBetween, fadeIn: fadeIn, closes: closes && onClose != nil)
+    }
+}
+
+/// A status that says more when it lasts (``TerminalStatusLabel``).
+private struct Lasting {
+    /// When the status began, on the label's clock.
+    let start: Duration
+    /// How long after `start` it says more.
+    let delay: Duration
+    /// Its later words (the latest status's).
+    var text: String
+    /// The task of its deadline, nil while not armed.
+    var task: Task<Void, Never>?
+    /// That task's number (a woken task of an earlier one shows nothing).
+    var generation = 0
 }
 
 /// The label's injected clock as offsets from the label's start, so a wait's start and its end are
