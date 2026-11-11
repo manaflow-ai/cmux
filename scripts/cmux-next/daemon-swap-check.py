@@ -28,7 +28,13 @@ work. The swap time runs from the SIGTERM to the last check passing.
     --typist      input typed every 10 ms before, during and after the swap
                   (each line appends its number to a file): every line a
                   daemon acknowledged arrives exactly once and in order, and no
-                  refused line arrives.
+                  refused line arrives. The terminal runs cat, so a lost line
+                  is lost before the program.
+    --typist-shell  a second typist into the interactive shell, as a person
+                  types: its lost lines are reported with their send times
+                  relative to the swap, not a failure.
+    --control     the same work, load and steps with no swap: the losses of a
+                  control run and of a swap run compare.
     --rollback    after old -> new, two more shells start under the new build
                   and the new daemon is swapped back to the old build, which
                   must adopt hosts started by both builds.
@@ -515,12 +521,17 @@ class Scenarios:
         self.fullscreen = args.fullscreen
         self.flood_secs = args.flood
         self.typist = args.typist
+        # A second typist into an interactive shell: reported, not a failure (see Typist).
+        self.typist_shell = getattr(args, "typist_shell", False)
+        # No swap: the same work, load and steps with the daemon left running (a control run).
+        self.control = getattr(args, "control", False)
         # Hosts of these binaries may lose the primary screen under a full-screen program.
         self.gap_hosts = {same_file_key(b) for b in getattr(args, "fullscreen_gap_host", None) or []}
 
     @classmethod
     def none(cls) -> "Scenarios":
-        return cls(argparse.Namespace(hidden=False, fullscreen=False, flood=0, typist=False))
+        return cls(argparse.Namespace(hidden=False, fullscreen=False, flood=0, typist=False,
+                                      typist_shell=False, control=False))
 
 
 def same_file_key(binary: Path) -> str:
@@ -571,6 +582,8 @@ def open_work(daemon: Daemon, count: int, scenarios: Scenarios, born: int) -> li
             terms.append(open_shell(daemon, "flood", f"{tag}L", born, new_workspace=True))
         if scenarios.typist:
             terms.append(open_shell(daemon, "typist", f"{tag}Y", born, new_workspace=True))
+        if scenarios.typist_shell:
+            terms.append(open_shell(daemon, "typist-shell", f"{tag}S", born, new_workspace=True))
     return terms
 
 
@@ -582,6 +595,12 @@ def norm(terminal_id: str) -> str:
 def resolve(sock: Path, terminal_id: str) -> dict:
     return data(sock, {"cmd": "resolve-terminal", "terminal_id": terminal_id})
 
+
+# How often a typist types a line (`--typist-every`).
+TYPIST_EVERY_SECS = 0.01
+
+# A control run's pause where the swap would be: about the old daemon's exit plus the new one's start.
+CONTROL_PAUSE_SECS = 0.5
 
 FULLSCREEN_ENTER = ("printf '\\033[?1049h\\033[?2004h\\033[?1000h\\033[2J\\033[H'; echo ALT$(({k})); read x; "
                     "printf '\\033[?1000l\\033[?2004l\\033[?1049l'; echo LEFT$(({k}))-$x\n")
@@ -603,23 +622,29 @@ def flood_report(screen: str, step: int) -> dict:
 
 
 class Typist:
-    """Types the line `K` into one terminal (cat into FILE) every 10 ms through whichever
+    """Types the line `K` into one terminal every 10 ms through whichever
     daemon answers on the socket, before, during and after the swap. Each K is
     `acked` (the daemon answered ok), `refused` (no daemon took the
     connection: never delivered), `rejected` (a daemon answered an error) or
     `unknown` (a connection that broke after the request was sent). After the
     swap every acked K must be in FILE exactly once, nothing twice, refused
-    and rejected never, in the order typed."""
+    and rejected never, in the order typed.
 
-    def __init__(self, daemon: Daemon, term: dict, path: Path, round_no: int):
+    Two kinds. `cat` (the pass/fail one): the terminal runs `exec cat >> FILE`, which
+    writes every line it reads, so a lost line is lost before the program. `shell`
+    (reported, not a failure): the line is `echo K >> FILE` typed into the interactive
+    /bin/sh, as a person types; its line editor takes the input, so a loss there may be
+    the shell's. Its report keeps the send time of each lost line relative to the swap,
+    to set a loss near the new daemon's start apart from a loss at any time (`--control`)."""
+
+    def __init__(self, daemon: Daemon, term: dict, path: Path, round_no: int, kind: str = "cat"):
         import threading
-        self.daemon, self.term, self.path = daemon, term, path
+        self.daemon, self.term, self.path, self.kind = daemon, term, path, kind
         self.base = round_no * 1_000_000
-        # The terminal runs cat into PATH, not a shell: an interactive shell's line editor
-        # drops typeahead under load (10-16 lines in about one run in ten on a loaded build
-        # Mac, the bytes on the tty), which is the shell, not the swap. cat writes every line
-        # it reads. exec keeps the shell's pid, so the terminal's process is the same.
-        if term.get("typing_into") != path:
+        self.sent_at: dict[int, float] = {}
+        self.every = TYPIST_EVERY_SECS
+        # exec keeps the shell's pid, so the terminal's process is the same.
+        if kind == "cat" and term.get("typing_into") != path:
             data(daemon.socket, {"cmd": "send", "terminal_id": term["terminal_id"],
                                  "text": f"exec cat >> {shlex.quote(str(path))}\n"})
             wait_until("typist cat", now() + 15, lambda: path.exists())
@@ -642,8 +667,9 @@ class Typist:
                     sent = False
                     try:
                         # By the stable terminal id: a surface id does not survive a swap.
+                        self.sent_at[k] = time.time()
                         conn.sendall((json.dumps({"cmd": "send", "terminal_id": self.term["terminal_id"],
-                                                  "text": f"{k}\n"}) + "\n").encode())
+                                                  "text": self.line(k)}) + "\n").encode())
                         sent = True
                         buf = b""
                         while not buf.endswith(b"\n"):
@@ -657,14 +683,18 @@ class Typist:
                         self.status[k] = "unknown" if sent else "refused"
             except (OSError, RuntimeError, ValueError):
                 self.status[k] = "refused"
-            time.sleep(0.01)
+            time.sleep(self.every)
 
-    def finish(self, deadline: float) -> dict:
+    def line(self, word) -> str:
+        return f"{word}\n" if self.kind == "cat" else f"echo {word} >> {shlex.quote(str(self.path))}\n"
+
+    def finish(self, deadline: float, marks: dict | None = None) -> dict:
+        """MARKS: wall times of the swap's steps (`stop`, `ready`), for the lost lines' times."""
         self.stop.set()
         self.thread.join(timeout=30)
         end = f"END{self.base}"
         surface = resolve(self.daemon.socket, self.term["terminal_id"])["surface"]
-        data(self.daemon.socket, {"cmd": "send", "surface": surface, "text": f"{end}\n"})
+        data(self.daemon.socket, {"cmd": "send", "surface": surface, "text": self.line(end)})
         wait_until("typist end line", deadline,
                    lambda: self.path.exists() and end in self.path.read_text().split())
         seen: dict[int, int] = {}
@@ -678,10 +708,19 @@ class Typist:
         doubled = [k for k, n in seen.items() if n > 1]
         ghost = [k for k in by("refused") + by("rejected") if k in seen]
         in_order = order == sorted(order)
-        return {"typed": len(self.status), "acked": len(by("acked")), "refused": len(by("refused")),
+        when: dict = {}
+        if lost:
+            runs = sum(1 for i, k in enumerate(lost) if i == 0 or k != lost[i - 1] + 1)
+            when = {"lost_runs": runs, "lost_first_sent_wall": round(self.sent_at[lost[0]], 3),
+                    "lost_last_sent_wall": round(self.sent_at[lost[-1]], 3)}
+            for name, at in (marks or {}).items():
+                when[f"lost_first_secs_after_{name}"] = round(self.sent_at[lost[0]] - at, 3)
+                when[f"lost_last_secs_after_{name}"] = round(self.sent_at[lost[-1]] - at, 3)
+        return {"kind": self.kind, "typed": len(self.status), "acked": len(by("acked")), "refused": len(by("refused")),
                 "rejected": len(by("rejected")), "unknown": len(by("unknown")),
                 "unknown_delivered": len([k for k in by("unknown") if k in seen]),
-                "acked_lost": lost[:20], "doubled": doubled[:20], "delivered_but_refused": ghost[:20],
+                "acked_lost": lost[:20], "acked_lost_count": len(lost), **when,
+                "doubled": doubled[:20], "delivered_but_refused": ghost[:20],
                 "in_order": in_order, "passed": not lost and not doubled and not ghost and in_order}
 
 
@@ -742,23 +781,35 @@ def one_swap(daemon: Daemon, builds: list[Path], step: int, terms: list[dict], s
                        lambda: (h := host_pids(daemon.state)) and all(norm(t["terminal_id"]) in h for t in terms) and h)
     claim_hosts(daemon.state, started)
     old_pid = daemon.proc.pid
-    typist_term = next((t for t in terms if t["kind"] == "typist"), None)
-    typist = Typist(daemon, typist_term, work / "typed.txt", step) if typist_term else None
-    if typist:
+    typists = []
+    for kind, term_kind, name in (("cat", "typist", "typed.txt"), ("shell", "typist-shell", "typed-shell.txt")):
+        term = next((t for t in terms if t["kind"] == term_kind), None)
+        if term:
+            typists.append(Typist(daemon, term, work / name, step, kind))
+    for typist in typists:
         typist.start()
+    if typists:
         time.sleep(0.3)
 
     t0 = now()
-    stop_secs = stop(daemon.proc)
-    alive_after_stop = (all(pid_alive(t["shell_pid"]) for t in terms)
-                        and all(pid_alive(hosts[norm(t["terminal_id"])]) for t in terms))
-    try:
-        daemon.socket.unlink()
-    except FileNotFoundError:
-        pass
-    daemon.start(new)
-    daemon.wait_ready(t0 + 60)
+    marks = {"stop": time.time()}
+    if scenarios.control:
+        # The same steps with no swap: the daemon keeps running for about as long as a swap takes.
+        time.sleep(CONTROL_PAUSE_SECS)
+        stop_secs = 0.0
+        alive_after_stop = True
+    else:
+        stop_secs = stop(daemon.proc)
+        alive_after_stop = (all(pid_alive(t["shell_pid"]) for t in terms)
+                            and all(pid_alive(hosts[norm(t["terminal_id"])]) for t in terms))
+        try:
+            daemon.socket.unlink()
+        except FileNotFoundError:
+            pass
+        daemon.start(new)
+        daemon.wait_ready(t0 + 60)
     ready_secs = now() - t0
+    marks["ready"] = time.time()
     after_id = data(daemon.socket, {"cmd": "identify"})
 
     checks = []
@@ -792,12 +843,12 @@ def one_swap(daemon: Daemon, builds: list[Path], step: int, terms: list[dict], s
             elif t["kind"] in ("shell", "behind-a-tab", "front-tab"):
                 row["scrollback_kept"] = printed(daemon.screen(surface), f"{t['tag']}K{step}")
             else:
-                row["scrollback_kept"] = True  # flood and typist scroll their markers away; checked below
+                row["scrollback_kept"] = True  # flood and typists scroll their markers away; checked below
             if t["kind"] == "flood":
                 screen = wait_until("flood done", deadline + scenarios.flood_secs, lambda: (s := daemon.screen(surface))
                                     and any(re.fullmatch(rf"F{step}DONE\d+", r.strip()) for r in s.splitlines()) and s)
                 extras["flood"] = flood_report(screen, step)
-            if t["kind"] != "typist":
+            if not t["kind"].startswith("typist"):
                 data(daemon.socket, {"cmd": "send", "surface": surface, "text": f"echo PIDA$(({step}))=$$\n"})
                 screen = wait_until("echo after swap", deadline,
                                     lambda: (s := daemon.screen(surface)) and shell_pid(s, f"PIDA{step}") and s)
@@ -809,18 +860,25 @@ def one_swap(daemon: Daemon, builds: list[Path], step: int, terms: list[dict], s
             row.update(adopted=False, error=str(error))
         checks.append(row)
     swap_secs = now() - t0
-    if typist:
-        time.sleep(0.5)  # keep typing into the adopted terminal a little longer
+    reported: dict = {}
+    if typists:
+        time.sleep(0.5)  # keep typing into the adopted terminals a little longer
+    for typist in typists:
+        # The cat typist passes or fails the swap; the shell typist is a reported count.
+        into = extras if typist.kind == "cat" else reported
+        key = "typist" if typist.kind == "cat" else "typist_shell"
         try:
-            extras["typist"] = typist.finish(now() + 30)
+            into[key] = typist.finish(now() + 30, marks)
         except (TimeoutError, OSError, RuntimeError) as error:
-            extras["typist"] = {"passed": False, "error": str(error)}
+            into[key] = {"kind": typist.kind, "passed": False, "error": str(error)}
     hosts_after = host_pids(daemon.state)
     same_hosts = all(hosts_after.get(norm(t["terminal_id"])) == hosts[norm(t["terminal_id"])] for t in terms)
     claim_hosts(daemon.state, started)
     # The new build answers: its own process, not the old one (two unstamped
     # local builds report the same build_commit; main() refuses identical bytes).
     new_daemon = after_id.get("pid") == daemon.proc.pid != old_pid == before_id.get("pid")
+    if scenarios.control:
+        new_daemon = after_id.get("pid") == daemon.proc.pid == old_pid
     passed = alive_after_stop and same_hosts and new_daemon and all(
         c.get("adopted") and c.get("scrollback_kept") and c.get("same_shell_pid") for c in checks) and all(
         e.get("passed") for e in extras.values())
@@ -831,7 +889,9 @@ def one_swap(daemon: Daemon, builds: list[Path], step: int, terms: list[dict], s
         "old_binary": str(old), "new_binary": str(new),
         "old_daemon_exit_secs": round(stop_secs, 3), "new_daemon_answers_secs": round(ready_secs, 3),
         "swap_secs": round(swap_secs, 3), "processes_alive_while_no_daemon": alive_after_stop,
-        "same_host_pids": same_hosts, "terminals": checks, **extras,
+        "same_host_pids": same_hosts, "terminals": checks, **extras, **reported,
+        **({"control": True} if scenarios.control else {}),
+        "marks_wall": {name: round(at, 3) for name, at in marks.items()},
     }
 
 
@@ -1047,14 +1107,25 @@ def main() -> int:
                         help="a terminal printing numbered lines for SECS seconds across the swap")
     parser.add_argument("--typist", action="store_true",
                         help="input typed every 10 ms before, during and after the swap; each acked line once")
+    parser.add_argument("--typist-shell", action="store_true",
+                        help="a second typist into the interactive shell (`echo K >> FILE`): its lost lines "
+                             "are reported with their times, not a failure")
+    parser.add_argument("--typist-every", type=float, default=10.0, metavar="MS",
+                        help="milliseconds between a typist's lines (default 10)")
+    parser.add_argument("--control", action="store_true",
+                        help="a control run: the same work, load and steps, with no swap (the daemon keeps "
+                             "running); compares the typists' losses with and without a swap")
     parser.add_argument("--fullscreen-gap-host", type=Path, action="append", metavar="BINARY",
                         help="report, not fail, a lost primary screen under a full-screen program whose host "
                              "BINARY's daemon started (a build before the alternate-screen replay fix); repeatable")
     parser.add_argument("--drill", action="store_true",
-                        help="the update drill: --rollback --hidden --fullscreen --flood 4 --typist, 24 terminals")
+                        help="the update drill: --rollback --hidden --fullscreen --flood 4 --typist --typist-shell, "
+                             "24 terminals")
     args = parser.parse_args()
+    global TYPIST_EVERY_SECS
+    TYPIST_EVERY_SECS = args.typist_every / 1000
     if args.drill:
-        args.rollback = args.hidden = args.fullscreen = args.typist = True
+        args.rollback = args.hidden = args.fullscreen = args.typist = args.typist_shell = True
         args.flood = args.flood or 4.0
         if "--terminals" not in sys.argv:
             args.terminals = 24
@@ -1108,6 +1179,17 @@ def main() -> int:
         else:
             subprocess.run(["rm", "-rf", str(work)], check=False)
     report["phases"] = phases
+    shell = [p["typist_shell"] for p in phases if isinstance(p.get("typist_shell"), dict)]
+    if shell:
+        # Reported, not a failure: lines an interactive shell lost (its own typeahead limit or a cmux
+        # loss; a --control run without a swap tells them apart).
+        report["typist_shell_summary"] = {
+            "phases": len(shell), "acked": sum(t.get("acked", 0) for t in shell),
+            "lost": sum(t.get("acked_lost_count", 0) for t in shell),
+            "phases_with_loss": sum(1 for t in shell if t.get("acked_lost_count")),
+            "errors": sum(1 for t in shell if t.get("error"))}
+        print(f"typist-shell (reported, not a failure): {json.dumps(report['typist_shell_summary'])}",
+              file=sys.stderr, flush=True)
     report["passed"] = bool(phases) and all(
         p.get("passed") and p.get("swap_secs", 1e9) < args.budget for p in phases)
     print(json.dumps(report, indent=2))

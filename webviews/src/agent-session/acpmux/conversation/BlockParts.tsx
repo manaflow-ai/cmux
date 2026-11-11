@@ -9,10 +9,19 @@ import { useBlockWrap, type BlockKind } from "./blockWrap";
 import { ExpandRow } from "./ExpandRow";
 import { WrapLines } from "./icons";
 import { usePreview, lineCount, OUTPUT_LINE_WINDOW } from "./blockPartsModel";
-/// The header's Wrap lines toggle for a block of `kind` (every block of the kind follows it).
-export function WrapButton({ kind, className = cornerAction() }: { kind: BlockKind; className?: string }) {
+/// The header's Wrap lines toggle for a block of `kind` (every block of the kind follows it). `shaped`
+/// is the block's own state until the viewer picks (blockWrap.ts `outputWraps`), so the button shows it.
+export function WrapButton({
+  kind,
+  shaped,
+  className = cornerAction(),
+}: {
+  kind: BlockKind;
+  shaped?: boolean;
+  className?: string;
+}) {
   const t = useT();
-  const [wrap, toggle] = useBlockWrap(kind);
+  const [wrap, toggle] = useBlockWrap(kind, shaped);
   return (
     <button
       type="button"

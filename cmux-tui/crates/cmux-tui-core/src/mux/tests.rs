@@ -15,6 +15,7 @@ mod agent_hooks_at_rest_reopen;
 #[cfg(unix)]
 mod agent_plugin_refresh_at_rest;
 mod agent_presence;
+mod agent_records;
 mod agent_reply_text;
 mod agent_reports;
 #[cfg(unix)]
