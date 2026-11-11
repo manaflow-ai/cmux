@@ -20,9 +20,11 @@ three ways, because each one alone has a hole:
 3. GIT_CONFIG_GLOBAL, pointed (when unset; an empty value means no global
    config and is kept) at a file in a fresh private folder (tempfile.mkdtemp,
    removed at exit; never a predictable path another user could plant) that includes
-   the person's global config in plain git's order ($XDG_CONFIG_HOME/git/config,
-   then ~/.gitconfig) and then sets OPT_OUT (global_config_text). Receive-pack
-   reads it too.
+   the person's global config files in plain git's order ($XDG_CONFIG_HOME/git/config,
+   then ~/.gitconfig) and then sets OPT_OUT (global_config_text). Which files, and
+   in what order, is asked of git (global_config_files), not re-implemented, and
+   the shell helper writes what `python3 -I tests/git_fixture_env.py
+   --global-config-text` prints, so the two cannot drift. Receive-pack reads it too.
 
 A fixture that builds an environment from scratch (or filters GIT_* out of
 os.environ) drops 2 and 3; pass it through `fixture_env`.
@@ -38,6 +40,7 @@ git-bare-repo-unmanaged rules fail a test that skips this module.
 from __future__ import annotations
 
 import atexit
+import contextlib
 import hashlib
 import os
 import shutil
@@ -104,37 +107,78 @@ def _quoted(path: str) -> str:
     return '"' + path.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def global_config_text(env: Mapping[str, str]) -> str:
-    """GIT_CONFIG_GLOBAL text that reads env's global config as plain git does, then OPT_OUT.
+# Every scope, so git itself says which top-level files are global and in what order. Not `--global`: for
+# reading, `git config --global --list` reads only ~/.gitconfig when that file exists (git 2.55), not the
+# XDG file before it.
+_PROBE = ("config", "--list", "--show-scope", "--show-origin", "--name-only", "--no-includes", "-z")
+# The git on PATH when this module loads: a fake `git` a test puts on PATH later never answers the probe.
+_PROBE_GIT = shutil.which("git")
 
-    Plain git reads $XDG_CONFIG_HOME/git/config (~/.config/git/config when XDG_CONFIG_HOME is unset or empty)
-    and then ~/.gitconfig, so a key in ~/.gitconfig wins. The file includes them in that order by absolute
-    path ([include] path=, so their own include/includeIf lines still work; git skips an include whose file
-    is missing, so one created later is still read) and puts OPT_OUT last. With no HOME and no
-    XDG_CONFIG_HOME it holds OPT_OUT alone.
+
+def global_config_files(env: Mapping[str, str]) -> list[str]:
+    """The global config files plain git reads under env, in the order it reads them (the last one wins).
+
+    Asked of git, never re-implemented: with no GIT_* set (so no GIT_CONFIG_GLOBAL) and outside any repository,
+    `git config --list --show-scope --show-origin --no-includes` names the file of each entry; the global-scope
+    ones, in order, are $XDG_CONFIG_HOME/git/config (~/.config/git/config when it is unset) and then
+    ~/.gitconfig. Their own include and includeIf lines are left to git through the [include] of each file. A
+    file that is missing or holds no key adds nothing either way; when git cannot answer, the list is empty.
     """
-    home = env.get("HOME") or ""
-    xdg = env.get("XDG_CONFIG_HOME") or (os.path.join(home, ".config") if home else "")
-    paths = [os.path.join(xdg, "git", "config")] if xdg else []
-    if home:
-        paths.append(os.path.join(home, ".gitconfig"))
-    includes = "".join(f"[include]\n\tpath = {_quoted(path)}\n" for path in paths)
+    if _PROBE_GIT is None:
+        return []
+    probe = {key: value for key, value in env.items() if not key.startswith("GIT_")}
+    try:
+        result = subprocess.run((_PROBE_GIT, *_PROBE), env=probe, cwd=os.sep, capture_output=True,
+                                stdin=subprocess.DEVNULL, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if result.returncode != 0:
+        return []
+    files: list[str] = []
+    # -z: scope NUL origin NUL key NUL, entry after entry.
+    fields = result.stdout.split(b"\0")
+    for index in range(0, len(fields) - 2, 3):
+        scope, origin = fields[index], fields[index + 1]
+        if scope == b"global" and origin.startswith(b"file:"):
+            path = os.fsdecode(origin[len(b"file:"):])
+            if path not in files:
+                files.append(path)
+    return files
+
+
+def global_config_text(env: Mapping[str, str]) -> str:
+    """GIT_CONFIG_GLOBAL text that reads env's global config files as plain git does (global_config_files),
+    each by absolute [include] path, then OPT_OUT last. With no global file it holds OPT_OUT alone."""
+    includes = "".join(f"[include]\n\tpath = {_quoted(path)}\n" for path in global_config_files(env))
     return includes + CONFIG_FILE_OPT_OUT
 
 
 def global_config_for(env: Mapping[str, str]) -> str:
     """Path of a GIT_CONFIG_GLOBAL file with global_config_text(env); one file per distinct text."""
-    text = global_config_text(env)
-    path = os.path.join(_global_config_dir(), hashlib.sha256(text.encode()).hexdigest()[:16] + ".gitconfig")
+    return _config_file(global_config_text(env))
+
+
+def _config_file(text: str) -> str:
+    folder = _global_config_dir()
+    path = os.path.join(folder, hashlib.sha256(text.encode()).hexdigest()[:16] + ".gitconfig")
     if not os.path.isfile(path):
-        partial = f"{path}.{os.getpid()}"
-        with open(partial, "w") as handle:
-            handle.write(text)
-        os.replace(partial, path)
+        # A fresh name per writer (mkstemp, same folder), then an atomic rename: two threads or processes
+        # writing the same text never share a partial file, so neither can rename the other's away mid-write
+        # (`{path}.{pid}` was one name per process: FileNotFoundError under threads).
+        handle, partial = tempfile.mkstemp(dir=folder, prefix=".partial-", suffix=".gitconfig")
+        try:
+            with os.fdopen(handle, "w") as stream:
+                stream.write(text)
+            os.replace(partial, path)
+        except BaseException:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(partial)
+            raise
     return path
 
 
-GLOBAL_CONFIG = global_config_for(os.environ)
+_LOADED_INPUTS = {key: os.environ.get(key) for key in ("HOME", "XDG_CONFIG_HOME")}
+GLOBAL_CONFIG = global_config_for(os.environ) if __name__ != "__main__" else ""
 
 
 def fixture_env(env: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -142,7 +186,10 @@ def fixture_env(env: Mapping[str, str] | None = None) -> dict[str, str]:
     result = dict(os.environ if env is None else env)
     without_auto_maintenance(result)
     if "GIT_CONFIG_GLOBAL" not in result:
-        result["GIT_CONFIG_GLOBAL"] = global_config_for(result)
+        # This env's own global files (its HOME and XDG_CONFIG_HOME), as git reads them; the one made at load
+        # when those match, so most calls cost no probe.
+        same = all(result.get(key) == value for key, value in _LOADED_INPUTS.items())
+        result["GIT_CONFIG_GLOBAL"] = GLOBAL_CONFIG if same and GLOBAL_CONFIG else global_config_for(result)
     return result
 
 
@@ -179,5 +226,13 @@ def clone_repo(source: str | os.PathLike[str], dest: str | os.PathLike[str], *ar
     return Path(cwd or ".", dest)
 
 
-without_auto_maintenance(os.environ)
-os.environ.setdefault("GIT_CONFIG_GLOBAL", GLOBAL_CONFIG)
+if __name__ == "__main__":
+    # The shell helper's one source of truth: print the text and touch nothing (no folder, no os.environ change).
+    import sys
+
+    if sys.argv[1:] != ["--global-config-text"]:
+        sys.exit("usage: python3 -I tests/git_fixture_env.py --global-config-text")
+    sys.stdout.write(global_config_text(os.environ))
+else:
+    without_auto_maintenance(os.environ)
+    os.environ.setdefault("GIT_CONFIG_GLOBAL", GLOBAL_CONFIG)

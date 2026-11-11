@@ -10,7 +10,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's ba
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/cmux-release-fleet-cas-test.XXXXXX")
 SOCKDIR=$(mktemp -d /tmp/rcfc.XXXXXX)  # short: a Unix socket path has a length limit
-trap 'rm -rf "$TMP" "$SOCKDIR"' EXIT
+git_fixture_trap_exit 'rm -rf "$TMP" "$SOCKDIR"'
 fail() { printf 'FAIL: %s\n' "$1"; cat "$TMP/out" 2>/dev/null || true; exit 1; }
 
 # A workspace with the wrapper and its helpers, and a stub check-release-compile.sh.
@@ -152,7 +152,7 @@ crc STUB_FAIL_ALWAYS=1 STUB_FAIL_WITH="error: CAS error encountered during compi
 
 # 9. The stale-module clear accepts the canonical root's DerivedData only when that root is exported.
 #    Under /var/tmp: the guard accepts anything under /tmp already.
-VT=$(mktemp -d /var/tmp/cmux-release-cas-root.XXXXXX); trap 'rm -rf "$TMP" "$SOCKDIR" "$VT"' EXIT
+VT=$(mktemp -d /var/tmp/cmux-release-cas-root.XXXXXX); git_fixture_trap_exit 'rm -rf "$TMP" "$SOCKDIR" "$VT"'
 mkdir -p "$VT/DerivedData/Build" "$VT/DerivedData/SourcePackages" "$VT/other/Build"
 touch "$VT/DerivedData/SourcePackages/pkg"
 clear_dd() { env -i PATH=/usr/bin:/bin "$@" /bin/bash "$ROOT/scripts/cmux-next/clear-stale-scheme-build-state.sh" "$dd" >"$TMP/out" 2>&1; }

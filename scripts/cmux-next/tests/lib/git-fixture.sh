@@ -15,9 +15,16 @@
 # 2. The same three as exported GIT_CONFIG_KEY/VALUE pairs, for the git the
 #    scripts under test run.
 # 3. GIT_CONFIG_GLOBAL (when unset; an empty value is kept) names a file in a
-#    fresh private mktemp -d folder, removed at exit, that includes the person's
-#    global config in plain git's order (${XDG_CONFIG_HOME:-~/.config}/git/config,
-#    then ~/.gitconfig), then sets the three.
+#    fresh private mktemp -d folder that holds exactly what
+#    `python3 -I tests/git_fixture_env.py --global-config-text` prints: the
+#    person's global config files in the order git itself reads them, then the
+#    three. One rule for Python and shell, asked of git, not re-implemented here.
+#
+# The folder is removed at exit by this file's EXIT trap, which also runs any
+# EXIT trap set before sourcing. A test that wants its own exit cleanup calls
+# `git_fixture_trap_exit 'CMD'` instead of `trap 'CMD' EXIT`: a direct trap
+# replaces this one and leaks the folder (check-test-determinism.py rule
+# git-fixture-exit-trap fails such a test).
 
 _git_fixture_opt_out=(maintenance.auto=false gc.auto=0 receive.autogc=false)
 
@@ -30,35 +37,48 @@ done
 export GIT_CONFIG_COUNT=$_git_fixture_count
 unset _git_fixture_count _git_fixture_pair
 
+# git_fixture_trap_exit CMD: run CMD at exit, as `trap CMD EXIT` would (it replaces the previous CMD), and still
+# remove this file's folder first. The script's exit status is kept for CMD ($?) and for the shell.
+git_fixture_trap_exit() {
+  _git_fixture_caller_exit=$1
+}
+
+_git_fixture_on_exit() {
+  local status=$?
+  [[ -z "$_git_fixture_cleanup_dir" ]] || rm -rf -- "$_git_fixture_cleanup_dir"
+  if [[ -n "$_git_fixture_caller_exit" ]]; then
+    (exit "$status")
+    eval "$_git_fixture_caller_exit"
+  fi
+}
+# Once per shell (a second source keeps the first folder and caller cleanup): the caller's exit cleanup starts as
+# what was trapped on EXIT before sourcing, then git_fixture_trap_exit replaces it.
+if [[ "$(trap -p EXIT)" != "trap -- '_git_fixture_on_exit' EXIT" ]]; then
+  _git_fixture_caller_exit=$(trap -p EXIT)
+  _git_fixture_caller_exit=${_git_fixture_caller_exit#trap -- }
+  eval "_git_fixture_caller_exit=${_git_fixture_caller_exit% EXIT}"
+  _git_fixture_cleanup_dir=
+  trap _git_fixture_on_exit EXIT
+fi
+
 # Only when unset: an empty GIT_CONFIG_GLOBAL means "no global config" and is kept (Codex F2 on cmux#40871).
 if [[ -z "${GIT_CONFIG_GLOBAL+x}" ]]; then
-  # The person's global config in plain git's order (tests/git_fixture_env.py global_config_text):
-  # $XDG_CONFIG_HOME/git/config (default ~/.config/git/config) first, ~/.gitconfig after it so it wins,
-  # each by absolute [include] path (their own includes keep working; git skips a missing one), then the
-  # opt-out last. Written only inside a fresh private folder per process (mktemp -d: ours, mode 0700, an
-  # unpredictable name), never a fixed name in the shared temp folder: another user could plant or swap
-  # that file and add core.hooksPath (Codex F1 on cmux#40871). Removed at exit, after any EXIT trap already set.
-  _git_fixture_xdg=${XDG_CONFIG_HOME:-${HOME:+$HOME/.config}}
-  _git_fixture_text=
-  for _git_fixture_path in ${_git_fixture_xdg:+"$_git_fixture_xdg/git/config"} ${HOME:+"$HOME/.gitconfig"}; do
-    # A config-file string: backslash and double quote escaped, the whole path quoted (spaces, '#', ';').
-    _git_fixture_path=$(printf '%s' "$_git_fixture_path" | sed 's/[\\"]/\\&/g')
-    _git_fixture_text+=$'[include]\n\tpath = "'"$_git_fixture_path"$'"\n'
-  done
-  _git_fixture_text+=$'[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n[receive]\n\tautogc = false'
-  if _git_fixture_dir=$(mktemp -d "${TMPDIR:-/tmp}/cmux-git-fixture.XXXXXXXX"); then
-    printf '%s\n' "$_git_fixture_text" >"$_git_fixture_dir/global.gitconfig"
-    export GIT_CONFIG_GLOBAL="$_git_fixture_dir/global.gitconfig"
-    _git_fixture_trap=$(trap -p EXIT)
-    _git_fixture_trap=${_git_fixture_trap#trap -- }
-    eval "_git_fixture_trap=${_git_fixture_trap% EXIT}"
-    # shellcheck disable=SC2064  # expand the folder now; the earlier trap runs after it
-    trap "rm -rf -- $(printf '%q' "$_git_fixture_dir")${_git_fixture_trap:+; $_git_fixture_trap}" EXIT
-    unset _git_fixture_trap
+  # Written only inside a fresh private folder per process (mktemp -d: ours, mode 0700, an unpredictable name),
+  # never a fixed name in the shared temp folder: another user could plant or swap that file and add
+  # core.hooksPath (Codex F1 on cmux#40871).
+  _git_fixture_py="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." 2>/dev/null && pwd)/tests/git_fixture_env.py"
+  if ! _git_fixture_text=$(python3 -I "$_git_fixture_py" --global-config-text); then
+    echo "git-fixture.sh: $_git_fixture_py --global-config-text failed; the fixture GIT_CONFIG_GLOBAL holds the opt-out alone" >&2
+    _git_fixture_text=$'[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n[receive]\n\tautogc = false'
+  fi
+  if _git_fixture_cleanup_dir=$(mktemp -d "${TMPDIR:-/tmp}/cmux-git-fixture.XXXXXXXX"); then
+    printf '%s\n' "$_git_fixture_text" >"$_git_fixture_cleanup_dir/global.gitconfig"
+    export GIT_CONFIG_GLOBAL="$_git_fixture_cleanup_dir/global.gitconfig"
   else
+    _git_fixture_cleanup_dir=
     echo "git-fixture.sh: mktemp -d failed; no fixture GIT_CONFIG_GLOBAL (repo config and env still opt out)" >&2
   fi
-  unset _git_fixture_dir _git_fixture_text _git_fixture_xdg _git_fixture_path
+  unset _git_fixture_text _git_fixture_py
 fi
 
 # Quiet git that still says why when it fails: a bare exit 128 told nobody which call broke.

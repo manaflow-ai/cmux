@@ -8,7 +8,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 # nightly.yml with its scripts/ci/nightly-steps/ step scripts inline (tests/nightly_workflow_text.py).
 WORKFLOW_FILE="$(mktemp "${TMPDIR:-/tmp}/nightly-expanded.XXXXXX")"
 python3 "$ROOT_DIR/tests/nightly_workflow_text.py" > "$WORKFLOW_FILE"
-trap 'rm -f "$WORKFLOW_FILE"' EXIT
+git_fixture_trap_exit 'rm -f "$WORKFLOW_FILE"'
 
 if ! awk '
   /^      - name: Build nightly app \(Release\)/ { in_build=1; next }
@@ -1039,7 +1039,7 @@ done
 # already has. A cmux NIGHTLY-identity submission still in Apple's queue is
 # continued (never resubmitted) until it is resolved or 6 hours old.
 legacy_dir="$(mktemp -d)"
-trap 'rm -rf "$legacy_dir" "$WORKFLOW_FILE"' EXIT
+git_fixture_trap_exit 'rm -rf "$legacy_dir" "$WORKFLOW_FILE"'
 legacy_feed() {  # <file> <build>...
   local file="$1"; shift
   {

@@ -17,7 +17,7 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 demo="$root/scripts/blacksmith-testbox-demo.sh"
 bounded="$root/scripts/blacksmith-bounded-command.sh"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+git_fixture_trap_exit 'rm -rf "$work"'
 log=""
 fail() { echo "FAIL: $*" >&2; if [[ -n "$log" && -f "$log" ]]; then cat "$log" >&2; fi; exit 1; }
 git_q() { git -c user.name=t -c user.email=t@e -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
