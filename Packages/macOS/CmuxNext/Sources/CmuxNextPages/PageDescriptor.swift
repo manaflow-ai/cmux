@@ -263,11 +263,6 @@ public extension PageDescriptor {
         "https://user-images.githubusercontent.com", "https://avatars.githubusercontent.com",
     ]
 
-    /// The browser's Page Info bubble (webviews/src/pages/page-info, its owner CmuxNextBrowser's
-    /// PageInfoController through the App's BrowserChromeWebHost): one page per pane, kept between
-    /// opens. `cmux.page-info.state` brings the bubble's state; the page sends its commands and size.
-    static let pageInfo = PageDescriptor(id: "cmux.page-info", resource: "page-info", namespaces: ["cmux.page-info."])
-
     /// Page Info's windows (webviews/src/pages/site-settings, site-data, certificate), each in a
     /// native window CmuxNextBrowser's PageInfoWindows owns: `cmux.<page>.state` brings the
     /// window's state; the page sends its commands and its content height.
