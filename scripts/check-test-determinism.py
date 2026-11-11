@@ -709,9 +709,11 @@ _JAVASCRIPT_CONTROL_HEAD_KEYWORDS = frozenset({"if", "while", "for", "with"})
 _JAVASCRIPT_EXPRESSION_KEYWORDS = frozenset(
     {"await", "delete", "in", "instanceof", "new", "of", "return", "throw", "typeof", "void", "yield"}
 )
-_JAVASCRIPT_BLOCK_KEYWORDS = frozenset({"do", "else", "finally", "try"})
-# Restricted productions: a line terminator after these ends the statement (automatic semicolon insertion).
-_JAVASCRIPT_ASI_KEYWORDS = frozenset({"return", "yield"})
+# `break` and `continue` take only a label name, never a `{`: one after them starts the next statement, a block.
+_JAVASCRIPT_BLOCK_KEYWORDS = frozenset({"break", "continue", "do", "else", "finally", "try"})
+# Restricted productions: a line terminator after these ends the statement (automatic semicolon insertion). TypeScript's
+# parser reads `throw` the same way (it reports the line break, and parses no operand).
+_JAVASCRIPT_ASI_KEYWORDS = frozenset({"return", "throw", "yield"})
 _JAVASCRIPT_LINE_TERMINATOR = re.compile("[\n\r\u2028\u2029]")
 # Heads after whose `)` a `{` opens a block (a statement's body): the control heads, `switch` and `catch`.
 _JAVASCRIPT_BLOCK_HEAD_KEYWORDS = _JAVASCRIPT_CONTROL_HEAD_KEYWORDS | {"switch", "catch"}
@@ -761,6 +763,23 @@ def _javascript_skip_blanks(source: str, index: int) -> int:
     return index
 
 
+def _javascript_skip_trivia(source: str, index: int) -> int:
+    """INDEX moved past blanks and comments (`/* */`, and `//` up to its line terminator), as a parser's lookahead
+    skips them: `<T /*doc*/ extends U>` and `(x: T) /*m*/ => x` read as if the comments were not there."""
+    while True:
+        index = _javascript_skip_blanks(source, index)
+        if source.startswith("/*", index):
+            close = source.find("*/", index + 2)
+            if close < 0:
+                return len(source)
+            index = close + 2
+        elif source.startswith("//", index):
+            line_end = _JAVASCRIPT_LINE_TERMINATOR.search(source, index + 2)
+            index = line_end.start() if line_end else len(source)
+        else:
+            return index
+
+
 _JAVASCRIPT_TYPE_LOOKAHEAD = 2000
 _JAVASCRIPT_CLOSERS = {"(": ")", "[": "]", "{": "}", "<": ">"}
 
@@ -775,6 +794,9 @@ def _javascript_balanced_end(source: str, index: int) -> int:
         character = source[position]
         if source.startswith("=>", position):
             position += 2  # a function type's arrow closes no `<`
+            continue
+        if source.startswith(("/*", "//"), position):
+            position = _javascript_skip_trivia(source, position)
             continue
         if character in "'\"`":
             close = source.find(character, position + 1, limit)
@@ -798,13 +820,13 @@ def _javascript_angle_is_type_parameters(source: str, index: int) -> bool:
     close = _javascript_balanced_end(source, index)
     if close < 0:
         return False
-    params = _javascript_skip_blanks(source, close)
+    params = _javascript_skip_trivia(source, close)
     if not source.startswith("(", params):
         return False
     params_end = _javascript_balanced_end(source, params)
     if params_end < 0:
         return False
-    after = _javascript_skip_blanks(source, params_end)
+    after = _javascript_skip_trivia(source, params_end)
     return source.startswith(("=>", ":"), after)
 
 
@@ -812,7 +834,8 @@ def _javascript_jsx_tag_opens_at(source: str, index: int) -> bool:
     """Whether the `<` at INDEX reads as a JSX open tag or fragment where an expression may start: `<>` or `<Name`,
     unless the name is followed by `=` or `,` (`<T = V>`, `<T,>`: type parameters), or by `extends` that opens a
     generic arrow's type parameters (`<T extends U>(x) => x`). An attribute named `extends`, bare or with a value
-    (`<Tile extends {...p} />`, `<div extends="x">`), keeps the tag. Blanks are ECMAScript's (U+00A0 included)."""
+    (`<Tile extends {...p} />`, `<div extends="x">`), keeps the tag. Blanks are ECMAScript's (U+00A0 included), and
+    a comment between the name and what follows is skipped (`<T /*doc*/ extends U>`)."""
     after = index + 1
     if after >= len(source):
         return False
@@ -823,13 +846,13 @@ def _javascript_jsx_tag_opens_at(source: str, index: int) -> bool:
     end = after + 1
     while end < len(source) and _javascript_identifier_character(source[end]):
         end += 1
-    end = _javascript_skip_blanks(source, end)
+    end = _javascript_skip_trivia(source, end)
     if source.startswith(("=", ","), end):
         return False
     if source.startswith("extends", end) and not (
         end + 7 < len(source) and _javascript_identifier_character(source[end + 7])
     ):
-        rest = _javascript_skip_blanks(source, end + 7)
+        rest = _javascript_skip_trivia(source, end + 7)
         if source.startswith("=", rest) and not source.startswith(("==", "=>"), rest):
             return True  # `extends="x"`: an attribute
         return not _javascript_angle_is_type_parameters(source, index)
@@ -840,7 +863,7 @@ def _javascript_word_before(source: str, end: int, comments: bytearray) -> tuple
     """The identifier or keyword that ends just before END (skipping blanks and comments), and where it starts;
     ("", END) when there is none."""
     previous = end - 1
-    while previous >= 0 and (source[previous].isspace() or comments[previous]):
+    while previous >= 0 and (_javascript_is_blank(source[previous]) or comments[previous]):
         previous -= 1
     start = previous + 1
     while start > 0 and _javascript_identifier_character(source[start - 1]):
@@ -854,7 +877,7 @@ def _javascript_is_keyword_at(source: str, start: int, comments: bytearray) -> b
     if start > 0 and source[start - 1] == "#":
         return False
     before = start - 1
-    while before >= 0 and (source[before].isspace() or comments[before]):
+    while before >= 0 and (_javascript_is_blank(source[before]) or comments[before]):
         before -= 1
     return not (before >= 0 and source[before] == ".")
 
@@ -929,7 +952,7 @@ def _javascript_brace_closes_block(
     if open_brace < 0:
         return None
     previous = open_brace - 1
-    while previous >= 0 and (source[previous].isspace() or comments[previous]):
+    while previous >= 0 and (_javascript_is_blank(source[previous]) or comments[previous]):
         previous -= 1
     if previous < 0:
         return True
@@ -955,8 +978,8 @@ def _javascript_brace_closes_block(
         if not _javascript_is_keyword_at(source, start, comments):
             return None
         if word in _JAVASCRIPT_ASI_KEYWORDS and _JAVASCRIPT_LINE_TERMINATOR.search(source, start + len(word), open_brace):
-            # `return` and `yield` take no line terminator before their operand: a semicolon is inserted, and the
-            # `{` on the next line opens a block (a terminator inside a comment between counts too).
+            # `return`, `yield` and `throw` take no line terminator before their operand: a semicolon is inserted,
+            # and the `{` on the next line opens a block (a terminator inside a comment between counts too).
             return True
         if word in _JAVASCRIPT_EXPRESSION_KEYWORDS:
             return False
@@ -984,7 +1007,7 @@ def _javascript_regex_literal_starts_at(
     """
     previous = index - 1
     while previous >= 0 and (
-        source[previous].isspace() or comments[previous]
+        _javascript_is_blank(source[previous]) or comments[previous]
     ):
         previous -= 1
     if previous < 0:
@@ -1022,15 +1045,20 @@ def _javascript_regex_literal_starts_at(
         and executable[previous - 1]
     ):
         return False
-    if character == "!" and previous > 0 and executable[previous - 1]:
-        # A `!` right after a name, `)` or `]` is TypeScript's postfix non-null assertion (`value!`): the expression
-        # is complete. After a keyword (`return!x`) it is the prefix not.
-        before = source[previous - 1]
-        if before in ")]":
-            return False
-        if _javascript_identifier_character(before):
-            word, start = _javascript_word_before(source, previous, comments)
-            return _javascript_is_keyword_at(source, start, comments) and word in _JAVASCRIPT_REGEX_PREFIX_KEYWORDS
+    if character == "!":
+        # A `!` right after a name, `)` or `]` is TypeScript's postfix non-null assertion (`value!`), and so is each
+        # `!` of a run of them (`value!!`): the expression is complete. After a keyword (`return!x`) it is the prefix
+        # not.
+        bangs = previous
+        while bangs > 0 and source[bangs - 1] == "!" and executable[bangs - 1]:
+            bangs -= 1
+        if bangs > 0 and executable[bangs - 1]:
+            before = source[bangs - 1]
+            if before in ")]":
+                return False
+            if _javascript_identifier_character(before):
+                word, start = _javascript_word_before(source, bangs, comments)
+                return _javascript_is_keyword_at(source, start, comments) and word in _JAVASCRIPT_REGEX_PREFIX_KEYWORDS
     return True
 
 
@@ -1111,6 +1139,16 @@ def _lexical_positions_and_unresolved(
     expression_stop = _LEXER_JSX_EXPRESSION_STOP if is_jsx else _LEXER_EXPRESSION_STOP
     index = 0
     length = len(line)
+    hashbang = (0, 0)
+    if path_suffix in _JAVASCRIPT_SUFFIXES:
+        # A `#!` line at the very start (after a byte order mark) is ECMAScript's hashbang comment: trivia the parser
+        # lists as no comment. It is read as blanks (a `/` or `/*` in it opens nothing, and the first token after it
+        # starts the file), then left unmarked: neither code nor a comment.
+        start = 1 if line.startswith("\ufeff") else 0
+        if line.startswith("#!", start):
+            line_end = _JAVASCRIPT_LINE_TERMINATOR.search(line, start)
+            hashbang = (start, line_end.start() if line_end else length)
+            line = line[: hashbang[0]] + " " * (hashbang[1] - hashbang[0]) + line[hashbang[1] :]
     while index < length:
         kind, brace_depth, delimiter = contexts[-1]
         if kind == "code":
@@ -1164,8 +1202,22 @@ def _lexical_positions_and_unresolved(
             continue
 
         if kind == "jsx-tag":
-            # Inside `<Name ...`, up to its `>` (its children follow) or `/>` (it is complete).
-            if line.startswith("/>", index):
+            # Inside `<Name ...`, up to its `>` (its children follow) or `/>` (it is complete). A comment may sit
+            # between the name and attributes (`<a /*doc*/ b="1">`, `<a // c` and a new line), and any ECMAScript
+            # blank (U+FEFF too) separates them.
+            if line.startswith("/*", index):
+                comments[index : index + 2] = b"\x01\x01"
+                contexts.append(("block-comment", 1, ""))
+                index += 2
+            elif line.startswith("//", index):
+                line_end = _JAVASCRIPT_LINE_TERMINATOR.search(line, index + 2)
+                comment_end = line_end.start() if line_end else length
+                comments[index:comment_end] = b"\x01" * (comment_end - index)
+                index = comment_end
+            elif _javascript_is_blank(character):
+                executable[index] = True
+                index += 1
+            elif line.startswith("/>", index):
                 contexts.pop()
                 index += 2
             elif character == ">":
@@ -1472,6 +1524,7 @@ def _lexical_positions_and_unresolved(
                 contexts[-1] = (kind, brace_depth - 1, delimiter)
         index += 1
 
+    executable[hashbang[0] : hashbang[1]] = bytes(hashbang[1] - hashbang[0])
     return bytes(executable), bytes(comments), tuple(unresolved)
 
 
@@ -5838,12 +5891,15 @@ def _attribution_self_test() -> list[str]:
     return failures
 
 
-# The regex-after-token table shared with manaflow-ai/cmux-platform#1271's JS tokenizer: each case is a source
-# and whether the text `echo` after its slash is code (a hit) or a comment. regex-after-token.json is a pinned
-# byte copy (its .pin sidecar names the commit and sha256). cmux-rows.json holds the rows cmux has sent to #1271's
-# table and that are not in the pinned copy yet; a row there with "unresolved": true is one a strict lexer cannot
-# decide, so its expected answer is "unresolved" (a tokenizer that scans both readings reads it as a hit).
+# The regex-after-token table shared with manaflow-ai/cmux-platform's JS tokenizer: each row is a source and whether
+# the text `echo` after its slash is code (a hit) or a comment. regex-after-token.json is a pinned byte copy (its .pin
+# sidecar names the commit and sha256). Its "ranges" (on each row, and on each "parsed" case) are where TypeScript's
+# parser puts each comment, string, regex, template and JSX text, read as a .tsx file: the parser is the lexer's
+# oracle, offline. cmux-rows.json holds the rows cmux has sent to the table and that the pinned copy does not hold yet;
+# a row there with "unresolved": true is one a strict lexer cannot decide, so its expected answer is "unresolved" (a
+# tokenizer that scans both readings reads it as a hit).
 REGEX_AFTER_TOKEN_DIR = pathlib.Path(__file__).resolve().parent / "fixtures" / "regex-after-token"
+_JAVASCRIPT_LINE_TERMINATORS = "\n\r\u2028\u2029"
 
 
 def _regex_after_token_cases(table: dict) -> list[tuple[str, bool, bool]]:
@@ -5873,9 +5929,34 @@ def _regex_after_token_cases(table: dict) -> list[tuple[str, bool, bool]]:
     return cases
 
 
-def _regex_after_token_self_test() -> tuple[list[str], int]:
+def _regex_after_token_parsed_verdict(source: str, ranges: list) -> tuple[str, int]:
+    """Compare the lexer's comments in SOURCE (read as .tsx) with the parser's comment RANGES, character by character
+    (a line terminator inside a block comment counts as neither). ("agree", -1); ("disagree", offset) for the first
+    character they read differently, when no unresolved token comes before it; or ("unresolved", offset) for the
+    first token the lexer could not decide (it fails closed: what follows may be read either way)."""
+    parser = bytearray(len(source))
+    for kind, start, end in ranges:
+        if kind == "comment":
+            parser[start:end] = b"\x01" * (end - start)
+    _, comments, unresolved = _lexical_positions_and_unresolved(source, ".tsx")
+    first_unresolved = min(unresolved, default=len(source))
+    for offset, character in enumerate(source):
+        if character in _JAVASCRIPT_LINE_TERMINATORS:
+            continue
+        if bool(comments[offset]) != bool(parser[offset]):
+            if offset < first_unresolved:
+                return "disagree", offset
+            break
+    if unresolved:
+        return "unresolved", first_unresolved
+    return "agree", -1
+
+
+def _regex_after_token_self_test(strict: bool = False) -> tuple[list[str], int, str]:
     """Run the lexer over the shared table and cmux's rows, strictly: each case the table decides gives its answer,
-    and each it cannot decide is unresolved (fails --strict), never a guess. Returns the failures and the count."""
+    and each it cannot decide is unresolved, never a guess. Every row with parser ranges and every "parsed" case must
+    also read its comments where the parser does, or come out unresolved: a disagreement always fails, an unresolved
+    one fails under STRICT. Returns the failures, the case count and a summary of the parser comparison."""
     import hashlib
 
     failures: list[str] = []
@@ -5892,9 +5973,13 @@ def _regex_after_token_self_test() -> tuple[list[str], int]:
             f"({pin.get('repo')}@{pin.get('commit')}:{pin.get('path')}); copy that file unchanged or re-pin it"
         )
     cases = 0
+    counts = {
+        group: {"agree": 0, "unresolved": 0, "disagree": 0, "skipped": 0} for group in ("rows", "parsed")
+    }
     # cmux-rows.json exists only while cmux has rows the pinned copy does not hold yet.
     for path in (path for path in (shared, REGEX_AFTER_TOKEN_DIR / "cmux-rows.json") if path.exists()):
-        for source, hit, forks in _regex_after_token_cases(json.loads(path.read_text(encoding="utf-8"))):
+        table = json.loads(path.read_text(encoding="utf-8"))
+        for source, hit, forks in _regex_after_token_cases(table):
             cases += 1
             target = source.index("echo")
             _, comments, unresolved = _lexical_positions_and_unresolved(source, ".tsx")
@@ -5909,7 +5994,32 @@ def _regex_after_token_self_test() -> tuple[list[str], int]:
                     f"REGEX-AFTER-TOKEN {path.name}: the text after the slash reads as "
                     f"{'a comment' if hit else 'code'}, the table says {'code' if hit else 'a comment'}: {source!r}"
                 )
-    return failures, cases
+        for group, entries in (("rows", table.get("rows", [])), ("parsed", table.get("parsed", []))):
+            for entry in entries:
+                if "ranges" not in entry:
+                    # A source the parser reports a syntax error in has no ranges (nor does a row of cmux-rows.json).
+                    counts[group]["skipped"] += bool(entry.get("syntax_error"))
+                    continue
+                cases += group == "parsed"
+                verdict, offset = _regex_after_token_parsed_verdict(entry["source"], entry["ranges"])
+                counts[group][verdict] += 1
+                label = f"REGEX-AFTER-TOKEN {path.name} {group}" + (
+                    f" ({entry['family']})" if "family" in entry else ""
+                )
+                if verdict == "disagree":
+                    failures.append(
+                        f"{label}: offset {offset} reads as "
+                        f"{'code' if any(k == 'comment' and s <= offset < e for k, s, e in entry['ranges']) else 'a comment'}"
+                        f", the parser says otherwise: {entry['source']!r}"
+                    )
+                elif verdict == "unresolved" and strict and group == "parsed":
+                    failures.append(f"{label}: unresolved at offset {offset} where the parser decides: {entry['source']!r}")
+    summary = "; ".join(
+        f"{group} {count['agree']} agree, {count['unresolved']} unresolved, {count['disagree']} disagree"
+        + (f", {count['skipped']} skipped (syntax error)" if count["skipped"] else "")
+        for group, count in counts.items()
+    )
+    return failures, cases, summary
 
 
 def _allowlist_self_test() -> list[str]:
@@ -6011,7 +6121,7 @@ def _allowlist_self_test() -> list[str]:
     return failures
 
 
-def _self_test() -> int:
+def _self_test(strict: bool = False) -> int:
     # (filename, source, expected rules present, rules that must NOT be present)
     positives: list[tuple[str, str, set[str]]] = [
         # A temp git repo with git's detached auto maintenance still on (the Errno 39 '.git' race).
@@ -8164,8 +8274,9 @@ def _self_test() -> int:
     failures += _isolated_import_self_test()
     failures += _allowlist_self_test()
     failures += _attribution_self_test()
-    regex_failures, regex_cases = _regex_after_token_self_test()
+    regex_failures, regex_cases, parser_summary = _regex_after_token_self_test(strict)
     failures += regex_failures
+    print(f"regex-after-token against the parser's ranges: {parser_summary}")
     isolated_fixtures = 6
 
     if failures:
@@ -8214,7 +8325,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument(
         "--strict",
         action="store_true",
-        help="exit non-zero if any non-allowlisted finding exists",
+        help="exit non-zero if any non-allowlisted finding exists (with --self-test: if any parsed case is unresolved)",
     )
     parser.add_argument(
         "--write-allowlist",
@@ -8234,7 +8345,7 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
 
     if args.self_test:
-        return _self_test()
+        return _self_test(args.strict)
 
     repo_root = args.repo_root.resolve(strict=False)
     allowlist_path = (
