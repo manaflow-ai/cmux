@@ -279,36 +279,45 @@ pub(crate) struct TerminalNotification {
 }
 
 /// What in a terminal's output asked for a notification.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TerminalNotificationOrigin {
     /// OSC 9, OSC 777 or OSC 99: the program's own desktop notification.
     Desktop,
-    /// An OSC 7501 record's alert: the state it reached, and for a wait on
-    /// the person what it waits for.
+    /// An OSC 7501 record's alert: the state it reached, for a wait on the
+    /// person what it waits for, and the app the record shows.
     ProgramStatus {
         state: ghostty_vt::ProgramStatusState,
         kind: Option<ghostty_vt::ProgramStatusKind>,
+        app: Option<String>,
     },
 }
 
 impl TerminalNotificationOrigin {
-    /// Whether an agent whose hooks report for the terminal already posts
-    /// this event itself: its permission wait and its finished turn are
-    /// hook notifications (`agent_hook_notification`), and an agent's own
-    /// desktop notification (Claude Code's `Claude needs your permission`)
-    /// says the same again. A wait the hooks do not report (sign-in, plain
-    /// input, a question) and a failure still post from the record.
-    pub(crate) fn duplicates_agent_hooks(self) -> bool {
+    /// Whether the live hooks of an agent that reports itself in OSC 7501 as
+    /// one of `agent_apps` (`agent_hooks::notifying_hook_source_apps`)
+    /// already post this event: its permission wait and its finished turn
+    /// are hook notifications (`agent_hook_notification`), and the agent's
+    /// own desktop notification (Claude Code's `Claude needs your
+    /// permission`) says the same again. A record of another app, or without
+    /// one, still posts, and so does a wait the hooks do not report
+    /// (sign-in, plain input, a question) and a failure.
+    pub(crate) fn duplicates_agent_hooks(&self, agent_apps: &[&str]) -> bool {
         use ghostty_vt::{ProgramStatusKind, ProgramStatusState};
-        matches!(
-            self,
-            Self::Desktop
-                | Self::ProgramStatus { state: ProgramStatusState::Done, .. }
-                | Self::ProgramStatus {
-                    state: ProgramStatusState::Blocked,
-                    kind: Some(ProgramStatusKind::Permission),
-                }
-        )
+        match self {
+            Self::Desktop => true,
+            Self::ProgramStatus { state, kind, app } => {
+                let hooks_post = match state {
+                    ProgramStatusState::Done => true,
+                    ProgramStatusState::Blocked => *kind == Some(ProgramStatusKind::Permission),
+                    _ => false,
+                };
+                hooks_post
+                    && app.as_deref().is_some_and(|app| {
+                        let app = app.trim();
+                        agent_apps.iter().any(|agent| agent.eq_ignore_ascii_case(app))
+                    })
+            }
+        }
     }
 }
 
@@ -345,6 +354,7 @@ impl TerminalNotification {
             origin: TerminalNotificationOrigin::ProgramStatus {
                 state: alert.state,
                 kind: alert.kind,
+                app: alert.app,
             },
         }
     }

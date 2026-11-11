@@ -21,6 +21,44 @@ sends no hook when a permission dialog is dismissed with Esc, so this proof,
 or the agent's own status report (OSC 7501 `blocked`, then `idle` or
 `working`), is the only evidence that the agent stopped waiting.
 
+## One notification per agent event
+
+A hook event that waits on the person (approval, question, plan review), a
+finished turn and a reported error each post one notification. Some agents
+also print their own notification for the same event, so the daemon drops
+the agent's copy while its hooks report. It drops a terminal notification
+only when all of these are true:
+
+- The terminal has a live hook session: a hook event set its fence and no
+  `SessionEnd` (or the screen seeing the agent leave) ended it.
+- The hook source of the last applied hook event is one whose hooks post both
+  a permission wait and a finished turn:
+
+  | hook source | permission hook | finished-turn hook | OSC 7501 `app` names |
+  | --- | --- | --- | --- |
+  | `claude` | `PermissionRequest` | `Stop` | `claude`, `claude-code`, `claude_code`, `claudecode` |
+  | `codex` | `PermissionRequest` | `Stop` | `codex`, `codex-cli`, `codex_cli`, `openai-codex` |
+  | `opencode` | `permission.asked` | `session.idle` | `opencode`, `open-code`, `open_code` |
+  | `muse` | `PermissionRequest` | `Stop` | `muse`, `muse-code`, `muse-cli` |
+  | `hermes-agent` | `pre_approval_request` | `on_session_end` | `hermes-agent`, `hermes` |
+  | `rovodev` | `on_tool_permission` | `on_complete` | `rovodev`, `rovo`, `acli` |
+
+- The notification is one of these:
+  - a desktop notification (OSC 9, OSC 777 or OSC 99) from the terminal, or
+  - an OSC 7501 alert for `done` or for `blocked` with `kind=permission`,
+    from a record whose app (its own or an ancestor's) is one of that
+    agent's `app` names (case does not matter).
+
+Everything else still posts: every notification of a terminal whose hooks
+are from another source (for example `gemini`, whose permission callback
+`Notification` is no approval, or `cursor`, which has no permission hook),
+an OSC 7501 record of another app or with no app, and a 7501 `blocked` with
+another kind (sign-in, question, plain input) or an `error`. A direct
+hook-source report through the socket names no hook source, so after it
+nothing is dropped. The hook
+source is kept in memory only: after a daemon restart nothing is dropped until
+the agent's next hook event.
+
 ## Agents in a tmux session started elsewhere
 
 An agent can run in a tmux session whose server was started outside

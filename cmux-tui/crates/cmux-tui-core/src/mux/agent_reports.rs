@@ -384,6 +384,12 @@ impl Mux {
             && let (Some(direct_state), Some(sequence_guard)) =
                 (direct_hook_state.as_ref(), sequence_guard.as_mut())
         {
+            // A direct report names no hook source: its session's own
+            // notifications keep posting (`notifying_agent_hooks_for`).
+            self.agent_hook_sources
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .remove(&terminal_id);
             sequence_guard.insert(
                 terminal_id.clone(),
                 HookFence {

@@ -319,6 +319,18 @@ impl Mux {
             agent_provider_identity(ingress),
         )?;
         fences.insert(terminal_id.clone(), next_fence);
+        // Whose hooks the fence now stands for (`notifying_agent_hooks_for`).
+        let hook_source = ingress
+            .payload
+            .get("adapter")
+            .and_then(|adapter| adapter.get("id"))
+            .and_then(Value::as_str);
+        let mut sources = self.agent_hook_sources.lock().unwrap_or_else(PoisonError::into_inner);
+        match hook_source {
+            Some(source) => sources.insert(terminal_id.clone(), source.to_owned()),
+            None => sources.remove(&terminal_id),
+        };
+        drop(sources);
         // Projection ordering is complete. Do not carry the fence guard into
         // cleanup or any retry/reentrant path.
         drop(fences);

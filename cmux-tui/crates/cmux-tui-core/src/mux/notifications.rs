@@ -112,19 +112,22 @@ impl Mux {
     /// limit. Adoption and a terminal's first view post a record's alerts
     /// directly (`Surface::publish_pending_progress`).
     ///
-    /// While an agent's hooks report for the terminal (its hook session is
-    /// live), the hooks post that agent's permission waits and finished
-    /// turns themselves: the agent's own desktop notification and its
-    /// record's alert for the same event post nothing, so one agent event is
-    /// one notification (bench r5: one permission was three rows).
+    /// While the hooks of an agent that posts its own permission waits and
+    /// finished turns report for the terminal (`notifying_agent_hooks_for`:
+    /// claude, codex, opencode, muse, hermes-agent, rovodev), the hooks post
+    /// those events once: the program's desktop notifications (OSC 9, 777,
+    /// 99) and the 7501 permission and done alerts of a record whose app is
+    /// that agent post nothing (bench r5: one permission was three rows).
+    /// Every other agent and program keeps its notifications.
     pub(crate) fn post_terminal_notifications(
         &self,
         surface: SurfaceId,
         notifications: Vec<crate::terminal_metadata::TerminalNotification>,
     ) {
-        let hooks_report = self.agent_hooks_report_for(surface);
+        let hook_agent_apps = self.notifying_agent_hooks_for(surface);
         for notification in notifications {
-            if hooks_report && notification.origin.duplicates_agent_hooks() {
+            if hook_agent_apps.is_some_and(|apps| notification.origin.duplicates_agent_hooks(apps))
+            {
                 continue;
             }
             if self
@@ -143,10 +146,12 @@ impl Mux {
         }
     }
 
-    /// Whether an agent's hook session is live in `surface`'s terminal: a
-    /// hook fence that has not ended (`SessionStart` set it, `SessionEnd` or
-    /// the screen seeing the agent leave ends it).
-    fn agent_hooks_report_for(&self, surface: SurfaceId) -> bool {
+    /// The OSC 7501 app names of the agent whose hooks report for
+    /// `surface`'s terminal, when its hook session is live (a fence that has
+    /// not ended: `SessionStart` set it, `SessionEnd` or the screen seeing
+    /// the agent leave ends it) and its hook source posts permission waits
+    /// and finished turns (`agent_hooks::notifying_hook_source_apps`).
+    fn notifying_agent_hooks_for(&self, surface: SurfaceId) -> Option<&'static [&'static str]> {
         let terminal_id = {
             let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             state
@@ -154,13 +159,15 @@ impl Mux {
                 .get(&surface)
                 .or_else(|| state.terminal_runtime_by_id(surface))
                 .and_then(|surface| surface.terminal_public_id().cloned())
-        };
-        let Some(terminal_id) = terminal_id else { return false };
-        self.agent_hook_fences
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        }?;
+        let fences = self.agent_hook_fences.lock().unwrap_or_else(PoisonError::into_inner);
+        if fences.get(&terminal_id).is_none_or(|fence| fence.ended) {
+            return None;
+        }
+        let sources = self.agent_hook_sources.lock().unwrap_or_else(PoisonError::into_inner);
+        sources
             .get(&terminal_id)
-            .is_some_and(|fence| !fence.ended)
+            .and_then(|source| crate::agent_hooks::notifying_hook_source_apps(source.as_str()))
     }
 
     /// A bell (BEL) in `surface`'s terminal marks its tab for attention like a

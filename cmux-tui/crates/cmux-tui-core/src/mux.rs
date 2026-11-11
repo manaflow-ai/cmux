@@ -662,6 +662,11 @@ pub struct Mux {
     /// Each terminal agent's last prompt and reply, memory only (`agent_prompts.rs`).
     agent_prompts: Mutex<agent_prompts::AgentTexts>,
     agent_hook_fences: Mutex<HashMap<TerminalPublicId, HookFence>>,
+    /// The hook source (`claude`, `gemini`, ...) of each terminal's last
+    /// applied hook event, memory only: whose hooks the live fence stands
+    /// for (`Mux::notifying_agent_hooks_for`). Written while
+    /// `agent_hook_fences` is held, and taken only after it.
+    agent_hook_sources: Mutex<HashMap<TerminalPublicId, String>>,
     /// Orders durable hook catch-up and live projection as one operation.
     agent_hook_projection: Mutex<()>,
     /// Live, never-persisted presence per terminal (`agent_presence.rs`).
