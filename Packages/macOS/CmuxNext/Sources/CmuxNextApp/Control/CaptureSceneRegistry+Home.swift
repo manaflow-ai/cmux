@@ -168,12 +168,15 @@ extension CaptureSceneRegistry {
     func renderPermissionFeedPeer(_ params: [String: CmuxNextSettings.JSONValue], scene: String, windowID: String) async -> CmuxNextSettings.JSONValue {
         let (services, daemon) = (services, services.machines.local.connection)
         await Self.feedOp(daemon, "feed.withdraw", HomeNeedsYouCapture.withdrawParams)
-        guard let controller = services.windows.controller(for: windowID), let chief = TopHomePageView.chief(services.home),
-              (try? await services.settings?.set(.bool(true), at: HomeNeedsYouSetting.configPath)) != nil,
-              var environment = QuitAgents.environment(services), let executable = Bundle.main.executableURL?.resolvingSymlinksInPath(),
-              let capture = try? HomeNeedsYouCapture(send: { op, data in Task { await Self.feedOp(daemon, op, data) } }) else {
-            return .object(["error": .string("no window, Chief, Needs you setting, acpmux environment or socket"), "scene": .string(scene)])
-        }
+        func failed(_ why: String) -> CmuxNextSettings.JSONValue { .object(["error": .string(why), "scene": .string(scene)]) }
+        guard let controller = services.windows.controller(for: windowID) else { return failed("capture window is gone") }
+        frames.start()
+        let home = await frames.settled(until: { TopHomePageView.chief(services.home) != nil }, start: .now, window: 0, deadline: 10_000)
+        _ = frames.stop()
+        guard home != nil, let chief = TopHomePageView.chief(services.home) else { return failed("no Chief conversation: \(services.home.unavailableMessage)") }
+        do { try await services.settings?.set(.bool(true), at: HomeNeedsYouSetting.configPath) } catch { return failed("feed.needsYouInChief: \(error)") }
+        guard var environment = QuitAgents.environment(services), let executable = Bundle.main.executableURL?.resolvingSymlinksInPath() else { return failed("no acpmux environment") }
+        guard let capture = try? HomeNeedsYouCapture(send: { op, data in Task { await Self.feedOp(daemon, op, data) } }) else { return failed("in-app acpmux did not listen") }
         defer { capture.stop() }
         (environment.executable, environment.socketPath) = (executable, capture.socket) // the in-app acpmux, which this app serves
         TopPages.show(.home, services: services, in: controller.state)
