@@ -69,11 +69,13 @@ final class AgentCursorOverlay {
             return
         }
         guard enabled else { return }
+        let isNew = cursors[event.session] == nil
         let cursor = cursors[event.session] ?? SessionCursor()
         cursors[event.session] = cursor
         cursor.label = event.label
         let geometry = AgentCursorGeometry(primaryHeight: NSScreen.screens.first?.frame.height ?? 0)
         cursor.apply(event, geometry: geometry, animated: animates, speed: motion.speed)
+        if isNew { cursor.startIdleWag(animated: animates, speed: motion.speed) }
         if let tip = cursor.currentTip { lastSeen[event.session] = (tip, event.label) }
         armIdleHide(cursor, session: event.session)
     }
@@ -149,6 +151,17 @@ final class AgentCursorOverlay {
                scale: scale, backdrop: backdrop) { $0.spotlight(animated: false, speed: 1) }
     }
 
+    /// A glide's trail drawn offscreen as a still: the cursor at the end of a move from `from`
+    /// to `to` with its comet tail laid along the path as it looks halfway through fading.
+    static func renderTrail(label: String, size: CGSize, scale: CGFloat, from: CGPoint, to: CGPoint,
+                            backdrop: [(CGRect, NSColor)] = []) -> CGImage? {
+        render([AgentCursorEvent(kind: .move, session: "s", label: label, at: from)], label: label, size: size,
+               scale: scale, backdrop: backdrop) { cursor in
+            let geometry = AgentCursorGeometry(primaryHeight: size.height)
+            cursor.stillTrail(to: geometry.appKit(to))
+        }
+    }
+
     /// The scroll's main direction as an arrow.
     static func arrow(_ v: CGVector) -> String {
         if abs(v.dy) >= abs(v.dx) { return v.dy >= 0 ? "\u{2193}" : "\u{2191}" }
@@ -207,6 +220,7 @@ private final class SessionCursor {
     /// The tip, in AppKit screen points.
     private var tip: CGPoint?
     private var hideTimer: Timer?
+    private var idleTimer: Timer?
     private var scale: CGFloat = 2
     /// Drawn into an image instead of a panel (``AgentCursorOverlay/render``): this frame stands
     /// for the screen.
@@ -527,11 +541,111 @@ private final class SessionCursor {
             body.add(move, forKey: "glide")
             let length = max(hypot(to.x - from.x, to.y - from.y), 1)
             let way = TailPose.trailing((to.x - from.x) / length, (to.y - from.y) / length)
-            swish([.rest, way, way, .wag(0.6), .rest], keyTimes: [0, 0.12, 0.62, 0.84, 1],
-                  duration: move.duration + 0.25 / max(speed, 0.25))
+            // The tail streams behind the move, then flicks and settles with a happy wag.
+            swish([.rest, way, way, .wag(1), .wag(-0.7), .wag(0.35), .rest],
+                  keyTimes: [0, 0.1, 0.58, 0.72, 0.84, 0.93, 1],
+                  duration: move.duration + 0.45 / max(speed, 0.25))
+            comet(along: [from] + plan.samples.map { CGPoint(x: $0.x, y: $0.y) },
+                  duration: move.duration, speed: speed)
         }
         body.removeAnimation(forKey: "fade")
         panel?.orderFrontRegardless()
+    }
+
+    /// A fading trail of the path the cursor just travelled, like a comet's tail: it follows
+    /// the pointer (the same keyframes as its glide) and is longer the farther it goes (a
+    /// quarter of the way, 24 to 320 points), thick and bright at the pointer and thinner and
+    /// fainter behind it, then draws into the pointer once it arrives.
+    func comet(along points: [CGPoint], duration: CFTimeInterval, speed: Double) {
+        guard points.count >= 2 else { return }
+        var cumulative: [CGFloat] = [0]
+        for i in 1..<points.count {
+            cumulative.append(cumulative[i - 1] + hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y))
+        }
+        guard let total = cumulative.last, total >= 8 else { return }
+        let path = CGMutablePath()
+        path.addLines(between: points)
+        let trailLength = min(max(total * 0.25, 24), 320)
+        let catchUp = 0.32 / max(speed, 0.25)
+        let whole = duration + catchUp
+        // The head's progress along the path at each glide keyframe (the glide's keyTimes are even).
+        let head = cumulative.map { Double($0 / total) }
+        let headTimes = head.indices.map { Double($0) / Double(max(head.count - 1, 1)) * duration / whole }
+        // Three strokes, newest thickest: together a trail that fades and thins behind the pointer.
+        let strands: [(width: CGFloat, alpha: CGFloat, share: CGFloat)] = [(5, 0.42, 0.4), (3.4, 0.24, 0.72), (2, 0.12, 1)]
+        for strand in strands {
+            let trail = effect(CAShapeLayer())
+            trail.path = path
+            trail.fillColor = nil
+            trail.strokeColor = AgentCursorOverlay.blue.withAlphaComponent(strand.alpha).cgColor
+            trail.lineWidth = strand.width
+            trail.lineCap = .round
+            trail.lineJoin = .round
+            trail.strokeStart = 1
+            trail.strokeEnd = 1
+            let lag = Double(trailLength * strand.share / total)
+            // motion: allow called only from the gated, animated glide (cursor switches, Reduce Motion, ui.animationSpeed).
+            let end = CAKeyframeAnimation(keyPath: "strokeEnd")
+            end.values = head + [1]
+            end.keyTimes = (headTimes + [1]).map { NSNumber(value: $0) }
+            // motion: allow the same gated glide: the tail end follows the head, `lag` behind.
+            let start = CAKeyframeAnimation(keyPath: "strokeStart")
+            start.values = head.map { max($0 - lag, 0) } + [1]
+            start.keyTimes = end.keyTimes
+            // motion: allow the same gated glide.
+            let group = CAAnimationGroup()
+            group.animations = [end, start]
+            group.duration = whole
+            group.isRemovedOnCompletion = false
+            group.fillMode = .forwards
+            trail.add(group, forKey: "comet")
+            Self.remove([trail], after: whole + 0.05)
+        }
+    }
+
+    /// The trail as a still (for renders): the cursor moves to `point` and the last stretch of
+    /// its straight path shows, fading, behind it.
+    func stillTrail(to point: CGPoint) {
+        guard let from = tip else { return }
+        glide(to: point, animated: false, speed: 1)
+        let a = local(from), b = local(point)
+        let total = hypot(b.x - a.x, b.y - a.y)
+        guard total >= 8 else { return }
+        let trailLength = min(max(total * 0.25, 24), 320)
+        for strand in [(width: CGFloat(5), alpha: CGFloat(0.42), share: CGFloat(0.4)), (3.4, 0.24, 0.72), (2, 0.12, 1)] {
+            let trail = effect(CAShapeLayer())
+            let path = CGMutablePath()
+            path.move(to: a)
+            path.addLine(to: b)
+            trail.path = path
+            trail.fillColor = nil
+            trail.strokeColor = AgentCursorOverlay.blue.withAlphaComponent(strand.alpha).cgColor
+            trail.lineWidth = strand.width
+            trail.lineCap = .round
+            trail.strokeStart = max(1 - trailLength * strand.share / total, 0)
+            trail.strokeEnd = 1
+        }
+        tail.path = Self.tailPath(.trailing((b.x - a.x) / total, (b.y - a.y) / total))
+        tailEdge.path = tail.path
+    }
+
+    /// A small wag of the tail now and then while the cursor waits, so it feels alive.
+    private func idleWag(speed: Double) {
+        swish([.rest, .wag(0.8), .wag(-0.5), .wag(0.25), .rest], keyTimes: [0, 0.25, 0.55, 0.8, 1],
+              duration: 0.7 / max(speed, 0.25))
+    }
+
+    /// Wags the tail every 1.4 s while the cursor is shown and nothing else moves it.
+    func startIdleWag(animated: Bool, speed: Double) {
+        idleTimer?.invalidate()
+        guard animated else { return }
+        // A bounded, repeating cosmetic wag; it stops with the cursor (close) and never synchronizes anything.
+        idleTimer = Timer.scheduledTimer(withTimeInterval: 1.4, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.tail.animation(forKey: "swish") == nil else { return }
+                self.idleWag(speed: speed)
+            }
+        }
     }
 
     /// A drag: a trail from `start` to `end` and the pointer gliding along it.
@@ -933,6 +1047,8 @@ private final class SessionCursor {
     func close(animated: Bool, speed: Double) {
         hideTimer?.invalidate()
         hideTimer = nil
+        idleTimer?.invalidate()
+        idleTimer = nil
         chipTimer?.invalidate()
         chipTimer = nil
         // A cursor shown again later makes a new panel and sizes it to its screen.

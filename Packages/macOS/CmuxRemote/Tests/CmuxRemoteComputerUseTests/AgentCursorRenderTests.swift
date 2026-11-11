@@ -91,6 +91,26 @@ import UniformTypeIdentifiers
         }
     }
 
+    @Test func theTrailIsLongerForLongerMoves() throws {
+        let dir = ProcessInfo.processInfo.environment["CMUX_CURSOR_RENDER_DIR"].map(URL.init(fileURLWithPath:))
+        if let dir { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
+        let size = CGSize(width: 560, height: 260)
+        let short = try #require(AgentCursorOverlay.renderTrail(label: "Claude Code", size: size, scale: 2,
+                                                               from: CGPoint(x: 200, y: 120), to: CGPoint(x: 260, y: 140)))
+        let long = try #require(AgentCursorOverlay.renderTrail(label: "Claude Code", size: size, scale: 2,
+                                                              from: CGPoint(x: 40, y: 40), to: CGPoint(x: 480, y: 200)))
+        // A longer move leaves more trail behind it.
+        #expect(Self.bluishPixels(long) > Self.bluishPixels(short) + 200)
+        if let dir {
+            for (name, image) in [("22-trail-short", short), ("23-trail-long", long)] {
+                let url = dir.appendingPathComponent("\(name).png")
+                let dest = try #require(CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil))
+                CGImageDestinationAddImage(dest, image, nil)
+                #expect(CGImageDestinationFinalize(dest))
+            }
+        }
+    }
+
     @Test func theSpotlightAndTailRender() throws {
         let dir = ProcessInfo.processInfo.environment["CMUX_CURSOR_RENDER_DIR"].map(URL.init(fileURLWithPath:))
         if let dir { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
@@ -141,6 +161,16 @@ import UniformTypeIdentifiers
             ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
         }
         return data
+    }
+
+    /// Pixels with any visible blue tint (the faint trail included).
+    static func bluishPixels(_ image: CGImage) -> Int {
+        let p = pixels(image)
+        var n = 0
+        for i in stride(from: 0, to: p.count, by: 4) where p[i + 3] > 8 && Int(p[i + 2]) > Int(p[i]) + 12 {
+            n += 1
+        }
+        return n
     }
 
     static func bluePixels(_ image: CGImage) -> Int {
