@@ -49,6 +49,8 @@ import {
   noticeRowText,
   provenanceNotice,
   renderedNotice,
+  shownNoticeBody,
+  shownSender,
   type AgentNotice,
 } from "./agentNotice";
 
@@ -615,7 +617,14 @@ function promptOf(
     if (notice)
       return {
         kind: "message",
-        message: { name: notice.sender, notice, ...remote, ...harness, text: noticeBody(text), raw: text },
+        message: {
+          name: notice.sender,
+          notice,
+          ...remote,
+          ...harness,
+          text: shownNoticeBody(notice, noticeBody(text)),
+          raw: text,
+        },
       };
   }
   // A notice an older acpmux kept no provenance for, and tell-coordinator's page (agentNotice.ts
@@ -634,7 +643,14 @@ function promptOf(
     if (read && "notice" in read)
       return {
         kind: "message",
-        message: { name: read.notice.sender, notice: read.notice, ...remote, ...harness, text: read.body, raw: text },
+        message: {
+          name: read.notice.sender,
+          notice: read.notice,
+          ...remote,
+          ...harness,
+          text: shownNoticeBody(read.notice, read.body),
+          raw: text,
+        },
       };
     if (read)
       return { kind: "message", message: { name: read.sender, ...remote, ...harness, text: read.text, raw: text } };
@@ -954,17 +970,17 @@ function digestParts(text: string, messages: readonly unknown[]): DigestPart[] {
   const parts = [...rest.matchAll(DIGEST_PART)];
   if (!parts.length || parts[0]!.index !== 0) return [];
   return parts.map((part, index) => {
-    const sender = part[1]!.trim();
+    const sender = shownSender(part[1]!.trim());
     const end = parts[index + 1]?.index ?? rest.length;
     const body = withoutRelayEnvelope(rest.slice(part.index! + part[0].length, end)).trim();
     const sent = (messages[index] as { provenance?: Record<string, unknown> } | null)?.provenance;
     const notice = sent?.kind === "notice" || sent?.kind === "who_else" ? provenanceNotice(sent) : undefined;
-    if (notice) return { sender, notice, text: noticeBody(body) };
+    if (notice) return { sender, notice, text: shownNoticeBody(notice, noticeBody(body)) };
     // A notice an older acpmux kept no provenance for, or tell-coordinator's page, sent at a shell
     // (agentNotice.ts): read from its head, as a turn of its own reads it.
     const named = !sent || (sent.kind === "agent_message" && sent.from === NAMED_SENDER);
     const read = named ? (renderedNotice(body) ?? legacyNotice(body)) : undefined;
-    if (read && "notice" in read) return { sender, notice: read.notice, text: read.body };
+    if (read && "notice" in read) return { sender, notice: read.notice, text: shownNoticeBody(read.notice, read.body) };
     const signed = agentSigned(body, [sender]);
     return { sender: signed?.name ?? sender, text: signed?.text ?? body };
   });
