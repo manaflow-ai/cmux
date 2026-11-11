@@ -259,9 +259,19 @@ pub(super) fn judge_everywhere(
                 _ => Judgement::Kill(id),
             };
         }
-        let creating =
-            rows("creating").any(|row| field(row, "name").as_deref() == Some(machine_name));
-        if !creating && elsewhere.contains(&listed_scope) {
+        let creating = rows("creating").any(|row| {
+            field(row, "name").as_deref() == Some(machine_name)
+                && field(row, "status").as_deref() != Some("failed")
+        });
+        // A create of the Run's machine still on its way in the account the app is on now (a
+        // start that waits on the person's Start, then a switch): it can still make the machine,
+        // so the cleanup never gives up on it (#39022 review at 0b52021c, F1).
+        if creating {
+            return Judgement::Creating(format!(
+                "{machine_name} is still being created for {listed_scope}"
+            ));
+        }
+        if elsewhere.contains(&listed_scope) {
             return Judgement::Cleared(listed_scope);
         }
         return Judgement::Wait(format!("the app lists {listed_scope}'s machines, not {scope}'s"));
@@ -756,8 +766,21 @@ mod tests {
         let on_its_way = list(true, Some("u2"), None, json!([]), creating);
         assert!(matches!(
             judge_everywhere(&on_its_way, NAME, None, U1_T1, &elsewhere),
-            Judgement::Wait(_)
+            Judgement::Creating(_)
         ));
+        // #39022 review at 0b52021c, F1: after a switch to an account the start never saw, a
+        // create of the Run's name there (a late Start) holds the cleanup too, never the
+        // give-up clock.
+        assert!(matches!(
+            judge_everywhere(&on_its_way, NAME, None, U1_T1, &[]),
+            Judgement::Creating(_)
+        ));
+        let failed = json!([{ "creation_id": "c1", "name": NAME, "status": "failed" }]);
+        let failed = list(true, Some("u2"), None, json!([]), failed);
+        assert_eq!(
+            judge_everywhere(&failed, NAME, None, U1_T1, &elsewhere),
+            Judgement::Cleared("user:u2|personal".into())
+        );
         // A start-chat refusal names that account.
         let refusal = Err(json!({ "code": "cloud.account_changed", "message": "x",
                                   "details": { "account": "user:u1|team:t1", "app_account": "user:u2|personal",
