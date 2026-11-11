@@ -1,0 +1,87 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42926918343",
+  "recorded_at": "2026-11-11T00:00:21Z",
+  "reason": "cmux-tui ed6ab5728d8c changes the image's cmux-tui (pinned 26b68e438ff9)",
+  "dry_run": false,
+  "cmux_tui": "ed6ab5728d8c96634877a4a5b5828dcdd8b73cd7",
+  "fixes": [
+    {
+      "sha": "ed6ab5728d8c96634877a4a5b5828dcdd8b73cd7",
+      "mergedAt": "2026-11-10T15:36:31-08:00",
+      "subject": "ghostty-vt: a replay of the alternate screen keeps the primary screen under it"
+    },
+    {
+      "sha": "e4d61472047a32dcc78ff8b2fb5626e790a6084f",
+      "mergedAt": "2026-11-10T15:36:29-08:00",
+      "subject": "ghostty-vt: test that a replay of the alternate screen keeps the primary screen"
+    },
+    {
+      "sha": "22db21193dd50a434369ed2abd86b306642e735a",
+      "mergedAt": "2026-11-10T15:36:27-08:00",
+      "subject": "acpmux store: hold as many chat logs open as the open-file limit allows, not 64"
+    },
+    {
+      "sha": "eb0bedb54b88b95906b2d97afe1be47ea02318e6",
+      "mergedAt": "2026-11-10T15:36:26-08:00",
+      "subject": "acpmux ls_bench: read the daemon's stdout to the end, and give each session its log folder"
+    },
+    {
+      "sha": "eb4f3eb1d94c50aca99ad51f9bb87661ccb93636",
+      "mergedAt": "2026-11-10T15:36:25-08:00",
+      "subject": "cmux-tui-core: registry connections keep their hot statements compiled"
+    },
+    {
+      "sha": "d22b5267708cea5707534f04e794ea93d3524b76",
+      "mergedAt": "2026-11-10T15:36:23-08:00",
+      "subject": "cmux-tui: bench-restart.py times a daemon update handoff to first answer and to every terminal adopted"
+    },
+    {
+      "sha": "07b6a8f06c470e1d290050bd559f0f29020801af",
+      "mergedAt": "2026-11-10T15:36:21-08:00",
+      "subject": "Registry: keep savepoint journals in memory; no temp file per commit"
+    },
+    {
+      "sha": "054d81fbbdcf5a3cb86db9bcc22196563beb4116",
+      "mergedAt": "2026-11-10T15:36:20-08:00",
+      "subject": "bench-daemon-latency: time CLI calls with a blocking wait, not subprocess.run's poll"
+    },
+    {
+      "sha": "506e6a9721528d3e22992c741b18896244332e94",
+      "mergedAt": "2026-11-10T15:36:19-08:00",
+      "subject": "cmux-tui: a registry quarantine moves the session's terminal output and the swap backup with it"
+    },
+    {
+      "sha": "de1f89ab3640a25116edcedc0cb7b5ee03ff408a",
+      "mergedAt": "2026-11-10T15:36:17-08:00",
+      "subject": "cmux-tui: tests: a registry quarantine keeps the session's output and never serves a stale swap backup"
+    },
+    {
+      "sha": "2a099f3feaed40b38942d27628332238bb59a09c",
+      "mergedAt": "2026-11-10T15:36:16-08:00",
+      "subject": "acpmux: a peer row that is not an object is skipped, never a daemon panic"
+    },
+    {
+      "sha": "ad4b77e29e11803384b74bc4322bb9f3a2af38d5",
+      "mergedAt": "2026-11-10T15:36:14-08:00",
+      "subject": "acpmux: test that a peer row that is not an object does not panic the daemon"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T00:00:21Z",
+    "snapshot_id": "sh-da8a8f7cb585459f8a4a77c16d99b47c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42926918343): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "79bcb67e1480e338e167e5d400588f4ac3fe016e",
+    "image": "cloud-native-auto-ed6ab572-42926918343-1",
+    "revision": "ci-42926918343-1",
+    "at": "2026-11-11T00:00:21Z"
+  },
+  "rolled_back": false
+}
