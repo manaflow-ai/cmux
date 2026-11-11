@@ -714,6 +714,33 @@ EXPANSIONS = (
     ("mktemp ${TMPDIR:-/tmp/$USER}/x.XXXXXX", False),
     ("mktemp ${TMPDIR:-$(mktemp -d /tmp/$USER.XXXXXX)}/x.XXXXXX", False),
 )
+# Arrays, case, [[ ]] and (( )) are data, never argv, but every substitution inside them is a command: each form x
+# each substitution that form reads x an unsafe write, a safe template, a template and then a write, and a template
+# with an unsafe redirection.
+DATA_SUBS = {
+    "array": (("$(", '"$(', "`", "<(", ">("), ("a=({})", "a=(x {} y)", "a+=({})", "declare -a a=({})",
+                                             "local -a a=({})", "a=(\n  {}\n)", "f() { local -a a=({}); }")),
+    "case subject": (("$(", '"$(', "`"), ("case {} in x) : ;; esac",)),
+    "case pattern": (("$(", '"$(', "`"), ("case $v in {}) : ;; esac", "case $v in (x|{}) : ;; esac")),
+    "[[ ]]": (("$(", '"$(', "`"), ("[[ -n {} ]]", "[[ $v == {} ]]", "[[ $v =~ {} ]]", "[[ -n {} ]] && :",
+                                   "if [[ -n {} ]]; then :; fi")),
+    "(( ))": (("$(", "`"), ("(( {} ))", "(( n = {} + 1 ))", "x=$(( {} ))",
+                            "for (( i = {}; i < 3; i++ )); do :; done", "while (( {} )); do :; done")),
+}
+DATA_INNERS = (("printf x > /tmp/o.$$", True), ("mktemp /tmp/$USER.XXXXXX", False),
+               ("mktemp /tmp/$USER.XXXXXX; printf x > /tmp/o.$$", True), ("mktemp /tmp/$USER.XXXXXX > /tmp/o.$$", True))
+
+
+def _data_subs() -> list[tuple[str, bool]]:
+    out = []
+    for forms, shapes in DATA_SUBS.values():
+        for form in forms:
+            for inner, unsafe in DATA_INNERS:
+                sub = _wrap(inner, form) if form in ("`", '"$(') else form + inner + ")"
+                out += [(shape.replace("{}", sub), unsafe) for shape in shapes]
+    return out
+
+
 # Text the parser must refuse, so it exempts nothing and its name is flagged: not shell bash reads (NOT_SHELL), or
 # nested past MAX_DEPTH. (MAX_DEPTH levels of the same parse, and stay safe.)
 NOT_SHELL = ("mktemp /tmp/a.$$.XXXXXX)", "(mktemp /tmp/a.$$.XXXXXX", 'mktemp "/tmp/a.$$.XXXXXX',
@@ -739,8 +766,8 @@ def _wrap(inner: str, form: str) -> str:
 def corpus() -> list[tuple[str, bool]]:
     """(shell, whether it writes a guessable shared-temp name): nesting depth 0-3 x substitution form x the
     template's quoting x a plain or nested template x where the unsafe write sits (none: the line is safe), then
-    COMMENTS, UNPARSED, NOT_COMMANDS and EXPANSIONS, MAX_DEPTH levels deep, and the MISSES. Whole files are in
-    FILES."""
+    COMMENTS, UNPARSED, NOT_COMMANDS, EXPANSIONS and DATA_SUBS, MAX_DEPTH levels deep, and the MISSES. Whole files
+    are in FILES."""
     out: dict[str, bool] = {}
     templates = {"bare": "/tmp/$USER.XXXXXX", "double": '"${TMPDIR:-/tmp}/$USER.XXXXXX"',
                  "single": "'/tmp/$USER.XXXXXX'"}
@@ -777,7 +804,7 @@ def corpus() -> list[tuple[str, bool]]:
         out[line] = unsafe
     for line in UNPARSED:
         out[line] = True
-    for line, unsafe in NOT_COMMANDS + EXPANSIONS:
+    for line, unsafe in NOT_COMMANDS + EXPANSIONS + tuple(_data_subs()):
         out[line] = unsafe
     out[_deep(MAX_DEPTH)] = False
     out[_deep(MAX_DEPTH, "; echo > /tmp/out.$$")] = True
