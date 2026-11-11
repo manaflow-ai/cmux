@@ -68,6 +68,7 @@ mod seed_pull;
 pub(super) use seed_pull::{
     SeedBase, SeedPulled, export_to, failure_code as seed_pull_failure_code, is_sha, seed_pull,
 };
+pub(crate) mod copy_grant_cli;
 pub(crate) mod size_cap;
 pub(crate) mod skips;
 mod store;
@@ -87,7 +88,8 @@ use sha2::{Digest as _, Sha256};
 use local::{LocalFile, Source};
 use remote::{Remote, RemoteEntry};
 
-const USAGE: &str = "usage: cmux link sync push|pull --socket PATH [--store PLATFORM|default] [--allow-large] LOCAL_FOLDER REMOTE_FOLDER\n       (--store: through the content-addressed store, the cmux credential on stdin;\n        --allow-large: a push past 20 GB or 500,000 files, refused without it, for a day)\n       cmux link sync relay --from-socket SOURCE_LINK --socket TARGET_LINK SOURCE_FOLDER TARGET_FOLDER\n       cmux link sync history|undo LOCAL_FOLDER REMOTE_FOLDER\n       cmux link sync restore LOCAL_FOLDER REMOTE_FOLDER SNAPSHOT";
+const USAGE: &str = "usage: cmux link sync push|pull --socket PATH [--store PLATFORM|default] [--allow-large] LOCAL_FOLDER REMOTE_FOLDER\n       (--store: through the content-addressed store, the cmux credential on stdin;\n        --allow-large: counts LOCAL_FOLDER and lets a push of it past 20 GB or 500,000 files send that much,
+        plus 1 GB or 10% and 10,000 files or 10%, for a day)\n       cmux link sync relay --from-socket SOURCE_LINK --socket TARGET_LINK SOURCE_FOLDER TARGET_FOLDER\n       cmux link sync history|undo LOCAL_FOLDER REMOTE_FOLDER\n       cmux link sync restore LOCAL_FOLDER REMOTE_FOLDER SNAPSHOT";
 
 /// What the machine holds of earlier pushes; this Mac keeps a copy
 /// ([`base`]), which is what a pull trusts.
@@ -450,13 +452,15 @@ pub(super) fn run(args: &[String]) -> i32 {
         eprintln!("{USAGE}");
         return 64;
     };
-    if allow_large
-        && action == Action::Push
-        && let Err(error) = size_cap::allow(&local)
-    {
-        let error = format!("{error:#}");
-        println!("{}", json!({ "ok": false, "error": error, "error_code": "sync_failed" }));
-        return 1;
+    if allow_large && action == Action::Push {
+        match size_cap::allow(&local) {
+            Ok(grant) => eprintln!("cmux: --allow-large: {}", grant.summary()),
+            Err(error) => {
+                let error = format!("{error:#}");
+                println!("{}", json!({ "ok": false, "error": error, "error_code": "sync_failed" }));
+                return 1;
+            }
+        }
     }
     if let Some(store) = store
         && let Err(error) = store_from_stdin(&store, &mut std::io::stdin().lock())
@@ -1015,9 +1019,8 @@ fn push_inner(
     let local =
         std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
     let rules = if files_only { local::Rules::Share } else { local::Rules::Copy };
-    // A chat's copy stops at its limits before it sends anything, unless `--allow-large` said so.
-    let cap = (rules == local::Rules::Copy && !size_cap::allowed(&local))
-        .then(|| size_cap::Cap::of(&local));
+    // A chat's copy stops at its limits before it sends anything: a grant's, when one is fresh.
+    let cap = (rules == local::Rules::Copy).then(|| size_cap::Cap::of(&local));
     let mut set = local::collect(&local, rules, cap)?;
     let before = set.files.len();
     let in_git = set.git;

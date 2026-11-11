@@ -1,5 +1,6 @@
 //! A copy past its limits is refused fast, before anything is sent, with `copy.too_large`; one
-//! under them is unchanged; `--allow-large` sends it whole.
+//! under them is unchanged; a grant (`--allow-large`, "Copy anyway") lets its folder send what was
+//! counted, plus a margin, for a day.
 
 use std::path::Path;
 use std::time::Instant;
@@ -186,11 +187,11 @@ fn a_git_folder_listing_stops_at_the_first_file_past_the_limit() {
     assert_eq!(large.git_bytes, 0, "refused while listing the working files, before .git/");
 }
 
-/// `--allow-large` records the folder for a day; a copy of it then counts nothing.
+/// `--allow-large` grants one folder, at its counted size: another folder is still counted.
 #[test]
 fn allow_large_lets_one_folder_through() {
     let state = tempfile::tempdir().unwrap();
-    super::TEST_STATE.with(|dir| *dir.borrow_mut() = Some(state.path().to_path_buf()));
+    grants_in(state.path());
     let root = tempfile::tempdir().unwrap();
     let top = std::fs::canonicalize(root.path()).unwrap();
     for index in 0..20 {
@@ -198,15 +199,107 @@ fn allow_large_lets_one_folder_through() {
     }
     let other = tempfile::tempdir().unwrap();
     let other = std::fs::canonicalize(other.path()).unwrap();
-    write(&other, "f.txt", 1);
-    write(&other, "g.txt", 1);
+    for index in 0..20 {
+        write(&other, &format!("f{index}.txt"), 1);
+    }
     with_limits(u64::MAX, 5, || {
         assert!(super::check_plain(&top).is_err());
-        super::allow(&top).unwrap();
-        assert!(super::allowed(&top) && !super::allowed(&other));
+        let grant = super::allow(&top).unwrap();
+        assert_eq!((grant.folder.as_path(), grant.bytes, grant.files), (top.as_path(), 20, 20));
         assert_eq!(super::check_plain(&top), Ok(()));
-        assert_eq!(super::check_plain(&other), Ok(()));
+        assert!(super::check_plain(&other).is_err(), "a grant is for its own folder only");
     });
+}
+
+/// The copy itself (not only the plain-folder check) runs with the grant's limits: a granted
+/// folder lists whole, and past the margin the copy stops with `copy.too_large`.
+#[test]
+fn the_copy_runs_with_the_grants_limits() {
+    let state = tempfile::tempdir().unwrap();
+    grants_in(state.path());
+    let root = tempfile::tempdir().unwrap();
+    let top = std::fs::canonicalize(root.path()).unwrap();
+    for index in 0..30 {
+        write(&top, &format!("f{index}.txt"), 1);
+    }
+    with_limits(10, 5, || {
+        refused(&top);
+        super::record(&top, 30, 30).unwrap();
+        let set = collect(&top, Rules::Copy, Some(Cap::of(&top))).unwrap();
+        assert_eq!(set.files.len(), 30);
+        let past = std::fs::File::create(top.join("past.img")).unwrap();
+        past.set_len(2 * 1024 * 1024 * 1024).unwrap();
+        let large = refused(&top);
+        assert_eq!(large.max_bytes, 30 + 1024 * 1024 * 1024, "{large:?}");
+    });
+}
+
+/// "Copy anyway" counts to the end, never stopping at a limit, and reports as it goes.
+#[test]
+fn measure_counts_the_whole_folder_and_reports_progress() {
+    let root = tempfile::tempdir().unwrap();
+    let top = std::fs::canonicalize(root.path()).unwrap();
+    for index in 0..4_100 {
+        write(&top, &format!("d{}/f{index}.txt", index % 11), 2);
+    }
+    write(&top, "node_modules/p/index.js", 1000);
+    let reports = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let heard = reports.clone();
+    let progress = super::Progress(std::sync::Arc::new(move |bytes, files| {
+        heard.lock().unwrap().push((bytes, files));
+    }));
+    let measured = with_limits(1, 1, || super::measure(&top, Some(progress))).unwrap();
+    assert_eq!((measured.bytes, measured.files), (8_200, 4_100), "to the end, by the copy's rules");
+    assert_eq!(*reports.lock().unwrap(), vec![(4_000, 2_000), (8_000, 4_000)]);
+}
+
+/// A grant is written whole (a new file renamed over the old), readable by this user only, and
+/// leaves nothing beside it; a second grant replaces the first.
+#[test]
+fn a_grant_is_written_whole_and_private() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let state = tempfile::tempdir().unwrap();
+    grants_in(state.path());
+    let root = tempfile::tempdir().unwrap();
+    let top = std::fs::canonicalize(root.path()).unwrap();
+    super::record(&top, 5, 1).unwrap();
+    let grant = super::record(&top, 7, 2).unwrap();
+    let path = super::grant_path(&top).unwrap();
+    let names: Vec<_> = std::fs::read_dir(path.parent().unwrap())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(names, vec![path.file_name().unwrap().to_owned()], "no temporary file left");
+    assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+    assert_eq!(super::granted(&top), Some(grant));
+}
+
+/// A grant lasts a day: one recorded 25 hours ago, or dated in the future, counts as none.
+#[test]
+fn a_grant_from_yesterday_or_the_future_is_no_grant() {
+    let state = tempfile::tempdir().unwrap();
+    grants_in(state.path());
+    let root = tempfile::tempdir().unwrap();
+    let top = std::fs::canonicalize(root.path()).unwrap();
+    let mut grant = super::record(&top, 5, 1).unwrap();
+    for granted_at in [grant.granted_at - 25 * 60 * 60, grant.granted_at + 60 * 60] {
+        grant.granted_at = granted_at;
+        let path = super::grant_path(&top).unwrap();
+        std::fs::write(path, serde_json::to_vec(&grant).unwrap()).unwrap();
+        assert_eq!(super::granted(&top), None, "granted at {granted_at}");
+    }
+}
+
+/// The margin is the larger of 10% and 1 GiB (bytes), and of 10% and 10,000 (files).
+#[test]
+fn a_grants_margin_is_ten_percent_or_the_floor() {
+    let grant = |bytes, files| super::Grant { folder: "/f".into(), bytes, files, granted_at: 0 };
+    const GIB: u64 = 1024 * 1024 * 1024;
+    assert_eq!(grant(5 * GIB, 1_000).max_bytes(), 6 * GIB);
+    assert_eq!(grant(100 * GIB, 1_000).max_bytes(), 110 * GIB);
+    assert_eq!(grant(0, 1_000).max_files(), 11_000);
+    assert_eq!(grant(0, 1_000_000).max_files(), 1_100_000);
+    assert_eq!(grant(u64::MAX, u64::MAX).max_bytes(), u64::MAX, "saturates");
 }
 
 #[test]
