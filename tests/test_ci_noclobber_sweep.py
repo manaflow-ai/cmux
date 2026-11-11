@@ -54,6 +54,8 @@ APP_NAMES = {
 
 # (path, a piece of the line): why the grep's hit is safe
 ALLOWED = {
+    ("scripts/cmux-next/push-from-host.sh", '"mktemp -d /tmp/$NAME-XXXXXX"'):
+        "a mktemp template in the command string ssh runs on HOST: mktemp makes it there, and the line after checks it",
     ("scripts/check-test-determinism.py", "lib/git-fixture.sh took ${TMPDIR:-/tmp}/cmux-git-fixture-"):
         "a docstring naming the bad shape predictable-tmp-path catches",
     ("scripts/check-test-determinism.py", "'_global=\"${TMPDIR:-/tmp}/cmux-git-fixture-$(id -u)-v1.gitconfig\""):
@@ -113,16 +115,164 @@ def code(line: str) -> str:
     return re.sub(r"(^|\s)#.*$", "", line)
 
 
-# The template word of a mktemp call (the word with XXXXXX in it, quoted or bare): mktemp makes that name exclusively,
-# so only that word is left out of the scan. A mktemp on a line exempts nothing else on it (review of
-# manaflow-ai/cmux-platform#1262, F2: `d=$(mktemp -d ".../safe.XXXXXX"); printf secret > /tmp/out.$$` passed whole).
-MKTEMP_TEMPLATE = re.compile(r"""(\bmktemp\b[^;|&\n]*?)(?:"[^"\n]*XXXXXX[^"\n]*"|'[^'\n]*XXXXXX[^'\n]*'"""
-                             r"""|[^\s;|&()"']*XXXXXX[^\s;|&()"']*)""")
+# The template word of each mktemp call, found by a small shell tokenizer, never a regex: shell parsed by regex let
+# through a guessable name beside a template twice (review of manaflow-ai/cmux-platform#1262, F2:
+# `d=$(mktemp -d ".../safe.XXXXXX"); printf secret > /tmp/out.$$`; of #1265, F1: `d=$(mktemp -d) > /tmp/out.$$.XXXXXX`).
+# The tokenizer tracks quotes, escapes, $( ), backticks, ${ }, $(( )), subshells, separators and redirections. A word
+# containing XXXXXX is left out of the scan only when it is an argument of a command whose name is mktemp, not a
+# redirection's target. A line it cannot parse (an unclosed quote or substitution) exempts nothing.
+class Unparsed(Exception):
+    """The line is not shell this tokenizer can read through."""
+
+
+ASSIGNMENT = re.compile(r"[A-Za-z_]\w*\+?=")
+REDIRECT = re.compile(r"&>>|&>|<<<|<<-|<<|<>|<&|<|>>|>&|>\||>")
+WORD_END = " \t\n;&|()<>"
+
+
+def shell_commands(line: str) -> list[list[tuple[int, int, bool]]]:
+    """Every simple command in LINE, those inside $( ) and backticks too: its words as (start, end, is a redirection
+    target) spans of LINE."""
+    out: list[list[tuple[int, int, bool]]] = []
+    if _commands(line, 0, None, out) != len(line):
+        raise Unparsed(line)
+    return out
+
+
+def _commands(s: str, i: int, close: str | None, out: list) -> int:
+    """Commands from s[i:] up to CLOSE (")" or "`", or None for the end); the index after it."""
+    cmd: list[tuple[int, int, bool]] = []
+    target, depth, n = False, 0, len(s)
+
+    def end_command() -> None:
+        nonlocal cmd
+        if target:
+            raise Unparsed(s)
+        if cmd:
+            out.append(cmd)
+        cmd = []
+
+    while True:
+        while i < n and s[i] in " \t":
+            i += 1
+        if i >= n:
+            if close is not None:
+                raise Unparsed(s)
+            end_command()
+            return i
+        c = s[i]
+        if c == close and (close == "`" or depth == 0):
+            end_command()
+            return i + 1
+        m = REDIRECT.match(s, i)
+        if m:
+            if target:
+                raise Unparsed(s)
+            target, i = True, m.end()
+            continue
+        if c in ";&|\n":
+            end_command()
+            i += 2 if s.startswith(("&&", "||", ";;", "|&"), i) else 1
+            continue
+        if c == "(":
+            end_command()
+            depth, i = depth + 1, i + 1
+            continue
+        if c == ")":
+            end_command()
+            depth, i = max(0, depth - 1), i + 1
+            continue
+        if c == "#":  # a comment to the end
+            if close is not None:
+                raise Unparsed(s)
+            end_command()
+            return n
+        j = _word(s, i, close, out)
+        if not target and s[i:j].isdigit() and j < n and s[j] in "<>":
+            i = j  # a file descriptor's number: the redirection follows
+            continue
+        cmd.append((i, j, target))
+        target, i = False, j
+
+
+def _word(s: str, i: int, close: str | None, out: list) -> int:
+    n = len(s)
+    while i < n and s[i] not in WORD_END and not (close == "`" and s[i] == "`"):
+        i = _piece(s, i, out)
+    return i
+
+
+def _piece(s: str, i: int, out: list) -> int:
+    """The index after the quoted string, substitution, expansion, escape or character at s[i]."""
+    c = s[i]
+    if c == "\\":
+        return i + 2
+    if c == "'":
+        j = s.find("'", i + 1)
+        if j < 0:
+            raise Unparsed(s)
+        return j + 1
+    if c == '"':
+        i += 1
+        while i < len(s) and s[i] != '"':
+            i = _piece(s, i, out) if s[i] in "\\$`" else i + 1
+        if i >= len(s):
+            raise Unparsed(s)
+        return i + 1
+    if s.startswith("$((", i):
+        depth, i = 0, i + 3
+        while i < len(s):
+            if s[i] == "(":
+                depth += 1
+            elif s[i] == ")":
+                if depth == 0:
+                    if s.startswith("))", i):
+                        return i + 2
+                    raise Unparsed(s)
+                depth -= 1
+            i += 1
+        raise Unparsed(s)
+    if s.startswith("$(", i):
+        return _commands(s, i + 2, ")", out)
+    if s.startswith("${", i):
+        i += 2
+        while i < len(s) and s[i] != "}":
+            i = _piece(s, i, out)
+        if i >= len(s):
+            raise Unparsed(s)
+        return i + 1
+    if c == "`":
+        return _commands(s, i + 1, "`", out)
+    return i + 1
+
+
+def mktemp_templates(line: str) -> list[tuple[int, int]]:
+    """The spans of LINE that are a mktemp call's template word; none when LINE does not parse."""
+    try:
+        commands = shell_commands(line)
+    except Unparsed:
+        return []
+    spans = []
+    for cmd in commands:
+        words = [(a, b) for a, b, target in cmd if not target]
+        k = 0
+        while k < len(words) and ASSIGNMENT.match(line, words[k][0]):
+            k += 1
+        if k < len(words) and line[words[k][0]:words[k][1]].rsplit("/", 1)[-1] == "mktemp":
+            spans += [(a, b) for a, b in words[k + 1:] if "XXXXXX" in line[a:b]]
+    return spans
+
+
+def without_templates(line: str) -> str:
+    """LINE with each mktemp template word replaced by TEMPLATE."""
+    for a, b in sorted(set(mktemp_templates(line)), reverse=True):
+        line = line[:a] + "TEMPLATE" + line[b:]
+    return line
 
 
 def shared_tmp(line: str) -> list[str]:
     """The guessable shared-temp names in LINE, a mktemp template word left out."""
-    return [m.group(0) for m in SHARED_TMP.finditer(MKTEMP_TEMPLATE.sub(r"\1TEMPLATE", line))]
+    return [m.group(0) for m in SHARED_TMP.finditer(without_templates(line))]
 
 
 def flagged(line: str) -> bool:
@@ -192,12 +342,19 @@ class NoclobberSweep(unittest.TestCase):
             self.assertTrue(SHARED_TMP.search(code(line)), line)
         for line in ('# set -C is not exclusive', 'd=$(mktemp -d "${TMPDIR:-/tmp}/x.XXXXXX")',
                      'cache="$HOME/.cache/x"', 'set -eu', 'p=/tmp/fixed-name', 'x="$tmp/a/$b"',
-                     "t=$(mktemp -p /tmp ${TMPDIR:-/tmp}/run.XXXXXX)"):
+                     "t=$(mktemp -p /tmp ${TMPDIR:-/tmp}/run.XXXXXX)",
+                     'tmp="$(mktemp -d "${TMPDIR:-/tmp}/cmux-join.XXXXXX")"', "t=`mktemp /tmp/$USER.XXXXXX`",
+                     'f=$(TMPDIR=/x mktemp "/tmp/a.$$.XXXXXX") || exit 1',
+                     '( cd x && d="$(mktemp -d /tmp/${name}.XXXXXX)" )'):
             self.assertFalse(flagged(code(line)), line)
 
     def test_a_mktemp_template_exempts_only_itself(self):
-        """Review of manaflow-ai/cmux-platform#1262, F2: a line with XXXXXX was exempt whole."""
+        """Review of manaflow-ai/cmux-platform#1262, F2: a line with XXXXXX was exempt whole; of #1265, F1: a
+        template-shaped redirection target beside a bare mktemp was exempt too (shell parsed by regex)."""
         for line in ('d=$(mktemp -d ".../safe.XXXXXX"); printf secret > /tmp/out.$$',
+                     "d=$(mktemp -d) > /tmp/out.$$.XXXXXX", "mktemp /tmp/a.XXXXXX > /tmp/b.$$.XXXXXX",
+                     "t=`mktemp -d`; cp x /tmp/y.$$.XXXXXX", "x=$(echo mktemp /tmp/a.$$.XXXXXX)",
+                     'd=$(mktemp -d "/tmp/x.$$.XXXXXX',  # unclosed: a line it cannot parse exempts nothing
                      'd=$(mktemp -d "${TMPDIR:-/tmp}/x.XXXXXX") && cp a /tmp/run.$$',
                      "t=$(mktemp /tmp/a.XXXXXX); echo > ${TMPDIR:-/tmp}/b.$(id -u)"):
             self.assertTrue(flagged(code(line)), line)
