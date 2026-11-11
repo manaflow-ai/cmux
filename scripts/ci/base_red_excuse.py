@@ -3099,9 +3099,38 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
     return [dict(job, status_contexts=contexts[key]) if key in contexts else job for key, job in jobs.items()]
 
 
+# A dispatch on the base names the commit it tests in its title (tested_sha: `cmux-next tip daemon suite · <sha>`,
+# from the same_tree_sha input) while its head_sha is the branch tip it was dispatched on. Anyone who can dispatch may
+# name any commit there, a pull request's head or a lane branch's included, so such a run is base evidence only when
+# that commit is on the base's history (GitHub's compare: the base is ahead of it or identical). Until 2026-11-11 a
+# feat-cmux-next dispatch that tested a lane head was read as the base's verdict, and its red excused the same red
+# on that lane's pull request. A run whose commit cannot be shown on the base is passed over, as if it had no verdict.
+ON_BASE = ("ahead", "identical")
+
+
+def tested_on_base(repo: str, base: str, run: dict, github, cache: dict) -> bool:
+    """Whether base run RUN tested a commit of BASE's history: a push run's own head, or a commit the base is ahead
+    of or at (one compare per commit, kept in CACHE). Unreadable is False."""
+    tested = tested_sha(run)
+    if run.get("event") == "push" and tested == str(run.get("head_sha") or ""):
+        return True
+    if not re.fullmatch(r"[0-9a-f]{40}", tested):
+        return False
+    key = ("on-base", base, tested)
+    if key not in cache:
+        try:
+            status = github.json(f"repos/{repo}/compare/{tested}...{base}?per_page=1").get("status")
+        except (Refused, AttributeError):
+            status = None
+        cache[key] = status in ON_BASE
+    return cache[key]
+
+
 def tip_suite_verdicts(repo: str, base: str, workflow, name: str, github, base_jobs: dict[int, list[dict] | None],
-                       suites: SuiteChecks | None = None):
-    """(run, job) for each completed suite run of BASE with a verdict for job NAME, newest first, read lazily."""
+                       suites: SuiteChecks | None = None, ancestry: dict | None = None):
+    """(run, job) for each completed suite run of BASE with a verdict for job NAME, newest first, read lazily; a run
+    that tested no commit of BASE (tested_on_base) is none."""
+    ancestry = {} if ancestry is None else ancestry
     # Every status, so a first run's same-tree run is seen while it still queues or runs (TREE_JOBS).
     listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}&event=workflow_dispatch"
                          f"&per_page={BASE_RUNS_PAGE}")
@@ -3119,7 +3148,8 @@ def tip_suite_verdicts(repo: str, base: str, workflow, name: str, github, base_j
                 continue
             base_jobs[run["id"]] = base_run_jobs(repo, run, github)
         found = next((found for found in base_jobs[run["id"]] if found.get("name") == name), None)
-        if found is not None and found.get("conclusion") in VERDICTS and not refused_at_setup(found):
+        if (found is not None and found.get("conclusion") in VERDICTS and not refused_at_setup(found)
+                and tested_on_base(repo, base, run, github, ancestry)):
             yield run, found
 
 
@@ -3128,10 +3158,12 @@ def base_verdicts(repo: str, base: str, workflow, name: str, github, base_runs: 
     """(run, job) for each completed BASE run with a verdict for job NAME, newest first, read lazily: the window of
     BASE_RUNS_PAGE runs (at most BASE_JOB_READS job lists per workflow), then, for a SUITE_JOBS job, the base's
     dispatches (tip_suite_verdicts). A base push run's Mac job is often cancelled by the next push, or refused by a
-    mini, so a run with no verdict for the job is passed over. BASE_JOBS[run] is None for a run counted toward
+    mini, so a run with no verdict for the job is passed over, and so is one that tested no commit of BASE
+    (tested_on_base). BASE_JOBS[run] is None for a run counted toward
     BASE_JOB_READS whose job list was not read, since its check suite showed no verdict for a job read so far."""
     seen: set[int] = set()
     suites = suites or SuiteChecks(github)
+    ancestry: dict = {}
     runs = base_runs[workflow]
     for index, candidate_run in enumerate(runs):
         if never_carries(candidate_run, name) or cancelled_tier_without_verdict(suites, runs, index, name):
@@ -3146,11 +3178,13 @@ def base_verdicts(repo: str, base: str, workflow, name: str, github, base_runs: 
                 continue
             base_jobs[candidate_run["id"]] = base_run_jobs(repo, candidate_run, github)
         found = next((found for found in base_jobs[candidate_run["id"]] if found.get("name") == name), None)
-        if found is not None and found.get("conclusion") in VERDICTS and not refused_at_setup(found):
+        if (found is not None and found.get("conclusion") in VERDICTS and not refused_at_setup(found)
+                and tested_on_base(repo, base, candidate_run, github, ancestry)):
+            # A dispatch that tested a commit off the base (a lane's head) is no base verdict: passed over.
             seen.add(candidate_run["id"])
             yield candidate_run, found
     if name in SUITE_JOBS:
-        for run, found in tip_suite_verdicts(repo, base, workflow, name, github, base_jobs, suites):
+        for run, found in tip_suite_verdicts(repo, base, workflow, name, github, base_jobs, suites, ancestry):
             if run["id"] not in seen:
                 seen.add(run["id"])
                 yield run, found

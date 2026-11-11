@@ -119,6 +119,11 @@ class FakeGitHub:
 
     def json(self, route, *, paginate=False):
         self.routes.append(route)
+        if "/compare/" in route and route.split("?", 1)[0].endswith("...feat-cmux-next"):
+            # Whether a base run's tested commit is on the base (tested_on_base): every commit a test names is,
+            # but those in OFF_BASE (a lane's head).
+            tested = route.split("/compare/", 1)[1].split("...", 1)[0]
+            return {"status": "diverged" if tested in self.off_base else "ahead"}
         if f"/compare/feat-cmux-next...{HEAD}" in route:
             # The base runs here test the merge-base itself unless a test says otherwise (before_merge_base).
             return {"merge_base_commit": {"sha": BASE_SHA}, "files": []}
@@ -169,6 +174,7 @@ class FakeGitHub:
         raise AssertionError(route)
 
     workflows: dict[int, int] = {}
+    off_base: frozenset = frozenset()
 
     def log(self, repo, job):
         return frame_legacy(job, self.logs[job["id"]])
@@ -9934,18 +9940,8 @@ class DerivedStatusByParts(StepFixture, unittest.TestCase):
 STEP_MAPPING_FIXTURES = ROOT / "tests/fixtures/base_red_excuse_step_mapping"
 
 
-class WorkflowHeadersPlaceRealLogs(unittest.TestCase):
-    """2026-11-11: two reds that fail as their base did were refused because step_owners could not place their logs
-    one header per step, and none of their steps is named "Run ...", so their workflow was never read:
-    - cmux#41001's "cmux-next daemon tests" (PR run 42973557339, job 130369194352; feat-cmux-next run 42976173821, job
-      130375759923): two composite actions (setup-cmux-tui-rust, cache-restore) print 7 inner `Run` lines, 38 for 31
-      steps, and many steps share a second. Compared whole instead, the base's extra flake
-      (aOneWorkspaceSnapshot...) and the head's extra failed step each broke identity, so nothing was told apart.
-    - hq#9191's "Skill policy tests" (run 42981858520, job 130394322965; main run 42981664549, job 130393775750): one
-      header per step, but five steps in 07:47:29, so no header was in its step's times alone.
-    With the workflow's headers (StepNames.headers: `Run <uses>`, `Run <script's first line>`), _aligned_starts places
-    both (the trimmed logs below keep every header, with each failure line and stamp as served). The fixtures are
-    those jobs' steps and logs, trimmed to the step headers, groups and failure lines, and each workflow job's steps."""
+class RealLogFixtures:
+    """cmux#41001's and hq#9191's jobs as fixtures (WorkflowHeadersPlaceRealLogs), served by a fake with each workflow."""
 
     PATHS = {"cmux-41001": ".github/workflows/cmux-next.yml", "hq-9191": ".github/workflows/skills-tests.yml"}
     FLAKE = ("✘ Test aOneWorkspaceSnapshotCostsTheMainThreadTheSameAt3000WorkspacesAsAt100() failed after 213.793 "
@@ -9998,6 +9994,20 @@ class WorkflowHeadersPlaceRealLogs(unittest.TestCase):
 
     def judge(self, github):
         return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+
+
+class WorkflowHeadersPlaceRealLogs(RealLogFixtures, unittest.TestCase):
+    """2026-11-11: two reds that fail as their base did were refused because step_owners could not place their logs
+    one header per step, and none of their steps is named "Run ...", so their workflow was never read:
+    - cmux#41001's "cmux-next daemon tests" (PR run 42973557339, job 130369194352; feat-cmux-next run 42976173821, job
+      130375759923): two composite actions (setup-cmux-tui-rust, cache-restore) print 7 inner `Run` lines, 38 for 31
+      steps, and many steps share a second. Compared whole instead, the base's extra flake
+      (aOneWorkspaceSnapshot...) and the head's extra failed step each broke identity, so nothing was told apart.
+    - hq#9191's "Skill policy tests" (run 42981858520, job 130394322965; main run 42981664549, job 130393775750): one
+      header per step, but five steps in 07:47:29, so no header was in its step's times alone.
+    With the workflow's headers (StepNames.headers: `Run <uses>`, `Run <script's first line>`), _aligned_starts places
+    both (the trimmed logs below keep every header, with each failure line and stamp as served). The fixtures are
+    those jobs' steps and logs, trimmed to the step headers, groups and failure lines, and each workflow job's steps."""
 
     def test_both_logs_are_placed_by_their_workflows_headers(self):
         for case, failed in (("cmux-41001", {"Check generated action catalog, surfaces and inventory": "errored",
@@ -10053,6 +10063,59 @@ class WorkflowHeadersPlaceRealLogs(unittest.TestCase):
         added = (head[0], self.after(head[1], "FAIL: plist content", "FAIL: plist label"))
         with self.assertRaisesRegex(excuse.Refused, "more on this head: FAIL: plist label"):
             self.judge(self.github("hq-9191", added, self.fixture("hq-9191", "base")))
+
+
+class DispatchedBaseRunsAreBaseEvidenceOnlyOnTheBase(RealLogFixtures, unittest.TestCase):
+    """A feat-cmux-next push never runs "cmux-next daemon tests"; its base verdicts come from dispatches of
+    cmux-next.yml on feat-cmux-next (`cmux-next base tier · <sha>` from cmux-next-base-tier-kick.yml on every push,
+    `cmux-next tip daemon suite · <sha>`), each testing the commit its title names (tested_sha). cmux#41001's base
+    run 42976173821 is such a dispatch (base tier · a3eea7aa, head_sha ce8ac946). Such a run is the base's verdict, but
+    only when the commit it tested is on the base (tested_on_base): a hand dispatch may name a lane's head."""
+
+    LANE = "c" * 40
+
+    def dispatched(self, head, base, tested=BASE_SHA, *, off_base=()):
+        github = self.github("cmux-41001", head, base)
+        github.off_base = frozenset(off_base)
+        github.base_runs = [{"id": 20, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                             "status": "completed", "conclusion": "failure", "head_sha": "d" * 40,
+                             "display_title": "cmux-next base tier · " + tested,
+                             "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/20"}]
+        return github
+
+    def test_the_only_base_verdict_a_base_tier_dispatch_excuses_the_same_red(self):
+        head = self.fixture("cmux-41001", "head")
+        said = self.judge(self.dispatched(head, head))
+        self.assertIn("excused 'cmux-next daemon tests': feat-cmux-next run 20", said)
+        self.assertNotIn("compared whole", said)
+
+    def test_the_only_base_verdict_a_base_tier_dispatch_refuses_a_failure_the_head_adds(self):
+        head = self.fixture("cmux-41001", "head")
+        added = (head[0], self.after(head[1], self.LIVE_LAST,
+                                     "✘ Test quitKeepsTheNewWorkspace() failed after 1.250 seconds with 1 issue."))
+        with self.assertRaisesRegex(excuse.Refused, r"feat-cmux-next run 20.*quitKeepsTheNewWorkspace|"
+                                                    r"quitKeepsTheNewWorkspace.*feat-cmux-next run 20"):
+            self.judge(self.dispatched(added, head))
+
+    def test_a_dispatch_that_tested_a_lane_head_is_never_base_evidence(self):
+        # The same red, from a feat-cmux-next dispatch whose title names a commit off the base (a lane's head): no
+        # base verdict at all, never "fails the same way".
+        head = self.fixture("cmux-41001", "head")
+        github = self.dispatched(head, head, tested=self.LANE, off_base={self.LANE})
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next run of its workflow has a verdict"):
+            self.judge(github)
+        self.assertIn(f"repos/{REPO}/compare/{self.LANE}...feat-cmux-next?per_page=1", github.routes)
+
+    def test_an_older_dispatch_on_the_base_still_counts_past_a_lane_heads(self):
+        head = self.fixture("cmux-41001", "head")
+        github = self.dispatched(head, head, tested=self.LANE, off_base={self.LANE})
+        older = {**github.base_runs[0], "id": 19, "display_title": "cmux-next base tier · " + BASE_SHA,
+                 "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/19"}
+        github.base_runs.append(older)
+        github.jobs[3] = dict(copy.deepcopy(github.jobs[2]), id=3, run_id=19)
+        github.logs[3] = github.logs[2]
+        said = self.judge(github)
+        self.assertIn("excused 'cmux-next daemon tests': feat-cmux-next run 19", said)
 
 
 if __name__ == "__main__":
