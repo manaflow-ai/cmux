@@ -28,9 +28,10 @@
 // `CMUX_TEST_LEAKS=off` turns the detector off. `CMUX_TEST_LEAKS_SCOPE=all` checks every test file,
 // not only src/agent-session's.
 import { mock } from "bun:test";
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 
 const mode = process.env.CMUX_TEST_LEAKS ?? "on";
 /// Source modules whose top-level state is registered and drained.
@@ -412,8 +413,78 @@ function drainModuleMocks(): string[] {
 }
 
 /// Installs the loader and the hooks before any test file loads.
+// --- Which processes it runs in. ---
+
+/// `bun test` flags that take a value, so the value is not read as a path or filter.
+const VALUE_FLAGS = new Set([
+  "-t",
+  "--test-name-pattern",
+  "--preload",
+  "-r",
+  "--reporter",
+  "--reporter-outfile",
+  "--coverage-dir",
+  "--coverage-reporter",
+  "--timeout",
+  "--rerun-each",
+  "--seed",
+  "--max-concurrency",
+  "--path-ignore-patterns",
+  "--tsconfig-override",
+  "--env-file",
+  "--cwd",
+  "-c",
+  "--config",
+]);
+
+/// The paths and filters this `bun test` was given: Bun.argv and process.argv name only the file
+/// running, so they come from the command line itself. Undefined when it cannot be read.
+function testOperands(): string[] | undefined {
+  let line: string[] | undefined;
+  try {
+    line = readFileSync("/proc/self/cmdline", "utf8").split("\0").filter(Boolean);
+  } catch {
+    try {
+      line = execFileSync("ps", ["-o", "args=", "-p", String(process.pid)], { encoding: "utf8" })
+        .trim()
+        .split(/\s+/);
+    } catch {
+      return undefined;
+    }
+  }
+  const at = line.indexOf("test");
+  if (at < 0) return undefined;
+  const operands: string[] = [];
+  const args = line.slice(at + 1);
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (VALUE_FLAGS.has(arg)) index++;
+    else if (!arg.startsWith("-")) operands.push(arg);
+  }
+  return operands;
+}
+
+const AGENT_SESSION = new URL("../../src/agent-session", import.meta.url).pathname;
+
+/// Whether this `bun test` can reach a checked test file. One that runs only files outside the
+/// checked folder (CI runs each file in its own process) gets no loader, timer or listener wrapper
+/// at all: those files are not checked, and the loader alone changes when bun evaluates the modules
+/// it serves (a test DOM's @pierre/diffs then registered its element without customElements).
+function reachesCheckedFiles(): boolean {
+  if (process.env.CMUX_TEST_LEAKS_SCOPE === "all") return true;
+  const operands = testOperands();
+  if (!operands || operands.length === 0) return true;
+  return operands.some((operand) => {
+    const path = resolve(operand);
+    if (!existsSync(path)) return true; // a name filter: it may match a checked file
+    if (!statSync(path).isDirectory()) return CHECKED.test(path);
+    const folder = `${path.replace(/\/$/, "")}/`;
+    return `${AGENT_SESSION}/`.startsWith(folder) || folder.startsWith(`${AGENT_SESSION}/`);
+  });
+}
+
 export function installLeakDetector(): void {
-  if (mode === "off") return;
+  if (mode === "off" || !reachesCheckedFiles()) return;
   const scope = globalThis as Record<string, unknown>;
   scope.__cmuxModuleStart = moduleStart;
   scope.__cmuxModuleEnd = moduleEnd;
