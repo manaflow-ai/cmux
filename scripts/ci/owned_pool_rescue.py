@@ -705,7 +705,8 @@ OPEN_HEAD_FAILOVER = "open-head failover"
 # (CMUX_NEXT_LAST_PLACED_ATTEMPT): at most two re-placements of a run. On 2026-11-10 cmux#40330's run 42858473381
 # was placed on its attempt 2 at 17:32Z while Blacksmith 6 vCPU was stalled, so its fast tier and generated files
 # took glaeda-side-std-xcode-26.6, which was not dark (11 runners busy) but held 55 jobs, the oldest for 21 hours;
-# attempt 2 was the last placement, so nothing placed them again once Blacksmith moved.
+# attempt 2 was the last placement, so nothing placed them again once Blacksmith moved. The re-placement waits for a
+# free Blacksmith slot (replace_room()): without one it put the job back on the same owned label, last in its queue.
 OWNED_REPLACE_SECONDS = 20 * 60
 # The last attempt cmux-next.yml's macos-placement runs on for a rescue bot (next_macos_cascade.LAST_PLACED_ATTEMPT).
 CMUX_NEXT_LAST_PLACED_ATTEMPT = 3
@@ -4052,6 +4053,26 @@ def long_owned_wait(target: "Target", job: Mapping[str, Any], label: str, now: d
             and queued_seconds(job, now, first_seen) >= OWNED_REPLACE_SECONDS)
 
 
+# The Blacksmith labels cmux-next's macOS cascade may give a re-placed job (next_macos_cascade's LARGE and SMALL).
+CMUX_NEXT_CASCADE_LABELS = ("blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26")
+
+
+def replace_room(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> str:
+    """The cascade label (CMUX_NEXT_CASCADE_LABELS) with a free slot now (blacksmith_states() "free": not stalled, a
+    slot free, nothing queued), or "" when none has one or the snapshot cannot say. A long owned wait is placed again
+    only then: with no free slot the re-placement keeps the job on the same owned label, and the cancel only sends it
+    to the back of that label's queue. 2026-11-11: with both labels stalled (12 vCPU's oldest queued job 630 min,
+    6 vCPU's 17 min), cmux#40643's generated files was cancelled after 34 and then 41 min queued on
+    glaeda-side-std-xcode-26.6, placed back there each time, and started 28 min into attempt 3 (run 42977303192:
+    119 min to a 10 min job's verdict); cmux#40858 and cmux#40449 went the same way."""
+    if not isinstance(snapshot, Mapping) or not isinstance(snapshot.get("pools"), Mapping):
+        return ""
+    states = blacksmith_states(snapshot, now)
+    pools = snapshot["pools"]
+    return next((label for label in CMUX_NEXT_CASCADE_LABELS
+                 if isinstance(pools.get(label), Mapping) and states.get(label) == "free"), "")
+
+
 def started_nothing(pools: Mapping[str, Any], label: str) -> bool:
     """Whether the janitor's snapshot shows `label` with nothing running on it. A label the snapshot does not
     list proves nothing, so it is not taken as started nothing."""
@@ -4166,7 +4187,8 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
       fresh snapshot shows nothing running there (started_nothing()), or nothing started there since the job began
       waiting (label_quiet()). Or, for a cmux-next pull request run whose placement re-run is shown (failover_plan(),
       never the settled re-run), a Mac job has waited OWNED_REPLACE_SECONDS on an owned label, busy or not
-      (long_owned_wait()), on attempt 1 or 2: the placement then runs again on the bot's next attempt. A job's wait starts at the later of its created_at and when a watch first saw it
+      (long_owned_wait()), on attempt 1 or 2, and a cascade label has a free slot now (replace_room()): the placement
+      then runs again on the bot's next attempt; with no free slot the job keeps its place in the owned queue. A job's wait starts at the later of its created_at and when a watch first saw it
       queued (`first_seen`, the watcher's; else this look's). A job that has waited less is looked at again once it
       has waited that long (one bounded sleep), not given up on.
 
@@ -4220,7 +4242,7 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
         dead = [(job, label) for job, label in waiting if started_nothing(pools, label)
                 or label_quiet(snapshot, label, wait_start(job, seen.get(job_key(job))))]
         # A cmux-next job that has waited OWNED_REPLACE_SECONDS on an owned label, busy or not, is placed again,
-        # but only by a placement re-run (checked below, once the plan is read).
+        # but only by a placement re-run (checked below, once the plan is read) onto a free Blacksmith slot.
         long_wait = [] if dead else [(job, label) for job, label in waiting
                                      if long_owned_wait(target, job, label, at, seen.get(job_key(job)))]
         if not dead and not long_wait:
@@ -4236,6 +4258,15 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
             plan, planned = failover_plan(api, target, jobs, sleep, log), True
         if not dead:
             if plan is None:
+                return NO_FAILOVER
+            # The owned label is busy, not dark: a re-placement moves the job only onto a free Blacksmith slot.
+            room = replace_room(snapshot, at)
+            if not room:
+                job, label = long_wait[0]
+                log(f"no failover for run {target.run_id}: {job.get('name') or job.get('id')} has waited "
+                    f"{int(queued_seconds(job, at, seen.get(job_key(job))) // 60)} min on `{label}`, but no "
+                    f"{' or '.join(CMUX_NEXT_CASCADE_LABELS)} slot is free, so a placement re-run would put it back "
+                    "on that label behind its queue; it keeps its place")
                 return NO_FAILOVER
             dead = long_wait
         if target.path in PORTABLE_LIGHT_WORKFLOW_PATHS and plan is None:
