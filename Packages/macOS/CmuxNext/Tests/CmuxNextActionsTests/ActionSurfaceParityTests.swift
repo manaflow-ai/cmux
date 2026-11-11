@@ -99,21 +99,17 @@ import Testing
     /// Reachability inside folders is checked by the tests above, which
     /// walk submenus.
     ///
-    /// The cap is for the rows a person can see at one time, so a menu whose call site
-    /// always hides some of its rows (``rowsNeverShownTogether``) is counted once without
-    /// each of those sets, never with all of them.
+    /// The cap is for the rows a person sees at one time. A menu whose builder always hides
+    /// some of its catalog rows is counted where it is built (``countedAtItsBuilder``), with
+    /// the rows that builder hides; its catalog list here is longer than any menu it shows.
     @Test func everyMenuKeepsAShortTopLevel() {
         for context in ActionMenuContext.allCases {
             let entries = ContextMenuCatalog.shared.entries(for: context)
-            let referenced = Set(ContextMenuCatalog.shared.referencedIDs(entries))
+            let rows = entries.filter { if case .separator = $0 { false } else { true } }
             // A workspace row's and a tab's menu also have Copy ▸ (ContextMenuEssentials.copyFolder, Leo 2026-10-29).
-            let cap = [.agentChat, .terminalSelection, .workspaceRow, .tab].contains(context) ? 13 : 12
-            for hidden in Self.rowsNeverShownTogether[context] ?? [[]] {
-                let absent = hidden.subtracting(referenced).map(\.rawValue).sorted()
-                #expect(absent.isEmpty, "\(context) has no row \(absent): rowsNeverShownTogether is stale")
-                let rows = ContextMenuCatalog.removing(hidden, from: entries).filter { if case .separator = $0 { false } else { true } }
-                let without = hidden.isEmpty ? "" : " without \(hidden.map(\.rawValue).sorted())"
-                #expect(rows.count <= cap, "\(context) has \(rows.count) top-level rows\(without)")
+            let cap = [.terminalSelection, .workspaceRow, .tab].contains(context) ? 13 : 12
+            if !Self.countedAtItsBuilder.contains(context) {
+                #expect(rows.count <= cap, "\(context) has \(rows.count) top-level rows")
             }
             for case .folder(let folder, let children) in entries {
                 let count = ContextMenuCatalog.shared.referencedIDs(children).count
@@ -122,14 +118,11 @@ import Testing
         }
     }
 
-    /// Rows of one menu that its call site never shows together; each set is one that the menu
-    /// always lacks for some object. The chat menu is built without `CloudMove.hiddenMenuItems`
-    /// (`AgentTabs+Header`): a chat that runs on this Mac has no Bring Back Local and no Move to
-    /// Another Machine, and a chat on a Cloud machine has no Move to Cloud. `CloudMenuRowsTests`
-    /// holds the App to that, so a change there that shows all three fails before this cap can lie.
-    static let rowsNeverShownTogether: [ActionMenuContext: [Set<ActionID>]] = [
-        .agentChat: [["cloudBringBack", "cloudMoveToMachine"], ["cloudMove"]],
-    ]
+    /// The menus whose top level is counted in the App's tests, from the same code that builds
+    /// them. The chat menu: its three Cloud rows are never shown together (the builder takes
+    /// `CloudMove.hiddenMenuItems` away, `AgentTabs+Header`), so `ChatMenuLengthTests`
+    /// (CmuxNextAppTests) holds it to its 13 rows (12 and the fork commands) for each kind of chat.
+    static let countedAtItsBuilder: Set<ActionMenuContext> = [.agentChat]
 
     @Test func cliNamesAndShortcutsAreUnique() {
         var byName: [String: ActionID] = [:]
