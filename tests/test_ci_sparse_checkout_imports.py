@@ -1295,6 +1295,11 @@ _NOT_FOUND = object()
 _SUBSHELL_COMMAND = _Tok("word", "( ... )", "( ... )", True, 0, 0)
 
 
+# Words that run the command after them as that builtin, in this shell: `builtin shopt -s lastpipe`
+# and `command cd x` are shopt and cd (review of #41199). `command -v`/`-V` only looks the name up.
+_WRAPPERS = {"builtin": (), "command": ("-p",)}
+
+
 def _command_name(command: list[_Tok]) -> tuple[_Tok | None, list[str]]:
     """A simple command's name (after its VAR=value words) and its arguments' text."""
     at = 0
@@ -2170,6 +2175,13 @@ _SHELL_SHAPES: tuple[tuple[str, bool, str, str | None], ...] = (
     # Ones that stay known around constructs that look alike.
     ("trap 'rm -f t' EXIT\ncd scripts/ci\npython3 x", True, "x", _CI),
     ("trap - INT\ntrap '' TERM\ncd scripts/ci\npython3 x", True, "x", _CI),
+    # Review of #41199: a for list's words are plain words, do and done included; a wrapped shopt is
+    # shopt.
+    ("for v in do done; do python3 x; cd scripts; done", True, "x", None),
+    ("builtin shopt -s lastpipe\ntrue | cd scripts\npython3 x", True, "x", None),
+    ("command shopt -s lastpipe\ntrue | cd scripts\npython3 x", True, "x", None),
+    ("command -p -- shopt -s lastpipe\ntrue | cd scripts\npython3 x", True, "x", None),
+    ("for v in a b; do true; done\ncd scripts/ci\npython3 x", True, "x", _CI),
     ("command -v python3\ncd scripts/ci\npython3 x", True, "x", _CI),
     ("python3 - <<'EOF'\nprint(1)\nEOF", True, "-", ""),
     # The differential oracle's run shapes.
@@ -2432,8 +2444,16 @@ _GEN_REDIRECTS = ("", "", "", " > /", " > /dev/null")
 _GEN_SHELLS = ("", "", "bash", "bash -e {0}", "bash {0}", "bash --noprofile --norc {0}")
 
 
-def _generated_shell(seed: int) -> tuple[str, bool, str]:
-    """(run script, errexit, step shell) for one seed: one python3 call in a random program of the grammar."""
+# Review of #41199: reserved words as plain words (a for list, an argument, echo text), and each
+# wrapper in _WRAPPERS in front of shopt, set and cd.
+_GEN_RESERVED = ("do", "done", "then", "fi", "for", "in", "if", "while", "else", "{", "}", "!")
+_GEN_WRAPPED = (*(f"{w} " for w in _WRAPPERS), "command -p ", "command -- ", "builtin command ", "command -v ")
+
+
+def _generated_shell(seed: int, wide: bool = True) -> tuple[str, bool, str]:
+    """(run script, errexit, step shell) for one seed: one python3 call in a random program of the
+    grammar. `wide=False` is the grammar before #41199's review, whose programs _GENERATED_SHELL_FINDS
+    pins: the wider alphabet only draws from the random stream when `wide` is set."""
     import random
 
     rng = random.Random(seed)
@@ -2469,6 +2489,14 @@ def _generated_shell(seed: int) -> tuple[str, bool, str]:
         if depth < 2 and r < 0.35:
             n = next(counters)
             head = f"for v{n}; do " if rng.random() < 0.15 else f"for v{n} in {' '.join('abc'[: rng.randint(0, 3)])}; do "
+            if wide and head.endswith("; do ") and " in " in head and rng.random() < 0.5:
+                # Often a reserved word that can lead a command, then `done` (`for v in do done`), the
+                # shape a reader that takes list words as delimiters gets wrong.
+                words = [rng.choice(("a", "b", *_GEN_RESERVED)) for _ in range(rng.randint(0, 2))]
+                if rng.random() < 0.6:
+                    words.insert(rng.randint(0, len(words)), rng.choice(("do", "then", "else", "{", "!")) + " done")
+                listed = " ".join(words) or "done"
+                head = f"for v{n} in {listed}; do "
             return head + and_or_list(inner, 3, True) + sep() + "done" + redirect
         if depth < 2 and r < 0.41:
             n = next(counters)
@@ -2496,7 +2524,7 @@ def _generated_shell(seed: int) -> tuple[str, bool, str]:
 
     lines = [and_or_list(0, 3) for _ in range(rng.randint(1, 3))]
     if rng.random() < 0.1:
-        lines.insert(rng.randint(0, len(lines)), "shopt -s lastpipe")
+        lines.insert(rng.randint(0, len(lines)), (rng.choice(_GEN_WRAPPED) if wide and rng.random() < 0.4 else "") + "shopt -s lastpipe")
     text = "\n".join(lines)
     slots = [i for i, c in enumerate(text) if c in "\0\1"]
     # Half the time python runs on a line of its own at the end, where everything before it counts.
@@ -2513,7 +2541,12 @@ def _generated_shell(seed: int) -> tuple[str, bool, str]:
             choice = rng.choice(_GEN_TRAPS if rng.random() < 0.04 else _GEN_SIMPLE)
             if choice.startswith("exit") and rng.random() < 0.6:
                 choice = "true"  # exit, but not so often that python is rarely reached
-            out.append(choice.format(d=rng.choice(_GEN_TARGETS)))
+            choice = choice.format(d=rng.choice(_GEN_TARGETS))
+            if wide and rng.random() < 0.08:
+                choice = rng.choice(("echo", ":", "true", "false")) + " " + rng.choice(_GEN_RESERVED)
+            elif wide and choice.startswith(("cd ", "set ", "shopt ")) and rng.random() < 0.25:
+                choice = rng.choice(_GEN_WRAPPED) + choice
+            out.append(choice)
     out.append(text[last:])
     run = "".join(out)
     if python == -1:
@@ -2558,11 +2591,11 @@ _GENERATED_SHELL_FINDS = {
 }
 
 
-def generated_shell_cases(seeds: int, start: int = 0) -> list[tuple[str, str, bool, frozenset[str], str]]:
+def generated_shell_cases(seeds: int, start: int = 0, wide: bool = True) -> list[tuple[str, str, bool, frozenset[str], str]]:
     folders = frozenset(_GEN_FOLDERS)
     cases = []
     for seed in range(start, start + seeds):
-        run, errexit, shell = _generated_shell(seed)
+        run, errexit, shell = _generated_shell(seed, wide)
         cases.append((f"seed {seed} (shell {shell or 'default'}, errexit {'on' if errexit else 'off'}) {run!r}", run, errexit, folders, ""))
     return cases
 
@@ -3933,7 +3966,7 @@ class SparseCheckoutOracleTests(unittest.TestCase):
     def test_generated_shell_finds_agree_with_bash(self) -> None:
         import zlib
 
-        cases = [generated_shell_cases(1, seed)[0] for seed in _GENERATED_SHELL_FINDS]
+        cases = [generated_shell_cases(1, seed, wide=False)[0] for seed in _GENERATED_SHELL_FINDS]
         changed = [
             seed for seed, (_, run, *_) in zip(_GENERATED_SHELL_FINDS, cases)
             if zlib.crc32(run.encode()) != _GENERATED_SHELL_FINDS[seed]
