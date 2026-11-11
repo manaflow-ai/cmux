@@ -84,8 +84,10 @@ public final class CmuxToastCenter {
         // successor takes its slot, and two different toasts never crossfade); one pushed over the
         // limit fades out while the rest restack.
         for old in replaced { end(old, .replaced, render: false) }
-        render(key)
+        // Its time starts before the host draws it: a toast that appears under a still pointer
+        // holds at once (the host reports the pointer from its draw).
         startTimer(serial)
+        render(key)
         if !repeats {
             NSAccessibility.post(element: window, notification: .announcementRequested, userInfo: [
                 .announcement: toast.message, .priority: NSAccessibilityPriorityLevel.high.rawValue,

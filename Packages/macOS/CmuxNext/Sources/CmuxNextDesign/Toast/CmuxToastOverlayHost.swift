@@ -171,7 +171,11 @@ public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring 
         }
         for entry in ended { hide(entry, from: stack, in: window, animated: true) }
 
-        if !stack.entries.isEmpty { CmuxToastAvoidance.register(self, in: window) }
+        if !stack.entries.isEmpty {
+            // A toast swapped in for the window's only toast: its predecessor's end retired the stack.
+            stacks[key] = stack
+            CmuxToastAvoidance.register(self, in: window)
+        }
         // The toasts moved under a possibly still pointer: a hovered toast that moved away loses
         // its hold and its timer starts again (cx-3wu5). Window-wide: the toasts' buttons moved too.
         PointerHover.refresh(in: stack.entries.lazy.compactMap(\.view.window).first)
