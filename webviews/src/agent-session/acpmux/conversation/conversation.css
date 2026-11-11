@@ -7569,8 +7569,20 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   letter-spacing: var(--text-detail--letter-spacing);
   color: var(--cv-text);
 }
-.cv-run-elsewhere--loading {
-  min-height: var(--cv-tool-row-height, 28px);
+/* The quiet line under the row (RunElsewhere.tsx RunElsewhereLine): the plan loading, or why the
+   command stays here. The failed call's cause line (.cv-tool-error) in grammar and ink: under the
+   row's words, one line cut to the width, no control. */
+.cv-run-elsewhere-line {
+  display: block;
+  margin: -3px 0 3px;
+  padding-left: var(--cv-tool-text-inset);
+  overflow: hidden;
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+  line-height: 18px;
+  letter-spacing: var(--text-detail--letter-spacing);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .cv-run-elsewhere__head {
   display: flex;
@@ -7589,15 +7601,11 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
 }
 .cv-run-elsewhere__base,
 .cv-run-elsewhere__label,
-.cv-run-elsewhere__aside,
-.cv-run-elsewhere__note {
+.cv-run-elsewhere__aside {
   color: var(--cv-text-dim);
 }
-.cv-run-elsewhere__note,
 .cv-run-elsewhere__error {
   margin: 0;
-}
-.cv-run-elsewhere__error {
   color: var(--agent-status-failure);
 }
 .cv-run-elsewhere__label {
@@ -7674,10 +7682,11 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   margin-left: auto;
   font-family: var(--cv-font);
 }
+/* Cancel (ghost) and Run (solid) are ui/Button.tsx's, drawn by ui/controls.css. */
 .cv-run-elsewhere__actions {
   display: flex;
   justify-content: flex-end;
-  gap: var(--ds-space-2);
+  gap: var(--ds-space-1);
 }
 .cv-run-elsewhere__link {
   margin-left: auto;
