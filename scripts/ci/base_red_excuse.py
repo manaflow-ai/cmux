@@ -1120,8 +1120,12 @@ def _marker(index: int) -> str:
 MARKER = re.compile("\0([a-z]+)\0")
 
 
-def _marker_index(letters: str) -> int:
-    """The keep-list index _marker wrote as LETTERS."""
+def _marker_index(letters: str, size: int) -> int | None:
+    """The keep-list index _marker wrote as LETTERS, or None when it is no index of a keep list of SIZE ids. A log may
+    print a marker itself (`\0aaaa...\0`): no index of SIZE has more letters than _marker(SIZE - 1), so a longer one
+    is never decoded (#41220's review F3: its letters built an unbounded integer, 5 s CPU at 160k letters)."""
+    if size < 1 or len(letters) > len(_marker(size - 1)) - 2:
+        return None
     index = 0
     for letter in letters:
         index = index * 26 + ord(letter) - ord("a") + 1
@@ -1160,8 +1164,8 @@ def normalise_error(text: str) -> str:
     # Each marker back to its id in one pass (a replace per id read the whole line once per path on it: a PR's line
     # of N paths took N^2, PrLogReadersScale).
     def restore(match: re.Match[str]) -> str:
-        index = _marker_index(match[1])
-        return kept[index] if index < len(kept) else match[0]
+        index = _marker_index(match[1], len(kept))
+        return kept[index] if index is not None and index < len(kept) else match[0]
     return MARKER.sub(restore, said) if kept else said
 
 
@@ -1478,10 +1482,14 @@ class FailedView:
     its FAILED and ERRORED sections, everything that may be its red; a base's keeps its FAILED ones alone, everything
     that may be base evidence (an ERRORED section is a continue-on-error step's: shown, never evidence). TEXT is the
     one way any comparator reads a log's lines."""
-    __slots__ = ("job", "base", "steps", "sections", "_text")
+    __slots__ = ("job", "base", "steps", "sections", "errored", "_text")
 
-    def __init__(self, job: dict, base: bool, steps: list[dict], sections: list[tuple[int, str, list[str]]]):
+    def __init__(self, job: dict, base: bool, steps: list[dict], sections: list[tuple[int, str, list[str]]],
+                 errored: list[tuple[int, str, list[str]]] | None = None):
         self.job, self.base, self.steps, self.sections = job, base, steps, sections
+        # The ERRORED (continue-on-error) sections, a base's too: never in a base's text() (never evidence of a name),
+        # but counted like for like with the head's (errored_text; #41220's review F2).
+        self.errored = errored if errored is not None else [section for section in sections if section[1] == ERRORED]
         # Built once: every comparator reads a view's text, several times a judgment. Rebuilt per read, each read made
         # and freed two copies of a long log (the sections' join, then Steps' own), which glibc hands back to the OS
         # and faults in again above its trim threshold: view_text read 15x at 4x a HostileLog (PrLogReadersScale), 4x
@@ -1500,6 +1508,13 @@ class FailedView:
         if self.base:
             return self._text
         return test_reds.Steps(["\n".join(lines) for _, status, lines in self.sections if status == FAILED])
+
+    def errored_text(self) -> str:
+        """Its ERRORED (continue-on-error) sections' lines, as a test_reds.Steps, a head's and a base's alike: what a
+        head's count of a failing test there is compared with (compare_window, view_signature). Dropping them dropped
+        their count: `alpha()` x11 against at most x1 was excused with ten in a continue-on-error step (#41220's
+        review F2)."""
+        return test_reds.Steps(["\n".join(lines) for _, _, lines in self.errored])
 
     def lines(self) -> list[tuple[str, int]]:
         """(raw line, the index of its step in STEPS) for each line of the view."""
@@ -1532,14 +1547,15 @@ def failed_view(job: dict, log: str, *, step_names, base: bool) -> "FailedView |
     if all(isinstance(step.get("number"), int) for step in steps):
         steps.sort(key=lambda step: step["number"])
     keep = (FAILED,) if base else (FAILED, ERRORED)
-    sections: list[tuple[int, str, list[str]]] = []
+    found: list[tuple[int, str, list[str]]] = []
     for line, k, status in owned:
-        if status not in keep:
+        if status not in (FAILED, ERRORED):
             continue
-        if not sections or sections[-1][0] != k:
-            sections.append((k, status, []))
-        sections[-1][2].append(line)
-    return FailedView(job, base, steps, sections)
+        if not found or found[-1][0] != k:
+            found.append((k, status, []))
+        found[-1][2].append(line)
+    return FailedView(job, base, steps, [section for section in found if section[1] in keep],
+                      [section for section in found if section[1] == ERRORED])
 
 
 def view_text(view: FailedView) -> str:
@@ -1867,7 +1883,39 @@ def unplaced_signature(job: dict, log: str) -> UnplacedSignature:
     # No step of an unplaced log is known to have passed: every step is read, each on its own (test_reds.unjudged).
     unnamed: list = []
     tests = test_reds.failed_in(test_reds.unjudged(log), unnamed)
-    named = set(tests)
+    errors = _counted_errors(job, output, set(tests))
+    crashes = frozenset(first or second for first, second in CRASH.findall("\n".join(output)))
+    return UnplacedSignature(steps, tests, errors, crashes, tuple(dict.fromkeys(unnamed)))
+
+
+# A placed log's identity (view_signature) keys a continue-on-error section's failures apart from a failed one's: one
+# test failing once in each is not the same red as twice in a failed step.
+CONTINUED = "(continue-on-error) "
+
+
+def view_signature(view: "FailedView") -> UnplacedSignature:
+    """UnplacedSignature of placed VIEW's sections alone, never a passing step's lines: the identity a placed red whose
+    failed sections name no test or error line is compared on (BARE_WHY), on the head and on the base alike. Its
+    ERRORED sections are counted apart (CONTINUED), on both sides. #41220's review F1: that fallback read the whole log,
+    so a passing step's `error:` line printed on both runs was the identity and a new AssertionError in the failed step
+    was excused."""
+    view_text(view)  # a TypeError for anything that is not a FailedView
+    steps = failed_step_keys(view.job)
+    tests: Counter = Counter()
+    errors: Counter = Counter()
+    unnamed: list = []
+    crashes: set = set()
+    for prefix, text in (("", view.failed_text()), (CONTINUED, view.errored_text())):
+        found = test_reds.failed_in(text, unnamed)
+        output = test_reds.lines_of(text)
+        tests.update({prefix + test: n for test, n in found.items()})
+        errors.update({prefix + error: n for error, n in _counted_errors(view.job, output, set(found)).items()})
+        crashes |= {first or second for first, second in CRASH.findall("\n".join(output))}
+    return UnplacedSignature(steps, tests, errors, frozenset(crashes), tuple(dict.fromkeys(unnamed)))
+
+
+def _counted_errors(job: dict, output: list[str], named: set) -> Counter:
+    """How often each error line of OUTPUT (lines_of: no runner echo) appears, numbers masked (the whole-log rule)."""
     errors: Counter = Counter()
     for line in output:
         if line.startswith(test_reds.TAP_MARKER) or SUMMARY_RED.match(line) or SOURCE_EXCERPT.match(line):
@@ -1891,8 +1939,7 @@ def unplaced_signature(job: dict, log: str) -> UnplacedSignature:
             inside = False
         elif inside and line and not RATCHET_HIT.match(line):
             errors[f"ratchet: {line}"] += 1
-    crashes = frozenset(first or second for first, second in CRASH.findall("\n".join(output)))
-    return UnplacedSignature(steps, tests, errors, crashes, tuple(dict.fromkeys(unnamed)))
+    return errors
 
 
 def unplaced_without_ffi_pin(head: UnplacedSignature) -> UnplacedSignature:
@@ -1901,12 +1948,29 @@ def unplaced_without_ffi_pin(head: UnplacedSignature) -> UnplacedSignature:
     pin, rollup = normalise_error(FFI_PIN_ERROR), normalise_error(f"red check: {FFI_PIN_CHECK}")
     return head._replace(steps=Counter({key: n for key, n in head.steps.items() if key[0] != FFI_PIN_CHECK}),
                          errors=Counter({error: n for error, n in head.errors.items()
-                                         if not error.startswith(pin) and error != rollup}))
+                                         if not error.removeprefix(CONTINUED).startswith(pin)
+                                         and error.removeprefix(CONTINUED) != rollup}))
 
 
-def unplaced_base_evidence(repo: str, base_job: dict, github) -> UnplacedSignature:
-    """unplaced_signature of red base job BASE_JOB's whole log: the one base read of an unplaced comparison."""
-    return unplaced_signature(base_job, github.log(repo, base_job))
+def unplaced_base_evidence(repo: str, base_job: dict, github, run_reads: dict, *, path, placed: bool | None
+                           ) -> UnplacedSignature:
+    """The signature of red base job BASE_JOB's log compared on identity, its one base read: PLACED True, its failed
+    and continue-on-error sections alone (view_signature: a placed head's sections are compared with a placed base's,
+    never with its passing steps' lines; Refused when its log does not place); False, its whole log (unplaced_signature:
+    an unplaced head's whole log with the base's); None, its sections when its log places, else its whole log (the
+    evidence another job gives: a passing step's lines are never that, #41220's review F1's class). PATH: its run's
+    workflow (job_step_names)."""
+    log = github.log(repo, base_job)
+    if placed is False:
+        return unplaced_signature(base_job, log)
+    view = failed_view(base_job, log, step_names=job_step_names(repo, base_job, github, run_reads, path=path),
+                       base=True)
+    if view is not UNPLACED:
+        return view_signature(view)
+    if placed:
+        raise Refused(f"job {base_job.get('id')}'s log does not map one to one onto its steps (step_owners), so its "
+                      "failed sections cannot be compared with the head's")
+    return unplaced_signature(base_job, log)
 
 
 def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, found: UnplacedSignature,
@@ -1974,7 +2038,7 @@ def pr_only_extra(head: UnplacedSignature, same: dict, found: UnplacedSignature
 
 def pr_only_step_verdict(repo: str, base: str, name: str, head: UnplacedSignature,
                          window: "list[tuple[dict, dict, UnplacedSignature]]", runs: list[dict], base_jobs: dict,
-                         github) -> str | None:
+                         github, run_reads: dict) -> str | None:
     """The audit line for an unplaced red NAME whose only difference from a red base verdict of its own (WINDOW:
     (run, job, signature), newest first) is a step that verdict never ran, failing only tests another red base job
     failed (the rule above); None when no base evidence shows it. RUNS: the workflow's base runs, newest first."""
@@ -2008,9 +2072,11 @@ def pr_only_step_verdict(repo: str, base: str, name: str, head: UnplacedSignatur
             fits = [(same_run, extra) for same_run, _, _, extra in candidates if not extra[0] - failed]
             if not fits:
                 continue
-            theirs = unplaced_base_evidence(repo, other, github)
+            # Its failed sections when its log places (never a passing step's lines), each extra test and error line
+            # there at least as often as the head's extra step has it (#41220's review F1 and F2, this rule's copy).
+            theirs = unplaced_base_evidence(repo, other, github, run_reads, path=run.get("path"), placed=None)
             for same_run, (steps, tests, errors) in fits:
-                if set(tests) <= set(theirs.tests) and set(errors) <= set(theirs.errors):
+                if not tests - theirs.tests and not errors - theirs.errors:
                     url = run.get("html_url") or f"https://github.com/{repo}/actions/runs/{run['id']}"
                     return (f"excused '{name}': its steps ({step_keys_text(steps)}) never run in {base} run {same_run['id']}'s "
                             f"'{name}', which fails the same way otherwise; the failing tests there "
@@ -4815,11 +4881,14 @@ def compare_window(repo: str, base: str, name: str, head: tuple, head_view: Fail
     # verdict (the per-test window), one that also holds the head's failed steps (above): the property test's window
     # detector found a test on one verdict and the steps on another; a quarantined flake is the base's however often
     # it fails.
-    # Counted like for like (merging #41220's step mapping): the head's FAILED sections, what a base view keeps. A
-    # head's ERRORED (continue-on-error) section is never in a base's view, so counting it refused the very red the base
-    # has (cmux#41001's head served as its own base: everyMenuKeepsAShortTopLevel() x6, at most x2, for the catalog
-    # check's ERRORED section); its tests are still compared by name above and classified whole below.
+    # Counted like for like (merging #41220's step mapping): the head's FAILED sections with a base's FAILED ones, and
+    # its ERRORED (continue-on-error) sections with a base's ERRORED ones (FailedView.errored_text), each on the same
+    # verdict. Counting the head's ERRORED sections with a base's FAILED ones refused the very red the base has
+    # (cmux#41001's head served as its own base: everyMenuKeepsAShortTopLevel() x6, at most x2, for the catalog check's
+    # ERRORED section); dropping them dropped their count, so `alpha()` x11 against at most x1 was excused with ten in
+    # a continue-on-error step (#41220's review F2).
     times = test_reds.failed_in(head_view.failed_text())
+    continued = test_reds.failed_in(head_view.errored_text())
     alone = []
     for (run, view, *_), gap in zip(window, gaps):
         if gap:
@@ -4827,10 +4896,17 @@ def compare_window(repo: str, base: str, name: str, head: tuple, head_view: Fail
         text = view_text(view)
         judged = test_reds.classify(head_text, text, name, f"{base} run {run['id']}")
         alone.append((set(judged.shared) if judged is not None else set(),
-                      test_reds.failed_in(text)))
-    if lone := sorted(f"{test} x{n} (at most x{max([counts[test] for same, counts in alone if test in same] or [0])})"
-                      for test, n in times.items() if test not in known
-                      and not any(test in same and counts[test] >= n for same, counts in alone)):
+                      test_reds.failed_in(text), test_reds.failed_in(view.errored_text())))
+
+    def holds(test: str, same: set, counts: Counter, errored: Counter) -> bool:
+        return ((not times[test] or (test in same and counts[test] >= times[test]))
+                and errored[test] >= continued[test])
+    if lone := sorted(f"{test} x{times[test]}" + (f" (+x{continued[test]} continue-on-error)" if continued[test] else "")
+                      + f" (at most x{max([counts[test] for same, counts, _ in alone if test in same] or [0])}"
+                      + (f", +x{max([errored[test] for *_, errored in alone] or [0])} continue-on-error"
+                         if continued[test] else "") + ")"
+                      for test in sorted(times.keys() | continued.keys()) if test not in known
+                      and not any(holds(test, *entry) for entry in alone)):
         raise Refused(f"'{name}': failing tests more often than on any of {base} {runs} that fails them the same way with the head's failed steps, "
                       f"each verdict alone: {'; '.join(lone)[:600]}")
     if head_pairs is not None and compared[-1][0] == "errors":
@@ -5943,8 +6019,10 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
     # is compared whole too, never refused for want of a key: the whole-log identity is the fallback either way.
     bare = (early is not UNPLACED and not early[1] and not early[2] and not crash_signals(view)
             and not chromium_without_diagnostics)
+    # Placed, it is its failed and continue-on-error sections alone (view_signature), never a passing step's lines
+    # (#41220's review F1: a passing step's `error:` on both runs excused a new failure in the failed step).
     return Head(None, view, chromium_without_diagnostics, per_test,
-                unplaced_signature(job, head_log) if view is UNPLACED or bare else None)
+                unplaced_signature(job, head_log) if view is UNPLACED else view_signature(view) if bare else None)
 
 
 def base_evidence(repo: str, base: str, name: str, run: dict, found: dict, github, run_reads: dict) -> tuple:
@@ -6215,7 +6293,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 if got.unplaced is not None and (only := pr_only_step_verdict(
                         repo, base, name, got.unplaced,
                         [(base_run, base_job, UnplacedSignature(Counter(), Counter(), Counter()))],
-                        base_runs[workflow], base_jobs, github)) is not None:
+                        base_runs[workflow], base_jobs, github, run_reads)) is not None:
                     audit.append(only)
                     pr_only.add((job.get("run_id"), name))
                     continue
@@ -6268,7 +6346,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 newest, read, seen = created(base_run), 1, []
                 while True:
                     try:
-                        theirs = unplaced_base_evidence(repo, base_job, github)
+                        theirs = unplaced_base_evidence(repo, base_job, github, run_reads, path=base_run.get("path"),
+                                                        placed=view is not UNPLACED)
                         # A pin the rules set aside leaves both sides: the base's own pin red (cmux#41086's base) is no
                         # difference, and identity still holds for all the rest.
                         theirs = unplaced_without_ffi_pin(theirs) if aside is not None else theirs
@@ -6284,7 +6363,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                                 or (newest and created(run)
                                     and newest - created(run) > timedelta(hours=BASE_WINDOW_HOURS))):
                             if (only := pr_only_step_verdict(repo, base, name, mine, seen, base_runs[workflow],
-                                                             base_jobs, github)) is not None:
+                                                             base_jobs, github, run_reads)) is not None:
                                 audit.append(only + (f"; {aside}" if aside is not None else ""))
                                 pr_only.add((job.get("run_id"), name))
                                 break

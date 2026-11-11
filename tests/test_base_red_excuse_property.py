@@ -124,8 +124,9 @@ def truth(steps: list) -> tuple[Counter, Counter, list]:
                 mine = [failure for failure in mine if failure[0] != "bun" or failure[3]]
             mine += [(*failure, bool(block.get("headerless"))) for failure in final_identities(block)]
         found += mine
-    named = Counter(ident for runner, ident, ok, _ in found if ok)
-    return keys, named, [(runner, ident) for runner, ident, ok, _ in found if not ok]
+    # An opaque block's lines name no failure, whatever mutate() adds to it.
+    named = Counter(ident for runner, ident, ok, _ in found if ok and runner != "opaque")
+    return keys, named, [(runner, ident) for runner, ident, ok, _ in found if not ok or runner == "opaque"]
 
 
 def unreported(steps: list) -> list:

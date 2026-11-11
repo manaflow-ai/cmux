@@ -9075,7 +9075,7 @@ VIEW_COMPARATORS = frozenset({
     "signature", "step_errors", "section_lines", "compare_window", "crash_signals", "ratchet_red",
     "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "quarantined_only",
     "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text", "fixed_on_base_by_step", "step_evidence",
-    "owned_unnamed"})
+    "owned_unnamed", "view_signature"})
 # The only readers of step_owners: failed_view (every comparator's) and failed_steps_log (what a comment shows, never
 # compared).
 STEP_OWNERS_READERS = frozenset({"failed_view", "failed_steps_log"})
@@ -9195,6 +9195,7 @@ ROLES = {
     ("base_red_excuse", "read_head"): (False,),  # the head's red job
     ("base_red_excuse", "guard_routes_view"): (False,),  # validate_guard_routes: the head's routed rollup guard
     ("base_red_excuse", "base_evidence"): (True,),  # a compared base run's job
+    ("base_red_excuse", "unplaced_base_evidence"): (True,),  # a base job compared on identity
     ("next_batch", "probe_base"): (True, True),  # the base probe's run, then its rerun
     ("next_batch", "failing_on_base"): (True,),  # the base's newest push run
     ("next_batch", "base_tier_failures"): (True,),  # the base tier's runs
@@ -9384,12 +9385,12 @@ class PrOnlyStepsAreExcusedByAnotherBaseJob(unittest.TestCase):
             github = PrOnlyStepGitHub()
             github.jobs[3]["steps"] = framed_steps([(check, "success", 3, 5), (regen, "failure", 6, 9)])
             menu = [line for line in PrOnlyStepGitHub.MENU if not line.startswith("##[error]")]
-            github.logs[3] = framed_log(
-                [(check, 3, "##[group]Run python3 check_menu_caps.py --negative"), (check, 3, "##[endgroup]")]
-                + [(where, 4 if where == check else 7, line) for line in menu]
-                + [(regen, 6, "##[group]Run ./regenerate.sh"), (regen, 6, "##[endgroup]"),
-                   (regen, 8, "##[error]the action exports could not be regenerated"), (regen, 8, EXIT)],
-                PrOnlyStepGitHub.GEN)
+            lines = {check: [(check, 3, "##[group]Run python3 check_menu_caps.py --negative"),
+                             (check, 3, "##[endgroup]")],
+                     regen: [(regen, 6, "##[group]Run ./regenerate.sh"), (regen, 6, "##[endgroup]")]}
+            lines[where] += [(where, 4 if where == check else 7, line) for line in menu]
+            lines[regen] += [(regen, 8, "##[error]the action exports could not be regenerated"), (regen, 8, EXIT)]
+            github.logs[3] = framed_log(lines[check] + lines[regen], PrOnlyStepGitHub.GEN)
             self.assertIsInstance(excuse.failed_view(github.jobs[3], github.logs[3], base=True, **UNKNOWN),
                                   excuse.FailedView)
             with self.subTest(menu_in=where):
@@ -11587,6 +11588,7 @@ SCANNERS = {
     "base_red_excuse.owned_unnamed": lambda f: excuse.owned_unnamed(TR.Result(), f.view),
     "base_red_excuse.step_errors": lambda f: excuse.step_errors(f.view),
     "base_red_excuse.unplaced_signature": lambda f: excuse.unplaced_signature(f.job, f.log),
+    "base_red_excuse.view_signature": lambda f: (excuse.view_signature(f.view), excuse.view_signature(f.base_view)),
     "base_red_excuse.generated_stale_host": lambda f: excuse.generated_stale_host(f.log),
     "base_red_excuse.no_verdict": lambda f: excuse.no_verdict(f.log),
     "base_red_excuse.summary_red": lambda f: excuse.summary_red(f.log),
