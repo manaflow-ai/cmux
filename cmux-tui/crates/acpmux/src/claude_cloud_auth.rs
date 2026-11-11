@@ -257,9 +257,9 @@ pub(crate) fn apply_team(
 ) {
     env.insert(TEAM_MARKER.to_owned(), "1".to_owned());
     let kept = cmux_headers(headers);
-    if !remote && !argv.is_empty() {
-        let mut rest = settings_args(&argv[1..]).0;
-        rest.insert(0, argv[0].clone());
+    if !remote && let Some((program, args)) = argv.split_first() {
+        let mut rest = settings_args(args).0;
+        rest.insert(0, program.clone());
         rest.push("--settings".to_owned());
         rest.push(team_settings(flag, &pair, &kept));
         *argv = rest;
