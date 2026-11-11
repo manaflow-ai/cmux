@@ -41,6 +41,7 @@ on every PR that touches `cmux-next-ios/**`):
 | `chat_open_last_messages` | `AgentChatStore` on a fake acpmux, until it holds the newest turn, finished | ~40 records | 50,000 records | 150 ms |
 | `chat_reconnect_catch_up` | link back (`bind`), reattach, until the newest turn shows (tail-first since slice 3: the gap before the newest page fills after, untimed; its time is in the note) | 10 missed | 20,000 missed | 150 ms |
 | `chat_older_page` | one scroll-up page of older history (`loadEarlier`) | 450-record chat | 50,000 records | 50 ms |
+| `home_list_first_screen_under_load` | the first window as in `home_list_first_screen`, while every core parses the whole god list at the feed's priority for it (`MacHomeReply.wholeListPriority`, `.utility`): the first screen always wins. Small is the same window with no load; the note has the window under the same load at `.userInitiated`, the feed's priority before | 20 rows, no load | 20 of 5,000 rows, loaded | 16 ms |
 | `workspaces_cold_paint_from_cache` | a cold launch with no link: the Workspaces cache read from disk (`LiveSnapshotStore.loadFirstScreen`, what `LiveCoordinator.restoreSnapshot` reads on the main actor) to the inbox the first screen draws (`WorkspaceInbox` over the restored rows, marked cached) | 20 workspaces | 5,000 workspaces | 16 ms |
 
 The Workspaces cache (`LiveSnapshotStore`, format 2) keeps each Mac's first 40 rows in list

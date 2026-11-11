@@ -128,10 +128,16 @@ public enum MacHomeReply: Equatable, Sendable {
         }
     }
 
+    /// The priority the whole list (and `conversation-list`) is parsed at: below the first
+    /// screen's, so on a phone with few free cores the megabytes of a large Mac's list never
+    /// compete with the first window painting (`home_list_first_screen_under_load`).
+    public static let wholeListPriority: TaskPriority = .utility
+
     /// Reads `home-inbox` with `params` and parses the reply off the main actor (a whole
-    /// list is megabytes on a large Mac; only the rows come back to the caller).
-    static func read(_ client: DaemonClient, _ params: sending [String: Any]) async throws -> MacHomeReply {
+    /// list is megabytes on a large Mac; only the rows come back to the caller), at `priority`.
+    static func read(_ client: DaemonClient, _ params: sending [String: Any],
+                     priority: TaskPriority = .userInitiated) async throws -> MacHomeReply {
         let line = try await client.request("home-inbox", params: params)
-        return try await Task.detached(priority: .userInitiated) { try MacHomeReply(line: line) }.value
+        return try await Task.detached(priority: priority) { try MacHomeReply(line: line) }.value
     }
 }
