@@ -50,6 +50,34 @@ public struct MobileWorkspaceShellLayoutPolicy {
         sidebarWasHidden ? .detailOnly : .all
     }
 
+    /// The column visibility a phone split layout opens with on launch.
+    ///
+    /// With no workspace picked yet the sidebar's list is the only useful
+    /// content, so it stays shown; the remembered state takes over once the
+    /// user picks a workspace.
+    /// - Parameters:
+    ///   - sidebarWasHidden: The remembered sidebar state.
+    ///   - hasSelectedWorkspace: Whether a workspace is already picked.
+    /// - Returns: `.all` until a workspace is picked, then the restored state.
+    public static func launchSplitColumnVisibility(
+        sidebarWasHidden: Bool,
+        hasSelectedWorkspace: Bool
+    ) -> NavigationSplitViewVisibility {
+        guard hasSelectedWorkspace else { return .all }
+        return restoredSplitColumnVisibility(sidebarWasHidden: sidebarWasHidden)
+    }
+
+    /// Whether the phone split detail shows the first workspace when none is
+    /// picked. The phone opens on the list instead: a terminal mounted before
+    /// the Mac connection is up can stay blank until it is remounted.
+    /// - Parameter hostsSplitDestinationsInSidebar: Whether this is the phone split layout.
+    /// - Returns: `false` for the phone split layout.
+    public static func splitDetailFallsBackToFirstWorkspace(
+        hostsSplitDestinationsInSidebar: Bool
+    ) -> Bool {
+        !hostsSplitDestinationsInSidebar
+    }
+
     /// Whether a column visibility hides the phone split sidebar.
     ///
     /// The split opens on an explicit visibility (see

@@ -63,6 +63,40 @@ import Testing
         )
     }
 
+    @Test func splitLaunchesOnTheListUntilAWorkspaceIsPicked() {
+        #expect(
+            MobileWorkspaceShellLayoutPolicy.launchSplitColumnVisibility(
+                sidebarWasHidden: true,
+                hasSelectedWorkspace: false
+            ) == .all
+        )
+        #expect(
+            MobileWorkspaceShellLayoutPolicy.launchSplitColumnVisibility(
+                sidebarWasHidden: true,
+                hasSelectedWorkspace: true
+            ) == .detailOnly
+        )
+        #expect(
+            MobileWorkspaceShellLayoutPolicy.launchSplitColumnVisibility(
+                sidebarWasHidden: false,
+                hasSelectedWorkspace: true
+            ) == .all
+        )
+    }
+
+    @Test func onlyThePadSplitOpensTheFirstWorkspace() {
+        #expect(
+            !MobileWorkspaceShellLayoutPolicy.splitDetailFallsBackToFirstWorkspace(
+                hostsSplitDestinationsInSidebar: true
+            )
+        )
+        #expect(
+            MobileWorkspaceShellLayoutPolicy.splitDetailFallsBackToFirstWorkspace(
+                hostsSplitDestinationsInSidebar: false
+            )
+        )
+    }
+
     @Test func onlyTheSidebarColumnCountsAsShown() {
         #expect(MobileWorkspaceShellLayoutPolicy.splitSidebarIsHidden(.detailOnly))
         #expect(!MobileWorkspaceShellLayoutPolicy.splitSidebarIsHidden(.all))

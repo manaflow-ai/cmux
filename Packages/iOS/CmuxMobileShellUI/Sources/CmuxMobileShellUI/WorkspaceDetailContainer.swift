@@ -25,6 +25,9 @@ struct WorkspaceDetailContainer: View {
     var showsSidebarToggle = false
     var sidebarDestinationShortcuts: WorkspaceSidebarDestinationShortcuts? = nil
     var sidebarToolbarRowFrame: CGRect? = nil
+    /// Whether a `nil` workspace ID shows the store's fallback workspace
+    /// rather than the empty state.
+    var fallsBackToSelectedWorkspace = true
     @State private var routeWorkspaceSnapshot: MobileWorkspacePreview?
 
     private var workspace: MobileWorkspacePreview? {
@@ -37,6 +40,7 @@ struct WorkspaceDetailContainer: View {
             }
             return nil
         }
+        guard fallsBackToSelectedWorkspace else { return nil }
         return store.selectedWorkspace
     }
 

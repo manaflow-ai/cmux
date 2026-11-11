@@ -366,6 +366,9 @@ struct WorkspaceShellView: View {
     /// the way the user left it.
     @AppStorage(MobileWorkspaceShellLayoutPolicy.splitSidebarHiddenStorageKey)
     private var splitSidebarHidden = false
+    /// Set while a launch shows the hidden-by-choice sidebar only because no
+    /// workspace is picked yet, so that showing is not remembered.
+    @State private var splitSidebarShownUntilWorkspacePicked = false
     #if os(iOS)
     /// Measured width of the split sidebar column. Feeds the root toolbar's
     /// content-width environment so the computer picker budgets against the
@@ -1085,7 +1088,10 @@ struct WorkspaceShellView: View {
                 toggleSidebar: toggleSplitSidebar,
                 showsSidebarToggle: splitColumnVisibility == .detailOnly,
                 sidebarDestinationShortcuts: destinationShortcuts,
-                sidebarToolbarRowFrame: splitSidebarToolbarRowFrame
+                sidebarToolbarRowFrame: splitSidebarToolbarRowFrame,
+                fallsBackToSelectedWorkspace: MobileWorkspaceShellLayoutPolicy.splitDetailFallsBackToFirstWorkspace(
+                    hostsSplitDestinationsInSidebar: hostsSplitDestinationsInSidebar
+                )
             )
         }
         .navigationSplitViewStyle(.balanced)
@@ -1094,8 +1100,18 @@ struct WorkspaceShellView: View {
             for: .tabBar
         )
         .onChange(of: splitColumnVisibility) { _, visibility in
-            guard hostsSplitDestinationsInSidebar else { return }
+            guard hostsSplitDestinationsInSidebar,
+                  !splitSidebarShownUntilWorkspacePicked else { return }
             splitSidebarHidden = MobileWorkspaceShellLayoutPolicy.splitSidebarIsHidden(visibility)
+        }
+        .onChange(of: store.selectedWorkspaceID) { _, workspaceID in
+            // The launch showed the list only because nothing was picked;
+            // the first pick restores the layout the user left.
+            guard splitSidebarShownUntilWorkspacePicked, workspaceID != nil else { return }
+            splitSidebarShownUntilWorkspacePicked = false
+            splitColumnVisibility = MobileWorkspaceShellLayoutPolicy.restoredSplitColumnVisibility(
+                sidebarWasHidden: splitSidebarHidden
+            )
         }
         .onAppear {
             hasPresentedSplitDetail = true
@@ -1103,8 +1119,11 @@ struct WorkspaceShellView: View {
             // still reads `.automatic`, which hides the detail's show-sidebar
             // control. An explicit state keeps the toggle reachable.
             if hostsSplitDestinationsInSidebar, splitColumnVisibility == .automatic {
-                splitColumnVisibility = MobileWorkspaceShellLayoutPolicy.restoredSplitColumnVisibility(
-                    sidebarWasHidden: splitSidebarHidden
+                let hasSelectedWorkspace = store.selectedWorkspaceID != nil
+                splitSidebarShownUntilWorkspacePicked = !hasSelectedWorkspace && splitSidebarHidden
+                splitColumnVisibility = MobileWorkspaceShellLayoutPolicy.launchSplitColumnVisibility(
+                    sidebarWasHidden: splitSidebarHidden,
+                    hasSelectedWorkspace: hasSelectedWorkspace
                 )
             }
             #if os(iOS) && DEBUG
@@ -1428,6 +1447,7 @@ struct WorkspaceShellView: View {
     }
 
     private func toggleSplitSidebar() {
+        splitSidebarShownUntilWorkspacePicked = false
         withAnimation {
             splitColumnVisibility = splitColumnVisibility == .detailOnly ? .all : .detailOnly
         }
@@ -2145,7 +2165,8 @@ struct WorkspaceShellView: View {
         toggleSidebar: (() -> Void)? = nil,
         showsSidebarToggle: Bool = false,
         sidebarDestinationShortcuts: WorkspaceSidebarDestinationShortcuts? = nil,
-        sidebarToolbarRowFrame: CGRect? = nil
+        sidebarToolbarRowFrame: CGRect? = nil,
+        fallsBackToSelectedWorkspace: Bool = true
     ) -> some View {
         // A Cloud machine's workspace makes its new workspace on that machine,
         // whether or not a Mac is connected.
@@ -2170,7 +2191,8 @@ struct WorkspaceShellView: View {
             toggleSidebar: toggleSidebar,
             showsSidebarToggle: showsSidebarToggle,
             sidebarDestinationShortcuts: sidebarDestinationShortcuts,
-            sidebarToolbarRowFrame: sidebarToolbarRowFrame
+            sidebarToolbarRowFrame: sidebarToolbarRowFrame,
+            fallsBackToSelectedWorkspace: fallsBackToSelectedWorkspace
         )
     }
 }
