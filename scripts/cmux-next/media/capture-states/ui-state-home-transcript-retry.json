@@ -1,0 +1,57 @@
+{
+  "title": "Home: a Chief with history whose first read failed; Try Again brings the transcript (ui-state-fixes M1, history case)",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "The Chief with history: its first read fails",
+      "rpc": {
+        "method": "debug.home_native_fixture.open",
+        "params": {
+          "transcript": "failed"
+        }
+      },
+      "wait": 2.5,
+      "record": true
+    },
+    {
+      "title": "First page failed: the error with Try Again",
+      "rpc": {
+        "method": "debug.home_native_fixture.capture",
+        "params": {
+          "action": "state"
+        }
+      },
+      "wait": 0.5,
+      "record": true,
+      "shot": false
+    },
+    {
+      "title": "Try Again, the owner answering now",
+      "rpc": {
+        "method": "debug.home_native_fixture.capture",
+        "params": {
+          "action": "retry"
+        }
+      },
+      "wait": 3,
+      "record": true,
+      "shot": false
+    },
+    {
+      "title": "The read answered: first page loaded, the transcript drawn, no first-run panel",
+      "rpc": {
+        "method": "debug.home_native_fixture.capture",
+        "params": {
+          "action": "state"
+        }
+      },
+      "wait": 0.5,
+      "record": true,
+      "shot": false
+    }
+  ]
+}
