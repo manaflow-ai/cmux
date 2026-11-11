@@ -220,27 +220,57 @@ describe("inference router providers (Vercel first, OpenRouter, Cloudflare, Azur
     expect(r.headers.get("x-cmux-images-omitted")).toBeNull()
   })
 
+  // DeepSeek takes 600 images per request (api-docs.deepseek.com/guides/vision).
   it("sends the newest images up to the limit and a placeholder for each older one", async () => {
     const { t } = await paidPerson("router-vision-history-cut")
     const seen = record(() => ok())
-    const r = await call(t, allKeys(), DS, historyWithImages(51))
+    const r = await call(t, allKeys(), DS, historyWithImages(601))
     expect(r.status).toBe(200)
     const sent = seen[0]!.body.messages as Array<{ content: unknown }>
-    expect(imagePartsOf(sent)).toBe(50)
+    expect(imagePartsOf(sent)).toBe(600)
     // The oldest image is the one left out; the model reads why.
-    expect(JSON.stringify(sent[0]!.content)).toContain("[earlier image not sent: limit 50 per request]")
+    expect(JSON.stringify(sent[0]!.content)).toContain("[earlier image not sent: limit 600 per request]")
     expect(JSON.stringify(sent[0]!.content)).not.toContain("image_url")
     expect(JSON.stringify(sent[2]!.content)).toContain("image_url")
     expect(r.headers.get("x-cmux-images-omitted")).toBe("1")
   })
 
-  it("refuses only a new message that alone carries more images than the limit", async () => {
+  it("refuses only a new message that alone carries more images than every route takes", async () => {
     const { t } = await paidPerson("router-vision-new-message")
     const seen = record(() => ok())
-    const r = await call(t, allKeys(), DS, [{ role: "user", content: [{ type: "text", text: "All of these?" }, ...imageParts(51)] }])
+    const r = await call(t, allKeys(), DS, [{ role: "user", content: [{ type: "text", text: "All of these?" }, ...imageParts(601)] }])
     expect(r.status).toBe(400)
-    expect(JSON.parse(r.text).error.message).toContain("at most 50 images in one message")
+    expect(JSON.parse(r.text).error.message).toContain("at most 600 images in one message")
     expect(seen).toEqual([])
+  })
+
+  it("sends 51 images in one message through one pinned route", async () => {
+    // No route of this model has a published limit below DeepSeek's own 600: nothing is refused or cut.
+    const { t } = await paidPerson("router-vision-pinned-vercel")
+    const seen = record(() => ok())
+    const r = await call(t, allKeys(), DS, [{ role: "user", content: [{ type: "text", text: "All of these?" }, ...imageParts(51)] }], { "x-cmux-provider": "vercel" })
+    expect(r.status).toBe(200)
+    expect(seen.map((s) => s.provider)).toEqual(["vercel"])
+    expect(imagePartsOf(seen[0]!.body.messages)).toBe(51)
+  })
+
+  it("sends a GPT-5.4 mini message of 501 images (OpenAI takes 1,500 per request)", async () => {
+    const { t } = await paidPerson("router-vision-openai-count")
+    const seen = record(() => ok())
+    const r = await call(t, allKeys({ INFERENCE_PRIMARY_PROVIDER: "openai" }), "openai/gpt-5.4-mini", [{ role: "user", content: [{ type: "text", text: "All of these?" }, ...imageParts(501)] }])
+    expect(r.status).toBe(200)
+    expect(imagePartsOf(seen[0]!.body.messages)).toBe(501)
+  })
+
+  it("serves a chat with about 9 MiB of history images and a short new text message", async () => {
+    const { t } = await paidPerson("router-vision-history-bytes")
+    const seen = record(() => ok())
+    const big = `data:image/png;base64,${"A".repeat(3 * 1024 * 1024)}`
+    const turn = { role: "user", content: [{ type: "text", text: "This one" }, { type: "image_url", image_url: { url: big } }] }
+    const messages = [turn, { role: "assistant", content: "Seen" }, turn, { role: "assistant", content: "Seen" }, turn, { role: "assistant", content: "Seen" }, { role: "user", content: "Which was first?" }]
+    const r = await call(t, allKeys(), DS, messages)
+    expect(r.status).toBe(200)
+    expect(imagePartsOf(seen[0]!.body.messages)).toBe(3)
   })
 
   it("sends every image to a model whose provider has no image-count limit", async () => {
