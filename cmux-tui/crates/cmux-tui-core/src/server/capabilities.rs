@@ -442,6 +442,8 @@ pub(super) fn advertised_capabilities(
         conversation_tabs_wire::CONVERSATION_TAB_TRANSACTION_CAPABILITY,
         conversation_tabs_wire::CONVERSATION_TAB_SPLIT_CAPABILITY,
         frontend_browser_history::FRONTEND_BROWSER_TAB_SPLIT_CAPABILITY,
+        frontend_browser_history::FRONTEND_BROWSER_TAB_WORKSPACE_CAPABILITY,
+        frontend_browser_history::WORKSPACE_FIRST_TAB_CAPABILITY,
         crate::git_ops::CHECKPOINTS_CAPABILITY,
         crate::git_ops::FILES_SEARCH_CAPABILITY,
         crate::history_ops::CAPABILITY,
