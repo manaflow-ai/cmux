@@ -488,6 +488,11 @@ path = "tests/test_ci_release_product_reuse.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_release_publish_tag_gate.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Fails when a publishing, attesting, asset-uploading or release-secret step in coderouter-release.yml or app-ffi-release.yml loses a condition that requires its release ref, or a workflow_dispatch can reach it; run python3 tests/test_ci_release_publish_tag_gate.py yourself after editing either workflow (about 10 s, no build)."
+
+[[test]]
 path = "tests/test_ci_reload_build_cache_keys.py"
 lane = "linux-guard"
 
