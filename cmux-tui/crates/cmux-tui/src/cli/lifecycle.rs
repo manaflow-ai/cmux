@@ -203,23 +203,24 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         Err(error) if matches!(action, ServerAction::Stop { .. }) && is_absent(&error) => {
             // A start lock an earlier owner left goes too.
             let removed = remove_start_lock(&socket);
-            let mut stopped = json!({
+            let stopped = json!({
                 "status":"not_running",
                 "session":expected_session,
                 "socket":socket_output,
                 "removed":removed,
                 "message":crate::localization::catalog().local_server.not_running,
             });
-            // No owner answers here, so nothing to wait for: the reset's own
-            // lease refuses a session another owner still runs.
-            if let (ServerAction::Stop { purge: true, .. }, Some(fields)) =
-                (&action, stopped.as_object_mut())
-            {
-                fields.extend(super::command::purge_stopped_session_state(
+            // No owner answers here. One that still releases the session
+            // (a stop that just closed its socket) gets a short wait; one
+            // that runs the session at another socket is refused then.
+            if let ServerAction::Stop { purge: true, .. } = action {
+                return print_purged_stop(
+                    stopped,
                     expected_session.as_deref(),
                     None,
-                    None,
-                ));
+                    Instant::now() + PURGE_NOT_RUNNING_WAIT,
+                    global.output,
+                );
             }
             return print_success(stopped, global.output);
         }
@@ -536,14 +537,15 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             });
             // `--purge`: the whole session folder goes once the owner
             // released it, in the state root the owner named when it did.
-            if let (true, Some(fields)) = (purge, stopped.as_object_mut()) {
+            if purge {
                 let session_dir = result.get("session_dir").and_then(Value::as_str);
-                fields.extend(super::command::purge_stopped_session_state(
+                return print_purged_stop(
+                    stopped,
                     Some(actual_session),
                     session_dir.map(std::path::Path::new),
-                    Some(Instant::now() + Duration::from_secs(10)),
-                ));
-                return print_success(stopped, global.output);
+                    Instant::now() + Duration::from_secs(10),
+                    global.output,
+                );
             }
             // Every terminal ended, so nothing is left to resume: the
             // terminal and resume state goes too, and every other store of
@@ -1314,6 +1316,46 @@ fn run_compact_registry(
             output,
             1,
         ),
+    }
+}
+
+/// How long `daemon stop --purge` waits, when no owner answers at the
+/// socket, for one that still holds the session's locks.
+const PURGE_NOT_RUNNING_WAIT: Duration = Duration::from_secs(2);
+
+/// Ends `daemon stop --purge` after the stop (`stopped`, its result):
+/// removes the session's saved state, and prints the stop result with the
+/// purge's fields (exit 0), or a `session.reset_state.*` error whose
+/// `details.stop` keeps the stop's facts (exit 1).
+fn print_purged_stop(
+    mut stopped: Value,
+    session: Option<&str>,
+    session_dir: Option<&std::path::Path>,
+    deadline: Instant,
+    output: OutputMode,
+) -> i32 {
+    match super::command::purge_stopped_session_state(session, session_dir, deadline) {
+        Ok(fields) => {
+            if let Some(stopped) = stopped.as_object_mut() {
+                stopped.extend(fields);
+            }
+            print_success(stopped, output)
+        }
+        Err(failure) => {
+            if let Some(stopped) = stopped.as_object_mut() {
+                stopped.insert("removed_session_state".to_owned(), json!(false));
+            }
+            let message = crate::localization::catalog()
+                .local_server
+                .purge_failed(session.unwrap_or_default(), failure.reason);
+            local_error_with_details(
+                failure.code,
+                &message,
+                json!({"session": session, "reason": failure.reason, "stop": stopped}),
+                output,
+                1,
+            )
+        }
     }
 }
 

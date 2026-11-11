@@ -625,10 +625,34 @@ impl PersistentSessionStateResetter {
     }
 
     /// Removes the scoped saved state for `session_name` after confirmation.
+    /// The session's guard file (`session-locks/<session>.lock`) stays.
     pub fn reset(
         &self,
         session_name: &str,
         confirm_reset: Option<&str>,
+    ) -> anyhow::Result<PersistentSessionStateReset> {
+        self.reset_scoped(session_name, confirm_reset, false)
+    }
+
+    /// [`Self::reset`] for `daemon stop --purge`: once the saved state is
+    /// gone, it also removes the session's empty guard file
+    /// (`session-locks/<session>.lock`) while the reset still holds it,
+    /// under the session-locks coordinator, so no daemon start can hold the
+    /// removed file. A guard file left by an earlier reset goes too, with no
+    /// other state left.
+    pub fn purge(
+        &self,
+        session_name: &str,
+        confirm_reset: Option<&str>,
+    ) -> anyhow::Result<PersistentSessionStateReset> {
+        self.reset_scoped(session_name, confirm_reset, true)
+    }
+
+    fn reset_scoped(
+        &self,
+        session_name: &str,
+        confirm_reset: Option<&str>,
+        remove_guard: bool,
     ) -> anyhow::Result<PersistentSessionStateReset> {
         let root = &self.state_root;
         let session_dir = self.session_dir(session_name);
@@ -650,6 +674,7 @@ impl PersistentSessionStateResetter {
         if !initial_session_dir_exists
             && !initial_terminal_host_root_exists
             && initial_pending_reset_dirs.is_empty()
+            && !(remove_guard && session_guard_file_exists(root, session_name))
         {
             return Ok(reset);
         }
@@ -662,7 +687,7 @@ impl PersistentSessionStateResetter {
             confirm_reset,
         )?;
         ensure_checked_reset_deletion_supported(root)?;
-        let _session_guard = acquire_existing_session_reset_guard(root, session_name)?;
+        let session_guard = acquire_existing_session_reset_guard(root, session_name)?;
         let lock_pending_reset_dirs = pending_session_reset_dirs(root, session_name)?;
         let lock_session_dir_exists = validate_session_reset_dir(&session_dir)?;
         let lock_terminal_host_root_exists = validate_terminal_host_reset_dir(&terminal_host_root)?;
@@ -670,6 +695,9 @@ impl PersistentSessionStateResetter {
             && !lock_terminal_host_root_exists
             && lock_pending_reset_dirs.is_empty()
         {
+            if remove_guard {
+                remove_purged_session_guard(&session_guard);
+            }
             return Ok(reset);
         }
         let lease = if lock_session_dir_exists {
@@ -693,6 +721,9 @@ impl PersistentSessionStateResetter {
         let session_dir_exists = validate_session_reset_dir(&session_dir)?;
         let terminal_host_root_exists = validate_terminal_host_reset_dir(&terminal_host_root)?;
         if !session_dir_exists && !terminal_host_root_exists && pending_reset_dirs.is_empty() {
+            if remove_guard {
+                remove_purged_session_guard(&session_guard);
+            }
             return Ok(reset);
         }
         let confirmation = require_reset_confirmation(
@@ -776,8 +807,37 @@ impl PersistentSessionStateResetter {
         }
         platform::sync_directory(root)
             .with_context(|| format!("sync workspace state root {}", root.display()))?;
+        if remove_guard {
+            remove_purged_session_guard(&session_guard);
+        }
         Ok(reset)
     }
+}
+
+/// Whether `root` has a guard file for `session_name`; only where a reset
+/// can delete (elsewhere [`PersistentSessionStateResetter::purge`] leaves
+/// the guard, as it leaves the state).
+fn session_guard_file_exists(root: &Path, session_name: &str) -> bool {
+    let lock_dir = platform::normalize_filesystem_path(root.join(SESSION_GUARD_DIR));
+    cfg!(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))
+        && fs::symlink_metadata(session_guard_lock_path(&lock_dir, session_name))
+            .is_ok_and(|metadata| metadata.file_type().is_file())
+}
+
+/// `daemon stop --purge`: removes the session's guard file once its saved
+/// state is gone, while `guard` (the reset's lease) still holds it.
+///
+/// The unlink runs under the session-locks coordinator, only while the path
+/// still names the locked file ([`SessionLease::while_guarding`]). A daemon
+/// start opens, checks and locks a guard only under that coordinator, so no
+/// start can hold the unlinked file: a start before the unlink fails on the
+/// held lock, a start after it makes a new guard file. A probe that opened
+/// the old file earlier (`mux/unowned_hosts.rs`) finds the path changed
+/// ([`SessionLease::still_guards`]) and takes the session as owned.
+/// Best effort: a coordinator busy past its short bound, or a failed
+/// unlink, leaves the empty file, as a plain reset does.
+fn remove_purged_session_guard(guard: &SessionLease) {
+    let _ = guard.while_guarding(|| fs::remove_file(&guard.path));
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -173,62 +173,80 @@ fn drop_hook_queue(session: &str) -> (&'static str, serde_json::Value) {
     }
 }
 
+/// Why `daemon stop --purge` did not remove the stopped session's state:
+/// a `session.reset_state.*` code and its localized reason.
+pub(in crate::cli) struct PurgeFailure {
+    pub(in crate::cli) code: &'static str,
+    pub(in crate::cli) reason: &'static str,
+}
+
 /// `daemon stop --purge` (W6-E, bench round 5 A8): removes the stopped
-/// session's whole folder and its terminal-host records, as `session <name>
-/// reset-state --force` does with its preview's confirmation token, and
-/// drops its queued hook events. With `wait`, it first waits (until then,
-/// with a blocking lock call) for the stopping owner to release the
-/// session's locks; without, a session that another owner runs is refused
-/// at once. The state root is the one the owner named (`session_dir`'s
+/// session's whole folder, its terminal-host records and its guard file,
+/// as `session <name> reset-state --force` does with its preview's
+/// confirmation token, and drops its queued hook events. It first waits
+/// (until `deadline`, with a blocking lock call) for the stopping owner to
+/// release the session's locks: a session that another owner still runs is
+/// refused at `deadline` (`session.reset_state.session_running`) and keeps
+/// everything. The state root is the one the owner named (`session_dir`'s
 /// parent), else this process's. Another session's folder is never
-/// touched. Returns the stop result's fields: `removed_session_state`
-/// (true once none is left), `removed_terminal_hosts`, the hook queue
-/// field, and on failure `session_state_error` (a `session.reset_state.*`
-/// code).
+/// touched. Returns the stop result's fields: `removed_session_state`,
+/// `removed_terminal_hosts`, and the hook queue field; or why it failed.
 pub(in crate::cli) fn purge_stopped_session_state(
     session: Option<&str>,
     session_dir: Option<&std::path::Path>,
-    wait: Option<std::time::Instant>,
-) -> serde_json::Map<String, serde_json::Value> {
+    deadline: std::time::Instant,
+) -> Result<serde_json::Map<String, serde_json::Value>, PurgeFailure> {
     use cmux_tui_core::PersistentSessionStateResetter as Resetter;
-    let mut fields = serde_json::Map::new();
-    let purged = session.ok_or("session.reset_state.no_session").and_then(|session| {
-        let resetter = match session_dir {
-            Some(dir) => dir
-                .parent()
-                .map(|root| Resetter::new(root.to_path_buf()))
-                .filter(|resetter| {
-                    resetter.session_dir(session)
-                        == cmux_tui_core::platform::normalize_filesystem_path(dir.to_path_buf())
-                })
-                .ok_or("session.reset_state.invalid_state_path"),
-            None => cmux_tui_core::platform::workspace_state_dir()
-                .map(Resetter::new)
-                .ok_or("session.reset_state.no_state_root"),
-        }?;
-        let purge = || -> anyhow::Result<_> {
-            if let Some(deadline) = wait {
-                resetter.end_terminal_state(session, deadline)?;
+    let local_server = &crate::localization::catalog().local_server;
+    let session_reset = &crate::localization::catalog().session_reset;
+    let session = session.ok_or(PurgeFailure {
+        code: "session.reset_state.no_session",
+        reason: local_server.purge_needs_session,
+    })?;
+    let resetter = match session_dir {
+        Some(dir) => dir
+            .parent()
+            .map(|root| Resetter::new(root.to_path_buf()))
+            .filter(|resetter| {
+                resetter.session_dir(session)
+                    == cmux_tui_core::platform::normalize_filesystem_path(dir.to_path_buf())
+            })
+            .ok_or(PurgeFailure {
+                code: "session.reset_state.invalid_state_path",
+                reason: session_reset.reason_invalid_state_path,
+            }),
+        None => {
+            cmux_tui_core::platform::workspace_state_dir().map(Resetter::new).ok_or(PurgeFailure {
+                code: "session.reset_state.no_state_root",
+                reason: local_server.purge_no_state_root,
+            })
+        }
+    }?;
+    let purge = || -> anyhow::Result<_> {
+        let ended = resetter.end_terminal_state(session, deadline)?;
+        let preview = resetter.preview(session)?;
+        let reset = resetter.purge(session, Some(&preview.confirm_reset))?;
+        Ok(ended.removed_terminal_hosts || reset.removed_terminal_hosts)
+    };
+    let removed_terminal_hosts = purge().map_err(|error| {
+        let advice = reset_failure_advice(&error);
+        // The token is this purge's own preview: a mismatch means the
+        // state changed between the two.
+        if advice.code == "session.reset_state.confirmation_required" {
+            PurgeFailure {
+                code: "session.reset_state.state_changed",
+                reason: session_reset.reason_state_changed,
             }
-            let preview = resetter.preview(session)?;
-            resetter.reset(session, Some(&preview.confirm_reset))
-        };
-        let reset = purge().map_err(|error| reset_failure_advice(&error).code)?;
-        Ok((session, reset))
-    });
-    match purged {
-        Ok((session, reset)) => {
-            fields.insert("removed_session_state".to_owned(), json!(true));
-            fields.insert("removed_terminal_hosts".to_owned(), json!(reset.removed_terminal_hosts));
-            let (key, value) = drop_hook_queue(session);
-            fields.insert(key.to_owned(), value);
+        } else {
+            PurgeFailure { code: advice.code, reason: advice.reason }
         }
-        Err(code) => {
-            fields.insert("removed_session_state".to_owned(), json!(false));
-            fields.insert("session_state_error".to_owned(), json!(code));
-        }
-    }
-    fields
+    })?;
+    let mut fields = serde_json::Map::new();
+    fields.insert("removed_session_state".to_owned(), json!(true));
+    fields.insert("removed_terminal_hosts".to_owned(), json!(removed_terminal_hosts));
+    let (key, value) = drop_hook_queue(session);
+    fields.insert(key.to_owned(), value);
+    Ok(fields)
 }
 
 struct ResetFailureAdvice {

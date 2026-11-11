@@ -106,6 +106,13 @@ pub(crate) struct LocalServerMessages {
     /// `{seconds}`, `{command}`.
     pub stop_gave_up_starting: &'static str,
     pub all_sessions_agent_refused: &'static str,
+    /// `daemon stop --purge` did not remove the session's saved state:
+    /// `{session}`, `{reason}` (a localized reset reason).
+    pub(super) purge_failed: &'static str,
+    /// `daemon stop --purge` reason: no session name to purge.
+    pub purge_needs_session: &'static str,
+    /// `daemon stop --purge` reason: no durable state directory.
+    pub purge_no_state_root: &'static str,
 }
 
 impl LocalServerMessages {
@@ -125,6 +132,12 @@ impl LocalServerMessages {
     pub(crate) fn stop_gave_up(&self, starting: bool, seconds: u64, command: &str) -> String {
         let text = if starting { self.stop_gave_up_starting } else { self.stop_gave_up_restoring };
         text.replace("{seconds}", &seconds.to_string()).replace("{command}", command)
+    }
+
+    /// Why `daemon stop --purge` left the saved state of `session`, for the
+    /// localized `reason`; the stop itself is done.
+    pub(crate) fn purge_failed(&self, session: &str, reason: &str) -> String {
+        self.purge_failed.replace("{session}", session).replace("{reason}", reason)
     }
 
     /// The message of a failed ensure, shared by `server ensure` and attach.
@@ -179,7 +192,7 @@ pub(super) const ENGLISH: LocalServerMessages = LocalServerMessages {
     status_help: "USAGE\n  cmux daemon status [--session <name>] [--socket <path>]\n",
     stats_help: "USAGE\n  cmux daemon stats [--session <name>] [--socket <path>]\n\nReport where the daemon spends its time: registry lock waits and holders,\njournal writer batch sizes and commit latency, and connection admission.\nUse --json for the exact `server-stats` object.\n",
     stats_unsupported: "this server does not support server-stats: it is an older build than this CLI. `cmux daemon status` still works; do not stop the server for stats, that ends its terminals.",
-    stop_help: "USAGE\n  cmux daemon stop [--session <name>] [--socket <path>] [--force] [--end-terminals]\n    [--purge] [--restore-wait-seconds <n>]\n\nStopping an absent server succeeds. Durable session topology is preserved.\n--end-terminals ends every terminal and removes its tabs first (test teardown),\nthen removes the session's terminal and resume state (the launch snapshot and\nthe terminal-host records). The Chief store, conversations, git checkpoints,\ndiff comments and session settings stay.\n--purge also ends every terminal, then removes the whole session folder and its\nterminal-host records, as `cmux session <name> reset-state` does; a session that\nstill runs is never removed. It also cleans up a session that is already stopped.\nA server that is still restoring its session is stopped when the restore ends;\nthe stop waits up to --restore-wait-seconds (default 120, at most 3600) and\nshows its progress on stderr.\n",
+    stop_help: "USAGE\n  cmux daemon stop [--session <name>] [--socket <path>] [--force] [--end-terminals]\n    [--purge] [--restore-wait-seconds <n>]\n\nStopping an absent server succeeds. Durable session topology is preserved.\n--end-terminals ends every terminal and removes its tabs first (test teardown),\nthen removes the session's terminal and resume state (the launch snapshot and\nthe terminal-host records). The rest of the session folder stays: its Chief\nstore, conversations, git checkpoints, diff comments and session settings.\n--purge also ends every terminal, then deletes the session with no confirmation:\nits whole session folder (<state root>/<session>-<hash>/), which holds the\nworkspace registry (workspaces, screens, panes, tabs, terminals, browser tabs,\nclosed items, command history), the launch snapshot, the launch keys, stored\nterminal output, conversations and their attachments, the session's Chief store\n(chiefs.sqlite3), git checkpoints, diff comments, the settings cache and team\npolicy (settings/), app data and agent shares; and, outside that folder, the\nsession's terminal-host records, its lock file in session-locks/ and its queued\nagent hook events. It keeps the Chief's own home (~/.cmux/chief), the page\nhistory and the terminal-loss log that all sessions share, your cmux config\nand every other session. A session that another server still runs is refused\nand nothing is deleted. A purge that fails exits 1 with its session.reset_state.*\ncode; the stop itself is done. It also purges a session that is already stopped.\nA server that is still restoring its session is stopped when the restore ends;\nthe stop waits up to --restore-wait-seconds (default 120, at most 3600) and\nshows its progress on stderr.\n",
     restart_help: "USAGE\n  cmux daemon restart [--session <name>] [--socket <path>] [--force]\n    [--restore-wait-seconds <n>]\n\nReplaces the session's local server with this cmux binary and keeps every\nterminal: the server stops as an update hands it off, and the server this\nbinary starts adopts its terminals. Run it from a new build to apply a daemon\nedit to a running session. With no server running, it starts one.\n",
     reload_config_help: "USAGE\n  cmux daemon reload-config [--session <name>] [--socket <path>]\n",
     running: "local server is running",
@@ -247,6 +260,9 @@ pub(super) const ENGLISH: LocalServerMessages = LocalServerMessages {
     stop_gave_up_restoring: "the local server did not stop: after {seconds} s it is still restoring its session (registry and terminal hosts) or too busy to answer. Its client log under the session state directory shows what the restore waits for. To wait longer, run: {command}",
     stop_gave_up_starting: "the local server did not stop: it restored its session, but after {seconds} s it is still finishing its startup. To wait longer, run: {command}",
     all_sessions_agent_refused: "--all-sessions is refused for an agent caller ({marker} is set); drop --all-sessions to list this session",
+    purge_failed: "the stop is done, but --purge did not remove the saved state of session \"{session}\": {reason}. Fix the cause, then run the same stop with --purge again",
+    purge_needs_session: "the session name is unknown; pass --session <name>",
+    purge_no_state_root: "cannot determine the durable state directory",
 };
 
 pub(super) const JAPANESE: LocalServerMessages = LocalServerMessages {
@@ -267,7 +283,7 @@ pub(super) const JAPANESE: LocalServerMessages = LocalServerMessages {
     status_help: "使用方法\n  cmux daemon status [--session <名前>] [--socket <パス>]\n",
     stats_help: "使用方法\n  cmux daemon stats [--session <名前>] [--socket <パス>]\n\nデーモンの時間の使われ方を報告します: レジストリロックの待機と保持元、\nジャーナルライターのバッチサイズとコミット遅延、接続の受け入れ状況。\n正確な `server-stats` オブジェクトは --json で取得できます。\n",
     stats_unsupported: "このサーバーは server-stats に対応していません。この CLI より古いビルドです。`cmux daemon status` は使えます。統計のためにサーバーを停止しないでください (ターミナルが終了します)。",
-    stop_help: "使用方法\n  cmux daemon stop [--session <名前>] [--socket <パス>] [--force] [--end-terminals]\n    [--purge] [--restore-wait-seconds <秒数>]\n\nサーバーが存在しない場合も成功します。永続セッションの構成は保持されます。\n--end-terminals は先にすべてのターミナルを終了し、そのタブを削除します (テストの後始末用)。\nその後、セッションのターミナルと再開の状態 (起動スナップショットとターミナルホストの記録) を削除します。\nChief のストア、会話、git チェックポイント、差分コメント、セッション設定は残ります。\n--purge もすべてのターミナルを終了し、その後 `cmux session <名前> reset-state` と同じく\nセッションのフォルダー全体とターミナルホストの記録を削除します。実行中のセッションは削除しません。\n停止済みのセッションの後始末にも使えます。\nセッションを復元中のサーバーは、復元の完了後に停止します。停止は最大 --restore-wait-seconds 秒\n(既定 120、最大 3600) 待ち、その進行状況を標準エラー出力に表示します。\n",
+    stop_help: "使用方法\n  cmux daemon stop [--session <名前>] [--socket <パス>] [--force] [--end-terminals]\n    [--purge] [--restore-wait-seconds <秒数>]\n\nサーバーが存在しない場合も成功します。永続セッションの構成は保持されます。\n--end-terminals は先にすべてのターミナルを終了し、そのタブを削除します (テストの後始末用)。\nその後、セッションのターミナルと再開の状態 (起動スナップショットとターミナルホストの記録) を削除します。\nセッションフォルダーの残り (Chief のストア、会話、git チェックポイント、差分コメント、セッション設定) は残ります。\n--purge もすべてのターミナルを終了し、その後確認なしでセッションを削除します。\n削除するのはセッションフォルダー全体 (<状態ルート>/<セッション>-<ハッシュ>/) です。ここには\nワークスペースレジストリ (ワークスペース、スクリーン、ペイン、タブ、ターミナル、ブラウザータブ、\n閉じた項目、コマンド履歴)、起動スナップショット、起動キー、保存されたターミナル出力、\n会話とその添付ファイル、セッションの Chief ストア (chiefs.sqlite3)、git チェックポイント、\n差分コメント、設定キャッシュとチームポリシー (settings/)、アプリのデータ、エージェントの共有があります。\nフォルダーの外では、セッションのターミナルホストの記録、session-locks/ 内のロックファイル、\nキューに残ったエージェントフックイベントも削除します。\nChief 自身のホーム (~/.cmux/chief)、全セッション共有のページ履歴とターミナル喪失ログ、\ncmux の設定、他のセッションは残ります。別のサーバーが実行中のセッションは拒否し、何も削除しません。\n削除に失敗すると session.reset_state.* のコードで終了コード 1 を返します (停止自体は完了しています)。\n停止済みのセッションの削除にも使えます。\nセッションを復元中のサーバーは、復元の完了後に停止します。停止は最大 --restore-wait-seconds 秒\n(既定 120、最大 3600) 待ち、その進行状況を標準エラー出力に表示します。\n",
     restart_help: "使用方法\n  cmux daemon restart [--session <名前>] [--socket <パス>] [--force]\n    [--restore-wait-seconds <秒数>]\n\nセッションのローカルサーバーをこの cmux バイナリに置き換え、すべてのターミナルを保持します。\nサーバーはアップデート時と同じ引き継ぎで停止し、このバイナリが起動するサーバーがターミナルを引き継ぎます。\n新しいビルドから実行すると、実行中のセッションにデーモンの変更を反映できます。サーバーが動いていなければ起動します。\n",
     reload_config_help: "使用方法\n  cmux daemon reload-config [--session <名前>] [--socket <パス>]\n",
     running: "ローカルサーバーは実行中です",
@@ -335,4 +351,7 @@ pub(super) const JAPANESE: LocalServerMessages = LocalServerMessages {
     stop_gave_up_restoring: "ローカルサーバーは停止していません: {seconds} 秒後もセッション (レジストリとターミナルホスト) を復元中か、応答できないほど混雑しています。復元が何を待っているかは、セッション状態ディレクトリのクライアントログで確認できます。さらに待つには次を実行してください: {command}",
     stop_gave_up_starting: "ローカルサーバーは停止していません: セッションは復元しましたが、{seconds} 秒後も起動を完了していません。さらに待つには次を実行してください: {command}",
     all_sessions_agent_refused: "エージェントからの呼び出しでは --all-sessions を使えません ({marker} が設定されています)。このセッションを一覧するには --all-sessions を外してください",
+    purge_failed: "停止は完了しましたが、--purge はセッション \"{session}\" の保存状態を削除できませんでした: {reason}。原因を解決してから、同じ停止を --purge 付きで再実行してください",
+    purge_needs_session: "セッション名が不明です。--session <名前> を指定してください",
+    purge_no_state_root: "永続状態ディレクトリを特定できません",
 };

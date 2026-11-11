@@ -312,15 +312,47 @@ cmux daemon reload-config [--session <name>] [--socket <path>]
 ```
 
 `daemon stop --purge` implies `--end-terminals`; once the owner released its
-session locks it removes the session's whole saved-state folder and its
-terminal-host records, as `cmux session <name> reset-state --force` does with
-the preview's token, and drops the session's queued hook events. On a session
-that is not running it does the same with no stop. A session another owner
-still runs is refused, and no other session's folder is touched. The result
-adds `removed_session_state` (true once none is left), `removed_terminal_hosts`,
-`dropped_hook_events` (or `hook_queue_error`), and on failure
-`session_state_error` (a `session.reset_state.*` code; the stop itself still
-succeeds).
+session locks it deletes the session with no confirmation, as `cmux session
+<name> reset-state --force` does with the preview's token. It deletes:
+
+- the whole session folder, `<state root>/<session>-<hash>/`
+  (`persistent_session_state_dir`): the workspace registry
+  (`workspace-registry.sqlite3` with its WAL and `registry-recovery/`:
+  workspaces, screens, panes, tabs, terminals and their journal, browser tabs,
+  closed items, command history), `launch-snapshot.json`,
+  `startup-timings.jsonl`, the launch keys (`identity/launch-keys.json`),
+  stored terminal output (`terminal-output/`), conversations
+  (`conversations.sqlite3` and `attachments/`), the session's Chief store
+  (`chiefs.sqlite3`), git checkpoints (`git-checkpoints/`), the git attempt
+  journal (`git-attempts/`), diff comments (`diff-comments/`), the settings
+  cache and saved team policy (`settings/`), app data (`apps-storage.sqlite`,
+  `apps/`, `apps-data/`), agent session shares and transfer records, and
+  `unowned-terminal-hosts.json`;
+- outside that folder: the session's terminal-host records
+  (`terminal-hosts-<token>/`), unfinished `.reset-<session>-*` folders, its
+  empty lock file `session-locks/<session>-<hash>.lock`, and its queued agent
+  hook events (in the runtime directory).
+
+It keeps the Chief's own home (`~/.cmux/chief/...`, outside the state root),
+the page history all sessions share (`<state root>/history`), the shared
+terminal-loss log (`<state root>/terminal-losses.jsonl`), the machine identity
+files, the user's cmux config, and every other session's folder. On a session
+that is not running it does the same with no stop, after a 2 s wait for an
+owner that still releases the session. A session that another owner still runs
+(for example at another socket) is refused and nothing is deleted.
+
+The lock file is removed last, while the purge still holds it, under the
+`session-locks` coordinator: a daemon start takes its lock file only under
+that coordinator, so no start can hold the removed file, and a start after the
+purge makes a new one. A purge that cannot take the coordinator in its short
+bound leaves the empty file, as `reset-state` does.
+
+On success the result adds `removed_session_state` (true),
+`removed_terminal_hosts`, and `dropped_hook_events` (or `hook_queue_error`).
+A purge that fails exits 1 with a `session.reset_state.*` error code
+(`session_running`, `invalid_state_path`, `state_changed`, ...) and a localized
+message; `details.stop` keeps the stop's result (the server is stopped,
+`removed_session_state: false`), and `details.reason` says why.
 
 `daemon stats` prints the `server-stats` diagnostics (registry lock contention
 with holder sites, journal writer batches and commit latency, connection
