@@ -88,7 +88,7 @@ final class RemoteTmuxControlConnection {
     private(set) var everReachedControlMode = false
     /// When the current reconnect began, or nil outside one. Set before observers hear of the
     /// state change, so the Reconnecting indicator counts its delay from the drop itself.
-    private(set) var reconnectingSince: ContinuousClock.Instant?
+    var reconnectingSince: ContinuousClock.Instant?
     /// The connection's lifecycle phase. Drives reconnect-on-transport-loss and the
     /// disconnected UI; `exited` is derived from it.
     private(set) var connectionState: ConnectionState = .connecting {

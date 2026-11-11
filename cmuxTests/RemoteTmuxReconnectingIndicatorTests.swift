@@ -103,10 +103,11 @@ import Testing
         #expect(mirror.reconnectingIndicator.pendingPresentation != nil)
     }
 
-    /// A sidebar reset or a `clear_status` can remove the row while it shows "Reconnecting". The
-    /// connection is still reconnecting and reports no new state, so the row has to be derived
-    /// again from the connection rather than stay gone for the rest of the drop.
-    @Test func removingTheRowDuringAReconnectDerivesItAgain() throws {
+    /// While the connection reconnects, it alone decides the row. A report through the status API
+    /// can neither replace nor clear it. A sidebar reset removes every row, and this one comes back
+    /// with the delay still counted from when the reconnect began, so a drop already past the delay
+    /// shows it again at once instead of waiting the delay out a second time. Detaching removes it.
+    @Test func theRowFollowsTheConnectionThroughStatusWritesResetsAndDetach() async throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let workspace = try #require(manager.selectedWorkspace)
         workspace.isRemoteTmuxMirror = true
@@ -115,6 +116,7 @@ import Testing
         )
         connection.beginReconnecting()
         defer { connection.stop() }
+        connection.reconnectingSince = .now - .seconds(61)
         let mirror = RemoteTmuxSessionMirror(
             host: connection.host, sessionName: "work", connection: connection,
             tabManager: manager, workspace: workspace
@@ -123,15 +125,20 @@ import Testing
             mirror.detachObserver()
             workspace.teardownAllPanels()
         }
-        // What a reset leaves behind once the row has shown: no entry and nothing scheduled.
-        mirror.reconnectingIndicator.clear(workspace: workspace)
+        await mirror.reconnectingIndicator.pendingPresentation?.value
+        let entry = try #require(workspace.statusEntries[key])
+
+        workspace.setStatusEntry(SidebarStatusEntry(key: key, value: "Connected"), key: key, panelId: nil)
+        #expect(workspace.statusEntries[key] == entry, "a report replaced the Reconnecting row")
+        workspace.clearStatusEntry(key: key, panelId: nil)
+        #expect(workspace.statusEntries[key] == entry, "a report cleared the Reconnecting row")
 
         workspace.resetSidebarContext(reason: "test")
-        #expect(mirror.reconnectingIndicator.pendingPresentation != nil)
+        #expect(workspace.statusEntries[key] == nil)
+        await mirror.reconnectingIndicator.pendingPresentation?.value
+        #expect(workspace.statusEntries[key] != nil, "the row did not come back after a reset")
 
-        // Clearing the key through the status API is the other way to remove the row.
-        mirror.reconnectingIndicator.clear(workspace: workspace)
-        workspace.clearStatusEntry(key: key, panelId: nil)
-        #expect(mirror.reconnectingIndicator.pendingPresentation != nil)
+        mirror.detachObserver()
+        #expect(workspace.statusEntries[key] == nil)
     }
 }

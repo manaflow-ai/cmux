@@ -34,18 +34,20 @@ extension Workspace {
         return agentStatusEntriesByPanelId[panelId]?[key]
     }
 
+    /// Records a reported entry. The Reconnecting row is derived from the remote tmux
+    /// connection by ``RemoteTmuxReconnectingIndicator`` alone, so a report cannot replace it.
     func setStatusEntry(_ entry: SidebarStatusEntry, key: String, panelId: UUID?) {
+        guard key != Self.remoteTmuxReconnectingStatusKey else { return }
         statusEntries[key] = entry
         if let panelId, panels[panelId] != nil {
             agentStatusEntriesByPanelId[panelId, default: [:]][key] = entry
         }
     }
 
-    /// Clears a reported entry. A row that mirrors state owned elsewhere (see
-    /// ``refreshDerivedStatusEntries()``) comes back while that state still holds.
+    /// Clears a reported entry. A report cannot clear the Reconnecting row either.
     func clearStatusEntry(key: String, panelId: UUID?) {
+        guard key != Self.remoteTmuxReconnectingStatusKey else { return }
         removeStatusEntry(forKey: key)
-        refreshDerivedStatusEntries()
     }
 
     /// Removes the key and every pane's copy of it, so a later report for the

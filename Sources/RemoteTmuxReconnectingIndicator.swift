@@ -4,9 +4,9 @@ import Foundation
 extension Workspace {
     static let remoteTmuxReconnectingStatusKey = "remoteTmux.reconnecting"
 
-    /// Puts back the status rows that mirror state owned elsewhere, after ``resetSidebarContext(reason:)``
-    /// or ``clearStatusEntry(key:panelId:)`` removed them: the failed-wake row while its banners are
-    /// up, and the Reconnecting row while the session's connection is still reconnecting.
+    /// Puts back the status rows that mirror state owned elsewhere, after
+    /// ``resetSidebarContext(reason:)`` removed every row: the failed-wake row while its banners
+    /// are up, and the Reconnecting row while the session's connection is still reconnecting.
     func refreshDerivedStatusEntries() {
         refreshAgentWakeFailureStatusEntry()
         remoteTmuxSessionMirror?.refreshReconnectingStatus()
@@ -27,7 +27,9 @@ extension RemoteTmuxSessionMirror {
 ///
 /// The connection owns the reconnect: its state and when the reconnect began. This only
 /// derives the row from them, so the delay counts from the drop even for a mirror that
-/// attached partway through, and a row cleared by a sidebar reset comes back.
+/// attached partway through, and a row cleared by a sidebar reset comes back. Nothing else
+/// writes the row: ``Workspace/setStatusEntry(_:key:panelId:)`` and
+/// ``Workspace/clearStatusEntry(key:panelId:)`` ignore its key.
 @MainActor
 final class RemoteTmuxReconnectingIndicator {
     private let delay: Duration
@@ -61,16 +63,12 @@ final class RemoteTmuxReconnectingIndicator {
             await RemoteTmuxRetryDelay.wait(milliseconds: Int(remaining / .milliseconds(1)))
             guard !Task.isCancelled, let self, let workspace else { return }
             self.pendingPresentation = nil
-            workspace.setStatusEntry(
-                SidebarStatusEntry(
-                    key: Workspace.remoteTmuxReconnectingStatusKey,
-                    value: String(localized: "remote.status.reconnecting", defaultValue: "Reconnecting"),
-                    icon: "arrow.triangle.2.circlepath",
-                    color: "#FF9500",
-                    timestamp: Date()
-                ),
+            workspace.statusEntries[Workspace.remoteTmuxReconnectingStatusKey] = SidebarStatusEntry(
                 key: Workspace.remoteTmuxReconnectingStatusKey,
-                panelId: nil
+                value: String(localized: "remote.status.reconnecting", defaultValue: "Reconnecting"),
+                icon: "arrow.triangle.2.circlepath",
+                color: "#FF9500",
+                timestamp: Date()
             )
         }
     }
@@ -79,6 +77,8 @@ final class RemoteTmuxReconnectingIndicator {
     func clear(workspace: Workspace?) {
         pendingPresentation?.cancel()
         pendingPresentation = nil
-        workspace?.removeStatusEntry(forKey: Workspace.remoteTmuxReconnectingStatusKey)
+        // Only this writes the key, and never for a pane, so there are no pane copies to remove.
+        guard workspace?.statusEntries[Workspace.remoteTmuxReconnectingStatusKey] != nil else { return }
+        workspace?.statusEntries.removeValue(forKey: Workspace.remoteTmuxReconnectingStatusKey)
     }
 }
