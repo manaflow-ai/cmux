@@ -34,7 +34,7 @@ import { ATTACHMENT_LABELS, imageShape, type PendingAttachment } from "./attachm
 import { RemoveGlyph } from "./RemoveGlyph";
 import { chipRef } from "../conversation/sendMorph";
 import { PasteLoadingMark } from "./pasteLoading";
-import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
+import { isChipLook, PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
 
 /// The staged attachments' chips over the prompt, with a refusal's note.
 export function AttachmentStrip({
@@ -188,6 +188,17 @@ function PendingChip({
       <RemoveGlyph />
     </button>
   );
+  // The chip at once (a `chip` arm, shipped): the loading chip is the chip it becomes.
+  if (!chip.failed && isChipLook(look))
+    return (
+      <PendingTile
+        chip={chip}
+        look={look}
+        name={name}
+        remove={remove}
+        upload={chip.progress === undefined ? undefined : <UploadProgress value={chip.progress} name={name} />}
+      />
+    );
   // A video (a screen recording) is the square its poster will fill, like an image's tile; only
   // another file shows its name (Leo, 2026-10-26: "not for screen recordings. ... We know it's a
   // video. ... Just do the square.").
@@ -247,6 +258,106 @@ function PendingChip({
       {remove}
     </div>
   );
+}
+
+/// A file still being read, drawn as the chip it becomes, in that chip's own box, from its first frame
+/// (Leo, 2026-11-10: "the preview placeholder boxes are incongruent between the initial load, then
+/// the second load, and the chat attachment itself"; 2026-11-11: "this 3 stage attachment thing is
+/// still there"). An image is its thumbnail's box (its header's shape) with its own picture when the
+/// page could read one, else its glyph; a video is its play tile; any other file is its file chip,
+/// name and size. Nothing spins: when the read ends the chip takes this one's place at the same size,
+/// and only a picture fills in. The strip and the text (composer/inlineAttachments.tsx) both draw it.
+/// `look` is the `chip` arm (pastePlaceholder.experiment.ts): `chip-blur` keeps the picture soft and
+/// `chip-bar` shows a thin bar once the read passes 400 ms. An upload's progress (a chat on another
+/// machine streams the file before its chip is a link) is a small ring in the tile's corner.
+export function PendingTile({
+  chip,
+  look,
+  name,
+  remove,
+  upload,
+}: {
+  chip: PendingAttachment;
+  look: string;
+  name: string;
+  remove: React.ReactNode;
+  upload: React.ReactNode;
+}) {
+  const mark = (
+    <>
+      {look === "chip-bar" && <PasteLoadingMark look="glass-bar" size={16} upload={undefined} />}
+      {upload && <span className="acpmux-attachment-upload">{upload}</span>}
+    </>
+  );
+  if (chip.image)
+    return (
+      <div
+        className="acpmux-attachment acpmux-attachment-image acpmux-attachment-pending acpmux-attachment-pending-chip"
+        data-paste-look={look}
+        aria-busy="true"
+        // An image's header (a frame or a few): its box holds its place at a screenshot's 16:10, unseen,
+        // so words typed right after the paste already go after it; it shows once its shape is known.
+        // A video never waits: a screen recording is the widest a tile is (PENDING_VIDEO_RATIO).
+        {...(chip.sizing ? { "data-reserving": "" } : {})}
+        aria-label={name}
+      >
+        {chip.preview ? (
+          <PendingPicture src={chip.preview} shape={imageShape(chip.size)} />
+        ) : (
+          <span className="acpmux-attachment-picture" style={imageShape(chip.size)}>
+            <ImageIcon size={16} className="acpmux-attachment-failed-icon" />
+          </span>
+        )}
+        {mark}
+        {remove}
+      </div>
+    );
+  if (chip.video)
+    return (
+      <div
+        className="acpmux-attachment-image acpmux-attachment-pending acpmux-attachment-pending-chip"
+        data-paste-look={look}
+        aria-busy="true"
+        aria-label={name}
+      >
+        <VideoAttachmentTile
+          name={name}
+          video={undefined}
+          shape={chip.videoShape ?? PENDING_VIDEO_RATIO}
+          remove={remove}
+          onPlay={() => {}}
+        />
+        {mark}
+      </div>
+    );
+  return (
+    <div
+      className="acpmux-attachment acpmux-attachment-file acpmux-attachment-link acpmux-attachment-pending acpmux-attachment-pending-chip"
+      data-paste-look={look}
+      aria-busy="true"
+    >
+      <FileAttachment file={{ name: chip.name, ...(chip.bytes ? { size: chip.bytes } : {}) }} remove={remove} />
+      {mark}
+    </div>
+  );
+}
+
+/// A pasted video's shape until its header answers (a frame or two): the widest a tile is
+/// (videoShape.ts VIDEO_RATIO), which a screen recording (16:9 or wider) always is. Its chip shows in
+/// the paste's frame, never held unseen for the header, so words typed right after go after it.
+const PENDING_VIDEO_RATIO = 1.6;
+
+/// A loading image's own picture in its thumbnail's box. One the engine cannot draw (a HEIC in
+/// Chromium) shows the image glyph in the same box instead.
+function PendingPicture({ src, shape }: { src: string; shape: { aspectRatio: string } | undefined }) {
+  const [broken, setBroken] = useState(false);
+  if (broken)
+    return (
+      <span className="acpmux-attachment-picture" style={shape}>
+        <ImageIcon size={16} className="acpmux-attachment-failed-icon" />
+      </span>
+    );
+  return <img alt="" draggable={false} src={src} style={shape} onError={() => setBroken(true)} />;
 }
 
 /// A loading image tile's picture, from the file itself (PendingAttachment `preview`): under the

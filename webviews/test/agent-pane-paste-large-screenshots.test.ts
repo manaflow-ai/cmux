@@ -210,7 +210,10 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
     await loading.waitFor();
     // Its indicator comes only once the read passes 400 ms (composer/pasteLoading.tsx, whose own
     // timer composer-paste-instant.test.tsx checks); a read here can end sooner, so × goes at once.
-    await loading.locator(".acpmux-md-inline-remove").click();
+    // Its × is the chip's own (the loading chip is the chip the read makes, composer/attachmentIntake.tsx
+    // PendingTile), shown on hover as on the ready chip.
+    await loading.hover();
+    await loading.locator(".acpmux-attachment-remove, .acpmux-md-inline-remove").first().click();
     expect(await loading.count()).toBe(0);
     // Its read ending later brings nothing back: nothing on the page says when a cancelled read
     // ends, so the test gives it the time a read of this screenshot takes here.

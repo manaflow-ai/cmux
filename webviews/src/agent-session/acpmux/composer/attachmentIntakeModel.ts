@@ -172,6 +172,10 @@ export type PendingAttachment = {
   /// wide and unseen, so it first shows at its thumbnail's size, never a stand-in width. For
   /// HEADER_WAIT_MS at most; one whose header does not answer by then shows at the stand-in.
   sizing?: boolean;
+  /// The file's byte count, known the moment it is pasted: its loading chip is the file chip it
+  /// becomes, size label and all, so the chip landing changes nothing (Leo, 2026-11-11: "this 3
+  /// stage attachment thing is still there").
+  bytes?: number;
 };
 
 /// The style that gives a tile its image's thumbnail shape (`size`, the image's pixels; imageWork.ts
@@ -194,6 +198,8 @@ function sizeFromHeader(file: File, done: (size: { width: number; height: number
   const answer = (size: { width: number; height: number } | undefined) => {
     if (answered && !size) return;
     answered = true;
+    // How long a pasted image's tile is held unseen (composer-attach-one-stage reads it).
+    performance.mark("acpmux:header-answered");
     clearTimeout(deadline);
     done(size);
   };
@@ -425,6 +431,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       image: isImageFile(file),
       ...(isVideoName(file.name) ? { video: true } : {}),
       ...(!isMadeFile(file) && (isImageFile(file) || isVideoName(file.name)) ? { sizing: true } : {}),
+      ...(isMadeFile(file) ? {} : { bytes: file.size }),
       scope: batch.scope,
     }));
     // Each image's own picture, on its tile while the tile still loads.

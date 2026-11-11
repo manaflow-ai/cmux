@@ -17,12 +17,12 @@ import { usePaneLanguage, useT } from "../i18n";
 import { pasteName } from "../conversation/promptCollapse";
 import { imageLabel } from "../imageLabel";
 import type { MarkdownFieldHandle } from "../MarkdownField";
-import { AttachmentChip, InstantPreview, RetryButton, UploadProgress } from "./attachmentIntake";
+import { AttachmentChip, InstantPreview, PendingTile, RetryButton, UploadProgress } from "./attachmentIntake";
 import { imageShape, type PendingAttachment } from "./attachmentIntakeModel";
 import { videoShapeStyle } from "./videoShape";
 import { keptThumb } from "./imagePool";
 import { PasteLoadingMark } from "./pasteLoading";
-import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
+import { isChipLook, PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
 import { reordered } from "./stripReorder";
 import { PastedTextChip } from "./PastedTextChip";
 import { UIPickChip } from "./UIPickChip";
@@ -407,8 +407,9 @@ const InlineChip = memo(function InlineChip({
   const look = usePasteLoadingLook();
   /// Whether this chip loaded in place (a paste, a drop): its picture then comes up from the loading
   /// tile's dim instead of popping in. A chip that arrives ready (a draft read back) just shows.
+  /// A `chip` look drew the chip itself while it loaded, picture and all: nothing comes up then.
   const loaded = useRef(false);
-  if (pending && !pending.failed) loaded.current = true;
+  if (pending && !pending.failed && !isChipLook(look)) loaded.current = true;
 
   // A node whose attachment is not here (yet: a chat's kept chips still on their way) draws nothing.
   if (!attachment && !pending) return null;
@@ -423,6 +424,40 @@ const InlineChip = memo(function InlineChip({
       <RemoveGlyph />
     </button>
   );
+  // The chip at once (a `chip` look, shipped): the strip's chip it becomes, in its box, from the
+  // paste's first frame; the ready chip takes its place at the same size (attachmentIntake.tsx
+  // PendingTile). Its box takes its place in the paste's frame (an image's unseen at 16:10 until its
+  // header answers), so words typed right after a paste go after it (Leo: "it gets smashed in between
+  // text that you were typing if u were typing as it loaded").
+  if (!attachment && !pending!.failed && isChipLook(look))
+    return (
+      <span
+        className="acpmux-md-inline-chip"
+        data-state="loading"
+        data-chip="strip"
+        aria-busy="true"
+        aria-label={name}
+      >
+        <PendingTile
+          chip={pending!}
+          look={look}
+          name={name}
+          remove={
+            <button
+              type="button"
+              className="acpmux-attachment-remove"
+              aria-label={t("composer.cancelAttachment", { name })}
+              onClick={() => onCancel(id)}
+            >
+              <RemoveGlyph />
+            </button>
+          }
+          upload={
+            pending!.progress === undefined ? undefined : <UploadProgress value={pending!.progress} name={name} />
+          }
+        />
+      </span>
+    );
   if (!attachment)
     return (
       <span

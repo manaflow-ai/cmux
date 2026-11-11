@@ -126,7 +126,10 @@ await requireBrowserLane("composer-attach-no-jump.test.ts", async () => {
       };
       const sample = () => {
         if (probe.stop) return;
-        const all = tiles().filter((tile) => tile.getBoundingClientRect().width > 0);
+        // Drawn tiles only: a box holding its place unseen (its header still being read) draws nothing.
+        const all = tiles().filter(
+          (tile) => tile.getBoundingClientRect().width > 0 && !tile.querySelector("[data-reserving]"),
+        );
         const fresh = all.filter((tile) => !probe.before.has(tile));
         const old = [...probe.before].find((tile) => tile.isConnected);
         const tile = fresh[0];

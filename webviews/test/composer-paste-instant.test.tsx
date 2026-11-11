@@ -554,17 +554,42 @@ test("an attachment placed once read never replaces the selection the person mad
 
 // Review of #37674 (F2): a read under 400 ms shows no indicator at all, with or without animations
 // (the host's animations-off setting zeroes every CSS delay, so the wait is the tile's own timer).
-test("a loading tile's indicator waits 400 ms, by its own timer", async () => {
-  await openComposer([], "chat-late-indicator");
+// The `glass` looks only: the shipped `chip` look (below) never draws one.
+test("a glass loading tile's indicator waits 400 ms, by its own timer", async () => {
+  const scope = globalThis as { cmuxExperiments?: Record<string, string> };
+  scope.cmuxExperiments = { "composer-paste-loading": "glass-ring" };
+  try {
+    await openComposer([], "chat-late-indicator");
+    showAttachments("inline");
+    const shot = slowScreenshot();
+    await paste([shot.file]);
+    const late = () => field().querySelector<HTMLElement>('[aria-busy="true"] .acpmux-paste-late');
+    expect(late()).not.toBeNull();
+    expect(late()!.hasAttribute("data-late")).toBe(false);
+    expect(late()!.querySelector("svg")).toBeNull();
+    await until(() => late()?.hasAttribute("data-late") === true, "the late indicator");
+    expect(late()!.querySelector("svg")).not.toBeNull();
+    shot.release();
+    await until(() => placeholders().length === 0, "the ready chip");
+  } finally {
+    delete scope.cmuxExperiments;
+  }
+});
+
+// Leo, 2026-11-11: "this 3 stage attachment thing is still there". The shipped look draws the chip
+// the read makes from the paste's frame: no spinner, no late indicator, however long the read runs.
+test("a slow read's loading chip never draws a spinner or a late indicator", async () => {
+  await openComposer([], "chat-no-spinner");
   showAttachments("inline");
   const shot = slowScreenshot();
   await paste([shot.file]);
-  const late = () => field().querySelector<HTMLElement>('[aria-busy="true"] .acpmux-paste-late');
-  expect(late()).not.toBeNull();
-  expect(late()!.hasAttribute("data-late")).toBe(false);
-  expect(late()!.querySelector("svg")).toBeNull();
-  await until(() => late()?.hasAttribute("data-late") === true, "the late indicator");
-  expect(late()!.querySelector("svg")).not.toBeNull();
+  const chip = () => field().querySelector<HTMLElement>('.acpmux-md-inline-chip[aria-busy="true"]');
+  expect(chip()).not.toBeNull();
+  expect(chip()!.dataset.chip).toBe("strip");
+  // Past the old 400 ms indicator wait, still nothing spins.
+  // fixed-wait: the old indicator's 400 ms timer is the behavior checked.
+  await new Promise((resolve) => setTimeout(resolve, 450));
+  expect(chip()!.querySelector('[class*="spinner"], .acpmux-paste-late, .acpmux-paste-bar')).toBeNull();
   shot.release();
   await until(() => placeholders().length === 0, "the ready chip");
 });

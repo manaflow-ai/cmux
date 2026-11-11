@@ -412,6 +412,11 @@
   width: calc(var(--cmux-control-height, 24px) * 2 * var(--acpmux-video-ratio, 1));
   min-width: 0;
 }
+/* The chip at once (composer/attachmentIntake.tsx PendingTile): a loading chip that is the chip it
+   becomes takes that chip's width, never the stand-in's. */
+.acpmux-md-inline-chip[data-state="loading"][data-chip="strip"] {
+  width: auto;
+}
 /* An image, a PDF, a video or a file: the strip's own chip (composerAttachments.css). A thumbnail or
    a video's poster is as tall as two control rows so it sits in a line of text; an image that could
    not be drawn keeps the strip's tile, which has room for its note, Retry and ×. */

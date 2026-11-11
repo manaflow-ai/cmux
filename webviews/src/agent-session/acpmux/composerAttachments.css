@@ -246,16 +246,16 @@
 /* A pasted or dropped file still being read (composer/attachmentIntake.tsx PendingChip): there in
    the paste's frame, an image as a thumbnail-sized tile with a dimmed picture glyph, so the strip
    does not jump when the thumbnail replaces it. */
-.acpmux-attachment-pending {
+.acpmux-attachment-pending:not(.acpmux-attachment-pending-chip) {
   color: var(--agent-muted);
 }
-.acpmux-attachment-image.acpmux-attachment-pending {
+.acpmux-attachment-image.acpmux-attachment-pending:not(.acpmux-attachment-pending-chip) {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 104px;
 }
-.acpmux-attachment-file.acpmux-attachment-pending {
+.acpmux-attachment-file.acpmux-attachment-pending:not(.acpmux-attachment-pending-chip) {
   gap: 4px;
 }
 /* A loading image whose header gave its size (composer/attachmentIntakeModel.ts imageShape): the
@@ -278,6 +278,49 @@
 .acpmux-md-inline > .acpmux-md-inline-chip[data-sizing] {
   margin-inline-end: 0;
 }
+/* The chip at once (composer/attachmentIntake.tsx PendingTile, the shipped `chip` look): a file still
+   being read is the chip it becomes, in that chip's own box, so the chip landing changes nothing
+   (Leo, 2026-11-11: "this 3 stage attachment thing is still there"). An image with no picture yet
+   shows its glyph in its thumbnail's box: the same rule as the thumbnail's own (`.acpmux-attachment-image
+   img`), so its shape is the header's. Its box holds its place from the paste's frame at a screenshot's
+   16:10, unseen until the header answers, so words typed right after the paste land after it. Nothing spins; an upload's progress is a small ring in a
+   corner. */
+.acpmux-attachment-pending-chip {
+  position: relative;
+  flex: none;
+}
+.acpmux-attachment-image .acpmux-attachment-picture {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: auto;
+  min-width: 48px;
+  max-width: 128px;
+  height: var(--acpmux-attach-height);
+  /* Until its header says its shape (a frame or two): a Mac screenshot's 16:10, the common case. */
+  aspect-ratio: 1.6;
+  border-radius: var(--acpmux-attach-radius);
+  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
+  outline-offset: -1px;
+  color: var(--agent-muted);
+}
+/* An image whose header is still being read: its box holds its place, unseen (PendingTile). */
+.acpmux-attachment-pending-chip[data-reserving] {
+  visibility: hidden;
+}
+.acpmux-attachment-upload {
+  position: absolute;
+  bottom: var(--ds-space-1);
+  left: var(--ds-space-1);
+  display: inline-flex;
+  pointer-events: none;
+}
+/* `chip-blur`: the picture soft until the read ends; the ready chip draws it sharp in the same box. */
+.acpmux-attachment-pending-chip[data-paste-look="chip-blur"] img {
+  filter: blur(4px);
+}
+
 /* A loading image's own picture (composer/attachmentIntake.tsx InstantPreview), there the moment it
    is pasted or dropped, filling its tile under the spinner until its chip takes the tile's place
    (Leo, 2026-11-07: "can't we make this all "appear" a lot faster"). */
