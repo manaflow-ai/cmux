@@ -30,10 +30,21 @@ extension HomeService {
                                   agents: HomeContact.agents(in: rows, me: me))
     }
 
-    /// Starts a DM or a group; the page shows it once the inbox lists it (`select`: the caller selects it later).
-    func startConversation(_ recipients: [HomeRecipient], title: String, firstMessage: [MessagePart] = [], select: Bool = true) async -> HomeComposeOutcome {
+    /// New Message's list before anything is typed: its Chiefs (main first), then the team
+    /// (`HomeNewMessageDraft.idleSuggestions`); how each row draws is HomeChiefRoster+NewMessage.
+    func newMessageChiefs(_ draft: HomeNewMessageDraft) -> [HomeContact] {
+        draft.idleSuggestions(contacts: chiefRoster.mainFirst(contacts(), rows: homeStore.rows))
+    }
+    func recipientLook(_ recipient: HomeRecipient) -> HomeRecipientLook {
+        chiefRoster.look(recipient, rows: homeStore.rows, avatars: chiefFaces,
+                         fallback: .chiefDefault,  // each Chief's own pick is in chiefFaces
+                         harnesses: directory.chiefHarnesses)
+    }
+
+    /// Starts a DM or a group; the page shows it once the inbox lists it.
+    func startConversation(_ recipients: [HomeRecipient], title: String, firstMessage: [MessagePart] = []) async -> HomeComposeOutcome {
         let outcome = await composer.start(recipients, title: title, firstMessage: firstMessage)
-        if select, case .opened(let id) = outcome { pendingSelection = id }
+        if case .opened(let id) = outcome { pendingSelection = id }
         return outcome
     }
 
@@ -129,7 +140,7 @@ extension HomeService {
     var messageRouting: HomeMessageRouting {
         HomeMessageRouting(store: homeStore, actions: groupActions,
                            chief: { [weak self] in
-            guard let self, let chief = HomeDefaultConversation.chief(self) else { return nil }
+            guard let self, let chief = TopHomePageView.chief(self) else { return nil }
             return ConversationID(chief)
         }, chiefNames: { [weak self] in self?.chiefNames ?? [:] })
     }
@@ -152,8 +163,6 @@ extension HomeService {
         source.onSelect = { [weak self] id in self?.pendingSelection = id }
         // The unread indicator outside Home reads `groupMuting`: a mark set in a page's own source reaches it.
         source.onMarksChanged = { [weak self] in self?.groupMuting.reloadMarks() }
-        // Every Messages page reads its deleted conversations again (HomeMessagesPage's `hidden` stream).
-        source.onHiddenChanged = { [weak self] in self?.hiddenRevision &+= 1 }
         source.onStart = { [weak self] contact in
             // task-owner: one dm.open; the page shows the DM once listed
             Task { _ = await self?.startConversation([.contact(contact)], title: "") }
@@ -266,7 +275,10 @@ extension HomeService {
     /// text, else its own upload or picked character (`AppServices.chosenPicture(of:)`), so one Chief's
     /// never shows on another; a Chief with none is left out and draws its name's monogram.
     var chiefFaces: [String: HomeChiefAvatar] {
-        let chiefs = Set(homeStore.rows.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) } + [HomeChiefAvatars.defaultChief])
+        var chiefs = Set(homeStore.rows.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) } + [HomeChiefAvatars.defaultChief])
+        #if DEBUG
+        chiefs.formUnion(debugChiefs)
+        #endif
         return Self.chiefFaces(chiefs: chiefs, own: directory.chiefAvatars) { services.chosenPicture(of: $0) }
     }
 

@@ -391,7 +391,8 @@
         "browser.defaultEngine",
         "browser.siteEngines",
         "browser.newTabPage",
-        "browser.showBookmarksBar"
+        "browser.showBookmarksBar",
+        "browser.vimKeys"
       ]
     },
     {
@@ -1247,8 +1248,10 @@
     },
     {
       "agent": "destructive",
+      "why": "The quit behavior ends sessions; confirmQuit off lets one Cmd-Q end them without asking.",
       "keys": [
-        "app.quitBehavior"
+        "app.quitBehavior",
+        "app.confirmQuit"
       ]
     },
     {

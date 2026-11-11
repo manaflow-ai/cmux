@@ -92,7 +92,8 @@ import Testing
     }
 
     /// Reads that run on CoreAudio's queue, and how many ran on the main thread.
-    private final class ReadLog: @unchecked Sendable {
+    /// Not main-actor isolated like the suite: CoreAudio's queue calls `record()`.
+    nonisolated private final class ReadLog: @unchecked Sendable {
         private let lock = NSLock()
         private var reads = 0, onMain = 0
         func record() {

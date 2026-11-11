@@ -23,7 +23,11 @@ Detectors (all line/regex heuristics, never an AST):
   (elapsed_ms, perf_counter, DispatchTime.now, CACurrentMediaTime,
   .uptimeNanoseconds, monotonic(), a *_ms variable, a `clock.now - start`)
   against a numeric literal or a Swift Duration literal (`.milliseconds(1000)`).
-  This is the "assert on latency" ban.
+  This is the "assert on latency" ban. It also follows a name: `took =
+  time.perf_counter() - started` then `self.assertLess(took, 0.5)` on a later
+  line of the same function (Python by indentation; Swift, JS and TS by
+  braces). A ratio of two timings (the n-vs-4n scaling check), a bound of 0,
+  and a timing that only reaches a log line or a message are not flagged.
 - live-network-host: a hardcoded external URL/host driving real network from a
   test (public domain or public IP). Loopback, data:, and 0.0.0.0 are allowed.
 - fixed-port-bind: binding/connecting a fixed non-zero port literal for a real
@@ -39,6 +43,36 @@ Detectors (all line/regex heuristics, never an AST):
   when the runner is busy and turns a slow pass into a failure. Loops that
   already check a deadline, drain yields with no condition, or exit only on
   cancellation are allowed.
+- git-temp-repo-maintenance: a test that makes git repositories in a
+  temporary directory without turning off git's auto maintenance. Since git
+  2.47, commit, fetch and clone start `git maintenance run --auto --detach`,
+  which can still be writing into `.git` when the test removes the directory
+  ("OSError: [Errno 39] Directory not empty: '.git'"). A Python test imports
+  tests/git_fixture_env.py; a shell test sources
+  scripts/cmux-next/tests/lib/git-fixture.sh (or sets maintenance.auto=false).
+  This one is file-level and also scans GIT_FIXTURE_ONLY_ROOTS, as do the
+  next two.
+- git-fixture-env-dropped: in such a Python test, a whole child environment
+  (a dict with PATH or HOME, or a copy of os.environ) built without the
+  opt-out: it neither spreads os.environ nor goes through
+  git_fixture_env.fixture_env / without_auto_maintenance, or it filters GIT_*
+  out of os.environ. Git then runs with auto maintenance on.
+- git-bare-repo-unmanaged: a test that makes a bare repository (`git init
+  --bare`, `git clone --bare` or `--mirror`) without the helper
+  (git_fixture_env.init_repo / clone_repo, shell git_fixture_init /
+  git_fixture_clone). Git clears GIT_CONFIG_COUNT before receive-pack, so only
+  the bare repository's own config turns maintenance off for a local push.
+- predictable-tmp-path: a test (tests/, scripts/**/tests/) or a git hook
+  helper (scripts/git-hooks/) writes to, assigns, or joins a fixed name under
+  /tmp, /var/tmp, $TMPDIR, ${TMPDIR:-/tmp} or tempfile.gettempdir(). Another
+  user on the host can precreate or swap that path: cmux#40871's
+  lib/git-fixture.sh took ${TMPDIR:-/tmp}/cmux-git-fixture-$UID-v1.gitconfig,
+  and a file planted there with core.hooksPath ran a hook in every fixture
+  repo. Make the path with mktemp -d / tempfile.mkdtemp instead.
+- isolated-import (--strict only): a Python test, run as `python3 -I`, fails to
+  import a module that sits beside it or in tests/ (-I puts no script folder on
+  sys.path). Each changed test file, and each that loads git_fixture_env, is
+  loaded with `python3 -I` without running its tests.
 
 Usage:
     check-test-determinism.py                 # scan, print findings, exit 0
@@ -73,6 +107,13 @@ DEFAULT_ROOTS: tuple[str, ...] = (
     "webviews/test",
 )
 
+# Scanned only for GIT_FIXTURE_RULES: the other rules were never applied there.
+GIT_FIXTURE_ONLY_ROOTS: tuple[str, ...] = ("scripts/cmux-next/tests",)
+# Scanned only for predictable-tmp-path, beside tests/ and GIT_FIXTURE_ONLY_ROOTS: every other scripts/**/tests
+# folder (found at run time) and the git hook helpers, whose files have no suffix.
+PREDICTABLE_TMP_EXTRA_GLOB = "scripts/**/tests"
+GIT_HOOKS_ROOT = "scripts/git-hooks"
+
 DEFAULT_ALLOWLIST = ".github/test-determinism-allowlist.txt"
 
 # Only files that look like test code are scanned. Packages/ and cmux-next-ios/
@@ -97,6 +138,11 @@ RULE_LIVE_NETWORK_HOST = "live-network-host"
 RULE_FIXED_PORT_BIND = "fixed-port-bind"
 RULE_SLEEP_THEN_ASSERT = "sleep-then-assert"
 RULE_YIELD_COUNT_POLL = "yield-count-poll"
+RULE_GIT_TEMP_REPO_MAINTENANCE = "git-temp-repo-maintenance"
+RULE_GIT_FIXTURE_ENV_DROPPED = "git-fixture-env-dropped"
+RULE_GIT_BARE_REPO_UNMANAGED = "git-bare-repo-unmanaged"
+RULE_ISOLATED_IMPORT = "isolated-import"
+RULE_PREDICTABLE_TMP_PATH = "predictable-tmp-path"
 
 ALL_RULES = (
     RULE_ASSERT_ON_DURATION,
@@ -104,6 +150,17 @@ ALL_RULES = (
     RULE_FIXED_PORT_BIND,
     RULE_SLEEP_THEN_ASSERT,
     RULE_YIELD_COUNT_POLL,
+    RULE_GIT_TEMP_REPO_MAINTENANCE,
+    RULE_GIT_FIXTURE_ENV_DROPPED,
+    RULE_GIT_BARE_REPO_UNMANAGED,
+    RULE_ISOLATED_IMPORT,
+    RULE_PREDICTABLE_TMP_PATH,
+)
+GIT_FIXTURE_RULES = (
+    RULE_GIT_TEMP_REPO_MAINTENANCE,
+    RULE_GIT_FIXTURE_ENV_DROPPED,
+    RULE_GIT_BARE_REPO_UNMANAGED,
+    RULE_PREDICTABLE_TMP_PATH,
 )
 
 # ---------------------------------------------------------------------------
@@ -3561,6 +3618,241 @@ def detect_assert_on_duration(line: str, path_suffix: str = "") -> bool:
     return has_threshold_compare or has_relational_assert
 
 
+# ---------------------------------------------------------------------------
+# assert-on-duration through a name: a clock difference stored on one line and bounded on a later one
+# ---------------------------------------------------------------------------
+
+# A call that reads a clock. Python, Swift and JavaScript/TypeScript (the scanned languages).
+_CLOCK_READ = re.compile(
+    r"""(?x)
+    \b(?:time\.)?(?:perf_counter|monotonic|process_time|thread_time)(?:_ns)?\s*\(
+  | \btime\.time(?:_ns)?\s*\(
+  | \b(?:loop|get_running_loop\(\)|get_event_loop\(\))\.time\s*\(
+  | \bdatetime\.(?:datetime\.)?(?:now|utcnow)\s*\(
+  | \bDate\.now\s*\(
+  | \bperformance\.now\s*\(
+  | \bprocess\.hrtime(?:\.bigint)?\s*\(
+  | \bnew\s+Date\s*\(\s*\)
+  | DispatchTime\.now\s*\(
+  | \bCACurrentMediaTime\s*\(
+  | \bCFAbsoluteTimeGetCurrent\s*\(
+  | \bmach_absolute_time\s*\(
+  | \bProcessInfo\.processInfo\.systemUptime\b
+  | \bDate\s*\(\s*\)
+  | \b(?:Continuous|Suspending)Clock\s*\(\s*\)\.now\b
+  | [Cc]lock\.now\b                  # clock.now, ContinuousClock.now, testClock.now
+    """
+)
+# A clock difference in one call, with no `-`: Date().timeIntervalSince(t0), t0.timeIntervalSinceNow,
+# start.duration(to: .now), process.hrtime(start).
+_CLOCK_DIFFERENCE_CALL = re.compile(
+    r"""(?x)
+    \.timeIntervalSince(?:Now\b|\s*\()
+  | \.duration\s*\(\s*to\s*:
+  | \bprocess\.hrtime\s*\(\s*\w
+    """
+)
+# Literal text one of the two patterns above needs: a cheap test that a file reads no clock at all.
+_CLOCK_KEYS = (
+    "perf_counter", "monotonic", "process_time", "thread_time", "time(", "time_ns(", "now", "hrtime", "Date",
+    "CACurrentMediaTime", "CFAbsoluteTimeGetCurrent", "mach_absolute_time", "systemUptime", "timeIntervalSince",
+    "duration",
+)
+_PY_ASSIGNMENT = re.compile(r"^\s*([A-Za-z_]\w*)\s*(?::\s*[\w\[\]., |]+)?=(?!=)\s*(\S.*)$")
+_BRACE_ASSIGNMENT = re.compile(r"^\s*(?:(?:let|var|const)\s+)?([A-Za-z_]\w*)\s*(?::\s*[^=]+)?=(?![=>])\s*(\S.*)$")
+_ONE_LINE_STRING = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`(?:\\.|[^`\\])*`')
+_BRACES = re.compile(r"[{}]")
+_PY_DEF = re.compile(r"^(\s*)(?:async\s+)?def\s")
+_RELATIONAL_HELPER = re.compile(
+    r"\b(?:XCTAssert(?:LessThan|GreaterThan)\w*|assert(?:Less|Greater)\w*|toBe(?:LessThan|GreaterThan)\w*)\s*\("
+)
+_ASSERT_OPENING = re.compile(r"(?:#expect|#require|\bXCTAssert\w*|\bself\.assert\w*|\bassert\w*|\bexpect)\s*\(")
+_RELATIONAL_OPERATOR = re.compile(r"(?<![<>=!\-])(?:<=|>=|<|>)(?![=>])")
+_ABSOLUTE_BOUND = re.compile(r"(?<![\w.$])\d[\d_]*(?:\.\d+)?|\.(?:nanoseconds|microseconds|milliseconds|seconds)\s*\(")
+
+
+def _top_level_args(text: str, start: int) -> tuple[list[str], int]:
+    """The comma-separated arguments of the call whose `(` is at START, and the index after its `)`.
+
+    A string literal is skipped whole, its interpolations with it: an argument that starts with one is a message.
+    """
+    args: list[str] = []
+    depth = 0
+    arg_start = start + 1
+    index = start
+    while index < len(text):
+        character = text[index]
+        if character in "\"'`":
+            end = index + 1
+            while end < len(text) and text[end] != character:
+                end += 2 if text[end] == "\\" else 1
+            index = end + 1
+            continue
+        if character in "([{":
+            depth += 1
+        elif character in ")]}":
+            depth -= 1
+            if depth == 0:
+                args.append(text[arg_start:index])
+                return args, index + 1
+        elif character == "," and depth == 1:
+            args.append(text[arg_start:index])
+            arg_start = index + 1
+        index += 1
+    args.append(text[arg_start:])
+    return args, len(text)
+
+
+def _is_message(arg: str) -> bool:
+    return bool(re.match(r"\s*(?:[A-Za-z]{1,2})?[\"'`]", arg))
+
+
+def _names_in(text: str, names: set[str]) -> set[str]:
+    return {word for word in re.findall(r"(?<![\w.])[A-Za-z_]\w*", text) if word in names}
+
+
+def _is_timing_ratio(side: str, timings: set[str]) -> bool:
+    """A timing divided by another timing (the scaling check): `took_4n / took_n`, `a / max(b, 1e-9)`."""
+    slash = side.find("/")
+    return slash >= 0 and bool(_names_in(side[slash + 1:], timings) or _CLOCK_READ.search(side[slash + 1:]))
+
+
+def _bounds_a_timing(side: str, other: str, timings: set[str]) -> bool:
+    return (
+        # A bound of 0 (`took > 0`, `toBeGreaterThan(0)`) checks that a timing was taken, not how long it was.
+        not re.fullmatch(r"[\s(]*0(?:\.0*)?[\s)]*", other)
+        and bool(_names_in(side, timings))
+        and not _is_timing_ratio(side, timings)
+        and not _names_in(other, timings)
+        and not _CLOCK_READ.search(other)
+    )
+
+
+def _asserts_absolute_bound_on(line: str, timings: set[str]) -> bool:
+    """Whether the assertion on LINE bounds one of TIMINGS (names holding a clock difference) by a fixed amount."""
+    if not timings or not _is_assertion_line(line) or not _names_in(line, timings):
+        return False
+    helper = _RELATIONAL_HELPER.search(line)
+    if helper:
+        args, after = _top_level_args(line, helper.end() - 1)
+        if helper.group(0).startswith("toBe"):
+            # expect(took).toBeLessThan(500): the operand is expect's argument.
+            opening = re.search(r"\bexpect\s*\(", line[: helper.start()])
+            if not opening:
+                return False
+            subject, _ = _top_level_args(line, opening.end() - 1)
+            operands = [subject[0], args[0]]
+        else:
+            operands = [arg for arg in args if not _is_message(arg)][:2]
+        if len(operands) != 2:
+            return False
+        first, second = operands
+        return _bounds_a_timing(first, second, timings) or _bounds_a_timing(second, first, timings)
+    opening = _ASSERT_OPENING.search(line)
+    if opening:
+        args, _ = _top_level_args(line, opening.end() - 1)
+        conditions = [arg for arg in args if not _is_message(arg)][:1]
+    else:
+        bare = re.search(r"\bassert\s+(.*)$", line)
+        if not bare:
+            return False
+        conditions = [_top_level_args("(" + bare.group(1) + ")", 0)[0][0]]
+    # Each clause of `a >= 0 && a <= waited` is its own comparison: the 0 bounds `a`, not `waited`.
+    clauses = [clause for condition in conditions for clause in re.split(r"&&|\|\||\band\b|\bor\b", condition)]
+    for condition in clauses:
+        for operator in _RELATIONAL_OPERATOR.finditer(condition):
+            left, right = condition[: operator.start()], condition[operator.end():]
+            if _bounds_a_timing(left, right, timings) and _ABSOLUTE_BOUND.search(right):
+                return True
+            if _bounds_a_timing(right, left, timings) and _ABSOLUTE_BOUND.search(left):
+                return True
+    return False
+
+
+def _classify_assignment(value: str, timings: set[str], readings: set[str]) -> Optional[str]:
+    """'timing' for a clock difference, 'reading' for a bare clock reading, None for anything else."""
+    if not (timings or readings) and not any(key in value for key in _CLOCK_KEYS):
+        return None
+    if _is_timing_ratio(value, timings | readings):
+        return None
+    if _CLOCK_DIFFERENCE_CALL.search(value):
+        return "timing"
+    minus = re.search(r"(?<![-=<>*/+eE])-(?![->=])", value)
+    if minus:
+        left = value[: minus.start()]
+        right = value[minus.end():]
+        if re.search(r"\btimedelta\b|\b(?:weeks|days|hours|minutes|seconds)\s*=", right):
+            return None  # datetime.now() - timedelta(hours=1) is an instant, not a duration
+        # A clock reading minus a name (a start), not a timestamp moved by a constant: Date.now() + h - 1_000.
+        if (_CLOCK_READ.search(left) or _names_in(left, readings)) and "+" not in left and re.search(r"[A-Za-z]", right):
+            return "timing"
+        if _names_in(left, timings):
+            return "timing"
+        return None
+    if _names_in(value, timings) and re.search(r"[*/]\s*[\d(]|^\s*\(*\s*\w+\s*\)*\s*[*/]", value):
+        return "timing"  # (took) * 1000, took / 1e6: still the same duration
+    if _CLOCK_READ.search(value) and not re.search(r"[-+*/]", value):
+        return "reading"
+    return None
+
+
+def detect_assert_on_duration_through_name(code_lines: list[str], path_suffix: str) -> list[int]:
+    """Lines bounding a name that holds a clock difference assigned earlier in the same function.
+
+    `took = time.perf_counter() - started` then `self.assertLess(took, 0.5)`: the line-at-a-time check sees
+    neither half on one line. A name holds a timing from its assignment until it is reassigned or its function
+    (Python, by indentation) or block (Swift, JavaScript and TypeScript, by braces) ends. A ratio of two timings
+    is the scaling check and is not a bound on wall time; a timing that only reaches a log line or an assertion's
+    message measures nothing.
+    """
+    if path_suffix not in (".py", ".swift", ".ts", ".tsx", ".js", ".mjs"):
+        return []
+    # Most test files read no clock: skip the scope walk for them.
+    source = "\n".join(code_lines)
+    if not any(key in source for key in _CLOCK_KEYS):
+        return []
+    python = path_suffix == ".py"
+    # Each scope is (opening indent or brace depth, timings, readings); module level is the outermost.
+    scopes: list[tuple[int, set[str], set[str]]] = [(-1, set(), set())]
+    depth = 0
+    flagged: list[int] = []
+    for index, line in enumerate(code_lines):
+        if not line.strip():
+            continue
+        if python:
+            indent = len(line) - len(line.lstrip())
+            while len(scopes) > 1 and indent <= scopes[-1][0]:
+                scopes.pop()
+            definition = _PY_DEF.match(line)
+            if definition:
+                scopes.append((indent, set(), set()))
+                continue
+        _, timings, readings = scopes[-1]
+        if _asserts_absolute_bound_on(line, timings):
+            flagged.append(index)
+        assignment = (_PY_ASSIGNMENT if python else _BRACE_ASSIGNMENT).match(line)
+        if assignment:
+            name, value = assignment.group(1), assignment.group(2)
+            kind = _classify_assignment(value, timings, readings)
+            timings.discard(name)
+            readings.discard(name)
+            if kind == "timing":
+                timings.add(name)
+            elif kind == "reading":
+                readings.add(name)
+        if not python and ("{" in line or "}" in line):
+            # A brace in a one-line string literal does not open a block (comments are already stripped).
+            for character in _BRACES.findall(_ONE_LINE_STRING.sub("", line)):
+                if character == "{":
+                    depth += 1
+                    scopes.append((depth, set(), set()))
+                elif character == "}":
+                    if len(scopes) > 1 and scopes[-1][0] == depth:
+                        scopes.pop()
+                    depth = max(depth - 1, 0)
+    return flagged
+
+
 def detect_live_network_host(line: str, path_suffix: str = "") -> bool:
     # High-precision signal only: an actual http(s):// URL with a public host that
     # is ALSO handed to a network-driving verb on the same line (fetch/axios/
@@ -3774,6 +4066,274 @@ def detect_yield_count_poll(lines: list[str], idx: int, path_suffix: str) -> boo
     return bool(_POLL_EXIT.search(exits))
 
 
+_GIT_WRITE_VERBS = r"(?:init|commit|clone|fetch|pull|push|am|merge|rebase|cherry-pick|stash)"
+# Python: git in an argv list plus a writing subcommand token, or a `git <verb>` shell string.
+_PY_GIT_ARGV = re.compile(r"""[\[(,]\s*['"]git['"]\s*[,\]]""")
+_PY_GIT_WRITE_TOKEN = re.compile(r"""['"]""" + _GIT_WRITE_VERBS + r"""['"]""")
+_PY_GIT_WRITE_STRING = re.compile(r"""['"]git (?:-C \S+ )?(?:-c \S+ )*""" + _GIT_WRITE_VERBS + r"\b")
+_PY_TEMP_DIR = re.compile(r"\b(?:TemporaryDirectory|mkdtemp|tmp_path)\b")
+_SH_GIT_WRITE = re.compile(r"(?:^|[\s;&|(`])(?:git|git_q)\s+(?:-C\s+\S+\s+)?(?:-c\s+\S+\s+)*" + _GIT_WRITE_VERBS + r"\b")
+_SH_TEMP_DIR = re.compile(r"\bmktemp\b")
+_GIT_MAINTENANCE_OPT_OUT = re.compile(r"git_fixture_env|git-fixture\.sh|maintenance\.auto")
+
+
+def detect_git_temp_repo_maintenance(code_lines: list[str], text: str, path_suffix: str) -> Optional[int]:
+    """0-based line of the first git write in a temp-dir test with no auto-maintenance opt-out, else None."""
+    if _GIT_MAINTENANCE_OPT_OUT.search(text):
+        return None
+    code = "\n".join(code_lines)
+    if path_suffix == ".py":
+        if not _PY_TEMP_DIR.search(code):
+            return None
+        if not (_PY_GIT_WRITE_STRING.search(code) or (_PY_GIT_ARGV.search(code) and _PY_GIT_WRITE_TOKEN.search(code))):
+            return None
+        for index, line in enumerate(code_lines):
+            if _PY_GIT_ARGV.search(line) or _PY_GIT_WRITE_STRING.search(line):
+                return index
+        return 0
+    if path_suffix == ".sh":
+        if not _SH_TEMP_DIR.search(code):
+            return None
+        for index, line in enumerate(code_lines):
+            if _SH_GIT_WRITE.search(line):
+                return index
+    return None
+
+
+def _makes_temp_git_repos(code: str, path_suffix: str) -> bool:
+    if path_suffix != ".py" or not _PY_TEMP_DIR.search(code):
+        return False
+    return bool(_PY_GIT_WRITE_STRING.search(code) or (_PY_GIT_ARGV.search(code) and _PY_GIT_WRITE_TOKEN.search(code)))
+
+
+# `env = {`, `self.env = dict(`, `base_env = {` at a line start, or an `env={` keyword argument.
+_ENV_BUILD_START = re.compile(r"(?:^[ \t]*(?:self\.)?(\w*env\w*)[ \t]*=(?!=)[ \t]*|[(,\s]env=)(\{|dict\()", re.M | re.I)
+# A whole environment, not a few extra variables: it sets PATH or HOME, or copies os.environ.
+_ENV_WHOLE = re.compile(r"""['"](?:PATH|HOME)['"]\s*:|\b(?:PATH|HOME)\s*=|os\.environ\.items\(\)""")
+# Inherits the importing process's environment (which carries the opt-out), or another env mapping.
+_ENV_INHERITS = re.compile(
+    r"""\*\*\s*(?:os\.environ|[\w.]*env\w*|[\w.]*common\w*)\b|os\.environ\.(?:copy|items)\(\)|^dict\(\s*(?:os\.environ|[\w.]*env\w*)\b""",
+    re.I,
+)
+_ENV_DROPS_GIT = re.compile(r"""startswith\(\s*\(?[^)]*['"]GIT_?['"]""")
+_ENV_OPTED_OUT = re.compile(r"\b(?:fixture_env|without_auto_maintenance)\(")
+
+
+def _balanced_span(code: str, start: int) -> str:
+    depth = 0
+    for index in range(start, len(code)):
+        char = code[index]
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+            if depth == 0:
+                return code[start:index + 1]
+    return code[start:]
+
+
+def detect_git_fixture_env_dropped(code_lines: list[str], path_suffix: str) -> list[int]:
+    """0-based lines where a temp-git-repo Python test builds a child env that loses the auto-maintenance opt-out."""
+    code = "\n".join(code_lines)
+    if not _makes_temp_git_repos(code, path_suffix):
+        return []
+    hits: list[int] = []
+    for match in _ENV_BUILD_START.finditer(code):
+        line_start = code.rfind("\n", 0, match.start()) + 1
+        before = code[line_start:match.start()]
+        if before.count('"') % 2 or before.count("'") % 2:
+            continue  # inside a string literal (test data), not code
+        expr = _balanced_span(code, match.start(2))
+        if not _ENV_WHOLE.search(expr):
+            continue
+        if not _ENV_DROPS_GIT.search(expr) and _ENV_INHERITS.search(expr):
+            continue
+        target = match.group(1)
+        if target and re.search(r"\b(?:fixture_env|without_auto_maintenance)\(\s*(?:self\.)?" + re.escape(target) + r"\s*\)", code):
+            continue
+        hits.append(code.count("\n", 0, match.start(2)))
+    return hits
+
+
+_HELPER_REPO_CALL = re.compile(r"\b(?:init_repo|clone_repo|git_fixture_init|git_fixture_clone)\b")
+_PY_BARE_TOKENS = (
+    (re.compile(r"""['"]init['"]"""), re.compile(r"""['"]--bare['"]""")),
+    (re.compile(r"""['"]clone['"]"""), re.compile(r"""['"]--(?:bare|mirror)['"]""")),
+)
+_PY_BARE_STRING = re.compile(r"""['"]git\s[^'"\n]*\b(?:init|clone)\b[^'"\n]*--(?:bare|mirror)\b""")
+_SH_BARE = re.compile(r"(?:^|[\s;&|(`])(?:git|git_q)\s[^#\n]*\b(?:init|clone)\b[^#\n]*\s--(?:bare|mirror)\b")
+
+
+def detect_git_bare_repo_unmanaged(code_lines: list[str], path_suffix: str) -> list[int]:
+    """0-based lines that make a bare repository without git_fixture_env.init_repo/clone_repo (or the shell pair)."""
+    hits: list[int] = []
+    for index, line in enumerate(code_lines):
+        if _HELPER_REPO_CALL.search(line):
+            continue
+        if path_suffix == ".py":
+            # An argv list may wrap after the subcommand: look at the next line too while the call is open.
+            wraps = line.count("(") + line.count("[") > line.count(")") + line.count("]")
+            window = line + " " + (code_lines[index + 1] if wraps and index + 1 < len(code_lines) else "")
+            if _PY_BARE_STRING.search(line) or any(
+                verb.search(line) and flag.search(window) for verb, flag in _PY_BARE_TOKENS
+            ):
+                hits.append(index)
+        elif path_suffix == ".sh" and _SH_BARE.search(line):
+            hits.append(index)
+    return hits
+
+
+
+# A temp base (no word, $, /, . or } before it, so "$TMP/build/tmp/x" is not one) and then a literal name.
+_TMP_BASE_SH = r"""(?<![\w$/.}-])(?:/tmp|/var/tmp|\$TMPDIR|\$\{TMPDIR\}|\$\{TMPDIR:-/tmp/?\})/[\w.$"{-]"""
+_SH_TMP_ASSIGN = re.compile(r"""^\s*(?:export\s+|local\s+|readonly\s+|declare\s+(?:-\w+\s+)?)?\w+=["']?""" + _TMP_BASE_SH)
+_SH_TMP_SINK = re.compile(r"""(?:>>?|\b(?:mkdir|touch|cp|mv|ln|tee|install|rm)\b[^|;&]*?)\s*["']?""" + _TMP_BASE_SH)
+_PY_TMP_LITERAL = r"""[rfb]?['"]/(?:var/)?tmp/[\w.{-][^'"]*['"]"""
+_PY_TMP_SINK = re.compile(
+    r"""(?:\bopen\(|\bPath\(|os\.makedirs\(|os\.mkdir\(|shutil\.\w+\(|os\.symlink\(|os\.replace\(|os\.rename\()\s*"""
+    + _PY_TMP_LITERAL
+)
+_PY_GETTEMPDIR_JOIN = re.compile(
+    r"""gettempdir\(\)\s*(?:\)\s*)?(?:,\s*[rf]?['"]|/\s*[rf]?['"]|\+\s*[rf]?['"]/)|\{[\w.]*gettempdir\(\)\}/"""
+)
+
+
+def _predictable_tmp_scope(rel_posix: str) -> Optional[str]:
+    """'.py' or '.sh' when rel_posix is a test or hook helper this rule covers, else None."""
+    suffix = pathlib.PurePosixPath(rel_posix).suffix
+    in_scope = (
+        rel_posix.startswith("tests/")
+        or (rel_posix.startswith("scripts/") and "/tests/" in rel_posix)
+        or rel_posix.startswith(GIT_HOOKS_ROOT + "/")
+    )
+    if not in_scope:
+        return None
+    if suffix == ".py":
+        return ".py"
+    if suffix in (".sh", ".bash") or (suffix == "" and rel_posix.startswith(GIT_HOOKS_ROOT + "/")):
+        return ".sh"
+    return None
+
+
+def detect_predictable_tmp_path(raw_lines: list[str], rel_posix: str) -> list[int]:
+    """0-based lines that write to, assign or join a fixed name under a shared temp folder (not via mktemp)."""
+    kind = _predictable_tmp_scope(rel_posix)
+    if kind is None:
+        return []
+    hits: list[int] = []
+    for index, raw in enumerate(raw_lines):
+        # A hook helper has no suffix, so strip its comments as shell here rather than trusting code_lines.
+        code = _strip_comment(raw, kind)
+        if not code.strip() or "mktemp" in raw:
+            continue
+        if kind == ".py":
+            found = _PY_TMP_SINK.search(code) or _PY_GETTEMPDIR_JOIN.search(code)
+        else:
+            found = _SH_TMP_ASSIGN.search(code) or _SH_TMP_SINK.search(code)
+        if found:
+            hits.append(index)
+    return hits
+
+_MISSING_MODULE = re.compile(r"ModuleNotFoundError: No module named '([\w.]+)'")
+_ISOLATED_LOAD = (
+    "import runpy, sys; "
+    "runpy.run_path(sys.argv[1], run_name='__isolated_import_check__')"
+)
+
+
+def isolated_import_finding(repo_root: pathlib.Path, rel_posix: str) -> Optional[Finding]:
+    """Load one Python test the way `python3 -I` runs it (no script folder on sys.path), without running tests.
+
+    Only a missing module that exists beside the test or in tests/ counts: that is the -I failure
+    (cmux#40871, test_cmux_next_compile_trailer.py). A missing third-party package is not this check's business.
+    """
+    import subprocess
+
+    path = repo_root / rel_posix
+    try:
+        result = subprocess.run(
+            [sys.executable, "-I", "-c", _ISOLATED_LOAD, str(path)],
+            cwd=repo_root, capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    if result.returncode == 0:
+        return None
+    missing = _MISSING_MODULE.search(result.stderr)
+    if not missing:
+        return None
+    top = missing.group(1).split(".")[0]
+    local = any((folder / f"{top}.py").is_file() or (folder / top / "__init__.py").is_file()
+                for folder in (path.parent, repo_root / "tests"))
+    if not local:
+        return None
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    import_line = re.compile(r"^\s*(?:import|from)\s+" + re.escape(top) + r"\b")
+    line_no = next((i + 1 for i, line in enumerate(lines) if import_line.search(line)), 1)
+    return Finding(rel_posix, line_no, RULE_ISOLATED_IMPORT,
+                   f"python3 -I {rel_posix}: No module named '{missing.group(1)}' (load it by path)")
+
+
+def _changed_python_tests(repo_root: pathlib.Path) -> Optional[list[str]]:
+    """Python test files changed against the base branch, or None when history to diff against is missing."""
+    import os
+    import subprocess
+
+    def git(*args: str) -> Optional[str]:
+        result = subprocess.run(["git", "-C", str(repo_root), *args], capture_output=True, text=True)
+        return result.stdout if result.returncode == 0 else None
+
+    bases = [f"origin/{os.environ['GITHUB_BASE_REF']}"] if os.environ.get("GITHUB_BASE_REF") else []
+    bases += ["origin/feat-cmux-next", "origin/main"]
+    for base in bases:
+        merge_base = git("merge-base", "HEAD", base)
+        if merge_base:
+            names = git("diff", "--name-only", "--diff-filter=AMR", merge_base.strip(), "HEAD") or ""
+            return [name for name in names.split() if name.endswith(".py")]
+    return None
+
+
+
+def collect_predictable_tmp_extra_findings(repo_root: pathlib.Path) -> list[Finding]:
+    """predictable-tmp-path over scripts/**/tests (but GIT_FIXTURE_ONLY_ROOTS, already scanned) and the git hooks."""
+    findings: list[Finding] = []
+    folders = sorted(path for path in repo_root.glob(PREDICTABLE_TMP_EXTRA_GLOB) if path.is_dir())
+    folders.append(repo_root / GIT_HOOKS_ROOT)
+    skip = {repo_root / root for root in GIT_FIXTURE_ONLY_ROOTS}
+    for folder in folders:
+        if folder in skip or any(parent in skip for parent in folder.parents) or not folder.is_dir():
+            continue
+        for path in sorted(p for p in folder.rglob("*") if p.is_file()):
+            rel_posix = path.relative_to(repo_root).as_posix()
+            if is_ignored_path(rel_posix) or _predictable_tmp_scope(rel_posix) is None:
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+            findings += [f for f in scan_text(rel_posix, text) if f.rule == RULE_PREDICTABLE_TMP_PATH]
+    return findings
+
+def collect_isolated_import_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Finding]:
+    """isolated-import over each changed Python test (when the history allows) and each that loads git_fixture_env."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    candidates: set[str] = set()
+    changed = _changed_python_tests(repo_root)
+    for root in roots:
+        root_path = repo_root / root
+        if not root_path.is_dir():
+            continue
+        for path in root_path.rglob("*.py"):
+            rel_posix = path.relative_to(repo_root).as_posix()
+            if is_ignored_path(rel_posix) or not _looks_like_test_file(rel_posix, root):
+                continue
+            if changed is not None and rel_posix in changed:
+                candidates.add(rel_posix)
+            elif "git_fixture_env" in path.read_text(encoding="utf-8", errors="replace"):
+                candidates.add(rel_posix)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(lambda rel: isolated_import_finding(repo_root, rel), sorted(candidates)))
+    return [finding for finding in results if finding is not None]
+
+
 # ---------------------------------------------------------------------------
 # File scanning
 # ---------------------------------------------------------------------------
@@ -3920,6 +4480,25 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
         if detect_yield_count_poll(code_lines, i, suffix):
             findings.append(Finding(rel_posix, line_no, RULE_YIELD_COUNT_POLL, snippet))
 
+    duration_lines = {f.line for f in findings if f.rule == RULE_ASSERT_ON_DURATION}
+    for duration_line in detect_assert_on_duration_through_name(code_lines, suffix):
+        if duration_line + 1 not in duration_lines:
+            findings.append(
+                Finding(rel_posix, duration_line + 1, RULE_ASSERT_ON_DURATION, raw_lines[duration_line].strip())
+            )
+
+    git_line = detect_git_temp_repo_maintenance(code_lines, text, suffix)
+    if git_line is not None:
+        findings.append(
+            Finding(rel_posix, git_line + 1, RULE_GIT_TEMP_REPO_MAINTENANCE, raw_lines[git_line].strip())
+        )
+    for env_line in detect_git_fixture_env_dropped(code_lines, suffix):
+        findings.append(Finding(rel_posix, env_line + 1, RULE_GIT_FIXTURE_ENV_DROPPED, raw_lines[env_line].strip()))
+    for bare_line in detect_git_bare_repo_unmanaged(code_lines, suffix):
+        findings.append(Finding(rel_posix, bare_line + 1, RULE_GIT_BARE_REPO_UNMANAGED, raw_lines[bare_line].strip()))
+    for tmp_line in detect_predictable_tmp_path(raw_lines, rel_posix):
+        findings.append(Finding(rel_posix, tmp_line + 1, RULE_PREDICTABLE_TMP_PATH, raw_lines[tmp_line].strip()))
+    findings.sort(key=lambda f: (f.line, f.rule))
     return findings
 
 
@@ -4007,9 +4586,126 @@ def filter_allowlisted(
 # ---------------------------------------------------------------------------
 
 
+def _isolated_import_self_test() -> list[str]:
+    """isolated-import on real files: 3 that fail under `python3 -I` and 3 that load."""
+    import tempfile
+
+    sibling = "import sys\nimport git_fixture_env\n"
+    by_path = (
+        "import importlib.util\nfrom os import path\n"
+        "spec = importlib.util.spec_from_file_location('git_fixture_env', "
+        "path.join(path.dirname(path.abspath(__file__)), 'git_fixture_env.py'))\n"
+        "m = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(m)\n"
+    )
+    cases = [
+        # (path, source, flagged)
+        ("tests/test_sibling_import.py", sibling, True),
+        ("tests/test_from_import.py", "from git_fixture_env import fixture_env\n", True),
+        ("scripts/cmux-next/tests/test_tests_dir_import.py", "import helper_in_tests\n", True),
+        ("tests/test_by_path.py", by_path, False),
+        ("tests/test_stdlib_only.py", "import json\nimport unittest\n", False),
+        # A missing third-party package is not a -I failure.
+        ("tests/test_third_party.py", "import not_a_real_package_x9\n", False),
+    ]
+    failures: list[str] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        (root / "tests").mkdir()
+        (root / "scripts/cmux-next/tests").mkdir(parents=True)
+        (root / "tests/git_fixture_env.py").write_text("VALUE = 1\n")
+        (root / "tests/helper_in_tests.py").write_text("VALUE = 1\n")
+        for rel, source, flagged in cases:
+            (root / rel).write_text(source)
+            finding = isolated_import_finding(root, rel)
+            if flagged and finding is None:
+                failures.append(f"ISOLATED {rel}: expected {RULE_ISOLATED_IMPORT}")
+            if not flagged and finding is not None:
+                failures.append(f"ISOLATED {rel}: unexpected {finding.format()}")
+    return failures
+
+
 def _self_test() -> int:
     # (filename, source, expected rules present, rules that must NOT be present)
     positives: list[tuple[str, str, set[str]]] = [
+        # A temp git repo with git's detached auto maintenance still on (the Errno 39 '.git' race).
+        (
+            "tests/git_temp_repo.py",
+            "import tempfile\nd = tempfile.TemporaryDirectory()\n"
+            "subprocess.run(['git', '-C', d.name, 'init', '-q'])\nsubprocess.run(['git', '-C', d.name, 'commit', '-qm', 'x'])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        (
+            "tests/git_temp_repo_shell_string.py",
+            "import tempfile\nd = tempfile.mkdtemp()\nsubprocess.run(f'git -C {d} init -q', shell=True)\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        (
+            "scripts/cmux-next/tests/repo.test.sh",
+            'd=$(mktemp -d)\ngit -C "$d" -c user.name=t commit -qm x\n',
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        # A child env built from scratch drops the opt-out the helper put in os.environ (cmux#40871 F2).
+        (
+            "tests/git_env_scratch.py",
+            "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
+            "env = {'PATH': '/usr/bin:/bin', 'HOME': d}\nsubprocess.run(['git', 'commit'], env=env)\n",
+            {RULE_GIT_FIXTURE_ENV_DROPPED},
+        ),
+        # Filtering GIT_* out of os.environ drops GIT_CONFIG_COUNT with it (Sandbox.env, the compile-trailer test).
+        (
+            "tests/git_env_filtered.py",
+            "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
+            "class T:\n    def setUp(self):\n"
+            "        self.env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}\n",
+            {RULE_GIT_FIXTURE_ENV_DROPPED},
+        ),
+        # An env= keyword with a whole PATH and nothing inherited.
+        (
+            "tests/git_env_keyword.py",
+            "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
+            "subprocess.run(['git', 'fetch'], cwd=d, env={'PATH': os.environ['PATH'], 'GIT_DIR': d})\n",
+            {RULE_GIT_FIXTURE_ENV_DROPPED},
+        ),
+        # A fixed name in the shared temp folder: another user can plant it first (cmux#40871 Codex F1).
+        (
+            "scripts/cmux-next/tests/lib/fixture.sh",
+            '_global="${TMPDIR:-/tmp}/cmux-git-fixture-$(id -u)-v1.gitconfig"\nprintf x >"$_global"\n',
+            {RULE_PREDICTABLE_TMP_PATH},
+        ),
+        (
+            "tests/tmp_gettempdir.py",
+            "import os, tempfile\nstate = os.path.join(tempfile.gettempdir(), 'cmux-state.json')\n",
+            {RULE_PREDICTABLE_TMP_PATH},
+        ),
+        (
+            "scripts/git-hooks/pre-push",
+            '#!/bin/bash\n# runs the gate\nrun_gate >/tmp/cmux-pre-push.log 2>&1\n',
+            {RULE_PREDICTABLE_TMP_PATH},
+        ),
+        (
+            "tests/tmp_open_literal.py",
+            "with open('/tmp/cmux-fixture.json', 'w') as handle:\n    handle.write('{}')\n",
+            {RULE_PREDICTABLE_TMP_PATH},
+        ),
+        # A bare remote made with plain git: receive-pack runs with GIT_CONFIG_COUNT cleared (cmux#40871 F3).
+        (
+            "tests/git_bare_argv.py",
+            "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
+            "subprocess.run(['git', 'init', '-q', '--bare', str(remote)], check=True)\n",
+            {RULE_GIT_BARE_REPO_UNMANAGED},
+        ),
+        # A mirror clone through a wrapper, its flag on the next line.
+        (
+            "tests/git_mirror_wrapped.py",
+            "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
+            "git(root, 'clone', '-q',\n    '--mirror', str(src), str(dest))\n",
+            {RULE_GIT_BARE_REPO_UNMANAGED},
+        ),
+        (
+            "scripts/cmux-next/tests/bare.test.sh",
+            'source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\nd=$(mktemp -d)\ngit_q clone --bare "$d/src" "$d/o.git"\n',
+            {RULE_GIT_BARE_REPO_UNMANAGED},
+        ),
         # A measured duration read with a string key is still code's data, not an assertion message.
         (
             "tests/string_key_duration.py",
@@ -4041,6 +4737,70 @@ def _self_test() -> int:
         (
             "tests/b.py",
             "elapsed_ms = (time.perf_counter() - t0) * 1000\nassert elapsed_ms < 50\n",
+            {RULE_ASSERT_ON_DURATION},
+        ),
+        # A clock difference stored in a name the token list does not know, then bounded on a later line
+        # (cmux#41236: test_base_red_excuse.py's `took` failed its 0.5 s bound under host load).
+        (
+            "tests/duration_through_name.py",
+            (
+                "class T(unittest.TestCase):\n"
+                "    def test_linear(self):\n"
+                "        started = time.perf_counter()\n"
+                "        owned = place(job)\n"
+                "        took = time.perf_counter() - started\n"
+                "        with self.subTest(shape=label):\n"
+                "            self.assertLess(took, 0.5, f\"place took {took:.2f} s\")\n"
+            ),
+            {RULE_ASSERT_ON_DURATION},
+        ),
+        # Two clock readings, the difference taken from their names.
+        (
+            "tests/duration_end_minus_start.py",
+            (
+                "def test_fast():\n"
+                "    began = time.monotonic()\n"
+                "    run()\n"
+                "    done = time.monotonic()\n"
+                "    spent = done - began\n"
+                "    assert spent < 2\n"
+            ),
+            {RULE_ASSERT_ON_DURATION},
+        ),
+        (
+            "cmuxTests/duration_through_name.swift",
+            (
+                "    func testFast() async {\n"
+                "        let start = clock.now\n"
+                "        await model.load()\n"
+                "        let took = clock.now - start\n"
+                "        XCTAssertLessThan(took, .seconds(1))\n"
+                "    }\n"
+            ),
+            {RULE_ASSERT_ON_DURATION},
+        ),
+        (
+            "cmuxTests/duration_interval_name.swift",
+            (
+                "    func testFast() {\n"
+                "        let t0 = Date()\n"
+                "        model.load()\n"
+                "        let spent = Date().timeIntervalSince(t0)\n"
+                "        XCTAssertLessThan(spent, 0.25)\n"
+                "    }\n"
+            ),
+            {RULE_ASSERT_ON_DURATION},
+        ),
+        (
+            "web/tests/duration_through_name.test.ts",
+            (
+                "it('loads fast', async () => {\n"
+                "  const started = performance.now();\n"
+                "  await load();\n"
+                "  const took = performance.now() - started;\n"
+                "  expect(took).toBeLessThan(500);\n"
+                "});\n"
+            ),
             {RULE_ASSERT_ON_DURATION},
         ),
         (
@@ -5061,6 +5821,79 @@ def _self_test() -> int:
     ]
 
     negatives: list[tuple[str, str]] = [
+        # A temp git repo whose test imports the auto-maintenance opt-out.
+        (
+            "tests/git_fixture_ok.py",
+            "import tempfile\nimport git_fixture_env  # noqa: F401\n"
+            "d = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n",
+        ),
+        # Only reads git (no repository is written) beside an unrelated temp dir.
+        (
+            "tests/git_read_only.py",
+            "import tempfile\nout = tempfile.mkdtemp()\nsubprocess.run(['git', 'rev-parse', 'HEAD'])\n",
+        ),
+        # A shell test that sources the shared fixture.
+        (
+            "scripts/cmux-next/tests/ok.test.sh",
+            'source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\nd=$(mktemp -d)\ngit -C "$d" init -q\n',
+        ),
+        # A child env that inherits os.environ (which carries the opt-out).
+        (
+            "tests/git_env_inherits.py",
+            "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
+            "env = {**os.environ, 'PATH': '/usr/bin:/bin', 'HOME': d}\n",
+        ),
+        # A scratch env passed through the helper, before or after it is built.
+        (
+            "tests/git_env_helper.py",
+            "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
+            "self.env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}\n"
+            "git_fixture_env.without_auto_maintenance(self.env)\n"
+            "other = git_fixture_env.fixture_env({'PATH': '/usr/bin', 'HOME': d})\n",
+        ),
+        # A few extra variables (no PATH or HOME) are not a whole environment; one in a string is test data.
+        (
+            "tests/git_env_extras.py",
+            "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
+            "run(env={'GH_TOKEN': 'x'})\nSOURCE = \"subprocess.run(['x'], env={'PATH': HERE})\"\n",
+        ),
+        # A private folder from mktemp, even one made under ${TMPDIR:-/tmp}.
+        (
+            "scripts/cmux-next/tests/lib/private.sh",
+            'dir=$(mktemp -d "${TMPDIR:-/tmp}/cmux-git-fixture.XXXXXXXX")\nprintf x >"$dir/global.gitconfig"\n',
+        ),
+        # "/tmp/" inside a longer path, and a /tmp path that is only test data in an assertion.
+        (
+            "tests/tmp_data_only.sh",
+            'rm -rf "$TMP/build/tmp/stamp"\nmkdir -p "$TMP/cache/tmp/job"\n[[ "$out" == /tmp/x ]] || fail\n',
+        ),
+        (
+            "tests/tmp_assert_only.py",
+            "import tempfile\nd = tempfile.mkdtemp()\nself.assertIn('/tmp/cmux-x.sock', out)\n# open('/tmp/x')\n",
+        ),
+        # Outside the tests and hook helpers this rule covers.
+        (
+            "scripts/tool.sh",
+            'log=/tmp/tool.log\n',
+        ),
+        # Bare remotes through the helper.
+        (
+            "tests/git_bare_helper.py",
+            "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
+            "git_fixture_env.init_repo(remote, '--bare', '-b', 'main')\n"
+            "git_fixture_env.clone_repo(work, origin, '--bare')\n",
+        ),
+        # A test that names a bare repository in prose or reads one (no --bare/--mirror create).
+        (
+            "tests/git_bare_mentions.py",
+            "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
+            "REASON = 'fetches into a scratch `git init` cache'\nsubprocess.run(['git', 'rev-parse', '--is-bare-repository'])\n",
+        ),
+        (
+            "scripts/cmux-next/tests/bare-ok.test.sh",
+            'source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\nd=$(mktemp -d)\n'
+            'git_fixture_init --bare -b feat "$d/r.git"\ngit_fixture_clone --bare "$d/r.git" "$d/c.git"\n',
+        ),
         # Deterministic scenario-pacing sleep with NO following assertion.
         (
             "tests/n1.py",
@@ -5325,7 +6158,7 @@ def _self_test() -> int:
         # Redirections do not promote later argv data into command position.
         (
             "tests/n18i_shell_redirected_argument.sh",
-            "printf >/tmp/out curl https://api.openai.com/v1/items\n",
+            "printf >\"$TMP/out\" curl https://api.openai.com/v1/items\n",
         ),
         # Merely passing eval and curl as arguments does not execute either one.
         (
@@ -5726,6 +6559,92 @@ def _self_test() -> int:
             "cmux-next-ios/CmuxMobileKit/Tests/KitTests/n31.swift",
             "#expect(clock.now == RecordedClock.at(.milliseconds(150)))\n",
         ),
+        # The scaling pattern (cmux#41236): two timings of the same work at N and 4N, bounded only by their ratio.
+        (
+            "tests/n32.py",
+            (
+                "def test_scales_linearly(self):\n"
+                "    began = time.process_time()\n"
+                "    run(n)\n"
+                "    took_n = time.process_time() - began\n"
+                "    began = time.process_time()\n"
+                "    run(4 * n)\n"
+                "    took_4n = time.process_time() - began\n"
+                "    ratio = took_4n / max(took_n, 1e-9)\n"
+                "    self.assertLess(ratio, 8)\n"
+                "    self.assertLess(took_4n / took_n, 8)\n"
+                "    self.assertLess(took_4n, 8 * took_n)\n"
+            ),
+        ),
+        # A clock difference that only reaches a log line or an assertion's message measures nothing.
+        (
+            "tests/n33.py",
+            (
+                "def test_places_all(self):\n"
+                "    started = time.perf_counter()\n"
+                "    owned = place(job)\n"
+                "    took = time.perf_counter() - started\n"
+                "    print(f\"place took {took:.2f} s\")\n"
+                "    log.info('took %.2f s', took)\n"
+                "    self.assertEqual(len(owned), 3, f\"took {took:.2f} s\")\n"
+            ),
+        ),
+        # A name holds a clock difference only in the function that assigned it, and only until it is reassigned.
+        (
+            "tests/n34.py",
+            (
+                "def helper():\n"
+                "    took = time.perf_counter() - started\n"
+                "    return took\n"
+                "def test_rows(self):\n"
+                "    took = len(rows)\n"
+                "    self.assertLess(took, 5)\n"
+                "def test_again(self):\n"
+                "    self.assertLess(took, 5)\n"
+            ),
+        ),
+        # A bound of 0 on another value, and a timing used as that value's upper bound (a relative check).
+        (
+            "cmuxTests/n36.swift",
+            (
+                "    func a() {\n"
+                "        let waited = (seen - typed) * 1000\n"
+                "        let waited2 = (CACurrentMediaTime() - typed) * 1000\n"
+                "        #expect(latency >= 0 && latency <= waited2, \"echo \\(latency) ms\")\n"
+                "    }\n"
+            ),
+        ),
+        # A timestamp moved by a constant is an instant, not a measured duration.
+        (
+            "web/tests/n37.test.ts",
+            (
+                "const floor = Date.now() + FIVE_HOURS_MS - 1_000;\n"
+                "expect(stored).toBeGreaterThanOrEqual(floor);\n"
+                "const cutoff = Date.now() - 60_000;\n"
+                "expect(stored).toBeGreaterThan(cutoff);\n"
+            ),
+        ),
+        # A timing checked only to be positive: no bound on how long it took.
+        (
+            "web/tests/n38.test.ts",
+            (
+                "  const started = performance.now();\n"
+                "  const perKey = (performance.now() - started) / presses;\n"
+                "  expect(perKey).toBeGreaterThan(0);\n"
+            ),
+        ),
+        (
+            "cmuxTests/n35.swift",
+            (
+                "    func a() {\n"
+                "        let took = clock.now - start\n"
+                "        print(took)\n"
+                "    }\n"
+                "    func b() {\n"
+                "        XCTAssertLessThan(took, 3)\n"
+                "    }\n"
+            ),
+        ),
     ]
 
     failures: list[str] = []
@@ -5741,14 +6660,18 @@ def _self_test() -> int:
         if rules:
             failures.append(f"NEGATIVE {name}: unexpected {sorted(rules)}")
 
+    failures += _isolated_import_self_test()
+    isolated_fixtures = 6
+
     if failures:
         print("self-test FAILED:")
         for failure in failures:
             print(f"  - {failure}")
         return 1
 
-    total = len(positives) + len(negatives)
-    print(f"self-test OK: {len(positives)} positive + {len(negatives)} negative fixtures passed ({total} total)")
+    total = len(positives) + len(negatives) + isolated_fixtures
+    print(f"self-test OK: {len(positives)} positive + {len(negatives)} negative fixtures and "
+          f"{isolated_fixtures} isolated-import fixtures passed ({total} total)")
     return 0
 
 
@@ -5813,6 +6736,15 @@ def main(argv: list[str]) -> int:
     roots = _resolve_roots(repo_root, args.roots)
 
     findings = collect_findings(repo_root, roots)
+    if args.roots is None:
+        findings += [
+            finding
+            for finding in collect_findings(repo_root, GIT_FIXTURE_ONLY_ROOTS)
+            if finding.rule in GIT_FIXTURE_RULES
+        ]
+        findings += collect_predictable_tmp_extra_findings(repo_root)
+        if args.strict:
+            findings += collect_isolated_import_findings(repo_root, ("tests", *GIT_FIXTURE_ONLY_ROOTS))
 
     if args.write_allowlist:
         write_allowlist(allowlist_path, findings)

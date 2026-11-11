@@ -43,6 +43,12 @@ public struct WorkspaceSpawn: Sendable {
     /// the terminal; `WorkspaceHandlers.createAndShow`): a failure fails the create, which closes the
     /// workspace while it is still empty and releases its window's claim.
     public var onFirstTerminal: (@Sendable (DaemonConnection, CreateTerminalResult) async throws -> Void)?
+    /// The workspace's only tab is this browser tab, made by the create itself on a daemon that serves
+    /// `workspace-first-tab-v1` (one request, no terminal at any point); ``onFirstBrowser`` then works on
+    /// the tab. An older daemon gets the terminal and ``onFirstTerminal``.
+    public var firstBrowser: WorkspaceFirstBrowserTab?
+    /// Work on the tab ``firstBrowser`` made, after the create; a failure is the create's.
+    public var onFirstBrowser: (@Sendable (DaemonConnection, NewFrontendBrowserTabRequest.Response) async throws -> Void)?
 
     public init(cwd: String? = nil, name: String? = nil, command: String? = nil, env: [String: String] = [:], keep: Bool = false,
                 profile: ProfileID? = nil, newTabPage: Bool = false, key: WorkspaceKey? = nil) {
@@ -75,24 +81,24 @@ public struct WorkspaceSpawn: Sendable {
     }
 
     /// One read of the placement `setting` for the create of `key` into `window`: tells the close-selection `rule` of
-    /// a person's own New Workspace (``quickOpener(setting:)``), before the window can show it, and returns
+    /// the relation the create starts (``closeRelation(setting:)``), before the window can show it, and returns
     /// ``placement(setting:)``. A second read of the setting is a second walk of the sidebar's rows.
     @MainActor
     public func placement(setting: NewWorkspaceDefaultSlot, opening key: String, in window: String?,
                           tells rule: WindowCloseSelection) -> (row: NewWorkspaceDefaultSlot?, rule: NewWorkspaceDefaultSlot?) {
-        if let window, let quick = quickOpener(setting: setting) { rule.expect(key, in: window, quick: quick) }
+        if let window { rule.expect(key, in: window, relation: closeRelation(setting: setting)) }
         return placement(setting: setting)
     }
 
     /// The close-selection relation this create into a window starts (plans/cmux-next/close-focus.md, "One
-    /// close-selection rule"), nil for none. Only a person's own New Workspace gets one: it opens the New Tab page
-    /// (a duplicate, a template, a move, a session transfer, an import and a command workspace never do), in a run
-    /// that is the person's and may change the view. True: the quick look-up (the setting puts it at the top or
-    /// the end). False: put after the current row, it lasts as a link tab's relation does. `setting` is read only
-    /// for such a create.
-    public func quickOpener(setting: @autoclosure () -> NewWorkspaceDefaultSlot) -> Bool? {
-        guard opensNewTabPage, ActionRunScope.isPersonsAction(), ActionRunScope.viewChangeAllowed() else { return nil }
-        return !setting().placesAfterCurrent
+    /// close-selection rule"). Rust decides (`WindowCloseSelection.relation`) from the facts given here: the
+    /// create opens the New Tab page (a duplicate, a template, a move, a session transfer, an import and a
+    /// command workspace never do), its run is the person's and may change the view, and the `setting` puts the
+    /// new row after the current one. Only a person's own New Workspace gets one: `.task` after the current row
+    /// (it lasts as a link tab's relation does), `.quick` at the top or the end (the quick look-up).
+    public func closeRelation(setting: NewWorkspaceDefaultSlot) -> WindowCloseSelection.Relation {
+        WindowCloseSelection.relation(opensNewTabPage: opensNewTabPage, personsAction: ActionRunScope.isPersonsAction(),
+                                      mayChangeView: ActionRunScope.viewChangeAllowed(), afterCurrent: setting.placesAfterCurrent)
     }
 
     /// A plain Cmd-N: the New Tab page with nothing of its own (no key, chat, session, command, browser profile or

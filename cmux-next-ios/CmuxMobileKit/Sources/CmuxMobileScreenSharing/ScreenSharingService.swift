@@ -30,7 +30,10 @@ public final class ScreenSharingService {
     }
 
     public var discovery: Discovery {
-        Self.discovery(status: status, listed: hub?.devicesListed ?? false,
+        #if DEBUG
+        if let demoDiscovery { return demoDiscovery }
+        #endif
+        return Self.discovery(status: status, listed: hub?.devicesListed ?? false,
                        listError: hub?.devicesListError?.description, connection: hub?.connection ?? .disconnected)
     }
 
@@ -52,6 +55,15 @@ public final class ScreenSharingService {
             }
         }
     }
+
+    #if DEBUG
+    /// DEBUG demo (`-cmux-mobile-screen-sharing-demo MODE`, ScreenSharingDiscoveryDemo.swift): the
+    /// page's states with no hub, for recordings of the loading state.
+    var demoMode: DemoMode?
+    var demoDiscovery: Discovery?
+    var demoMacs: [HubDevice] = []
+    @ObservationIgnored var demoTask: Task<Void, Never>?
+    #endif
 
     /// The hub's state once it loaded (it follows the hub: a removed or replaced socket fails it).
     public var status: Status { hub.map { Self.status(of: $0.status) } ?? loadStatus }
@@ -119,6 +131,9 @@ public final class ScreenSharingService {
 
     /// The account's Macs, those sharing their screen and online first, then by name.
     public var macs: [HubDevice] {
+        #if DEBUG
+        if demoDiscovery != nil { return demoMacs }
+        #endif
         guard let hub else { return [] }
         return hub.otherDevices.filter { $0.platform == .macos }.sorted(by: Self.listOrder)
     }
@@ -140,6 +155,9 @@ public final class ScreenSharingService {
     /// Opens the hub: loads this phone's identity (off the main thread),
     /// registers it and keeps the socket open. Calling it again while it runs does nothing.
     public func start() {
+        #if DEBUG
+        if let demoMode { return runDemo(demoMode) }
+        #endif
         switch status {
         case .starting, .ready: return
         case .idle, .failed: break
@@ -214,6 +232,9 @@ public final class ScreenSharingService {
 
     /// Refetches everything (pull to refresh).
     public func refresh() async {
+        #if DEBUG
+        if let demoMode { return runDemo(demoMode) }
+        #endif
         guard let hub else { return start() }
         // A failed list (the hub, the list read, or a socket replaced or signed out) starts over;
         // otherwise everything is read again.

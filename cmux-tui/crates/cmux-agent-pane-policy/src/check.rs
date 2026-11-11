@@ -122,6 +122,12 @@ impl GesturePick {
         }
         GesturePick { method: method_name, params: Some(scalars) }
     }
+
+    /// The pick as JSON, `{"method": m|null, "params": {..}|null}`: the
+    /// layout of [`Facts::to_json`]'s `pick` and of `tests/cases/picks.json`.
+    pub fn to_json(&self) -> Value {
+        serde_json::json!({"method": self.method, "params": self.params})
+    }
 }
 
 /// A number as Swift's `AgentPaneJSONScalar.number(Double)` holds it, so
@@ -228,8 +234,7 @@ impl Facts {
                 "session_id": s.session_id, "config_id": s.config_id, "value": s.value, "asked": asked,
             })
         });
-        let pick =
-            self.pick.as_ref().map(|p| serde_json::json!({"method": p.method, "params": p.params}));
+        let pick = self.pick.as_ref().map(GesturePick::to_json);
         serde_json::json!({
             "is_first": self.is_first, "method": self.method, "page_id": self.page_id,
             "ticket": self.ticket, "other_meta": self.other_meta, "pick": pick,

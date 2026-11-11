@@ -165,6 +165,7 @@ export function createAcpmuxDebug(
         workedTurnRows,
         incomingRows,
         linkRows,
+        LINKED_GITHUB_PULL_REQUEST,
         organizationRows,
         toolSummaryRows,
         SUBAGENT_TRAY_STEPS,
@@ -191,8 +192,8 @@ export function createAcpmuxDebug(
             ? workedTurnRows(Date.now() - 60_000)
             : fixture === "incoming"
               ? incomingRows(Date.now() - 120_000)
-              : fixture === "link"
-                ? linkRows(Date.now() - 30_000)
+              : fixture === "link" || fixture === "github-link"
+                ? linkRows(Date.now() - 30_000, fixture === "link" ? undefined : LINKED_GITHUB_PULL_REQUEST)
                 : fixture === "organization"
                   ? organizationRows(Date.now() - 120_000)
                   : fixture === "tool-summary"

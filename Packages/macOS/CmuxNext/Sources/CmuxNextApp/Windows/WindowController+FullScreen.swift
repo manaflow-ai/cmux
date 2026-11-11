@@ -54,12 +54,12 @@ extension WindowController {
     }
 }
 
-// Page fullscreen as in Chrome (a video's full screen button): a page that
-// goes fullscreen in the window's only pane takes the whole screen. The
-// window enters macOS full screen (unless it is there already) and its
-// chrome (sidebar, right sidebar, title row, tab strip, the main pane's
-// gutter and corners) steps aside; leaving puts back exactly what entering
-// changed. With other panes on screen the page stays fullscreen in its pane.
+// Page fullscreen as in Chrome (a video's full screen button): a fullscreen page takes the whole
+// screen. The window enters macOS full screen (unless it is there already), its chrome (sidebar,
+// right sidebar, title row, tab strip, gutter, corners) steps aside and panes beside the page's hide
+// as under pane zoom (`WorkspaceContentController.presentedPane`); leaving puts back what entering
+// changed. A chat beside a video kept it in its pane (user, 2026-11-09); only a workspace shown
+// beside this one still does.
 
 extension AppServices {
     /// A browser page in `entry` entered or left element fullscreen.
@@ -70,9 +70,9 @@ extension AppServices {
 }
 
 extension WindowController {
-    /// Gives `entry`'s fullscreen page the whole screen when its pane is the only one on screen.
+    /// Gives `entry`'s fullscreen page the whole screen: its pane alone fills the window.
     func presentPage(_ entry: BrowserEntry) {
-        guard pagePresentation == nil, let window, let chrome = entry.chrome, let pane = lonePane(showing: chrome) else { return }
+        guard pagePresentation == nil, let window, let chrome = entry.chrome, let pane = shownPane(showing: chrome) else { return }
         let leaving = (window as? ShellWindow)?.isLeavingFullScreen == true
         // The full screen is the page's when the window is not there, is on its way out, or entered
         // for an earlier page whose exit waits for the enter to end (`pageFullScreenExitPending`).
@@ -126,9 +126,9 @@ extension WindowController {
         presentation.tab?.exitContentFullscreen()
     }
 
-    /// After a tab switch, a workspace switch or a pane resize (a split beside the page, a zoom
-    /// out): a page no longer on screen leaves fullscreen (Chrome does on a tab switch); a page
-    /// that gained a neighbor stays fullscreen in its pane, and the window's chrome comes back.
+    /// After a tab switch, a workspace switch or a pane resize: a page no longer on screen leaves
+    /// fullscreen (Chrome does on a tab switch); one with a workspace now shown beside it stays
+    /// fullscreen in its pane, and the window's chrome comes back.
     func revalidatePagePresentation() {
         guard let presentation = pagePresentation else { return }
         // On screen: still in its pane, which is still a shown pane of the shown workspace (a top
@@ -141,20 +141,13 @@ extension WindowController {
             tab?.exitContentFullscreen()
             return
         }
-        if lonePane(showing: chrome) === pane { return }
+        if shownPane(showing: chrome) === pane { return }
         endPagePresentation()
     }
 
-    /// The pane that shows `chrome`, when it is the only pane on screen in this window (no split
-    /// beside it, no workspace shown beside this one).
-    private func lonePane(showing chrome: BrowserChromeView) -> PaneController? {
-        guard let content, !parked.values.contains(where: { !$0.drawsNothing }) else { return nil }
-        var shown: PaneController?
-        for pane in content.panes.values where pane.isVisible {
-            guard shown == nil else { return nil }
-            shown = pane
-        }
-        guard let shown, chrome.isDescendant(of: shown.view), !chrome.isHiddenOrHasHiddenAncestor else { return nil }
-        return shown
+    /// The shown pane with `chrome`, when no workspace shows beside this one (panes beside it hide).
+    private func shownPane(showing chrome: BrowserChromeView) -> PaneController? {
+        guard let content, !parked.values.contains(where: { !$0.drawsNothing }), !chrome.isHiddenOrHasHiddenAncestor else { return nil }
+        return content.panes.values.first { $0.isVisible && chrome.isDescendant(of: $0.view) }
     }
 }

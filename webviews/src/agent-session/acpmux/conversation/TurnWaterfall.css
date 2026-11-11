@@ -150,6 +150,28 @@
   --wf-tone: color-mix(in srgb, var(--cv-fg) 20%, transparent);
 }
 
+/* The model's time outside every call and thought: striped, so it reads as the rest of the turn
+   rather than one more call, and muted like the axis that it completes. */
+.cv-waterfall .is-model {
+  --wf-tone: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, var(--cv-fg) 30%, transparent) 0 3px,
+    color-mix(in srgb, var(--cv-fg) 14%, transparent) 3px 6px
+  );
+  color: color-mix(in srgb, var(--cv-fg) 45%, transparent);
+}
+
+/* The `tint` arm: each gap shaded behind a call's bar, the length of its track. */
+.cv-waterfall__gap {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--wf-from);
+  width: var(--wf-width);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--cv-fg) 9%, transparent);
+}
+
 .cv-waterfall .is-failed {
   --wf-tone: var(--agent-status-failure);
 }

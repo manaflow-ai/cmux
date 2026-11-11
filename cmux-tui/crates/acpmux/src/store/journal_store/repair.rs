@@ -93,7 +93,7 @@ impl Replay {
                 self.chats.entry(chat.to_owned()).or_default().clear();
                 self.metas.remove(chat);
             }
-            super::meta::KIND_META => self.take_meta(&record)?,
+            super::meta::KIND_META | super::meta::KIND_META_PATCH => self.take_meta(&record)?,
             KIND_FROZEN => self.frozen = true,
             other => return Err(format!("unknown event journal record kind {other}")),
         }
@@ -745,7 +745,7 @@ fn truncate_private(path: &Path, len: u64) -> Result<()> {
 /// link, never under a lost home, and only an owner-only file of this user (the checks of
 /// `config::private_state_file`, which every read of a segment makes).
 #[cfg(unix)]
-pub(super) fn open_segment_to_write(path: &Path) -> Result<File> {
+pub(in crate::store) fn open_segment_to_write(path: &Path) -> Result<File> {
     use std::os::unix::fs::OpenOptionsExt;
     crate::config::refuse_lost_home(path)?;
     let file = OpenOptions::new()
@@ -758,7 +758,7 @@ pub(super) fn open_segment_to_write(path: &Path) -> Result<File> {
 }
 
 #[cfg(windows)]
-pub(super) fn open_segment_to_write(path: &Path) -> Result<File> {
+pub(in crate::store) fn open_segment_to_write(path: &Path) -> Result<File> {
     crate::config::refuse_lost_home(path)?;
     Ok(crate::owner_only::open_rw_existing(path)?)
 }

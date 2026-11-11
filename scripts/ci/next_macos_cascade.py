@@ -799,6 +799,12 @@ def cascade_jobs(env: Mapping[str, str]) -> tuple[str, ...]:
     return (*CASCADE_JOBS, *(job for job in (env.get("CASCADE_JOBS") or "").split() if job not in CASCADE_JOBS))
 
 
+def promote_jobs(env: Mapping[str, str]) -> tuple[str, ...]:
+    """PROMOTE_JOBS plus the env's PROMOTE_JOBS: another trusted workflow's own Mac job (app-ffi-release.yml's
+    `app-ffi-build`) takes the promotion mini and its cascade as a feat-cmux-next push's Release compile does."""
+    return (*PROMOTE_JOBS, *(job for job in (env.get("PROMOTE_JOBS") or "").split() if job not in PROMOTE_JOBS))
+
+
 def candidates(env: Mapping[str, str], owned: Sequence[str], promote_busy: bool = False) -> list[str]:
     """The cascade jobs that run here and no idle mini takes, in the order they take Blacksmith slots."""
     runs = set((env.get("CASCADE_RUNS") or "").split())
@@ -806,7 +812,7 @@ def candidates(env: Mapping[str, str], owned: Sequence[str], promote_busy: bool 
     # every side job takes the side label whatever owned_jobs says: so the idle
     # minis count against the jobs that run here, in order, before Blacksmith.
     running = [job for job in (env.get("JOBS") or "").split() if job in cascade_jobs(env) and job in runs]
-    promoted = [job for job in running if job in PROMOTE_JOBS] if (env.get("PROMOTE_LABEL") or "").strip() else []
+    promoted = [job for job in running if job in promote_jobs(env)] if (env.get("PROMOTE_LABEL") or "").strip() else []
     side = [job for job in running if job not in promoted]
     # FIRST_JOBS (a feat-cmux-next push's Release compile, which gates the nightly-next request) take the
     # run's slots first: with MAX_PER_RUN slots a run it was last and found none (2026-10-26 09:21Z, run
@@ -828,7 +834,7 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
           saturated: bool = False, route_wait: float | None = None) -> Placement:
     """The Blacksmith jobs of attempt 1, after the idle minis took `owned`.
 
-    With PROMOTE_LABEL set (a feat-cmux-next push), PROMOTE_JOBS run on that label: they cascade,
+    With PROMOTE_LABEL set (a feat-cmux-next push), promote_jobs() run on that label: they cascade,
     first, only when `promote_busy` (no idle runner carries it), and never take an idle side mini's turn.
 
     `saturated`: the owned runners were read live, so the jobs past `owned` are known to have no idle

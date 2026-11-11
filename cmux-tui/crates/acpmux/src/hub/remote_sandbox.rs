@@ -826,7 +826,22 @@ fn claude_args(
         return Err(format!("a remote chain never runs Claude Code with {bad} set"));
     }
     args.push("--settings".into());
-    args.push(claude_settings(endpoint.map(|e| e.url.as_str())));
+    let settings = claude_settings(endpoint.map(|e| e.url.as_str()));
+    // Team mode on a Cloud machine (`claude_cloud_auth.rs`): the pair and no personal credential
+    // from a project or local settings file either.
+    let settings = match crate::claude_cloud_auth::marked_pair(&profile.env) {
+        Some(pair) => {
+            let own = serde_json::from_str::<serde_json::Map<String, Value>>(&settings).ok();
+            let headers = profile.env.get(crate::claude_cloud_auth::HEADERS);
+            crate::claude_cloud_auth::team_settings(
+                own.as_ref(),
+                &pair,
+                headers.map(String::as_str).unwrap_or(""),
+            )
+        }
+        None => settings,
+    };
+    args.push(settings);
     if endpoint.is_some_and(|e| e.own) {
         args.push("--setting-sources".into());
         args.push("project,local".into());
