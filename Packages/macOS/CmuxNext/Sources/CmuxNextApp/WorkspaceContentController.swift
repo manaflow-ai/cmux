@@ -169,9 +169,6 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             }
             return try await fallbackCreate(key)
         }
-        emptyView = EmptyWorkspaceView(
-            onNew: { [weak self] in self?.newFromEmptyState() }
-        )
         themeScope.root(contentView)
         contentView.backgroundMenu = { [weak services, weak self] in
             self.flatMap { services?.registry.makeContextMenu(for: .windowBackground, target: ActionTargetRef(kind: .workspace, id: $0.workspace.id)).themeRows(in: $0.themeScope.fullStrength) }
@@ -347,9 +344,10 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// before the workspace closes.
     private func updateEmptyState() {
         let isEmpty = layoutModel.screens.allSatisfy { $0.layout.panes.isEmpty }
-        let settling = workspace.key.map { emptyWorkspaceRepair.isSettling($0) } ?? false
+        let shows = isEmpty && !(workspace.key.map { emptyWorkspaceRepair.isSettling($0) } ?? false)
+        if shows, emptyView == nil { emptyView = EmptyWorkspaceView(onNew: { [weak self] in self?.newFromEmptyState() }) } // made the first time it shows
         emptyView?.failure = workspace.key.flatMap { emptyWorkspaceRepair.failure($0) }
-        contentView.showEmpty(isEmpty && !settling ? emptyView : nil)
+        contentView.showEmpty(shows ? emptyView : nil)
     }
 
     private func newFromEmptyState() {

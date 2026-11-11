@@ -71,6 +71,11 @@ import Testing
 
     @Test func theTabRowsChevronMatchesItsPlus() throws {
         let chooser = PaneTypeMenuButton(frame: NSRect(x: 0, y: 0, width: 16, height: 24))
+        chooser.style = .glyphs
+        chooser.layout()
+        #expect(chooser.subviews.isEmpty, "a chooser outside the plates style made its plates button")
+        chooser.style = .plates  // the plates button is made the first time that style lays out
+        chooser.layout()
         let glyph = try #require(chooser.subviews.first as? TitlebarBandButton)
         #expect(glyph.symbolPointSize?() == Metrics.addMenuChevronPointSize)
         #expect(Metrics.addMenuChevronPointSize < Metrics.smallIconSize, "the chevron is still the 12 pt one beside a smaller +")
