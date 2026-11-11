@@ -1,5 +1,11 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-11: the sidebar is one surface with the panes again: `sidebar.surfaceDim.dark` and `.light` default to 0
+  (were 0.2 and 0.025 from #39984 below). Leo, on the nightly with the dim, verbatim: "bro why is the sidebar now a
+  different color?", then "you guys must have wildly misinterpreted \"foregrounded\"" (ask-eb5e5319c4). #39956 named
+  the bright selection pill, not the surface; the dimmer fills, inks and 30 pt rows stay. The sliders stay in Debug
+  Settings > Sidebar to try the dim. The foreground rule he named (the selected tab takes the content's color) is
+  #40282 / #40296, not the sidebar.
 - 2026-11-09: at Default density the sidebar matches the Codex desktop sidebar
   (https://github.com/manaflow-ai/cmux/issues/39956; measured in https://github.com/manaflow-ai/cmux/issues/28793 and the
   Codex stylesheet). The user, verbatim: "the sidebar colour is too bright (bright grey selection pill on Recents row).

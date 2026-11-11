@@ -154,14 +154,16 @@ public nonisolated enum SidebarTunables {
     /// Black over the sidebar so it reads a step dimmer than the panes beside it, as the Codex desktop sidebar's
     /// under-surface does (https://github.com/manaflow-ai/cmux/issues/39956: "the sidebar colour is too bright").
     /// Only where nothing else shades the sidebar: no `appearance.surfaces.sidebar` color, no separate chrome shade.
+    /// 0 by default: the sidebar is the window's own color, one surface with the panes (Leo, 2026-11-11, on the
+    /// nightly with the dim on: "bro why is the sidebar now a different color?"). #39956's dimmer fills stay.
     public static let surfaceDimDark = Tunable<Double>.number(
         "sidebar.surfaceDim.dark", .sidebar, "Sidebar dim (dark themes)",
         help: "Dark themes: black over the sidebar so it reads a step dimmer than the panes, as the Codex sidebar does. 0 draws the sidebar on the window's own color.",
-        default: 0.2, range: 0...0.6, step: 0.01, unit: .fraction, code: "SidebarTunables.surfaceDimDark")
+        default: 0, range: 0...0.6, step: 0.01, unit: .fraction, code: "SidebarTunables.surfaceDimDark")
     public static let surfaceDimLight = Tunable<Double>.number(
         "sidebar.surfaceDim.light", .sidebar, "Sidebar dim (light themes)",
         help: "Light themes: black over the sidebar so it reads a step dimmer than the panes, as the Codex sidebar does. 0 draws the sidebar on the window's own color.",
-        default: 0.025, range: 0...0.3, step: 0.005, unit: .fraction, code: "SidebarTunables.surfaceDimLight")
+        default: 0, range: 0...0.3, step: 0.005, unit: .fraction, code: "SidebarTunables.surfaceDimLight")
     /// `groupRowLimit` as a row count.
     public static var rowLimit: Int { max(0, Int(groupRowLimit.value)) }
 
