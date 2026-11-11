@@ -65,8 +65,8 @@ set.
 
 ## Why superseding, not a separate runner label for the trivial checks
 
-The trivial checks run on the trusted Blacksmith Linux pools. During the outage window, 437 of the
-1,254 runs on `blacksmith-2vcpu-ubuntu-2404` and 205 of the 711 runs on `blacksmith-4vcpu` were
+The trivial checks run on the trusted Linux pools. During the outage window, 437 of the 1,254 runs
+on the 2-vCPU pool and 205 of the 711 runs on the 4-vCPU pool were
 trivial checks. The waits came from somewhere else:
 
 - 195 of the 642 trivial-check runs created during the stall never started.
