@@ -19,6 +19,9 @@ import Testing
 /// there are 2 of them, and they are different sizes"), not at its top gap from the edge.
 @MainActor @Suite(.serialized, .closesItsWindows) struct PaneChromeEvenInsetTests {
     private func load(_ style: ChromeStyle?, density: Density) {
+        // These sweeps check the tab pill's geometry in every style; the flush corner, the default over
+        // flat and default chrome, has its own (`CornerFlushTests`).
+        MainPaneGutterSuites.pinsCornerFlushOff(style != nil)
         let appearance: JSONValue = style.map { .object(["chromeStyle": .string($0.rawValue)]) } ?? .object([:])
         let snapshot = CmuxConfigSnapshot.parse(.object(["appearance": appearance]), validDensities: SettingsApplier.validDensities,
                                                 validMetrics: SettingsApplier.validMetrics)
