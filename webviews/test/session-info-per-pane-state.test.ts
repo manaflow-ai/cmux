@@ -6,9 +6,11 @@
 // pane after a relaunch is a fresh copy over the same storage.
 import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { fileURLToPath } from "node:url";
 
 type Module = typeof import("../src/agent-session/acpmux/session-info/sessionInfoState");
-const MODULE = new URL("../src/agent-session/acpmux/session-info/sessionInfoState.ts", import.meta.url).pathname;
+// A path, not a URL path: a checkout under a folder with a space (a fleet step) must still load.
+const MODULE = fileURLToPath(new URL("../src/agent-session/acpmux/session-info/sessionInfoState.ts", import.meta.url));
 let loads = 0;
 /// A chat pane's page showing chat `sessionId`: its own copy of the module.
 async function page(sessionId: string): Promise<Module> {
@@ -106,6 +108,22 @@ test("a new chat starts with Session Info closed whatever another chat chose; th
   opened.setSessionInfoOpen(true);
   expect((await page("chat-new")).sessionInfoState().open).toBe(false);
   expect((await page("chat-a")).sessionInfoState().open).toBe(true);
+});
+
+// cmux #26692: before the closed default every chat a pane showed was saved open, so a chat viewed
+// then kept opening Session Info by itself. An open saved before version 2 reads as closed; its
+// width and folds stay, and an open the viewer makes now is kept.
+test("an open saved by the old default reads as closed; the viewer's own open stays", async () => {
+  localStorage.setItem(
+    `${PREFIX}chat-old-default`,
+    JSON.stringify({ open: true, width: 360, sections: { usage: true, v: 5 }, at: Date.now() }),
+  );
+  const old = await page("chat-old-default");
+  expect(old.sessionInfoState()).toMatchObject({ open: false, width: 360, sections: { usage: true } });
+
+  old.setSessionInfoOpen(true);
+  expect(JSON.parse(localStorage.getItem(`${PREFIX}chat-old-default`) ?? "{}")).toMatchObject({ open: true, v: 2 });
+  expect((await page("chat-old-default")).sessionInfoState().open).toBe(true);
 });
 
 test("the same chat in two panes: a toggle in one does not move the other", async () => {

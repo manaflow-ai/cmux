@@ -124,7 +124,14 @@ type Stored = {
   sourcesAll?: unknown;
   more?: unknown;
   at?: unknown;
+  v?: unknown;
 };
+
+/// The saved state's version. Before 2 a pane saved its whole state under each chat it showed the
+/// first time, and a new chat started open (the old default, then `fresh()` copying an open in), so a
+/// saved open from before 2 is that default, not the viewer's choice: it reads as closed (#26692), and
+/// a chat viewed before the fix stops opening Session Info by itself. Its width and folds stay.
+const STATE_VERSION = 2;
 
 const clampWidth = (width: number) =>
   Math.round(Math.min(SESSION_INFO_WIDTH.max, Math.max(SESSION_INFO_WIDTH.min, width)));
@@ -165,7 +172,7 @@ function storedState(raw: string | null): State | undefined {
   const stored = parse(raw) as Stored | undefined;
   if (!stored || typeof stored !== "object" || typeof stored.open !== "boolean") return undefined;
   return {
-    open: stored.open,
+    open: stored.open && typeof stored.v === "number" && stored.v >= STATE_VERSION,
     width: widthOf(stored.width),
     sections: sectionsOf(stored.sections),
     sourcesAll: stored.sourcesAll === true,
@@ -251,7 +258,7 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
   const save = (sessionId: string, next: State) => {
     const now = Date.now();
     const ids = tab ? [tabEntry(sessionId, tab), sessionId] : [sessionId];
-    const value = JSON.stringify({ ...next, sections: savedSections(next.sections), at: now });
+    const value = JSON.stringify({ ...next, sections: savedSections(next.sections), at: now, v: STATE_VERSION });
     for (const id of ids) write(SESSION_INFO_PANE_PREFIX + id, value);
     const others = adoptStrays(indexOf())
       .filter(([id]) => !ids.includes(id))
