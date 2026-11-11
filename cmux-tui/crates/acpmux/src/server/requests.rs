@@ -2582,7 +2582,12 @@ async fn dispatch_request_with_identity(
                 () = conn.closed() => Err(RpcError::internal("the client closed the connection")),
             }
         }
-        method::MUX_WAIT => wait::wait(hub, &params, conn.caller()).await,
+        // A caller that left (its CLI was killed) waits no more: its wait would mark the turn it
+        // waited for read (`lane_report_reads.rs`), and nobody reads its answer.
+        method::MUX_WAIT => tokio::select! {
+            result = wait::wait(hub, &params, conn.caller()) => result,
+            () = conn.closed() => Err(RpcError::internal("the client closed the connection")),
+        },
         method::MUX_WATCH_ADD | method::MUX_WATCH_LS | method::MUX_WATCH_RM => {
             watches::handle(hub, conn, m, &params).await
         }
