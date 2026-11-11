@@ -20,9 +20,6 @@ Submit the nx-remote job with --allow-agents: gui and input jobs default to ACPM
 """
 import argparse, json, os, signal, socket, subprocess, sys, tempfile, time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import home_page  # noqa: E402
-
 ap = argparse.ArgumentParser()
 ap.add_argument("--app-a", required=True)
 ap.add_argument("--tag-a", required=True)
@@ -117,8 +114,8 @@ def step(name, which):
 
 def send(which, text):
     tag = APPS[which][1]
-    print("drive", home_page.drive(lambda m, p: rpc(tag, m, p), {"action": "focus"}), home_page.drive(lambda m, p: rpc(tag, m, p), {"action": "type", "text": text}),
-          home_page.drive(lambda m, p: rpc(tag, m, p), {"action": "send"}), flush=True)
+    print("drive", rpc(tag, "debug.home.drive", {"action": "focus"}), rpc(tag, "debug.home.drive", {"action": "type", "text": text}),
+          rpc(tag, "debug.home.drive", {"action": "send"}), flush=True)
     def answered():
         shown = texts(chief_row(rpc(tag, "debug.home")))
         mine = [i for i, (a, t) in enumerate(shown) if t == text]
