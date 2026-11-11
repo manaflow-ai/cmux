@@ -158,6 +158,20 @@ def _match_close(text: str, index: int, opener: str) -> int | None:
             depth += 1
             i += 2
             continue
+        # A substitution inside a parameter expansion (`${x:-$(a)}`), or a parameter expansion inside a substitution
+        # (`$(echo ${x:-)})`), closes on its own bracket: a `)` or `}` in it does not close this one.
+        if text.startswith("$(", i) and close == "}" or text.startswith("${", i) and close == ")":
+            end = _match_close(text, i, text[i:i + 2])
+            if end is None:
+                return None
+            i = end
+            continue
+        if c == "`" and close == "}":
+            end = _backtick_close(text, i)
+            if end is None:
+                return None
+            i = end
+            continue
         if c == "(" and close == ")":
             depth += 1
         elif c == close:
@@ -296,6 +310,11 @@ def lex(text: str) -> Lexed:
             end = _match_close(text, at, "${")
             if end is None:
                 return None
+            # `${x:-$(a)}` runs `a` (#41133 review F2): the substitutions inside a parameter expansion are commands.
+            inner = _body_subs(text[at + 2:end - 1])
+            if inner is None:
+                return None
+            subs.extend(inner)
             dynamic = True
             buf.append(text[at:end])
             return end
@@ -476,6 +495,17 @@ def _opaque(word: Token) -> bool:
     return word.dynamic or "\x00" in word.text
 
 
+def _program_name(text: str) -> str:
+    """The name a program word is matched on: an absolute path by its basename (`/usr/bin/env` is env, `/bin/bash`
+    is bash); anything else as written (`./bash` is a script of that name, not the shell)."""
+    return text.rsplit("/", 1)[-1] if text.startswith("/") else text
+
+
+# An option that hands a program its command as text, as a shell's -c does: on an absolute program this does not
+# know, the program may run anything.
+_TEXT_OPTION = re.compile(r"-[A-Za-z]*c")
+
+
 def _unwrap(words: list[Token], index: int, wrapper: _Wrapper) -> tuple[int | None, bool]:
     """The index of the program `words[index]` (a wrapper) runs, and whether it runs it for certain; None when the
     options leave the program unknown or say nothing runs."""
@@ -578,7 +608,7 @@ def _classify(command: _Command, defined: set[str]) -> Invocation | None:
     certain = not command.dynamic and not command.nested
     any_program = False
     while start < len(words) and not _opaque(words[start]):
-        name = words[start].text
+        name = _program_name(words[start].text)
         if name in _WRAPPERS:
             program, sure = _unwrap(words, start, _WRAPPERS[name])
         elif name in _SHELLS:
@@ -600,10 +630,14 @@ def _classify(command: _Command, defined: set[str]) -> Invocation | None:
     if start >= len(words):
         return None  # only assignments and redirections: nothing is run (a substitution's commands are separate)
     program = words[start]
+    name = _program_name(program.text)
     if program.dynamic or "\x00" in program.text or program.text.startswith("$"):
         certain, any_program = False, True
-    if program.text in _RUNS_ARGUMENTS or program.text in defined:
+    if name in _RUNS_ARGUMENTS or program.text in defined:
         certain, any_program = False, True
+    if program.text.startswith("/") and name not in _SHELLS and name not in _WRAPPERS \
+            and any(_TEXT_OPTION.fullmatch(word.text) for word in words[start + 1:]):
+        certain, any_program = False, True  # an absolute program this does not know, given -c: it may run anything
     return Invocation([program.text.removeprefix("./"), *(w.text for w in words[start + 1:])], certain, any_program)
 
 
@@ -783,8 +817,8 @@ def _expand(invocation: Invocation, defined: set[str], depth: int, found: list[l
     found.append(words)
     if not words or not invocation.any_program:
         return
-    program, args = words[0], words[1:]
-    if program in defined:
+    program, args = _program_name(words[0]), words[1:]
+    if words[0] in defined:
         return
     if depth >= _NEST_LIMIT or program in _SOURCES:
         found.append([])
