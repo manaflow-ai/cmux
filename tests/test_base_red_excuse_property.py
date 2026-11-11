@@ -78,7 +78,7 @@ def key(runner: str, name: str) -> str:
     return {"swift": f"{name}()", "xctest": f"KitTests {name}", "xcresult": f"KitTests.{name}()",
             "listing": f"KitTests.{name}()", "cargo": f"tests::{name}",
             "unittest": f"test_{name} (pkg.mod.Case.test_{name})", "pytest": f"tests/test_mod.py::test_{name}",
-            "bun": f"test/pane.test.ts > pane > {name}"}[runner]
+            "bun": f"test/pane.test.ts > pane > {name}", "opaque": f"opaque {name}"}[runner]
 
 
 def final_failures(block: dict) -> list:
@@ -124,8 +124,9 @@ def truth(steps: list) -> tuple[Counter, Counter, list]:
                 mine = [failure for failure in mine if failure[0] != "bun" or failure[3]]
             mine += [(*failure, bool(block.get("headerless"))) for failure in final_identities(block)]
         found += mine
-    named = Counter(ident for runner, ident, ok, _ in found if ok)
-    return keys, named, [(runner, ident) for runner, ident, ok, _ in found if not ok]
+    # An opaque block's lines name no failure, whatever mutate() adds to it.
+    named = Counter(ident for runner, ident, ok, _ in found if ok and runner != "opaque")
+    return keys, named, [(runner, ident) for runner, ident, ok, _ in found if not ok or runner == "opaque"]
 
 
 def unreported(steps: list) -> list:
@@ -188,6 +189,10 @@ def block_lines(block: dict) -> list[str]:
                 "FAILED tests/test_mod.py - fixture setup broke" for _, name, ok in failures]
         out.append(f"========================= {len(failures)} failed, {passes} passed in 0.12s "
                    "=========================")
+    elif runner == "opaque":
+        # A failure no parser reads as a test or an error line (a Python assertion's own words): a failed step that
+        # prints only these names nothing to compare, the shape the bare fallback is for (#41220's review F1).
+        out += [f"AssertionError: {name} is not what it was" for _, name, _ in failures]
     elif runner == "bun" and block.get("silent"):
         # A run that failed naming nothing (a module that would not load): ` 0 fail`, and the wrapper's `FAIL file`
         # the only sign of its one unnamed failure (#41329's follow-up F2).
@@ -242,9 +247,11 @@ def render(steps: list, *, job_id: int, run_id: int, sha: str, placed: bool, con
         if own["conclusion"] != "success" and inner:
             out.append(stamp + "##[group]Run python3 scripts/ci/run_inner.py")
             inner = False
+        out += [stamp + line for line in own.get("noise", ())]
         for block in own["blocks"]:
             out += [stamp + line for line in block_lines(block)]
-        if own["conclusion"] != "success" and not own.get("quiet"):
+        # A continue-on-error step that failed: a success to the jobs API, with its runner's exit line (ERRORED).
+        if (own["conclusion"] != "success" and not own.get("quiet")) or own.get("errored"):
             out.append(stamp + "##[error]Process completed with exit code 1.")
     job = {"id": job_id, "run_id": run_id, "head_sha": sha, "name": JOB, "status": "completed",
            "conclusion": conclusion, "steps": listed}
@@ -558,6 +565,188 @@ class GeneratorIsSound(unittest.TestCase):
                 said = excuse.judge(REPO, "feat-cmux-next", HEAD, [10], PropertyGitHub(case))
                 self.assertTrue(said[0].startswith(f"excused '{JOB}'"), said)
                 self.assertEqual(violations(case, said[0]), [])
+
+
+# --- base-refuses => head-refuses: an excuse keeps the evidence that made the base refuse -----------------------------
+# #41220's review: "F1 and F2 are one class: an excuse that drops the evidence which made base refuse." F1: the bare
+# fallback (a placed head whose failed sections name no test or error line) was compared on the whole log, so a passing
+# step's `error:` line printed on both runs was its identity and a new AssertionError in the failed step was excused.
+# F2: a head's continue-on-error (ERRORED) sections were left out of the per-test count, so `alpha()` x11 against at
+# most x1 was excused when ten were in a continue-on-error step. The generator below mixes, in placed logs, steps that
+# fail, continue-on-error steps (a success to the jobs API, with the runner's exit line) and passing steps that print
+# what a parser reads (a negative case's `error:` line, its `✘ Test` lines), and two invariants are asked of every
+# excuse judge() gives:
+# A. Passing steps never justify it (black-box): the same case with every passing step's output taken out, on the
+#    head and on every base verdict, is excused too. What base refuses with the passing steps' lines gone, the head
+#    refuses with them.
+# B. Counted like for like: each failing test of the head is on ONE reachable verdict that holds the head's failed
+#    steps, as often in its failed sections as in the head's failed sections, and as often in its continue-on-error
+#    sections as in the head's (the generator's ground truth, never the code under test).
+NOISE = "licenses: error: pinned license manifest digest changed"  # a passing negative case's expected diagnostic
+
+
+def evidence_step(rng: random.Random, kind: str) -> dict:
+    """One step of KIND: "failed" (a failure or cancel, its blocks named or opaque), "errored" (continue-on-error: a
+    success with the runner's exit line) or "noisy" (a passing step that prints error lines and failing-test lines)."""
+    name = rng.choice(STEP_NAMES)
+    if kind == "failed":
+        opaque = rng.random() < 0.4
+        blocks = ([{"runner": "opaque", "failures": [("opaque", rng.choice(NAMES), False)], "passes": 0,
+                    "retry": None}] if opaque else [gen_block(rng, 0.0) for _ in range(rng.randint(1, 2))])
+        return {"name": name, "conclusion": rng.choice(("failure", "failure", "cancelled")), "blocks": blocks,
+                "quiet": False}
+    if kind == "errored":
+        return {"name": name, "conclusion": "success", "errored": True, "quiet": False,
+                "blocks": [gen_block(rng, 0.0)]}
+    return {"name": name, "conclusion": "success", "quiet": False, "noise": [NOISE] * rng.randint(1, 2),
+            "blocks": [gen_block(rng, 0.0)] if rng.random() < 0.5 else []}
+
+
+def evidence_steps(rng: random.Random) -> list:
+    steps = [evidence_step(rng, rng.choice(("failed", "failed", "errored", "noisy"))) for _ in range(rng.randint(1, 4))]
+    if not any(step["conclusion"] != "success" for step in steps):
+        steps.insert(rng.randrange(len(steps) + 1), evidence_step(rng, "failed"))
+    return steps
+
+
+def evidence_mutate(rng: random.Random, steps: list, window: list) -> list:
+    """A head made from a base verdict's STEPS by one of the shapes the review names, or by mutate()'s."""
+    steps = copy.deepcopy(steps)
+    failed = [step for step in steps if step["conclusion"] != "success"]
+    what = rng.randrange(6)
+    if what == 0 and failed:
+        # F1: the failed step's own words change to a new failure no parser names.
+        rng.choice(failed)["blocks"] = [{"runner": "opaque", "failures": [("opaque", rng.choice(NAMES), False)],
+                                        "passes": 0, "retry": None}]
+    elif what == 1:
+        # F2: more of a failing test, in a continue-on-error step (a new one, or one the verdict has).
+        named = [failure for step in failed for block in step["blocks"] if block["runner"] in ("swift", "cargo")
+                 for failure in final_failures(block) if failure[2]]
+        failure = rng.choice(named) if named else ("swift", rng.choice(NAMES), True)
+        errored = [step for step in steps if step.get("errored")]
+        block = {"runner": failure[0], "failures": [failure] * rng.randint(1, 10), "passes": 0, "retry": None}
+        if errored and rng.random() < 0.5:
+            rng.choice(errored)["blocks"].append(block)
+        else:
+            steps.insert(rng.randrange(len(steps) + 1), {"name": rng.choice(STEP_NAMES), "conclusion": "success",
+                                                         "errored": True, "quiet": False, "blocks": [block]})
+    elif what == 2:
+        # A passing step's diagnostics come or go (its lines are never evidence either way).
+        steps.insert(rng.randrange(len(steps) + 1), evidence_step(rng, "noisy"))
+    elif what == 3:
+        noisy = [step for step in steps if step["conclusion"] == "success" and not step.get("errored")]
+        if noisy:
+            steps.remove(rng.choice(noisy))
+    elif what == 4:
+        return mutate(rng, steps, window)
+    return steps
+
+
+def evidence_scenario(seed: int) -> dict:
+    rng = random.Random(seed)
+    window = []
+    for n in range(rng.randint(1, 3)):
+        if n > 0 and rng.random() < 0.5:
+            window.append({"green": False, "steps": evidence_mutate(rng, window[rng.randrange(n)]["steps"], window)})
+        else:
+            window.append({"green": False, "steps": evidence_steps(rng)})
+    head = copy.deepcopy(rng.choice(window)["steps"])
+    for _ in range(rng.choice((0, 1, 1, 2))):
+        head = evidence_mutate(rng, head, window)
+    return {"seed": seed, "placed": True, "window": window, "head": head}
+
+
+def without_passing_output(case: dict) -> dict:
+    """CASE with every passing step's output taken out, on the head and on each base verdict: what is left is the
+    evidence the failed (and continue-on-error) sections hold."""
+    case = copy.deepcopy(case)
+    for steps in [case["head"]] + [entry["steps"] for entry in case["window"]]:
+        for step in steps:
+            if step["conclusion"] == "success" and not step.get("errored"):
+                step["blocks"], step["noise"] = [], []
+    return case
+
+
+def section_truth(steps: list) -> tuple[Counter, Counter, Counter]:
+    """(failed step keys, named failures in failed sections, named failures in continue-on-error sections)."""
+    keys, failed, _ = truth([step for step in steps if step["conclusion"] != "success"])
+    _, errored, _ = truth([step for step in steps if step["conclusion"] == "success" and step.get("errored")])
+    return keys, failed, errored
+
+
+def evidence_violations(case: dict, said: str) -> list[str]:
+    """What an excuse SAID of CASE breaks: A (passing steps justified it) or B (a count no one verdict has)."""
+    found = []
+    if judged(without_passing_output(case)) is None:
+        found.append("passing steps: excused, but refused once every passing step's output is taken out")
+    keys, failed, errored = section_truth(case["head"])
+    sides = [section_truth(entry["steps"]) for entry in reachable(case["window"])]
+    for ident in sorted(failed.keys() | errored.keys()):
+        if not any(not keys - theirs and theirs_failed[ident] >= failed[ident] and theirs_errored[ident] >= errored[ident]
+                   for theirs, theirs_failed, theirs_errored in sides):
+            found.append(f"count: {ident} x{failed[ident]} in failed sections and x{errored[ident]} in "
+                         "continue-on-error ones is on no one verdict with the head's failed steps, as often each ("
+                         + " | ".join(f"x{f[ident]} and x{e[ident]}" for _, f, e in sides) + ")")
+    return [f"seed {case['seed']} (evidence): {what}; judge said: {said[:240]}" for what in found]
+
+
+def run_evidence_seeds(start: int, count: int) -> tuple[list[str], int]:
+    found, excused = [], 0
+    for seed in range(start, start + count):
+        case = evidence_scenario(seed)
+        said = judged(case)
+        if said is None:
+            continue
+        excused += 1
+        found += evidence_violations(case, said)
+    return found, excused
+
+
+def step(name: str, conclusion: str, *blocks, **rest) -> dict:
+    return {"name": name, "conclusion": conclusion, "blocks": list(blocks), "quiet": False, **rest}
+
+
+def block(runner: str, *names: str, named: bool = True) -> dict:
+    return {"runner": runner, "failures": [(runner, name, named) for name in names], "passes": 0, "retry": None}
+
+
+class AnExcuseKeepsTheBasesEvidence(unittest.TestCase):
+    """#41220's review: "Detector: a property test that for each case base refuses, the head's excuse also refuses
+    unless the failed sections alone justify it (base-refuses => head-refuses on generated logs mixing passing, failed
+    and continue-on-error steps)". BASE_RED_PROPERTY_SEEDS and BASE_RED_PROPERTY_START set its seeds as above."""
+
+    def test_base_refuses_implies_head_refuses_on_logs_mixing_passing_failed_and_continue_on_error_steps(self):
+        count = int(os.environ.get("BASE_RED_PROPERTY_SEEDS", "1500"))
+        start = int(os.environ.get("BASE_RED_PROPERTY_START", "0"))
+        found, excused = run_evidence_seeds(start, count)
+        if found:
+            print(f"\n{count} evidence seeds from {start}: {excused} excused, {len(found)} violation(s)",
+                  file=sys.stderr)
+            for line in found[:6]:
+                print("  " + line, file=sys.stderr)
+        self.assertEqual(found, [], "\n".join(found[:5]))
+        if count >= NON_VACUOUS_SEEDS:
+            self.assertGreater(excused, count // 20)
+
+    def test_f1_a_passing_steps_error_line_never_excuses_a_new_failure_in_the_failed_step(self):
+        # The review's F1: a passing step prints the same `error:` on both runs; the failed step's AssertionError is
+        # new. The failed sections alone name nothing, so nothing is compared: refused.
+        noisy = step("ui tests", "success", noise=[NOISE])
+        base = [noisy, step("package tests", "failure", block("opaque", "alpha", named=False))]
+        head = [noisy, step("package tests", "failure", block("opaque", "beta", named=False))]
+        case = {"seed": -1, "placed": True, "window": [{"green": False, "steps": base}], "head": head}
+        self.assertIsNone(judged(case))
+
+    def test_f2_a_continue_on_error_steps_failures_are_counted(self):
+        # The review's F2: alpha() x11 against at most x1, ten of them in a continue-on-error step.
+        base = [step("package tests", "failure", block("swift", "alpha"))]
+        head = base + [step("ui tests", "success", block("swift", *["alpha"] * 10), errored=True)]
+        case = {"seed": -1, "placed": True, "window": [{"green": False, "steps": base}], "head": head}
+        self.assertIsNone(judged(case))
+        # Counted like for like: the base's own continue-on-error failures, as often, are the base's (cmux#41001).
+        same = {"seed": -1, "placed": True, "window": [{"green": False, "steps": head}], "head": copy.deepcopy(head)}
+        self.assertIsNotNone(judged(same))
+        self.assertEqual(evidence_violations(same, judged(same)), [])
 
 
 if __name__ == "__main__":

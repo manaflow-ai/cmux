@@ -9075,7 +9075,7 @@ VIEW_COMPARATORS = frozenset({
     "signature", "step_errors", "section_lines", "compare_window", "crash_signals", "ratchet_red",
     "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "quarantined_only",
     "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text", "fixed_on_base_by_step", "step_evidence",
-    "owned_unnamed"})
+    "owned_unnamed", "view_signature"})
 # The only readers of step_owners: failed_view (every comparator's) and failed_steps_log (what a comment shows, never
 # compared).
 STEP_OWNERS_READERS = frozenset({"failed_view", "failed_steps_log"})
@@ -9195,6 +9195,7 @@ ROLES = {
     ("base_red_excuse", "read_head"): (False,),  # the head's red job
     ("base_red_excuse", "guard_routes_view"): (False,),  # validate_guard_routes: the head's routed rollup guard
     ("base_red_excuse", "base_evidence"): (True,),  # a compared base run's job
+    ("base_red_excuse", "unplaced_base_evidence"): (True,),  # a base job compared on identity
     ("next_batch", "probe_base"): (True, True),  # the base probe's run, then its rerun
     ("next_batch", "failing_on_base"): (True,),  # the base's newest push run
     ("next_batch", "base_tier_failures"): (True,),  # the base tier's runs
@@ -9374,6 +9375,38 @@ class PrOnlyStepsAreExcusedByAnotherBaseJob(unittest.TestCase):
         mine = PrOnlyStepGitHub.MENU + ("##[error]a new export error",)
         with self.assertRaisesRegex(excuse.Refused, "compared whole"):
             self.judge(PrOnlyStepGitHub(menu=mine))
+
+    def test_another_base_jobs_passing_step_never_excuses_the_extra_step(self):
+        # #41220's review, F1's class: the other base job's log was read whole, so a menu failure its PASSING step
+        # printed (a negative case) excused the head's extra step, while its failed step said only an export error.
+        # A placed log is read by its failed sections alone; the same lines in its failed step still excuse.
+        regen, check = PrOnlyStepGitHub.REGEN, "Check the menu caps reject a long menu"
+        for where, excused in ((check, False), (regen, True)):
+            github = PrOnlyStepGitHub()
+            github.jobs[3]["steps"] = framed_steps([(check, "success", 3, 5), (regen, "failure", 6, 9)])
+            menu = [line for line in PrOnlyStepGitHub.MENU if not line.startswith("##[error]")]
+            lines = {check: [(check, 3, "##[group]Run python3 check_menu_caps.py --negative"),
+                             (check, 3, "##[endgroup]")],
+                     regen: [(regen, 6, "##[group]Run ./regenerate.sh"), (regen, 6, "##[endgroup]")]}
+            lines[where] += [(where, 4 if where == check else 7, line) for line in menu]
+            lines[regen] += [(regen, 8, "##[error]the action exports could not be regenerated"), (regen, 8, EXIT)]
+            github.logs[3] = framed_log(lines[check] + lines[regen], PrOnlyStepGitHub.GEN)
+            self.assertIsInstance(excuse.failed_view(github.jobs[3], github.logs[3], base=True, **UNKNOWN),
+                                  excuse.FailedView)
+            with self.subTest(menu_in=where):
+                if excused:
+                    self.assertIn("never run in feat-cmux-next run 20's", self.judge(github))
+                else:
+                    with self.assertRaisesRegex(excuse.Refused, "compared whole"):
+                        self.judge(github)
+
+    def test_the_extra_steps_tests_are_counted_against_the_other_jobs(self):
+        # F2's class: the extra step's failing tests were matched by name alone (a set), so a test failing there twice
+        # was excused by the other base job's one failure of it.
+        twice = PrOnlyStepGitHub.MENU[:2] + PrOnlyStepGitHub.MENU
+        with self.assertRaisesRegex(excuse.Refused, "compared whole"):
+            self.judge(PrOnlyStepGitHub(menu=twice))
+        self.assertIn("never run in feat-cmux-next run 20's", self.judge(PrOnlyStepGitHub(menu=twice, gen_menu=twice)))
 
     def test_a_step_the_base_job_ran_and_passed_is_the_prs_own(self):
         with self.assertRaisesRegex(excuse.Refused, "compared whole"):
@@ -11555,6 +11588,7 @@ SCANNERS = {
     "base_red_excuse.owned_unnamed": lambda f: excuse.owned_unnamed(TR.Result(), f.view),
     "base_red_excuse.step_errors": lambda f: excuse.step_errors(f.view),
     "base_red_excuse.unplaced_signature": lambda f: excuse.unplaced_signature(f.job, f.log),
+    "base_red_excuse.view_signature": lambda f: (excuse.view_signature(f.view), excuse.view_signature(f.base_view)),
     "base_red_excuse.generated_stale_host": lambda f: excuse.generated_stale_host(f.log),
     "base_red_excuse.no_verdict": lambda f: excuse.no_verdict(f.log),
     "base_red_excuse.summary_red": lambda f: excuse.summary_red(f.log),
@@ -11687,6 +11721,20 @@ class PrLogReadersScale(unittest.TestCase):
                             pass  # a refusal is an answer: it is timed like one
                     return run
                 assert_scales(self, build, self.N, name)
+
+    def test_a_log_supplied_marker_is_decoded_in_time_bound_by_the_keep_list(self):
+        # #41220's review F3: a NUL marker the log itself prints (`\0aaaa...\0`) was decoded into an integer as long as
+        # its letters before being looked up in the keep list (5 s CPU at 160k letters). The decode is bounded by the
+        # keep list's size: such a marker stays as printed, in time linear in the line.
+        def build(size):
+            line = f"error: tests/test_1.py:3 \0{'a' * size}\0 broke"
+            return lambda: excuse.normalise_error(line)
+        assert_scales(self, build, 40_000, "normalise_error on a log-supplied NUL marker")
+        letters = "a" * 160_000
+        self.assertEqual(excuse.normalise_error(f"error: tests/test_1.py:3 \0{letters}\0 broke"),
+                         f"error: tests/test_1.py:# \0{letters}\0 broke")
+        # A real marker still restores its id: the file name keeps its digits.
+        self.assertEqual(excuse.normalise_error("error: tests/test_12.py:3 broke"), "error: tests/test_12.py:# broke")
 
 
 # The characters an opener (regex_openers) tries for a character class, in order: the first the class takes.
