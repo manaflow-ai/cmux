@@ -17,6 +17,13 @@ import unittest
 from pathlib import Path
 
 import yaml
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -193,6 +200,18 @@ class GalleryHealthPushBase(unittest.TestCase):
         self.assertEqual(values["base_sha"], values["previous"])
         self.assertEqual(values["head_sha"], values["tip"])
 
+    def test_a_push_fetches_the_history_its_before_is_in(self) -> None:
+        """A push compares with `before`, which may be any depth back, so it fetches full history. GitHub's
+        `cond && a || b` gives b whenever a is falsy, and 0 is falsy: `push && 0 || 2` fetched depth 2 on
+        every push, and a multi-commit push lost its base (review of cmux#40994)."""
+        depth = str(step("Checkout")["with"]["fetch-depth"])
+        match = re.fullmatch(r"\$\{\{ github\.event_name == 'push' && (\S+) \|\| (\S+) \}\}", depth)
+        self.assertIsNotNone(match, depth)
+        when_push, otherwise = match.group(1), match.group(2)
+        self.assertNotIn(when_push, {"0", "false", "''", "null"}, "a falsy value here makes `||` take the right side")
+        self.assertEqual(int(when_push.strip("'")), 0)
+        self.assertEqual(int(otherwise.strip("'")), 2)
+
     def test_a_new_tip_or_the_nightly_has_no_base(self) -> None:
         self.assertEqual(self.resolve("push", "0" * 40)["base_sha"], "")
         self.assertEqual(self.resolve("workflow_dispatch", "")["base_sha"], "")
@@ -220,12 +239,12 @@ class GalleryHealthBrowserConsistency(unittest.TestCase):
                 script = work / name
                 script.write_text(contents)
                 script.chmod(0o755)
-            env = {
+            env = git_fixture_env.fixture_env({
                 "PATH": str(work / "bin") + os.pathsep + os.defpath,
                 "GITHUB_WORKSPACE": str(work), "GITHUB_ENV": str(env_file),
                 "RUNNER_TEMP": str(work), "TEST_BROWSER": browser, "TEST_LAUNCHES": str(launches),
                 "ALL": "true", "IDS": "", "SHARD": "0", "pass": "1",
-            }
+            })
             render = next(entry for entry in steps if entry.get("id") == "render")
             for entry in steps:
                 script = entry.get("run", "")

@@ -702,7 +702,7 @@ fn sync_frozen(sync: &Sync) -> Result<(), Failed> {
 /// say so, or does not answer `identify`.
 fn source_continues(socket: &std::path::Path) -> bool {
     let capability = cmux_tui_core::server::agent_transfer::AGENT_TRANSFER_CONTINUES_CAPABILITY;
-    let identity = super::machine_gate::identify(socket);
+    let identity = super::machine_gate::reach(socket).ok();
     identity.as_ref().and_then(super::machine_gate::served).is_some_and(|s| s.contains(&capability))
 }
 
@@ -713,7 +713,7 @@ fn source_continues(socket: &std::path::Path) -> bool {
 fn target_vm_kind(args: &Args) -> Result<Option<String>, Failed> {
     let Some(kind) = &args.vm_kind else { return Ok(None) };
     let capability = cmux_tui_core::server::agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY;
-    let identity = super::machine_gate::identify(&args.to);
+    let identity = super::machine_gate::reach(&args.to).ok();
     let served = identity.as_ref().and_then(super::machine_gate::served);
     if served.is_some_and(|served| served.contains(&capability)) {
         return Ok(Some(kind.clone()));

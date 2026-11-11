@@ -18,8 +18,8 @@ import Testing
 //                              place (`MacHomeRows.apply`) and the list patched (`MacHomeList.Memo`). 4 ms.
 // c. chat_open_last_messages   open a chat on a fake acpmux until `AgentChatStore` holds the
 //                              newest turn, finished. ~40 vs 50,000 records. 150 ms.
-// d. chat_reconnect_catch_up   reattach (`afterSeq`) after missing 10 vs 20,000 records until the
-//                              store shows the newest turn. 150 ms.
+// d. chat_reconnect_catch_up   reattach after missing 10 vs 20,000 records until the store shows
+//                              the newest turn (tail-first: the gap fills after, untimed). 150 ms.
 // e. chat_older_page           one scroll-up page of older history. 50 ms.
 //
 // The suite is serialized and CI runs this target on its own (no other suite on the cores).
@@ -200,34 +200,56 @@ struct InstantPerfTests {
 
     @Test("chat_reconnect_catch_up")
     func chatReconnectCatchUp() async throws {
+        /// The chat opened on `log`'s first `cut` records, the link gone while the Mac wrote the
+        /// rest, and the link back (`bind`, untimed here): until the newest turn shows.
+        func reconnected(_ log: AgentChatLog, cut: Int) async throws -> (hub: AcpmuxHub, store: AgentChatStore, start: ContinuousClock.Instant, shown: Bool) {
+            let newest = try #require(log.lastTurn(before: log.count))
+            let fake = InstantPerfAcpmux(log, end: cut)
+            let link = fake.link()
+            let (hub, store) = try await Self.openedChat(fake, link: link)
+            // The phone goes away; the Mac writes the rest of the log meanwhile.
+            await hub.bind(nil)
+            fake.end = log.count
+            let start = ContinuousClock.now
+            await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
+            let shown = await Self.waitUntil { Self.shows(store, newest) }
+            return (hub, store, start, shown)
+        }
         func reconnect(_ log: AgentChatLog, missing: Int, runs: Int) async throws -> (runs: [Double], missed: Int, bytes: Int) {
             let cut = log.boundary(near: log.count - missing)
-            let newest = try #require(log.lastTurn(before: log.count))
             let samples = try await InstantPerfReport.sample(runs: runs) {
-                let fake = InstantPerfAcpmux(log, end: cut)
-                let link = fake.link()
-                let (hub, store) = try await Self.openedChat(fake, link: link)
-                // The phone goes away; the Mac writes the rest of the log meanwhile.
-                await hub.bind(nil)
-                fake.end = log.count
-                let start = ContinuousClock.now
-                await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
-                let shown = await Self.waitUntil { Self.shows(store, newest) }
-                let elapsed = start.duration(to: .now)
-                #expect(shown, "the chat never caught up to \(newest)")
-                await hub.bind(nil)
-                withExtendedLifetime(store) {}
+                let run = try await reconnected(log, cut: cut)
+                let elapsed = run.start.duration(to: .now)
+                #expect(run.shown, "the chat never caught up to its newest turn")
+                await run.hub.bind(nil)
+                withExtendedLifetime(run.store) {}
                 return elapsed
             }
             return (samples, log.count - cut, log.bytes[cut...].reduce(0, +))
         }
+        /// After the newest turn showed, the gap fills in the background (untimed by the
+        /// metric): how long it takes, and that every turn is then shown once, in order.
+        func fill(_ log: AgentChatLog, missing: Int) async throws -> Double {
+            let run = try await reconnected(log, cut: log.boundary(near: log.count - missing))
+            #expect(run.shown)
+            let filled = await Self.waitUntil { !run.store.isFillingGap }
+            let elapsed = InstantPerfReport.ms(run.start.duration(to: .now))
+            #expect(filled, "the gap never filled")
+            let numbers = run.store.turns.compactMap { Int($0.id.dropFirst()) }
+            #expect(numbers.count == run.store.turns.count)
+            #expect(zip(numbers, numbers.dropFirst()).allSatisfy { $1 == $0 + 1 }, "turns missing, repeated or out of order after the gap filled")
+            #expect(run.store.turns.last?.id == log.lastTurn(before: log.count))
+            await run.hub.bind(nil)
+            return elapsed
+        }
         let small = try await reconnect(AgentChatFixture.small, missing: 10, runs: InstantPerfReport.defaultRuns)
         let god = try await reconnect(AgentChatFixture.god, missing: 20_000, runs: min(InstantPerfReport.defaultRuns, 3))
+        let godFill = try await fill(AgentChatFixture.god, missing: 20_000)
         InstantPerfReport.record(
             "chat_reconnect_catch_up", target: 150, small: small.runs, god: god.runs,
-            knownRed: [.ratio, .godBudget],
-            why: "a reattach with afterSeq reads every missed record, 400 a page with no byte cap, before the chat shows any of them",
-            note: "missed \(small.missed) records (\(Self.mb(small.bytes))) vs \(god.missed) records (\(Self.mb(god.bytes))); timed from the link coming back (bind) to the newest turn shown")
+            // Green since the tail-first reattach: a gap longer than one page reads the newest
+            // page (as an open does) and one empty read after it, shows them, and fills the gap after.
+            note: String(format: "missed \(small.missed) records (\(Self.mb(small.bytes))) vs \(god.missed) records (\(Self.mb(god.bytes))); timed from the link coming back (bind) to the newest turn shown. God's gap then filled in the background in %.0f ms (untimed)", godFill))
     }
 
     @Test("chat_older_page")

@@ -291,3 +291,48 @@ test("Stop stops the task on the other machine", async () => {
   await act(async () => host.querySelector<HTMLButtonElement>(".cv-run-elsewhere__link")!.click());
   expect(calls.stopped).toEqual(["bg-7"]);
 });
+
+test("a host that refuses the plan says the build can't do it, and Cancel is the pane's own button", async () => {
+  // Leo, 2026-11-11, on "Stays on this machine: Refused by the cmux host" over a grey bezel
+  // "Cancel⎋": "what is this? and the weird symbol after cancel? and the weird looking cancel?"
+  const { runs } = harness();
+  runs.client.plan = async () => {
+    throw Object.assign(new Error("Refused by the cmux host"), { code: "transport.method_refused" });
+  };
+  const host = await render(call("in_progress", Date.now() - 30_000), runs);
+  await act(async () => host.querySelector<HTMLElement>(".cv-run-elsewhere-chip")!.click());
+  await flush();
+  const panel = host.querySelector(".cv-run-elsewhere")!;
+  expect(panel.textContent).toContain(translate("runElsewhere.unavailable"));
+  expect(panel.textContent).not.toContain("Refused by the cmux host");
+  const cancel = panel.querySelector<HTMLButtonElement>(".cv-run-elsewhere__cancel")!;
+  expect([...cancel.classList]).toEqual(expect.arrayContaining(["ui-button", "ui-btn"]));
+  expect(cancel.dataset.variant).toBe("subtle");
+  expect(panel.querySelector(".cv-run-elsewhere__run")).toBeNull();
+  await act(async () => cancel.click());
+  expect(host.querySelector(".cv-run-elsewhere")).toBeNull();
+});
+
+test("a dropped connection is not said as a build that can't send commands", async () => {
+  const { runs } = harness();
+  runs.client.plan = async () => {
+    throw Object.assign(new Error("No connection to acpmux"), { code: "transport.no_connection" });
+  };
+  const host = await render(call("in_progress", Date.now() - 30_000), runs);
+  await act(async () => host.querySelector<HTMLElement>(".cv-run-elsewhere-chip")!.click());
+  await flush();
+  expect(host.querySelector(".cv-run-elsewhere")!.textContent).not.toContain(translate("runElsewhere.unavailable"));
+});
+
+test("acpmux's own reason a command stays is still said", async () => {
+  const { runs } = harness();
+  runs.client.plan = async () => {
+    throw new Error("vim needs this machine");
+  };
+  const host = await render(call("in_progress", Date.now() - 30_000), runs);
+  await act(async () => host.querySelector<HTMLElement>(".cv-run-elsewhere-chip")!.click());
+  await flush();
+  expect(host.querySelector(".cv-run-elsewhere")!.textContent).toContain(
+    translate("runElsewhere.stays", { why: "vim needs this machine" }),
+  );
+});

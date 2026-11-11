@@ -118,7 +118,7 @@ mod segment_tests {
                 generation: 1,
             },
         };
-        hub.remote_sessions.lock().unwrap().insert(format!("{peer}/{id}"), row);
+        hub.remote_sessions.write().insert(format!("{peer}/{id}"), row);
     }
 
     fn id(r: Result<Arc<Session>, RpcError>) -> String {
@@ -301,7 +301,7 @@ mod segment_tests {
                 generation: 1,
             },
         };
-        hub.remote_sessions.lock().unwrap().insert("hb/r1".into(), row);
+        hub.remote_sessions.write().insert("hb/r1".into(), row);
         assert_eq!(id(hub.resolve("lane")), "m1");
         assert!(hub.resolve_remote("lane").is_none());
     }
