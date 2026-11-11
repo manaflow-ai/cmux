@@ -1,0 +1,15 @@
+# What the installed cmux-next checks copy (cmux-next-checks) is made from, one repository path per line.
+# A path ending in "/" is a folder: its own files and its lint/ and arch_rules/ files land at the copy's root.
+# Any other path is one file, copied beside the checks under its own name (when the commit has it);
+# `source -> destination` copies it under another name (a folder: under that folder of the copy).
+# refresh_checks.py (copy_pairs) turns these into the (source, destination) pairs that install-git-hooks.sh and a
+# pre-push refresh both copy, and each stamps the copy (.source) from the pairs it copied and records them (.pairs).
+# post-merge refuses a checkout where any source differs from the trusted branch. A checker that loads a file from
+# beside itself adds that file here, and nowhere else.
+scripts/cmux-next/
+# check-package-dependency-lists.py imports the Swift source masker.
+scripts/swift_source_mask.py
+# check-single-host-fallbacks.py reads runs-on through the shared workflow resolver.
+tests/workflow_jobs.py
+# The gate loads its lint-tool release download fallback from beside itself (refresh_checks.py ENTRY_POINTS).
+scripts/ci/github_release_download.py

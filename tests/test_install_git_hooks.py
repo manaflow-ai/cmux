@@ -1165,6 +1165,95 @@ cat > node_modules/.bin/vp <<'VP'
         self.assertEqual((self.installed_checks() / "workflow_jobs.py").read_bytes(),
                          (SOURCE / "tests/workflow_jobs.py").read_bytes(), "the refreshed copy has no resolver")
 
+    COPY_INPUTS = "scripts/git-hooks/checks-copy-inputs"
+
+    def copy_sources(self):
+        """The source of every entry of the copy's input list (`source -> destination` names its source first)."""
+        lines = (self.repo / self.COPY_INPUTS).read_text(encoding="utf-8").splitlines()
+        return [line.strip().split(" -> ")[0].strip() for line in lines
+                if line.strip() and not line.strip().startswith("#")]
+
+    def installed_pairs(self):
+        """The (source, destination) pairs the install or refresh says it copied (the copy's .pairs)."""
+        rows = (self.installed_checks() / ".pairs").read_text(encoding="utf-8").splitlines()
+        return [tuple(row.split("\t")) for row in rows if row]
+
+    def test_a_change_to_the_resolver_alone_marks_the_install_stale(self):
+        # Codex on #40894: the install copies tests/workflow_jobs.py beside the checks, but the stamp covered only
+        # scripts/cmux-next, so a feat-cmux-next that changed the resolver alone never reached the installed hooks.
+        resolver = self.repo / "tests/workflow_jobs.py"
+        resolver.parent.mkdir(parents=True, exist_ok=True)
+        resolver.write_bytes((SOURCE / "tests/workflow_jobs.py").read_bytes())
+        self.stale_install()
+        self.git("checkout", "-q", "--", ".")
+        self.assertEqual(self.refresh().returncode, 0)  # current at the newer rule
+        resolver.write_bytes(resolver.read_bytes() + b"\n# a resolver-only change\n")
+        newer = self.commit_all("resolver only")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", newer)
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.installed_checks() / "workflow_jobs.py").read_bytes(), resolver.read_bytes(),
+                         "a resolver-only change on feat-cmux-next did not reach the installed checks")
+        self.assertIn(newer[:12], result.stdout + result.stderr)
+
+    def test_every_file_the_install_copies_is_in_the_stamp_input(self):
+        # The install copies exactly the (source, destination) pairs refresh_checks.py makes of
+        # scripts/git-hooks/checks-copy-inputs, records them (.pairs) and stamps the copy from them, and a refresh does
+        # the same at its commit; post-merge trusts a checkout only when no source differs. A source installed under
+        # another name (`source -> destination`) is one pair like any other.
+        resolver = self.repo / "tests/workflow_jobs.py"
+        resolver.parent.mkdir(parents=True, exist_ok=True)
+        resolver.write_bytes((SOURCE / "tests/workflow_jobs.py").read_bytes())
+        inputs = self.repo / self.COPY_INPUTS
+        inputs.write_text(inputs.read_text(encoding="utf-8")
+                          + "scripts/ci/base_merge_warning.py -> renamed_merge_warning.py\n", encoding="utf-8")
+        self.git("remote", "add", "origin", self.CANONICAL)
+        head = self.commit_all("trusted")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", head)
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        copy = self.installed_checks()
+        pairs = self.installed_pairs()
+        self.assertIn(("scripts/ci/base_merge_warning.py", "renamed_merge_warning.py"), pairs)
+        self.assertIn(("tests/workflow_jobs.py", "workflow_jobs.py"), pairs)
+        installed = sorted(path.relative_to(copy).as_posix() for path in copy.rglob("*")
+                           if path.is_file() and path.name not in (".in-use", ".source", ".pairs"))
+        self.assertEqual(installed, sorted(destination for _, destination in pairs),
+                         "the install copied a file its pairs (the stamp's input) do not name, or the reverse")
+        for source, destination in pairs:
+            self.assertEqual((copy / destination).read_bytes(), (self.repo / source).read_bytes(), destination)
+        # The stamp is the one refresh_checks.py derives from the same pairs at the same commit.
+        python3 = (self.common_dir() / "cmux-git-hooks" / "python3-path").read_text(encoding="utf-8").strip()
+        derived = subprocess.run([python3, "-I", "scripts/git-hooks/refresh_checks.py", "--repo", str(self.repo),
+                                  "--stamp", head], cwd=self.repo, env=self.env, text=True, capture_output=True)
+        self.assertEqual(derived.returncode, 0, derived.stderr)
+        self.assertEqual((copy / ".source").read_text().split(), derived.stdout.split())
+        self.assertEqual(derived.stdout.split()[0], head)
+        self.assertEqual(self.refresh().stdout + self.refresh().stderr, "", "a current install was refreshed")
+        # A change to the renamed source alone marks the install stale and reaches its destination.
+        warning = self.repo / "scripts/ci/base_merge_warning.py"
+        warning.write_bytes(warning.read_bytes() + b"\n# renamed source only\n")
+        newer = self.commit_all("renamed source only")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", newer)
+        refreshed = self.refresh()
+        self.assertEqual(refreshed.returncode, 0, refreshed.stderr)
+        self.assertIn(newer[:12], refreshed.stdout + refreshed.stderr)
+        self.assertEqual((copy / "renamed_merge_warning.py").read_bytes(), warning.read_bytes())
+        self.assertEqual(self.installed_pairs(), pairs, "a refresh copied other pairs than the install")
+        # Each source a stamp reads is an input post-merge refuses to trust when it differs from the trusted branch.
+        self.git("update-ref", "refs/remotes/origin/main", newer)
+        for entry in [self.COPY_INPUTS, *self.copy_sources()]:
+            path = self.repo / (entry + "prepush-gate.py" if entry.endswith("/") else entry)
+            reviewed = path.read_bytes()
+            try:
+                path.write_bytes(reviewed + b"\n# dirty candidate\n")
+                hook = subprocess.run(["/bin/bash", "scripts/git-hooks/post-merge"], cwd=self.repo, env=self.env,
+                                      text=True, capture_output=True)
+                self.assertEqual(hook.returncode, 0, hook.stderr)
+                self.assertIn("differ from trusted main", hook.stderr, entry)
+            finally:
+                path.write_bytes(reviewed)
+
     def test_a_refresh_puts_the_release_download_fallback_beside_the_gate(self):
         # #38454 review: the gate loads scripts/ci/github_release_download.py from beside itself, so a refresh that
         # rewrites the gate rewrites the helper from the same feat-cmux-next.
