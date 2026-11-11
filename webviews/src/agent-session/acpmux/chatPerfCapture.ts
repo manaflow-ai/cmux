@@ -119,14 +119,17 @@ export function layoutShiftSummary(entries: readonly { value: number; hadRecentI
 /** The page's visibility over the capture, from its samples (`at` in ms, in order). */
 export function visibilitySummary(samples: readonly { at: number; state: string }[], end: number) {
   let hidden = 0;
+  let changes = 0;
   for (let index = 0; index < samples.length; index += 1) {
     const until = index + 1 < samples.length ? samples[index + 1].at : end;
     if (samples[index].state !== "visible") hidden += Math.max(0, until - samples[index].at);
+    // The capture samples at its start and end too: only a sample that differs from the one before is a change.
+    if (index > 0 && samples[index].state !== samples[index - 1].state) changes += 1;
   }
   return {
     start: samples[0]?.state ?? "unknown",
     end: samples.at(-1)?.state ?? "unknown",
-    changes: Math.max(0, samples.length - 1),
+    changes,
     hidden_ms: round2(hidden),
   };
 }

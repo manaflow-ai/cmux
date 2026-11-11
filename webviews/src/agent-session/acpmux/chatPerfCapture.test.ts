@@ -98,6 +98,13 @@ describe("chat perf capture: pure parts", () => {
       5000,
     );
     expect(hidden).toEqual({ start: "visible", end: "hidden", changes: 1, hidden_ms: 4000 });
+    // The end sample the capture always takes is no change, nor is an event that left the state as it was.
+    const unchanged = [
+      { at: 0, state: "visible" },
+      { at: 2000, state: "visible" },
+      { at: 5000, state: "visible" },
+    ];
+    expect(visibilitySummary(unchanged, 5000)).toEqual({ start: "visible", end: "visible", changes: 0, hidden_ms: 0 });
     expect(unmeasuredReason(5, 60, hidden)).toBe("page_hidden");
     expect(unmeasuredReason(5, 1, { hidden_ms: 0 })).toBe("no_frames");
     expect(unmeasuredReason(5, 300, { hidden_ms: 0 })).toBe(null);
@@ -202,6 +209,7 @@ describe("chat perf capture: the window", () => {
     expect(report.long_tasks.count).toBe(1);
     expect(report.long_tasks.source).toBe("long-animation-frame");
     expect(report.layout_shift).toEqual({ count: 1, sum: 0.2 });
+    expect(report.visibility.changes).toBe(0);
     expect(report.measured).toBe(true);
     // After the window, records cost one check and are not kept.
     recorder.arrived("tool_call", 0, 0);

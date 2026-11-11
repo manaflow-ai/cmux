@@ -6,8 +6,8 @@ import Foundation
 /// every build, Release and Nightly too): runs the chat page's own capture
 /// (`window.cmuxAcpmuxBridge.perfCapture`, webviews chatPerfCapture.ts) for `seconds` (1 to 60,
 /// default 5) and returns its JSON: frames, long tasks, layout shift, and each arriving record's
-/// time to paint. Read-only: it never focuses, selects, shows or un-occludes the tab, so a covered
-/// or hidden chat reports that it drew nothing rather than numbers nobody saw. The page's
+/// time to paint. Read-only: it never focuses, selects, shows, un-occludes or thaws the tab, so a covered
+/// or hidden chat reports that it drew nothing rather than numbers nobody saw, and a frozen one is refused. The page's
 /// observers exist only for the capture. The App only finds the tab's existing page (`find`).
 public struct AgentChatPerfControl: Sendable {
     public nonisolated static let method = "agent.chat.perf"
@@ -53,6 +53,8 @@ public struct AgentChatPerfControl: Sendable {
         return JSON.stringify(await bridge.perfCapture({ seconds }));
         """
 
+    /// On the main actor: the tab is found, and a frozen page refused, in the same turn that sends the call.
+    @MainActor
     static func run(_ params: [String: JSONValue], find: @MainActor @Sendable (String) -> ChatPage) async throws -> JSONValue {
         let seconds = try seconds(params)
         guard let raw = params["tab"]?.stringValue, !raw.isEmpty else {
@@ -66,6 +68,9 @@ public struct AgentChatPerfControl: Sendable {
         case .notLoaded: throw ControlError(code: "unavailable", message: Text.pageNotLoaded)
         case .page(let page): view = page
         }
+        // A hidden page the app froze runs no script, and any call would thaw it first: measuring
+        // must not wake it, and a frozen page has no frames to report.
+        guard !view.pageIsFrozen else { throw ControlError(code: "unavailable", message: Text.pageAsleep) }
         let result = try await view.callPageScript(script, arguments: ["seconds": seconds])
         guard let text = result as? String, case .object(var report)? = try? JSONValue.parse(Data(text.utf8)) else {
             throw ControlError(code: "unavailable", message: Text.noCapture)
@@ -87,6 +92,12 @@ public struct AgentChatPerfControl: Sendable {
         static var notAgentChat: String { String(localized: "agentPane.chatPerf.notAgentChat", defaultValue: "That tab isn't an agent chat.", bundle: .module) }
         static var pageNotLoaded: String {
             String(localized: "agentPane.chatPerf.pageNotLoaded", defaultValue: "That chat's page isn't loaded. Open the chat once, then measure it again.", bundle: .module)
+        }
+        static var pageAsleep: String {
+            String(
+                localized: "agentPane.chatPerf.pageAsleep",
+                defaultValue: "That chat's page is asleep while it's hidden, and measuring doesn't wake it. Show the chat, then measure it again.",
+                bundle: .module)
         }
         static var noCapture: String {
             String(localized: "agentPane.chatPerf.noCapture", defaultValue: "That chat's page can't measure itself. Update cmux, then try again.", bundle: .module)

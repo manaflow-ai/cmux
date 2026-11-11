@@ -39532,6 +39532,138 @@
         }
       }
     },
+    "agentPane.chatPerf.pageAsleep": {
+      "comment": "Measuring a chat whose hidden page the app froze to save power; measuring never wakes it.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That chat's page is asleep while it's hidden, and measuring doesn't wake it. Show the chat, then measure it again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのチャットのページは非表示の間スリープしており、計測では起こしません。チャットを表示してから、もう一度計測してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "صفحة هذه الدردشة نائمة أثناء إخفائها، والقياس لا يوقظها. اعرض الدردشة، ثم قِسها مجددًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stranica tog chata spava dok je skrivena, a mjerenje je ne budi. Prikažite chat, pa ga ponovo izmjerite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chattens side sover, mens den er skjult, og måling vækker den ikke. Vis chatten, og mål den så igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Seite dieses Chats schläft, solange sie verborgen ist, und das Messen weckt sie nicht. Zeige den Chat und miss ihn dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La página de ese chat está en reposo mientras está oculta, y medir no la despierta. Muestra el chat y vuelve a medirlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La page de cette discussion est en veille tant qu’elle est masquée, et la mesure ne la réveille pas. Affichez la discussion, puis mesurez-la à nouveau."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pagina di quella chat è sospesa mentre è nascosta e la misurazione non la risveglia. Mostra la chat, poi misurala di nuovo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំព័រនៃការជជែកនោះកំពុងដេកពេលវាត្រូវបានលាក់ ហើយការវាស់មិនដាស់វាទេ។ សូមបង្ហាញការជជែក រួចវាស់ម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 채팅의 페이지는 숨겨져 있는 동안 잠들어 있으며, 측정은 페이지를 깨우지 않습니다. 채팅을 표시한 다음 다시 측정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siden til chatten sover mens den er skjult, og måling vekker den ikke. Vis chatten, og mål den så på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strona tego czatu jest uśpiona, gdy jest ukryta, a pomiar jej nie budzi. Pokaż czat, a potem zmierz go ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A página desse chat está adormecida enquanto está oculta, e medir não a desperta. Mostre o chat e meça novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Страница этого чата спит, пока скрыта, и измерение её не будит. Покажите чат, затем измерьте снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้าของแชทนั้นหลับอยู่ขณะถูกซ่อน และการวัดจะไม่ปลุกมัน แสดงแชท แล้ววัดอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbetin sayfası gizliyken uykuda ve ölçüm onu uyandırmaz. Sohbeti gösterin, sonra yeniden ölçün."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сторінка цього чату спить, поки прихована, і вимірювання її не будить. Покажіть чат, а потім виміряйте знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trang của cuộc trò chuyện đó đang ngủ khi bị ẩn, và việc đo không đánh thức nó. Hãy hiển thị cuộc trò chuyện rồi đo lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该聊天的页面在隐藏时处于休眠状态，测量不会唤醒它。请先显示该聊天，然后再测量。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該聊天的頁面在隱藏時處於休眠狀態，測量不會喚醒它。請先顯示該聊天，然後再測量。"
+          }
+        }
+      }
+    },
     "agentPane.chatPerf.pageNotLoaded": {
       "comment": "Measuring a chat whose page was never made this launch; measuring never opens it.",
       "extractionState": "manual",
