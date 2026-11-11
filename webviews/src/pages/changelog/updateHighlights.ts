@@ -57,6 +57,8 @@ export interface UpdateHighlights {
       words ("nightly 4288034 from Nov 10") and the entry's title. Absent with none kept, and on
       the update-ready surfaces. */
   goBack?: UpdateGoBack | null;
+  /** A go-back runs (the host's progress); absent once it ended without a relaunch. */
+  goBackRunning?: boolean;
 }
 
 export interface UpdateGoBack {

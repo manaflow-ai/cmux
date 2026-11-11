@@ -75,7 +75,18 @@ nonisolated public struct RollbackSwap {
         let home = target.bundle.deletingLastPathComponent()
         try files.createDirectory(at: home, withIntermediateDirectories: true)
         try files.moveItem(at: folder.appending(path: backup, directoryHint: .isDirectory), to: target.bundle)
-        if let targetRecord { try? targetRecord.save(to: home.appending(path: KeptVersionStore.recordName)) }
+        // The moves gave every item a new ctime, so the seal taken before the swap no longer matches and a
+        // later Go back would refuse it as changed (cmux#41013 review). The seal is taken again, and signed,
+        // only for a record the key vouched for before the swap: the bundle went out and back by our own
+        // renames, so what it vouched for still holds.
+        if var record = targetRecord {
+            let key = store.recordKey()
+            if record.seal != nil, record.isAuthentic(key: key) {
+                record.seal = KeptSeal(bundle: target.bundle)
+                record.sign(key: key)
+            }
+            try? record.save(to: home.appending(path: KeptVersionStore.recordName))
+        }
         // 4. The running build is running again: its copy's folder (only its record now) goes.
         try? files.removeItem(at: keptRunningFolder)
     }

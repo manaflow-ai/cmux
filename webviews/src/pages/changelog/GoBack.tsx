@@ -34,8 +34,11 @@ export function GoBack({
   builds: fixedBuilds,
   open: fixedOpen,
   state: fixedState,
+  running = false,
 }: {
   goBack?: UpdateGoBack | null;
+  /** The host says a go-back runs; when it stops without a relaunch (a refused quit), the buttons free. */
+  running?: boolean;
   strings: Strings;
   actions: UpdateSurfaceActions;
   look?: GoBackLook;
@@ -62,6 +65,11 @@ export function GoBack({
       live = false;
     };
   }, [shown, builds, fixedBuilds, actions]);
+  // A go-back that ended without the app quitting (the quit refused at its dialog, cmux#41013 review):
+  // the host stops saying it runs, so the buttons work again.
+  useEffect(() => {
+    if (!running) setState((current) => (current.kind === "going" ? { kind: "idle" } : current));
+  }, [running]);
   if (!actions.goBack || (!goBack && !actions.builds)) return null;
   const go = (build?: string) => {
     setState({ kind: "going", build });

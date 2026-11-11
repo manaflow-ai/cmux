@@ -8,7 +8,8 @@ extension UpdaterService {
     /// "cmux Updated!" card (`updated`), the last update's, else this version's without a record.
     /// The surface page's JSON: the highlights, and on the Updated card the way back.
     public func surfaceJSON(updated: Bool, background: Bool) throws -> JSONValue {
-        try surfaceHighlights(updated: updated)?.surfaceJSON(background: background, goBack: updated ? goBackJSON : .null) ?? .null
+        try surfaceHighlights(updated: updated)?.surfaceJSON(background: background, goBack: updated ? goBackJSON : .null,
+                                                             goBackRunning: updated && revertRunning) ?? .null
     }
 
     public func surfaceHighlights(updated: Bool) -> UpdateHighlights? {
@@ -21,12 +22,15 @@ extension UpdateHighlights {
     /// The surface page's JSON of these highlights. `background`: the Updated card after an
     /// automatic install that relaunched cmux behind another app (nobody clicked Restart to
     /// Update), so the card says it updated in the background (`"delivery": "background"`).
-    public func surfaceJSON(background: Bool, goBack: JSONValue = .null) throws -> JSONValue {
+    public func surfaceJSON(background: Bool, goBack: JSONValue = .null, goBackRunning: Bool = false) throws -> JSONValue {
         let value = try JSONValue.parse(JSONEncoder().encode(self))
         guard case .object(var members) = value else { return value }
         if background { members["delivery"] = .string("background") }
         // The Updated card's way back (``UpdaterService/goBackJSON``); absent before an update.
         if goBack != .null { members["goBack"] = goBack }
+        // Whether a go-back runs: the page holds its buttons while it does, and frees them once it ends
+        // without a relaunch (a quit refused at its dialog, a failure).
+        if goBackRunning { members["goBackRunning"] = .bool(true) }
         return .object(members)
     }
 }
