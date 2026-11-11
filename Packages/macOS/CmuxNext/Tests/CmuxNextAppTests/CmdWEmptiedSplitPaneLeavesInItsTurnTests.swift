@@ -70,6 +70,65 @@ struct CmdWEmptiedSplitPaneLeavesInItsTurnTests {
         }
     }
 
+    /// DIAGNOSTIC ONLY (TIP REDS 3 item 6, never merged): the daemon's read answers AFTER the pane's close motion
+    /// landed (a slow read: the hold stays until the layout view released the retired pane). Prints what the window
+    /// holds for the pane then, and where its terminal's view and the keyboard are.
+    @Test func aSlowReadAfterTheCloseLandedDiagnostic() async throws {
+        try await Self.withFocusedSplit { s in
+            _ = try await s.connection.request(SendInputRequest(surface: s.tab.surface, text: "sleep 600\r"))
+            try await Self.waitRunning("sleep", s)
+            let workspace = try #require(s.pane.workspace)
+            let id = s.pane.layoutPaneID, key = s.pane.paneKey, root = workspace.layoutView
+            let hold = s.services.daemon.closeReadHold
+            hold.arm()
+            defer { hold.release() }
+            print(Self.slow("S0 before Cmd-W", s, workspace, key))
+            let pressed = ContinuousClock.now
+            #expect(s.services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user)))
+            print(Self.slow("S1 after Cmd-W, same turn", s, workspace, key))
+            try await PinnedPageTests.until({ root.context.retired[id] == nil && root.context.hosts[id] == nil }, within: .seconds(10),
+                                            report: { "the layout view still holds the hidden pane: " + Self.slow("S1x", s, workspace, key) })
+            print(Self.slow("S2 the layout view let the pane go, \(ContinuousClock.now - pressed) after Cmd-W, read held \(hold.held)", s, workspace, key))
+            hold.release()
+            try await PinnedPageTests.until({ Self.question() != nil }, report: { "no close question" })
+            print(Self.slow("S3 question shows, \(ContinuousClock.now - pressed) after Cmd-W", s, workspace, key))
+            try await Task.sleep(for: .seconds(1)) // diagnostic: the state after every follow-up turn
+            print(Self.slow("S4 one second later", s, workspace, key))
+            _ = CmuxDialogCenter.shared.press(try #require(Self.question()).id, button: "cancel")
+            try await PinnedPageTests.until({ !TabCloseGuard.asking.contains(s.tab.id) }, report: { "the cancelled close still asks" })
+            try await Task.sleep(for: .seconds(1)) // diagnostic
+            print(Self.slow("S5 one second after Cancel", s, workspace, key))
+            let now = workspace.paneController(key: key)
+            let verdict = now == nil ? "NONE" : now === s.pane ? "SAME" : "NEW"
+            print("CMDW-SLOW VERDICT: controller \(verdict), shown \(Self.shown(s)), in daemon \(Self.inDaemon(s))")
+        }
+    }
+
+    /// DIAGNOSTIC ONLY: one controller's strip, content and place in the window.
+    private static func slow(_ label: String, _ s: Split, _ workspace: WorkspaceContentController, _ key: String) -> String {
+        let id = s.pane.layoutPaneID, root = workspace.layoutView, window = root.window
+        let now = workspace.paneController(key: key), focused = workspace.focusedPane
+        let responder = window?.firstResponder as? NSView
+        func row(_ name: String, _ c: PaneController?) -> String {
+            guard let c else { return "\(name) nil" }
+            let content = c.currentContent?.view
+            let which = c === s.pane ? "the test's controller" : "another controller", keyed = c.paneKey == key ? "the pane's" : "other"
+            var r = "\(name)(\(which), key \(keyed), tabs \(c.orderedIDs.count), has the tab \(c.orderedIDs.map(\.rawValue).contains(s.tab.id)), "
+            r += "selected is the tab \(c.stripModel.selectedID?.rawValue == s.tab.id), content \(content != nil), content in window \(content?.window != nil), "
+            r += "content inside its view \(content?.isDescendant(of: c.view) == true), view in window \(c.view.window != nil), "
+            r += "keyboard inside \(responder?.isDescendant(of: c.view) == true), workspace \(c.workspace != nil), focused in workspace \(c.isFocusedInWorkspace))"
+            return r
+        }
+        let oldContent = s.pane.currentContent?.view, nowContent = now?.currentContent?.view
+        var text = "CMDW-SLOW \(label): \(row("panes[key]", now)); \(row("focusedPane", focused)); \(row("old", s.pane)); "
+        text += "same content view in both \(oldContent != nil && oldContent === nowContent), panes \(workspace.panes.count), "
+        text += "focus state names the pane \(workspace.focus.state.pane == key), layout focus \(workspace.layoutModel.focusedPane.map { "\($0)" } ?? "nil") pane \(id), "
+        text += "model closing \(workspace.layoutModel.isClosing(id)), view closing \(root.context.isClosing(id)), host \(root.context.hosts[id] != nil), retired \(root.context.retired[id] != nil), "
+        text += "shown \(shown(s)), in daemon \(inDaemon(s)), tab in store \(s.store.tab(surface: s.tab.surface) != nil), asking \(TabCloseGuard.asking.contains(s.tab.id)), "
+        text += "keyboard \(responder.map { String(describing: type(of: $0)) } ?? "none or not a view"), motion \(root.screenViews.values.contains(where: \.hasMotion))"
+        return text
+    }
+
     /// (Review of #32898) Two quick Cmd-Ws on a split of two terminals, the first running a program: the second empties
     /// the pane, which hides. Whichever read answers first, the first terminal's question shows its pane again with it,
     /// and the idle terminal's close goes through.
