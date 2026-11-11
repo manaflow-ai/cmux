@@ -450,7 +450,13 @@ def space_arm(args, state, before, report):
             "refused": seen is not None and seen[1] is not None,
             "staging_file": staging.exists()}
     step["exit"] = owner.stop()
-    step["lost"] = compare(before, counts(args, state))
+    # This folder is a copy from before start 1. Its History fold is where the generator left
+    # it, or at the head when this start folded: each of the two counts is "nothing lost".
+    after = counts(args, state)
+    lost = compare(before, after)
+    if lost and not compare(report["before_start_1"], after):
+        lost = {}
+    step["lost"] = lost
     say("RMP", step)
     report["steps"].append(step)
 
@@ -540,7 +546,8 @@ def main():
     plain["changed_by_a_plain_start"] = compare(generated, before)
     say("RMP", plain)
     say("RMP-COUNTS", {"at": "before", **before})
-    report = {"generated": generated, "before": before, "steps": [plain], "arms": args.arms,
+    report = {"generated": generated, "before": before, "before_start_1": dict(before),
+              "steps": [plain], "arms": args.arms,
               "host_load_1m": os.getloadavg()[0], "free_bytes": shutil.disk_usage(scratch).free}
     if before["backup_bytes"] or plain["ready_s"] is None:
         plain["error"] = "the plain start swapped or did not get ready"

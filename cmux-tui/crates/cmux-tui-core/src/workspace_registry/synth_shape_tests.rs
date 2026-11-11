@@ -59,12 +59,8 @@ fn a_small_registry_of_the_shape_has_its_counts_and_opens() {
     assert_eq!(young, 1, "{json}");
     drop(connection);
 
-    let mux = crate::Mux::open_persistent(
-        options.session.clone(),
-        crate::SurfaceOptions::default(),
-        &root,
-    )
-    .unwrap();
+    let mux = crate::Mux::open_persistent(options.session, crate::SurfaceOptions::default(), &root)
+        .unwrap();
     assert!(mux.session_journal_head().unwrap() >= head);
     mux.shutdown();
     drop(mux);

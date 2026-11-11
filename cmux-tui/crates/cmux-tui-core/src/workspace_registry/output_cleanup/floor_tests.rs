@@ -612,7 +612,7 @@ fn a_refused_cleanup_without_a_floor_does_not_stop_a_rebuild_at_a_floor() {
         refused_path(db_path),
         format!(
             "format {}\nregistry {registry_id}\nhead {head}\na test: most records are kept\n",
-            super::stage::STAGING_FORMAT
+            stage::STAGING_FORMAT
         ),
     )
     .unwrap();
