@@ -117,3 +117,34 @@ fn run(rx: &Events, service: &Weak<ChatService>) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use notify::event::{DataChange, Event, EventKind, MetadataKind, ModifyKind};
+
+    use super::Burst;
+
+    fn event(kind: ModifyKind) -> notify::Result<Event> {
+        Ok(Event::new(EventKind::Modify(kind)).add_path(PathBuf::from("/c/state_5.sqlite-wal")))
+    }
+
+    /// macOS stamps an extended attribute on a SQLite WAL when a process opens it, a read included,
+    /// and FSEvents reports that as a change. Taken for a write, every daemon's read of the store
+    /// made every other daemon read the whole store again, for as long as they ran.
+    #[test]
+    fn an_extended_attribute_change_is_not_a_chat_change() {
+        let mut burst = Burst::default();
+        burst.add(event(ModifyKind::Metadata(MetadataKind::Extended)));
+        assert!(burst.paths.is_empty(), "{:?}", burst.paths);
+        assert!(!burst.rescan);
+    }
+
+    #[test]
+    fn a_write_is_still_a_chat_change() {
+        let mut burst = Burst::default();
+        burst.add(event(ModifyKind::Data(DataChange::Content)));
+        assert_eq!(burst.paths, [PathBuf::from("/c/state_5.sqlite-wal")]);
+    }
+}
