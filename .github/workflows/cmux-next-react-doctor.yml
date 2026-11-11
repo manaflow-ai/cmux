@@ -1,4 +1,4 @@
-name: React Doctor
+name: cmux-next React Doctor
 on:
   pull_request:
 permissions:
