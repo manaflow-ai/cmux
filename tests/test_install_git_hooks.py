@@ -1151,6 +1151,20 @@ cat > node_modules/.bin/vp <<'VP'
         self.assertEqual((self.installed_checks() / "swift_source_mask.py").read_bytes(),
                          (SOURCE / "scripts/swift_source_mask.py").read_bytes(), "the refreshed copy has no masker")
 
+    def test_installed_and_refreshed_checks_carry_the_shared_workflow_resolver(self):
+        # check-single-host-fallbacks.py reads runs-on through tests/workflow_jobs.py, and the hook runs its copy from
+        # the checks folder (it never reads the pushed one), so both the install and a refresh put it beside it.
+        resolver = self.repo / "tests/workflow_jobs.py"
+        if not resolver.is_file():
+            resolver.parent.mkdir(parents=True, exist_ok=True)
+            resolver.write_bytes((SOURCE / "tests/workflow_jobs.py").read_bytes())
+        self.stale_install()
+        self.assertTrue((self.installed_checks() / "workflow_jobs.py").is_file(), "the install has no resolver")
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.installed_checks() / "workflow_jobs.py").read_bytes(),
+                         (SOURCE / "tests/workflow_jobs.py").read_bytes(), "the refreshed copy has no resolver")
+
     def test_a_refresh_puts_the_release_download_fallback_beside_the_gate(self):
         # #38454 review: the gate loads scripts/ci/github_release_download.py from beside itself, so a refresh that
         # rewrites the gate rewrites the helper from the same feat-cmux-next.

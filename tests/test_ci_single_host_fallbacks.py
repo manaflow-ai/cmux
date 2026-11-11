@@ -143,6 +143,45 @@ class SingleHostFallbacks(unittest.TestCase):
         self.assert_names(findings, "NEW_Y")
         self.assertFalse([f for f in findings if "NOT_A_RUNNER" in f], findings)
 
+    CALLEE = ("on:\n  workflow_call:\n    inputs:\n      runner: {type: string}\n"
+              "jobs:\n  a:\n    runs-on: ${{ %s }}\n")
+
+    def test_codex_repro_a_caller_matrix_reaches_runs_on_through_an_input(self) -> None:
+        """Codex on #40799: a caller's matrix value, passed as with.runner, reached the callee's runs-on through
+        inputs.runner; the scan read `${{ matrix.runner }}` in the caller and never expanded the caller's matrix."""
+        caller = ("jobs:\n  c:\n    strategy:\n      matrix:\n        runner: ['${{ vars.NEW_X }}', ubuntu-24.04]\n"
+                  "    uses: ./.github/workflows/callee.yml\n    with:\n      runner: ${{ matrix.runner }}\n")
+        self.assert_names(self.scan({"callee.yml": self.CALLEE % "inputs.runner", "caller.yml": caller}), "NEW_X")
+
+    def test_codex_repro_b_bracket_forms_are_read(self) -> None:
+        """Codex on #40799: `matrix['runner']` and `inputs['runner']` are the same reads as the dot forms; the scan
+        matched only `matrix.KEY` and `inputs.KEY`."""
+        matrix = ("jobs:\n  a:\n    strategy:\n      matrix:\n        runner: ['${{ vars.NEW_X }}']\n"
+                  "    runs-on: ${{ matrix['runner'] }}\n")
+        self.assert_names(self.scan({"x.yml": matrix}), "NEW_X")
+        caller = "jobs:\n  c:\n    uses: ./.github/workflows/callee.yml\n    with:\n      runner: ${{ vars.NEW_Y }}\n"
+        self.assert_names(self.scan({"callee.yml": self.CALLEE % "inputs['runner']", "caller.yml": caller}), "NEW_Y")
+
+    def test_a_variable_inside_fromjson_or_a_needs_dependent_expression_is_read(self) -> None:
+        for runs_on, name in (("fromJSON(vars.NEW_X).mac", "NEW_X"),
+                              ("fromJSON(needs.setup.outputs.map)[vars.NEW_X]", "NEW_X"),
+                              ("needs.setup.outputs.ok == 'true' && vars.NEW_Y || needs.setup.outputs.runner", "NEW_Y"),
+                              ("format('{0}', needs.setup.outputs.ok && vars.NEW_Y)", "NEW_Y")):
+            with self.subTest(runs_on=runs_on):
+                self.assert_names(self.scan({"x.yml": f"jobs:\n  a:\n    runs-on: ${{{{ {runs_on} }}}}\n"}), name)
+
+    def test_a_part_that_reads_no_variable_is_not_this_policys_business(self) -> None:
+        for runs_on in ("${{ needs.setup.outputs.runner }}", "${{ fromJSON(needs.setup.outputs.runners).mac }}",
+                        "${{ inputs.runner }}"):
+            with self.subTest(runs_on=runs_on):
+                self.assertEqual(self.scan({"x.yml": f"jobs:\n  a:\n    runs-on: {runs_on}\n"}), [])
+
+    def test_a_variable_whose_name_is_an_expression_fails(self) -> None:
+        text = ("jobs:\n  a:\n    strategy:\n      matrix:\n        os: [mac]\n"
+                "    runs-on: ${{ vars[format('RUNNER_{0}', matrix.os)] }}\n")
+        findings = self.scan({"x.yml": text})
+        self.assertTrue([f for f in findings if "whose name is an expression" in f], findings)
+
     def test_a_variable_outside_runs_on_is_not_this_policys_business(self) -> None:
         text = "jobs:\n  a:\n    runs-on: blacksmith-4vcpu-ubuntu-2404\n    env:\n      X: ${{ vars.NEW_X }}\n"
         self.assertEqual(self.scan({"x.yml": text}), [])
@@ -312,6 +351,7 @@ class PrepushGateLayer(unittest.TestCase):
         path = self.installed / "check-single-host-fallbacks.py"
         if source is None:
             shutil.copy(SCRIPT, path)
+            shutil.copy(ROOT / "tests" / "workflow_jobs.py", self.installed / "workflow_jobs.py")
         else:
             path.write_text(source, encoding="utf-8")
 
@@ -360,6 +400,16 @@ class PrepushGateLayer(unittest.TestCase):
             for line in (command(python, str(writable), str(stdlib), apt=False),
                          command(python, unwritable, str(stdlib), apt=False)):
                 self.assertNotIn("--user", line, "-I ignores user site-packages, so a --user install never helps")
+
+    def test_an_install_without_the_shared_resolver_refuses_with_the_reinstall_command(self) -> None:
+        self.checker(None)
+        (self.installed / "workflow_jobs.py").unlink()
+        self.workflow("b.yml", "${{ vars.RUNNER_POOLS }}")
+        self.commit("head")
+        refused = self.layer()
+        self.assertEqual(len(refused), 1, refused)
+        self.assertIn("rerun scripts/install-git-hooks.sh", refused[0])
+        self.assertIn("workflow_jobs.py", refused[0])
 
     def test_a_missing_install_only_warns(self) -> None:
         self.workflow("b.yml", "${{ vars.NEW_X }}")
