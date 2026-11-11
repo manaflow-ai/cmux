@@ -82,24 +82,65 @@ struct GroupCloseCleanupUndoTests {
     /// The close deletes the emptied group; its Undo brings the group back in its place with both workspaces.
     private static func undoRestores(_ setup: Setup, _ services: AppServices) async throws {
         let context = AppActionContext(services: services), personal = services.machines.local.store.personal
+        // DIAG (not for merge): each change of the groups, the open workspaces, the personal rows and the closed items, with its time.
+        let timeline = DiagTimeline(), clock = ContinuousClock(), start = clock.now
+        @MainActor func short(_ id: String?) -> String { id.map { String($0.suffix(4)) } ?? "-" }
+        @MainActor func snap() -> String {
+            let open: [String] = services.machines.daemons.flatMap(\.store.workspaces).map { workspace in
+                workspace.name + "/" + short(workspace.key?.rawValue) + "[" + short(context.personalGroupID(of: workspace)?.rawValue) + "]"
+            }
+            let rows: [String] = personal.workspaces.map { short($0.workspaceKey.rawValue) + ":" + short($0.group?.rawValue) }
+            let closed: [String] = DaemonClosedHistory.entries([.workspace], in: services).map { entry in
+                let names: [String] = entry.item.memberNames.map { $0 ?? "nil" }
+                return short(entry.item.id) + " m=\(names) g=" + short(entry.item.group?.id)
+            }
+            let groups: [String] = personal.groups.map { $0.name + "/" + short($0.id.rawValue) }
+            let ending: [String] = personal.endingGroups.map { short($0.rawValue) }
+            return "groups \(groups) ending \(ending) open \(open) rows \(rows) closed \(closed)"
+        }
+        var last = ""
+        // Polls `condition` each 4 ms up to `limit` and writes each change of the snapshot.
+        @MainActor func watch(_ limit: Duration, _ condition: () -> Bool) async {
+            let deadline = clock.now + limit
+            repeat {
+                let now = snap()
+                if now != last { timeline.add("+\(start.duration(to: clock.now)) \(now)"); last = now }
+                if condition() { return }
+                try? await Task.sleep(for: .milliseconds(4))
+            } while clock.now < deadline
+        }
+        defer { print("DIAG-TIMELINE group \(short(setup.group.rawValue)):\n" + timeline.lines.joined(separator: "\n")) }
+        await watch(.seconds(60)) { personal.group(setup.group) == nil && setup.members.allSatisfy { services.workspace(id: $0) == nil } }
         try await PinnedPageTests.until({ personal.group(setup.group) == nil && setup.members.allSatisfy { services.workspace(id: $0) == nil } },
                                         within: .seconds(60),
                                         report: { "group \(personal.group(setup.group)?.name ?? "deleted"), open \(setup.members.filter { services.workspace(id: $0) != nil })" })
+        await watch(.seconds(10)) { CmuxToastCenter.shared.toasts(in: setup.window).contains { $0.id == Self.toastID } }
         try await PinnedPageTests.until({ CmuxToastCenter.shared.toasts(in: setup.window).contains { $0.id == Self.toastID } },
                                         within: .seconds(10), report: { "toasts \(CmuxToastCenter.shared.toasts(in: setup.window).map(\.message))" })
+        timeline.add("+\(start.duration(to: clock.now)) UNDO PRESSED")
         #expect(CmuxToastCenter.shared.runAction(id: Self.toastID, in: setup.window))
         @MainActor func held() -> Set<String> { Set(context.workspaces(inPersonalGroup: setup.group).map(\.name)) }
-        // The report says where the two workspaces are: open outside the group (the Undo lost the group) or
-        // still closed (the Undo did not reopen them: its waits on the closed history are 5 s each).
-        try await PinnedPageTests.until({ held() == ["undo-1", "undo-2"] }, within: .seconds(60), report: {
-            let open = services.machines.local.store.workspaces.map(\.name).sorted()
-            let closed = DaemonClosedHistory.entries([.workspace], in: services).map { "\($0.item.name ?? "?") in \($0.item.group?.name ?? "no group")" }
-            return "group \(personal.group(setup.group)?.name ?? "missing") holds \(held().sorted()); groups \(personal.groups.map(\.name)); "
-                + "open workspaces \(open); closed items, newest first \(closed)"
+        await watch(.seconds(60)) { held() == ["undo-1", "undo-2"] }
+        timeline.add("+\(start.duration(to: clock.now)) FIRST WAIT ENDS: held \(held().sorted())")
+        // What comes in the 2 seconds after (a late write shows here).
+        await watch(.seconds(2)) { false }
+        try await PinnedPageTests.until({ held() == ["undo-1", "undo-2"] }, within: .seconds(5), report: {
+            let open = services.machines.daemons.flatMap(\.store.workspaces).map { "\($0.name)[\(context.personalGroupID(of: $0)?.rawValue ?? "-")]" }
+            let rows = personal.workspaces.map { "\($0.workspaceKey.rawValue):\($0.group?.rawValue ?? "-")" }
+            let closed = DaemonClosedHistory.entries([.workspace], in: services).map {
+                "\($0.item.id) name=\($0.item.name ?? "nil") members=\($0.item.memberNames.map { $0 ?? "nil" }) group=\($0.item.group?.id ?? "-")"
+            }
+            return "group \(personal.group(setup.group)?.name ?? "missing") holds \(held().sorted()); groups \(personal.groups.map(\.name)); DIAG group id \(setup.group.rawValue); open \(open); rows \(rows); closed \(closed)"
         })
         let restored = try #require(personal.group(setup.group))
         #expect(restored.name == setup.name)
         #expect(restored.pinned == setup.pinned)
         #expect(personal.groups.map(\.id) == setup.order, "the group came back in another place: \(personal.groups.map(\.name))")
     }
+}
+
+/// DIAG (not for merge): the lines of one test's timeline.
+@MainActor private final class DiagTimeline {
+    var lines: [String] = []
+    func add(_ line: String) { lines.append(line) }
 }
