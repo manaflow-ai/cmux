@@ -618,26 +618,22 @@ class Typist:
         self.status: dict[int, str] = {}
         self.stop = threading.Event()
         self.thread = threading.Thread(target=self.run, daemon=True)
-        self.surface = term["surface"]
 
     def start(self) -> None:
         self.thread.start()
 
     def run(self) -> None:
         k = self.base
-        need_resolve = False
         while not self.stop.is_set():
             k += 1
             try:
-                if need_resolve:
-                    self.surface = resolve(self.daemon.socket, self.term["terminal_id"]).get("surface")
-                    need_resolve = False
                 with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
                     conn.settimeout(5)
                     conn.connect(str(self.daemon.socket))
                     sent = False
                     try:
-                        conn.sendall((json.dumps({"cmd": "send", "surface": self.surface,
+                        # By the stable terminal id: a surface id does not survive a swap.
+                        conn.sendall((json.dumps({"cmd": "send", "terminal_id": self.term["terminal_id"],
                                                   "text": f"echo {k} >> {self.path}\n"}) + "\n").encode())
                         sent = True
                         buf = b""
@@ -648,14 +644,10 @@ class Typist:
                             buf += chunk
                         response = json.loads(buf)
                         self.status[k] = "acked" if response.get("ok") is True else "rejected"
-                        if response.get("ok") is not True:
-                            need_resolve = True
                     except (OSError, ValueError):
                         self.status[k] = "unknown" if sent else "refused"
-                        need_resolve = True
             except (OSError, RuntimeError, ValueError):
                 self.status[k] = "refused"
-                need_resolve = True
             time.sleep(0.01)
 
     def finish(self, deadline: float) -> dict:
