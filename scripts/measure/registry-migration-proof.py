@@ -53,6 +53,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import shutil
 import signal
 import socket
@@ -362,6 +363,14 @@ def digest(names):
     return hashlib.sha256("\n".join(sorted(names)).encode()).hexdigest()[:16]
 
 
+def refusal(reply):
+    """The error of a reply: its code, and its text with each absolute path cut out (the data
+    is generated; a path would name the host's folders)."""
+    error = reply.get("error") or {}
+    text = re.sub(r"/[^\s:'\"]*", "<path>", str(error.get("message") or ""))[:400]
+    return {"error": str(error.get("code")), "message": text}
+
+
 def served_roster(owner):
     """The agent roster the owner SERVES (agent.list): a count and a mark, or the error."""
     try:
@@ -369,7 +378,7 @@ def served_roster(owner):
     except (OSError, ValueError) as error:
         return {"error": type(error).__name__}
     if reply.get("ok") is not True:
-        return {"error": str((reply.get("error") or {}).get("code"))}
+        return refusal(reply)
     agents = (reply.get("result") or {}).get("agents") or []
     names = [f"{agent.get('agent')}/{agent.get('agent_session_id')}/{agent.get('terminal_id')}"
              for agent in agents if isinstance(agent, dict)]
@@ -388,7 +397,7 @@ def served(owner):
         except (OSError, ValueError) as error:
             return {"error": type(error).__name__}
         if reply.get("ok") is not True:
-            return {"error": str((reply.get("error") or {}).get("code"))}
+            return refusal(reply)
         result = reply.get("result") or {}
         pending = bool(result.get("pending_kinds"))
         if not pending or attempt == SERVED_TRIES - 1:
