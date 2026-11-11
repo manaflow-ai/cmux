@@ -361,6 +361,21 @@ describe("the widget templates (clock-weather, my-prs, design-links)", () => {
     expect(host.findNode("m", (n) => n.type === "TextField")).toBeUndefined()
   })
 
+  test("my-prs: a login with no open PRs can still be changed", async () => {
+    const host = new FakeHost(load("my-prs"), init)
+    host.handlers["app.storage.get"] = (p) => ({ ok: true, body: { value: p.key === "login" ? "quiet" : null } })
+    host.handlers["app.storage.set"] = ok()
+    host.handlers["integration.request"] = () => ({ ok: false, body: { code: "provider.unavailable", message: "no provider", retryable: false } })
+    host.handlers["net.fetch"] = () => fetched({ items: [] })
+    host.mount("m", "renderPRs")
+    await host.settle(10)
+    expect(rowTitles(host)).toEqual([])
+    expect(host.findNode("m", (n) => n.type === "TextField")).toBeUndefined()
+    host.dispatch("m", host.findNode("m", (n) => n.type === "Button" && n.props.title === "Change GitHub login")!, "tap")
+    await host.settle()
+    expect(host.findNode("m", (n) => n.type === "TextField")).toBeDefined()
+  })
+
   test("design-links: a pasted Figma link gets its file name and opens in a browser tab", async () => {
     const host = new FakeHost(load("design-links"), init)
     host.handlers["app.storage.get"] = ok(null)
