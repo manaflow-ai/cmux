@@ -100,8 +100,16 @@ impl Client {
 
     /// A chat in `d/work` at the caller's VM boundary.
     async fn chat(&mut self, d: &Path) -> String {
-        let new = json!({"cwd": d.join("work"), "mcpServers": [],
+        self.chat_in(d, None).await
+    }
+
+    /// [`Client::chat`] under `policy` (a peer forks only a chat that asks).
+    async fn chat_in(&mut self, d: &Path, policy: Option<&str>) -> String {
+        let mut new = json!({"cwd": d.join("work"), "mcpServers": [],
             "_meta": {"acpmux": {"vmBoundary": true}}});
+        if let Some(policy) = policy {
+            new["policy"] = json!(policy);
+        }
         let r = self.call("session/new", new).await;
         r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned()
     }
@@ -573,7 +581,7 @@ async fn a_fork_keeps_its_chats_withholding() {
             "_meta": {"acpmux": {"vmBoundary": true}}})
     };
 
-    let clean = mac.chat(&d).await;
+    let clean = mac.chat_in(&d, Some("ask")).await;
     let ok = mac.tool(&clean, "repo_view", json!({"repo": "o/r"})).await;
     assert!(!refused(&ok), "{ok}");
     let r = mac.call("session/fork", fork(&clean)).await;
@@ -581,7 +589,7 @@ async fn a_fork_keeps_its_chats_withholding() {
     let lent = mac.tool(&child, "repo_view", json!({"repo": "o/r"})).await;
     assert!(!refused(&lent), "a fork of a chat only its owner used is lent: {lent}");
 
-    let touched = mac.chat(&d).await;
+    let touched = mac.chat_in(&d, Some("ask")).await;
     let ok = mac.tool(&touched, "repo_view", json!({"repo": "o/r"})).await;
     assert!(!refused(&ok), "{ok}");
     let mut web = Client::new(&hub, Origin::Web);
